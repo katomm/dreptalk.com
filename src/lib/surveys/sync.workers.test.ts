@@ -14,6 +14,7 @@ import {
   getHeldSurveys,
   getLinkedSurveyForAction,
   getSettleableSurveyResponses,
+  getSurveyByRef,
   getSurveyByTopicId,
   getSurveyGovLinks,
   getSurveySyncState,
@@ -34,14 +35,16 @@ import {
 const TX_LINKED = 'a'.repeat(64);
 const TX_SECOND = 'b'.repeat(64);
 const TX_NON_DREP = 'c'.repeat(64);
+const TX_UNLINKED = 'd'.repeat(64);
 const KEY_LINKED = `${TX_LINKED}:0`;
 const KEY_SECOND = `${TX_SECOND}:0`;
 const KEY_NON_DREP = `${TX_NON_DREP}:0`;
+const KEY_UNLINKED = `${TX_UNLINKED}:0`;
 const ACTION_ID = 'gov_action1linkedaction';
 const ACTION_SECOND = 'gov_action1secondaction';
 const ARTIFACT_HASH = 'ab'.repeat(32);
-/** The cursor a completed walk hands out, and the one a delta answers with. */
-const WALK_CURSOR = 'walk-cursor';
+/** The cursor the bootstrap's last page hands out, and the one a delta answers with. */
+const BOOT_CURSOR = 'boot-cursor';
 const DELTA_CURSOR = 'delta-cursor';
 
 const MIN_MS = 60 * 1000;
@@ -120,28 +123,21 @@ function setOf(
   };
 }
 
-/** One page of the paged list, the last one: the walk's cursor rides on it. */
-function pageOf(set: SurveyListPayload, linked: number): SurveyListPayload {
-  return {
-    ...set,
-    counts: { all: linked, linked, active: linked, sealed: 0, public: linked, mine: 0 },
-    nextCursor: null,
-    changesCursor: WALK_CURSOR,
-  };
-}
-
 /** One complete delta: what moved, what was removed, and where to ask from next. */
-function deltaOf(set: SurveyListPayload, removed: string[] = []): SurveyChangesPayload {
-  return { ...set, removed, nextCursor: DELTA_CURSOR };
+function deltaOf(
+  set: SurveyListPayload,
+  removed: string[] = [],
+  nextCursor = DELTA_CURSOR,
+): SurveyChangesPayload {
+  return { ...set, removed, nextCursor };
 }
 
-/** The backend's answer to a cursor past its retention window. */
-const RESYNC: SurveyChangesPayload = {
-  ...setOf([], [], {}),
-  removed: [],
-  resync: true,
-  nextCursor: null,
-};
+/** Two hundred surveys nobody can answer here: a full delta page. */
+function bulkOf(): SurveyRecord[] {
+  return Array.from({ length: MAX_PAGE_LIMIT }, (_, i) =>
+    surveyRecord(i.toString(16).padStart(64, '0'), definition({ eligibleRoles: [Role.SPO] })),
+  );
+}
 
 /** A finalized tally artifact with the given DRep responders (a role with
  * none is absent from the artifact, as Tessera emits it). Only the shape the
@@ -165,36 +161,31 @@ function artifactOf(drepResponders: number): TallyArtifact {
 }
 
 function fakeTessera(overrides: Partial<SurveysTessera> = {}): SurveysTessera {
-  const linked = surveyRecord(TX_LINKED, definition());
-  const page = pageOf(
-    setOf(
-      // A linked non-DRep survey rides on the same page; the standalone
-      // DRep-eligible survey is NOT here because ?filter=linked excludes it.
-      [
-        linked,
-        surveyRecord(TX_NON_DREP, definition({ eligibleRoles: [Role.SPO], title: 'SPO poll' })),
-      ],
-      [
-        { surveyKey: KEY_LINKED, actionId: ACTION_ID, endEpoch: 300, title: 'The linking action' },
-        {
-          surveyKey: KEY_NON_DREP,
-          actionId: ACTION_ID,
-          endEpoch: 300,
-          title: 'The linking action',
-        },
-      ],
-      { [KEY_LINKED]: 3, [KEY_NON_DREP]: 1 },
-    ),
-    2,
+  // The whole corpus, as the bootstrap delivers it: the delta carries no
+  // filter, so a linked non-DRep survey and a DRep-eligible survey nothing
+  // links ride beside the one the mirror wants.
+  const corpus = setOf(
+    [
+      surveyRecord(TX_LINKED, definition()),
+      surveyRecord(TX_NON_DREP, definition({ eligibleRoles: [Role.SPO], title: 'SPO poll' })),
+      surveyRecord(TX_UNLINKED, definition({ title: 'Standalone poll' })),
+    ],
+    [
+      { surveyKey: KEY_LINKED, actionId: ACTION_ID, endEpoch: 300, title: 'The linking action' },
+      {
+        surveyKey: KEY_NON_DREP,
+        actionId: ACTION_ID,
+        endEpoch: 300,
+        title: 'The linking action',
+      },
+    ],
+    { [KEY_LINKED]: 3, [KEY_NON_DREP]: 1, [KEY_UNLINKED]: 2 },
+    { ...COUNTED, [KEY_UNLINKED]: { [Role.DRep]: 2 } },
   );
   return {
-    surveys: overrides.surveys ?? (async () => ({ ready: true, body: page })),
-    surveysByRefs:
-      overrides.surveysByRefs ??
-      (async () => ({
-        ready: true,
-        body: setOf([linked], page.govLinks.slice(0, 1), { [KEY_LINKED]: 3 }),
-      })),
+    changesSince:
+      overrides.changesSince ??
+      (async () => ({ ready: true, body: deltaOf(corpus, [], BOOT_CURSOR) })),
     // Nothing moved since the cursor: the steady state of every tick.
     changes: overrides.changes ?? (async () => ({ ready: true, body: deltaOf(setOf([], [], {})) })),
     artifactByHash: overrides.artifactByHash ?? (async () => artifactOf(2)),
@@ -237,7 +228,7 @@ async function importLinkingAction(proposalId = ACTION_ID, now = 1): Promise<voi
 
 interface StoredSurvey {
   ref: string;
-  topic_id: string;
+  topic_id: string | null;
   counted_dreps: number | null;
   final_counted_dreps: number | null;
   final_state: string | null;
@@ -245,16 +236,23 @@ interface StoredSurvey {
   unavailable: number;
   unavailable_since: number | null;
   cancelled: number;
+  submitted_at: number | null;
   synced_at: number;
 }
 
 async function surveyRows(): Promise<StoredSurvey[]> {
   const { results } = await env.DB.prepare(
     `SELECT ref, topic_id, counted_dreps, final_counted_dreps, final_state, artifact_hash,
-            unavailable, unavailable_since, cancelled, synced_at
+            unavailable, unavailable_since, cancelled, submitted_at, synced_at
      FROM survey ORDER BY ref`,
   ).all<StoredSurvey>();
   return results;
+}
+
+/** The thread of a row that must have one. */
+function threadOf(row: StoredSurvey): string {
+  if (row.topic_id === null) throw new Error(`${row.ref} has no thread`);
+  return row.topic_id;
 }
 
 async function linksOf(ref: string): Promise<{ action_id: string; title: string | null }[]> {
@@ -267,14 +265,15 @@ async function linksOf(ref: string): Promise<{ action_id: string; title: string 
 }
 
 describe('syncSurveys', () => {
-  it('admits only the DRep-eligible linked survey, opens its thread, stores the audited DRep count', async () => {
+  it('mirrors only the DRep-eligible linked survey, opens its thread, stores the audited DRep count', async () => {
     await importLinkingAction();
 
     const r = await syncSurveys(deps(fakeTessera()));
-    expect(r).toMatchObject({ notReady: false, admitted: 1, failed: 0 });
+    expect(r).toMatchObject({ notReady: false, stored: 1, published: 1, failed: 0 });
 
-    // Exactly one row: the linked non-DRep survey is not admitted, and the
-    // standalone survey never appears in the linked list at all.
+    // Exactly one row: neither the linked non-DRep survey nor the DRep survey
+    // nothing links is eligible — a link is Tessera's fact, and the survey
+    // is delivered again when one lands.
     const rows = await surveyRows();
     expect(rows.map(s => s.ref)).toEqual([KEY_LINKED]);
     // The card number is the backend's audited DRep count, not the list's
@@ -289,7 +288,7 @@ describe('syncSurveys', () => {
     const topic = await env.DB.prepare(
       'SELECT id, category_slug, source, title FROM topics WHERE id = ?',
     )
-      .bind(rows[0].topic_id)
+      .bind(threadOf(rows[0]))
       .first<{ id: string; category_slug: string; source: string; title: string }>();
     expect(topic).toMatchObject({
       category_slug: 'surveys',
@@ -300,7 +299,7 @@ describe('syncSurveys', () => {
 
     // Second run: nothing new, nothing duplicated.
     const r2 = await syncSurveys(deps(fakeTessera()));
-    expect(r2).toMatchObject({ admitted: 0, failed: 0 });
+    expect(r2).toMatchObject({ stored: 0, published: 0, failed: 0 });
     expect((await surveyRows()).length).toBe(1);
     const topics = await env.DB.prepare(
       "SELECT COUNT(*) AS n FROM topics WHERE source = 'survey'",
@@ -315,19 +314,21 @@ describe('syncSurveys', () => {
       TX_LINKED,
       definition({ title: rawTitle, description: `Why\u0007 this\n\n\n\n${'d'.repeat(5000)}` }),
     );
-    const page = pageOf(setOf([record], LINKED_LINKS, { [KEY_LINKED]: 0 }), 1);
-    await syncSurveys(deps(fakeTessera({ surveys: async () => ({ ready: true, body: page }) })));
+    const corpus = deltaOf(setOf([record], LINKED_LINKS, { [KEY_LINKED]: 0 }), [], BOOT_CURSOR);
+    await syncSurveys(
+      deps(fakeTessera({ changesSince: async () => ({ ready: true, body: corpus }) })),
+    );
 
     const [row] = await surveyRows();
     const expectedTitle = `Budget ${'t'.repeat(293)}`;
     const topic = await env.DB.prepare('SELECT title FROM topics WHERE id = ?')
-      .bind(row.topic_id)
+      .bind(threadOf(row))
       .first<{ title: string }>();
     expect(topic?.title).toBe(expectedTitle);
-    const survey = await getSurveyByTopicId(env.DB, row.topic_id);
+    const survey = await getSurveyByTopicId(env.DB, threadOf(row));
     expect(survey?.title).toBe(expectedTitle);
     const post = await env.DB.prepare('SELECT body_md FROM posts WHERE topic_id = ?')
-      .bind(row.topic_id)
+      .bind(threadOf(row))
       .first<{ body_md: string }>();
     expect(post?.body_md).toContain(`Why this\n\n${'d'.repeat(3990)}\n`);
     expect(post?.body_md).not.toContain('\u0007');
@@ -335,32 +336,92 @@ describe('syncSurveys', () => {
     expect(survey?.definitionJson).toContain(JSON.stringify(rawTitle).slice(1, -1));
   });
 
-  it('defers a linked DRep survey whose action is not imported, and admits it once it is', async () => {
-    // Nothing imported: the survey is eligible and linked, so it is remembered
-    // rather than dropped — a change is delivered once, and nothing upstream
-    // will move when the action lands here.
-    const r = await syncSurveys(deps(fakeTessera()));
-    expect(r.admitted).toBe(0);
-    expect((await surveyRows()).length).toBe(0);
-    expect((await getSurveySyncState(env.DB)).deferredRefs).toEqual([KEY_LINKED]);
+  it('stores a linked survey whose action is not imported, and opens its thread once it is, from the row alone', async () => {
+    // Nothing imported: the survey is eligible on Tessera's facts alone, so
+    // its row is written now and nothing is remembered — the thread waits.
+    expect(await syncSurveys(deps(fakeTessera()))).toMatchObject({
+      stored: 1,
+      published: 0,
+      failed: 0,
+    });
+    const [row] = await surveyRows();
+    expect(row).toMatchObject({ ref: KEY_LINKED, topic_id: null });
+    expect((await linksOf(KEY_LINKED)).map(l => l.action_id)).toEqual([ACTION_ID]);
+    // No page can reach it, and it takes no answers.
+    expect(await listSurveysWithTopics(env.DB, { limit: 10, offset: 0 })).toEqual([]);
+    expect(await getSurveyByRef(env.DB, KEY_LINKED)).toBeNull();
+    expect(await getTopicSlugBySurveyRef(env.DB, KEY_LINKED)).toBeNull();
+    expect(await getLinkedSurveyForAction(env.DB, ACTION_ID)).toBeNull();
 
-    // Still deferred on a quiet tick, asked by reference each time.
-    const asked: string[][] = [];
-    const quiet = fakeTessera({
-      surveysByRefs: async refs => {
-        asked.push([...refs]);
-        return fakeTessera().surveysByRefs(refs);
+    // A quiet tick: still waiting, and nothing asked of Tessera about it.
+    expect(await syncSurveys(deps(fakeTessera()))).toMatchObject({ stored: 0, published: 0 });
+    expect((await surveyRows())[0].topic_id).toBeNull();
+
+    // The action is imported: the next tick opens the thread from the stored
+    // record — the delta is quiet, and no bootstrap is asked for again.
+    await importLinkingAction();
+    const silent = fakeTessera({
+      changesSince: async () => {
+        throw new Error('no bootstrap once a cursor is held');
       },
     });
-    await syncSurveys(deps(quiet));
-    expect(asked).toEqual([[KEY_LINKED]]);
-    expect((await getSurveySyncState(env.DB)).deferredRefs).toEqual([KEY_LINKED]);
+    expect(await syncSurveys(deps(silent))).toMatchObject({
+      stored: 0,
+      published: 1,
+      failed: 0,
+    });
+    const [published] = await surveyRows();
+    const topic = await env.DB.prepare('SELECT title, created_at FROM topics WHERE id = ?')
+      .bind(threadOf(published))
+      .first<{ title: string; created_at: number }>();
+    // Dated by the publication time the row stored, not by the tick.
+    expect(topic).toEqual({ title: 'Treasury priorities', created_at: published.submitted_at });
+    expect((await getSurveyByRef(env.DB, KEY_LINKED))?.ref).toBe(KEY_LINKED);
+    expect((await getLinkedSurveyForAction(env.DB, ACTION_ID))?.survey.ref).toBe(KEY_LINKED);
 
-    // The action is imported: the next reference answer admits it.
-    await importLinkingAction();
-    expect(await syncSurveys(deps(fakeTessera()))).toMatchObject({ admitted: 1, failed: 0 });
-    expect((await surveyRows()).map(s => s.ref)).toEqual([KEY_LINKED]);
-    expect((await getSurveySyncState(env.DB)).deferredRefs).toEqual([]);
+    // Published once: a later tick opens no second thread.
+    expect(await syncSurveys(deps(silent))).toMatchObject({ published: 0 });
+    const topics = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM topics WHERE source = 'survey'",
+    ).first<{ n: number }>();
+    expect(topics?.n).toBe(1);
+  });
+
+  it('deletes a survey with no thread the delta removes, and stores it again when it re-lands', async () => {
+    await syncSurveys(deps(fakeTessera()));
+    expect((await surveyRows()).map(r => r.ref)).toEqual([KEY_LINKED]);
+
+    // Removed upstream with no thread to keep: the row and its links go.
+    const gone = fakeTessera({
+      changes: async () => ({ ready: true, body: deltaOf(setOf([], [], {}), [KEY_LINKED]) }),
+    });
+    expect((await syncSurveys(deps(gone))).rolledBack).toBe(1);
+    expect(await surveyRows()).toEqual([]);
+    expect(await linksOf(KEY_LINKED)).toEqual([]);
+    // Removed again: nothing left to withdraw.
+    expect((await syncSurveys(deps(gone))).rolledBack).toBe(0);
+
+    // The removal was advisory after all: the record re-lands, and its row
+    // with it — a store, not a refresh, since nothing was kept.
+    const linked = surveyRecord(TX_LINKED, definition());
+    const back = fakeTessera({
+      changes: async () => ({
+        ready: true,
+        body: deltaOf(setOf([linked], LINKED_LINKS, { [KEY_LINKED]: 3 })),
+      }),
+    });
+    expect(await syncSurveys(deps(back))).toMatchObject({ stored: 1, published: 0 });
+    expect((await surveyRows())[0]).toMatchObject({ ref: KEY_LINKED, topic_id: null });
+
+    // Listed with no link at all: no longer eligible, and gone the same way.
+    const unlinked = fakeTessera({
+      changes: async () => ({
+        ready: true,
+        body: deltaOf(setOf([linked], [], { [KEY_LINKED]: 3 })),
+      }),
+    });
+    expect((await syncSurveys(deps(unlinked))).rolledBack).toBe(1);
+    expect(await surveyRows()).toEqual([]);
   });
 
   it('stores no in-window count while the backend serves none, and picks it up once it does', async () => {
@@ -368,13 +429,9 @@ describe('syncSurveys', () => {
     const now = 1_780_000_500_000;
     const linked = surveyRecord(TX_LINKED, definition());
     const blind = fakeTessera({
-      surveys: async () => ({
+      changesSince: async () => ({
         ready: true,
-        body: pageOf(setOf([linked], LINKED_LINKS, { [KEY_LINKED]: 3 }, null), 1),
-      }),
-      surveysByRefs: async () => ({
-        ready: true,
-        body: setOf([linked], LINKED_LINKS, { [KEY_LINKED]: 3 }, null),
+        body: deltaOf(setOf([linked], LINKED_LINKS, { [KEY_LINKED]: 3 }, null), [], BOOT_CURSOR),
       }),
     });
     // The raw count of 3 is never a fallback: the row says "unknown".
@@ -456,91 +513,74 @@ describe('syncSurveys', () => {
     expect((await surveyRows())[0].synced_at).toBe(relinked);
   });
 
-  it('walks the linked list once, then asks only for what changed from its cursor', async () => {
+  it('bootstraps from instant zero once, then asks only for what changed from its cursor', async () => {
     await importLinkingAction();
     const now = 1_780_000_500_000;
     const first = surveyRecord(TX_LINKED, definition());
-    let listCalls = 0;
-    let deltaCalls = 0;
-    const cursorsAsked: string[] = [];
-    // Two hundred surveys nobody can answer here: a full delta page.
-    const bulk = Array.from({ length: MAX_PAGE_LIMIT }, (_, i) =>
-      surveyRecord(i.toString(16).padStart(64, '0'), definition({ eligibleRoles: [Role.SPO] })),
-    );
+    let calls: string[] = [];
     let backlog = false;
-    let stale = false;
     const mirror = fakeTessera({
-      surveys: async params => {
-        listCalls++;
-        if (params?.cursor) return { ready: true, body: pageOf(setOf([], [], {}), 2) };
-        return {
-          ready: true,
-          body: {
-            ...pageOf(setOf([first], LINKED_LINKS, { [KEY_LINKED]: 3 }), 2),
-            nextCursor: 'page-2',
-          },
-        };
+      changesSince: async since => {
+        calls.push(`since:${since}`);
+        // A corpus wider than one page: the first page full, continued by
+        // the ordinary cursor it hands out.
+        return { ready: true, body: deltaOf(setOf(bulkOf(), [], {}), [], 'boot-page-2') };
       },
       changes: async cursor => {
-        deltaCalls++;
-        cursorsAsked.push(cursor);
-        if (stale) return { ready: true, body: RESYNC };
-        const full = backlog && deltaCalls === 1;
+        calls.push(cursor);
+        if (cursor === 'boot-page-2') {
+          return {
+            ready: true,
+            body: deltaOf(setOf([first], LINKED_LINKS, { [KEY_LINKED]: 3 }), [], BOOT_CURSOR),
+          };
+        }
+        const full = backlog && calls.length === 1;
         return {
           ready: true,
-          body: {
-            ...deltaOf(setOf(full ? bulk : [], [], {})),
-            nextCursor: `${DELTA_CURSOR}-${deltaCalls}`,
-          },
+          body: deltaOf(setOf(full ? bulkOf() : [], [], {}), [], `${DELTA_CURSOR}-${calls.length}`),
         };
       },
     });
-    // No cursor yet: the walk, both pages, and the last page's cursor kept.
+    // No cursor yet: the whole corpus as delta pages, and the last page's
+    // cursor kept.
     await syncSurveys(deps(mirror, now));
-    expect([listCalls, deltaCalls]).toEqual([2, 0]);
-    expect(await getSurveySyncState(env.DB)).toMatchObject({ changesCursor: WALK_CURSOR });
+    expect(calls).toEqual(['since:0', 'boot-page-2']);
+    expect(await getSurveySyncState(env.DB)).toMatchObject({ changesCursor: BOOT_CURSOR });
+    expect((await surveyRows()).map(r => r.ref)).toEqual([KEY_LINKED]);
 
     // The steady state of every five-minute tick: one delta from the stored
     // cursor, its answer's cursor stored for the next.
-    listCalls = 0;
+    calls = [];
     await syncSurveys(deps(mirror, now + HOUR_MS));
-    expect([listCalls, deltaCalls]).toEqual([0, 1]);
-    expect(cursorsAsked).toEqual([WALK_CURSOR]);
+    expect(calls).toEqual([BOOT_CURSOR]);
     expect((await getSurveySyncState(env.DB)).changesCursor).toBe(`${DELTA_CURSOR}-1`);
 
     // A backlog: a full page is followed up in the same run until a short one.
-    deltaCalls = 0;
+    calls = [];
     backlog = true;
     await syncSurveys(deps(mirror, now + 2 * HOUR_MS));
-    expect([listCalls, deltaCalls]).toEqual([0, 2]);
-    expect(cursorsAsked.slice(1)).toEqual([`${DELTA_CURSOR}-1`, `${DELTA_CURSOR}-1`]);
+    expect(calls).toEqual([`${DELTA_CURSOR}-1`, `${DELTA_CURSOR}-1`]);
     expect((await getSurveySyncState(env.DB)).changesCursor).toBe(`${DELTA_CURSOR}-2`);
-
-    // The cursor outlived the backend's retention: walk again, same run.
-    deltaCalls = 0;
-    stale = true;
-    await syncSurveys(deps(mirror, now + 3 * HOUR_MS));
-    expect([listCalls, deltaCalls]).toEqual([2, 1]);
-    expect((await getSurveySyncState(env.DB)).changesCursor).toBe(WALK_CURSOR);
   });
 
-  it('stops a walk at the page cap instead of restarting it', async () => {
+  it('stops at the page cap, keeps the cursor it reached, and dates nothing', async () => {
     let calls = 0;
-    const endless = fakeTessera({
-      surveys: async () => {
-        calls++;
-        return {
-          ready: true,
-          body: { ...pageOf(setOf([], [], {}), 10_000), nextCursor: `cursor-${calls}` },
-        };
-      },
-    });
-    expect((await syncSurveys(deps(endless))).failed).toBe(0);
-    // The cap is the whole request budget — no restart re-walks it — and a
-    // walk that never reached the end hands out no cursor.
+    const endless = async () => {
+      calls++;
+      return {
+        ready: true as const,
+        body: deltaOf(setOf(bulkOf(), [], {}), [], `cursor-${calls}`),
+      };
+    };
+    expect(
+      (await syncSurveys(deps(fakeTessera({ changesSince: endless, changes: endless })))).failed,
+    ).toBe(0);
+    // The cap is the whole request budget; the backlog continues next run
+    // from where this one stopped, and the "as of" waits for a run that
+    // reaches the end.
     expect(calls).toBe(MAX_LIST_PAGES);
-    expect(await getSurveySyncState(env.DB)).toMatchObject({
-      changesCursor: null,
+    expect(await getSurveySyncState(env.DB)).toEqual({
+      changesCursor: `cursor-${MAX_LIST_PAGES}`,
       tesseraFetchedAt: null,
     });
   });
@@ -582,67 +622,7 @@ describe('syncSurveys', () => {
     expect(await getViewerSurveyResponse(env.DB, KEY_LINKED, 'u-settle')).toBeNull();
     // Nothing was applied, so the next run asks from the same position.
     expect(await getSurveySyncState(env.DB)).toMatchObject({
-      changesCursor: WALK_CURSOR,
-      tesseraFetchedAt: tip.time,
-    });
-  });
-
-  it('restarts the walk when a list page answers from an older snapshot', async () => {
-    await importLinkingAction();
-    await importLinkingAction(ACTION_SECOND);
-    const first = surveyRecord(TX_LINKED, definition());
-    const second = surveyRecord(TX_SECOND, definition({ title: 'Second survey' }));
-    const links: SurveyListPayload['govLinks'] = [
-      { surveyKey: KEY_LINKED, actionId: ACTION_ID, endEpoch: 300, title: 'The linking action' },
-      { surveyKey: KEY_SECOND, actionId: ACTION_SECOND, endEpoch: 300, title: 'The other action' },
-    ];
-    const pageOne = (linked: number): SurveyListPayload => ({
-      ...pageOf(setOf([first], links.slice(0, 1), { [KEY_LINKED]: 3 }), linked),
-      nextCursor: 'cursor-1',
-    });
-    const pageTwo = pageOf(setOf([second], links.slice(1), { [KEY_SECOND]: 1 }), 3);
-    // The best-effort answer to a cursor minted against an older snapshot:
-    // rows gone AND the cursor terminal — the pair that reads like a finished
-    // walk if `resync` is not checked first.
-    const stale: SurveyListPayload = { ...pageOf(setOf([], [], {}), 2), resync: true };
-    const bothRefs = async () => ({
-      ready: true as const,
-      body: setOf([first, second], links, { [KEY_LINKED]: 3, [KEY_SECOND]: 1 }),
-    });
-
-    // Generation two counts one more linked survey than the one abandoned.
-    let calls = 0;
-    const moved = fakeTessera({
-      surveys: async params => {
-        calls++;
-        if (!params?.cursor) return { ready: true, body: pageOne(calls === 1 ? 2 : 3) };
-        return { ready: true, body: calls === 2 ? stale : pageTwo };
-      },
-      surveysByRefs: bothRefs,
-    });
-    const now = 1_780_000_500_000;
-    expect(await syncSurveys(deps(moved, now))).toMatchObject({ admitted: 2, failed: 0 });
-    // Page two of the restarted walk is where the second survey lives: taking
-    // the stale terminal page would have admitted only the first.
-    expect((await surveyRows()).map(r => r.ref)).toEqual([KEY_LINKED, KEY_SECOND]);
-    expect(await getSurveySyncState(env.DB)).toEqual({
-      changesCursor: WALK_CURSOR,
-      deferredRefs: [],
-      tesseraFetchedAt: tip.time,
-    });
-
-    // A walk that never converges hands out no cursor and dates nothing, so
-    // the next run walks again instead of believing a complete walk happened.
-    const churning = fakeTessera({
-      changes: async () => ({ ready: true, body: RESYNC }),
-      surveys: async params =>
-        params?.cursor ? { ready: true, body: stale } : { ready: true, body: pageOne(4) },
-      surveysByRefs: bothRefs,
-    });
-    expect(await syncSurveys(deps(churning, now + HOUR_MS))).toMatchObject({ admitted: 0 });
-    expect(await getSurveySyncState(env.DB)).toEqual({
-      changesCursor: null,
-      deferredRefs: [],
+      changesCursor: BOOT_CURSOR,
       tesseraFetchedAt: tip.time,
     });
   });
@@ -685,42 +665,7 @@ describe('syncSurveys', () => {
     expect((await getLinkedSurveyForAction(env.DB, ACTION_ID))?.survey.ref).toBe(KEY_LINKED);
   });
 
-  it('re-asks every held row by reference on a walk, and withdraws what a complete answer omits', async () => {
-    await importLinkingAction();
-    const now = 1_780_000_500_000;
-    await syncSurveys(deps(fakeTessera(), now));
-
-    // The cursor is stale, and the survey has left the linked list while the
-    // mirror was not watching: the walk cannot say whether it is gone, the
-    // reference answer can — but an incomplete one proves nothing.
-    const asked: string[][] = [];
-    const fresh = (refs: SurveyListPayload) =>
-      fakeTessera({
-        changes: async () => ({ ready: true, body: RESYNC }),
-        surveys: async () => ({ ready: true, body: pageOf(setOf([], [], {}), 0) }),
-        surveysByRefs: async keys => {
-          asked.push([...keys]);
-          return { ready: true, body: refs };
-        },
-      });
-    const r = await syncSurveys(
-      deps(fresh({ ...setOf([], [], {}), incomplete: true }), now + HOUR_MS),
-    );
-    expect(r).toMatchObject({ rolledBack: 0, failed: 0 });
-    expect((await surveyRows())[0].unavailable).toBe(0);
-
-    expect((await syncSurveys(deps(fresh(setOf([], [], {})), now + 2 * HOUR_MS))).rolledBack).toBe(
-      1,
-    );
-    expect(asked).toEqual([[KEY_LINKED], [KEY_LINKED]]);
-    expect((await surveyRows())[0]).toMatchObject({
-      unavailable: 1,
-      unavailable_since: now + 2 * HOUR_MS,
-    });
-    expect(await linksOf(KEY_LINKED)).toEqual([]);
-  });
-
-  it('withdraws a held survey whose imported link is gone, and re-admits it when it returns', async () => {
+  it('keeps a published survey whose link moved to an action not imported yet, and withdraws it once no link is left', async () => {
     await importLinkingAction();
     const now = 1_780_000_500_000;
     await syncSurveys(deps(fakeTessera(), now));
@@ -733,31 +678,46 @@ describe('syncSurveys', () => {
           body: deltaOf(setOf([linked], govLinks, { [KEY_LINKED]: 3 })),
         }),
       });
-    // The record is still indexed, but its only link now names an action
-    // DRepTalk never imported: admission no longer holds. Same treatment as a
-    // rolled-back record — the flag, the clock, the links — since in practice
-    // it is the linking action's transaction that rolled back.
+    // The record is still indexed and still linked, now by an action
+    // DRepTalk has not imported yet: eligible on Tessera's facts, so the
+    // thread stays and the link is what Tessera says — the card names the
+    // action by Tessera's title until discovery imports it.
     const elsewhere: SurveyListPayload['govLinks'] = [
-      { surveyKey: KEY_LINKED, actionId: 'gov_action1notimported', endEpoch: 300, title: null },
+      { surveyKey: KEY_LINKED, actionId: 'gov_action1resubmitted', endEpoch: 300, title: 'Again' },
     ];
     expect(await syncSurveys(deps(answer(elsewhere), now + HOUR_MS))).toMatchObject({
+      refreshed: 1,
+      rolledBack: 0,
+    });
+    expect((await surveyRows())[0].unavailable).toBe(0);
+    expect(await linksOf(KEY_LINKED)).toEqual([
+      { action_id: 'gov_action1resubmitted', title: 'Again' },
+    ]);
+    expect(await getLinkedSurveyForAction(env.DB, ACTION_ID)).toBeNull();
+    expect(await getSurveyGovLinks(env.DB, KEY_LINKED)).toEqual([
+      { actionId: 'gov_action1resubmitted', title: 'Again', actionTitle: null, topicSlug: null },
+    ]);
+
+    // No link at all: not eligible — in practice the linking action's
+    // transaction rolled back — and withdrawn like a rolled-back record:
+    // the flag, the clock, the links.
+    expect(await syncSurveys(deps(answer([]), now + 2 * HOUR_MS))).toMatchObject({
       refreshed: 0,
       rolledBack: 1,
     });
     let [row] = await surveyRows();
-    expect(row).toMatchObject({ unavailable: 1, unavailable_since: now + HOUR_MS });
+    expect(row).toMatchObject({ unavailable: 1, unavailable_since: now + 2 * HOUR_MS });
     expect(await linksOf(KEY_LINKED)).toEqual([]);
-    expect(await getLinkedSurveyForAction(env.DB, ACTION_ID)).toBeNull();
 
-    // Withdrawn once: a run that still finds it inadmissible writes nothing.
-    expect(await syncSurveys(deps(answer(elsewhere), now + 2 * HOUR_MS))).toMatchObject({
+    // Withdrawn once: a run that still finds it ineligible writes nothing.
+    expect(await syncSurveys(deps(answer([]), now + 3 * HOUR_MS))).toMatchObject({
       refreshed: 0,
       rolledBack: 0,
     });
-    expect((await surveyRows())[0].unavailable_since).toBe(now + HOUR_MS);
+    expect((await surveyRows())[0].unavailable_since).toBe(now + 2 * HOUR_MS);
 
-    // The imported link is back: cleared and relinked in one write.
-    expect(await syncSurveys(deps(answer(LINKED_LINKS), now + 3 * HOUR_MS))).toMatchObject({
+    // The link is back: cleared and relinked in one write.
+    expect(await syncSurveys(deps(answer(LINKED_LINKS), now + 4 * HOUR_MS))).toMatchObject({
       refreshed: 1,
       rolledBack: 0,
     });
@@ -767,7 +727,7 @@ describe('syncSurveys', () => {
     expect((await getLinkedSurveyForAction(env.DB, ACTION_ID))?.survey.ref).toBe(KEY_LINKED);
   });
 
-  it('admits neither an untalliable survey nor a sealed one on an unsupported drand chain', async () => {
+  it('mirrors neither an untalliable survey nor a sealed one on an unsupported drand chain', async () => {
     await importLinkingAction();
     const valid = surveyRecord(TX_LINKED, definition());
     const invalid = surveyRecord(TX_SECOND, definition({ title: 'No questions', questions: [] }));
@@ -786,17 +746,16 @@ describe('syncSurveys', () => {
     const links: SurveyListPayload['govLinks'] = [KEY_LINKED, KEY_SECOND, KEY_NON_DREP].map(
       surveyKey => ({ surveyKey, actionId: ACTION_ID, endEpoch: 300, title: null }),
     );
-    const page = pageOf(setOf([valid, invalid, foreignChain], links, {}), 3);
+    const corpus = deltaOf(setOf([valid, invalid, foreignChain], links, {}), [], BOOT_CURSOR);
     const r = await syncSurveys(
-      deps(fakeTessera({ surveys: async () => ({ ready: true, body: page }) })),
+      deps(fakeTessera({ changesSince: async () => ({ ready: true, body: corpus }) })),
     );
     // All three are linked to the imported action; only the valid public
-    // survey gets a thread. The other two would be decided untalliable at
-    // close, and a thread inviting answers to them wastes every fee spent.
-    // Neither is deferred either: it is not the link that is missing.
-    expect(r).toMatchObject({ admitted: 1, failed: 0 });
+    // survey gets a row and a thread. The other two would be decided
+    // untalliable at close, and a thread inviting answers to them wastes
+    // every fee spent.
+    expect(r).toMatchObject({ stored: 1, published: 1, failed: 0 });
     expect((await surveyRows()).map(s => s.ref)).toEqual([KEY_LINKED]);
-    expect((await getSurveySyncState(env.DB)).deferredRefs).toEqual([]);
   });
 
   it('freezes a survey at any final state, and reads the artifact of a finalized one only', async () => {
@@ -814,8 +773,7 @@ describe('syncSurveys', () => {
     await syncSurveys(
       deps(
         fakeTessera({
-          surveys: async () => ({ ready: true, body: pageOf(open, 2) }),
-          surveysByRefs: async () => ({ ready: true, body: open }),
+          changesSince: async () => ({ ready: true, body: deltaOf(open, [], BOOT_CURSOR) }),
         }),
       ),
     );
@@ -947,24 +905,22 @@ describe('syncSurveys', () => {
     expect(row).toMatchObject({ counted_dreps: 2, final_counted_dreps: 1 });
   });
 
-  it('reads the artifact of a survey admitted already finalized in the same run', async () => {
+  it('reads the artifact of a survey stored already finalized in the same run', async () => {
     await importLinkingAction();
     const now = 1_780_000_500_000;
     const linked = surveyRecord(TX_LINKED, definition());
-    const finalPage: SurveyListPayload = {
-      ...pageOf(setOf([linked], LINKED_LINKS, { [KEY_LINKED]: 3 }), 1),
+    const decided: SurveyListPayload = {
+      ...setOf([linked], LINKED_LINKS, { [KEY_LINKED]: 3 }),
       finalState: FINALIZED,
     };
     const fake = fakeTessera({
-      surveys: async () => ({ ready: true, body: finalPage }),
-      surveysByRefs: async () => {
-        throw new Error('a decided survey must not be refreshed');
-      },
+      changesSince: async () => ({ ready: true, body: deltaOf(decided, [], BOOT_CURSOR) }),
       // No DRep entry at all: nobody was counted at close.
       artifactByHash: async () => artifactOf(0),
     });
     expect(await syncSurveys(deps(fake, now))).toMatchObject({
-      admitted: 1,
+      stored: 1,
+      published: 1,
       refreshed: 0,
       finalCounts: 1,
       failed: 0,
@@ -982,7 +938,7 @@ describe('syncSurveys', () => {
     await syncSurveys(deps(fakeTessera()));
 
     const [row] = await surveyRows();
-    const byTopic = await getSurveyByTopicId(env.DB, row.topic_id);
+    const byTopic = await getSurveyByTopicId(env.DB, threadOf(row));
     expect(byTopic).toMatchObject({
       ref: KEY_LINKED,
       title: 'Treasury priorities',
@@ -1023,20 +979,20 @@ describe('syncSurveys', () => {
   it('skips the run without recording an error while the backend has no snapshot', async () => {
     const empty = {
       notReady: true,
-      admitted: 0,
+      stored: 0,
+      published: 0,
       refreshed: 0,
       rolledBack: 0,
       finalCounts: 0,
       settled: 0,
       failed: 0,
     };
-    // Before the first walk, and once a cursor is held.
+    // Before the bootstrap, and once a cursor is held.
     expect(
-      await syncSurveys(deps(fakeTessera({ surveys: async () => ({ ready: false }) }))),
+      await syncSurveys(deps(fakeTessera({ changesSince: async () => ({ ready: false }) }))),
     ).toEqual(empty);
     expect(await getSurveySyncState(env.DB)).toEqual({
       changesCursor: null,
-      deferredRefs: [],
       tesseraFetchedAt: null,
     });
     await importLinkingAction();
@@ -1045,8 +1001,7 @@ describe('syncSurveys', () => {
       await syncSurveys(deps(fakeTessera({ changes: async () => ({ ready: false }) }))),
     ).toEqual(empty);
     expect(await getSurveySyncState(env.DB)).toEqual({
-      changesCursor: WALK_CURSOR,
-      deferredRefs: [],
+      changesCursor: BOOT_CURSOR,
       tesseraFetchedAt: tip.time,
     });
   });
@@ -1055,13 +1010,16 @@ describe('syncSurveys', () => {
     await importLinkingAction();
     const now = 1_780_000_500_000;
     const linked = surveyRecord(TX_LINKED, definition());
-    const refsAt = (fetchedAt: number) => async () => ({
+    const bootAt = (fetchedAt: number) => async () => ({
       ready: true as const,
-      body: { ...setOf([linked], LINKED_LINKS, { [KEY_LINKED]: 3 }), fetchedAt },
+      body: {
+        ...deltaOf(setOf([linked], LINKED_LINKS, { [KEY_LINKED]: 3 }), [], BOOT_CURSOR),
+        fetchedAt,
+      },
     });
-    // The walk answers from tip.time, the refs from an older generation: the
-    // held row now reflects the older one, so that is the "as of".
-    await syncSurveys(deps(fakeTessera({ surveysByRefs: refsAt(tip.time - 100) }), now));
+    // The bootstrap answers from an older generation than the tip it names:
+    // the held row reflects that generation, so that is the "as of".
+    await syncSurveys(deps(fakeTessera({ changesSince: bootAt(tip.time - 100) }), now));
     expect((await getSurveySyncState(env.DB)).tesseraFetchedAt).toBe(tip.time - 100);
 
     // The delta fails: the held row was not brought up to anything, so the

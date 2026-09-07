@@ -56,14 +56,20 @@ export async function getHeldSurveys(db: D1Database): Promise<HeldSurvey[]> {
   return [...held.values()];
 }
 
-export async function getKnownSurveyRefs(db: D1Database): Promise<Set<string>> {
-  const { results } = await db.prepare('SELECT ref FROM survey').all<{ ref: string }>();
-  return new Set(results.map(r => r.ref));
+/** Every mirrored survey, ref → whether it is published (has a thread). A
+ * row without one is stored on Tessera's answer alone and waits for a linking
+ * action to be imported; no page can reach it, since every reader joins
+ * topics. */
+export async function getKnownSurveyRefs(db: D1Database): Promise<Map<string, boolean>> {
+  const { results } = await db
+    .prepare('SELECT ref, topic_id IS NOT NULL AS published FROM survey')
+    .all<{ ref: string; published: number }>();
+  return new Map(results.map(r => [r.ref, r.published === 1]));
 }
 
+/** A survey as the mirror first stores it: Tessera's answer, no thread yet. */
 export interface NewSurvey {
   ref: string;
-  topicId: string;
   title: string;
   endEpoch: number;
   eligibleRoles: readonly number[];
@@ -83,13 +89,12 @@ export function buildInsertSurvey(db: D1Database, s: NewSurvey): D1PreparedState
   return db
     .prepare(
       `INSERT INTO survey
-         (ref, topic_id, title, end_epoch, eligible_roles, sealed, cancelled, external_content,
+         (ref, title, end_epoch, eligible_roles, sealed, cancelled, external_content,
           definition, counted_dreps, final_state, artifact_hash, submitted_at, synced_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       s.ref,
-      s.topicId,
       s.title,
       s.endEpoch,
       JSON.stringify(s.eligibleRoles),
@@ -123,6 +128,80 @@ export function buildDeleteGovLinks(db: D1Database, surveyRef: string): D1Prepar
   return db.prepare('DELETE FROM survey_gov_link WHERE survey_ref = ?').bind(surveyRef);
 }
 
+/** A stored survey a linking action now imported entitles to a thread: what
+ * the publish step needs to open one from the row alone, with no Tessera
+ * request — the record it stored, the title it derived, the publication time
+ * it projected. */
+export interface PublishableSurvey {
+  ref: string;
+  title: string;
+  definitionJson: string;
+  externalContent: boolean;
+  submittedAt: number | null;
+}
+
+/** DRepTalk's half of admission, asked of the stored rows: a survey with no
+ * thread yet that at least one imported governance action links. Every step
+ * is an index probe (the NULL group of idx_survey_topic, empty in steady
+ * state; the link table's primary key; idx_governance_actions_proposal_id),
+ * so asking on every run costs nothing while nothing is pending. Oldest
+ * publication first, so a backlog opens its threads in chain order. */
+export async function getPublishableSurveys(db: D1Database): Promise<PublishableSurvey[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT ref, title, definition, external_content, submitted_at
+       FROM survey
+       WHERE topic_id IS NULL
+         AND EXISTS (
+           SELECT 1 FROM survey_gov_link l
+           JOIN governance_actions ga ON ga.proposal_id = l.action_id
+           WHERE l.survey_ref = survey.ref
+         )
+       ORDER BY submitted_at, ref`,
+    )
+    .all<{
+      ref: string;
+      title: string;
+      definition: string;
+      external_content: number;
+      submitted_at: number | null;
+    }>();
+  return results.map(r => ({
+    ref: r.ref,
+    title: r.title,
+    definitionJson: r.definition,
+    externalContent: r.external_content === 1,
+    submittedAt: r.submitted_at,
+  }));
+}
+
+/** Publication: the row takes the thread just opened for it. Batched with the
+ * topic and first post by createTopic, so a partial write can neither orphan
+ * a thread nor publish a survey twice. */
+export function buildPublishSurvey(
+  db: D1Database,
+  ref: string,
+  topicId: string,
+): D1PreparedStatement {
+  return db
+    .prepare('UPDATE survey SET topic_id = ? WHERE ref = ? AND topic_id IS NULL')
+    .bind(topicId, ref);
+}
+
+/** Drops surveys Tessera no longer lists as eligible and no thread ever
+ * named: with nothing to preserve there is nothing to flag, and a removal that
+ * was advisory (a reorg re-landing the transaction) delivers the row again. */
+export async function deleteSurveys(db: D1Database, refs: readonly string[]): Promise<void> {
+  for (const chunk of chunked(refs, D1_MAX_BINDS)) {
+    await db.batch([
+      db
+        .prepare(`DELETE FROM survey_gov_link WHERE survey_ref IN (${sqlPlaceholders(chunk)})`)
+        .bind(...chunk),
+      db.prepare(`DELETE FROM survey WHERE ref IN (${sqlPlaceholders(chunk)})`).bind(...chunk),
+    ]);
+  }
+}
+
 /** The values a Tessera answer moves on a held row. Reappearing clears
  * `unavailable` unconditionally: presence in a complete answer is the proof. */
 export interface SurveyRefresh {
@@ -144,11 +223,11 @@ export function buildRefreshSurvey(db: D1Database, r: SurveyRefresh): D1Prepared
     .bind(r.countedDreps, r.cancelled ? 1 : 0, r.finalState, r.artifactHash, r.now, r.ref);
 }
 
-/** Withdraws held surveys the latest answer no longer admits: the flag hides
- * answering and starts the retirement clock, and the gov links go with it so
- * the linking action's thread stops naming the survey — a survey is listed
- * there only while an admitted link exists. The thread and row stay. Called
- * for rows not yet unavailable only, so the clock is set once. */
+/** Withdraws published surveys the latest answer no longer lists as eligible:
+ * the flag hides answering and dates the withdrawal, and the gov links go with
+ * it so the linking action's thread stops naming the survey — a survey is
+ * listed there only while a link exists. The thread and row stay. Called for
+ * rows not yet unavailable only, so the clock is set once. */
 export async function markSurveysUnavailable(
   db: D1Database,
   refs: readonly string[],
@@ -200,7 +279,9 @@ export async function setSurveyFinalCount(
     .run();
 }
 
-/** One mirrored survey, as the pages read it (booleans decoded from 0/1). */
+/** One published survey, as the pages read it (booleans decoded from 0/1).
+ * Every reader joins topics, so a row stored but not yet published — its
+ * thread waits for a linking action to be imported — never takes this shape. */
 export interface SurveyRow {
   ref: string;
   topicId: string;
@@ -350,9 +431,9 @@ export async function getSurveyGovLinks(db: D1Database, ref: string): Promise<Su
   }));
 }
 
-/** The admitted survey one governance action links — at most one by
+/** The published survey one governance action links — at most one by
  * construction (an action's anchor declares a single survey). Null when the
- * action links none, or links one that was never admitted. */
+ * action links none, or links one that was never published. */
 export async function getLinkedSurveyForAction(
   db: D1Database,
   proposalId: string,
@@ -383,11 +464,15 @@ export async function getTopicSlugBySurveyRef(db: D1Database, ref: string): Prom
   return row?.slug ?? null;
 }
 
-/** One mirrored survey by its ref — what the record API decides
- * answerability from. Null when this mirror holds no such survey. */
+/** One published survey by its ref — what the record API decides
+ * answerability from. Null when this mirror holds no such survey, or holds
+ * it without a thread: a survey with no page takes no answers. */
 export async function getSurveyByRef(db: D1Database, ref: string): Promise<SurveyRow | null> {
   const row = await db
-    .prepare(`SELECT ${SURVEY_COLUMNS} FROM survey WHERE survey.ref = ?`)
+    .prepare(
+      `SELECT ${SURVEY_COLUMNS} FROM survey JOIN topics t ON t.id = survey.topic_id
+       WHERE survey.ref = ? AND t.deleted = 0`,
+    )
     .bind(ref)
     .first<RawSurveyRow>();
   return row ? rowToSurvey(row) : null;
@@ -526,12 +611,10 @@ export async function markStaleSurveyResponsesFailed(
 
 export interface SurveySyncState {
   /** Where Tessera's change selection continues from — opaque, minted by the
-   * backend — or null while no walk of the linked list has completed since the
-   * mirror last had to start over. */
+   * backend — or null until the first run's bootstrap has been applied to its
+   * end. Never expires: the backend keeps its tombstones for the life of the
+   * corpus. */
   changesCursor: string | null;
-  /** Survey keys eligible for admission but linked only to actions not
-   * imported yet, re-asked by reference on every run. */
-  deferredRefs: string[];
   /** Snapshot time (unix s) of the oldest Tessera answer the held rows were
    * last brought up to date with — the "as of" every survey page shows. Null
    * until a run has brought every held row up to one. */
@@ -540,17 +623,10 @@ export interface SurveySyncState {
 
 export async function getSurveySyncState(db: D1Database): Promise<SurveySyncState> {
   const row = await db
-    .prepare(
-      'SELECT changes_cursor, deferred_refs, tessera_fetched_at FROM survey_sync_state WHERE id = 1',
-    )
-    .first<{
-      changes_cursor: string | null;
-      deferred_refs: string;
-      tessera_fetched_at: number | null;
-    }>();
+    .prepare('SELECT changes_cursor, tessera_fetched_at FROM survey_sync_state WHERE id = 1')
+    .first<{ changes_cursor: string | null; tessera_fetched_at: number | null }>();
   return {
     changesCursor: row?.changes_cursor ?? null,
-    deferredRefs: row ? (JSON.parse(row.deferred_refs) as string[]) : [],
     tesseraFetchedAt: row?.tessera_fetched_at ?? null,
   };
 }
@@ -558,13 +634,12 @@ export async function getSurveySyncState(db: D1Database): Promise<SurveySyncStat
 export async function putSurveySyncState(db: D1Database, s: SurveySyncState): Promise<void> {
   await db
     .prepare(
-      `INSERT INTO survey_sync_state (id, changes_cursor, deferred_refs, tessera_fetched_at)
-       VALUES (1, ?, ?, ?)
+      `INSERT INTO survey_sync_state (id, changes_cursor, tessera_fetched_at)
+       VALUES (1, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          changes_cursor = excluded.changes_cursor,
-         deferred_refs = excluded.deferred_refs,
          tessera_fetched_at = excluded.tessera_fetched_at`,
     )
-    .bind(s.changesCursor, JSON.stringify(s.deferredRefs), s.tesseraFetchedAt)
+    .bind(s.changesCursor, s.tesseraFetchedAt)
     .run();
 }

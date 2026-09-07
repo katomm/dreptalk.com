@@ -1,18 +1,22 @@
-// CIP-179 surveys sync: mirror Tessera's answers about admitted surveys into
-// D1 and open one system thread per admission. DRepTalk implements no CIP-179
-// rule of its own — records arrive decoded by cardano-tessera-client,
-// lifecycle/cancellation come from cip-179's published aggregate(), and both
-// participation figures are Tessera's own: the index's audited per-role count
-// while a survey is held, the finalized tally artifact's DRep responders once
-// it is decided. Nothing here counts a response.
+// CIP-179 surveys sync: mirror Tessera's answers about eligible surveys into
+// D1 and open one system thread per survey a linking action imported here
+// entitles to one. DRepTalk implements no CIP-179 rule of its own — records
+// arrive decoded by cardano-tessera-client, lifecycle/cancellation come from
+// cip-179's published aggregate(), and both participation figures are
+// Tessera's own: the index's audited per-role count while a survey is held,
+// the finalized tally artifact's DRep responders once it is decided. Nothing
+// here counts a response.
 //
-// The mirror is Tessera's change selection. One walk of the linked list
-// establishes a cursor; from then on every run asks once for what moved since
-// it — each survey whose projection changed (a new record, a count, a link, a
-// cancellation, a decision) and each key removed — and applies admission
-// (./admission.ts) to every survey named: an unknown one is admitted on it, a
-// held one withdrawn on its negation. A miss is re-evaluated when the survey
-// moves again; a closed linked survey still gets its thread.
+// The mirror is Tessera's change selection: every run asks once for what
+// moved since its cursor — each survey whose projection changed (a new
+// record, a count, a link, a cancellation, a decision) and each key removed —
+// and the first run asks the same of instant zero, which is the whole corpus.
+// A delta row is the survey's complete state, so the mirror stores what
+// Tessera's half of admission (./admission.ts) passes, whether or not the
+// thread can open yet, and withdraws a held row on its negation. The thread
+// is DRepTalk's half, decided over the stored rows after every discovery,
+// from the row alone: the one fact Tessera cannot re-deliver — an action
+// imported here — is the one no verdict on an answer depends on.
 
 import {
   MAX_PAGE_LIMIT,
@@ -20,27 +24,29 @@ import {
   type SurveyListPayload,
   type TesseraClient,
 } from 'cardano-tessera-client';
-import { Role } from 'cip-179';
+import { Role, type SurveyDefinition } from 'cip-179';
 import { aggregate, type ChainTip, type SurveyAggregate } from 'cip-179/domain';
 import { toJsonSafe } from 'cip-179/tally';
 import { SURVEYS_CATEGORY_SLUG } from '../../../config/categories.js';
 import { createTopic } from '../db/forum.js';
-import { getKnownProposalIds } from '../db/governance.js';
-import { chunked } from '../db/sql.js';
 import {
   buildDeleteGovLinks,
   buildInsertGovLink,
   buildInsertSurvey,
+  buildPublishSurvey,
   buildRefreshSurvey,
   deleteLocalSurveyResponse,
+  deleteSurveys,
   getHeldSurveys,
   getKnownSurveyRefs,
+  getPublishableSurveys,
   getSettleableSurveyResponses,
   getSurveySyncState,
   getSurveysAwaitingFinalCount,
   type HeldSurvey,
   markStaleSurveyResponsesFailed,
   markSurveysUnavailable,
+  type PublishableSurvey,
   putSurveySyncState,
   type SurveyRefresh,
   setSurveyFinalCount,
@@ -48,12 +54,12 @@ import {
 import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
 import { PENDING_VOTE_TTL_SEC } from '../governance/tallySync.js';
 import { renderMarkdown } from '../markdown.js';
-import { admissible, eligibleSurvey } from './admission.js';
-import { roleLabels, surveyDescription, surveyTitle } from './view.js';
+import { eligibleSurvey } from './admission.js';
+import { parseSurveyDefinition, roleLabels, surveyDescription, surveyTitle } from './view.js';
 
 export type SurveysTessera = Pick<
   TesseraClient,
-  'surveys' | 'surveysByRefs' | 'changes' | 'artifactByHash' | 'responsesByTx'
+  'changes' | 'changesSince' | 'artifactByHash' | 'responsesByTx'
 >;
 
 export interface SurveysSyncDeps {
@@ -67,12 +73,15 @@ export interface SurveysSyncDeps {
 export interface SurveysSyncResult {
   /** Backend had no snapshot yet; nothing ran. */
   notReady: boolean;
-  admitted: number;
+  /** Surveys mirrored this run — a row, no thread yet. */
+  stored: number;
+  /** Threads opened this run, for stored surveys a linking action now imported entitles to one. */
+  published: number;
   /** Held rows one of whose stored values the answer moved (an unchanged row costs no write). */
   refreshed: number;
-  /** Held rows withdrawn this run: removed upstream, absent from a complete
-   * answer, or present but no longer admissible — in practice the survey's or
-   * the linking action's transaction rolled back. */
+  /** Rows withdrawn this run: removed upstream, or listed but no longer
+   * eligible — in practice the survey's or the linking action's transaction
+   * rolled back. A published row is flagged, one with no thread deleted. */
   rolledBack: number;
   /** Finalized surveys whose artifact count was stored this run. */
   finalCounts: number;
@@ -81,11 +90,10 @@ export interface SurveysSyncResult {
   failed: number;
 }
 
-/** Hard cap on /api/surveys answers one run applies, a walk's pages or a
- * delta's (200 surveys each). A linked set past it is never walked to the
- * end, so no cursor is ever stored and every run warns; a change backlog past
- * it continues next run. Either is the cue to raise the cap, not something
- * to page around. */
+/** Hard cap on delta pages one run applies (200 surveys each). A backlog past
+ * it — the first run's bootstrap of a large corpus, or a long outage —
+ * continues next run from the cursor the last page handed out, with a
+ * warning; the cue to raise the cap, not something to page around. */
 export const MAX_LIST_PAGES = 25;
 /** Local answers one run polls: pass 4 spends one request per distinct
  * transaction, so an unpolled backlog must not be able to walk the Worker's
@@ -97,21 +105,18 @@ const SETTLE_LIMIT = 50;
  * settle it, or the card invites an answer the chain already has. A week
  * outlasts any outage worth recovering from and bounds the polled set. */
 const FAILED_POLL_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
-/** Restarts a page walk tolerates when the snapshot moves mid-walk (resync). */
-const MAX_RESYNC_RESTARTS = 2;
 
 interface DecodedSet {
   aggregates: SurveyAggregate[];
   tip: ChainTip;
   countedByRole: SurveyListPayload['countedByRole'];
   finalState: NonNullable<SurveyListPayload['finalState']>;
-  incomplete: boolean;
   /** Snapshot generation (unix s) the answer was served from. */
   fetchedAt: number | null;
 }
 
-/** One /api/surveys answer (page, delta or refs) as Tessera-computed aggregates. */
-function decodeSet(set: SurveyListPayload | SurveyChangesPayload): DecodedSet {
+/** One delta as Tessera-computed aggregates. */
+function decodeSet(set: SurveyChangesPayload): DecodedSet {
   const finalState = set.finalState ?? {};
   // aggregate() still takes the finalized-cancelled key set; the wire moved to
   // the richer finalState map, so the caller derives the set it wants.
@@ -132,16 +137,8 @@ function decodeSet(set: SurveyListPayload | SurveyChangesPayload): DecodedSet {
     tip: set.tip,
     countedByRole: set.countedByRole,
     finalState,
-    incomplete: set.incomplete === true,
     fetchedAt: set.fetchedAt ?? null,
   };
-}
-
-/** Which of the actions these aggregates link are imported here. */
-function importedLinks(db: D1Database, aggregates: readonly SurveyAggregate[]) {
-  return getKnownProposalIds(db, [
-    ...new Set(aggregates.flatMap(a => a.govLinks.map(l => l.actionId))),
-  ]);
 }
 
 /** The in-window DRep figure for one survey, or null while the backend serves
@@ -182,12 +179,11 @@ function refreshChanged(h: HeldSurvey, next: SurveyRefresh, links: Map<string, s
 /** Opening post, rendered through the same sanitizing markdown path as
  * governance threads (the description is untrusted on-chain data, capped
  * like an action's abstract before it gets there). */
-function composeFirstPostMd(a: SurveyAggregate): string {
-  const def = a.record.definition;
+function composeFirstPostMd(def: SurveyDefinition, external: boolean): string {
   const roles = roleLabels(def.eligibleRoles);
   const description = surveyDescription(def);
   const lines: string[] = ['**On-chain CIP-179 survey.**', ''];
-  if (a.external) {
+  if (external) {
     lines.push('The survey text lives in an external document that is not loaded here.', '');
   } else if (description) {
     lines.push(description, '');
@@ -210,161 +206,144 @@ function recordUnixMs(slot: number, tip: ChainTip): number {
  * so a survey two answers name in the same run is compared against what the
  * first one wrote. */
 interface Mirror {
-  known: Set<string>;
+  /** Every stored survey, ref → published (has a thread). */
+  known: Map<string, boolean>;
   held: Map<string, HeldSurvey>;
-  /** Eligible surveys whose links all name actions not imported (yet). The
-   * DRepTalk half of admission turns true with no move on Tessera's side,
-   * and a change is delivered once — so these are re-asked by ref each run
-   * until admission holds, the links are gone, or the record is. */
-  deferred: Set<string>;
-  admitted: number;
+  stored: number;
+  published: number;
   refreshed: number;
   rolledBack: number;
   failed: number;
 }
 
-/** Withdraws held rows the latest answer no longer admits — a rolled-back
- * record, a link to an action not imported, a key removed upstream. Written
- * once: a withdrawn row stays withdrawn until presence clears it, so callers
- * name rows not yet unavailable only. */
+/** What the mirror remembers of a row it just wrote, while the survey is
+ * still undecided; a decided row cannot move, so nothing is kept for it. */
+function heldOf(values: SurveyRefresh, links: Map<string, string | null>): HeldSurvey | null {
+  return values.finalState === null
+    ? {
+        ref: values.ref,
+        countedDreps: values.countedDreps,
+        cancelled: values.cancelled,
+        unavailable: false,
+        links,
+      }
+    : null;
+}
+
+/** Withdraws the rows the latest answer no longer lists as eligible — a
+ * rolled-back record, links gone, a key removed upstream — by what there is
+ * to preserve. A published row keeps its thread and takes the flag, once: a
+ * withdrawn row stays withdrawn until presence clears it. A row with no
+ * thread is deleted; a removal that was advisory delivers it again. Keys the
+ * mirror never stored are ignored, so a delta's removals go through as is. */
 async function withdraw(deps: SurveysSyncDeps, refs: readonly string[], m: Mirror): Promise<void> {
-  if (refs.length === 0) return;
-  await markSurveysUnavailable(deps.db, refs, deps.now);
-  for (const ref of refs) {
-    const h = m.held.get(ref);
-    if (h) m.held.set(ref, { ...h, unavailable: true, links: new Map() });
+  const deleted = refs.filter(ref => m.known.get(ref) === false);
+  const flagged = refs.filter(
+    ref => m.known.get(ref) === true && m.held.get(ref)?.unavailable === false,
+  );
+  if (deleted.length > 0) {
+    await deleteSurveys(deps.db, deleted);
+    for (const ref of deleted) {
+      m.known.delete(ref);
+      m.held.delete(ref);
+    }
   }
-  m.rolledBack += refs.length;
+  if (flagged.length > 0) {
+    await markSurveysUnavailable(deps.db, flagged, deps.now);
+    for (const ref of flagged) {
+      const h = m.held.get(ref);
+      if (h) m.held.set(ref, { ...h, unavailable: true, links: new Map() });
+    }
+  }
+  m.rolledBack += deleted.length + flagged.length;
 }
 
-/** Withdrawable: held and not yet withdrawn. */
-function withdrawable(m: Mirror, refs: readonly string[]): string[] {
-  return refs.filter(ref => m.held.get(ref)?.unavailable === false);
-}
-
-async function admit(
-  deps: SurveysSyncDeps,
-  set: DecodedSet,
-  a: SurveyAggregate,
-  m: Mirror,
-): Promise<void> {
-  const { db, now, rand } = deps;
-  try {
-    const bodyMd = composeFirstPostMd(a);
-    const values = rowValues(set, a, now);
-    const links = new Map(a.govLinks.map(l => [l.actionId, l.title]));
-    // The survey row and its links commit in the same atomic batch as the
-    // topic and first post, so a partial write can never leave an orphan
-    // thread for the next run to duplicate.
-    const title = surveyTitle(a.record.definition, a.key);
-    await createTopic(db, {
-      categorySlug: SURVEYS_CATEGORY_SLUG,
-      authorId: GOV_SYNC_AUTHOR,
-      title,
-      bodyMd,
-      bodyHtml: renderMarkdown(bodyMd),
-      source: 'survey',
-      now,
-      postedAt: recordUnixMs(a.record.slot, set.tip),
-      rand: rand(),
-      batchWith: topicId => [
+/** Applies one answer to the mirror: held rows are refreshed where a stored
+ * value moved and withdrawn where eligibility no longer holds; unknown
+ * eligible surveys are stored, thread or no thread. One answer commits as a
+ * single batch — D1's 100-bind cap is per statement, not summed across a
+ * batch, and the widest statement here binds 13 — so its rewrite is atomic.
+ * An answer that moved nothing yields no statements: D1 rejects an empty
+ * batch, so it must not be issued. */
+async function applySet(deps: SurveysSyncDeps, set: DecodedSet, m: Mirror): Promise<void> {
+  const { db, now } = deps;
+  const statements: D1PreparedStatement[] = [];
+  const refreshed = new Map<string, HeldSurvey | null>();
+  const stored = new Map<string, HeldSurvey | null>();
+  const withdrawn: string[] = [];
+  for (const a of set.aggregates) {
+    const h = m.held.get(a.key);
+    if (h) {
+      if (!eligibleSurvey(a)) {
+        withdrawn.push(a.key);
+        continue;
+      }
+      const next = rowValues(set, a, now);
+      const links = new Map(a.govLinks.map(l => [l.actionId, l.title]));
+      if (!refreshChanged(h, next, links)) continue;
+      statements.push(
+        buildRefreshSurvey(db, next),
+        buildDeleteGovLinks(db, a.key),
+        ...a.govLinks.map(l => buildInsertGovLink(db, a.key, l.actionId, l.title)),
+      );
+      refreshed.set(a.key, heldOf(next, links));
+    } else if (!m.known.has(a.key) && eligibleSurvey(a)) {
+      const values = rowValues(set, a, now);
+      statements.push(
         buildInsertSurvey(db, {
           ...values,
-          topicId,
-          title,
+          title: surveyTitle(a.record.definition, a.key),
           endEpoch: a.record.definition.endEpoch,
           eligibleRoles: a.record.definition.eligibleRoles,
           sealed: a.sealed,
           externalContent: a.external,
           // The record in cip-179's own wire form, the one its decoder reads
-          // back on every page view.
+          // back on every page view and when the thread opens.
           definitionJson: JSON.stringify(toJsonSafe(a.record)),
           submittedAt: recordUnixMs(a.record.slot, set.tip),
         }),
         ...a.govLinks.map(l => buildInsertGovLink(db, a.key, l.actionId, l.title)),
-      ],
-    });
-    m.known.add(a.key);
-    m.deferred.delete(a.key);
-    m.admitted++;
-    if (values.finalState === null) {
-      m.held.set(a.key, {
-        ref: a.key,
-        countedDreps: values.countedDreps,
-        cancelled: values.cancelled,
-        unavailable: false,
-        links,
-      });
+      );
+      stored.set(a.key, heldOf(values, new Map(a.govLinks.map(l => [l.actionId, l.title]))));
     }
-  } catch (err) {
-    console.error(`[surveys] admission failed for ${a.key}`, err);
-    m.failed++;
-  }
-}
-
-/** Applies one answer to the mirror: held rows are refreshed where a stored
- * value moved and withdrawn where admission no longer holds; unknown
- * surveys are admitted, or deferred while their links name actions not
- * imported. The definition-derived half of admission is asked first, so an
- * answer of known or ineligible surveys costs no database round trip. */
-async function applySet(deps: SurveysSyncDeps, set: DecodedSet, m: Mirror): Promise<void> {
-  const { db, now } = deps;
-  const held: [SurveyAggregate, HeldSurvey][] = [];
-  const candidates: SurveyAggregate[] = [];
-  for (const a of set.aggregates) {
-    const h = m.held.get(a.key);
-    if (h) held.push([a, h]);
-    else if (!m.known.has(a.key) && eligibleSurvey(a)) candidates.push(a);
-  }
-  if (held.length + candidates.length === 0) return;
-  const imported = await importedLinks(db, [...held.map(([a]) => a), ...candidates]);
-
-  // D1's 100-bind cap is per statement, not summed across a batch, and the
-  // widest statement here binds 6 — so one answer's refreshes commit as a
-  // single batch, keeping its rewrite atomic. An answer that moved nothing
-  // yields no statements: D1 rejects an empty batch, so it must not be issued.
-  const statements: D1PreparedStatement[] = [];
-  const refreshed = new Map<string, HeldSurvey | null>();
-  const withdrawn: string[] = [];
-  for (const [a, h] of held) {
-    if (!admissible(a, imported)) {
-      if (!h.unavailable) withdrawn.push(a.key);
-      continue;
-    }
-    const next = rowValues(set, a, now);
-    const links = new Map(a.govLinks.map(l => [l.actionId, l.title]));
-    if (!refreshChanged(h, next, links)) continue;
-    statements.push(
-      buildRefreshSurvey(db, next),
-      buildDeleteGovLinks(db, a.key),
-      ...a.govLinks.map(l => buildInsertGovLink(db, a.key, l.actionId, l.title)),
-    );
-    refreshed.set(
-      a.key,
-      next.finalState === null
-        ? {
-            ref: a.key,
-            countedDreps: next.countedDreps,
-            cancelled: next.cancelled,
-            unavailable: false,
-            links,
-          }
-        : null,
-    );
   }
   if (statements.length > 0) await db.batch(statements);
   for (const [key, h] of refreshed) {
     if (h) m.held.set(key, h);
     else m.held.delete(key);
   }
-  m.refreshed += refreshed.size;
-  await withdraw(deps, withdrawn, m);
-
-  for (const a of candidates) {
-    if (admissible(a, imported)) await admit(deps, set, a, m);
-    else if (a.govLinks.length > 0) m.deferred.add(a.key);
-    else m.deferred.delete(a.key);
+  for (const [key, h] of stored) {
+    m.known.set(key, false);
+    if (h) m.held.set(key, h);
   }
+  m.refreshed += refreshed.size;
+  m.stored += stored.size;
+  await withdraw(deps, withdrawn, m);
+}
+
+/** Opens the thread of one stored survey, from the row alone. The row takes
+ * the topic in the same atomic batch as the topic and first post, so a
+ * partial write can neither leave an orphan thread for the next run to
+ * duplicate nor a published survey without one. The post date is the
+ * publication time the row stored, since no tip need be at hand: the survey
+ * may be waiting on an action imported on a tick whose delta was empty. */
+async function publish(deps: SurveysSyncDeps, p: PublishableSurvey): Promise<void> {
+  const { db, now, rand } = deps;
+  const def = parseSurveyDefinition(p.definitionJson);
+  if (def === null) throw new Error('stored record does not decode');
+  const bodyMd = composeFirstPostMd(def, p.externalContent);
+  await createTopic(db, {
+    categorySlug: SURVEYS_CATEGORY_SLUG,
+    authorId: GOV_SYNC_AUTHOR,
+    title: p.title,
+    bodyMd,
+    bodyHtml: renderMarkdown(bodyMd),
+    source: 'survey',
+    now,
+    postedAt: p.submittedAt ?? now,
+    rand: rand(),
+    batchWith: topicId => [buildPublishSurvey(db, p.ref, topicId)],
+  });
 }
 
 export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncResult> {
@@ -373,8 +352,8 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
   const m: Mirror = {
     known: await getKnownSurveyRefs(db),
     held: new Map((await getHeldSurveys(db)).map(h => [h.ref, h])),
-    deferred: new Set(state.deferredRefs),
-    admitted: 0,
+    stored: 0,
+    published: 0,
     refreshed: 0,
     rolledBack: 0,
     failed: 0,
@@ -383,7 +362,8 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
   let settled = 0;
   const result = (notReady: boolean): SurveysSyncResult => ({
     notReady,
-    admitted: m.admitted,
+    stored: m.stored,
+    published: m.published,
     refreshed: m.refreshed,
     rolledBack: m.rolledBack,
     finalCounts,
@@ -399,143 +379,78 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
       asOf = asOf === null ? set.fetchedAt : Math.min(asOf, set.fetchedAt);
   };
 
-  // --- Pass 1: the mirror. With a cursor, the delta since it, to its end;
-  // without one — the first run, or the backend answering that the cursor
-  // outlived its retention window — a walk of the linked list, whose last
-  // page hands out the cursor to continue from. A page answering from an
-  // older snapshot (`resync`) restarts the walk from a fresh page one: its
-  // rows belong to a generation the walk is abandoning, and a stale answer's
-  // terminal cursor is not this generation's end either. Isolated like the
-  // passes after it: an answer that fails to apply must not cost the pending
-  // answers their poll for the whole tick.
+  // --- Pass 1: the mirror. The delta since the cursor, to its end — or,
+  // while there is no cursor, the delta since instant zero, which is the whole
+  // corpus delivered the same way, tombstones included, and hands out an
+  // ordinary cursor to continue from. A cursor never expires (the backend
+  // keeps its tombstones for the life of the corpus), so a delta always
+  // continues. Isolated like the passes after it: an answer that fails to
+  // apply must not cost the pending answers their poll for the whole tick.
   let cursor = state.changesCursor;
   /** Every held row reflects `asOf` after this pass: the delta was applied
-   * to its end, or a walk completed within one generation. */
+   * to its end. */
   let mirrorComplete = false;
-  let walked = false;
   try {
-    if (cursor !== null) {
-      for (let n = 0; n < MAX_LIST_PAGES; n++) {
-        const answer = await tessera.changes(cursor, MAX_PAGE_LIMIT);
-        if (!answer.ready) return result(true);
-        const delta = answer.body;
-        if (delta.nextCursor === null) {
-          cursor = null;
-          break;
-        }
-        // Removals first, as the contract says: a key removed and re-landed
-        // in one answer is withdrawn, then cleared by its row.
-        for (const key of delta.removed) m.deferred.delete(key);
-        await withdraw(deps, withdrawable(m, delta.removed), m);
-        const set = decodeSet(delta);
-        await applySet(deps, set, m);
-        used(set);
-        cursor = delta.nextCursor;
-        // A short answer on both axes is one that reached the published
-        // generation; a full one may have more behind it.
-        if (delta.surveys.length < MAX_PAGE_LIMIT && delta.removed.length < MAX_PAGE_LIMIT) {
-          mirrorComplete = true;
-          break;
-        }
-      }
-      if (cursor !== null && !mirrorComplete) {
-        console.warn(
-          `[surveys] change backlog exceeds ${MAX_LIST_PAGES} pages; continued next run`,
-        );
+    for (let n = 0; n < MAX_LIST_PAGES; n++) {
+      const answer =
+        cursor === null
+          ? await tessera.changesSince(0, MAX_PAGE_LIMIT)
+          : await tessera.changes(cursor, MAX_PAGE_LIMIT);
+      if (!answer.ready) return result(true);
+      const delta = answer.body;
+      // Removals first, as the contract says: a key removed and re-landed
+      // in one answer is withdrawn, then stored again by its row.
+      await withdraw(deps, delta.removed, m);
+      const set = decodeSet(delta);
+      await applySet(deps, set, m);
+      used(set);
+      cursor = delta.nextCursor;
+      // A short answer on both axes is one that reached the published
+      // generation; a full one may have more behind it.
+      if (delta.surveys.length < MAX_PAGE_LIMIT && delta.removed.length < MAX_PAGE_LIMIT) {
+        mirrorComplete = true;
+        break;
       }
     }
-    if (cursor === null) {
-      walked = true;
-      for (let restart = 0; restart <= MAX_RESYNC_RESTARTS && !mirrorComplete; restart++) {
-        let resynced = false;
-        let pageCursor: string | null = null;
-        for (let n = 0; n < MAX_LIST_PAGES; n++) {
-          const answer = await tessera.surveys({
-            filter: 'linked',
-            limit: MAX_PAGE_LIMIT,
-            ...(pageCursor === null ? {} : { cursor: pageCursor }),
-          });
-          if (!answer.ready) return result(true);
-          const page = answer.body;
-          if (page.resync) {
-            resynced = true;
-            break;
-          }
-          const set = decodeSet(page);
-          await applySet(deps, set, m);
-          used(set);
-          pageCursor = page.nextCursor ?? null;
-          if (pageCursor === null) {
-            cursor = page.changesCursor ?? null;
-            mirrorComplete = true;
-            break;
-          }
-        }
-        // Only a moved snapshot earns a restart. A walk the page cap ended is
-        // abandoned as well, and restarting it would only walk the cap again.
-        if (!resynced) {
-          if (!mirrorComplete) {
-            console.warn(
-              `[surveys] linked set exceeds ${MAX_LIST_PAGES} pages; walk not completed`,
-            );
-          }
-          break;
-        }
-      }
+    if (!mirrorComplete) {
+      console.warn(`[surveys] change backlog exceeds ${MAX_LIST_PAGES} pages; continued next run`);
     }
   } catch (err) {
     console.error('[surveys] mirror pass failed', err);
     m.failed++;
   }
 
-  // --- Pass 2: by reference. The deferred surveys every run; on a run that
-  // walked, every held row as well — the linked list covers only what is
-  // linked now, so a held row that left it while the mirror had no cursor is
-  // re-asked here, and its absence from a COMPLETE answer is the rollback the
-  // delta would otherwise have delivered as a removal. From an incomplete
-  // answer, absence proves nothing. Empty on a steady-state run.
-  const asked = [...m.deferred, ...(walked ? m.held.keys() : [])];
-  let refsAnswered = true;
+  // The mirror's bookkeeping, one row: where the delta continues, and the
+  // snapshot the held rows now reflect. The "as of" advances only when every
+  // held row was brought up to it — a delta that broke off leaves rows
+  // describing an older snapshot, and the line must not promise fresher.
+  await putSurveySyncState(db, {
+    changesCursor: cursor,
+    tesseraFetchedAt: mirrorComplete && asOf !== null ? asOf : state.tesseraFetchedAt,
+  });
+
+  // --- Pass 2: publish. DRepTalk's half of admission, asked of the stored
+  // rows now that discovery has run: every survey without a thread that an
+  // imported action links gets one, from its row, with no request to Tessera.
+  // Normally the survey stored a moment ago by pass 1 — its action was
+  // imported minutes before — and otherwise one whose action arrived late;
+  // either way the row is already there, so a thread that fails to open is
+  // simply still pending on the next run.
   try {
-    for (const chunk of chunked(asked, MAX_PAGE_LIMIT)) {
-      const answer = await tessera.surveysByRefs(chunk);
-      if (!answer.ready) {
-        refsAnswered = false;
-        break;
-      }
-      const set = decodeSet(answer.body);
-      await applySet(deps, set, m);
-      used(set);
-      if (!set.incomplete) {
-        const present = new Set(set.aggregates.map(a => a.key));
-        const absent = chunk.filter(key => !present.has(key));
-        for (const key of absent) m.deferred.delete(key);
-        await withdraw(deps, withdrawable(m, absent), m);
+    for (const p of await getPublishableSurveys(db)) {
+      try {
+        await publish(deps, p);
+        m.known.set(p.ref, true);
+        m.published++;
+      } catch (err) {
+        console.error(`[surveys] publishing ${p.ref} failed`, err);
+        m.failed++;
       }
     }
   } catch (err) {
-    console.error('[surveys] reference pass failed', err);
+    console.error('[surveys] publish pass failed', err);
     m.failed++;
-    refsAnswered = false;
   }
-
-  // The mirror's bookkeeping, one row: where the delta continues, what is
-  // still deferred, and the snapshot the held rows now reflect. The "as of"
-  // advances only when every held row was brought up to it — a delta or a
-  // walk that broke off leaves rows describing an older snapshot, and the
-  // line must not promise fresher. The deferred set is bounded by one refs
-  // request; past that the oldest wait for a change to name them again.
-  if (m.deferred.size > MAX_PAGE_LIMIT) {
-    console.warn(
-      `[surveys] ${m.deferred.size} deferred surveys; keeping the newest ${MAX_PAGE_LIMIT}`,
-    );
-  }
-  await putSurveySyncState(db, {
-    changesCursor: cursor,
-    deferredRefs: [...m.deferred].slice(-MAX_PAGE_LIMIT),
-    tesseraFetchedAt:
-      mirrorComplete && refsAnswered && asOf !== null ? asOf : state.tesseraFetchedAt,
-  });
 
   // --- Pass 3: the final count of every finalized survey whose artifact has
   // not been read — normally the one whose decision pass 1 just wrote, plus

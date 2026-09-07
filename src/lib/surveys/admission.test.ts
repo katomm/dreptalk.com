@@ -7,7 +7,7 @@ import {
   type SurveyRecord,
 } from 'cip-179/domain';
 import { describe, expect, it } from 'vitest';
-import { admissible, eligibleSurvey } from './admission.js';
+import { eligibleSurvey } from './admission.js';
 
 const TX = 'a'.repeat(64);
 const KEY = `${TX}:0`;
@@ -58,8 +58,6 @@ function linkedBy(...actionIds: string[]): GovLink[] {
   return actionIds.map(actionId => ({ surveyKey: KEY, actionId, endEpoch: 300, title: null }));
 }
 
-const IMPORTED = new Set([ACTION]);
-
 describe('eligibleSurvey', () => {
   it('accepts a public, talliable, DRep-eligible survey', () => {
     expect(eligibleSurvey(aggregateOf(definition()))).toBe(true);
@@ -88,20 +86,10 @@ describe('eligibleSurvey', () => {
     expect(elsewhere.sealedUnsupported).toBe(true);
     expect(eligibleSurvey(elsewhere)).toBe(false);
   });
-});
 
-describe('admissible', () => {
-  it('needs one link to an imported action, whichever position it holds', () => {
-    expect(admissible(aggregateOf(definition()), IMPORTED)).toBe(true);
-    expect(admissible(aggregateOf(definition(), linkedBy(OTHER_ACTION, ACTION)), IMPORTED)).toBe(
-      true,
-    );
-    expect(admissible(aggregateOf(definition(), linkedBy(OTHER_ACTION)), IMPORTED)).toBe(false);
-    expect(admissible(aggregateOf(definition(), []), IMPORTED)).toBe(false);
-    expect(admissible(aggregateOf(definition()), new Set())).toBe(false);
-  });
-
-  it('is the eligibility rule and the link rule together', () => {
-    expect(admissible(aggregateOf(definition({ questions: [] })), IMPORTED)).toBe(false);
+  it('needs at least one link, to any action — whether it is imported is not its question', () => {
+    expect(eligibleSurvey(aggregateOf(definition(), linkedBy(OTHER_ACTION)))).toBe(true);
+    expect(eligibleSurvey(aggregateOf(definition(), linkedBy(OTHER_ACTION, ACTION)))).toBe(true);
+    expect(eligibleSurvey(aggregateOf(definition(), []))).toBe(false);
   });
 });
