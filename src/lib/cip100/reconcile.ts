@@ -66,13 +66,16 @@ function outOfScope(post: PostRow, now: number): boolean {
   if (post.hidden === 1) return true;
   // Vote rationale cross-posts reference the existing /vote-rationale/ document.
   if (post.source === 'vote_rationale') return true;
-  // The sync-generated mirror post of a governance topic reproduces on-chain
-  // content that already has its own CIP-108 anchor. Identified by authorship,
-  // which is exact: the sync writes the topic and its mirror post with the same
-  // author id, and no human account holds that id. Identifying it as the oldest
+  // The sync-generated mirror post of a synced topic reproduces on-chain
+  // content that already has its own anchor — a CIP-108 anchor for a governance
+  // action, a CIP-179 record for a survey. Identified by authorship, which is
+  // exact: the sync writes the topic and its mirror post with the same author
+  // id, and no human account holds that id. Identifying it as the oldest
   // top-level post was wrong, because a vote-rationale cross-post is back-dated
-  // to its on-chain vote time and can therefore predate the mirror post.
-  if (post.topic_source === 'governance' && post.author_id === post.topic_author_id) return true;
+  // to its on-chain vote time and can therefore predate the mirror post. The
+  // test is "not a user topic" rather than a list of synced kinds, so the next
+  // kind cannot silently re-open this.
+  if (post.topic_source !== 'user' && post.author_id === post.topic_author_id) return true;
   // Inside the grace window edits are silent and leave no trace in edited_at,
   // so no document may exist yet. See spec section 10.2.
   return isWithinGrace(post.created_at, now);

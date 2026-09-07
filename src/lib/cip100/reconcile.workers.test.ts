@@ -16,12 +16,12 @@ const AFTER_GRACE = T + EDIT_GRACE_MS + 1000;
 const AUTHOR = 'test-author-reconcile';
 const OPTS = { origin: 'https://dreptalk.com', network: 'mainnet' as const };
 
-// A governance topic is written by the sync, never by a person, and its mirror
-// post carries the same author id. Seeding it any other way would be a shape
+// A synced topic is written by the sync, never by a person, and its mirror post
+// carries the same author id. Seeding it any other way would be a shape
 // production never produces, and the scope rule keys on exactly that authorship.
-async function seedTopic(suffix: string, source: 'user' | 'governance' = 'user') {
+async function seedTopic(suffix: string, source: 'user' | 'governance' | 'survey' = 'user') {
   return createTopic(db(), {
-    categorySlug: 'general', authorId: source === 'governance' ? GOV_SYNC_AUTHOR : AUTHOR,
+    categorySlug: 'general', authorId: source === 'user' ? AUTHOR : GOV_SYNC_AUTHOR,
     title: `Reconcile ${suffix}`,
     bodyMd: 'opening body', bodyHtml: '<p>opening body</p>', source, now: T, rand: suffix,
   });
@@ -136,6 +136,29 @@ describe('reconcilePostDocs', () => {
     });
     const afterReplyGrace = replyAt + EDIT_GRACE_MS + 1000;
     expect((await reconcilePostDocs(db(), reply.id, { ...OPTS, now: afterReplyGrace })).status).toBe('created');
+  });
+
+  it('skips the sync-written mirror post of a survey topic', async () => {
+    // A survey's opening post reproduces the CIP-179 record, which is its own
+    // anchored on-chain document; emitting a CIP-100 document for it would
+    // publish DRepTalk's rendering of somebody else's record.
+    const { firstPost } = await seedTopic('r15', 'survey');
+    expect((await reconcilePostDocs(db(), firstPost.id, { ...OPTS, now: AFTER_GRACE })).status).toBe(
+      'skipped',
+    );
+    // Nor may it occupy a slot in the cron's bounded batch.
+    expect(await findStalePostIds(db(), AFTER_GRACE, 50)).not.toContain(firstPost.id);
+  });
+
+  it('emits a human reply inside a survey topic', async () => {
+    const { topic, firstPost } = await seedTopic('r16', 'survey');
+    const reply = await createPost(db(), {
+      topicId: topic.id, authorId: AUTHOR, bodyMd: 'a human reply in a survey thread',
+      bodyHtml: '<p>a human reply in a survey thread</p>', now: T + 1000, parentPostId: firstPost.id,
+    });
+    const at = T + 1000 + EDIT_GRACE_MS + 1000;
+    expect((await reconcilePostDocs(db(), reply.id, { ...OPTS, now: at })).status).toBe('created');
+    expect(await findStalePostIds(db(), at - EDIT_GRACE_MS, 50)).not.toContain(firstPost.id);
   });
 
   it('emits a reply inside a governance topic', async () => {

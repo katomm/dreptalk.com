@@ -1,4 +1,8 @@
-export type CategoryKind = 'governance' | 'discussion';
+// 'governance' and 'survey' categories are system-fed (one thread per synced
+// on-chain object, read-only at the category level); 'discussion' categories
+// take user topics. Consumers branching on the kind must not answer questions
+// about surveys nobody asked — hence a kind of its own, not 'governance'.
+export type CategoryKind = 'governance' | 'discussion' | 'survey';
 
 export interface Category {
   slug: string;
@@ -13,10 +17,12 @@ export const CATEGORIES: Category[] = [
   { slug: 'constitution', name: 'Constitution and Guardrails', description: 'The Cardano Constitution, guardrails, and amendments.', kind: 'discussion', position: 2 },
   { slug: 'budget', name: 'Budget and Treasury', description: 'Treasury withdrawals and the budget process.', kind: 'discussion', position: 3 },
   { slug: 'general', name: 'General and Off-topic', description: 'General Cardano governance discussion.', kind: 'discussion', position: 4 },
+  { slug: 'surveys', name: 'Surveys', description: 'On-chain CIP-179 surveys linked to governance actions, one thread each, opened automatically.', kind: 'survey', position: 5 },
 ];
 
 export const GOVERNANCE_CATEGORY_SLUG = 'governance-actions';
 export const BUDGET_CATEGORY_SLUG = 'budget';
+export const SURVEYS_CATEGORY_SLUG = 'surveys';
 
 // Pre-sorted once at module load; avoids repeated sort on every getCategories() call.
 const SORTED_CATEGORIES: readonly Category[] = [...CATEGORIES].sort((a, b) => a.position - b.position);
