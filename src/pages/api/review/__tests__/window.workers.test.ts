@@ -69,7 +69,7 @@ describe('buildWindowPack', () => {
     expect(pack.treasury.totalEnactedAda).toBe(5_000_000);
   });
 
-  it('counts vote transactions with superseded votes and final voters once per range', async () => {
+  it('counts votes cast with superseded votes and final voters once per range', async () => {
     await seedAction(ids.closing, 'NewCommittee', 'active', { submitted: 646, expiry: 653 });
     await env.DB.prepare(`INSERT INTO drep_votes (ga_id, voter_role, voter_id, vote, synced_at, block_time) VALUES (?, 'DRep', 'drepA', 'Yes', 0, ?), (?, 'DRep', 'drepB', 'No', 0, ?)`)
       .bind(ids.closing, t(651), ids.closing, t(650)).run();
@@ -78,8 +78,8 @@ describe('buildWindowPack', () => {
     const pack = await buildWindowPack(env.DB, cfg, 650, 652);
     const e650 = pack.votesByEpoch.find((r) => r.epoch === 650 && r.role === 'DRep');
     const e651 = pack.votesByEpoch.find((r) => r.epoch === 651 && r.role === 'DRep');
-    expect(e650).toMatchObject({ transactions: 2, finalVoters: 1 });
-    expect(e651).toMatchObject({ transactions: 1, finalVoters: 1 });
+    expect(e650).toMatchObject({ votesCast: 2, finalVoters: 1 });
+    expect(e651).toMatchObject({ votesCast: 1, finalVoters: 1 });
     expect(pack.voteTimeline[ids.closing].find((r) => r.epoch === 651)?.byCount).toEqual({ yes: 1, no: 0, abstain: 0 });
   });
 
@@ -87,7 +87,7 @@ describe('buildWindowPack', () => {
     await seedAction(ids.closing, 'NewCommittee', 'active', { submitted: 646, expiry: 653 });
     await seedAction(ids.open, 'TreasuryWithdrawals', 'active', { submitted: 649, expiry: 656 });
     // drepA's surviving ballots fall in two epochs of the window, drepB voted
-    // once, and one superseded ballot adds a transaction without a voter.
+    // once, and one superseded ballot adds a vote without a voter.
     await env.DB.prepare(
       `INSERT INTO drep_votes (ga_id, voter_role, voter_id, vote, synced_at, block_time) VALUES
         (?, 'DRep', 'drepA', 'Yes', 0, ?), (?, 'DRep', 'drepA', 'No', 0, ?),
@@ -99,7 +99,7 @@ describe('buildWindowPack', () => {
     await env.DB.prepare(`INSERT INTO drep_votes (ga_id, voter_role, voter_id, vote, synced_at, block_time) VALUES (?, 'DRep', 'drepEarly', 'Yes', 0, ?)`)
       .bind(ids.closing, t(648)).run();
     const pack = await buildWindowPack(env.DB, cfg, 650, 652);
-    expect(pack.windowTotals).toEqual({ voteTransactions: 5, finalDrepVoters: 2, finalSpoVoters: 1 });
+    expect(pack.windowTotals).toEqual({ votesCast: 5, finalDrepVoters: 2, finalSpoVoters: 1 });
     // The per-epoch rows would count drepA twice, which is exactly what the
     // window totals must not do.
     const drepRows = pack.votesByEpoch.filter((r) => r.role === 'DRep' && r.epoch >= 650);

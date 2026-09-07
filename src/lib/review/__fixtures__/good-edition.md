@@ -6,6 +6,7 @@ epochTo: 652
 published: 2026-09-06
 dataAsOf: '2026-09-06T00:00:00.000Z'
 packVersion: 1
+packBlob: "0000000000000000000000000000000000000000"
 facts:
   - value: '₳96.8M'
     label: largest withdrawal
@@ -35,7 +36,7 @@ openActions:
 numbers:
   delegatedPowerStartAda: null
   delegatedPowerEndAda: null
-  voteTransactions: null
+  votesCast: null
   finalDrepVoters: null
   treasuryStartAda: null
   treasuryEndAda: null

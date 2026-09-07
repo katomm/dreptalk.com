@@ -176,7 +176,7 @@ export const EPOCH_STATS_METRICS: Record<EpochStatsMetricKey, EpochStatsMetric> 
     start: 'first-complete',
     includesSpecials: false,
     source: 'local-votes',
-    definition: 'DRep vote transactions submitted during the epoch, later-superseded votes included. Votes without a block time are not counted.',
+    definition: 'DRep votes cast during the epoch, later-superseded votes included. Votes without a block time are not counted.',
   },
   treasuryLovelace: {
     column: 'treasury_lovelace',

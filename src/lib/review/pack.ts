@@ -85,9 +85,9 @@ export interface WindowPack {
   network: string;
   window: { from: number; to: number; startsAt: string; endsAt: string; asOf: string | null; committeeAsOf: number; readiness: { ready: boolean; epochs: Record<string, EpochReadiness> } };
   actions: { events: PackAction[]; closingAtBoundary: PackAction[]; open: PackAction[]; comparisons: PackAction[] };
-  votesByEpoch: Array<{ epoch: number; role: string; transactions: number; finalVoters: number }>;
+  votesByEpoch: Array<{ epoch: number; role: string; votesCast: number; finalVoters: number }>;
   /** Totals over the whole window, counted once per voter. Never the sum of the votesByEpoch rows. */
-  windowTotals: { voteTransactions: number; finalDrepVoters: number; finalSpoVoters: number };
+  windowTotals: { votesCast: number; finalDrepVoters: number; finalSpoVoters: number };
   voteTimeline: Record<string, Array<{ epoch: number; byCount: { yes: number; no: number; abstain: number }; byPowerAda: { yes: number; no: number; abstain: number } | null }>>;
   topVoters: Record<string, Array<{ drepId: string; name: string | null; vote: string; epochCast: number | null; powerAda: number | null; powerAsOfEpoch: number }>>;
   topDreps: Array<{ drepId: string; name: string | null; powerAda: number; ballots: Record<string, string | 'did not vote'> }>;
@@ -246,18 +246,18 @@ function emptyCounts(): Record<VoteBucket, number> {
 }
 
 /**
- * Vote transactions and distinct final voters per epoch and role. Transactions
- * count superseded votes too (a re-vote is a second transaction), final voters
+ * Votes cast and distinct final voters per epoch and role. The votes-cast
+ * count includes superseded votes (a re-vote is a second row), final voters
  * count each voter once for the epoch its surviving vote was cast in.
  */
 function votesByEpoch(current: VoteRow[], history: VoteRow[], cfg: NetworkConfig): WindowPack['votesByEpoch'] {
-  const tx = new Map<string, number>();
+  const cast = new Map<string, number>();
   const voters = new Map<string, Set<string>>();
   const key = (epoch: number, role: string) => `${epoch}|${role}`;
   for (const r of [...current, ...history]) {
     if (r.block_time == null) continue;
     const k = key(epochFromUnix(r.block_time, cfg), r.voter_role);
-    tx.set(k, (tx.get(k) ?? 0) + 1);
+    cast.set(k, (cast.get(k) ?? 0) + 1);
   }
   for (const r of current) {
     if (r.block_time == null) continue;
@@ -266,10 +266,10 @@ function votesByEpoch(current: VoteRow[], history: VoteRow[], cfg: NetworkConfig
     set.add(r.voter_id);
     voters.set(k, set);
   }
-  return [...tx.keys()]
+  return [...cast.keys()]
     .map((k) => {
       const [epoch, role] = k.split('|');
-      return { epoch: Number(epoch), role, transactions: tx.get(k) ?? 0, finalVoters: voters.get(k)?.size ?? 0 };
+      return { epoch: Number(epoch), role, votesCast: cast.get(k) ?? 0, finalVoters: voters.get(k)?.size ?? 0 };
     })
     .sort((a, b) => a.epoch - b.epoch || a.role.localeCompare(b.role));
 }
@@ -286,9 +286,9 @@ function windowTotals(current: VoteRow[], history: VoteRow[], cfg: NetworkConfig
     const e = epochFromUnix(r.block_time, cfg);
     return e >= from && e <= to;
   };
-  let voteTransactions = 0;
-  for (const r of current) if (inRange(r)) voteTransactions += 1;
-  for (const r of history) if (inRange(r)) voteTransactions += 1;
+  let votesCast = 0;
+  for (const r of current) if (inRange(r)) votesCast += 1;
+  for (const r of history) if (inRange(r)) votesCast += 1;
   const dreps = new Set<string>();
   const spos = new Set<string>();
   for (const r of current) {
@@ -296,7 +296,7 @@ function windowTotals(current: VoteRow[], history: VoteRow[], cfg: NetworkConfig
     if (r.voter_role === 'DRep') dreps.add(r.voter_id);
     else if (r.voter_role === 'SPO') spos.add(r.voter_id);
   }
-  return { voteTransactions, finalDrepVoters: dreps.size, finalSpoVoters: spos.size };
+  return { votesCast, finalDrepVoters: dreps.size, finalSpoVoters: spos.size };
 }
 
 /** Power in ada of one DRep at one epoch, keyed for the in-memory lookups below. */

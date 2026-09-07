@@ -36,7 +36,7 @@ function count(value: number | null): string {
 const rows: Array<{ label: string; value: string }> = [
   { label: `Delegated to DReps, at the start of epoch ${from}`, value: billions(numbers.delegatedPowerStartAda) },
   { label: `Delegated to DReps, at the start of epoch ${to}`, value: billions(numbers.delegatedPowerEndAda) },
-  { label: 'Vote transactions in the window', value: count(numbers.voteTransactions) },
+  { label: 'Votes cast in the window, superseded votes included', value: count(numbers.votesCast) },
   { label: 'DReps whose final ballot fell in the window', value: count(numbers.finalDrepVoters) },
   { label: `Treasury, at the start of epoch ${from}`, value: millions(numbers.treasuryStartAda) },
   { label: `Treasury, at the start of epoch ${to}`, value: millions(numbers.treasuryEndAda) },

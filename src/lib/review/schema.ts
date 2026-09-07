@@ -33,6 +33,8 @@ export const reviewFrontmatterSchema = z
     published: z.coerce.date(),
     dataAsOf: z.string().datetime(),
     packVersion: z.number().int().positive(),
+    /** Git blob hash of the frozen pack file (git hash-object), so the edition pins the exact bytes it was written from. */
+    packBlob: z.string().regex(/^[0-9a-f]{40}$/),
     facts: z.array(factTileSchema).length(4),
     featuredActions: z.array(z.string()).default([]),
     /** The figure the social card shows. Carries a source so the fact check can
@@ -43,7 +45,7 @@ export const reviewFrontmatterSchema = z
     numbers: z.object({
       delegatedPowerStartAda: z.number().nullable(),
       delegatedPowerEndAda: z.number().nullable(),
-      voteTransactions: z.number().int().nullable(),
+      votesCast: z.number().int().nullable(),
       finalDrepVoters: z.number().int().nullable(),
       treasuryStartAda: z.number().nullable(),
       treasuryEndAda: z.number().nullable(),

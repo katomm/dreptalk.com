@@ -32,6 +32,19 @@ const origin = Astro.site?.origin ?? 'https://dreptalk.com';
 const dates = formatWindowDates(d.epochFrom, d.epochTo, cfg);
 const lastCorrection = d.corrections.at(-1)?.date;
 const actionTitles = new Map([...d.alsoDecided, ...d.openActions].map((r) => [r.id, r.title]));
+// The frozen data pack next to the edition file is the source of every number
+// on this page. Linking the file in the repository lets a reader check any
+// figure against the exact snapshot the edition was written from.
+// The pack file never changes after publication (corrections edit the article,
+// not its data). The readable link points at the file on main, the pinned link
+// is content-addressed: the git blob hash stored in the frontmatter (checked
+// against the file by a test) resolves to exactly the bytes the edition was
+// written from, whatever happens to the branch.
+const packPath = `src/content/review/${slug}.pack.json`;
+const packUrl = `https://github.com/katomm/dreptalk.com/blob/main/${packPath}`;
+const packBlobUrl = `https://api.github.com/repos/katomm/dreptalk.com/git/blobs/${d.packBlob}`;
+const packBlobShort = d.packBlob.slice(0, 12);
+const dataAsOf = new Date(d.dataAsOf).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
 const articleLd = {
   '@context': 'https://schema.org',
   '@type': 'Article',
@@ -84,6 +97,11 @@ Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
     <div class="rv-body prose"><Content /></div>
     <ReviewAlsoDecided rows={d.alsoDecided} open={d.openActions} featured={d.featuredActions} epochTo={d.epochTo} />
     <ReviewNumbers numbers={d.numbers} from={d.epochFrom} to={d.epochTo} />
+    <p class="rv-data">
+      Data behind this edition: a snapshot of the site's governance data taken {dataAsOf}, frozen as{' '}
+      <a href={packUrl} rel="noopener">{slug}.pack.json</a> next to the article. Every figure above traces to a field in that file. Its git blob hash{' '}
+      <a href={packBlobUrl} rel="noopener" title={d.packBlob}><code>{packBlobShort}</code></a> pins the exact bytes, whatever later happens to the branch.
+    </p>
     {
       (older || newer) && (
         <nav class="rv-pager" aria-label="Other editions">
@@ -142,6 +160,7 @@ Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
   .rv-title { font-size: clamp(1.9rem, 4.5vw, 2.7rem); line-height: 1.08; letter-spacing: -0.02em; margin: 0.75rem 0 1rem; text-wrap: balance; }
   .rv-stand { font-size: 1.15rem; line-height: 1.5; color: var(--muted); margin: 0 0 1.75rem; }
   .rv-corrections { border-left: 3px solid var(--accent); padding: 0.5rem 0.9rem; margin: 0 0 1.5rem; font-size: 0.9rem; }
+  .rv-data { font-size: 0.85rem; color: var(--muted); line-height: 1.5; margin: 1.5rem 0 0; }
   .rv-pager { display: flex; justify-content: space-between; gap: 1rem; margin-top: 2.5rem; padding-top: 1rem; border-top: 1px solid var(--border); font-size: 0.9rem; }
   /* Keeps the newer link on the right even when it is the only one. */
   .rv-pager__newer { margin-left: auto; }

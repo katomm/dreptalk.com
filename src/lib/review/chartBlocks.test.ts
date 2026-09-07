@@ -3,7 +3,7 @@ import { transformChartNodes } from './chartBlocks.js';
 
 const yaml = `type: bars
 title: Votes per epoch
-sources: ["votesByEpoch[].transactions"]
+sources: ["votesByEpoch[].votesCast"]
 epochSource: "votesByEpoch[].epoch"
 epochs: [1, 2]
 values: [3, 4]`;

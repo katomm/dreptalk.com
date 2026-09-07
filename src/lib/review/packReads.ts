@@ -83,7 +83,7 @@ export async function readVotesInRange(db: D1Database, startUnix: number, endUni
   return res.results ?? [];
 }
 
-/** Superseded votes cast inside the same range. A re-vote is a second transaction. */
+/** Superseded votes cast inside the same range. A re-vote is a second vote row. */
 export async function readVoteHistoryInRange(db: D1Database, startUnix: number, endUnix: number): Promise<VoteRow[]> {
   const res = await db
     .prepare(

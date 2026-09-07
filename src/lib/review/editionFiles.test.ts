@@ -16,13 +16,14 @@ epochTo: ${to}
 published: 2026-09-02
 dataAsOf: "2026-09-02T06:10:00Z"
 packVersion: 1
+packBlob: "0000000000000000000000000000000000000000"
 facts:
   - { value: "1", label: a, source: x }
   - { value: "1", label: b, source: x }
   - { value: "1", label: c, source: x }
   - { value: "1", label: d, source: x }
 ogFigure: { value: "1", label: x, source: x }
-numbers: { delegatedPowerStartAda: null, delegatedPowerEndAda: null, voteTransactions: null, finalDrepVoters: null, treasuryStartAda: null, treasuryEndAda: null }
+numbers: { delegatedPowerStartAda: null, delegatedPowerEndAda: null, votesCast: null, finalDrepVoters: null, treasuryStartAda: null, treasuryEndAda: null }
 ---
 body
 `;
