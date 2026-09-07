@@ -17,6 +17,15 @@ import GaHistory from '@/components/ga/GaHistory.astro';
 import GaSidebar from '@/components/ga/GaSidebar.astro';
 import GlossaryTerms from '@/components/glossary/GlossaryTerms.astro';
 import ShareButton from '@/components/ShareButton.astro';
+import SurveyCard from '@/components/survey/SurveyCard.astro';
+import LinkedSurveyCard from '@/components/survey/LinkedSurveyCard.astro';
+import {
+  getLinkedSurveyForAction,
+  getSurveyByTopicId,
+  getSurveyGovLinks,
+} from '@/lib/db/surveys.js';
+import { parseSurveyDefinition } from '@/lib/surveys/view.js';
+import type { SurveyDefinition } from 'cip-179';
 import { getTopicBySlug, getThreadPage, type ThreadPage } from '@/lib/db/forum.js';
 import { getRelatedTopics } from '@/lib/db/discussions.js';
 import { detectIdentifier } from '@/lib/search/identifiers.js';
@@ -132,6 +141,7 @@ const category = topic ? getCategory(topic.category_slug) : undefined;
 // Resolve author identities for the topic header and every post on this page in
 // exactly two batched queries (users, then dreps). No per-post lookups (no N+1).
 const isGovernanceTopic = topic?.source === 'governance';
+const isSurveyTopic = topic?.source === 'survey';
 
 const identities = db
   ? await loadAuthorIdentities(db, [topic?.author_id, ...pagePosts.map((p) => p.author_id)])
@@ -147,10 +157,10 @@ const mandates = db
   ? await loadMandates(db, [topic?.proposer_grant_id, ...pagePosts.map((p) => p.proposer_grant_id)])
   : new Map<string, string>();
 
-// The first post of a governance-sourced topic carries the system identity even
-// if its author_id is not literally gov-sync.
+// The first post of a system-sourced topic (governance action or survey)
+// carries the system identity even if its author_id is not literally gov-sync.
 const topicAuthor: AuthorDescriptor = topic
-  ? isGovernanceTopic
+  ? isGovernanceTopic || isSurveyTopic
     ? systemAuthor(topic.author_id)
     : describe(topic.author_id)
   : { authorId: '', displayName: '' };
@@ -174,7 +184,8 @@ if (!notFound) {
 
 const siteOrigin = Astro.site?.origin ?? SITE_ORIGIN;
 const now = Date.now();
-const network = currentNetwork().network;
+const netCfg = currentNetwork();
+const network = netCfg.network;
 
 // CIP-100 discovery, layer 1: the thread manifest. A per-post alternate is not
 // possible, posts have no pages of their own, they live at /t/<slug>/#post-<id>.
@@ -206,18 +217,32 @@ const canEditTitle =
 // (flags + reactions, one batched round-trip) are independent, so load them
 // together. The per-author votes then need govAction.id, so that one follows.
 // All read from D1 ("as of").
-const [govAction, viewerPostState] = await Promise.all([
+const [govAction, viewerPostState, surveyRow] = await Promise.all([
   isGovernanceTopic && db && topic
     ? getGovernanceActionByTopicId(db, topic.id)
     : Promise.resolve(null),
   db && user && viewerIsWriter
     ? loadViewerPostState(db, user.id, pagePosts.map((p) => p.id))
     : Promise.resolve(emptyViewerPostState()),
+  isSurveyTopic && db && topic ? getSurveyByTopicId(db, topic.id) : Promise.resolve(null),
 ]);
 const { flaggedPostIds, reactions: viewerReactions } = viewerPostState;
 
 const reviewSlug = govAction ? (await loadEditionIndex()).byActionId.get(govAction.id) ?? null : null;
 const reviewWindow = reviewSlug ? parseSlug(reviewSlug) : null;
+
+// The stored wire record decodes with the same cip-179 codec the sync used to
+// write it. Linkage renders both ways: the survey card names its linking
+// actions, an action's sidebar names its linked survey.
+const surveyDefinition: SurveyDefinition | null = surveyRow
+  ? parseSurveyDefinition(surveyRow.definitionJson)
+  : null;
+const [surveyLinks, linkedSurvey] = await Promise.all([
+  surveyRow && db ? getSurveyGovLinks(db, surveyRow.ref) : Promise.resolve([]),
+  db && govAction?.proposalId
+    ? getLinkedSurveyForAction(db, govAction.proposalId)
+    : Promise.resolve(null),
+]);
 
 // If this action defines or challenges an NCL period, show its live tracker.
 const nclPeriod = govAction
@@ -821,13 +846,33 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
               {nclMiniCardProps && (
                 <NclMiniCard slot="after-status" {...nclMiniCardProps} />
               )}
+              {linkedSurvey && (
+                <LinkedSurveyCard
+                  slot="after-status"
+                  survey={linkedSurvey.survey}
+                  topicSlug={linkedSurvey.topicSlug}
+                  cfg={netCfg}
+                  now={now}
+                />
+              )}
             </GaSidebar>
           </div>
         </div>
       </>
     ) : (
-      // Non-governance topics: a single focused reading column.
+      // Non-governance topics: a single focused reading column. A survey topic
+      // leads with its mirrored survey card.
       <div class="thread-single">
+        {surveyRow && surveyDefinition && (
+          <SurveyCard
+            survey={surveyRow}
+            definition={surveyDefinition}
+            links={surveyLinks}
+            cfg={netCfg}
+            now={now}
+            appUrl={env.TESSERA_APP_URL}
+          />
+        )}
         <ThreadPosts
           topic={topic}
           thread={thread}
