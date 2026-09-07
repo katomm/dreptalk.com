@@ -125,6 +125,25 @@ describe('createTopic', () => {
     expect(topic.source).toBe('governance');
   });
 
+  it('accepts source "survey" and, like governance, emits no topic_created event', async () => {
+    const { topic } = await createTopic(db(), {
+      categorySlug: 'surveys',
+      authorId: AUTHOR,
+      title: 'Survey Topic',
+      bodyMd: 'survey body',
+      bodyHtml: '<p>survey body</p>',
+      source: 'survey',
+      now: T1,
+      rand: 'r003s',
+    });
+    expect(topic.source).toBe('survey');
+    const events = await db()
+      .prepare('SELECT COUNT(*) AS n FROM activity WHERE topic_id = ?')
+      .bind(topic.id)
+      .first<{ n: number }>();
+    expect(events?.n).toBe(0);
+  });
+
   it('stores body_html in the first post', async () => {
     const { firstPost } = await createTopic(db(), {
       categorySlug: 'general',

@@ -143,7 +143,7 @@ through a guarded `parseSurveyDefinition` — null, a note and no panel when
 the frozen form cannot be read, never a 500 for the thread — and every
 string it yields for a page or a post (title, description, prompts, option
 labels) goes through the same sanitizer and caps as a governance action's
-anchor text; the stored wire form stays verbatim for the widget.
+anchor text; the stored wire form is the widget's, never sanitized or capped.
 
 **Answering.** `RespondPanel.astro` renders `<tessera-respond>` for a
 key-credential `drep` session on an answerable survey whose definition
@@ -263,7 +263,14 @@ published code.
   it costs one write, bounded by what Tessera reports. Decided rows follow
   the same rule rather than carrying a `final_state IS NULL` exception:
   Tessera does not move a decided survey, and a second predicate for a case
-  that cannot happen is worth less than one rule for every row.
+  that cannot happen is worth less than one rule for every row. Two costs
+  remain by design: the bookkeeping row is written on every tick, quiet or
+  not, since an exhausted delta still advances the cursor and the "as of"
+  to the published generation; and a bootstrap page of 200 eligible
+  surveys commits as one batch of some 600 statements (an upsert, a link
+  delete and one insert per link, each), within D1's per-statement caps but
+  the figure to watch against its per-invocation query cap if a corpus
+  ever grows past what preprod holds.
 - **The mirror is Tessera's change selection, not a per-tick walk and
   refresh.** The earlier shape read page one of the linked list every
   tick, walked further on heuristics (the set size moved, an action was
@@ -309,7 +316,7 @@ published code.
   the same knowledge without a table, a route, a pass, a phase and a
   cutoff. The feature this was reaching for is the response mirror in §5,
   which shows the answer itself and can carry the pending state with it.
-  Reverses three points of the first PR review (poll failed rows for a
+  Reverses three points of the second PR review (poll failed rows for a
   week; one answerability rule with a 409 in the record API; settle by
   transaction), so it is the maintainer's call to take back.
 - **`CategoryKind` and `topics.source` each gain `'survey'`** rather than

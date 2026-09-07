@@ -216,8 +216,8 @@ export async function createTopic(
 
   const extra = batchWith ? batchWith(topicId) : [];
   // A user-created topic emits a 'topic_created' event in the same atomic batch.
-  // Governance-sourced topics are emitted by gov sync as 'gov_created' (it has
-  // the on-chain action context), so they emit nothing here.
+  // System-sourced topics emit nothing here: a governance one gets 'gov_created'
+  // from gov sync (it has the on-chain action context), a survey one nothing yet.
   const events =
     source === 'user'
       ? [activityInsert(db, { type: 'topic_created', topicId, actorId: authorId, createdAt: postedAt })]

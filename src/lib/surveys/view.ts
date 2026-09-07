@@ -7,7 +7,6 @@
 
 import { Role, type SurveyDefinition } from 'cip-179';
 import { decodeSurveyRecord } from 'cip-179/tally';
-import { epochStartUnix, type NetworkConfig } from '../config/network.js';
 import {
   MAX_EXTERNAL_PROSE_LEN,
   MAX_EXTERNAL_TITLE_LEN,
@@ -58,12 +57,6 @@ export function surveyDescription(def: SurveyDefinition): string {
   return sanitizeExternalMultiline(def.description, MAX_EXTERNAL_PROSE_LEN);
 }
 
-/** Unix seconds of the response cutoff: the start of the epoch after
- * `end_epoch` (inclusive deadline). */
-export function surveyDeadlineUnix(endEpoch: number, cfg: NetworkConfig): number {
-  return epochStartUnix(endEpoch + 1, cfg);
-}
-
 /** Deep link into the Tessera app's survey page, or null when no app origin
  * is configured for this deployment. */
 export function tesseraSurveyUrl(appUrl: string | undefined, ref: string): string | null {
@@ -73,9 +66,9 @@ export function tesseraSurveyUrl(appUrl: string | undefined, ref: string): strin
 
 /** One question, flattened for rendering: what it asks, how it answers, and
  * its option labels (null in external-content count form, with a note).
- * Prompts and labels are capped here, at render, because the stored
- * definition must stay verbatim — the widget re-decodes it, and its byte
- * fields would not survive a rewrite. */
+ * Prompts and labels are sanitized here, at render: the stored record is the
+ * widget's, re-decoded as cip-179 serialized it, so it is never sanitized or
+ * capped — the text derived from it is. */
 export interface QuestionView {
   prompt: string;
   kindLabel: string;

@@ -2,19 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { Role, type SurveyDefinition } from 'cip-179';
 import { toJsonSafe } from 'cip-179/tally';
 import { hexToBytes } from 'cip-179/domain';
-import { EPOCH_LENGTH_SECONDS, resolveNetwork } from '../config/network.js';
 import { MAX_EXTERNAL_PROSE_LEN, MAX_EXTERNAL_TITLE_LEN } from '../validation/input.js';
 import {
   parseSurveyDefinition,
   questionViews,
   roleLabels,
-  surveyDeadlineUnix,
   surveyDescription,
   surveyTitle,
   tesseraSurveyUrl,
 } from './view.js';
-
-const cfg = resolveNetwork('preprod');
 
 function definition(overrides: Partial<SurveyDefinition> = {}): SurveyDefinition {
   return {
@@ -45,14 +41,6 @@ function wireOf(def: SurveyDefinition): string {
     }),
   );
 }
-
-describe('surveyDeadlineUnix', () => {
-  it('is the start of the epoch after end_epoch (inclusive deadline)', () => {
-    expect(surveyDeadlineUnix(300, cfg)).toBe(
-      cfg.epochAnchor.unixSeconds + (301 - cfg.epochAnchor.epoch) * EPOCH_LENGTH_SECONDS,
-    );
-  });
-});
 
 describe('definition round-trip and rendering', () => {
   it('parseSurveyDefinition decodes what the sync stored', () => {

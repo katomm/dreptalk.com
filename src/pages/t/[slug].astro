@@ -873,6 +873,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
                 <LinkedSurveyCard
                   slot="after-status"
                   survey={linkedSurvey.survey}
+                  topicTitle={linkedSurvey.topicTitle}
                   topicSlug={linkedSurvey.topicSlug}
                   cfg={netCfg}
                   now={now}

@@ -215,7 +215,7 @@ interface StoredSurvey {
   artifact_hash: string | null;
   unavailable: number;
   cancelled: number;
-  submitted_at: number | null;
+  submitted_at: number;
   synced_at: number;
 }
 
@@ -286,14 +286,18 @@ describe('syncSurveys', () => {
     expect(topics?.n).toBe(1);
   });
 
-  it("stores the title and opening post sanitized and capped, the definition in cip-179's wire form", async () => {
+  it("stores the titles and opening post sanitized and capped, the definition in cip-179's wire form", async () => {
     await importLinkingAction();
     const rawTitle = ` Bud\u0000get ${'t'.repeat(400)}`;
     const record = surveyRecord(
       TX_LINKED,
       definition({ title: rawTitle, description: `Why\u0007 this\n\n\n\n${'d'.repeat(5000)}` }),
     );
-    const corpus = deltaOf(setOf([record], LINKED_LINKS, { [KEY_LINKED]: 0 }), [], BOOT_CURSOR);
+    // The linking action's title is anchor text too.
+    const links: SurveyListPayload['govLinks'] = [
+      { ...LINKED_LINKS[0], title: ` Act\u0000ion ${'a'.repeat(400)}` },
+    ];
+    const corpus = deltaOf(setOf([record], links, { [KEY_LINKED]: 0 }), [], BOOT_CURSOR);
     await syncSurveys(
       deps(fakeTessera({ changesSince: async () => ({ ready: true, body: corpus }) })),
     );
@@ -305,7 +309,9 @@ describe('syncSurveys', () => {
       .first<{ title: string }>();
     expect(topic?.title).toBe(expectedTitle);
     const survey = await getSurveyByTopicId(env.DB, threadOf(row));
-    expect(survey?.title).toBe(expectedTitle);
+    expect(await linksOf(KEY_LINKED)).toEqual([
+      { action_id: ACTION_ID, title: `Action ${'a'.repeat(293)}` },
+    ]);
     const post = await env.DB.prepare('SELECT body_md FROM posts WHERE topic_id = ?')
       .bind(threadOf(row))
       .first<{ body_md: string }>();
@@ -866,6 +872,43 @@ describe('syncSurveys', () => {
     expect(row).toMatchObject({ counted_dreps: 2, final_counted_dreps: 1 });
   });
 
+  it('reads the artifact again when a delivery moves the hash beside a stored count', async () => {
+    await importLinkingAction();
+    const now = 1_780_000_500_000;
+    const linked = surveyRecord(TX_LINKED, definition());
+    const decidedWith = (artifactHash: string): SurveyListPayload => ({
+      ...setOf([linked], LINKED_LINKS, { [KEY_LINKED]: 3 }),
+      finalState: { [KEY_LINKED]: { state: 'finalized', artifactHash } },
+    });
+    const asked: string[] = [];
+    const serving = (dreps: number, body: SurveyListPayload) =>
+      fakeTessera({
+        changesSince: async () => ({ ready: true, body: deltaOf(body, [], BOOT_CURSOR) }),
+        changes: async () => ({ ready: true, body: deltaOf(body) }),
+        artifactByHash: async hash => {
+          asked.push(hash);
+          return artifactOf(dreps);
+        },
+      });
+    await syncSurveys(deps(serving(1, decidedWith(ARTIFACT_HASH)), now));
+    expect((await surveyRows())[0]).toMatchObject({
+      artifact_hash: ARTIFACT_HASH,
+      final_counted_dreps: 1,
+    });
+
+    // A re-projection names another artifact: the stored count described the
+    // old one, so it goes with the hash and the new artifact is read — a
+    // count never sits beside a hash it was not read from.
+    const other = 'ef'.repeat(32);
+    expect(await syncSurveys(deps(serving(2, decidedWith(other)), now + HOUR_MS))).toMatchObject({
+      written: 1,
+      finalCounts: 1,
+      failed: 0,
+    });
+    expect(asked).toEqual([ARTIFACT_HASH, other]);
+    expect((await surveyRows())[0]).toMatchObject({ artifact_hash: other, final_counted_dreps: 2 });
+  });
+
   it('reads the artifact of a survey stored already finalized in the same run', async () => {
     await importLinkingAction();
     const now = 1_780_000_500_000;
@@ -901,7 +944,6 @@ describe('syncSurveys', () => {
     const byTopic = await getSurveyByTopicId(env.DB, threadOf(row));
     expect(byTopic).toMatchObject({
       ref: KEY_LINKED,
-      title: 'Treasury priorities',
       endEpoch: 300,
       eligibleRoles: [Role.DRep],
       countedDreps: 2,
@@ -916,6 +958,7 @@ describe('syncSurveys', () => {
     expect(list).toHaveLength(1);
     expect(list[0].postCount).toBe(1);
     expect(list[0].topicSlug).toContain('treasury-priorities');
+    expect(list[0].topicTitle).toBe('Treasury priorities');
 
     expect(await getTopicSlugBySurveyRef(env.DB, KEY_LINKED)).toBe(list[0].topicSlug);
     expect(await getTopicSlugBySurveyRef(env.DB, `${'9'.repeat(64)}:0`)).toBeNull();
@@ -933,6 +976,7 @@ describe('syncSurveys', () => {
     const linked = await getLinkedSurveyForAction(env.DB, ACTION_ID);
     expect(linked?.survey.ref).toBe(KEY_LINKED);
     expect(linked?.topicSlug).toBe(list[0].topicSlug);
+    expect(linked?.topicTitle).toBe('Treasury priorities');
     expect(await getLinkedSurveyForAction(env.DB, 'gov_action1unknown')).toBeNull();
   });
 

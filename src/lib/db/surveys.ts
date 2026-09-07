@@ -10,18 +10,18 @@ import { chunked, D1_MAX_BINDS, sqlPlaceholders } from './sql.js';
  * yet — the thread is opened later, over the stored rows. */
 export interface NewSurvey {
   ref: string;
-  title: string;
   endEpoch: number;
   eligibleRoles: readonly number[];
   sealed: boolean;
   cancelled: boolean;
   externalContent: boolean;
-  /** Wire-form record JSON, stored verbatim so cip-179 can re-decode it. */
+  /** The record in cip-179's own wire form, never sanitized or capped: the
+   * widget re-decodes it as cip-179 serialized it. */
   definitionJson: string;
   countedDreps: number | null;
   finalState: string | null;
   artifactHash: string | null;
-  submittedAt: number | null;
+  submittedAt: number;
   now: number;
 }
 
@@ -30,26 +30,30 @@ export interface NewSurvey {
  * columns are deliberately not in the update list — a CIP-179 record is
  * immutable under its ref, and the stored wire form is what the widget
  * re-decodes, so re-deriving them per delivery could only introduce drift.
- * `final_counted_dreps` is the artifact pass's alone. Reappearing clears
+ * `final_counted_dreps` is the artifact pass's alone, except that a delivery
+ * moving `artifact_hash` resets it: the count must describe the artifact
+ * named beside it, so the pass reads the new one. Reappearing clears
  * `unavailable` unconditionally: being in an answer at all is the proof. */
 export function buildUpsertSurvey(db: D1Database, s: NewSurvey): D1PreparedStatement {
   return db
     .prepare(
       `INSERT INTO survey
-         (ref, title, end_epoch, eligible_roles, sealed, cancelled, external_content,
+         (ref, end_epoch, eligible_roles, sealed, cancelled, external_content,
           definition, counted_dreps, final_state, artifact_hash, submitted_at, synced_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(ref) DO UPDATE SET
          counted_dreps = excluded.counted_dreps,
          cancelled = excluded.cancelled,
          final_state = excluded.final_state,
+         final_counted_dreps = CASE
+           WHEN excluded.artifact_hash IS survey.artifact_hash THEN survey.final_counted_dreps
+         END,
          artifact_hash = excluded.artifact_hash,
          unavailable = 0,
          synced_at = excluded.synced_at`,
     )
     .bind(
       s.ref,
-      s.title,
       s.endEpoch,
       JSON.stringify(s.eligibleRoles),
       s.sealed ? 1 : 0,
@@ -84,14 +88,12 @@ export function buildDeleteGovLinks(db: D1Database, surveyRef: string): D1Prepar
 
 /** A stored survey a linking action now imported entitles to a thread: what
  * the publish step needs to open one from the row alone, with no Tessera
- * request — the record it stored, the title it derived, the publication time
- * it projected. */
+ * request — the record it stored and the publication time it projected. */
 export interface PublishableSurvey {
   ref: string;
-  title: string;
   definitionJson: string;
   externalContent: boolean;
-  submittedAt: number | null;
+  submittedAt: number;
 }
 
 /** DRepTalk's half of admission, asked of the stored rows: a survey with no
@@ -103,7 +105,7 @@ export interface PublishableSurvey {
 export async function getPublishableSurveys(db: D1Database): Promise<PublishableSurvey[]> {
   const { results } = await db
     .prepare(
-      `SELECT ref, title, definition, external_content, submitted_at
+      `SELECT ref, definition, external_content, submitted_at
        FROM survey
        WHERE topic_id IS NULL
          AND EXISTS (
@@ -115,14 +117,12 @@ export async function getPublishableSurveys(db: D1Database): Promise<Publishable
     )
     .all<{
       ref: string;
-      title: string;
       definition: string;
       external_content: number;
-      submitted_at: number | null;
+      submitted_at: number;
     }>();
   return results.map(r => ({
     ref: r.ref,
-    title: r.title,
     definitionJson: r.definition,
     externalContent: r.external_content === 1,
     submittedAt: r.submitted_at,
@@ -211,11 +211,11 @@ export async function setSurveyFinalCount(
 
 /** One published survey, as the pages read it (booleans decoded from 0/1).
  * Every reader joins topics, so a row stored but not yet published — its
- * thread waits for a linking action to be imported — never takes this shape. */
+ * thread waits for a linking action to be imported — never takes this shape;
+ * the thread's own title and slug come from that join where a reader shows
+ * them. */
 export interface SurveyRow {
   ref: string;
-  topicId: string;
-  title: string;
   endEpoch: number;
   /** CIP-179 role ints (DRep = 0). */
   eligibleRoles: number[];
@@ -232,13 +232,10 @@ export interface SurveyRow {
   finalCountedDreps: number | null;
   finalState: string | null;
   unavailable: boolean;
-  submittedAt: number | null;
 }
 
 interface RawSurveyRow {
   ref: string;
-  topic_id: string;
-  title: string;
   end_epoch: number;
   eligible_roles: string;
   sealed: number;
@@ -249,22 +246,18 @@ interface RawSurveyRow {
   final_counted_dreps: number | null;
   final_state: string | null;
   unavailable: number;
-  submitted_at: number | null;
 }
 
-// Qualified with the table name so the list join (topics also has title/slug)
-// stays unambiguous; single-table reads accept the qualification too.
+// Qualified with the table name so the reads that join topics stay
+// unambiguous; single-table reads accept the qualification too.
 const SURVEY_COLUMNS =
-  'survey.ref, survey.topic_id, survey.title, survey.end_epoch, survey.eligible_roles, ' +
-  'survey.sealed, survey.cancelled, survey.external_content, survey.definition, ' +
-  'survey.counted_dreps, survey.final_counted_dreps, survey.final_state, survey.unavailable, ' +
-  'survey.submitted_at';
+  'survey.ref, survey.end_epoch, survey.eligible_roles, survey.sealed, survey.cancelled, ' +
+  'survey.external_content, survey.definition, survey.counted_dreps, ' +
+  'survey.final_counted_dreps, survey.final_state, survey.unavailable';
 
 function rowToSurvey(r: RawSurveyRow): SurveyRow {
   return {
     ref: r.ref,
-    topicId: r.topic_id,
-    title: r.title,
     endEpoch: r.end_epoch,
     eligibleRoles: JSON.parse(r.eligible_roles) as number[],
     sealed: r.sealed === 1,
@@ -275,7 +268,6 @@ function rowToSurvey(r: RawSurveyRow): SurveyRow {
     finalCountedDreps: r.final_counted_dreps,
     finalState: r.final_state,
     unavailable: r.unavailable === 1,
-    submittedAt: r.submitted_at,
   };
 }
 
@@ -291,11 +283,12 @@ export async function getSurveyByTopicId(
   return row ? rowToSurvey(row) : null;
 }
 
-/** One list entry of the surveys category: the survey plus its thread's slug
- * and activity numbers, so the row can link and show replies without a join
- * per row. */
+/** One list entry of the surveys category: the survey plus its thread's
+ * title, slug and activity numbers, so the row can name, link and show
+ * replies without a join per row. */
 export interface SurveyListEntry {
   survey: SurveyRow;
+  topicTitle: string;
   topicSlug: string;
   postCount: number;
   lastPostAt: number;
@@ -309,16 +302,25 @@ export async function listSurveysWithTopics(
 ): Promise<SurveyListEntry[]> {
   const { results } = await db
     .prepare(
-      `SELECT ${SURVEY_COLUMNS}, t.slug AS topic_slug, t.post_count, t.last_post_at
+      `SELECT ${SURVEY_COLUMNS}, t.title AS topic_title, t.slug AS topic_slug,
+              t.post_count, t.last_post_at
        FROM survey JOIN topics t ON t.id = survey.topic_id
        WHERE t.deleted = 0
        ORDER BY survey.submitted_at DESC, survey.ref
        LIMIT ? OFFSET ?`,
     )
     .bind(opts.limit, opts.offset)
-    .all<RawSurveyRow & { topic_slug: string; post_count: number; last_post_at: number }>();
+    .all<
+      RawSurveyRow & {
+        topic_title: string;
+        topic_slug: string;
+        post_count: number;
+        last_post_at: number;
+      }
+    >();
   return results.map(r => ({
     survey: rowToSurvey(r),
+    topicTitle: r.topic_title,
     topicSlug: r.topic_slug,
     postCount: r.post_count,
     lastPostAt: r.last_post_at,
@@ -327,7 +329,8 @@ export async function listSurveysWithTopics(
 
 /** One governance action linking a survey, resolved to its DRepTalk thread
  * when the action is imported. `title` is Tessera's extract from the action's
- * CIP-108 anchor — the fallback name for an action DRepTalk has not imported
+ * CIP-108 anchor, sanitized and capped at write like the survey's own — the
+ * fallback name for an action DRepTalk has not imported
  * (which can legitimately hold a link: admission needs only one match). */
 export interface SurveyGovLinkView {
   actionId: string;
@@ -367,10 +370,10 @@ export async function getSurveyGovLinks(db: D1Database, ref: string): Promise<Su
 export async function getLinkedSurveyForAction(
   db: D1Database,
   proposalId: string,
-): Promise<{ survey: SurveyRow; topicSlug: string } | null> {
+): Promise<{ survey: SurveyRow; topicTitle: string; topicSlug: string } | null> {
   const row = await db
     .prepare(
-      `SELECT ${SURVEY_COLUMNS}, t.slug AS topic_slug
+      `SELECT ${SURVEY_COLUMNS}, t.title AS topic_title, t.slug AS topic_slug
        FROM survey_gov_link l
        JOIN survey ON survey.ref = l.survey_ref
        JOIN topics t ON t.id = survey.topic_id
@@ -378,8 +381,10 @@ export async function getLinkedSurveyForAction(
        LIMIT 1`,
     )
     .bind(proposalId)
-    .first<RawSurveyRow & { topic_slug: string }>();
-  return row ? { survey: rowToSurvey(row), topicSlug: row.topic_slug } : null;
+    .first<RawSurveyRow & { topic_title: string; topic_slug: string }>();
+  return row
+    ? { survey: rowToSurvey(row), topicTitle: row.topic_title, topicSlug: row.topic_slug }
+    : null;
 }
 
 /** Thread slug for a survey ref — the /s/<ref> redirect target. */

@@ -46,6 +46,7 @@ import {
 } from '../db/surveys.js';
 import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
 import { renderMarkdown } from '../markdown.js';
+import { MAX_EXTERNAL_TITLE_LEN, sanitizeExternalText } from '../validation/input.js';
 import { eligibleSurvey } from './admission.js';
 import { parseSurveyDefinition, roleLabels, surveyDescription, surveyTitle } from './view.js';
 
@@ -151,6 +152,13 @@ function recordUnixMs(slot: number, tip: ChainTip): number {
   return (tip.time - (tip.slot - slot)) * 1000;
 }
 
+/** A linking action's title as Tessera extracted it from the CIP-108 anchor:
+ * untrusted text, held to the survey title's own sanitizer and cap before it
+ * is stored, and null once nothing is left. */
+function linkTitle(title: string | null): string | null {
+  return title === null ? null : sanitizeExternalText(title, MAX_EXTERNAL_TITLE_LEN) || null;
+}
+
 /** Applies one delta: the surveys it delivers, and the keys it removed.
  *
  * Every delivered survey Tessera's half of admission passes is written down,
@@ -185,7 +193,6 @@ async function applyDelta(
     const decided = set.finalState[a.key];
     const row: NewSurvey = {
       ref: a.key,
-      title: surveyTitle(a.record.definition, a.key),
       endEpoch: a.record.definition.endEpoch,
       eligibleRoles: a.record.definition.eligibleRoles,
       sealed: a.sealed,
@@ -203,7 +210,7 @@ async function applyDelta(
     statements.push(
       buildUpsertSurvey(db, row),
       buildDeleteGovLinks(db, a.key),
-      ...a.govLinks.map(l => buildInsertGovLink(db, a.key, l.actionId, l.title)),
+      ...a.govLinks.map(l => buildInsertGovLink(db, a.key, l.actionId, linkTitle(l.title))),
     );
     written++;
   }
@@ -226,12 +233,12 @@ async function publish(deps: SurveysSyncDeps, p: PublishableSurvey): Promise<voi
   await createTopic(db, {
     categorySlug: SURVEYS_CATEGORY_SLUG,
     authorId: GOV_SYNC_AUTHOR,
-    title: p.title,
+    title: surveyTitle(def, p.ref),
     bodyMd,
     bodyHtml: renderMarkdown(bodyMd),
     source: 'survey',
     now,
-    postedAt: p.submittedAt ?? now,
+    postedAt: p.submittedAt,
     rand: rand(),
     batchWith: topicId => [buildPublishSurvey(db, p.ref, topicId)],
   });

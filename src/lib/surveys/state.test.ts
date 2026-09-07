@@ -1,7 +1,14 @@
 import { Role } from 'cip-179';
 import { describe, expect, it } from 'vitest';
 import { EPOCH_LENGTH_SECONDS, resolveNetwork } from '../config/network.js';
-import { lifecycleLabel, participationLabel, type SurveyStateInput, surveyState } from './state.js';
+import { formatEpochDate } from '../governance/view.js';
+import {
+  deadlineLabel,
+  lifecycleLabel,
+  participationLabel,
+  type SurveyStateInput,
+  surveyState,
+} from './state.js';
 
 const cfg = resolveNetwork('preprod');
 const startOf = (epoch: number) =>
@@ -35,6 +42,14 @@ describe('surveyState lifecycle', () => {
     const invalid = row({ cancelled: true, finalState: 'untalliable' });
     expect(surveyState(invalid, startOf(299), cfg).lifecycle).toBe('untalliable');
     expect(surveyState(invalid, startOf(305), cfg).lifecycle).toBe('untalliable');
+  });
+
+  it('dates an open survey by the start of the epoch after its inclusive end, and names only the epoch after', () => {
+    expect(deadlineLabel('open', 300, cfg)).toBe(
+      `until ${formatEpochDate(startOf(301) / 1000)} (through epoch 300)`,
+    );
+    expect(deadlineLabel('closed', 300, cfg)).toBe('through epoch 300');
+    expect(deadlineLabel('cancelled', 300, cfg)).toBe('through epoch 300');
   });
 
   it('names each lifecycle once', () => {
@@ -79,8 +94,9 @@ describe('surveyState participation', () => {
   it('has no figure for a cancelled or untalliable survey, whatever was counted in-window', () => {
     expect(p({ countedDreps: 3, finalState: 'cancelled' })).toEqual({ kind: 'none' });
     expect(p({ countedDreps: 3, finalState: 'untalliable' })).toEqual({ kind: 'none' });
-    // A state this code predates is decided for good with no artifact read:
-    // no count rather than a stale in-window one.
+    // No row can carry a state this code predates — the client refuses an
+    // unknown final state at decode, so the sync never stores one — but the
+    // column can, and a stale in-window figure must not be what it shows.
     expect(p({ countedDreps: 3, finalState: 'vetoed' })).toEqual({ kind: 'none' });
   });
 

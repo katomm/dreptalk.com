@@ -5,7 +5,8 @@
 // disagree about a survey's state.
 
 import { Role } from 'cip-179';
-import { epochFromUnix, type NetworkConfig } from '../config/network.js';
+import { epochFromUnix, epochStartUnix, type NetworkConfig } from '../config/network.js';
+import { formatEpochDate } from '../governance/view.js';
 
 /**
  * Responses are accepted through `end_epoch` inclusive (CIP-179), so the
@@ -66,6 +67,22 @@ export function participationLabel(p: SurveyParticipation): string {
     case 'none':
       return 'no count';
   }
+}
+
+/** One wording for the deadline line, so the row, the card and the sidebar
+ * card cannot describe the same cutoff differently. Responses are accepted
+ * through `end_epoch` inclusive (CIP-179), so the date is the start of the
+ * epoch after it; a survey no longer open names only the epoch, since its
+ * badge already says how it ended. */
+export function deadlineLabel(
+  lifecycle: SurveyLifecycle,
+  endEpoch: number,
+  cfg: NetworkConfig,
+): string {
+  const through = `through epoch ${endEpoch}`;
+  return lifecycle === 'open'
+    ? `until ${formatEpochDate(epochStartUnix(endEpoch + 1, cfg))} (${through})`
+    : through;
 }
 
 /** The columns the state derives from — a `SurveyRow`, or any row-shaped

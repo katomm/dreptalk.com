@@ -19,7 +19,6 @@ CREATE TABLE survey (
   -- opened once a linking action is imported here. Every page reader joins
   -- topics, so a row without one is invisible until then.
   topic_id           TEXT,
-  title              TEXT NOT NULL,
   end_epoch          INTEGER NOT NULL,   -- inclusive response cutoff (CIP-179)
   eligible_roles     TEXT NOT NULL,      -- JSON array of CIP-179 role ints (DRep = 0)
   sealed             INTEGER NOT NULL DEFAULT 0,
@@ -30,38 +29,40 @@ CREATE TABLE survey (
   -- DRepTalk's own. counted_dreps is the in-window figure: the DRep entry of
   -- the index's per-role audited count, rewritten by every answer that names
   -- the survey and NULL while the backend serves none. final_counted_dreps is
-  -- the DRep
-  -- responder count of the finalized tally artifact, which also applies
-  -- end-epoch role membership, so it can be lower than the in-window figure;
-  -- NULL until the artifact has been read, and forever on a cancelled or
-  -- untalliable survey.
+  -- the DRep responder count of the finalized tally artifact, which also
+  -- applies end-epoch role membership, so it can be lower than the in-window
+  -- figure; NULL until the artifact has been read, and forever on a cancelled
+  -- or untalliable survey. It describes the artifact named beside it: a
+  -- delivery that moves artifact_hash resets it, to be read again.
   counted_dreps      INTEGER,
   final_counted_dreps INTEGER,
   -- NULL while the survey can still change; set once Tessera decides it for
   -- good ('finalized' | 'cancelled' | 'untalliable'). Tessera stops changing a
   -- decided survey, so in practice the row stops being written — nothing here
   -- depends on that, and a re-delivery is written like any other.
-  -- artifact_hash is the content address of the tally
-  -- artifact the decision published (finalized and cancelled carry one), kept
-  -- so the final count can be read on a later run when the artifact request
-  -- fails on the run the decision arrives.
+  -- artifact_hash is the content address of the tally artifact the decision
+  -- published (finalized and cancelled carry one), kept so the final count
+  -- can be read on a later run when the artifact request fails on the run
+  -- the decision arrives.
   final_state        TEXT,
   artifact_hash      TEXT,
   -- Tessera no longer lists the survey as eligible: its record is gone, or
   -- it is listed with no link at all — either way a rollback upstream. Only a
-  -- published row is flagged (a row with no thread is simply deleted): the
-  -- flag hides answering and keeps the thread, and presence in a later
-  -- answer clears it.
+  -- published row is flagged, as the check below holds (a row with no thread
+  -- is simply deleted): the flag hides answering and keeps the thread, and
+  -- presence in a later answer clears it.
   unavailable        INTEGER NOT NULL DEFAULT 0,
-  submitted_at       INTEGER,            -- survey publication time (unix ms, slot-derived)
-  synced_at          INTEGER NOT NULL    -- last change written by the sync (unix ms)
+  submitted_at       INTEGER NOT NULL,   -- survey publication time (unix ms, slot-derived)
+  synced_at          INTEGER NOT NULL,   -- last change written by the sync (unix ms)
+  CHECK (unavailable = 0 OR topic_id IS NOT NULL)
 );
 CREATE INDEX idx_survey_topic ON survey(topic_id);
 
 -- Governance actions advertising a survey (N actions may link one survey).
 -- action_id is the bech32 gov_action id, joining governance_actions.proposal_id;
--- title is the action title Tessera extracted from the CIP-108 anchor, kept so
--- the survey card can name a linking action DRepTalk has not imported.
+-- title is the action title Tessera extracted from the CIP-108 anchor —
+-- untrusted text, sanitized and capped at write like the survey's own — kept
+-- so the survey card can name a linking action DRepTalk has not imported.
 CREATE TABLE survey_gov_link (
   survey_ref TEXT NOT NULL,
   action_id  TEXT NOT NULL,

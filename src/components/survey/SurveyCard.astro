@@ -7,13 +7,11 @@ import type { SurveyDefinition } from 'cip-179';
 import SurveyBadges from '@/components/survey/SurveyBadges.astro';
 import type { NetworkConfig } from '@/lib/config/network.js';
 import type { SurveyGovLinkView, SurveyRow } from '@/lib/db/surveys.js';
-import { formatEpochDate } from '@/lib/governance/view.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
-import { participationLabel, surveyState } from '@/lib/surveys/state.js';
+import { deadlineLabel, participationLabel, surveyState } from '@/lib/surveys/state.js';
 import {
   questionViews,
   roleLabels,
-  surveyDeadlineUnix,
   surveyDescription,
   tesseraSurveyUrl,
 } from '@/lib/surveys/view.js';
@@ -29,16 +27,16 @@ interface Props {
   cfg: NetworkConfig;
   now: number;
   appUrl: string | undefined;
-  /** Snapshot time (unix s) the mirror was last brought fully up to date
-   * with — one value for every survey, since the sync refreshes every held
-   * row on every run; null until a run has done so. */
+  /** Snapshot time (unix s) of the last Tessera answer the mirror applied to
+   * its end — one value for every survey, since the delta names every row
+   * that moved, so no row is fresher than the mirror; null until a run has
+   * applied one. */
   asOf: number | null;
 }
 
 const { survey, definition, links, cfg, now, appUrl, asOf } = Astro.props;
 
 const { lifecycle, participation } = surveyState(survey, now, cfg);
-const deadlineUnix = surveyDeadlineUnix(survey.endEpoch, cfg);
 const questions = definition ? questionViews(definition) : [];
 const description = definition ? surveyDescription(definition) : '';
 const deepLink = tesseraSurveyUrl(appUrl, survey.ref);
@@ -52,7 +50,7 @@ const deepLink = tesseraSurveyUrl(appUrl, survey.ref);
 
   {survey.unavailable && (
     <p class="svy-card__warn">
-      This survey is no longer found in the index linked to an imported governance action — its
+      This survey is no longer in the index, or no governance action links it any more — its
       record, or the action's, may have been rolled back. The thread stays; answering is disabled.
     </p>
   )}
@@ -91,7 +89,7 @@ const deepLink = tesseraSurveyUrl(appUrl, survey.ref);
     </div>
     <div>
       <dt>Responses accepted</dt>
-      <dd>through epoch {survey.endEpoch} (inclusive) — until {formatEpochDate(deadlineUnix)}</dd>
+      <dd>{deadlineLabel(lifecycle, survey.endEpoch, cfg)}</dd>
     </div>
     <div>
       <dt>Participation</dt>

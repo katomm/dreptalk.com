@@ -9,10 +9,9 @@
 //
 // The sibling script is a bundled <script> (never is:inline), so Astro hashes
 // it into the strict CSP automatically. Server data crosses to it through
-// data-* attributes: the stored wire-form record JSON travels verbatim and is
-// decoded client-side with cip-179's own record decoder, so the widget sees
-// the record as cip-179 serializes it (a re-serialized plain object could not
-// carry the definition's byte fields).
+// data-* attributes: the stored record JSON is the wire form cip-179 wrote,
+// never sanitized or capped, and is decoded client-side with cip-179's own
+// record decoder, so the widget signs the record as it is on chain.
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import type { SurveyRow } from '@/lib/db/surveys.js';
 
@@ -28,6 +27,13 @@ interface Props {
 }
 
 const { survey, network, epoch, drepId } = Astro.props;
+
+// Said before the wallet opens: whatever the mode, the credential and the
+// role are public on chain forever; only a sealed survey keeps the answers
+// themselves encrypted, and only until its reveal time.
+const disclosure = survey.sealed
+  ? "Your answers stay encrypted until the survey's reveal time, but your DRep credential and your role are public on chain, permanently."
+  : 'Your DRep credential, your role and your answers go on chain publicly and permanently.';
 ---
 
 <section
@@ -43,9 +49,9 @@ const { survey, network, epoch, drepId } = Astro.props;
   <div data-connect-step>
     <p class="svy-respond__hint">
       Connect the DRep-capable wallet (Lace, Eternl, Typhon) of the DRep you signed in with to
-      answer on chain. Your answer is a public Cardano transaction signed by your DRep key; the
-      wallet pays only the network fee.
+      answer on chain; the wallet pays only the network fee.
     </p>
+    <p class="svy-respond__hint">{disclosure}</p>
     <div class="svy-respond__connect">
       <select data-wallet-select aria-label="Wallet">
         <option value="">Detecting wallets…</option>

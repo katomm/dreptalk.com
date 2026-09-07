@@ -131,8 +131,8 @@ let treasuryOverview: TreasuryOverviewData | null = null;
 // only; the governance overview keeps its own tally/countdown enrichment instead.
 let participantCounts = new Map<string, number>();
 let excerptHtml = new Map<string, string>();
-// The mirror-wide snapshot time is the "as of" line: the sync refreshes every
-// held survey on every run, so no row is fresher than the mirror.
+// The mirror-wide snapshot time is the "as of" line: the delta names every
+// row that moved, so no row is fresher than the mirror.
 let surveyEntries: SurveyListEntry[] = [];
 let surveyAsOf: number | null = null;
 
