@@ -7,11 +7,12 @@ import { describe, expect, it } from 'vitest';
 // (the adapter drops [env.*] from the app toml, so that script derives the
 // preprod config) and the gov-sync [env.preprod.vars] block. A value set on
 // one side only is a live defect, not a config nit: TESSERA_BACKEND_URL on the
-// app alone offers survey answers nothing settles, on gov-sync alone mirrors
-// surveys nobody can see; a VAPID key mismatch sends pushes the subscription
-// cannot verify. Absent on both sides is a legitimate state (the surveys
-// switch is deliberately off on mainnet), so the assertion is equality, with
-// the always-present VAPID key proving the parsers actually match something.
+// app alone offers answers on surveys the site can no longer refresh, on
+// gov-sync alone mirrors surveys nobody can see; a VAPID key mismatch sends
+// pushes the subscription cannot verify. Absent on both sides is a legitimate
+// state (the surveys switch is deliberately off on mainnet), so the assertion
+// is equality, with the always-present VAPID key proving the parsers actually
+// match something.
 
 const KEYS = ['CARDANO_NETWORK', 'VAPID_PUBLIC_KEY', 'TESSERA_BACKEND_URL'] as const;
 

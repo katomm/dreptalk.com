@@ -13,24 +13,13 @@ import { buildInsertGovernanceAction } from '../db/governance.js';
 import {
   getHeldSurveys,
   getLinkedSurveyForAction,
-  getSettleableSurveyResponses,
-  getSurveyByRef,
   getSurveyByTopicId,
   getSurveyGovLinks,
   getSurveySyncState,
   getTopicSlugBySurveyRef,
-  getViewerSurveyResponse,
   listSurveysWithTopics,
-  recordLocalSurveyResponse,
 } from '../db/surveys.js';
-import { PENDING_VOTE_TTL_SEC } from '../governance/tallySync.js';
-import {
-  MAX_LIST_PAGES,
-  reconcileSurveyResponses,
-  type SurveysSyncDeps,
-  type SurveysTessera,
-  syncSurveys,
-} from './sync.js';
+import { MAX_LIST_PAGES, type SurveysSyncDeps, type SurveysTessera, syncSurveys } from './sync.js';
 
 const TX_LINKED = 'a'.repeat(64);
 const TX_SECOND = 'b'.repeat(64);
@@ -47,11 +36,8 @@ const ARTIFACT_HASH = 'ab'.repeat(32);
 const BOOT_CURSOR = 'boot-cursor';
 const DELTA_CURSOR = 'delta-cursor';
 
-const MIN_MS = 60 * 1000;
-const HOUR_MS = 60 * MIN_MS;
+const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
-/** Mirrors the sync's FAILED_POLL_WINDOW_MS. */
-const FAILED_POLL_WINDOW_MS = 7 * DAY_MS;
 
 const LINKED_LINKS: SurveyListPayload['govLinks'] = [
   { surveyKey: KEY_LINKED, actionId: ACTION_ID, endEpoch: 300, title: 'The linking action' },
@@ -189,11 +175,6 @@ function fakeTessera(overrides: Partial<SurveysTessera> = {}): SurveysTessera {
     // Nothing moved since the cursor: the steady state of every tick.
     changes: overrides.changes ?? (async () => ({ ready: true, body: deltaOf(setOf([], [], {})) })),
     artifactByHash: overrides.artifactByHash ?? (async () => artifactOf(2)),
-    // "Submitted, not indexed yet" — the backend's answer for any tx the
-    // fake was not told about.
-    responsesByTx:
-      overrides.responsesByTx ??
-      (async () => ({ ready: true, body: { responses: [], fetchedAt: tip.time } })),
   };
 }
 
@@ -347,9 +328,8 @@ describe('syncSurveys', () => {
     const [row] = await surveyRows();
     expect(row).toMatchObject({ ref: KEY_LINKED, topic_id: null });
     expect((await linksOf(KEY_LINKED)).map(l => l.action_id)).toEqual([ACTION_ID]);
-    // No page can reach it, and it takes no answers.
+    // No page can reach it.
     expect(await listSurveysWithTopics(env.DB, { limit: 10, offset: 0 })).toEqual([]);
-    expect(await getSurveyByRef(env.DB, KEY_LINKED)).toBeNull();
     expect(await getTopicSlugBySurveyRef(env.DB, KEY_LINKED)).toBeNull();
     expect(await getLinkedSurveyForAction(env.DB, ACTION_ID)).toBeNull();
 
@@ -376,7 +356,7 @@ describe('syncSurveys', () => {
       .first<{ title: string; created_at: number }>();
     // Dated by the publication time the row stored, not by the tick.
     expect(topic).toEqual({ title: 'Treasury priorities', created_at: published.submitted_at });
-    expect((await getSurveyByRef(env.DB, KEY_LINKED))?.ref).toBe(KEY_LINKED);
+    expect(await getTopicSlugBySurveyRef(env.DB, KEY_LINKED)).not.toBeNull();
     expect((await getLinkedSurveyForAction(env.DB, ACTION_ID))?.survey.ref).toBe(KEY_LINKED);
 
     // Published once: a later tick opens no second thread.
@@ -585,42 +565,21 @@ describe('syncSurveys', () => {
     });
   });
 
-  it('settles even when the mirror pass fails, and keeps the cursor it could not advance', async () => {
+  it('keeps the cursor and the "as of" it could not advance when the delta fails', async () => {
     await importLinkingAction();
     const now = 1_780_000_500_000;
     await syncSurveys(deps(fakeTessera(), now));
-    const cred = `key:${'aa'.repeat(28)}`;
-    const tx = '11'.repeat(32);
-    await recordLocalSurveyResponse(env.DB, {
-      surveyRef: KEY_LINKED,
-      userId: 'u-settle',
-      txHash: tx,
-      credential: cred,
-      now: now - 1_000,
-    });
 
-    // The delta the backend cannot serve: the mirror fails, the pending
-    // answer is still polled and settled.
+    // The delta the backend cannot serve: the pass records its failure and
+    // the later passes still run.
     const broken = fakeTessera({
       changes: async () => {
         throw new TesseraHttpError('/api/surveys', 502, '');
       },
-      responsesByTx: async () => ({
-        ready: true,
-        body: {
-          responses: [
-            { surveyKey: KEY_LINKED, responseIndex: 0, role: 0, credential: cred, slot: 1 },
-          ],
-          fetchedAt: tip.time,
-        },
-      }),
     });
-    expect(await syncSurveys(deps(broken, now + HOUR_MS))).toMatchObject({
-      failed: 1,
-      settled: 1,
-    });
-    expect(await getViewerSurveyResponse(env.DB, KEY_LINKED, 'u-settle')).toBeNull();
-    // Nothing was applied, so the next run asks from the same position.
+    expect(await syncSurveys(deps(broken, now + HOUR_MS))).toMatchObject({ failed: 1 });
+    // Nothing was applied, so the next run asks from the same position, and
+    // the page keeps claiming the generation the rows actually reflect.
     expect(await getSurveySyncState(env.DB)).toMatchObject({
       changesCursor: BOOT_CURSOR,
       tesseraFetchedAt: tip.time,
@@ -984,7 +943,6 @@ describe('syncSurveys', () => {
       refreshed: 0,
       rolledBack: 0,
       finalCounts: 0,
-      settled: 0,
       failed: 0,
     };
     // Before the bootstrap, and once a cursor is held.
@@ -1041,258 +999,5 @@ describe('syncSurveys', () => {
     });
     await syncSurveys(deps(quiet, now + 2 * HOUR_MS));
     expect((await getSurveySyncState(env.DB)).tesseraFetchedAt).toBe(tip.time + 180);
-  });
-
-  it('settles a local answer by its exact tx, keeps a fresh one pending, ages a stale one', async () => {
-    await importLinkingAction();
-    const now = 1_780_000_500_000;
-    const txIndexed = '11'.repeat(32);
-    const txWaiting = '22'.repeat(32);
-    const txDropped = '33'.repeat(32);
-    const cred = `key:${'aa'.repeat(28)}`;
-    const tessera = fakeTessera({
-      responsesByTx: async txHash => ({
-        ready: true,
-        body: {
-          responses:
-            txHash === txIndexed
-              ? [{ surveyKey: KEY_LINKED, responseIndex: 0, role: 0, credential: cred, slot: 1 }]
-              : [],
-          fetchedAt: tip.time,
-        },
-      }),
-    });
-    await syncSurveys(deps(tessera, now));
-
-    // Three viewers mid-flight: one whose tx Tessera has indexed, one whose
-    // fresh tx it has not yet, one whose stale tx never landed.
-    await recordLocalSurveyResponse(env.DB, {
-      surveyRef: KEY_LINKED,
-      userId: 'u-settle',
-      txHash: txIndexed,
-      credential: cred,
-      now: now - 1_000,
-    });
-    await recordLocalSurveyResponse(env.DB, {
-      surveyRef: KEY_LINKED,
-      userId: 'u-wait',
-      txHash: txWaiting,
-      credential: cred,
-      now: now - 1_000,
-    });
-    await recordLocalSurveyResponse(env.DB, {
-      surveyRef: KEY_LINKED,
-      userId: 'u-old',
-      txHash: txDropped,
-      credential: cred,
-      now: now - (PENDING_VOTE_TTL_SEC + 60) * 1000,
-    });
-
-    const r = await syncSurveys(deps(tessera, now));
-    expect(r.settled).toBe(1);
-    // Ageing belongs to the reconcile step, not to the sync: it reads the
-    // clock and nothing else, so it runs whether or not Tessera answered.
-    expect(await reconcileSurveyResponses(env.DB, now)).toBe(1);
-    // The indexed answer's row is gone (the on-chain record supersedes it);
-    // the fresh one still reads "confirming"; the stale one invites a retry.
-    expect(await getViewerSurveyResponse(env.DB, KEY_LINKED, 'u-settle')).toBeNull();
-    expect((await getViewerSurveyResponse(env.DB, KEY_LINKED, 'u-wait'))?.status).toBe('pending');
-    expect((await getViewerSurveyResponse(env.DB, KEY_LINKED, 'u-old'))?.status).toBe('failed');
-
-    // Re-answering overwrites the failed row back to pending under a new tx.
-    await recordLocalSurveyResponse(env.DB, {
-      surveyRef: KEY_LINKED,
-      userId: 'u-old',
-      txHash: txWaiting,
-      credential: cred,
-      now,
-    });
-    expect((await getViewerSurveyResponse(env.DB, KEY_LINKED, 'u-old'))?.status).toBe('pending');
-  });
-
-  it('settles the answers queued behind a transaction whose lookup failed', async () => {
-    await importLinkingAction();
-    const now = 1_780_000_500_000;
-    const txBroken = '55'.repeat(32);
-    const txGood = '66'.repeat(32);
-    const cred = `key:${'aa'.repeat(28)}`;
-    const tessera = fakeTessera({
-      responsesByTx: async txHash => {
-        if (txHash === txBroken) throw new TesseraHttpError('/api/responses', 500, '');
-        return {
-          ready: true,
-          body: {
-            responses: [
-              { surveyKey: KEY_LINKED, responseIndex: 0, role: 0, credential: cred, slot: 1 },
-            ],
-            fetchedAt: tip.time,
-          },
-        };
-      },
-    });
-    await syncSurveys(deps(tessera, now));
-
-    // The failing lookup belongs to the older row, so the oldest-first poll
-    // reaches it before the one that can settle.
-    await recordLocalSurveyResponse(env.DB, {
-      surveyRef: KEY_LINKED,
-      userId: 'u-broken',
-      txHash: txBroken,
-      credential: cred,
-      now: now - 2_000,
-    });
-    await recordLocalSurveyResponse(env.DB, {
-      surveyRef: KEY_LINKED,
-      userId: 'u-good',
-      txHash: txGood,
-      credential: cred,
-      now: now - 1_000,
-    });
-
-    expect(await syncSurveys(deps(tessera, now))).toMatchObject({ settled: 1, failed: 1 });
-    expect((await getViewerSurveyResponse(env.DB, KEY_LINKED, 'u-broken'))?.status).toBe('pending');
-    expect(await getViewerSurveyResponse(env.DB, KEY_LINKED, 'u-good')).toBeNull();
-  });
-
-  it('settles a failed row whose transaction lands late, inside the poll window', async () => {
-    await importLinkingAction();
-    const now = 1_780_000_500_000;
-    const txFresh = '77'.repeat(32);
-    const txLate = '88'.repeat(32);
-    const txAncient = '99'.repeat(32);
-    const cred = `key:${'aa'.repeat(28)}`;
-    const asked: string[] = [];
-    const tessera = fakeTessera({
-      responsesByTx: async txHash => {
-        asked.push(txHash);
-        return {
-          ready: true,
-          body: {
-            responses: [
-              { surveyKey: KEY_LINKED, responseIndex: 0, role: 0, credential: cred, slot: 1 },
-            ],
-            fetchedAt: tip.time,
-          },
-        };
-      },
-    });
-    await syncSurveys(deps(tessera, now));
-
-    // Two answers the clock failed: one from two days ago, one from a month
-    // ago. Then a fresh one, still pending.
-    const record = (userId: string, txHash: string, at: number) =>
-      recordLocalSurveyResponse(env.DB, {
-        surveyRef: KEY_LINKED,
-        userId,
-        txHash,
-        credential: cred,
-        now: at,
-      });
-    await record('u-late', txLate, now - 2 * DAY_MS);
-    await record('u-ancient', txAncient, now - 30 * DAY_MS);
-    expect(await reconcileSurveyResponses(env.DB, now)).toBe(2);
-    await record('u-fresh', txFresh, now - 1_000);
-
-    // The poll order: pending first, then failed by age — and the ancient
-    // row is past the window, so it is not polled at all.
-    const polled = await getSettleableSurveyResponses(env.DB, 10, now - FAILED_POLL_WINDOW_MS);
-    expect(polled.map(r => r.userId)).toEqual(['u-fresh', 'u-late']);
-
-    // Both transactions turn out indexed: the late one settles too, so the
-    // card stops inviting an answer the chain already has.
-    expect(await syncSurveys(deps(tessera, now))).toMatchObject({ settled: 2, failed: 0 });
-    expect(asked).toEqual([txFresh, txLate]);
-    expect(await getViewerSurveyResponse(env.DB, KEY_LINKED, 'u-fresh')).toBeNull();
-    expect(await getViewerSurveyResponse(env.DB, KEY_LINKED, 'u-late')).toBeNull();
-    expect((await getViewerSurveyResponse(env.DB, KEY_LINKED, 'u-ancient'))?.status).toBe('failed');
-  });
-
-  it('leaves a re-answered row alone when its old transaction settles', async () => {
-    await importLinkingAction();
-    const now = 1_780_000_500_000;
-    const txOld = 'aa'.repeat(32);
-    const txNew = 'bb'.repeat(32);
-    const cred = `key:${'aa'.repeat(28)}`;
-    const tessera = fakeTessera({
-      responsesByTx: async txHash => {
-        // The viewer answers again while the pass holds the old row: the
-        // record API replaces it under the same (survey, user) key.
-        if (txHash === txOld) {
-          await recordLocalSurveyResponse(env.DB, {
-            surveyRef: KEY_LINKED,
-            userId: 'u-again',
-            txHash: txNew,
-            credential: cred,
-            now,
-          });
-        }
-        return {
-          ready: true,
-          body: {
-            responses:
-              txHash === txOld
-                ? [{ surveyKey: KEY_LINKED, responseIndex: 0, role: 0, credential: cred, slot: 1 }]
-                : [],
-            fetchedAt: tip.time,
-          },
-        };
-      },
-    });
-    await syncSurveys(deps(tessera, now));
-    await recordLocalSurveyResponse(env.DB, {
-      surveyRef: KEY_LINKED,
-      userId: 'u-again',
-      txHash: txOld,
-      credential: cred,
-      now: now - 1_000,
-    });
-
-    // The old transaction is indexed, but the row now claims the new one:
-    // nothing to settle, and the new claim keeps confirming.
-    expect((await syncSurveys(deps(tessera, now))).settled).toBe(0);
-    expect(await getViewerSurveyResponse(env.DB, KEY_LINKED, 'u-again')).toMatchObject({
-      txHash: txNew,
-      status: 'pending',
-    });
-  });
-
-  it('keeps a row pending when the indexed response is another credential or role', async () => {
-    await importLinkingAction();
-    const now = 1_780_000_500_000;
-    const tx = '44'.repeat(32);
-    const mine = `key:${'aa'.repeat(28)}`;
-    const theirs = `key:${'bb'.repeat(28)}`;
-    // The transaction is indexed, and carries responses to this very survey —
-    // but one is another DRep's credential and the other is the same wallet
-    // answering in a non-DRep role. Neither is the answer the row claims.
-    const responses = [
-      { surveyKey: KEY_LINKED, responseIndex: 0, role: Role.DRep, credential: theirs, slot: 1 },
-      { surveyKey: KEY_LINKED, responseIndex: 1, role: Role.SPO, credential: mine, slot: 1 },
-    ];
-    const tessera = fakeTessera({
-      responsesByTx: async () => ({ ready: true, body: { responses, fetchedAt: tip.time } }),
-    });
-    await syncSurveys(deps(tessera, now));
-    await recordLocalSurveyResponse(env.DB, {
-      surveyRef: KEY_LINKED,
-      userId: 'u-cred',
-      txHash: tx,
-      credential: mine,
-      now: now - 1_000,
-    });
-
-    expect((await syncSurveys(deps(tessera, now))).settled).toBe(0);
-    expect((await getViewerSurveyResponse(env.DB, KEY_LINKED, 'u-cred'))?.status).toBe('pending');
-
-    // The account's own DRep response lands: the row settles.
-    responses.push({
-      surveyKey: KEY_LINKED,
-      responseIndex: 2,
-      role: Role.DRep,
-      credential: mine,
-      slot: 2,
-    });
-    expect((await syncSurveys(deps(tessera, now))).settled).toBe(1);
-    expect(await getViewerSurveyResponse(env.DB, KEY_LINKED, 'u-cred')).toBeNull();
   });
 });

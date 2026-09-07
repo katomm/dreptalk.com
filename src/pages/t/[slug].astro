@@ -25,7 +25,6 @@ import {
   getSurveyByTopicId,
   getSurveyGovLinks,
   getSurveySyncState,
-  getViewerSurveyResponse,
 } from '@/lib/db/surveys.js';
 import { surveyState } from '@/lib/surveys/state.js';
 import { surveysEnabled } from '@/lib/surveys/switch.js';
@@ -242,13 +241,10 @@ const reviewWindow = reviewSlug ? parseSlug(reviewSlug) : null;
 const surveyDefinition: SurveyDefinition | null = surveyRow
   ? parseSurveyDefinition(surveyRow.definitionJson)
   : null;
-const [surveyLinks, linkedSurvey, viewerSurveyResponse, surveySync] = await Promise.all([
+const [surveyLinks, linkedSurvey, surveySync] = await Promise.all([
   surveyRow && db ? getSurveyGovLinks(db, surveyRow.ref) : Promise.resolve([]),
   db && govAction?.proposalId
     ? getLinkedSurveyForAction(db, govAction.proposalId)
-    : Promise.resolve(null),
-  surveyRow && db && user
-    ? getViewerSurveyResponse(db, surveyRow.ref, user.id)
     : Promise.resolve(null),
   surveyRow && db ? getSurveySyncState(db) : Promise.resolve(null),
 ]);
@@ -335,16 +331,14 @@ const viewerVote =
 const isScriptDrep = viewerDrepId ? parseDrepId(viewerDrepId)?.kind === 'script' : false;
 
 // The answering panel: the survey must be able to take a DRep answer (decided
-// once in state.ts, for the card and the record API too), the stored
-// definition must have decoded (the widget renders from it), and the viewer
-// must be a key-credential DRep — the panel then checks the wallet against
-// that very DRep, so a signed-in account cannot put another wallet's answer
-// on chain and be left with a row nothing settles; the record API's 403 for
-// a script DRep is the backstop, not the guard. It also needs the mirror to
-// still be configured: everything that follows an answer — settling the
-// optimistic row against the chain, or aging it to failed — happens in the
-// sync, so with TESSERA_BACKEND_URL gone a submitted answer would sit
-// "confirming…" forever against a row nothing refreshes.
+// once in state.ts, for the card too), the stored definition must have decoded
+// (the widget renders from it), and the viewer must be a key-credential DRep —
+// only a key credential can witness proof mechanism A, and the panel then
+// checks the wallet against that very DRep, so the answer is signed by the
+// DRep the page names. It also needs the mirror to still be configured: an
+// answer becomes visible here only through the sync, so with
+// TESSERA_BACKEND_URL gone the panel would invite fees for a survey whose
+// count, deadline and lifecycle stopped being refreshed.
 const canAnswerSurvey =
   !!surveyRow &&
   surveyState(surveyRow, now, netCfg).answerable &&
@@ -901,7 +895,6 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
             now={now}
             appUrl={env.TESSERA_APP_URL}
             asOf={surveySync?.tesseraFetchedAt ?? null}
-            viewerResponse={viewerSurveyResponse}
           />
         )}
         {surveyRow && canAnswerSurvey && viewerDrepId && (

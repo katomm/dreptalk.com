@@ -68,21 +68,6 @@ CREATE TABLE survey_gov_link (
 );
 CREATE INDEX idx_survey_gov_link_action ON survey_gov_link(action_id);
 
--- Optimistic record of a just-submitted response, mirroring the GA-vote
--- pending lifecycle (drep_votes.local_status): written by the record API right
--- after submit, deleted once the sync sees the exact transaction indexed, aged
--- to 'failed' when it never lands. credential is the responder's CIP-179
--- credential key ("key:<hex>"), derived from the session at record time.
-CREATE TABLE survey_response_local (
-  survey_ref TEXT NOT NULL,
-  user_id    TEXT NOT NULL,
-  tx_hash    TEXT NOT NULL,
-  credential TEXT NOT NULL,
-  status     TEXT NOT NULL,              -- 'pending' | 'failed'
-  created_at INTEGER NOT NULL,           -- unix ms
-  PRIMARY KEY (survey_ref, user_id)
-);
-
 -- The mirror's bookkeeping, one row. changes_cursor is where Tessera's change
 -- selection continues from (opaque, minted by the backend): NULL until the
 -- first run's bootstrap — the same selection from instant zero — has been

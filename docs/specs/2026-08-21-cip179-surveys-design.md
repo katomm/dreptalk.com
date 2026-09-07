@@ -34,7 +34,7 @@ any counting.
 auto-opened thread per published survey in a read-only `surveys` category;
 governance linkage rendered in both directions; DRep-only answering via
 `<tessera-respond>` with DRepTalk building, signing and submitting the
-transaction; an optimistic local record until the index confirms.
+transaction.
 
 **Out, deliberately:**
 
@@ -59,20 +59,19 @@ Tessera preprod backend
   GET /api/surveys?since=0           first run: the whole corpus as delta pages
   GET /api/surveys?changes=…         every tick: what moved since, what was removed
   GET /api/artifacts/{hash}          a finalized survey's tally artifact → final count
-  GET /api/responses/{txHash}        settle pending local rows by exact tx
   GET /health                        network and contract-version guard
         │   server-side only, from gov-sync; never from a page request or the browser
         ▼
-gov-sync worker  (*/5 cron; `surveys` + `survey-reconcile` phase entries)
-        │        writes D1: survey, survey_gov_link, topics + posts; settles
-        ▼        survey_response_local
+gov-sync worker  (*/5 cron; one `surveys` phase entry)
+        │        writes D1: survey, survey_gov_link, topics + posts
+        ▼
 app worker (Astro SSR)   reads D1 only, with an "as of" time — the same
         ▼                invariant every other on-chain value obeys
 browser: bundled client script → <tessera-respond> → RespondResult
         ▼
 DRepTalk's own transaction path (evolution-sdk + CIP-30/95 wallet) → chain
         ▼
-POST /api/survey/response/record → survey_response_local until the sync settles it
+the answer comes back through the index, on the next tick's mirror
 ```
 
 Nothing reaches Tessera from the browser (CSP `connect-src` blocks it; no
@@ -90,10 +89,10 @@ contract) refuses a backend whose `/health` network differs from
 audited in-window DRep count, `final_counted_dreps` the finalized
 artifact's, `final_state` NULL until decided for good with `artifact_hash`
 beside it, `unavailable` marks an upstream rollback), `survey_gov_link`,
-`survey_response_local` (the optimistic rows), `survey_sync_state` (one
-row: the change cursor and the mirror-wide "as of").
+`survey_sync_state` (one row: the change cursor and the mirror-wide "as
+of").
 
-**The sync**, four passes inside the `surveys` phase:
+**The sync**, three passes inside the `surveys` phase:
 
 1. **Mirror.** `?changes=<cursor>` once, followed up in the same run
    while a page comes back full (the 25-page cap, then the backlog waits
@@ -116,7 +115,7 @@ row: the change cursor and the mirror-wide "as of").
    presence in a later answer clears it — and a row with no thread is
    deleted, since an advisory removal delivers it again. The pass is
    isolated like the others: an answer that fails to apply costs this
-   tick's mirror, not its settle.
+   tick's mirror, not its threads or its final counts.
 2. **Publish.** DRepTalk's half of admission, asked of the stored rows
    right after discovery: every survey with no thread that at least one
    imported governance action links gets one — topic, first post and the
@@ -129,28 +128,15 @@ row: the change cursor and the mirror-wide "as of").
    the end-epoch role membership the in-window count cannot apply, so the
    figure can be lower. Retried each run until the artifact answers;
    `cancelled` and `untalliable` rows store no count.
-4. **Settle.** `GET /api/responses/{txHash}` per optimistic row still
-   worth polling — every `pending` row, and `failed` rows recorded within
-   the last week, pending first then oldest first, 50 per run, failures
-   isolated per transaction — deletes the row once the exact transaction
-   names a response for the survey, keyed by that transaction so a
-   re-answer that replaced the row mid-poll is left alone. Matching the
-   transaction is what makes a *replacement* observable.
-
-A separate **`survey-reconcile` phase**, never gated by the feature
-switch, ages optimistic rows still `pending` after 6 h to `failed`
-(`PENDING_VOTE_TTL_SEC`, shared with the vote lifecycle), so "confirming…"
-cannot outlive a Tessera outage or the switch being turned off.
-
 **One derived state.** `src/lib/surveys/state.ts` turns a stored row,
 the network calendar and the clock into `{ lifecycle, answerable,
 participation }` once: lifecycle is `open` / `closed` / `cancelled` /
 `untalliable` (Tessera's decision outranks the clock), `answerable` is the
 survey's own half of the answer gate (open, held, DRep-eligible, not
 external-content), participation the tagged figure described above. The
-list row, the thread card, the action's sidebar card, the page's panel
-gate and the record API all render or decide from it, through one shared
-badge component and one wording per figure. The stored definition decodes
+list row, the thread card, the action's sidebar card and the page's panel
+gate all render or decide from it, through one shared badge component and
+one wording per figure. The stored definition decodes
 through a guarded `parseSurveyDefinition` — null, a note and no panel when
 the frozen form cannot be read, never a 500 for the thread — and every
 string it yields for a page or a post (title, description, prompts, option
@@ -161,20 +147,15 @@ anchor text; the stored wire form stays verbatim for the widget.
 key-credential `drep` session on an answerable survey whose definition
 decoded, with the mirror configured (bundled sibling script, so the CSP
 hash is automatic). The panel connects with `connectVerifiedDrep`: the
-wallet must derive the signed-in DRep's id, since the record API stores
-the *session's* credential and the sync settles only on it — another
-wallet's answer would land on chain and leave the account a row nothing
-settles. On `tessera:response` the existing transaction path attaches the
-widget's payload at label 17 via the published `toTxMetadatum` and adds
-the DRep key hash to `required_signers` — proof mechanism A; the CIP-20
-note rides at label 674 as on votes. `POST /api/survey/response/record`
-then loads the row and refuses (409) a survey `state.ts` no longer calls
-answerable — a tab left open past the epoch roll can still submit — before
-writing the optimistic row with the session-derived credential; script
-DReps get a 403 as the backstop behind the page gate. The card overlays
-*Your answer · confirming…* until pass 4 or the reconcile phase resolves
-it, and offers "answer again" on a failed row only while the survey is
-still answerable.
+wallet must derive the signed-in DRep's id, so the answer is signed by the
+DRep whose session opened the panel and not by another credential the same
+wallet happens to hold. On `tessera:response` the existing transaction path
+attaches the widget's payload at label 17 via the published `toTxMetadatum`
+and adds the DRep key hash to `required_signers` — proof mechanism A; the
+CIP-20 note rides at label 674 as on votes. Submission ends at the
+transaction hash, shown with an explorer link: the answer is visible here
+when the index has it, through the participation count the next tick
+mirrors. Nothing about the viewer's own answer is stored (§5).
 
 **Freshness.** Surveys have a row in `src/lib/freshness.ts` and the
 `data-freshness` guide; the existing drift test holds the pair together.
@@ -254,12 +235,6 @@ published code.
   it `untalliable` at close; a thread inviting answers in between would
   waste every fee spent. Both verdicts are `aggregate()`'s own
   (`talliable`, `sealedUnsupported`); DRepTalk computes neither.
-- **A failed local answer keeps being polled for a week.** The
-  confirmation cutoff fails a row on the clock alone, so an outage longer
-  than it fails every pending row at once; a transaction that then lands
-  must still settle its row, or the card invites an answer the chain
-  already has. Pending rows go first so a failed backlog cannot delay a
-  fresh answer's "confirming" going away.
 - **A finalized row's artifact read is retried every run, unscheduled.**
   The artifact is immutable and content-addressed, so the request cannot
   fail on the survey's account, only on the backend's; a backoff ladder
@@ -286,8 +261,8 @@ published code.
   instant the caller names, so the walk of `?filter=linked` that used to
   establish a cursor — with its restart on a moved snapshot and the
   `?refs=` pass that repaired what a walk cannot report — is `?since=0`
-  once. The sync uses four client methods: `changesSince`, `changes`,
-  `artifactByHash`, `responsesByTx`.
+  once. The sync uses three client methods: `changesSince`, `changes` and
+  `artifactByHash`.
 - **Tessera's contract is consumed through its published client**
   (`cardano-tessera-client`, with `cip-179` as its peer) rather than a
   hand-written zod client: the payload types, the decoders, the
@@ -302,12 +277,22 @@ published code.
   withdrawn row said "count pending" beside "Record missing" because
   `unavailable` was consulted by some readers and not others. Session and
   deployment facts (a key DRep, the mirror configured, the definition
-  readable) stay with the page and the record API, which are the only
-  places that know them.
-- **Pending rows settle by exact transaction and age to `failed`** — the
-  GA-vote lifecycle DRepTalk already runs; `/api/responded` is
-  replacement-blind. Ageing is its own ungated phase (PR review) because
-  any cleanup inside `syncSurveys` still sits under the feature switch.
+  readable) stay with the page, the only place that knows them.
+- **The viewer's own submission is not tracked at all.** An earlier shape
+  mirrored the GA-vote pending lifecycle: an optimistic row written by
+  `POST /api/survey/response/record`, settled by a fourth sync pass
+  matching the exact transaction (`/api/responses/{txHash}`, since
+  `/api/responded` is replacement-blind), aged to `failed` by its own
+  ungated phase, and shown as *Your answer · confirming…* on the card.
+  Removed: the state it rendered is minutes long and vanishes on settle —
+  the settled answer is invisible either way (§5) — and the panel already
+  hands the viewer the transaction hash with an explorer link, which is
+  the same knowledge without a table, a route, a pass, a phase and a
+  cutoff. The feature this was reaching for is the response mirror in §5,
+  which shows the answer itself and can carry the pending state with it.
+  Reverses three points of the first PR review (poll failed rows for a
+  week; one answerability rule with a 409 in the record API; settle by
+  transaction), so it is the maintainer's call to take back.
 - **`CategoryKind` and `topics.source` each gain `'survey'`** rather than
   reusing `'governance'` or `'discussion'`: consumers branching on those
   values must not answer questions about surveys nobody asked. The three
@@ -324,19 +309,21 @@ published code.
   `/health` network match, owned by whoever deploys the site. Read once
   by `surveysEnabled()`; the app's copy and gov-sync's are held equal per
   environment by `src/lib/deployVars.test.ts`, since the switch on one
-  side only offers answers nothing settles or mirrors surveys nobody sees.
+  side only offers answers on surveys the site can no longer refresh, or
+  mirrors surveys nobody sees.
 
 ## 5. Open items, out of scope for this PR
 
 Each has a destination; none may silently die with this document.
 
-- **The voter's own settled answer is invisible, and a re-answer starts
-  blank** although `<tessera-respond>` ships a `priorResponses`
-  edit/replace flow — DRepTalk persists no response content (pass 4
-  reads identity only). The fix the architecture points at is a D1
-  mirror of the viewer's own latest response, read from Tessera as the
-  row settles and served at SSR — a new table, to raise with the
-  maintainer before the code exists.
+- **The viewer's own answer is invisible — pending or settled — and a
+  re-answer starts blank** although `<tessera-respond>` ships a
+  `priorResponses` edit/replace flow: DRepTalk stores nothing about who
+  answered what. The fix the architecture points at is a D1 mirror of the
+  viewer's own latest audited response, read from Tessera by the sync and
+  served at SSR, which shows the answer itself and can say "submitted, not
+  indexed yet" on the way — a new table, to raise with the maintainer
+  before the code exists.
 - **The vote flow still connects any registered DRep, not the session's.**
   The survey panel now binds the wallet to the signed-in DRep
   (`connectVerifiedDrep`), but `VotePanel`, `MultiVoteBar` and

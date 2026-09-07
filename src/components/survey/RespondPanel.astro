@@ -3,10 +3,9 @@
 // owns the whole CIP-179 form and emits the finished label-17 payload —
 // DRepTalk assembles no CIP-179 structure itself. Whether answering is allowed
 // at all is decided server-side by the page; this component only assumes it.
-// The wallet it connects must be the signed-in DRep's: the record API stores
-// the session's credential and the sync settles only on that credential, so
-// another wallet's answer would land on chain and leave this account a row
-// nothing settles.
+// The wallet it connects must be the signed-in DRep's: the panel answers as
+// the DRep whose session opened it, so a second credential in the same wallet
+// cannot quietly answer in place of the one the page names.
 //
 // The sibling script is a bundled <script> (never is:inline), so Astro hashes
 // it into the strict CSP automatically. Server data crosses to it through
@@ -35,7 +34,6 @@ const { survey, network, epoch, drepId } = Astro.props;
   class="svy-respond"
   data-survey-respond
   data-network={network}
-  data-ref={survey.ref}
   data-definition={survey.definitionJson}
   data-tip-epoch={String(epoch)}
   data-drep-id={drepId}
@@ -64,8 +62,8 @@ const { survey, network, epoch, drepId } = Astro.props;
   <p class="svy-respond__error" data-error hidden></p>
 
   <div class="svy-respond__success" data-success hidden>
-    <p><strong>Answer submitted.</strong> It will show on this page once the transaction confirms
-      and the next sync sees it (a few minutes).</p>
+    <p><strong>Answer submitted.</strong> The participation count on this page updates once the
+      index confirms the transaction (a few minutes).</p>
     <p class="svy-respond__tx">
       Transaction: <a data-tx-link target="_blank" rel="noopener noreferrer"><code data-tx-hash></code></a>
     </p>
@@ -79,7 +77,6 @@ const { survey, network, epoch, drepId } = Astro.props;
   import type { CardanoNetwork } from '@/lib/config/network.js';
   import { txExplorerUrl } from '@/lib/config/network.js';
   import { loadDrepTxModule } from '@/lib/governance/voteFlowClient.js';
-  import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
   import { connectVerifiedDrep, type EnabledWalletApi } from '@/lib/wallet/drepWalletConnect.js';
   import {
     chooseSelectedWallet,
@@ -210,18 +207,6 @@ const { survey, network, epoch, drepId } = Astro.props;
           signerKeyHashes,
           origin: window.location.origin,
         });
-        // Non-fatal by design: the chain is the source of truth and the sync
-        // self-heals, so a failed overlay record only warns.
-        try {
-          const res = await fetchWithTimeout('/api/survey/response/record', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ surveyRef: root.dataset.ref, txHash }),
-          });
-          if (!res.ok) console.warn('[RespondPanel] record failed', res.status);
-        } catch (recordErr) {
-          console.warn('[RespondPanel] record failed', recordErr);
-        }
         widgetSlot.hidden = true;
         statusEl.hidden = true;
         const link = successEl.querySelector<HTMLAnchorElement>('[data-tx-link]')!;

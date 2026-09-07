@@ -35,7 +35,7 @@ export const FRESHNESS: readonly FreshnessRow[] = [
     label: 'CIP-179 surveys (definitions and response counts)',
     refresh: 'About every 5 minutes',
     notes:
-      'Mirrored from the Tessera index on the discovery cron. A just-submitted answer shows as "confirming" until its transaction is indexed, usually under ten minutes.',
+      'Mirrored from the Tessera index on the discovery cron. A submitted answer is counted here once the index has confirmed its transaction, usually under ten minutes.',
   },
   {
     key: 'ga-tallies',

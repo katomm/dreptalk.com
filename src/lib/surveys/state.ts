@@ -1,8 +1,8 @@
 // What a mirrored survey is and what may be done with it, decided once from
 // the stored row, the network calendar and the wall clock — no chain read.
-// Every reader (the list row, the thread card, the action's sidebar card, the
-// answer gate on the page and in the record API) renders from this, so no
-// two of them can disagree about a survey's state.
+// Every reader (the list row, the thread card, the action's sidebar card and
+// the answer gate on the page) renders from this, so no two of them can
+// disagree about a survey's state.
 
 import { Role } from 'cip-179';
 import { epochFromUnix, type NetworkConfig } from '../config/network.js';
@@ -89,8 +89,7 @@ export interface SurveyState {
    * behind an anchor Tessera's API does not serve, so the widget could not
    * show what is being signed). What the *viewer* and the *deployment* add —
    * a key-credential DRep session, the mirror configured, the stored
-   * definition readable — stays with the page and the record API, which are
-   * the only places that know it.
+   * definition readable — stays with the page, the only place that knows it.
    */
   answerable: boolean;
   participation: SurveyParticipation;

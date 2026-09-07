@@ -62,14 +62,13 @@ function expectUniqueNames(defs: readonly { name: string }[]) {
 describe('governancePhases', () => {
   it('runs only discovery, notification dispatch, and cleanup phases on a light tick', () => {
     expect(activePhaseNames(governancePhases, govCtx(false))).toEqual([
-      'discovery', 'survey-reconcile', 'delegation-fanout', 'webpush', 'telegram', 'post-erasure',
-      'cip100',
+      'discovery', 'delegation-fanout', 'webpush', 'telegram', 'post-erasure', 'cip100',
     ]);
   });
 
   it('adds the tally/backfill/params phases in order on a heavy tick', () => {
     expect(activePhaseNames(governancePhases, govCtx(true))).toEqual([
-      'discovery', 'survey-reconcile', 'tallies', 'gov-status-times', 'voted-power',
+      'discovery', 'tallies', 'gov-status-times', 'voted-power',
       'threshold-backfill', 'metadata', 'gov-titles', 'post-dates', 'trending', 'params',
       'delegation-fanout', 'webpush', 'telegram', 'delegation-refresh', 'post-erasure', 'cip100',
     ]);
@@ -78,16 +77,9 @@ describe('governancePhases', () => {
   it('runs the surveys mirror only when the Tessera client is configured', () => {
     expect(activePhaseNames(governancePhases, govCtx(false))).not.toContain('surveys');
     expect(activePhaseNames(governancePhases, govCtx(false, { tessera: true }))).toEqual([
-      'discovery', 'surveys', 'survey-reconcile', 'delegation-fanout', 'webpush', 'telegram',
-      'post-erasure', 'cip100',
+      'discovery', 'surveys', 'delegation-fanout', 'webpush', 'telegram', 'post-erasure',
+      'cip100',
     ]);
-  });
-
-  it('ages optimistic survey answers whether or not the mirror is configured', () => {
-    // The switch owns the mirror, never the confirmation cutoff: a card must
-    // not keep promising that an answer is being checked because surveys are
-    // not indexed here.
-    expect(activePhaseNames(governancePhases, govCtx(false))).toContain('survey-reconcile');
   });
 
   it('marks exactly discovery as primary and keeps names unique', () => {
