@@ -245,8 +245,11 @@ export function treasuryCardHtml(m: TreasuryCardModel): string {
 // curated figure, number-led like treasuryCardHtml. No status/meta row (an
 // edition has no lifecycle state), so the body is just title then figure.
 export function reviewCardHtml(m: ReviewCardModel): string {
+  // The title takes the free height between the header and the figure and sits
+  // centred in it, so a short title does not cling to the header while the
+  // figure stays anchored at the bottom edge.
   const body = `<div style="display:flex;flex-direction:column;justify-content:space-between;flex:1;">
-    <div style="display:flex;flex-direction:column;">
+    <div style="display:flex;flex-direction:column;justify-content:center;flex:1;">
       ${title(m.title)}
     </div>
     <div style="display:flex;align-items:flex-end;">
