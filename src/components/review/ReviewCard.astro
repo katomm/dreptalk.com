@@ -1,36 +1,48 @@
 ---
-// One edition as a card. Used by the review index and by the homepage teaser,
-// which passes compact to drop the fact tiles.
-import ReviewFacts from '@/components/review/ReviewFacts.astro';
-import { editionSlug, formatWindowDates, type Edition } from '@/lib/review/editions.js';
+// One edition in a list. Never the article's own opening: a short title, two
+// sentences and a way in. The lead variant is the newest edition on the review
+// index, the plain one every edition under it and the homepage teaser.
+import { cardTeaser, cardTitle, editionSlug, formatWindowDates, type Edition } from '@/lib/review/editions.js';
 import type { NetworkConfig } from '@/lib/config/network.js';
 
 interface Props {
   edition: Edition;
   cfg: NetworkConfig;
-  compact?: boolean;
+  lead?: boolean;
 }
-const { edition, cfg, compact = false } = Astro.props;
+const { edition, cfg, lead = false } = Astro.props;
 const d = edition.data;
 const href = `/governance-review/${editionSlug(edition)}/`;
 ---
 
-<article class="rv-card">
+<article class:list={['rv-card', lead && 'rv-card--lead']}>
   <p class="rv-card__kicker">
     <span>Epochs {d.epochFrom} to {d.epochTo}</span>
     <span aria-hidden="true">·</span>
     <span>{formatWindowDates(d.epochFrom, d.epochTo, cfg)}</span>
   </p>
-  <h2 class="rv-card__title"><a href={href}>{d.title}</a></h2>
-  <p class="rv-card__stand">{d.standfirst}</p>
-  {!compact && <ReviewFacts facts={d.facts} />}
+  <h2 class="rv-card__title"><a href={href}>{cardTitle(edition)}</a></h2>
+  <p class="rv-card__teaser">{cardTeaser(edition)}</p>
+  <p class="rv-card__more"><a href={href}>Read review</a></p>
 </article>
 
 <style>
   .rv-card { border-top: 1px solid var(--border); padding-top: 1.25rem; }
   .rv-card__kicker { display: flex; gap: 0.5rem; flex-wrap: wrap; font-size: 0.78rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); margin: 0 0 0.5rem; }
-  .rv-card__title { font-size: clamp(1.3rem, 3vw, 1.7rem); line-height: 1.15; letter-spacing: -0.02em; margin: 0 0 0.5rem; text-wrap: balance; }
+  /* Narrow enough and the kicker wraps, leaving the separator dangling at the
+     end of the first line. The line break separates the two well enough. */
+  @media (max-width: 480px) {
+    .rv-card__kicker span[aria-hidden] { display: none; }
+  }
+  .rv-card__title { font-size: 1.35rem; line-height: 1.2; letter-spacing: -0.015em; margin: 0 0 0.6rem; text-wrap: balance; }
+  .rv-card--lead .rv-card__title { font-size: clamp(1.6rem, 4vw, 2.1rem); line-height: 1.12; letter-spacing: -0.025em; margin-bottom: 0.75rem; }
   .rv-card__title a { color: inherit; text-decoration: none; }
   .rv-card__title a:hover { color: var(--accent); }
-  .rv-card__stand { color: var(--muted); line-height: 1.55; margin: 0 0 1.25rem; max-width: 62ch; }
+  .rv-card__teaser { color: var(--muted); line-height: 1.55; margin: 0 0 0.8rem; max-width: 60ch; }
+  .rv-card--lead .rv-card__teaser { font-size: 1.05rem; max-width: 62ch; }
+  /* Right of the teaser column, where a reader's eye ends up after the last line. */
+  .rv-card__more { margin: 0 0 1.25rem; max-width: 60ch; text-align: right; }
+  .rv-card--lead .rv-card__more { max-width: 62ch; }
+  .rv-card__more a { font-size: 0.9rem; font-weight: 600; color: var(--accent); text-decoration: none; }
+  .rv-card__more a:hover { text-decoration: underline; }
 </style>

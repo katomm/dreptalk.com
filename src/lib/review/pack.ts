@@ -20,6 +20,8 @@ import type { EpochStatsRow } from '../analytics/epochStats.js';
 import { epochFromUnix, type NetworkConfig } from '../config/network.js';
 import { readThresholdSnapshot } from '../governance/thresholds.js';
 import { govActionHref } from './links.js';
+import { NCL_PERIODS } from '../../../config/ncl-periods.js';
+import { nclStatusFor } from '../governance/ncl.js';
 import { epochReadiness, watermarks, type EpochReadiness } from './readiness.js';
 import { epochBoundsUnix, lovelaceToAda, REVIEW_PACK_VERSION } from './units.js';
 import {
@@ -95,6 +97,31 @@ export interface WindowPack {
   committee: { asOfEpoch: number; members: Array<{ coldKeyHex: string; termExpiration: number; authorizedFrom: number; resignedAt: number | null }>; minSize: { value: number | null; observedAtEpoch: number | null; reason?: string }; endingWithin12: number };
   epochStats: { rows: Array<Record<string, number | string | boolean | null> & { epoch: number }>; metrics: Record<string, { column: string; definition: string; reliability: string; unit: PackUnit }> };
   powerHistory: { coverage: { from: number; to: number } | null; covered: boolean; coveredAtTo: boolean; drops: Array<{ drepId: string; name: string | null; fromAda: number; toAda: number; deltaAda: number; deregistered: boolean }> | null; dropsRange: { from: number; to: number } | null };
+  /** The curated net change limit periods this window falls in, with what the
+   *  ceiling had absorbed by `epochTo`. An NCL is set by an info action and has
+   *  no on-chain value, so the ceiling itself comes from the site's curated
+   *  registry, the consumption from the same enacted withdrawals the treasury
+   *  section counts. */
+  ncl: Array<{
+    id: string;
+    label: string;
+    ceilingAda: number;
+    /** The ceiling before it was raised, and the size of the raise, when the registry records one. */
+    previousCeilingAda: number | null;
+    raisedByAda: number | null;
+    startEpoch: number;
+    endEpoch: number;
+    definingActionIds: string[];
+    relatedActionIds: string[];
+    /** Defining actions of this period with a lifecycle event inside the window. */
+    definedInWindow: string[];
+    consumedAda: number;
+    remainingAda: number;
+    consumedPct: number;
+    withdrawalCount: number;
+    unreadableCount: number;
+    asOfEpoch: number;
+  }>;
   treasury: { byEpochAda: Array<{ epoch: number; balanceAda: number | null }>; enactedByEpoch: Array<{ epoch: number; count: number; totalAda: number; unreadableCount: number; ids: string[] }>; largestSingle: Array<{ id: string; title: string; epoch: number; ada: number }>; totalEnactedAda: number; unreadablePayloads: Array<{ id: string; epoch: number }> };
   records: PackRecord[];
   spo: Record<string, { yes: number; no: number; abstain: number }>;
@@ -118,17 +145,22 @@ const MAX_DROPS = 10;
 /** A committee term expiring this soon after the window is worth a sentence. */
 const TERM_HORIZON = 12;
 
-export function withdrawalAda(payload: string | null): number | null {
+export function withdrawalLovelace(payload: string | null): bigint | null {
   if (!payload) return null;
   try {
     const p = JSON.parse(payload) as { tag?: string; contents?: unknown[] };
     if (p.tag !== 'TreasuryWithdrawals' || !Array.isArray(p.contents)) return null;
     const list = p.contents[0] as Array<[unknown, number]>;
     if (!Array.isArray(list)) return null;
-    return lovelaceToAda(list.reduce((a, [, amt]) => a + Number(amt), 0));
+    return list.reduce((a, [, amt]) => a + BigInt(Math.round(Number(amt))), 0n);
   } catch {
     return null;
   }
+}
+
+export function withdrawalAda(payload: string | null): number | null {
+  const lovelace = withdrawalLovelace(payload);
+  return lovelace == null ? null : lovelaceToAda(lovelace.toString());
 }
 
 /** The parameter names a ParameterChange payload touches (the keys of contents[1]). */
@@ -559,6 +591,52 @@ function buildTreasury(
   };
 }
 
+/**
+ * The net change limit periods the window overlaps. The ceiling is a curated
+ * value (an info action carries no on-chain amount), the consumption comes from
+ * the same withdrawal rows the treasury section uses, which are already capped
+ * at the window's end, so a later payment never appears in a historical pack.
+ * A withdrawal whose payload cannot be read is counted as a gap here too, never
+ * as zero, so an edition can say what the figure leaves out.
+ */
+function buildNcl(
+  withdrawals: Array<{ enacted_epoch: number; onchain_payload: string | null }>,
+  decidedIdsInWindow: Set<string>,
+  from: number,
+  to: number,
+): WindowPack['ncl'] {
+  const readable: Array<{ enactedEpoch: number; lovelace: bigint }> = [];
+  for (const w of withdrawals) {
+    const lovelace = withdrawalLovelace(w.onchain_payload);
+    if (lovelace != null) readable.push({ enactedEpoch: w.enacted_epoch, lovelace });
+  }
+  return NCL_PERIODS.filter((p) => p.startEpoch <= to && p.endEpoch >= from)
+    .sort((a, b) => b.startEpoch - a.startEpoch)
+    .map((p) => {
+      const status = nclStatusFor(p, readable);
+      const inPeriod = withdrawals.filter((w) => w.enacted_epoch >= p.startEpoch && w.enacted_epoch <= p.endEpoch);
+      return {
+        id: p.id,
+        label: p.label,
+        ceilingAda: lovelaceToAda(p.ceilingLovelace.toString()) ?? 0,
+        previousCeilingAda: p.previousCeilingLovelace == null ? null : lovelaceToAda(p.previousCeilingLovelace.toString()),
+        raisedByAda:
+          p.previousCeilingLovelace == null ? null : lovelaceToAda((p.ceilingLovelace - p.previousCeilingLovelace).toString()),
+        startEpoch: p.startEpoch,
+        endEpoch: p.endEpoch,
+        definingActionIds: p.definingActionIds,
+        relatedActionIds: p.relatedActionIds,
+        definedInWindow: p.definingActionIds.filter((id) => decidedIdsInWindow.has(id)),
+        consumedAda: lovelaceToAda(status.consumedLovelace.toString()) ?? 0,
+        remainingAda: lovelaceToAda(status.remainingLovelace.toString()) ?? 0,
+        consumedPct: status.consumedPct,
+        withdrawalCount: status.withdrawalCount,
+        unreadableCount: inPeriod.filter((w) => withdrawalLovelace(w.onchain_payload) == null).length,
+        asOfEpoch: to,
+      };
+    });
+}
+
 /** The minimum and maximum window length an edition may cover, in epochs. */
 const MIN_WINDOW_EPOCHS = 3;
 const MAX_WINDOW_EPOCHS = 6;
@@ -733,6 +811,12 @@ export async function buildWindowPack(
     },
     epochStats: { rows: windowStats.map(packStatsRow), metrics: statsMetrics() },
     powerHistory: { coverage, covered, coveredAtTo, drops, dropsRange },
+    ncl: buildNcl(
+      withdrawals,
+      new Set([...grouped.events, ...grouped.closingAtBoundary].map((r) => r.id)),
+      from,
+      to,
+    ),
     treasury: buildTreasury(windowStats, withdrawals, from),
     records: buildRecords(allStats, to),
     spo: spoCounts(focusIds, focusCurrent),

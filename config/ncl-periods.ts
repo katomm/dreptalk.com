@@ -10,6 +10,10 @@ export interface NclPeriod {
   label: string;
   /** Effective ceiling after any extension, in lovelace. */
   ceilingLovelace: bigint;
+  /** The ceiling this period ran on before a later defining action changed it,
+   *  in lovelace. Absent when the ceiling was never moved. A raise is a fact
+   *  about the period, so it is recorded here rather than left in a comment. */
+  previousCeilingLovelace?: bigint;
   startEpoch: number;
   /** Effective end epoch after any extension (inclusive). */
   endEpoch: number;
@@ -35,9 +39,10 @@ export const NCL_PERIODS: NclPeriod[] = [
   {
     id: '2026-27',
     label: '2026 to 2027 Net Change Limit',
-    // Original 350M, raised to 500M by the second defining action (closed
-    // Aug 2026 with 62.4% DRep approval).
+    // Raised to 500M by the second defining action (closed Aug 2026 with 62.4%
+    // DRep approval), from the 350M the period started on.
     ceilingLovelace: 500_000_000_000_000n,
+    previousCeilingLovelace: 350_000_000_000_000n,
     startEpoch: 613,
     endEpoch: 713, // 2026-02-13 to 2027-07-03
     definingActionIds: [

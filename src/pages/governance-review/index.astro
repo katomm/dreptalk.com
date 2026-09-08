@@ -23,12 +23,18 @@ Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
   </nav>
   <h1>Governance Review</h1>
   <p class="rv-intro">
-    Every few epochs, one article on what happened in Cardano governance: the decisions, the votes behind them and the
-    trends underneath. Written from the same data the <a href="/analytics/">analytics</a> pages show, and frozen when it
-    goes out.
+    The decisions, the voting behind them and the shifts in power shaping Cardano governance, a few epochs at a time.
   </p>
   {editions.length === 0 && <p class="rv-empty">The first edition is on its way.</p>}
-  <div class="rv-list">{editions.map((e) => <ReviewCard edition={e} cfg={cfg} />)}</div>
+  <div class="rv-list">{editions.map((e, i) => <ReviewCard edition={e} cfg={cfg} lead={i === 0} />)}</div>
+  {
+    editions.length > 0 && (
+      <p class="rv-method">
+        Every edition is written from the data behind the <a href="/analytics/">analytics</a> pages, and the figures it
+        uses are frozen and published with it. Each page names its own source at the end.
+      </p>
+    )
+  }
 </Layout>
 
 <style>
@@ -36,4 +42,5 @@ Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
   .rv-intro { color: var(--muted); max-width: 62ch; line-height: 1.6; }
   .rv-empty { color: var(--muted); margin-top: 2rem; }
   .rv-list { display: grid; gap: 1.5rem; margin-top: 2rem; }
+  .rv-method { margin-top: 2.5rem; padding-top: 1.25rem; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.9rem; line-height: 1.55; max-width: 62ch; }
 </style>
