@@ -7,6 +7,25 @@ import { actionRowSchema } from './schema.js';
 
 const CONTENT = path.join(import.meta.dirname, '../../content/review');
 const FIX = path.join(import.meta.dirname, '__fixtures__');
+const emptyFrontmatter = {
+  title: 'T',
+  standfirst: 'S',
+  epochFrom: 647,
+  epochTo: 649,
+  published: new Date('2026-09-08'),
+  dataAsOf: '2026-09-08T06:00:00.000Z',
+  packVersion: 1,
+  packBlob: 'a'.repeat(40),
+  facts: [],
+  featuredActions: [],
+  ogFigure: { value: '1', label: 'l', source: 'x' },
+  alsoDecided: [],
+  openActions: [],
+  numbers: { delegatedPowerStartAda: null, delegatedPowerEndAda: null, votesCast: null, finalDrepVoters: null, treasuryStartAda: null, treasuryEndAda: null, limitations: [] },
+  derived: [],
+  corrections: [],
+};
+
 const load = (name: string) => {
   const { frontmatter, body } = readEditionFile(path.join(FIX, `${name}-edition.md`));
   return { frontmatter, body, pack: JSON.parse(readFileSync(path.join(FIX, `${name}-edition.pack.json`), 'utf8')) };
@@ -90,6 +109,28 @@ describe('an alias is no escape hatch', () => {
     expect(rules).not.toContain('link-not-in-pack');
     expect(rules).toContain('name-not-in-pack');
   });
+});
+
+describe('an action ratified in the window and enacted after it', () => {
+  const base = { id: `${'b'.repeat(64)}#0`, title: 'T', aliases: [], type: 'TreasuryWithdrawals', drepYesPct: null };
+  const pack = {
+    actions: {
+      events: [{ id: base.id, title: 'T', status: 'enacted', expiryEpoch: 649, eventsInWindow: [{ kind: 'ratified', epoch: 649 }] }],
+      closingAtBoundary: [],
+      open: [],
+      comparisons: [],
+    },
+  };
+  const check = (outcome: string, epoch: number) =>
+    factCheckEdition({
+      frontmatter: { ...emptyFrontmatter, alsoDecided: [{ ...base, outcome, epoch }] } as never,
+      body: '## X\n\nNothing to see.',
+      pack,
+    }).filter((f) => f.rule === 'action-row-mismatch');
+
+  it('accepts the ratification as the row outcome', () => expect(check('ratified', 649)).toEqual([]));
+  it('still accepts the pack status itself', () => expect(check('enacted', 649)).toEqual([]));
+  it('rejects an outcome the window never saw', () => expect(check('expired', 649).length).toBe(1));
 });
 
 describe('factCheckEdition on the good fixture', () => {
