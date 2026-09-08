@@ -40,7 +40,7 @@ interface PackActionShape {
   status?: string;
   open?: boolean;
   expiryEpoch?: number | null;
-  eventsInWindow?: Array<{ epoch: number }>;
+  eventsInWindow?: Array<{ epoch: number; kind?: string }>;
   tally?: { drep?: { yesPct?: number | null } };
 }
 
@@ -393,7 +393,13 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
     // An action the pack still lists as running has no outcome yet, whatever its status column says.
     const stillOpen = hit.group === 'closingAtBoundary' || hit.group === 'open' || p.open === true;
     if (stillOpen && r.outcome !== 'open') out.push({ rule: 'action-row-mismatch', message: `${at}: outcome "${r.outcome}" but the pack still lists the action as running` });
-    if (!stillOpen && r.outcome !== p.status) out.push({ rule: 'action-row-mismatch', message: `${at}: outcome "${r.outcome}" is not the pack status "${p.status}"` });
+    // An action ratified inside the window and enacted after it has one true
+    // row: ratified, at the epoch of that event. Its pack status is already the
+    // later one, so holding the row to the status would force an enactment the
+    // window never saw.
+    const ratifiedInWindow = (p.eventsInWindow ?? []).some((e) => e.kind === 'ratified');
+    const outcomeAllowed = r.outcome === p.status || (r.outcome === 'ratified' && ratifiedInWindow);
+    if (!stillOpen && !outcomeAllowed) out.push({ rule: 'action-row-mismatch', message: `${at}: outcome "${r.outcome}" is not the pack status "${p.status}"` });
     // An open row is rendered as a voting close ("undecided at the close of
     // epoch N", "voting ends at the start of epoch N"), so its epoch is the
     // pack's expiry epoch and nothing else. An event epoch inside the window
