@@ -69,6 +69,30 @@ describe('buildWindowPack', () => {
     expect(pack.treasury.totalEnactedAda).toBe(5_000_000);
   });
 
+  it('carries the net change limit period the window falls in, consumed as of the window end', async () => {
+    const payload = (ada: number) => JSON.stringify({ tag: 'TreasuryWithdrawals', contents: [[[{ network: 'Mainnet', credential: { scriptHash: 'aa' } }, ada * 1_000_000]], null] });
+    // Inside the 2026-27 period (epochs 613 to 713), and one enacted after the
+    // window, which a historical pack must not count against the ceiling.
+    await seedAction(ids.withdrawal, 'TreasuryWithdrawals', 'enacted', { submitted: 642, enacted: 648, decided: 648, expiry: 647, payload: payload(100_000_000) });
+    await seedAction(`${W}d#0`, 'TreasuryWithdrawals', 'enacted', { submitted: 648, enacted: 655, decided: 655, expiry: 654, payload: payload(40_000_000) });
+    const pack = await buildWindowPack(env.DB, cfg, 647, 649);
+    const period = pack.ncl.find((p) => p.id === '2026-27');
+    expect(period).toMatchObject({ ceilingAda: 500_000_000, previousCeilingAda: 350_000_000, raisedByAda: 150_000_000, startEpoch: 613, endEpoch: 713, asOfEpoch: 649 });
+    expect(period?.consumedAda).toBe(100_000_000);
+    expect(period?.remainingAda).toBe(400_000_000);
+    expect(period?.withdrawalCount).toBe(1);
+    // The action that set the ceiling is named when it was decided in the window.
+    const defining = 'a75645e0871f3dbb6207df867d9bd6a1a3a5befa40d68df6da651db4d6607fbf#0';
+    expect(period?.definingActionIds).toContain(defining);
+    expect(period?.definedInWindow).toEqual([]);
+    await seedAction(defining, 'InfoAction', 'closed', { submitted: 640, decided: 647, expiry: 647 });
+    const withInfo = await buildWindowPack(env.DB, cfg, 647, 649);
+    expect(withInfo.ncl.find((p) => p.id === '2026-27')?.definedInWindow).toEqual([defining]);
+    // A window below the period does not carry it at all.
+    const older = await buildWindowPack(env.DB, cfg, 600, 602);
+    expect(older.ncl.map((p) => p.id)).not.toContain('2026-27');
+  });
+
   it('treats an unreadable withdrawal payload as a gap, never as zero ada', async () => {
     const payload = JSON.stringify({ tag: 'TreasuryWithdrawals', contents: [[[{ network: 'Mainnet', credential: { scriptHash: 'aa' } }, 5_000_000_000_000]], null] });
     await seedAction(ids.withdrawal, 'TreasuryWithdrawals', 'enacted', { submitted: 642, enacted: 650, decided: 650, expiry: 649, payload });
