@@ -186,6 +186,8 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
   const segments: Segment[] = [
     { label: 'title', text: fm.title },
     { label: 'standfirst', text: fm.standfirst },
+    ...(fm.listTitle ? [{ label: 'listTitle', text: fm.listTitle }] : []),
+    ...(fm.teaser ? [{ label: 'teaser', text: fm.teaser }] : []),
     { label: 'ogFigure label', text: fm.ogFigure.label },
     ...fm.facts.map((f, i) => ({ label: `fact ${i + 1} label`, text: f.label })),
     ...fm.corrections.map((c, i) => ({ label: `correction ${i + 1} note`, text: c.note })),
@@ -315,7 +317,18 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
   // link texts or governance terms. No substring matches: "Evil Yoroi Wallet" is
   // not "Yoroi Wallet". A heuristic over free prose: it finds unknown proper
   // names, it does not prove a known name is used correctly (that is layer 2).
+  // A word an alias takes from its own action's title is a name the article may
+  // then use on its own ("Scalus" out of the full proposal title), in prose and
+  // in a chart label, which a bare title word could not be. The word has to be
+  // in that title: an alias is a short form, never a licence to introduce a
+  // name the record does not carry. Whether the short form is used for the
+  // right action stays layer 2's job, like every other known name.
   const knownRuns = new Set<string>([...GOVERNANCE_TERMS, ...verifiedLinkTexts]);
+  const titleWord = (w: string) => w.replace(/[.,:;!?()"“”]+$/, '').replace(/^[("“]+/, '').replace(/[’']s$/, '');
+  for (const [id, list] of aliasesById) {
+    const words = new Set((titlesById.get(id) ?? '').split(/\s+/).map(titleWord).filter(Boolean));
+    for (const alias of list) for (const w of alias.split(/\s+/).map(titleWord)) if (words.has(w)) knownRuns.add(w);
+  }
   collectStrings(pack, /^(name|title)$/, knownRuns);
   const knownWordLists = [...knownRuns].map((n) => n.split(/\s+/));
   for (const seg of segments) {

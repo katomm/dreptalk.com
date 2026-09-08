@@ -37,3 +37,12 @@ const DATE = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', 
 export function formatWindowDates(from: number, to: number, cfg: NetworkConfig): string {
   return `${DATE.format(new Date(epochStartMs(from, cfg)))} to ${DATE.format(new Date(epochStartMs(to + 1, cfg)))}`;
 }
+
+/** What the index and the homepage teaser show, which is not what the edition
+ *  page shows: a short title and two sentences, never the full standfirst. */
+export function cardTitle(e: Edition): string {
+  return e.data.listTitle ?? e.data.title;
+}
+export function cardTeaser(e: Edition): string {
+  return e.data.teaser ?? e.data.standfirst;
+}
