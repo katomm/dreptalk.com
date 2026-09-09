@@ -106,7 +106,11 @@ export async function prepareInfoActionBodyHash(body: unknown): Promise<InfoActi
     if (!clean) return { status: 400, json: { error: 'empty field after sanitization' } };
     const bodyHash = await canonicalBodyHashFor(clean);
     return { status: 200, json: { bodyHash } };
-  } catch {
+  } catch (err: unknown) {
+    // Canonicalization is the only thing that can throw here, and when it does
+    // the cause (a context the JSON-LD processor rejects, say) is invisible
+    // without this line: the caller only ever sees a generic 500.
+    console.error('[gov-action] prepare: canonical body hash failed', err);
     return { status: 500, json: { error: 'internal error' } };
   }
 }
@@ -174,7 +178,11 @@ export async function handleInfoActionMetadata(
     const { cid } = await pinInfoActionMetadata({ body, anchorHash: hash, jwt: input.jwt, upload: input.upload });
     await putGovActionMetadata(input.db, { hash, cid, body, createdAt: Math.floor(input.now / 1000) });
     return { status: 200, json: { anchorUrl: `ipfs://${cid}`, anchorHash: hash } };
-  } catch {
+  } catch (err: unknown) {
+    // Several unrelated things can fail here (canonicalization, the Pinata
+    // upload, the D1 write), and the user is told none of them on purpose.
+    // Without this line nobody could tell afterwards which one it was.
+    console.error('[gov-action] finalize: hosting the metadata failed', err);
     return { status: 500, json: { error: 'internal error' } };
   }
 }

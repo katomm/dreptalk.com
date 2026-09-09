@@ -47,11 +47,21 @@ export async function gateInfoActionRequest(
   const jwt = env.PINATA_JWT;
   if (!jwt) return jsonResponse({ error: 'ipfs hosting unavailable' }, 503);
 
-  const allowed = await checkRate(rateLimiter, `gov-action-meta:${user.id}`, {
-    max: RATE_MAX,
-    windowSec: RATE_WINDOW_SEC,
-    now: Date.now(),
-  });
+  // The rate limiter is a Durable Object, so this is a network call that can
+  // fail for reasons that have nothing to do with the request. Unguarded it
+  // throws past the route into the generic 500 page, which tells neither the
+  // user nor us anything. Log it and answer with the honest status instead.
+  let allowed: boolean;
+  try {
+    allowed = await checkRate(rateLimiter, `gov-action-meta:${user.id}`, {
+      max: RATE_MAX,
+      windowSec: RATE_WINDOW_SEC,
+      now: Date.now(),
+    });
+  } catch (err: unknown) {
+    console.error('[gov-action] rate limiter unavailable', err);
+    return jsonResponse({ error: 'service unavailable' }, 503);
+  }
   if (!allowed) return jsonResponse({ error: 'rate_limited' }, 429);
 
   return { db, jwt, networkId: net.networkId };
