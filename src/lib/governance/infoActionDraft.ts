@@ -23,6 +23,8 @@ export interface InfoActionDraft {
   signAsAuthor: boolean;
   authorName: string;
   references: { label: string; uri: string }[];
+  /** Raw, unnormalised CIP-179 survey reference as typed. Empty when unset. */
+  surveyRef: string;
 }
 
 /** Per-network draft key, so a preprod draft never collides with (a future) mainnet one. */
@@ -85,6 +87,8 @@ export function loadInfoActionDraft(storage: Pick<Storage, 'getItem'>, key: stri
     signAsAuthor: parsed.signAsAuthor === true,
     authorName: str(parsed.authorName),
     references,
+    // Drafts saved before the survey-link field existed simply have none.
+    surveyRef: str(parsed.surveyRef),
   };
 }
 

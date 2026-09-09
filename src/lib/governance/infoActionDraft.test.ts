@@ -39,6 +39,7 @@ const fullDraft: InfoActionDraft = {
   signAsAuthor: true,
   authorName: 'Jane DRep',
   references: [{ label: 'Forum thread', uri: 'https://example.com/thread' }],
+  surveyRef: '',
 };
 
 describe('infoActionDraftKey', () => {
@@ -104,6 +105,7 @@ describe('loadInfoActionDraft defensive parsing', () => {
       signAsAuthor: false,
       authorName: '',
       references: [],
+      surveyRef: '',
     });
   });
 
@@ -164,5 +166,31 @@ describe('saveInfoActionDraft resilience', () => {
   it('never throws when storage.setItem throws (quota / blocked storage)', () => {
     const storage = makeFakeStorage({ throwOn: 'setItem' });
     expect(() => saveInfoActionDraft(storage, infoActionDraftKey('preprod'), fullDraft)).not.toThrow();
+  });
+});
+
+describe('the survey link is part of the draft', () => {
+  it('round-trips a survey reference', () => {
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v),
+      removeItem: (k: string) => void store.delete(k),
+    };
+    const draft: InfoActionDraft = {
+      title: 't', abstract: 'a', motivation: 'm', rationale: 'r',
+      signAsAuthor: false, authorName: '', references: [],
+      surveyRef: 'ab'.repeat(32) + ':3',
+    };
+    saveInfoActionDraft(storage, 'k', draft);
+    expect(loadInfoActionDraft(storage, 'k')?.surveyRef).toBe(draft.surveyRef);
+  });
+
+  it('loads a draft written before the field existed as having no link', () => {
+    const store = new Map<string, string>([
+      ['k', JSON.stringify({ title: 't', abstract: 'a', motivation: 'm', rationale: 'r', signAsAuthor: false, authorName: '', references: [] })],
+    ]);
+    const storage = { getItem: (k: string) => store.get(k) ?? null };
+    expect(loadInfoActionDraft(storage, 'k')?.surveyRef).toBe('');
   });
 });

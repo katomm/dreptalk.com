@@ -23,6 +23,7 @@ import {
   REFERENCE_URI_MAX,
   REFERENCES_MAX,
 } from '@/lib/governance/infoActionLimits.js';
+import { parseSurveyRefInput } from '@/lib/governance/surveyRef.js';
 import {
   infoActionDraftKey,
   loadInfoActionDraft,
@@ -228,6 +229,7 @@ export default function SubmitInfoAction({ network }: SubmitInfoActionProps) {
   const [signAsAuthor, setSignAsAuthor] = useState(false);
   const [authorName, setAuthorName] = useState('');
   const [references, setReferences] = useState<ReferenceRow[]>([]);
+  const [surveyRef, setSurveyRef] = useState('');
 
   // Draft persistence: restore runs once after mount (no localStorage during
   // SSR); the persist effect stays quiet until then so it can never clobber a
@@ -247,19 +249,20 @@ export default function SubmitInfoAction({ network }: SubmitInfoActionProps) {
       setSignAsAuthor(draft.signAsAuthor);
       setAuthorName(draft.authorName);
       setReferences(draft.references);
+      setSurveyRef(draft.surveyRef);
     }
     draftRestoredRef.current = true;
   }, [draftKey]);
   useEffect(() => {
     if (typeof window === 'undefined' || !draftRestoredRef.current) return;
-    const draft: InfoActionDraft = { title, abstract, motivation, rationale, signAsAuthor, authorName, references };
+    const draft: InfoActionDraft = { title, abstract, motivation, rationale, signAsAuthor, authorName, references, surveyRef };
     // A draft is only worth keeping while it carries some text; an all-blank
     // draft (e.g. right after a clear) should not leave a stale empty entry.
     const isBlank =
-      !title.trim() && !abstract.trim() && !motivation.trim() && !rationale.trim() && !authorName.trim() && references.length === 0;
+      !title.trim() && !abstract.trim() && !motivation.trim() && !rationale.trim() && !authorName.trim() && references.length === 0 && !surveyRef.trim();
     if (isBlank) clearInfoActionDraft(window.localStorage, draftKey);
     else saveInfoActionDraft(window.localStorage, draftKey, draft);
-  }, [draftKey, title, abstract, motivation, rationale, signAsAuthor, authorName, references]);
+  }, [draftKey, title, abstract, motivation, rationale, signAsAuthor, authorName, references, surveyRef]);
 
   // Deposit is informational chain data, independent of wallet connection;
   // load it once on mount so it is ready before the user reaches the form.
@@ -288,6 +291,9 @@ export default function SubmitInfoAction({ network }: SubmitInfoActionProps) {
   }, []);
 
   const busy = phase.status === 'connecting' || phase.status === 'submitting';
+  // Same parser the server uses, so the form can never accept a ref the
+  // server would reject (or the other way round).
+  const surveyRefState = surveyRef.trim() ? parseSurveyRefInput(surveyRef) : null;
 
   // ------------------------------------------------------------------
   // References row editor (optional, like GovTool's reference links).
@@ -378,6 +384,8 @@ export default function SubmitInfoAction({ network }: SubmitInfoActionProps) {
     // Only include the references key when there is at least one, so the served
     // doc stays byte-identical to the no-references case (the builder omits it too).
     const referencesField = referencePayload.length > 0 ? { references: referencePayload } : {};
+    // Sent raw: the server re-parses with the same rules and is authoritative.
+    const surveyField = surveyRef.trim() ? { surveyRef: surveyRef.trim() } : {};
 
     setPhase({ status: 'submitting' });
 
@@ -401,7 +409,7 @@ export default function SubmitInfoAction({ network }: SubmitInfoActionProps) {
         const prepareRes = await fetchWithTimeout(`${window.location.origin}/api/gov-action/metadata/prepare`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ ...fields, ...referencesField }),
+          body: JSON.stringify({ ...fields, ...referencesField, ...surveyField }),
         });
         if (!prepareRes.ok) {
           const body = (await prepareRes.json().catch(() => null)) as { error?: string } | null;
@@ -436,6 +444,7 @@ export default function SubmitInfoAction({ network }: SubmitInfoActionProps) {
           ...fields,
           ...(author ? { author } : {}),
           ...referencesField,
+          ...surveyField,
         }),
       });
       if (!metaRes.ok) {
@@ -683,6 +692,37 @@ export default function SubmitInfoAction({ network }: SubmitInfoActionProps) {
                     </button>
                     <span style={{ fontSize: '0.8125rem', color: 'var(--muted)' }}>You can add up to {REFERENCES_MAX} references.</span>
                   </div>
+                )}
+              </div>
+
+              <div style={{ marginBottom: '1rem' }}>
+                <label htmlFor="ga-survey-ref" style={labelStyle}>Linked CIP-179 survey (optional)</label>
+                <p style={{ margin: '0 0 0.375rem', fontSize: '0.8125rem', color: 'var(--muted)' }}>
+                  Paste the survey reference or a link to it. A survey only gets a thread here once it is
+                  linked by an imported action, so this is how you link one.
+                </p>
+                <input
+                  id="ga-survey-ref"
+                  type="text"
+                  value={surveyRef}
+                  onChange={(e) => setSurveyRef(e.target.value)}
+                  disabled={busy}
+                  placeholder="<transaction id>:<index>"
+                  maxLength={2048}
+                  style={inputStyle}
+                />
+                {surveyRefState && (
+                  <p
+                    style={{
+                      margin: '0.375rem 0 0',
+                      fontSize: '0.8125rem',
+                      color: surveyRefState.ok ? 'var(--muted)' : 'var(--danger, #b3261e)',
+                    }}
+                  >
+                    {surveyRefState.ok
+                      ? `Links survey ${surveyRefState.txId.slice(0, 12)}...:${surveyRefState.index}. We have not checked its end epoch or whether it can be admitted.`
+                      : surveyRefState.reason}
+                  </p>
                 )}
               </div>
 
