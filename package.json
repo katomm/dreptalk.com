@@ -47,7 +47,7 @@
     "@evolution-sdk/evolution": "^0.5.11",
     "@noble/curves": "^2.2.0",
     "@stricahq/cardano-identicon": "^1.0.0",
-    "astro": "^7.1.4",
+    "astro": "^7.3.2",
     "bech32": "^2.0.0",
     "blakejs": "^1.2.1",
     "cardano-tessera-client": "0.2.0",
