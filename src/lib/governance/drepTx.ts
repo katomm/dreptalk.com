@@ -3,27 +3,23 @@
 // Uses EvolutionSDK with our /api/koios proxy to avoid CORS on Koios endpoints.
 
 import {
-  Address, Anchor, Client, Credential, DRep, GovernanceAction, KeyHash, ScriptHash,
-  Transaction, TransactionHash, Url, UTxO, VotingProcedures, mainnet, preprod,
+  Anchor, Client, Credential, DRep, GovernanceAction, KeyHash, ScriptHash,
+  Transaction, TransactionHash, Url, VotingProcedures, mainnet, preprod,
 } from '@evolution-sdk/evolution';
 import { METADATA_LABEL, type Metadatum } from 'cip-179';
 import { toTxMetadatum } from 'cip-179/evolution';
 import { dreptalkCip20Metadatum, DREPTALK_CIP20_LABEL } from '../cardano/tx.js';
 import { hexToBytes } from '../crypto/hex.js';
 import type { CardanoNetwork } from '../config/network.js';
+import {
+  FUNDING_HEADROOM_LOVELACE,
+  collectWalletUtxos,
+  pickInputsToCover,
+  type WalletApi,
+} from './walletUtxos.js';
 
-// WalletApi is not re-exported from the barrel. We define a structurally compatible
-// interface (a strict superset of what we actually call) so callers can pass the
-// raw CIP-30 api object without any cast. The shape mirrors Wallet.WalletApi exactly.
-export interface WalletApi {
-  getUsedAddresses(): Promise<ReadonlyArray<string>>;
-  getUnusedAddresses(): Promise<ReadonlyArray<string>>;
-  getRewardAddresses(): Promise<ReadonlyArray<string>>;
-  getUtxos(): Promise<ReadonlyArray<string>>;
-  signTx(txCborHex: string, partialSign: boolean): Promise<string>;
-  signData(addressHex: string, payload: string | Uint8Array): Promise<{ payload: string | Uint8Array; signature: string }>;
-  submitTx(txCborHex: string): Promise<string>;
-}
+// Re-exported because callers have long imported the CIP-30 shape from here.
+export type { WalletApi } from './walletUtxos.js';
 
 export interface RetireDRepOpts {
   /** CIP-30 wallet API obtained from cardano[walletId].enable(). */
@@ -96,75 +92,6 @@ type DrepTxBuilder = ReturnType<ReturnType<typeof makeClient>['newTx']>;
 // on-chain governance action. Used only to size input selection; the SDK reads
 // the authoritative value from protocol parameters when balancing the tx.
 const DREP_DEPOSIT_LOVELACE = 500_000_000n;
-
-// Headroom over the funded amount to also cover the network fee, the change
-// output's min-UTxO, and small protocol-parameter drift, so input selection
-// never picks a set that is short by a fee's worth.
-const FUNDING_HEADROOM_LOVELACE = 5_000_000n;
-
-/**
- * Collects the connected wallet's UTxOs across all of its addresses, reusing the
- * SDK's own Koios decoding via a read client. Used as the funding universe for
- * input selection and as build({ availableUtxos }).
- */
-async function collectWalletUtxos(
-  network: CardanoNetwork,
-  origin: string,
-  walletApi: WalletApi,
-): Promise<UTxO.UTxO[]> {
-  const reader = Client.make(network === 'mainnet' ? mainnet : preprod).withKoios({
-    baseUrl: `${origin}/api/koios`,
-  });
-
-  const used = await walletApi.getUsedAddresses();
-  const addresses = used.length > 0 ? used : await walletApi.getUnusedAddresses();
-
-  const perAddress = await Promise.all(
-    addresses.map((addressHex) => reader.getUtxos(Address.fromHex(addressHex))),
-  );
-
-  // Dedupe by output reference: an address list is normally disjoint, but guard
-  // against a wallet returning the same address (and thus UTxO) more than once.
-  const byRef = new Map<string, UTxO.UTxO>();
-  for (const utxo of perAddress.flat()) {
-    byRef.set(UTxO.toOutRefString(utxo), utxo);
-  }
-  return [...byRef.values()];
-}
-
-/** Lovelace in a UTxO (0 if absent), as a bigint for exact comparison. */
-function utxoLovelace(utxo: UTxO.UTxO): bigint {
-  return BigInt(utxo.assets?.lovelace ?? 0n);
-}
-
-/**
- * Picks the fewest wallet UTxOs (largest first) whose combined lovelace covers
- * `minLovelace`, falling back to all UTxOs if the wallet cannot reach it.
- *
- * Why this is needed: these flows build certificate-only transactions with no
- * payment output. The SDK's automatic coin selection is driven by outputs, so
- * with none it selects no inputs and reports "Available: 0" even on a funded
- * wallet, regardless of build({ availableUtxos }). We therefore select inputs
- * ourselves and pass them via collectFrom, sizing the set to cover the
- * certificate deposit (if any) plus a fee headroom. Largest-first keeps the
- * input count, and so the tx size, small.
- */
-function pickInputsToCover(utxos: UTxO.UTxO[], minLovelace: bigint): UTxO.UTxO[] {
-  const sorted = [...utxos].sort((a, b) => {
-    const av = utxoLovelace(a);
-    const bv = utxoLovelace(b);
-    return av < bv ? 1 : av > bv ? -1 : 0;
-  });
-
-  const picked: UTxO.UTxO[] = [];
-  let sum = 0n;
-  for (const utxo of sorted) {
-    picked.push(utxo);
-    sum += utxoLovelace(utxo);
-    if (sum >= minLovelace) return picked;
-  }
-  return sorted;
-}
 
 /**
  * Shared tail of every flow here: serialize the built tx, have the wallet
