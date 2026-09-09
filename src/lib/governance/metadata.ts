@@ -23,6 +23,12 @@ import { renderMarkdown } from '../markdown.js';
 import { isCardanoPaymentAddress } from '../cardano/identity.js';
 import { selfHostedRef, readSelfHostedBody } from './selfHostedDocs.js';
 import { dedupeLinks, type DocumentLink } from './documentLinks.js';
+import {
+  REFERENCE_LABEL_MAX,
+  REFERENCE_URI_MAX,
+  REFERENCES_READ_MAX,
+  type Cip108ReferenceLink,
+} from './infoActionLimits.js';
 
 // Upper bound on the anchor document we download and hash-verify. Real mainnet
 // CIP-108 proposals reach ~1.2MB because the rationale can embed long markdown
@@ -67,14 +73,14 @@ const MAX_RATIONALE_LEN = 100_000;
 // and 10 entries covers the largest real co-signed action (5).
 const MAX_AUTHOR_NAME_LEN = 80;
 const MAX_AUTHORS = 10;
-// CIP-108 body.references: the proposer's own supporting links. Foreign
-// documents (GovTool submissions) routinely carry more than our own submit cap
-// of 10, so the read side admits 20 before truncating. The URI cap matches the
-// profile-link cap; the label cap is looser than a profile link's because
-// proposal references are often a sentence-long citation rather than a name.
-const MAX_REFERENCE_LABEL_LEN = 200;
-const MAX_REFERENCE_URI_LEN = 2_048;
-const MAX_REFERENCES = 20;
+// CIP-108 body.references caps. The label and URI caps are the same constants
+// the submit path enforces, imported rather than restated so raising one side
+// cannot silently truncate our own documents on the way back in. Only the count
+// differs, and deliberately: see REFERENCES_READ_MAX.
+export const MAX_REFERENCES = REFERENCES_READ_MAX;
+// A document may list thousands of entries; scanning a bounded slice of them is
+// enough to fill the cap with distinct links without walking a 2MB array.
+const MAX_REFERENCE_SCAN = MAX_REFERENCES * 10;
 
 const IPFS_GATEWAY = 'https://ipfs.io/ipfs/';
 
@@ -86,10 +92,7 @@ const IPFS_GATEWAY = 'https://ipfs.io/ipfs/';
  * deliberately neither read nor stored: we do not fetch these links, so a hash we
  * never verify would only look like an assurance.
  */
-export interface AnchorReference {
-  label: string;
-  uri: string;
-}
+export type AnchorReference = Cip108ReferenceLink;
 
 export interface AnchorMetadata {
   title: string | null;
@@ -280,28 +283,30 @@ export function readReferenceList(raw: unknown, policy: ReferenceListPolicy): Do
 /**
  * Reads CIP-108 `body.references` down to the label/uri pairs we display.
  *
- * Every field here is untrusted chain input, so: the URI must parse and use a
- * scheme we can actually link (`resolveAnchorUrl` is the same allowlist the
- * anchor fetch uses, http(s) and ipfs), entries without one are dropped rather
- * than rendered as dead text, and the list is truncated at MAX_REFERENCES. The
- * raw URI is stored, not the gateway form, so the display can decide how to
- * resolve an ipfs:// link later without a re-extract.
+ * `resolveAnchorUrl` doubles as the validity test on purpose: it is the same
+ * allowlist the anchor fetch itself uses, so the card can never be handed a URI
+ * the resolver would later refuse. What is stored is the RAW uri, not the
+ * gateway form, so changing how an ipfs:// link is resolved stays a display
+ * decision and needs no re-extract. An over-long URI is dropped rather than
+ * truncated: a sliced URL still renders, it just points somewhere else.
  */
 function extractReferences(raw: unknown): AnchorReference[] | null {
   if (!Array.isArray(raw)) return null;
-  const refs: AnchorReference[] = [];
-  for (const entry of raw) {
-    if (refs.length === MAX_REFERENCES) break;
+  const found: AnchorReference[] = [];
+  for (const entry of raw.slice(0, MAX_REFERENCE_SCAN)) {
     const item = asRecord(entry);
     // CIP-108 names the field `uri`; tolerate `url` as CIP-119 profiles do.
     const rawUri = (jsonLdString(item.uri) || jsonLdString(item.url)).trim();
-    if (!rawUri || rawUri.length > MAX_REFERENCE_URI_LEN) continue;
+    if (!rawUri || rawUri.length > REFERENCE_URI_MAX) continue;
     if (!resolveAnchorUrl(rawUri)) continue;
     // An explicit empty label is kept: the card falls back to showing the URI,
     // which is honest, where a made-up label would not be.
     const rawLabel = jsonLdStringOrNull(item.label) ?? jsonLdString(item.name);
-    refs.push({ label: sanitizeExternalText(rawLabel, MAX_REFERENCE_LABEL_LEN), uri: rawUri });
+    found.push({ label: sanitizeExternalText(rawLabel, REFERENCE_LABEL_MAX), uri: rawUri });
   }
+  // Dedupe before the cap, so a document that lists one link twenty times
+  // cannot crowd the distinct ones out of the card.
+  const refs = dedupeLinks(found).slice(0, MAX_REFERENCES);
   return refs.length ? refs : null;
 }
 

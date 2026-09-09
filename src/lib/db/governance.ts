@@ -8,6 +8,10 @@ import type { GovSort, GovStatus } from '../governance/sort.js';
 import type { ProposalListRow } from '../koios/client.js';
 import { liveVoteSql } from './drepVotes.js';
 import type { AnchorReference } from '../governance/metadata.js';
+// The read cap comes from the leaf limits module, not from metadata.js: a value
+// import of that module would pull the markdown renderer and blake2b into every
+// page that touches governance data, for one number.
+import { REFERENCES_READ_MAX } from '../governance/infoActionLimits.js';
 
 /** Returns the set of governance-action ids already stored, for the sync diff. */
 export async function getKnownActionIds(db: D1Database): Promise<Set<string>> {
@@ -290,12 +294,10 @@ function parseAuthors(raw: string | null): string[] | null {
 }
 
 /**
- * Parses the stored references JSON back into label/uri pairs. Written by the
- * extractor, but read defensively all the same: a row that predates the column,
- * or one written by a future shape, degrades to null instead of throwing in the
- * middle of a page render. Entries without a usable uri are dropped and the list
- * is re-capped, so a row that somehow bypassed the extractor's own limit cannot
- * make the sidebar card unbounded.
+ * Parses the stored references JSON back into label/uri pairs. The column is
+ * opaque TEXT, so this degrades to null rather than throwing in the middle of a
+ * page render, and re-applies the cap the extractor used in case a row was ever
+ * written by something else.
  */
 function parseReferences(raw: string | null): AnchorReference[] | null {
   if (!raw) return null;
@@ -304,7 +306,7 @@ function parseReferences(raw: string | null): AnchorReference[] | null {
     if (!Array.isArray(v)) return null;
     const refs: AnchorReference[] = [];
     for (const entry of v) {
-      if (refs.length === 20) break;
+      if (refs.length === REFERENCES_READ_MAX) break;
       if (!entry || typeof entry !== 'object') continue;
       const { label, uri } = entry as { label?: unknown; uri?: unknown };
       if (typeof uri !== 'string' || uri.length === 0) continue;

@@ -5,6 +5,7 @@ import jsonld from 'jsonld';
 import type { JsonLdDocument, Options } from 'jsonld';
 import { blake2b256 } from '../crypto/blake.js';
 import { bytesToHex } from '../crypto/hex.js';
+import type { Cip108ReferenceLink } from './infoActionLimits.js';
 
 // The @types/jsonld community typings model `canonize` as an overloaded
 // callback-or-promise function, and TypeScript resolves the mixed overload
@@ -20,10 +21,8 @@ const canonize = jsonld.canonize as (
 // A GovTool-style reference link. `referenceHash` (an optional
 // {hashAlgorithm, hashDigest} proving the linked document's content) is part
 // of the CIP-108 spec but we do not collect it, so it is omitted here.
-export interface Cip108Reference {
+export interface Cip108Reference extends Cip108ReferenceLink {
   '@type': 'Other';
-  label: string;
-  uri: string;
 }
 
 /**

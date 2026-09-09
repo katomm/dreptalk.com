@@ -408,6 +408,45 @@ describe('fetchAnchorMetadata', () => {
     expect(res.metadata?.references?.[19]?.uri).toBe('https://example.org/19');
   });
 
+  it('collapses repeated uris before the cap, so duplicates cannot crowd out distinct links', async () => {
+    const json = jsonOf({
+      '@context': {},
+      body: {
+        title: 'T',
+        references: [
+          // The same link twenty times, then one distinct entry. Without a dedupe
+          // the repeats would fill the cap and hide the last one entirely.
+          ...Array.from({ length: 20 }, () => ({ label: '', uri: 'https://example.org/same' })),
+          { label: 'Distinct', uri: 'https://example.org/other' },
+        ],
+      },
+    });
+    const res = await fetchAnchorMetadata('https://example.com/a.json', hashOf(json), {
+      fetchImpl: async () => resp(json),
+    });
+    expect(res.metadata?.references).toEqual([
+      { label: '', uri: 'https://example.org/same' },
+      { label: 'Distinct', uri: 'https://example.org/other' },
+    ]);
+  });
+
+  it('lets a later duplicate supply the label an earlier unlabelled entry lacked', async () => {
+    const json = jsonOf({
+      '@context': {},
+      body: {
+        title: 'T',
+        references: [
+          { uri: 'https://example.org/paper' },
+          { label: 'The paper', uri: 'https://example.org/paper' },
+        ],
+      },
+    });
+    const res = await fetchAnchorMetadata('https://example.com/a.json', hashOf(json), {
+      fetchImpl: async () => resp(json),
+    });
+    expect(res.metadata?.references).toEqual([{ label: 'The paper', uri: 'https://example.org/paper' }]);
+  });
+
   it('drops a uri longer than the 2048 cap instead of storing a truncated link', async () => {
     const json = jsonOf({
       '@context': {},

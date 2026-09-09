@@ -14,22 +14,14 @@ interface Props {
 
 const { references } = Astro.props;
 
-// resolveAnchorUrl re-applies the scheme allowlist at render time (and maps
-// ipfs:// to the gateway), so a row that predates the extractor's check, or one
-// written by an older shape, still cannot emit a javascript: href.
-const links = (references ?? [])
-  .map((r) => {
-    const href = resolveAnchorUrl(r.uri);
-    if (!href) return null;
-    let host = '';
-    try {
-      host = new URL(href).host;
-    } catch {
-      host = '';
-    }
-    return { href, host, label: r.label || r.uri };
-  })
-  .filter((l): l is { href: string; host: string; label: string } => l !== null);
+// Stored uris are the raw form, so ipfs:// has to be resolved to a gateway href
+// here. That the resolver also refuses anything outside its scheme allowlist is
+// what keeps a row written by something other than the extractor from emitting a
+// javascript: href. An unresolvable uri is dropped rather than shown as dead text.
+const links = (references ?? []).flatMap((r) => {
+  const href = resolveAnchorUrl(r.uri);
+  return href ? [{ href, host: new URL(href).host, label: r.label || r.uri }] : [];
+});
 ---
 
 {links.length > 0 && (
@@ -39,7 +31,7 @@ const links = (references ?? [])
       {links.map((l) => (
         <li class="refs__item">
           <a class="refs__link" href={l.href} target="_blank" rel="noopener noreferrer nofollow">{l.label}</a>
-          {l.host && <span class="refs__host">{l.host}</span>}
+          <span class="refs__host">{l.host}</span>
         </li>
       ))}
     </ul>
