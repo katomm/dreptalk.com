@@ -323,6 +323,20 @@ export async function setVoteMetaHash(db: D1Database, gaId: string, voterId: str
 }
 
 /**
+ * Votes confirmed by the authoritative chain sync, i.e. everything except a
+ * still-optimistic local vote. Stricter than liveVoteSql, which also shows
+ * pending votes: that is right for a read the voter can see change again, and
+ * wrong for anything permanent. The badge engine uses this, because an
+ * achievement is written once and never taken back, so it must not rest on a
+ * vote that may still turn out to have failed. A pending vote earns its badges
+ * on the first cron run after it confirms, at most an hour later.
+ */
+export function confirmedVoteSql(alias = ''): string {
+  const a = alias ? `${alias}.` : '';
+  return `${a}local_status IS NULL`;
+}
+
+/**
  * SQL predicate for votes that count publicly: synced on-chain rows
  * (local_status NULL) plus optimistic local rows still pending, excluding the
  * ones markStalePendingVotesFailed flagged as never confirmed. One source for

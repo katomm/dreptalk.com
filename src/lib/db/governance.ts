@@ -179,6 +179,13 @@ export interface GovernanceAction {
   tallyEpoch: number | null;
   tallySyncedAt: number | null;
   decidedEpoch: number | null;
+  /**
+   * Epoch the action was ratified in (migration 0093). Unlike decidedEpoch this
+   * survives the move to 'enacted', so anything keyed to the moment the tally
+   * froze must read this. Null for actions that never ratified, and for rows
+   * last synced before 0093.
+   */
+  ratifiedEpoch: number | null;
   /** Frozen per-body threshold snapshot JSON (see thresholds.ts), or null before the first tally. */
   thresholdsJson: string | null;
   /** Epoch the threshold snapshot was evaluated for; null before the first tally. */
@@ -243,6 +250,7 @@ interface GovernanceActionRow {
   tally_epoch: number | null;
   tally_synced_at: number | null;
   decided_epoch: number | null;
+  ratified_epoch: number | null;
   thresholds_json: string | null;
   thresholds_epoch: number | null;
   meta_version: number;
@@ -326,6 +334,7 @@ function rowToGovernanceAction(r: GovernanceActionRow): GovernanceAction {
     tallyEpoch: r.tally_epoch,
     tallySyncedAt: r.tally_synced_at,
     decidedEpoch: r.decided_epoch,
+    ratifiedEpoch: r.ratified_epoch,
     thresholdsJson: r.thresholds_json,
     thresholdsEpoch: r.thresholds_epoch,
     metaVersion: r.meta_version,
@@ -1117,6 +1126,7 @@ export interface CompareAction {
   submittedEpoch: number | null;
   expiryEpoch: number | null;
   decidedEpoch: number | null;
+  ratifiedEpoch: number | null;
   drepYesPct: number | null;
   spoYesPct: number | null;
   ccYesPct: number | null;
@@ -1130,7 +1140,7 @@ export interface CompareAction {
 export async function getCompareActionBySlug(db: D1Database, slug: string): Promise<CompareAction | null> {
   const r = await db
     .prepare(
-      `SELECT g.id, g.title, g.type, g.submitted_epoch, g.expiry_epoch, g.decided_epoch,
+      `SELECT g.id, g.title, g.type, g.submitted_epoch, g.expiry_epoch, g.decided_epoch, g.ratified_epoch,
               g.drep_yes_pct, g.spo_yes_pct, g.cc_yes_pct, t.slug AS topic_slug
        FROM governance_actions g
        JOIN topics t ON t.id = g.topic_id
@@ -1145,6 +1155,7 @@ export async function getCompareActionBySlug(db: D1Database, slug: string): Prom
       submitted_epoch: number | null;
       expiry_epoch: number | null;
       decided_epoch: number | null;
+      ratified_epoch: number | null;
       drep_yes_pct: number | null;
       spo_yes_pct: number | null;
       cc_yes_pct: number | null;
@@ -1159,6 +1170,7 @@ export async function getCompareActionBySlug(db: D1Database, slug: string): Prom
     submittedEpoch: r.submitted_epoch,
     expiryEpoch: r.expiry_epoch,
     decidedEpoch: r.decided_epoch,
+    ratifiedEpoch: r.ratified_epoch,
     drepYesPct: r.drep_yes_pct,
     spoYesPct: r.spo_yes_pct,
     ccYesPct: r.cc_yes_pct,

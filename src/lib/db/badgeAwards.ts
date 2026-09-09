@@ -2,6 +2,8 @@
 // Parameterized D1 access for badge_awards. Awards are permanent and monotonic:
 // rows are only ever inserted or upgraded to a higher tier, never removed.
 
+import { confirmedVoteSql } from './drepVotes.js';
+
 export type BadgeSubjectType = 'drep' | 'spo' | 'cc' | 'proposer' | 'user';
 
 export interface BadgeAward {
@@ -97,7 +99,7 @@ export async function loadBadgeCounters(db: D1Database, drepId: string, userId: 
     db
       .prepare(
         `SELECT COUNT(*) AS n, SUM(CASE WHEN meta_url IS NOT NULL AND meta_url != '' THEN 1 ELSE 0 END) AS r
-         FROM drep_votes WHERE voter_id = ? AND voter_role = 'DRep'`,
+         FROM drep_votes WHERE voter_id = ? AND voter_role = 'DRep' AND ${confirmedVoteSql()}`,
       )
       .bind(drepId)
       .first<{ n: number; r: number | null }>(),
@@ -105,7 +107,7 @@ export async function loadBadgeCounters(db: D1Database, drepId: string, userId: 
       .prepare(
         `SELECT COUNT(DISTINCT g.type) AS n FROM drep_votes v
          JOIN governance_actions g ON g.id = v.ga_id
-         WHERE v.voter_id = ? AND v.voter_role = 'DRep'`,
+         WHERE v.voter_id = ? AND v.voter_role = 'DRep' AND ${confirmedVoteSql('v')}`,
       )
       .bind(drepId)
       .first<{ n: number }>(),
@@ -117,6 +119,7 @@ export async function loadBadgeCounters(db: D1Database, drepId: string, userId: 
              FROM posts p
              JOIN governance_actions g ON g.topic_id = p.topic_id
              JOIN drep_votes v ON v.ga_id = g.id AND v.voter_id = ?1 AND v.voter_role = 'DRep'
+               AND ${confirmedVoteSql('v')}
              WHERE p.author_id = ?2 AND ${countablePostSql('p')}
              GROUP BY g.id, v.block_time`,
           )

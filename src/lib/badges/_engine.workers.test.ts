@@ -63,14 +63,23 @@ async function seedAction(
 async function seedVote(
   gaId: string,
   voterId: string,
-  extra: Partial<{ role: string; vote: string; meta_url: string; block_time: number }> = {},
+  extra: Partial<{ role: string; vote: string; meta_url: string; block_time: number; local_status: string }> = {},
 ) {
   await env.DB
     .prepare(
-      `INSERT INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, meta_url, block_time, synced_at)
-       VALUES (?, ?, ?, NULL, ?, ?, ?, ?)`,
+      `INSERT INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, meta_url, block_time, synced_at, local_status)
+       VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?)`,
     )
-    .bind(gaId, extra.role ?? 'DRep', voterId, extra.vote ?? 'Yes', extra.meta_url ?? null, extra.block_time ?? null, NOW)
+    .bind(
+      gaId,
+      extra.role ?? 'DRep',
+      voterId,
+      extra.vote ?? 'Yes',
+      extra.meta_url ?? null,
+      extra.block_time ?? null,
+      NOW,
+      extra.local_status ?? null,
+    )
     .run();
 }
 
@@ -217,6 +226,80 @@ describe('badge engine', () => {
     expect((await awardsOf('drep', 'drep1')).get('active-voice')?.tier).toBe(2);
   });
 
+  // A vote whose transaction never reached the chain is kept as local_status
+  // 'failed' for the voter's own panel and audit, and every public read hides it.
+  // The badge engine goes one step further and counts confirmed votes only, so
+  // no permanent award can ever rest on a vote that did not happen.
+  it('ignores unconfirmed local votes across every vote-derived badge', async () => {
+    const types = ['InfoAction', 'NewConstitution', 'HardForkInitiation', 'NoConfidence', 'TreasuryWithdrawals', 'ParameterChange', 'NewCommittee'];
+    for (let i = 0; i < 12; i++) {
+      await seedAction(`ga-${i}`, {
+        type: types[i % types.length],
+        status: 'enacted',
+        submitted_epoch: 700 + i,
+        expiry_epoch: 700 + i,
+        decided_epoch: 700 + i,
+        drep_no_pct: 95,
+      });
+      await seedVote(`ga-${i}`, 'drep-failed', {
+        meta_url: `https://r/${i}`,
+        block_time: epochStartUnix(700 + i, cfg) + 60,
+        local_status: 'failed',
+      });
+    }
+    await run();
+
+    const awards = await awardsOf('drep', 'drep-failed');
+    expect([...awards.keys()]).toEqual([]);
+  });
+
+  // Awards are permanent, so none may rest on a vote that might still fail. A
+  // pending vote earns nothing until the chain sync confirms it, at which point
+  // the next hourly run picks it up.
+  it('waits for a pending local vote to confirm before awarding', async () => {
+    await seedAction('ga-p');
+    await seedVote('ga-p', 'drep-pending', { local_status: 'pending' });
+    await run();
+    expect((await awardsOf('drep', 'drep-pending')).has('first-vote')).toBe(false);
+
+    await env.DB.prepare("UPDATE drep_votes SET local_status = NULL WHERE ga_id = 'ga-p'").run();
+    await run();
+    expect((await awardsOf('drep', 'drep-pending')).has('first-vote')).toBe(true);
+  });
+
+  it('never awards from a vote that failed', async () => {
+    await seedAction('ga-f');
+    await seedVote('ga-f', 'drep-failedonly', { local_status: 'pending' });
+    await env.DB.prepare("UPDATE drep_votes SET local_status = 'failed' WHERE ga_id = 'ga-f'").run();
+    await run();
+    expect((await awardsOf('drep', 'drep-failedonly')).has('first-vote')).toBe(false);
+  });
+
+  // Registry badges read the dreps table, not drep_votes, so the confirmed-only
+  // vote filter must not hold them back.
+  it('awards registry badges independently of an excluded failed vote', async () => {
+    await seedDrep('drep-mixed', { registered_epoch: 510, name: 'N', bio: 'B', image_url: 'https://i/x', links: '["https://l"]' });
+    await seedAction('ga-m');
+    await seedVote('ga-m', 'drep-mixed', { local_status: 'failed' });
+    await run();
+
+    const awards = await awardsOf('drep', 'drep-mixed');
+    expect(awards.has('identified')).toBe(true);
+    expect(awards.has('genesis-drep')).toBe(true);
+    expect(awards.has('first-vote')).toBe(false);
+  });
+
+  // A failed vote that pushed a tiered badge over a threshold must cost exactly
+  // that step, not the whole badge: 50 votes of which one failed still earn bronze.
+  // A crossover badge also depends on forum posts, and a deleted post must stay
+  // harmless under the monotonic rule. An unrelated failed vote must not turn
+  // that into a revocation.
+  // Codex round 2: an earned untiered badge must survive an unrelated failed
+  // vote. Absent from the desired map and sitting at tier 0 look identical if
+  // the lookup does not distinguish them.
+  // Codex round 2: shows-the-work drops when a re-vote loses its rationale
+  // anchor. That is not a failed vote's doing, so an unrelated failed vote must
+  // not turn it into a downgrade.
   it('awards type coverage and event badges per role', async () => {
     const types = [
       'InfoAction',

@@ -8,7 +8,7 @@ const midEpoch = (e: number) => epochStartUnix(e, cfg) + 3600;
 const startEpoch = (e: number) => epochStartUnix(e, cfg);
 
 describe('lateVoterIds', () => {
-  const ratified = { status: 'ratified', decidedEpoch: 640 };
+  const ratified = { status: 'ratified', decidedEpoch: 640, ratifiedEpoch: 640 };
 
   it('flags votes cast in or after the ratification epoch', () => {
     const voters = [
@@ -29,10 +29,36 @@ describe('lateVoterIds', () => {
     expect(late.size).toBe(0);
   });
 
-  it('returns empty for non-ratified actions (avoids misclassifying enacted)', () => {
+  it('falls back to decided_epoch only while ratified, never for enacted', () => {
     const voters = [{ voter_id: 'late', block_time: midEpoch(645) }];
-    expect(lateVoterIds(voters, { status: 'enacted', decidedEpoch: 640 }, 'mainnet').size).toBe(0);
-    expect(lateVoterIds(voters, { status: 'expired', decidedEpoch: 640 }, 'mainnet').size).toBe(0);
-    expect(lateVoterIds(voters, { status: 'active', decidedEpoch: null }, 'mainnet').size).toBe(0);
+    expect(lateVoterIds(voters, { status: 'enacted', decidedEpoch: 640, ratifiedEpoch: null }, 'mainnet').size).toBe(0);
+    expect(lateVoterIds(voters, { status: 'expired', decidedEpoch: 640, ratifiedEpoch: null }, 'mainnet').size).toBe(0);
+    expect(lateVoterIds(voters, { status: 'active', decidedEpoch: null, ratifiedEpoch: null }, 'mainnet').size).toBe(0);
+  });
+
+  // Migration 0093 records the ratification epoch separately, so an action that
+  // moved on to 'enacted' still knows when its tally froze. The same vote must
+  // keep its marker across that transition.
+  it('keeps the same verdict across ratified -> enacted when ratified_epoch is known', () => {
+    const voters = [
+      { voter_id: 'onTime', block_time: midEpoch(639) },
+      { voter_id: 'late', block_time: midEpoch(640) },
+    ];
+    const asRatified = lateVoterIds(voters, { status: 'ratified', decidedEpoch: 640, ratifiedEpoch: 640 }, 'mainnet');
+    // decided_epoch has moved on to the enacted epoch, ratified_epoch has not.
+    const asEnacted = lateVoterIds(voters, { status: 'enacted', decidedEpoch: 642, ratifiedEpoch: 640 }, 'mainnet');
+    expect([...asEnacted]).toEqual([...asRatified]);
+    expect(asEnacted.has('late')).toBe(true);
+    expect(asEnacted.has('onTime')).toBe(false);
+  });
+
+  it('prefers ratified_epoch over decided_epoch while still ratified', () => {
+    const voters = [{ voter_id: 'v', block_time: midEpoch(641) }];
+    expect(lateVoterIds(voters, { status: 'ratified', decidedEpoch: 645, ratifiedEpoch: 642 }, 'mainnet').size).toBe(0);
+  });
+
+  it('marks nothing for a terminal action that was never ratified', () => {
+    const voters = [{ voter_id: 'v', block_time: midEpoch(645) }];
+    expect(lateVoterIds(voters, { status: 'expired', decidedEpoch: 640, ratifiedEpoch: null }, 'mainnet').size).toBe(0);
   });
 });
