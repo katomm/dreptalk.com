@@ -28,12 +28,14 @@ const helpDir = path.join(root, 'public/help');
 const WEBP_QUALITY = 88;
 
 // PNG palette settings for the OG copies. These illustrations are flat violet
-// line art, so 128 colours hold every tone they actually use and dithering only
-// adds noise the encoder then has to store: the output is a third to a half the
-// size of the 256-colour default and indistinguishable at the 272px the card
-// draws them. Pinned explicitly so the script reproduces the same bytes rather
-// than following whatever the encoder's defaults happen to be.
-const PNG_PALETTE = { compressionLevel: 9, palette: true, colours: 128, dither: 0 };
+// line art, so a small palette holds every tone they actually use and dithering
+// only adds noise the encoder then has to store: the output is a fraction of the
+// full-colour default and indistinguishable at the 272px the card draws them.
+// `quality` is what drives the quantiser in libvips 8.18. The older `colours`
+// key is ignored there, and relying on it tripled the size of every OG png when
+// sharp was bumped, so it is pinned explicitly and the script reproduces the
+// same bytes rather than following the encoder's defaults.
+const PNG_PALETTE = { compressionLevel: 9, palette: true, quality: 40, dither: 0 };
 
 const renditions = [
   { dir: helpDir, size: 360, ext: 'webp' },
