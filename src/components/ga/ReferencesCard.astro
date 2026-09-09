@@ -1,0 +1,92 @@
+---
+// Sidebar card: the supporting links the proposer put in the action's CIP-108
+// metadata document (body.references). These are the proposer's own claims, not
+// anything DRepTalk fetched, checked or endorses: the URIs come straight off
+// chain, so they get the untrusted-link treatment (nofollow, noopener,
+// noreferrer, new tab) and the visible host is shown so a reader can see where
+// a link actually goes before clicking it.
+import { resolveAnchorUrl, type AnchorReference } from '@/lib/governance/metadata.js';
+
+interface Props {
+  /** Supporting links from the anchor document, or null. */
+  references: AnchorReference[] | null;
+}
+
+const { references } = Astro.props;
+
+// resolveAnchorUrl re-applies the scheme allowlist at render time (and maps
+// ipfs:// to the gateway), so a row that predates the extractor's check, or one
+// written by an older shape, still cannot emit a javascript: href.
+const links = (references ?? [])
+  .map((r) => {
+    const href = resolveAnchorUrl(r.uri);
+    if (!href) return null;
+    let host = '';
+    try {
+      host = new URL(href).host;
+    } catch {
+      host = '';
+    }
+    return { href, host, label: r.label || r.uri };
+  })
+  .filter((l): l is { href: string; host: string; label: string } => l !== null);
+---
+
+{links.length > 0 && (
+  <div class="sidebar-card">
+    <p class="sidebar-card__title">References</p>
+    <ul class="refs">
+      {links.map((l) => (
+        <li class="refs__item">
+          <a class="refs__link" href={l.href} target="_blank" rel="noopener noreferrer nofollow">{l.label}</a>
+          {l.host && <span class="refs__host">{l.host}</span>}
+        </li>
+      ))}
+    </ul>
+    <p class="refs__hint">Linked in the action metadata document. Not checked by DRepTalk.</p>
+  </div>
+)}
+
+<style>
+  .sidebar-card {
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 0.875rem 1rem;
+    background: var(--surface);
+  }
+  .sidebar-card__title {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin: 0 0 0.625rem;
+  }
+  .refs {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+  }
+  .refs__item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+  }
+  .refs__link {
+    font-size: 0.9rem;
+    color: var(--accent);
+    text-decoration: none;
+    overflow-wrap: anywhere;
+  }
+  .refs__link:hover { text-decoration: underline; }
+  .refs__host {
+    font-size: 0.72rem;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+  .refs__hint { font-size: 0.72rem; color: var(--muted); margin: 0.55rem 0 0; }
+</style>

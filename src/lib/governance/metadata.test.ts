@@ -333,6 +333,106 @@ describe('fetchAnchorMetadata', () => {
     expect(res.metadata?.authors).toHaveLength(10);
     for (const n of res.metadata?.authors ?? []) expect(n.length).toBeLessThanOrEqual(80);
   });
+
+  it('extracts body.references as label/uri pairs, keeping http(s) and ipfs', async () => {
+    const json = jsonOf({
+      '@context': {},
+      body: {
+        title: 'T',
+        references: [
+          { '@type': 'Other', label: 'The forum thread', uri: 'https://forum.cardano.org/t/1' },
+          { '@type': 'Other', label: { '@value': 'The draft' }, uri: 'ipfs://QmDraftCid' },
+        ],
+      },
+    });
+    const res = await fetchAnchorMetadata('https://example.com/a.json', hashOf(json), {
+      fetchImpl: async () => resp(json),
+    });
+    // The raw uri is stored, not the gateway form: resolving is a display decision.
+    expect(res.metadata?.references).toEqual([
+      { label: 'The forum thread', uri: 'https://forum.cardano.org/t/1' },
+      { label: 'The draft', uri: 'ipfs://QmDraftCid' },
+    ]);
+  });
+
+  it('drops references we could never link and keeps the ones around them', async () => {
+    const json = jsonOf({
+      '@context': {},
+      body: {
+        title: 'T',
+        references: [
+          { label: 'script', uri: 'javascript:alert(1)' },
+          { label: 'data', uri: 'data:text/html,<b>x</b>' },
+          { label: 'mail', uri: 'mailto:someone@example.com' },
+          { label: 'not a url at all', uri: 'see the appendix' },
+          { label: 'no uri' },
+          'not an object',
+          { label: 'kept', uri: 'https://example.org/paper.pdf' },
+        ],
+      },
+    });
+    const res = await fetchAnchorMetadata('https://example.com/a.json', hashOf(json), {
+      fetchImpl: async () => resp(json),
+    });
+    expect(res.metadata?.references).toEqual([{ label: 'kept', uri: 'https://example.org/paper.pdf' }]);
+  });
+
+  it('keeps an empty label rather than inventing one, and reads the url alias', async () => {
+    const json = jsonOf({
+      '@context': {},
+      body: { title: 'T', references: [{ '@type': 'Other', url: 'https://example.org/x' }] },
+    });
+    const res = await fetchAnchorMetadata('https://example.com/a.json', hashOf(json), {
+      fetchImpl: async () => resp(json),
+    });
+    expect(res.metadata?.references).toEqual([{ label: '', uri: 'https://example.org/x' }]);
+  });
+
+  it('caps the label at 200 and the list at 20', async () => {
+    const json = jsonOf({
+      '@context': {},
+      body: {
+        title: 'T',
+        references: Array.from({ length: 25 }, (_, i) => ({
+          label: `${'y'.repeat(400)}${i}`,
+          uri: `https://example.org/${i}`,
+        })),
+      },
+    });
+    const res = await fetchAnchorMetadata('https://example.com/a.json', hashOf(json), {
+      fetchImpl: async () => resp(json),
+    });
+    expect(res.metadata?.references).toHaveLength(20);
+    for (const r of res.metadata?.references ?? []) expect(r.label.length).toBeLessThanOrEqual(200);
+    // Truncation keeps document order, so the 20th entry is index 19.
+    expect(res.metadata?.references?.[19]?.uri).toBe('https://example.org/19');
+  });
+
+  it('drops a uri longer than the 2048 cap instead of storing a truncated link', async () => {
+    const json = jsonOf({
+      '@context': {},
+      body: { title: 'T', references: [{ label: 'huge', uri: `https://example.org/${'p'.repeat(2100)}` }] },
+    });
+    const res = await fetchAnchorMetadata('https://example.com/a.json', hashOf(json), {
+      fetchImpl: async () => resp(json),
+    });
+    expect(res.metadata?.references).toBeNull();
+  });
+
+  it('returns null references for an absent, empty or non-array field', async () => {
+    const cases = [
+      { '@context': {}, body: { title: 'T' } },
+      { '@context': {}, body: { title: 'T', references: [] } },
+      { '@context': {}, body: { title: 'T', references: 'https://example.org/x' } },
+    ];
+    for (const c of cases) {
+      const json = jsonOf(c);
+      const res = await fetchAnchorMetadata('https://example.com/a.json', hashOf(json), {
+        fetchImpl: async () => resp(json),
+      });
+      expect(res.metadata?.references).toBeNull();
+    }
+  });
 });
 
 // The two policies the shared reader actually serves. Restated here (the caps

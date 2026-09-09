@@ -41,8 +41,10 @@ export const ANCHOR_FETCH_TIMEOUT_MS = 8_000;
  * motivation + rationale (instead of dropping motivation) and the abstract/rationale
  * caps were raised, so every existing row re-renders with the full body.
  * Bumped to 4 when the extractor started reading the top-level authors array.
+ * Bumped to 5 when it started reading body.references, so existing rows pick up
+ * the proposer's own supporting links without a manual backfill.
  */
-export const META_EXTRACT_VERSION = 4;
+export const META_EXTRACT_VERSION = 5;
 
 /**
  * How many times the metadata backfill may fail to fetch or verify an action's
@@ -65,8 +67,29 @@ const MAX_RATIONALE_LEN = 100_000;
 // and 10 entries covers the largest real co-signed action (5).
 const MAX_AUTHOR_NAME_LEN = 80;
 const MAX_AUTHORS = 10;
+// CIP-108 body.references: the proposer's own supporting links. Foreign
+// documents (GovTool submissions) routinely carry more than our own submit cap
+// of 10, so the read side admits 20 before truncating. The URI cap matches the
+// profile-link cap; the label cap is looser than a profile link's because
+// proposal references are often a sentence-long citation rather than a name.
+const MAX_REFERENCE_LABEL_LEN = 200;
+const MAX_REFERENCE_URI_LEN = 2_048;
+const MAX_REFERENCES = 20;
 
 const IPFS_GATEWAY = 'https://ipfs.io/ipfs/';
+
+/**
+ * One entry of CIP-108 `body.references`, reduced to what we display. The `uri`
+ * is untrusted chain input restricted to http(s)/ipfs on extraction; `label` may
+ * be empty when the document supplies none, and the display falls back to the
+ * URI itself rather than inventing a title. `referenceHash` is spec-optional and
+ * deliberately neither read nor stored: we do not fetch these links, so a hash we
+ * never verify would only look like an assurance.
+ */
+export interface AnchorReference {
+  label: string;
+  uri: string;
+}
 
 export interface AnchorMetadata {
   title: string | null;
@@ -74,6 +97,8 @@ export interface AnchorMetadata {
   rationaleHtml: string | null;
   /** Self-declared author names from the document's top-level authors array. */
   authors: string[] | null;
+  /** Supporting links from body.references, or null when the doc carries none. */
+  references: AnchorReference[] | null;
 }
 
 export type AnchorStatus =
@@ -253,6 +278,34 @@ export function readReferenceList(raw: unknown, policy: ReferenceListPolicy): Do
 }
 
 /**
+ * Reads CIP-108 `body.references` down to the label/uri pairs we display.
+ *
+ * Every field here is untrusted chain input, so: the URI must parse and use a
+ * scheme we can actually link (`resolveAnchorUrl` is the same allowlist the
+ * anchor fetch uses, http(s) and ipfs), entries without one are dropped rather
+ * than rendered as dead text, and the list is truncated at MAX_REFERENCES. The
+ * raw URI is stored, not the gateway form, so the display can decide how to
+ * resolve an ipfs:// link later without a re-extract.
+ */
+function extractReferences(raw: unknown): AnchorReference[] | null {
+  if (!Array.isArray(raw)) return null;
+  const refs: AnchorReference[] = [];
+  for (const entry of raw) {
+    if (refs.length === MAX_REFERENCES) break;
+    const item = asRecord(entry);
+    // CIP-108 names the field `uri`; tolerate `url` as CIP-119 profiles do.
+    const rawUri = (jsonLdString(item.uri) || jsonLdString(item.url)).trim();
+    if (!rawUri || rawUri.length > MAX_REFERENCE_URI_LEN) continue;
+    if (!resolveAnchorUrl(rawUri)) continue;
+    // An explicit empty label is kept: the card falls back to showing the URI,
+    // which is honest, where a made-up label would not be.
+    const rawLabel = jsonLdStringOrNull(item.label) ?? jsonLdString(item.name);
+    refs.push({ label: sanitizeExternalText(rawLabel, MAX_REFERENCE_LABEL_LEN), uri: rawUri });
+  }
+  return refs.length ? refs : null;
+}
+
+/**
  * Extracts title/abstract/rationale from a parsed CIP-108 document.
  *
  * `anchorUrl` (the untrusted on-chain anchor) is only used to build the "read the
@@ -294,6 +347,7 @@ function extractCip108(doc: unknown, anchorUrl?: string): AnchorMetadata {
     abstract: abstract || null,
     rationaleHtml: rationaleRaw ? renderMarkdown(rationaleRaw) : null,
     authors: extractAuthorNames(root.authors),
+    references: extractReferences(body.references),
   };
 }
 

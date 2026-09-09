@@ -7,6 +7,7 @@ import { TERMINAL_STATUSES, OPEN_STATUSES } from '../governance/view.js';
 import type { GovSort, GovStatus } from '../governance/sort.js';
 import type { ProposalListRow } from '../koios/client.js';
 import { liveVoteSql } from './drepVotes.js';
+import type { AnchorReference } from '../governance/metadata.js';
 
 /** Returns the set of governance-action ids already stored, for the sync diff. */
 export async function getKnownActionIds(db: D1Database): Promise<Set<string>> {
@@ -49,6 +50,8 @@ export interface NewGovernanceAction {
   rationaleHtml: string | null;
   /** Self-declared author names from the anchor document, or null. */
   authors: string[] | null;
+  /** Supporting links from the anchor document's body.references, or null. */
+  references: AnchorReference[] | null;
   anchorUrl: string | null;
   anchorHash: string | null;
   anchorStatus: string;
@@ -79,9 +82,9 @@ export function buildInsertGovernanceAction(db: D1Database, a: NewGovernanceActi
       // sync sets the real status (active / enacted / expired / dropped). Showing a
       // freshly discovered action as 'active' before we have checked would mislead.
       `INSERT OR IGNORE INTO governance_actions
-         (id, proposal_id, type, title, abstract, rationale_html, authors, anchor_url, anchor_hash, anchor_status,
+         (id, proposal_id, type, title, abstract, rationale_html, authors, references_json, anchor_url, anchor_hash, anchor_status,
           return_address, deposit, submitted_epoch, submitted_at, expiry_epoch, enacted_epoch, onchain_payload, status, meta_version, topic_id, created_at, last_synced_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
     )
     .bind(
       a.id,
@@ -91,6 +94,7 @@ export function buildInsertGovernanceAction(db: D1Database, a: NewGovernanceActi
       a.abstract,
       a.rationaleHtml,
       a.authors ? JSON.stringify(a.authors) : null,
+      a.references ? JSON.stringify(a.references) : null,
       a.anchorUrl,
       a.anchorHash,
       a.anchorStatus,
@@ -120,6 +124,8 @@ export interface GovernanceAction {
   rationaleHtml: string | null;
   /** Self-declared author names from the anchor document, or null. */
   authors: string[] | null;
+  /** Supporting links from the anchor document's body.references, or null. */
+  references: AnchorReference[] | null;
   anchorUrl: string | null;
   anchorHash: string | null;
   anchorStatus: string;
@@ -207,6 +213,7 @@ interface GovernanceActionRow {
   abstract: string | null;
   rationale_html: string | null;
   authors: string | null;
+  references_json: string | null;
   anchor_url: string | null;
   anchor_hash: string | null;
   anchor_status: string;
@@ -282,6 +289,33 @@ function parseAuthors(raw: string | null): string[] | null {
   }
 }
 
+/**
+ * Parses the stored references JSON back into label/uri pairs. Written by the
+ * extractor, but read defensively all the same: a row that predates the column,
+ * or one written by a future shape, degrades to null instead of throwing in the
+ * middle of a page render. Entries without a usable uri are dropped and the list
+ * is re-capped, so a row that somehow bypassed the extractor's own limit cannot
+ * make the sidebar card unbounded.
+ */
+function parseReferences(raw: string | null): AnchorReference[] | null {
+  if (!raw) return null;
+  try {
+    const v: unknown = JSON.parse(raw);
+    if (!Array.isArray(v)) return null;
+    const refs: AnchorReference[] = [];
+    for (const entry of v) {
+      if (refs.length === 20) break;
+      if (!entry || typeof entry !== 'object') continue;
+      const { label, uri } = entry as { label?: unknown; uri?: unknown };
+      if (typeof uri !== 'string' || uri.length === 0) continue;
+      refs.push({ label: typeof label === 'string' ? label : '', uri });
+    }
+    return refs.length > 0 ? refs : null;
+  } catch {
+    return null;
+  }
+}
+
 function rowToGovernanceAction(r: GovernanceActionRow): GovernanceAction {
   return {
     id: r.id,
@@ -291,6 +325,7 @@ function rowToGovernanceAction(r: GovernanceActionRow): GovernanceAction {
     abstract: r.abstract,
     rationaleHtml: r.rationale_html,
     authors: parseAuthors(r.authors),
+    references: parseReferences(r.references_json),
     anchorUrl: r.anchor_url,
     anchorHash: r.anchor_hash,
     anchorStatus: r.anchor_status,
@@ -1186,6 +1221,7 @@ export async function updateActionMetadata(
     abstract: string | null;
     rationaleHtml: string | null;
     authors: string[] | null;
+    references: AnchorReference[] | null;
     metaVersion: number;
   },
 ): Promise<void> {
@@ -1197,9 +1233,17 @@ export async function updateActionMetadata(
   // fresh (a past dead spell must not count against it).
   await db
     .prepare(
-      "UPDATE governance_actions SET title = ?, abstract = ?, rationale_html = ?, authors = ?, anchor_status = 'ok', meta_version = ?, meta_attempts = 0 WHERE id = ?",
+      "UPDATE governance_actions SET title = ?, abstract = ?, rationale_html = ?, authors = ?, references_json = ?, anchor_status = 'ok', meta_version = ?, meta_attempts = 0 WHERE id = ?",
     )
-    .bind(m.title, m.abstract, m.rationaleHtml, m.authors ? JSON.stringify(m.authors) : null, m.metaVersion, id)
+    .bind(
+      m.title,
+      m.abstract,
+      m.rationaleHtml,
+      m.authors ? JSON.stringify(m.authors) : null,
+      m.references ? JSON.stringify(m.references) : null,
+      m.metaVersion,
+      id,
+    )
     .run();
 }
 
