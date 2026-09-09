@@ -265,7 +265,18 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
       if (a.title) titlesById.set(a.id, a.title);
     }
   }
-  for (const r of [...fm.alsoDecided, ...fm.openActions]) aliasesById.set(r.id, r.aliases);
+  const rowTitleById = new Map<string, string>();
+  for (const r of [...fm.alsoDecided, ...fm.openActions]) {
+    aliasesById.set(r.id, r.aliases);
+    rowTitleById.set(r.id, r.title);
+  }
+  /**
+   * The title an edition may use for an action. Normally the pack's own, but an
+   * action whose metadata no longer verifies against its on-chain hash reaches
+   * the pack without one. The edition may then carry a researched title, which
+   * layer 2 and the reader judge, and which its own aliases are checked against.
+   */
+  const titleFor = (id: string) => titlesById.get(id) ?? rowTitleById.get(id);
   const drepNames = new Map<string, string>();
   for (const d of (resolvePath(pack, 'topDreps') as Array<{ drepId: string; name: string | null }> | undefined) ?? []) if (d.name) drepNames.set(d.drepId, d.name);
   for (const list of Object.values((resolvePath(pack, 'topVoters') as Record<string, Array<{ drepId: string; name: string | null }>> | undefined) ?? {})) for (const v of list) if (v.name) drepNames.set(v.drepId, v.name);
@@ -288,8 +299,8 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
     if (kind === 'ga') {
       linkedActionIds.add(id);
       if (!ids.has(id)) out.push({ rule: 'link-not-in-pack', message: `link to unknown action ${id}` });
-      else if (text !== titlesById.get(id) && !(aliasesById.get(id) ?? []).includes(text)) out.push({ rule: 'link-not-in-pack', message: `link text "${text}" is neither the title nor an alias of ${id}` });
-      else canonical = text === titlesById.get(id);
+      else if (text !== titleFor(id) && !(aliasesById.get(id) ?? []).includes(text)) out.push({ rule: 'link-not-in-pack', message: `link text "${text}" is neither the title nor an alias of ${id}` });
+      else canonical = text === titleFor(id);
     } else if (!drepNames.has(id)) out.push({ rule: 'link-not-in-pack', message: `link to unknown DRep ${id}` });
     else if (text !== drepNames.get(id)) out.push({ rule: 'link-not-in-pack', message: `link text "${text}" is not the pack name of ${id}` });
     else canonical = true;
@@ -326,7 +337,7 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
   const knownRuns = new Set<string>([...GOVERNANCE_TERMS, ...verifiedLinkTexts]);
   const titleWord = (w: string) => w.replace(/[.,:;!?()"“”]+$/, '').replace(/^[("“]+/, '').replace(/[’']s$/, '');
   for (const [id, list] of aliasesById) {
-    const words = new Set((titlesById.get(id) ?? '').split(/\s+/).map(titleWord).filter(Boolean));
+    const words = new Set((titleFor(id) ?? '').split(/\s+/).map(titleWord).filter(Boolean));
     for (const alias of list) for (const w of alias.split(/\s+/).map(titleWord)) if (words.has(w)) knownRuns.add(w);
   }
   collectStrings(pack, /^(name|title)$/, knownRuns);
@@ -389,7 +400,7 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
       return;
     }
     const p = hit.row;
-    if (r.title !== p.title) out.push({ rule: 'action-row-mismatch', message: `${at}: title "${r.title}" is not the pack title "${p.title}"` });
+    if (p.title != null && r.title !== p.title) out.push({ rule: 'action-row-mismatch', message: `${at}: title "${r.title}" is not the pack title "${p.title}"` });
     // An action the pack still lists as running has no outcome yet, whatever its status column says.
     const stillOpen = hit.group === 'closingAtBoundary' || hit.group === 'open' || p.open === true;
     if (stillOpen && r.outcome !== 'open') out.push({ rule: 'action-row-mismatch', message: `${at}: outcome "${r.outcome}" but the pack still lists the action as running` });

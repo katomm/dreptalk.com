@@ -25,7 +25,11 @@ export function renderLine(s: LineSpec): string {
   s.values.forEach((v, i) => {
     if (v == null) return;
     out += `<circle class="rv-hit" cx="${x(i).toFixed(1)}" cy="${fr.y(v).toFixed(1)}" r="7"><title>${esc(`Epoch ${epochAt(i)}: ${fmt(v, s.format as Format)}`)}</title></circle>`;
-    if (epochAt(i) % 5 === 0) out += `<text x="${x(i).toFixed(1)}" y="${fr.y0 + 18}" text-anchor="middle">${epochAt(i)}</text>`;
+    // The ends are always labelled, so a short window is readable at all, and
+    // the multiples of five in between carry the rest without crowding them.
+    const end = i === 0 || i === n - 1;
+    const inner = epochAt(i) % 5 === 0 && i > 1 && i < n - 2;
+    if (end || inner) out += `<text x="${x(i).toFixed(1)}" y="${fr.y0 + 18}" text-anchor="middle">${epochAt(i)}</text>`;
   });
   for (const m of s.markers ?? []) {
     const i = m.epoch - s.epochFrom;

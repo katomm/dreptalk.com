@@ -133,6 +133,39 @@ describe('an action ratified in the window and enacted after it', () => {
   it('rejects an outcome the window never saw', () => expect(check('expired', 649).length).toBe(1));
 });
 
+describe('an action the record has no title for', () => {
+  const id = `${'c'.repeat(64)}#0`;
+  const pack = {
+    actions: {
+      events: [],
+      closingAtBoundary: [{ id, title: null, status: 'closed', expiryEpoch: 514, tally: { drep: { yesPct: 1.89 } } }],
+      open: [],
+      comparisons: [],
+    },
+  };
+  const run = (title: string, aliases: string[], body: string) =>
+    factCheckEdition({
+      frontmatter: {
+        ...emptyFrontmatter,
+        openActions: [{ id, title, aliases, type: 'InfoAction', outcome: 'open', epoch: 514, drepYesPct: 1.89 }],
+      } as never,
+      body,
+      pack,
+    });
+
+  const link = `[HOSKY](/ga/${'c'.repeat(64)}00/)`;
+  it('accepts a researched title and an alias taken from it', () => {
+    const findings = run('Name the next hard fork HOSKY Hard Fork', ['HOSKY'], `## X\n\nAs of close, ${link} stood at 1.89%. HOSKY was the subject.`);
+    expect(findings.map((f) => f.rule)).not.toContain('action-row-mismatch');
+    expect(findings.map((f) => f.rule)).not.toContain('link-not-in-pack');
+    expect(findings.filter((f) => f.message.includes('HOSKY'))).toEqual([]);
+  });
+  it('still rejects a name the declared title does not carry', () => {
+    const findings = run('Name the next hard fork HOSKY Hard Fork', ['HOSKY'], `## X\n\nAs of close, ${link} stood at 1.89%. Fantasia voted on it.`);
+    expect(findings.filter((f) => f.message.includes('Fantasia')).map((f) => f.rule)).toEqual(['name-not-in-pack']);
+  });
+});
+
 describe('factCheckEdition on the good fixture', () => {
   it('has no findings', () => expect(factCheckEdition(load('good'))).toEqual([]));
   it('passes a body link in the CIP-129 form govActionHref emits', () => {
