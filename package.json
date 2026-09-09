@@ -52,7 +52,7 @@
     "blakejs": "^1.2.1",
     "cardano-tessera-client": "0.2.0",
     "cardano-tessera-respond": "0.1.3",
-    "cborg": "^5.1.8",
+    "cborg": "^6.1.2",
     "cip-179": "0.4.0",
     "marked": "^18.0.11",
     "react": "^19.2.8",
