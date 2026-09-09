@@ -55,6 +55,9 @@ export interface OwnVoteTiming {
   blockTime: number;
   submittedAt: number;
   decidedEpoch: number | null;
+  /** Ratification epoch, so the private view classifies on the same boundary
+      the public thirds read uses. Null for pre-0093 rows and never-ratified actions. */
+  ratifiedEpoch: number | null;
   expiryEpoch: number | null;
   status: string;
 }
@@ -295,7 +298,8 @@ export async function getWindowThirds(db: D1Database, anchor: { epoch: number; u
       `WITH w AS (
          SELECT v.block_time * 1000.0 AS block_ms, g.submitted_at AS submitted_at,
                 g.expiry_epoch AS expiry_epoch,
-                CASE WHEN g.status = 'enacted' THEN g.decided_epoch - 1 ELSE g.decided_epoch END AS decided_end
+                COALESCE(g.ratified_epoch,
+                         CASE WHEN g.status = 'enacted' THEN g.decided_epoch - 1 ELSE g.decided_epoch END) AS decided_end
            FROM drep_votes v
            JOIN governance_actions g ON g.id = v.ga_id
           WHERE v.voter_role = 'DRep' AND ${liveVoteSql('v')}
@@ -331,15 +335,17 @@ export async function getWindowThirds(db: D1Database, anchor: { epoch: number; u
  * with the action's type, decided/expiry epochs, and status, for the
  * own-vs-network timing comparison and the early/middle/late window
  * classification (done in the view layer, which needs the epochs and status
- * to compute the voting window: an enacted action's decided_epoch is the
- * enactment epoch, one past ratification, same as getWindowThirds).
+ * to compute the voting window, preferring ratified_epoch and falling back to
+ * the decided_epoch - 1 approximation only for pre-0093 rows, same as
+ * getWindowThirds).
  */
 export async function listOwnVoteTimings(db: D1Database, drepId: string): Promise<OwnVoteTiming[]> {
   return (
     await db
       .prepare(
         `SELECT g.type AS type, v.block_time AS blockTime, g.submitted_at AS submittedAt,
-                g.decided_epoch AS decidedEpoch, g.expiry_epoch AS expiryEpoch, g.status AS status
+                g.decided_epoch AS decidedEpoch, g.ratified_epoch AS ratifiedEpoch,
+                g.expiry_epoch AS expiryEpoch, g.status AS status
          FROM drep_votes v
          JOIN governance_actions g ON g.id = v.ga_id
          WHERE v.voter_id = ? AND v.voter_role = 'DRep' AND ${liveVoteSql('v')}

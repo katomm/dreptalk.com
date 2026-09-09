@@ -11,6 +11,7 @@ const action = (over: Partial<TrendAssemblyInputs['action']> = {}): TrendAssembl
   submittedEpoch: 10,
   expiryEpoch: 20,
   decidedEpoch: 15,
+  ratifiedEpoch: null,
   drepYesPct: 60,
   spoYesPct: 70,
   ccYesPct: 80,
@@ -174,6 +175,23 @@ describe('votingEndEpoch', () => {
 
   it('is null when neither epoch is known', () => {
     expect(votingEndEpoch(null, null)).toBeNull();
+  });
+});
+
+describe('ratification epoch', () => {
+  // An enacted action's decidedEpoch is the enactment epoch, one or more past
+  // ratification. Selecting the committee at that later epoch can pick up a
+  // membership change made after the tally froze.
+  it('classifies against ratified_epoch when it is known', () => {
+    expect(classificationEndEpoch({ status: 'enacted', decidedEpoch: 18, ratifiedEpoch: 15, expiryEpoch: 20 })).toBe(15);
+  });
+
+  it('falls back to the decided-1 approximation for pre-0093 rows', () => {
+    expect(classificationEndEpoch({ status: 'enacted', decidedEpoch: 18, ratifiedEpoch: null, expiryEpoch: 20 })).toBe(17);
+  });
+
+  it('uses ratified_epoch as-is while still ratified', () => {
+    expect(classificationEndEpoch({ status: 'ratified', decidedEpoch: 15, ratifiedEpoch: 15, expiryEpoch: 20 })).toBe(15);
   });
 });
 

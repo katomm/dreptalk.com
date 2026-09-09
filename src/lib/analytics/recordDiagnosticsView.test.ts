@@ -21,6 +21,7 @@ const ownVote = (over: Partial<OwnVoteTiming>): OwnVoteTiming => ({
   blockTime: 0,
   submittedAt: 0,
   decidedEpoch: 1,
+  ratifiedEpoch: null,
   expiryEpoch: null,
   status: 'ratified',
   ...over,

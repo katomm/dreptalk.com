@@ -14,7 +14,10 @@ import { epochStartUnix, type NetworkConfig } from '@/lib/config/network.js';
 import type { TrendBodyInput } from '@/lib/governance/voteTrend.js';
 
 export interface TrendAssemblyInputs {
-  action: Pick<GovernanceAction, 'submittedEpoch' | 'expiryEpoch' | 'decidedEpoch' | 'drepYesPct' | 'spoYesPct' | 'ccYesPct'>;
+  action: Pick<
+    GovernanceAction,
+    'submittedEpoch' | 'expiryEpoch' | 'decidedEpoch' | 'ratifiedEpoch' | 'drepYesPct' | 'spoYesPct' | 'ccYesPct'
+  >;
   trendRows: TrendVoteRow[];
   ccVotes: CcVote[];
   committee: { members: CommitteeMemberTerm[]; hotToCold: Map<string, string> };
@@ -52,17 +55,25 @@ export function votingEndEpoch(decidedEpoch: number | null, expiryEpoch: number 
  * Same window-end computation as votingEndEpoch, but status-aware: an
  * 'enacted' action's decidedEpoch is the ENACTMENT epoch, always one past the
  * ratification epoch, and votes stop mattering at the start of the
- * ratification epoch, so an enacted row is adjusted to decidedEpoch - 1
- * before the min. Matches the SQL adjustment in getWindowThirds, used to
- * classify a DRep's own votes on the private record page against the same
- * ratification-epoch boundary the public thirds read uses.
+ * ratification epoch. ratified_epoch gives it exactly; only a row synced before
+ * migration 0093 still falls back to the decidedEpoch - 1 approximation, which
+ * assumes enactment follows ratification by exactly one epoch. Matches the SQL
+ * in getWindowThirds, used to classify a DRep's own votes on the private record
+ * page against the same ratification-epoch boundary the public thirds read uses.
  *
  * votingEndEpoch itself is left unchanged on purpose: the trend chart and the
  * compare picker key their axis and labels off the plain decided/expiry min,
  * and every existing caller of votingEndEpoch depends on that.
  */
-export function classificationEndEpoch(row: { status: string; decidedEpoch: number | null; expiryEpoch: number | null }): number | null {
-  const decidedEpoch = row.status === 'enacted' && row.decidedEpoch != null ? row.decidedEpoch - 1 : row.decidedEpoch;
+export function classificationEndEpoch(row: {
+  status: string;
+  decidedEpoch: number | null;
+  ratifiedEpoch?: number | null;
+  expiryEpoch: number | null;
+}): number | null {
+  const decidedEpoch =
+    row.ratifiedEpoch ??
+    (row.status === 'enacted' && row.decidedEpoch != null ? row.decidedEpoch - 1 : row.decidedEpoch);
   return votingEndEpoch(decidedEpoch, row.expiryEpoch);
 }
 
@@ -100,12 +111,16 @@ export function assembleTrendInputs(a: TrendAssemblyInputs): TrendAssemblyResult
       .map((r) => ({ blockTime: r.block_time, weight: r.voted_power as number }));
 
   // CC yes votes: dedup to one final vote per active member, weight 1 each.
-  const ratifiedEpoch = decidedEpoch ?? 0;
+  // The committee is selected as it stood when the tally froze, so this reads
+  // ratified_epoch where it is known. Falling back to decidedEpoch keeps
+  // pre-0093 rows working, but for an enacted action that value is the later
+  // enactment epoch, which can pick up a committee change made after the vote.
+  const committeeEpoch = action.ratifiedEpoch ?? decidedEpoch ?? 0;
   const ccFinal = decidedEpoch != null
-    ? ccFinalVotesByMember(ccVotes, committee.members, committee.hotToCold, ratifiedEpoch)
+    ? ccFinalVotesByMember(ccVotes, committee.members, committee.hotToCold, committeeEpoch)
     : [];
   const ccYes = ccFinal.filter((m) => m.vote === 'Yes').map((m) => ({ blockTime: m.blockTime, weight: 1 }));
-  const ccSize = decidedEpoch != null ? activeCommitteeSizeAt(committee.members, ratifiedEpoch) : 0;
+  const ccSize = decidedEpoch != null ? activeCommitteeSizeAt(committee.members, committeeEpoch) : 0;
 
   const inputs: TrendBodyInput[] = [
     { key: 'DRep', yesVotes: yesByRole('DRep'), finalPct: action.drepYesPct, thresholdPct: null, finalLabel: '' },

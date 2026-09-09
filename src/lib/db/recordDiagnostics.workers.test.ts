@@ -498,7 +498,7 @@ describe('listOwnVoteTimings', () => {
 
     const rows = await listOwnVoteTimings(env.DB, drepId);
     expect(rows).toEqual([
-      { type: 'TreasuryWithdrawals', blockTime, submittedAt, decidedEpoch: 950, expiryEpoch: 955, status: 'enacted' },
+      { type: 'TreasuryWithdrawals', blockTime, submittedAt, decidedEpoch: 950, ratifiedEpoch: null, expiryEpoch: 955, status: 'enacted' },
     ]);
   });
 });
