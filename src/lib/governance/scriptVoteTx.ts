@@ -13,7 +13,6 @@
 // assembleScriptVoteTx merges the witness sets and submits.
 
 import {
-  Address,
   Anchor,
   Client,
   DRep,
@@ -23,7 +22,6 @@ import {
   TransactionBody,
   TransactionHash,
   Url,
-  UTxO,
   VotingProcedures,
   mainnet,
   preprod,
@@ -33,13 +31,13 @@ import type { NativeScript } from '../cardano/nativeScript.js';
 import { parseDrepId } from '../cardano/identity.js';
 import { bytesToHex, hexToBytes } from '../crypto/hex.js';
 import type { CardanoNetwork } from '../config/network.js';
-import { type WalletApi, buildGovActionId } from './drepTx.js';
-
-// Headroom over the funded amount to cover the network fee, the change output's
-// min-UTxO, and small protocol-parameter drift, so input selection never picks a
-// set that is short by a fee's worth. A vote tx has no deposit; the inputs only
-// need to cover the fee. Mirrors FUNDING_HEADROOM_LOVELACE in drepTx.ts.
-const FUNDING_HEADROOM_LOVELACE = 5_000_000n;
+import { buildGovActionId } from './drepTx.js';
+import {
+  FUNDING_HEADROOM_LOVELACE,
+  collectWalletUtxos,
+  pickInputsToCover,
+  type WalletApi,
+} from './walletUtxos.js';
 
 /**
  * Recursively converts our parsed NativeScript JSON into an SDK NativeScript.
@@ -81,64 +79,6 @@ function makeClient(network: CardanoNetwork, origin: string, walletApi: WalletAp
   return Client.make(network === 'mainnet' ? mainnet : preprod)
     .withKoios({ baseUrl: `${origin}/api/koios` })
     .withCip30(walletApi);
-}
-
-/**
- * Collects the connected wallet's UTxOs across all of its addresses via a read
- * client. Replicates collectWalletUtxos from drepTx.ts (not exported there); the
- * pattern is the proven funding universe for these certificate/vote-only txs.
- */
-async function collectWalletUtxos(
-  network: CardanoNetwork,
-  origin: string,
-  walletApi: WalletApi,
-): Promise<UTxO.UTxO[]> {
-  const reader = Client.make(network === 'mainnet' ? mainnet : preprod).withKoios({
-    baseUrl: `${origin}/api/koios`,
-  });
-
-  const used = await walletApi.getUsedAddresses();
-  const addresses = used.length > 0 ? used : await walletApi.getUnusedAddresses();
-
-  const perAddress = await Promise.all(
-    addresses.map((addressHex) => reader.getUtxos(Address.fromHex(addressHex))),
-  );
-
-  // Dedupe by output reference in case a wallet returns the same address twice.
-  const byRef = new Map<string, UTxO.UTxO>();
-  for (const utxo of perAddress.flat()) {
-    byRef.set(UTxO.toOutRefString(utxo), utxo);
-  }
-  return [...byRef.values()];
-}
-
-/** Lovelace in a UTxO (0 if absent), as a bigint for exact comparison. */
-function utxoLovelace(utxo: UTxO.UTxO): bigint {
-  return BigInt(utxo.assets?.lovelace ?? 0n);
-}
-
-/**
- * Picks the fewest wallet UTxOs (largest first) whose combined lovelace covers
- * `minLovelace`, falling back to all UTxOs if the wallet cannot reach it.
- * Replicates pickInputsToCover from drepTx.ts: a vote-only tx has no payment
- * output to drive the SDK's automatic coin selection, so we select inputs
- * ourselves and pass them via collectFrom.
- */
-function pickInputsToCover(utxos: UTxO.UTxO[], minLovelace: bigint): UTxO.UTxO[] {
-  const sorted = [...utxos].sort((a, b) => {
-    const av = utxoLovelace(a);
-    const bv = utxoLovelace(b);
-    return av < bv ? 1 : av > bv ? -1 : 0;
-  });
-
-  const picked: UTxO.UTxO[] = [];
-  let sum = 0n;
-  for (const utxo of sorted) {
-    picked.push(utxo);
-    sum += utxoLovelace(utxo);
-    if (sum >= minLovelace) return picked;
-  }
-  return sorted;
 }
 
 export interface BuildScriptVoteOpts {

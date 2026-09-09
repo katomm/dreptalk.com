@@ -2,16 +2,19 @@
 import Layout from '@/layouts/Layout.astro';
 
 interface Props {
+  /** What was not found, e.g. "DRep". Capitalised, it heads the page. */
   noun: string;
+  /** Overrides the default sentence when a page has something better to say. */
+  lead?: string;
 }
-const { noun } = Astro.props;
+const { noun, lead } = Astro.props;
 ---
 <Layout title={`${noun} not found - DRepTalk`} description={`The ${noun.toLowerCase()} you were looking for could not be found.`} noindex={true}>
   <section class="notfound">
     <p class="notfound__code grad-text reveal" style="--reveal-delay:0ms" aria-hidden="true">404</p>
     <h1 class="notfound__title reveal" style="--reveal-delay:60ms">{noun} not found</h1>
     <p class="notfound__lead reveal" style="--reveal-delay:120ms">
-      We couldn't find that {noun.toLowerCase()}. The link may have expired, or the address is off by a character.
+      {lead ?? `We couldn't find that ${noun.toLowerCase()}. The link may have expired, or the address is off by a character.`}
     </p>
     <div class="notfound__actions reveal" style="--reveal-delay:180ms">
       <a class="btn btn-primary" href="/">Back to home</a>
@@ -39,6 +42,26 @@ const { noun } = Astro.props;
       background: var(--grad);
       filter: blur(80px);
       opacity: 0.16;
+      z-index: -1;
+      pointer-events: none;
+    }
+    /* Static grain over the glow (same footprint), so the blurred gradient reads
+       as texture instead of a flat blob. Radially masked so no tile edge shows
+       where the glow has faded out; overlay blending keeps it working on both
+       themes. One paint at load, zero runtime cost. */
+    .notfound::after {
+      content: '';
+      position: absolute;
+      top: 1.5rem;
+      left: 50%;
+      transform: translateX(-50%);
+      width: min(26rem, 80%);
+      height: 14rem;
+      background: var(--noise);
+      mix-blend-mode: overlay;
+      opacity: var(--noise-opacity);
+      -webkit-mask-image: radial-gradient(60% 60% at 50% 50%, #000 30%, transparent 100%);
+      mask-image: radial-gradient(60% 60% at 50% 50%, #000 30%, transparent 100%);
       z-index: -1;
       pointer-events: none;
     }
