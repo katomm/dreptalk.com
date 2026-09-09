@@ -462,6 +462,11 @@ const breadcrumbLd = {
         </>
       ) : isSurveysCategory ? (
         <>
+          <p class="svy-help">
+            On-chain surveys DReps answer from the thread.{' '}
+            <a href="/help/cip-179-surveys/">How CIP-179 surveys work</a>.
+          </p>
+
           {surveyEntries.length === 0 ? (
             <p style="color:var(--muted);">
               No surveys yet. A survey appears here once a DRep-eligible survey is linked by a
@@ -534,6 +539,13 @@ const breadcrumbLd = {
 )}
 
 <style>
+  /* Pointer to the guide, above the surveys list. */
+  .svy-help {
+    font-size: 0.875rem;
+    color: var(--muted);
+    margin: 0 0 1rem;
+  }
+
   /* DRep shortcut to the personal voting dashboard: a quiet accent-tinted pill
      that sits with the Sort/Type dropdowns. */
   .ga-dashlink {
