@@ -394,7 +394,7 @@ describe('queueSurveyResponseOps', () => {
     expect(calls.addSigner).toHaveLength(2);
   });
 
-  it('rejects an empty credential list — an unproven response would carry no signature', () => {
+  it('rejects an empty credential list, an unproven response would carry no signature', () => {
     const { stub } = makeStub();
     expect(() => queueSurveyResponseOps(stub, { payload, signerKeyHashes: [] })).toThrow();
   });

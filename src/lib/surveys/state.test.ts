@@ -61,7 +61,7 @@ describe('surveyState lifecycle', () => {
 });
 
 describe('surveyState answerable', () => {
-  it('is open, held, DRep-eligible and not external-content — all four', () => {
+  it('is open, held, DRep-eligible and not external-content, all four', () => {
     expect(surveyState(row(), DURING, cfg).answerable).toBe(true);
     expect(surveyState(row(), startOf(301), cfg).answerable).toBe(false);
     expect(surveyState(row({ cancelled: true }), DURING, cfg).answerable).toBe(false);
@@ -94,8 +94,8 @@ describe('surveyState participation', () => {
   it('has no figure for a cancelled or untalliable survey, whatever was counted in-window', () => {
     expect(p({ countedDreps: 3, finalState: 'cancelled' })).toEqual({ kind: 'none' });
     expect(p({ countedDreps: 3, finalState: 'untalliable' })).toEqual({ kind: 'none' });
-    // No row can carry a state this code predates — the client refuses an
-    // unknown final state at decode, so the sync never stores one — but the
+    // No row can carry a state this code predates, the client refuses an
+    // unknown final state at decode, so the sync never stores one, but the
     // column can, and a stale in-window figure must not be what it shows.
     expect(p({ countedDreps: 3, finalState: 'vetoed' })).toEqual({ kind: 'none' });
   });

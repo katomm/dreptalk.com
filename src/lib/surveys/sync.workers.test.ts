@@ -251,12 +251,12 @@ describe('syncSurveys', () => {
     expect(r).toMatchObject({ notReady: false, written: 1, published: 1, failed: 0 });
 
     // Exactly one row: neither the linked non-DRep survey nor the DRep survey
-    // nothing links is eligible — a link is Tessera's fact, and the survey
-    // is delivered again when one lands.
+    // nothing links is eligible, a link is Tessera's fact, and the survey
+    // is delivered again when one arrives.
     const rows = await surveyRows();
     expect(rows.map(s => s.ref)).toEqual([KEY_LINKED]);
     // The card number is the backend's audited DRep count, not the list's
-    // raw responseCount of 3 — and no artifact figure yet on a held survey.
+    // raw responseCount of 3, and no artifact figure yet on a held survey.
     expect(rows[0]).toMatchObject({
       counted_dreps: 2,
       final_counted_dreps: null,
@@ -323,7 +323,7 @@ describe('syncSurveys', () => {
 
   it('stores a linked survey whose action is not imported, and opens its thread once it is, from the row alone', async () => {
     // Nothing imported: the survey is eligible on Tessera's facts alone, so
-    // its row is written now and nothing is remembered — the thread waits.
+    // its row is written now and nothing is remembered, the thread waits.
     expect(await syncSurveys(deps(fakeTessera()))).toMatchObject({
       written: 1,
       published: 0,
@@ -342,7 +342,7 @@ describe('syncSurveys', () => {
     expect((await surveyRows())[0].topic_id).toBeNull();
 
     // The action is imported: the next tick opens the thread from the stored
-    // record — the delta is quiet, and no bootstrap is asked for again.
+    // record, the delta is quiet, and no bootstrap is asked for again.
     await importLinkingAction();
     const silent = fakeTessera({
       changesSince: async () => {
@@ -371,7 +371,7 @@ describe('syncSurveys', () => {
     expect(topics?.n).toBe(1);
   });
 
-  it('deletes a survey with no thread the delta removes, and stores it again when it re-lands', async () => {
+  it('deletes a survey with no thread the delta removes, and stores it again when it returns', async () => {
     await syncSurveys(deps(fakeTessera()));
     expect((await surveyRows()).map(r => r.ref)).toEqual([KEY_LINKED]);
 
@@ -385,8 +385,8 @@ describe('syncSurveys', () => {
     // Removed again: nothing left to withdraw.
     expect((await syncSurveys(deps(gone))).rolledBack).toBe(0);
 
-    // The removal was advisory after all: the record re-lands, and its row
-    // with it — a store, not a refresh, since nothing was kept.
+    // The removal was advisory after all: the record returns, and its row
+    // with it, a store, not a refresh, since nothing was kept.
     const linked = surveyRecord(TX_LINKED, definition());
     const back = fakeTessera({
       changes: async () => ({
@@ -424,7 +424,7 @@ describe('syncSurveys', () => {
     expect((await syncSurveys(deps(blind, now + HOUR_MS))).written).toBe(0);
     expect((await surveyRows())[0].counted_dreps).toBeNull();
 
-    // The field appears on the wire: one write, the audited figure lands.
+    // The field appears on the wire: one write, the audited figure is stored.
     const counted = fakeTessera({
       changes: async () => ({
         ready: true,
@@ -472,7 +472,7 @@ describe('syncSurveys', () => {
     expect((await syncSurveys(deps(answer({ [KEY_LINKED]: { 0: 3 } }), moved))).written).toBe(1);
     expect((await surveyRows())[0]).toMatchObject({ counted_dreps: 3, synced_at: moved });
 
-    // A link moved — the action's title, then a second linking action: the
+    // A link moved, the action's title, then a second linking action: the
     // links are rewritten from the answer, not merged into what is there.
     const retitled = now + 3 * HOUR_MS;
     const links: SurveyListPayload['govLinks'] = [{ ...LINKED_LINKS[0], title: 'Renamed action' }];
@@ -492,7 +492,7 @@ describe('syncSurveys', () => {
     expect((await linksOf(KEY_LINKED)).map(l => l.action_id)).toEqual([ACTION_ID, ACTION_SECOND]);
 
     // The same row delivered again: written, unasked whether anything this
-    // mirror stores moved — Tessera reports the change, so there was one, and
+    // mirror stores moved, Tessera reports the change, so there was one, and
     // it may well be in a figure no column here keeps.
     const again = relinked + HOUR_MS;
     expect(
@@ -564,7 +564,7 @@ describe('syncSurveys', () => {
     expect(
       (await syncSurveys(deps(fakeTessera({ changesSince: endless, changes: endless })))).failed,
     ).toBe(0);
-    // The cap is the whole request budget; the backlog continues next run
+    // The cap is the whole request budget. The backlog continues next run
     // from where this one stopped, and the "as of" waits for a run that
     // reaches the end.
     expect(calls).toBe(MAX_LIST_PAGES);
@@ -611,13 +611,13 @@ describe('syncSurveys', () => {
     expect(await linksOf(KEY_LINKED)).toEqual([]);
     expect(await getLinkedSurveyForAction(env.DB, ACTION_ID)).toBeNull();
 
-    // Removed again: withdrawn once — the statement asks for rows not already
-    // flagged, so nothing is written — and the row still lists for the pages.
+    // Removed again: withdrawn once, the statement asks for rows not already
+    // flagged, so nothing is written, and the row still lists for the pages.
     expect((await syncSurveys(deps(gone, now + 2 * HOUR_MS))).rolledBack).toBe(0);
     expect((await surveyRows())[0].synced_at).toBe(now + HOUR_MS);
     expect(await listSurveysWithTopics(env.DB, { limit: 10, offset: 0 })).toHaveLength(1);
 
-    // The record re-lands, long after: the flag cleared by its presence
+    // The record returns, long after: the flag cleared by its presence
     // alone, and relinked.
     const linked = surveyRecord(TX_LINKED, definition());
     const back = fakeTessera({
@@ -648,7 +648,7 @@ describe('syncSurveys', () => {
       });
     // The record is still indexed and still linked, now by an action
     // DRepTalk has not imported yet: eligible on Tessera's facts, so the
-    // thread stays and the link is what Tessera says — the card names the
+    // thread stays and the link is what Tessera says, the card names the
     // action by Tessera's title until discovery imports it.
     const elsewhere: SurveyListPayload['govLinks'] = [
       { surveyKey: KEY_LINKED, actionId: 'gov_action1resubmitted', endEpoch: 300, title: 'Again' },
@@ -666,8 +666,8 @@ describe('syncSurveys', () => {
       { actionId: 'gov_action1resubmitted', title: 'Again', actionTitle: null, topicSlug: null },
     ]);
 
-    // No link at all: not eligible — in practice the linking action's
-    // transaction rolled back — and withdrawn like a rolled-back record:
+    // No link at all: not eligible, in practice the linking action's
+    // transaction rolled back, and withdrawn like a rolled-back record:
     // the flag, the links, no row written for it.
     expect(await syncSurveys(deps(answer([]), now + 2 * HOUR_MS))).toMatchObject({
       written: 0,
@@ -718,7 +718,7 @@ describe('syncSurveys', () => {
     const r = await syncSurveys(
       deps(fakeTessera({ changesSince: async () => ({ ready: true, body: corpus }) })),
     );
-    // All three are linked to the imported action; only the valid public
+    // All three are linked to the imported action. Only the valid public
     // survey gets a row and a thread. The other two would be decided
     // untalliable at close, and a thread inviting answers to them wastes
     // every fee spent.
@@ -745,9 +745,9 @@ describe('syncSurveys', () => {
         }),
       ),
     );
-    // The delta declares both decided for good — one cancelled, one
+    // The delta declares both decided for good, one cancelled, one
     // finalized, each with an artifact. Only the cancelled one may surface as
-    // a cancellation; both must freeze; only the finalized one's artifact is
+    // a cancellation. Both must freeze. Only the finalized one's artifact is
     // a count to read.
     const decided: SurveyListPayload = {
       ...open,
@@ -788,8 +788,8 @@ describe('syncSurveys', () => {
         final_counted_dreps: 1,
       },
     ]);
-    // Both decided: a re-delivery is written like any other row — one rule
-    // for every row, and Tessera does not move a decided survey anyway — but
+    // Both decided: a re-delivery is written like any other row, one rule
+    // for every row, and Tessera does not move a decided survey anyway, but
     // no artifact is read again, since the count it carried is stored.
     const again = await syncSurveys(
       deps(
@@ -825,7 +825,7 @@ describe('syncSurveys', () => {
         artifactByHash,
       });
 
-    // The decision lands while the artifact route is down: the decision and
+    // The decision arrives while the artifact route is down: the decision and
     // its hash are kept, the in-window figure stands, the failure is charged.
     const down = finalized(async () => {
       throw new TesseraHttpError('/api/artifacts', 500, '');
@@ -854,7 +854,7 @@ describe('syncSurveys', () => {
       ),
     ).toMatchObject({ written: 1, finalCounts: 0, failed: 1 });
 
-    // Next run: the artifact is asked for again — and a finalized tally can
+    // Next run: the artifact is asked for again, and a finalized tally can
     // count fewer DReps than the in-window figure did (end-epoch role
     // membership), which is the number to show.
     const asked: string[] = [];
@@ -897,7 +897,7 @@ describe('syncSurveys', () => {
     });
 
     // A re-projection names another artifact: the stored count described the
-    // old one, so it goes with the hash and the new artifact is read — a
+    // old one, so it goes with the hash and the new artifact is read, a
     // count never sits beside a hash it was not read from.
     const other = 'ef'.repeat(32);
     expect(await syncSurveys(deps(serving(2, decidedWith(other)), now + HOUR_MS))).toMatchObject({

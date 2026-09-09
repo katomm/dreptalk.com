@@ -1,8 +1,8 @@
 ---
 // The answering panel under a survey card. Tessera's <tessera-respond> element
-// owns the whole CIP-179 form and emits the finished label-17 payload —
+// owns the whole CIP-179 form and emits the finished label-17 payload,
 // DRepTalk assembles no CIP-179 structure itself. Whether answering is allowed
-// at all is decided server-side by the page; this component only assumes it.
+// at all is decided server-side by the page. This component only assumes it.
 // The wallet it connects must be the signed-in DRep's: the panel answers as
 // the DRep whose session opened it, so a second credential in the same wallet
 // cannot quietly answer in place of the one the page names.
@@ -18,7 +18,7 @@ import type { SurveyRow } from '@/lib/db/surveys.js';
 interface Props {
   survey: SurveyRow;
   network: CardanoNetwork;
-  /** The current epoch by the network's calendar — the clock the page used
+  /** The current epoch by the network's calendar, the clock the page used
    * to decide the survey is open, handed to the widget as its tip epoch so
    * the two cannot disagree about whether answering is still allowed. */
   epoch: number;
@@ -29,7 +29,7 @@ interface Props {
 const { survey, network, epoch, drepId } = Astro.props;
 
 // Said before the wallet opens: whatever the mode, the credential and the
-// role are public on chain forever; only a sealed survey keeps the answers
+// role are public on chain forever. Only a sealed survey keeps the answers
 // themselves encrypted, and only until its reveal time.
 const disclosure = survey.sealed
   ? "Your answers stay encrypted until the survey's reveal time, but your DRep credential and your role are public on chain, permanently."
@@ -49,7 +49,7 @@ const disclosure = survey.sealed
   <div data-connect-step>
     <p class="svy-respond__hint">
       Connect the DRep-capable wallet (Lace, Eternl, Typhon) of the DRep you signed in with to
-      answer on chain; the wallet pays only the network fee.
+      answer on chain. The wallet pays only the network fee.
     </p>
     <p class="svy-respond__hint">{disclosure}</p>
     <div class="svy-respond__connect">
@@ -99,7 +99,7 @@ const disclosure = survey.sealed
 
     // Not HTMLSelectElement: workers-types' HTMLRewriter Element (referenced
     // globally in env.d.ts) merges into the DOM Element, and HTMLSelectElement
-    // — the one element redeclaring remove() — stops satisfying it. `value` is
+    //, the one element redeclaring remove(), stops satisfying it. `value` is
     // the only select-specific member used, so type it structurally.
     const select = root.querySelector<HTMLElement & { value: string }>('[data-wallet-select]')!;
     const connectBtn = root.querySelector<HTMLButtonElement>('[data-connect]')!;
@@ -148,7 +148,7 @@ const disclosure = survey.sealed
         await import('cardano-tessera-respond');
       } catch {
         throw new Error(
-          'Could not load the survey form; this page may be outdated after a site update. Please reload the page and try again.',
+          'Could not load the survey form. This page may be outdated after a site update. Please reload the page and try again.',
         );
       }
     }
@@ -166,7 +166,7 @@ const disclosure = survey.sealed
       showStatus('Connecting…');
       try {
         // The manage flows' connect: enable, network guard, and the wallet's
-        // DRep id checked against the session's. No Koios preflight — the
+        // DRep id checked against the session's. No Koios preflight, the
         // `drep` role already proves active registration at login.
         const [connected] = await Promise.all([
           connectVerifiedDrep({ rawWallet: wallet.raw, network, expectedDrepId }),
@@ -177,12 +177,12 @@ const disclosure = survey.sealed
         const record = decodeSurveyRecord(JSON.parse(root.dataset.definition ?? ''));
         const widget = root.querySelector<TesseraRespondElement>('tessera-respond')!;
         // DOM properties, never attributes: these are objects. The widget
-        // renders as soon as the last one lands.
+        // renders as soon as the last one is set.
         widget.responder = { [Role.DRep]: { type: 'key', keyHash: connected.drepKeyHash } };
         widget.definition = record.definition;
         widget.surveyRef = record.ref;
         widget.tipEpoch = Number(root.dataset.tipEpoch);
-        widget.cancelled = false; // gated server-side; explicit beats the attribute fallback
+        widget.cancelled = false; // gated server-side, explicit beats the attribute fallback
         connectStep.hidden = true;
         statusEl.hidden = true;
         widgetSlot.hidden = false;
@@ -200,7 +200,7 @@ const disclosure = survey.sealed
       submitting = true;
       showStatus('Awaiting wallet signature…');
       try {
-        // Same lazy tx-builder module as the vote flow; a failed import is a
+        // Same lazy tx-builder module as the vote flow. A failed import is a
         // PreSignError (stale page after a deploy) with its own reload hint.
         const mod = await loadDrepTxModule();
         const signerKeyHashes = result.proveCredentials
@@ -300,7 +300,7 @@ const disclosure = survey.sealed
   /* Retheme the widget to DRepTalk. Its --tessera-* tokens (the full list is
      the :host block of the package's theme.css) are custom properties, which
      inherit through the shadow boundary, so mapping them onto DRepTalk's own
-     tokens here makes them re-resolve when html[data-theme] flips — the
+     tokens here makes them re-resolve when html[data-theme] flips, the
      widget's `theme` prop could not do that (it pins static inline values).
      The widget's default font names (Hanken Grotesk etc.) are not loaded on
      this site, so without the type mappings it renders in system-ui. Derived
@@ -340,7 +340,7 @@ const disclosure = survey.sealed
     --tessera-danger-bg: color-mix(in srgb, var(--danger) 10%, var(--bg));
     --tessera-danger-line: color-mix(in srgb, var(--danger) 30%, var(--bg));
     --tessera-danger-line-soft: color-mix(in srgb, var(--danger) 20%, var(--bg));
-    /* Match the sibling survey card's 12px corners; inner radii step down. */
+    /* Match the sibling survey card's 12px corners, inner radii step down. */
     --tessera-r-card: 12px;
     --tessera-r-md: 10px;
   }

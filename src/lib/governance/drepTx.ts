@@ -529,7 +529,7 @@ export async function castDRepVote(opts: CastDRepVoteOpts): Promise<{ txHash: st
 
 /**
  * Queues a CIP-179 survey response onto a tx builder: the label-17 payload the
- * `<tessera-respond>` widget emitted (already a complete, encoded metadatum —
+ * `<tessera-respond>` widget emitted (already a complete, encoded metadatum,
  * DRepTalk never assembles CIP-179 structures itself), one required signer per
  * credential the payload must prove control of (mechanism A: the entry in
  * `required_signers` is the proof, so dropping a signer silently invalidates

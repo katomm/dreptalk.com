@@ -1,7 +1,7 @@
 // 'governance' and 'survey' categories are system-fed (one thread per synced
 // on-chain object, read-only at the category level); 'discussion' categories
 // take user topics. Consumers branching on the kind must not answer questions
-// about surveys nobody asked — hence a kind of its own, not 'governance'.
+// about surveys nobody asked, hence a kind of its own, not 'governance'.
 export type CategoryKind = 'governance' | 'discussion' | 'survey';
 
 export interface Category {
@@ -33,7 +33,7 @@ const WITHOUT_SURVEYS: readonly Category[] = SORTED_CATEGORIES.filter((c) => c.k
  * is fed by the Tessera mirror, which runs only where TESSERA_BACKEND_URL is
  * set (preprod today). Where it is off the category does not exist: it is
  * absent from the sidebar, the home page and the sitemap, and /c/surveys/ is
- * a 404 — never an empty "Surveys 0" that mainnet could not fill. Topics the
+ * a 404, never an empty "Surveys 0" that mainnet could not fill. Topics the
  * mirror created before a switch-off keep their pages (they are forum threads
  * with human replies); only the category listing goes.
  */

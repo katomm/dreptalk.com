@@ -1,5 +1,5 @@
 // What a mirrored survey is and what may be done with it, decided once from
-// the stored row, the network calendar and the wall clock — no chain read.
+// the stored row, the network calendar and the wall clock. No chain read.
 // Every reader (the list row, the thread card, the action's sidebar card and
 // the answer gate on the page) renders from this, so no two of them can
 // disagree about a survey's state.
@@ -10,7 +10,7 @@ import { formatEpochDate } from '../governance/view.js';
 
 /**
  * Responses are accepted through `end_epoch` inclusive (CIP-179), so the
- * survey is open while the current epoch is at or before it — the same rule
+ * survey is open while the current epoch is at or before it, the same rule
  * as Tessera's surveyStatus, anchored on the network's epoch calendar instead
  * of a chain tip. A decision Tessera made outranks the clock: an untalliable
  * definition was never a valid survey (Tessera's own precedence, invalidity
@@ -36,7 +36,7 @@ export function lifecycleLabel(lifecycle: SurveyLifecycle): string {
 /**
  * What the participation line can say. Two figures, both Tessera's own
  * counting and never one of this site's: while the survey is held, the
- * index's audited in-window DRep count (provisional — a proof still pending
+ * index's audited in-window DRep count (provisional, a proof still pending
  * is counted, and a responder who leaves the role by the end epoch is not yet
  * excluded); once finalized, the tally artifact's DRep responders, counted
  * at close. `pending` says a figure is still coming: the backend serves no
@@ -72,7 +72,7 @@ export function participationLabel(p: SurveyParticipation): string {
 /** One wording for the deadline line, so the row, the card and the sidebar
  * card cannot describe the same cutoff differently. Responses are accepted
  * through `end_epoch` inclusive (CIP-179), so the date is the start of the
- * epoch after it; a survey no longer open names only the epoch, since its
+ * epoch after it. A survey no longer open names only the epoch, since its
  * badge already says how it ended. */
 export function deadlineLabel(
   lifecycle: SurveyLifecycle,
@@ -85,7 +85,7 @@ export function deadlineLabel(
     : through;
 }
 
-/** The columns the state derives from — a `SurveyRow`, or any row-shaped
+/** The columns the state derives from: a `SurveyRow`, or any row-shaped
  * object carrying them. */
 export interface SurveyStateInput {
   endEpoch: number;
@@ -104,9 +104,9 @@ export interface SurveyState {
    * Whether the survey itself can take a DRep answer now: open, still held
    * by the index, DRep-eligible, and not external-content (its prompts live
    * behind an anchor Tessera's API does not serve, so the widget could not
-   * show what is being signed). What the *viewer* and the *deployment* add —
-   * a key-credential DRep session, the mirror configured, the stored
-   * definition readable — stays with the page, the only place that knows it.
+   * show what is being signed). What the *viewer* and the *deployment* add
+   * (a key-credential DRep session, the mirror configured, the stored
+   * definition readable) stays with the page, the only place that knows it.
    */
   answerable: boolean;
   participation: SurveyParticipation;

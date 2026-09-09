@@ -1,7 +1,7 @@
 // Presentation of a mirrored survey's definition text, shared by the survey
-// pages and the sync's opening-post composer. Pure. What a survey *is* —
-// lifecycle, answerability, participation — is decided in ./state.ts from the
-// stored row; this module reads the definition, which is untrusted on-chain
+// pages and the sync's opening-post composer. Pure. What a survey *is*,
+// lifecycle, answerability, participation, is decided in ./state.ts from the
+// stored row. This module reads the definition, which is untrusted on-chain
 // text: every string that reaches a page or a post goes through the same
 // sanitizer and caps as a governance action's anchor text.
 
@@ -29,8 +29,8 @@ export function roleLabels(roles: readonly number[]): string {
 /**
  * Decode a stored wire-form record back to its definition, or null when the
  * stored form cannot be read. The form is frozen at admission and decoded on
- * every page view, so a shape this code cannot read — a corrupted row, a
- * cip-179 wire change the mirror predates — must cost the card its text and
+ * every page view, so a shape this code cannot read, a corrupted row, a
+ * cip-179 wire change the mirror predates, must cost the card its text and
  * the page its answer panel, not the whole thread a 500.
  */
 export function parseSurveyDefinition(definitionJson: string): SurveyDefinition | null {
@@ -68,7 +68,7 @@ export function tesseraSurveyUrl(appUrl: string | undefined, ref: string): strin
  * its option labels (null in external-content count form, with a note).
  * Prompts and labels are sanitized here, at render: the stored record is the
  * widget's, re-decoded as cip-179 serialized it, so it is never sanitized or
- * capped — the text derived from it is. */
+ * capped, the text derived from it is. */
 export interface QuestionView {
   prompt: string;
   kindLabel: string;
@@ -86,9 +86,9 @@ export function questionViews(def: SurveyDefinition): QuestionView[] {
         q.type === 'singleChoice'
           ? 'Single choice'
           : q.type === 'multiSelect'
-            ? `Select ${q.minSelections}–${q.maxSelections}`
+            ? `Select ${q.minSelections} to ${q.maxSelections}`
             : q.type === 'ranking'
-              ? `Rank ${q.minRanked}–${q.maxRanked}`
+              ? `Rank ${q.minRanked} to ${q.maxRanked}`
               : q.type === 'numericRange'
                 ? `Number between ${q.constraints.min} and ${q.constraints.max}`
                 : q.type === 'pointsAllocation'
