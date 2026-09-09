@@ -332,7 +332,7 @@ const isScriptDrep = viewerDrepId ? parseDrepId(viewerDrepId)?.kind === 'script'
 
 // The answering panel: the survey must be able to take a DRep answer (decided
 // once in state.ts, for the card too), the stored definition must have decoded
-// (the widget renders from it), and the viewer must be a key-credential DRep —
+// (the widget renders from it), and the viewer must be a key-credential DRep,
 // only a key credential can witness proof mechanism A, and the panel then
 // checks the wallet against that very DRep, so the answer is signed by the
 // DRep the page names. It also needs the mirror to still be configured: an

@@ -2,15 +2,15 @@
 -- CIP-179 surveys mirrored from the Tessera serving backend. DRepTalk holds no
 -- CIP-179 rule of its own: rows are Tessera's answers written down, refreshed
 -- by the gov-sync surveys phase, and every page renders from here (never from
--- Tessera). Admission — which surveys get a row, and which of those get a
--- thread — is editorial policy in the sync, not encoded in this schema, so
+-- Tessera). Admission, which surveys get a row, and which of those get a
+-- thread, is editorial policy in the sync, not encoded in this schema, so
 -- widening it later is one predicate.
 
 -- One row per mirrored survey. `ref` is the canonical CIP-179 reference
--- "<txHashHex>:<index>" (lowercase, index without leading zeros) — the same
+-- "<txHashHex>:<index>" (lowercase, index without leading zeros), the same
 -- string Tessera keys everything by. A row is written each time Tessera reports
 -- the survey changed and never otherwise, so `synced_at` dates that report and
--- not the last time the sync looked; the mirror-wide "as of", which every page
+-- not the last time the sync looked. The mirror-wide "as of", which every page
 -- shows instead, lives in survey_sync_state.
 CREATE TABLE survey (
   ref                TEXT PRIMARY KEY,
@@ -36,9 +36,9 @@ CREATE TABLE survey (
   -- delivery that moves artifact_hash resets it, to be read again.
   counted_dreps      INTEGER,
   final_counted_dreps INTEGER,
-  -- NULL while the survey can still change; set once Tessera decides it for
+  -- NULL while the survey can still change, set once Tessera decides it for
   -- good ('finalized' | 'cancelled' | 'untalliable'). Tessera stops changing a
-  -- decided survey, so in practice the row stops being written — nothing here
+  -- decided survey, so in practice the row stops being written, nothing here
   -- depends on that, and a re-delivery is written like any other.
   -- artifact_hash is the content address of the tally artifact the decision
   -- published (finalized and cancelled carry one), kept so the final count
@@ -47,7 +47,7 @@ CREATE TABLE survey (
   final_state        TEXT,
   artifact_hash      TEXT,
   -- Tessera no longer lists the survey as eligible: its record is gone, or
-  -- it is listed with no link at all — either way a rollback upstream. Only a
+  -- it is listed with no link at all, either way a rollback upstream. Only a
   -- published row is flagged, as the check below holds (a row with no thread
   -- is simply deleted): the flag hides answering and keeps the thread, and
   -- presence in a later answer clears it.
@@ -59,9 +59,9 @@ CREATE TABLE survey (
 CREATE INDEX idx_survey_topic ON survey(topic_id);
 
 -- Governance actions advertising a survey (N actions may link one survey).
--- action_id is the bech32 gov_action id, joining governance_actions.proposal_id;
--- title is the action title Tessera extracted from the CIP-108 anchor —
--- untrusted text, sanitized and capped at write like the survey's own — kept
+-- action_id is the bech32 gov_action id, joining governance_actions.proposal_id.
+-- The title is the action title Tessera extracted from the CIP-108 anchor,
+-- untrusted text, sanitized and capped at write like the survey's own, kept
 -- so the survey card can name a linking action DRepTalk has not imported.
 CREATE TABLE survey_gov_link (
   survey_ref TEXT NOT NULL,
@@ -73,11 +73,11 @@ CREATE INDEX idx_survey_gov_link_action ON survey_gov_link(action_id);
 
 -- The mirror's bookkeeping, one row. changes_cursor is where Tessera's change
 -- selection continues from (opaque, minted by the backend): NULL until the
--- first run's bootstrap — the same selection from instant zero — has been
+-- first run's bootstrap, the same selection from instant zero, has been
 -- applied to its end, and never expiring after, since the backend keeps its
 -- tombstones for the life of the corpus.
 -- tessera_fetched_at is the snapshot time (unix s) of the last answer applied
--- by a run that reached the end of its delta — the "as of" every survey page
+-- by a run that reached the end of its delta, the "as of" every survey page
 -- shows. One value for the whole mirror: the delta names every row that moved,
 -- so no row is fresher than the mirror.
 CREATE TABLE survey_sync_state (

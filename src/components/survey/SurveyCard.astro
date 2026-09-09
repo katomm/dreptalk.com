@@ -1,5 +1,5 @@
 ---
-// The survey thread's header card, from what the page loaded out of D1 — the
+// The survey thread's header card, from what the page loaded out of D1, the
 // "as of" line owns the staleness. Deliberately no tally figure of any kind:
 // CIP-179 mandates no counting policy, so the card shows participation, never
 // "the result".
@@ -19,17 +19,17 @@ import {
 interface Props {
   survey: SurveyRow;
   /** The decoded definition, or null when the stored form could not be
-   * read — the card then shows the row's facts and says so. */
+   * read, the card then shows the row's facts and says so. */
   definition: SurveyDefinition | null;
   /** The governance actions advertising this survey (may name actions this
-   * site has not imported — those render unlinked). */
+   * site has not imported, those render unlinked). */
   links: SurveyGovLinkView[];
   cfg: NetworkConfig;
   now: number;
   appUrl: string | undefined;
   /** Snapshot time (unix s) of the last Tessera answer the mirror applied to
-   * its end — one value for every survey, since the delta names every row
-   * that moved, so no row is fresher than the mirror; null until a run has
+   * its end, one value for every survey, since the delta names every row
+   * that moved, so no row is fresher than the mirror. Null until a run has
    * applied one. */
   asOf: number | null;
 }
@@ -50,8 +50,8 @@ const deepLink = tesseraSurveyUrl(appUrl, survey.ref);
 
   {survey.unavailable && (
     <p class="svy-card__warn">
-      This survey is no longer in the index, or no governance action links it any more — its
-      record, or the action's, may have been rolled back. The thread stays; answering is disabled.
+      This survey is no longer in the index, or no governance action links it any more. Its
+      record, or the action's, may have been rolled back. The thread stays and answering is disabled.
     </p>
   )}
 
@@ -119,7 +119,7 @@ const deepLink = tesseraSurveyUrl(appUrl, survey.ref);
   <div class="svy-card__foot">
     {deepLink && (
       <a class="svy-card__link" href={deepLink} target="_blank" rel="noopener noreferrer">
-        View on Tessera ↗
+        View on Tessera
       </a>
     )}
     {asOf != null && (

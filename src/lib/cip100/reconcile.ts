@@ -67,7 +67,7 @@ function outOfScope(post: PostRow, now: number): boolean {
   // Vote rationale cross-posts reference the existing /vote-rationale/ document.
   if (post.source === 'vote_rationale') return true;
   // The sync-generated mirror post of a synced topic reproduces on-chain
-  // content that already has its own anchor — a CIP-108 anchor for a governance
+  // content that already has its own anchor, a CIP-108 anchor for a governance
   // action, a CIP-179 record for a survey. Identified by authorship, which is
   // exact: the sync writes the topic and its mirror post with the same author
   // id, and no human account holds that id. Identifying it as the oldest

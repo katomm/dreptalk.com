@@ -1,13 +1,13 @@
 /// <reference types="@cloudflare/workers-types" />
 // Parameterized D1 access for the survey tables (survey, survey_gov_link,
 // survey_sync_state). All queries use .prepare().bind(); never
-// string-concatenated SQL. Rows are Tessera's answers written down; the sync
+// string-concatenated SQL. Rows are Tessera's answers written down. The sync
 // (src/lib/surveys/sync.ts) is the only writer.
 
 import { chunked, D1_MAX_BINDS, sqlPlaceholders } from './sql.js';
 
 /** A survey as the mirror writes it: Tessera's answer, no thread of its own
- * yet — the thread is opened later, over the stored rows. */
+ * yet, the thread is opened later, over the stored rows. */
 export interface NewSurvey {
   ref: string;
   endEpoch: number;
@@ -27,7 +27,7 @@ export interface NewSurvey {
 
 /** Writes down one survey the mirror was given: an insert the first time, and
  * an update of what Tessera can move on every later delivery. The record's own
- * columns are deliberately not in the update list — a CIP-179 record is
+ * columns are deliberately not in the update list, a CIP-179 record is
  * immutable under its ref, and the stored wire form is what the widget
  * re-decodes, so re-deriving them per delivery could only introduce drift.
  * `final_counted_dreps` is the artifact pass's alone, except that a delivery
@@ -88,7 +88,7 @@ export function buildDeleteGovLinks(db: D1Database, surveyRef: string): D1Prepar
 
 /** A stored survey a linking action now imported entitles to a thread: what
  * the publish step needs to open one from the row alone, with no Tessera
- * request — the record it stored and the publication time it projected. */
+ * request, the record it stored and the publication time it projected. */
 export interface PublishableSurvey {
   ref: string;
   definitionJson: string;
@@ -99,7 +99,7 @@ export interface PublishableSurvey {
 /** DRepTalk's half of admission, asked of the stored rows: a survey with no
  * thread yet that at least one imported governance action links. Every step
  * is an index probe (the NULL group of idx_survey_topic, empty in steady
- * state; the link table's primary key; idx_governance_actions_proposal_id),
+ * state, the link table's primary key, idx_governance_actions_proposal_id),
  * so asking on every run costs nothing while nothing is pending. Oldest
  * publication first, so a backlog opens its threads in chain order. */
 export async function getPublishableSurveys(db: D1Database): Promise<PublishableSurvey[]> {
@@ -142,16 +142,16 @@ export function buildPublishSurvey(
     .bind(topicId, ref);
 }
 
-/** Withdraws the surveys the latest answer no longer lists as eligible — a
+/** Withdraws the surveys the latest answer no longer lists as eligible, a
  * rolled-back record, its links gone, a key removed upstream. What withdrawal
  * does depends on what there is to preserve, and that is a fact on the row:
  * a survey with a thread keeps it and takes the `unavailable` flag, which
- * hides answering until presence in a later answer clears it; one with no
+ * hides answering until presence in a later answer clears it. One with no
  * thread is deleted, since an advisory removal delivers it again. Asking
  * `topic_id IS NULL` in the statements that act is what lets the sync withdraw
  * a list of keys without knowing anything about them: refs never stored are
  * no-ops, and an already-withdrawn row is untouched, so `unavailable` dates
- * from the first withdrawal. The gov links go either way — a rolled-back
+ * from the first withdrawal. The gov links go either way, a rolled-back
  * action must stop naming the survey on its thread. Returns the rows
  * withdrawn. */
 export async function withdrawSurveys(
@@ -181,7 +181,7 @@ export async function withdrawSurveys(
 
 /** Finalized surveys whose artifact count is still to be read: the decision
  * has been written but the artifact request has not answered yet. Asked on
- * every run — the set is normally empty, and an artifact is immutable once
+ * every run, the set is normally empty, and an artifact is immutable once
  * named, so a hash the list gave out is one the backend serves. */
 export async function getSurveysAwaitingFinalCount(
   db: D1Database,
@@ -210,9 +210,9 @@ export async function setSurveyFinalCount(
 }
 
 /** One published survey, as the pages read it (booleans decoded from 0/1).
- * Every reader joins topics, so a row stored but not yet published — its
- * thread waits for a linking action to be imported — never takes this shape;
- * the thread's own title and slug come from that join where a reader shows
+ * Every reader joins topics, so a row stored but not yet published, its
+ * thread waits for a linking action to be imported, never takes this shape.
+ * The thread's own title and slug come from that join where a reader shows
  * them. */
 export interface SurveyRow {
   ref: string;
@@ -227,7 +227,7 @@ export interface SurveyRow {
   /** The in-window DRep figure (Tessera's audited per-role count), null while
    * the backend serves none. */
   countedDreps: number | null;
-  /** The DRep responders of the finalized tally artifact; null until read,
+  /** The DRep responders of the finalized tally artifact, null until read,
    * and forever on a cancelled or untalliable survey. */
   finalCountedDreps: number | null;
   finalState: string | null;
@@ -249,7 +249,7 @@ interface RawSurveyRow {
 }
 
 // Qualified with the table name so the reads that join topics stay
-// unambiguous; single-table reads accept the qualification too.
+// unambiguous. Single-table reads accept the qualification too.
 const SURVEY_COLUMNS =
   'survey.ref, survey.end_epoch, survey.eligible_roles, survey.sealed, survey.cancelled, ' +
   'survey.external_content, survey.definition, survey.counted_dreps, ' +
@@ -329,7 +329,7 @@ export async function listSurveysWithTopics(
 
 /** One governance action linking a survey, resolved to its DRepTalk thread
  * when the action is imported. `title` is Tessera's extract from the action's
- * CIP-108 anchor, sanitized and capped at write like the survey's own — the
+ * CIP-108 anchor, sanitized and capped at write like the survey's own, the
  * fallback name for an action DRepTalk has not imported
  * (which can legitimately hold a link: admission needs only one match). */
 export interface SurveyGovLinkView {
@@ -364,7 +364,7 @@ export async function getSurveyGovLinks(db: D1Database, ref: string): Promise<Su
   }));
 }
 
-/** The published survey one governance action links — at most one by
+/** The published survey one governance action links, at most one by
  * construction (an action's anchor declares a single survey). Null when the
  * action links none, or links one that was never published. */
 export async function getLinkedSurveyForAction(
@@ -387,7 +387,7 @@ export async function getLinkedSurveyForAction(
     : null;
 }
 
-/** Thread slug for a survey ref — the /s/<ref> redirect target. */
+/** Thread slug for a survey ref, the /s/<ref> redirect target. */
 export async function getTopicSlugBySurveyRef(db: D1Database, ref: string): Promise<string | null> {
   const row = await db
     .prepare(
@@ -400,12 +400,12 @@ export async function getTopicSlugBySurveyRef(db: D1Database, ref: string): Prom
 }
 
 export interface SurveySyncState {
-  /** Where Tessera's change selection continues from — opaque, minted by the
-   * backend — or null until the first run's bootstrap has been applied to its
+  /** Where Tessera's change selection continues from, opaque, minted by the
+   * backend, or null until the first run's bootstrap has been applied to its
    * end. Never expires: the backend keeps its tombstones for the life of the
    * corpus. */
   changesCursor: string | null;
-  /** Snapshot time (unix s) of the last Tessera answer this mirror applied —
+  /** Snapshot time (unix s) of the last Tessera answer this mirror applied,
    * the "as of" every survey page shows. Null until a run has applied a delta
    * to its end. */
   tesseraFetchedAt: number | null;

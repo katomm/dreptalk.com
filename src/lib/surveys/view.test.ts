@@ -63,7 +63,7 @@ describe('definition round-trip and rendering', () => {
     expect(parseSurveyDefinition(JSON.stringify(reshaped))).toBeNull();
   });
 
-  it('caps and strips the title, description, prompts and labels; falls back for an empty title', () => {
+  it('caps and strips the title, description, prompts and labels, and falls back for an empty title', () => {
     const long = 'x'.repeat(MAX_EXTERNAL_PROSE_LEN + 100);
     const def = definition({
       title: ` Bud\u0000get ${'t'.repeat(MAX_EXTERNAL_TITLE_LEN)}`,
@@ -93,7 +93,7 @@ describe('definition round-trip and rendering', () => {
       prompt: 'Pick', kindLabel: 'Single choice', options: ['A', 'B'], optionNote: null, required: true,
     });
     expect(views[1]).toMatchObject({
-      kindLabel: 'Select 1–2', options: null, optionNote: '4 options (labels in the external document)',
+      kindLabel: 'Select 1 to 2', options: null, optionNote: '4 options (labels in the external document)',
     });
     expect(views[2]).toMatchObject({ kindLabel: 'Number between 0 and 100', required: false });
   });

@@ -87,7 +87,7 @@ describe('eligibleSurvey', () => {
     expect(eligibleSurvey(elsewhere)).toBe(false);
   });
 
-  it('needs at least one link, to any action — whether it is imported is not its question', () => {
+  it('needs at least one link, to any action, whether it is imported is not its question', () => {
     expect(eligibleSurvey(aggregateOf(definition(), linkedBy(OTHER_ACTION)))).toBe(true);
     expect(eligibleSurvey(aggregateOf(definition(), linkedBy(OTHER_ACTION, ACTION)))).toBe(true);
     expect(eligibleSurvey(aggregateOf(definition(), []))).toBe(false);

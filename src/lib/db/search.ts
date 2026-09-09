@@ -461,7 +461,7 @@ export async function searchDrepsPage(db: D1Database, match: string, page: numbe
 // best bm25 across both. Governance-synced topics belong to the Governance
 // scope, so they are excluded here, mirroring how searchAll routes GA-linked
 // threads to the GA group; survey threads have no scope of their own and take
-// real replies, so they stay in the forum — the typeahead already returns them,
+// real replies, so they stay in the forum, the typeahead already returns them,
 // and a hit that vanished on the full search page was the discrepancy.
 // bm25() is evaluated inside each UNION branch, where its FTS table is in
 // scope; the outer query aggregates per topic. UNION ALL is fine here because
