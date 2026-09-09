@@ -41,13 +41,13 @@
     "deploy": "npm run deploy:all"
   },
   "dependencies": {
-    "@astrojs/cloudflare": "~14.2.2",
+    "@astrojs/cloudflare": "~14.2.6",
     "@astrojs/markdown-remark": "7.2.4",
     "@astrojs/react": "^6.0.5",
     "@evolution-sdk/evolution": "^0.5.13",
     "@noble/curves": "^2.4.0",
     "@stricahq/cardano-identicon": "^1.0.0",
-    "astro": "~7.2.9",
+    "astro": "~7.2.10",
     "bech32": "^2.0.0",
     "blakejs": "^1.2.1",
     "cardano-tessera-client": "0.2.0",
@@ -59,7 +59,7 @@
     "react-dom": "^19.2.8",
     "workers-og": "^0.0.27",
     "xss": "^1.0.15",
-    "zod": "^4.4.3"
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
