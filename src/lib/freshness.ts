@@ -31,6 +31,13 @@ export const FRESHNESS: readonly FreshnessRow[] = [
     notes: 'A discovery cron opens one thread per new on-chain action.',
   },
   {
+    key: 'surveys',
+    label: 'CIP-179 surveys (definitions and response counts)',
+    refresh: 'About every 5 minutes',
+    notes:
+      'Mirrored from the Tessera index on the discovery cron. A submitted answer is counted here once the index has confirmed its transaction, usually under ten minutes.',
+  },
+  {
     key: 'ga-tallies',
     label: 'Governance tallies and status (DRep, SPO, CC)',
     refresh: 'About every 15 minutes, active actions only',

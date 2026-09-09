@@ -256,6 +256,18 @@ describe('handleCreateTopic: category rules', () => {
     const json = result.json as { ok: boolean; error: string };
     expect(json.error).toBe('cannot post in this category');
   });
+
+  it('returns 403 for the surveys category', async () => {
+    const result = await handleCreateTopic({
+      user: WRITER,
+      body: { categorySlug: 'surveys', title: 'Survey Post', bodyMd: 'body' },
+      db: db(),
+      rateLimiter: rateLimiter(),
+      now: NOW,
+    });
+    expect(result.status).toBe(403);
+    expect((result.json as { error: string }).error).toBe('cannot post in this category');
+  });
 });
 
 describe('handleCreateTopic: title validation', () => {

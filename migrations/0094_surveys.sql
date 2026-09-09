@@ -1,0 +1,87 @@
+-- migrations/0094_surveys.sql
+-- CIP-179 surveys mirrored from the Tessera serving backend. DRepTalk holds no
+-- CIP-179 rule of its own: rows are Tessera's answers written down, refreshed
+-- by the gov-sync surveys phase, and every page renders from here (never from
+-- Tessera). Admission — which surveys get a row, and which of those get a
+-- thread — is editorial policy in the sync, not encoded in this schema, so
+-- widening it later is one predicate.
+
+-- One row per mirrored survey. `ref` is the canonical CIP-179 reference
+-- "<txHashHex>:<index>" (lowercase, index without leading zeros) — the same
+-- string Tessera keys everything by. A row is written each time Tessera reports
+-- the survey changed and never otherwise, so `synced_at` dates that report and
+-- not the last time the sync looked; the mirror-wide "as of", which every page
+-- shows instead, lives in survey_sync_state.
+CREATE TABLE survey (
+  ref                TEXT PRIMARY KEY,
+  -- The survey's forum thread, NULL while it has none: the row is Tessera's
+  -- answer written down as soon as the survey is eligible, the thread is
+  -- opened once a linking action is imported here. Every page reader joins
+  -- topics, so a row without one is invisible until then.
+  topic_id           TEXT,
+  end_epoch          INTEGER NOT NULL,   -- inclusive response cutoff (CIP-179)
+  eligible_roles     TEXT NOT NULL,      -- JSON array of CIP-179 role ints (DRep = 0)
+  sealed             INTEGER NOT NULL DEFAULT 0,
+  cancelled          INTEGER NOT NULL DEFAULT 0,
+  external_content   INTEGER NOT NULL DEFAULT 0,
+  definition         TEXT NOT NULL,      -- wire-form record JSON (cip-179 decodeSurveyRecord reads it)
+  -- Participation, from two of Tessera's own counts and never from a count of
+  -- DRepTalk's own. counted_dreps is the in-window figure: the DRep entry of
+  -- the index's per-role audited count, rewritten by every answer that names
+  -- the survey and NULL while the backend serves none. final_counted_dreps is
+  -- the DRep responder count of the finalized tally artifact, which also
+  -- applies end-epoch role membership, so it can be lower than the in-window
+  -- figure; NULL until the artifact has been read, and forever on a cancelled
+  -- or untalliable survey. It describes the artifact named beside it: a
+  -- delivery that moves artifact_hash resets it, to be read again.
+  counted_dreps      INTEGER,
+  final_counted_dreps INTEGER,
+  -- NULL while the survey can still change; set once Tessera decides it for
+  -- good ('finalized' | 'cancelled' | 'untalliable'). Tessera stops changing a
+  -- decided survey, so in practice the row stops being written — nothing here
+  -- depends on that, and a re-delivery is written like any other.
+  -- artifact_hash is the content address of the tally artifact the decision
+  -- published (finalized and cancelled carry one), kept so the final count
+  -- can be read on a later run when the artifact request fails on the run
+  -- the decision arrives.
+  final_state        TEXT,
+  artifact_hash      TEXT,
+  -- Tessera no longer lists the survey as eligible: its record is gone, or
+  -- it is listed with no link at all — either way a rollback upstream. Only a
+  -- published row is flagged, as the check below holds (a row with no thread
+  -- is simply deleted): the flag hides answering and keeps the thread, and
+  -- presence in a later answer clears it.
+  unavailable        INTEGER NOT NULL DEFAULT 0,
+  submitted_at       INTEGER NOT NULL,   -- survey publication time (unix ms, slot-derived)
+  synced_at          INTEGER NOT NULL,   -- last change written by the sync (unix ms)
+  CHECK (unavailable = 0 OR topic_id IS NOT NULL)
+);
+CREATE INDEX idx_survey_topic ON survey(topic_id);
+
+-- Governance actions advertising a survey (N actions may link one survey).
+-- action_id is the bech32 gov_action id, joining governance_actions.proposal_id;
+-- title is the action title Tessera extracted from the CIP-108 anchor —
+-- untrusted text, sanitized and capped at write like the survey's own — kept
+-- so the survey card can name a linking action DRepTalk has not imported.
+CREATE TABLE survey_gov_link (
+  survey_ref TEXT NOT NULL,
+  action_id  TEXT NOT NULL,
+  title      TEXT,
+  PRIMARY KEY (survey_ref, action_id)
+);
+CREATE INDEX idx_survey_gov_link_action ON survey_gov_link(action_id);
+
+-- The mirror's bookkeeping, one row. changes_cursor is where Tessera's change
+-- selection continues from (opaque, minted by the backend): NULL until the
+-- first run's bootstrap — the same selection from instant zero — has been
+-- applied to its end, and never expiring after, since the backend keeps its
+-- tombstones for the life of the corpus.
+-- tessera_fetched_at is the snapshot time (unix s) of the last answer applied
+-- by a run that reached the end of its delta — the "as of" every survey page
+-- shows. One value for the whole mirror: the delta names every row that moved,
+-- so no row is fresher than the mirror.
+CREATE TABLE survey_sync_state (
+  id                 INTEGER PRIMARY KEY,
+  changes_cursor     TEXT,
+  tessera_fetched_at INTEGER
+);

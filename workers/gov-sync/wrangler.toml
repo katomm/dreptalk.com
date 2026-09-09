@@ -69,6 +69,14 @@ name = "dreptalk-gov-sync-preprod"
 [env.preprod.vars]
 CARDANO_NETWORK = "preprod"
 VAPID_PUBLIC_KEY = "BP8lsNXkOYQipYvkb5iBFeXOlDdkcDrlC7Dqbgw3e1bNd9UhgF3KdbpjHCwEMyhtExwc06YlzwzaUo_pCK8VXJ0"
+# Tessera serving backend for CIP-179 surveys. Non-empty turns the surveys sync
+# phase on; deliberately absent from the mainnet [vars] above, which keeps the
+# feature off there. The client refuses a backend whose /health reports a
+# different network, so this URL and CARDANO_NETWORK cannot silently disagree.
+# The app's copy (scripts/preprod-config.mjs) is held equal to this one by
+# src/lib/deployVars.test.ts: set on one side only, the site either offers
+# answers nothing settles or mirrors surveys nobody can see.
+TESSERA_BACKEND_URL = "https://tessera-backend-preprod.matthieu-pizenberg.workers.dev"
 
 [[env.preprod.d1_databases]]
 binding = "DB"

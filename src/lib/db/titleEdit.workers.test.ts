@@ -9,7 +9,7 @@ const NOW = 1_752_000_000_000;
 const AUTHOR = 'drep-titler-1';
 
 let seq = 0;
-async function newTopic(source: 'user' | 'governance' = 'user', proposerGrantId?: string | null) {
+async function newTopic(source: 'user' | 'governance' | 'survey' = 'user', proposerGrantId?: string | null) {
   seq++;
   const { topic } = await createTopic(db(), {
     categorySlug: 'general', authorId: AUTHOR, title: `Title fixture ${seq}`,
@@ -38,6 +38,12 @@ describe('editTitle', () => {
 
   it('throws not_user_topic for a governance topic', async () => {
     const topic = await newTopic('governance');
+    await expect(editTitle(db(), { topicId: topic.id, authorId: AUTHOR, title: 'x', now: NOW, sessionGrantId: null }))
+      .rejects.toThrow('not_user_topic');
+  });
+
+  it('throws not_user_topic for a survey topic', async () => {
+    const topic = await newTopic('survey');
     await expect(editTitle(db(), { topicId: topic.id, authorId: AUTHOR, title: 'x', now: NOW, sessionGrantId: null }))
       .rejects.toThrow('not_user_topic');
   });

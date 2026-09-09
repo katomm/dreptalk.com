@@ -8,6 +8,7 @@ import CategorySidebar from '@/components/CategorySidebar.astro';
 import { getCategoryStats } from '@/lib/db/forum.js';
 import { loadActivityFeed, parseActivityFilter, type ActivityFilter } from '@/lib/forum/activityFeed.js';
 import { getCategories } from '../../config/categories.js';
+import { surveysEnabled } from '@/lib/surveys/switch.js';
 import { cacheControlFor, parsePage, pageToOffset, SITE_ORIGIN, ACTIVE_WINDOW_MS, CARD_FACE_LIMIT } from '@/lib/forum/view.js';
 import { env } from 'cloudflare:workers';
 import RecentlyActiveCard from '@/components/RecentlyActiveCard.astro';
@@ -20,7 +21,7 @@ import { loadActiveFaces } from '@/lib/forum/activeFaces.js';
 const db = env.DB as D1Database | undefined;
 const now = Date.now();
 
-const categories = getCategories();
+const categories = getCategories({ surveys: surveysEnabled(env) });
 
 const PAGE_SIZE = 20;
 const filter = parseActivityFilter(Astro.url.searchParams.get('filter'));

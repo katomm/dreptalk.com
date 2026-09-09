@@ -11,7 +11,7 @@ export interface Topic {
   id: string;
   category_slug: string;
   author_id: string;
-  source: 'user' | 'governance';
+  source: 'user' | 'governance' | 'survey';
   title: string;
   slug: string;
   pinned: boolean;
@@ -106,7 +106,7 @@ export function rowToTopic(row: TopicRow): Topic {
     id: row.id,
     category_slug: row.category_slug,
     author_id: row.author_id,
-    source: row.source as 'user' | 'governance',
+    source: row.source as 'user' | 'governance' | 'survey',
     title: row.title,
     slug: row.slug,
     pinned: row.pinned === 1,
@@ -176,7 +176,7 @@ export async function createTopic(
     title: string;
     bodyMd: string;
     bodyHtml: string;
-    source?: 'user' | 'governance';
+    source?: 'user' | 'governance' | 'survey';
     now: number;
     // Overrides the timestamp written to the topic's created_at/last_post_at and the
     // first post's created_at. Defaults to `now`. The governance sync passes the
@@ -216,8 +216,8 @@ export async function createTopic(
 
   const extra = batchWith ? batchWith(topicId) : [];
   // A user-created topic emits a 'topic_created' event in the same atomic batch.
-  // Governance-sourced topics are emitted by gov sync as 'gov_created' (it has
-  // the on-chain action context), so they emit nothing here.
+  // System-sourced topics emit nothing here: a governance one gets 'gov_created'
+  // from gov sync (it has the on-chain action context), a survey one nothing yet.
   const events =
     source === 'user'
       ? [activityInsert(db, { type: 'topic_created', topicId, actorId: authorId, createdAt: postedAt })]

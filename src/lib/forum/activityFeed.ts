@@ -6,7 +6,7 @@
 // dropped, so removed content never surfaces in the feed.
 
 import { getActivityPage, type ActivityKind } from '../db/activity.js';
-import { getTopicsByIds } from '../db/forum.js';
+import { getTopicsByIds, type Topic } from '../db/forum.js';
 import { getGovernanceActionsByTopicIds } from '../db/governance.js';
 import { getParticipantCounts } from '../db/discussions.js';
 import { loadAuthorIdentities, type AuthorDescriptor } from './author.js';
@@ -51,7 +51,7 @@ export interface ActivityEvent {
     title: string;
     slug: string;
     categoryName: string;
-    isGovernance: boolean;
+    source: Topic['source'];
     postCount: number;
   };
   /** Current governance status, for the badge on gov_created / gov_status. */
@@ -127,7 +127,7 @@ export async function loadActivityFeed(
         title: t.title,
         slug: t.slug,
         categoryName: getCategory(t.category_slug)?.name ?? t.category_slug,
-        isGovernance: t.source === 'governance',
+        source: t.source,
         postCount: t.post_count,
       },
       governanceStatus: gov?.status ?? transition?.to ?? null,

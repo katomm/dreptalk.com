@@ -13,7 +13,12 @@
 import { blake2b256 } from '../crypto/blake.js';
 import { readBodyLimited } from '../http/bodyLimit.js';
 import { bytesToHex, HEX_HASH_256_RE } from '../crypto/hex.js';
-import { sanitizeExternalText, sanitizeExternalMultiline } from '../validation/input.js';
+import {
+  MAX_EXTERNAL_PROSE_LEN,
+  MAX_EXTERNAL_TITLE_LEN,
+  sanitizeExternalText,
+  sanitizeExternalMultiline,
+} from '../validation/input.js';
 import { renderMarkdown } from '../markdown.js';
 import { isCardanoPaymentAddress } from '../cardano/identity.js';
 import { selfHostedRef, readSelfHostedBody } from './selfHostedDocs.js';
@@ -48,13 +53,11 @@ export const META_EXTRACT_VERSION = 4;
  * the counter (see updateActionMetadata).
  */
 export const META_REEXTRACT_MAX_ATTEMPTS = 10;
-const MAX_TITLE_LEN = 300;
-// Abstract is the always-visible lede of a governance action (it is the fold line
-// above the collapsible rationale), so it must not be cut mid-sentence: most
-// mainnet abstracts run 1-2.5k chars. Rationale merges motivation + rationale and
-// is deposit-gated (100k ada per action), so spam risk is negligible; the 100k cap
-// is purely a page-weight guard against the rare multi-hundred-KB outlier.
-const MAX_ABSTRACT_LEN = 4_000;
+// Rationale merges motivation + rationale and is deposit-gated (100k ada per
+// action), so spam risk is negligible; the 100k cap is purely a page-weight
+// guard against the rare multi-hundred-KB outlier. Title and abstract (the
+// always-visible lede, the fold line above the collapsible rationale) take the
+// shared external-text caps.
 const MAX_RATIONALE_LEN = 100_000;
 // Author names are a self-declared label in an untrusted document, so they are
 // capped hard: 80 chars covers the longest real mainnet name (58) with headroom,
@@ -178,9 +181,9 @@ function extractCip108(doc: unknown, anchorUrl?: string): AnchorMetadata {
   const body = asRecord(root.body);
   const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 
-  const title = sanitizeExternalText(str(body.title), MAX_TITLE_LEN);
+  const title = sanitizeExternalText(str(body.title), MAX_EXTERNAL_TITLE_LEN);
   // abstract and rationale are prose; use multiline sanitizer so Markdown structure survives.
-  const abstract = sanitizeExternalMultiline(str(body.abstract), MAX_ABSTRACT_LEN);
+  const abstract = sanitizeExternalMultiline(str(body.abstract), MAX_EXTERNAL_PROSE_LEN);
 
   // CIP-108 defines `motivation` and `rationale` as two separate fields, and
   // proposers routinely split one document across both (motivation = intro/early

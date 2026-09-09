@@ -17,7 +17,7 @@ import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import { formatRelativeTime, truncateId } from '@/lib/forum/view.js';
 import { statusBadge, tallyBar, epochCountdown, fmtPct, TONE_COLORS } from '@/lib/governance/view.js';
 import { resolveNetwork, epochStartMs, type CardanoNetwork } from '@/lib/config/network.js';
-import { GAVEL_PATH, MESSAGE_PATH, USERS_PATH } from '@/lib/forum/icons.js';
+import { MESSAGE_PATH, USERS_PATH, topicTypeIconPath } from '@/lib/forum/icons.js';
 
 interface Props {
   topic: Topic;
@@ -38,8 +38,9 @@ interface Props {
 
 const { topic, now, network, author, category, governance, variant = 'default', excerpt, participants, mandate } = Astro.props;
 
-// The discussion list never passes `governance`, so the leading type icon is
-// message in practice; gavel is kept for parity with ActivityRow.
+// The discussion list never passes `governance`, so the leading type icon
+// comes from topic.source in practice; the prop is kept for parity with
+// ActivityRow on governance-enriched surfaces (search, overview).
 
 // Left column: the author avatar, or the neutral system tile for a
 // system-authored (governance) topic, mirroring the activity feed row.
@@ -82,7 +83,7 @@ const gaCountdown = governance
       )}
       {variant === 'discussions' && (
         <svg class="topic-row__type-icon" aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d={governance ? GAVEL_PATH : MESSAGE_PATH} />
+          <path d={topicTypeIconPath(governance ? 'governance' : topic.source)} />
         </svg>
       )}
       <a class="topic-row__title" href={`/t/${topic.slug}/`}>{topic.title}</a>

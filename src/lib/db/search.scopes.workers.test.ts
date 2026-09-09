@@ -14,7 +14,7 @@ async function seedTopic(o: {
   id: string;
   title: string;
   slug: string;
-  source?: 'user' | 'governance';
+  source?: 'user' | 'governance' | 'survey';
   categorySlug?: string;
   deleted?: number;
   postCount?: number;
@@ -118,6 +118,24 @@ describe('searchForumPage', () => {
     const res = await searchForumPage(db(), 'omega*', 1);
     expect(res.total).toBe(0);
     expect(res.hits).toEqual([]);
+  });
+
+  it('includes survey threads and the human replies in them', async () => {
+    // A survey thread is a forum thread that takes replies, and the typeahead
+    // already returns it: excluding it here made a palette hit vanish on the
+    // full search page.
+    await seedTopic({ id: 'sv', title: 'iota survey thread', slug: 'sv', source: 'survey', categorySlug: 'surveys' });
+    await seedTopic({ id: 'sv2', title: 'unrelated survey', slug: 'sv2', source: 'survey', categorySlug: 'surveys' });
+    await seedPost({ id: 'svp', topicId: 'sv2', body: 'iota reply from a person' });
+
+    const res = await searchForumPage(db(), 'iota*', 1);
+    expect(res.total).toBe(2);
+    expect(res.hits.map((h) => h.href)).toEqual(
+      expect.arrayContaining(['/t/sv/', '/t/sv2/']),
+    );
+    // The facet count has to agree with the list, or the tab shows a number
+    // the page cannot fill.
+    expect((await countScopes(db(), 'iota*')).forum).toBe(2);
   });
 
   it('paginates', async () => {
