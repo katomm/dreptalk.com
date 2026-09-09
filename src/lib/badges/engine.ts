@@ -4,6 +4,9 @@
 // handful of set-based aggregates, diffs against badge_awards in memory, and
 // writes only new awards and tier upgrades. Awards are permanent and monotonic,
 // so shrinking counters (deleted posts, re-synced votes) never revoke anything.
+// That is only safe because nothing here is awarded on an unconfirmed vote: see
+// confirmedVoteSql, which keeps a still-optimistic local vote out of every
+// aggregate below until the chain sync has confirmed it.
 //
 // Principles (see config/badges.ts for the catalog): no badge depends on the
 // direction of a vote, criteria are counts rather than rates, on-chain badges
@@ -12,6 +15,7 @@
 import { BADGES } from '../../../config/badges.js';
 import { EPOCH_LENGTH_SECONDS, epochFromUnix, type NetworkConfig } from '../config/network.js';
 import { concludedStatusSql } from '../db/sql.js';
+import { confirmedVoteSql } from '../db/drepVotes.js';
 import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
 import {
   applyAwards,
@@ -116,8 +120,8 @@ async function all<T>(db: D1Database, sql: string, ...binds: unknown[]): Promise
   return res.results ?? [];
 }
 
-export async function awardBadges(opts: { db: D1Database; cfg: NetworkConfig; now: number }): Promise<BadgeRunResult> {
-  const { db, cfg, now } = opts;
+/** Computes the award state the current data justifies, before diffing it. */
+async function computeDesiredAwards(db: D1Database, cfg: NetworkConfig, now: number): Promise<BadgeAward[]> {
   const currentEpoch = epochFromUnix(Math.floor(now / 1000), cfg);
   const anchorSec = cfg.epochAnchor.unixSeconds;
   const anchorEpoch = cfg.epochAnchor.epoch;
@@ -135,7 +139,7 @@ export async function awardBadges(opts: { db: D1Database; cfg: NetworkConfig; no
     db,
     `SELECT voter_role AS role, voter_id AS id, COUNT(*) AS n,
             SUM(CASE WHEN meta_url IS NOT NULL AND meta_url != '' THEN 1 ELSE 0 END) AS r
-     FROM drep_votes GROUP BY voter_role, voter_id`,
+     FROM drep_votes WHERE ${confirmedVoteSql()} GROUP BY voter_role, voter_id`,
   );
   for (const row of roleCounts) {
     if (row.role === 'DRep') {
@@ -155,6 +159,7 @@ export async function awardBadges(opts: { db: D1Database; cfg: NetworkConfig; no
     db,
     `SELECT v.voter_role AS role, v.voter_id AS id, g.type AS t
      FROM drep_votes v JOIN governance_actions g ON g.id = v.ga_id
+     WHERE ${confirmedVoteSql('v')}
      GROUP BY v.voter_role, v.voter_id, g.type`,
   );
   const typesBySubject = new Map<string, { subject: BadgeSubjectType; id: string; types: Set<string> }>();
@@ -181,7 +186,7 @@ export async function awardBadges(opts: { db: D1Database; cfg: NetworkConfig; no
     db,
     `SELECT DISTINCT v.voter_id AS id
      FROM drep_votes v JOIN governance_actions g ON g.id = v.ga_id
-     WHERE v.voter_role = 'DRep' AND g.status NOT IN ('active', 'pending')
+     WHERE v.voter_role = 'DRep' AND ${confirmedVoteSql('v')} AND g.status NOT IN ('active', 'pending')
        AND ((v.vote = 'Yes' AND g.drep_no_pct > 90) OR (v.vote = 'No' AND g.drep_yes_pct > 90))`,
   );
   for (const row of lone) award('drep', row.id, 'lone-voice');
@@ -193,7 +198,7 @@ export async function awardBadges(opts: { db: D1Database; cfg: NetworkConfig; no
             MAX(CASE WHEN v.ep = g.submitted_epoch THEN 1 ELSE 0 END) AS early,
             MAX(CASE WHEN v.ep = g.expiry_epoch THEN 1 ELSE 0 END) AS buzzer
      FROM (SELECT voter_id AS id, ga_id, ${epochSql('block_time')} AS ep
-           FROM drep_votes WHERE voter_role = 'DRep' AND block_time IS NOT NULL) v
+           FROM drep_votes WHERE voter_role = 'DRep' AND block_time IS NOT NULL AND ${confirmedVoteSql()}) v
      JOIN governance_actions g ON g.id = v.ga_id
      GROUP BY v.id`,
     anchorSec,
@@ -235,7 +240,7 @@ export async function awardBadges(opts: { db: D1Database; cfg: NetworkConfig; no
     db,
     `SELECT g.decided_epoch AS e, COUNT(*) AS n FROM governance_actions g
      WHERE g.decided_epoch IS NOT NULL AND ${concludedStatusSql('g')}
-       AND EXISTS (SELECT 1 FROM drep_votes dv WHERE dv.ga_id = g.id AND dv.voter_role = 'DRep')
+       AND EXISTS (SELECT 1 FROM drep_votes dv WHERE dv.ga_id = g.id AND dv.voter_role = 'DRep' AND ${confirmedVoteSql('dv')})
      GROUP BY g.decided_epoch`,
   );
   const totals = new Map(epochTotals.map((r) => [r.e, r.n]));
@@ -244,7 +249,7 @@ export async function awardBadges(opts: { db: D1Database; cfg: NetworkConfig; no
     db,
     `SELECT v.voter_id AS id, g.decided_epoch AS e, COUNT(*) AS n
      FROM drep_votes v JOIN governance_actions g ON g.id = v.ga_id
-     WHERE v.voter_role = 'DRep' AND g.decided_epoch IS NOT NULL AND ${concludedStatusSql('g')}
+     WHERE v.voter_role = 'DRep' AND ${confirmedVoteSql('v')} AND g.decided_epoch IS NOT NULL AND ${concludedStatusSql('g')}
      GROUP BY v.voter_id, g.decided_epoch`,
   );
   const votedByDrep = new Map<string, Map<number, number>>();
@@ -383,6 +388,7 @@ export async function awardBadges(opts: { db: D1Database; cfg: NetworkConfig; no
      JOIN users u ON u.id = p.author_id AND u.drep_id IS NOT NULL
      JOIN governance_actions g ON g.topic_id = p.topic_id
      JOIN drep_votes v ON v.ga_id = g.id AND v.voter_id = u.drep_id AND v.voter_role = 'DRep'
+       AND ${confirmedVoteSql('v')}
      WHERE ${countablePostSql('p')}
      GROUP BY u.drep_id, g.id, v.block_time`,
   );
@@ -398,6 +404,16 @@ export async function awardBadges(opts: { db: D1Database; cfg: NetworkConfig; no
     if (c.rationale >= 10) award('drep', drepId, 'open-book');
     if (c.deliberated >= 10) award('drep', drepId, 'deliberator');
   }
+
+  return desired;
+}
+
+export async function awardBadges(opts: { db: D1Database; cfg: NetworkConfig; now: number }): Promise<BadgeRunResult> {
+  const { db, cfg, now } = opts;
+  const desired = await computeDesiredAwards(db, cfg, now);
+  const award = (subjectType: BadgeSubjectType, subjectId: string, badgeId: string, tier = 0) => {
+    desired.push({ subjectType, subjectId, badgeId, tier });
+  };
 
   // --- Diff against existing awards and write only changes -------------------
   const existing = await getAllAwards(db);
