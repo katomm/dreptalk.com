@@ -5,6 +5,7 @@
 // to IPFS, then store the audit row. Mirrors voteRationaleHandler.ts.
 
 import { z } from 'zod';
+import { SPEC_VERSION } from 'cip-179';
 import { sanitizeExternalText, sanitizeExternalMultiline } from '../validation/input.js';
 import { buildInfoActionMetadata } from './infoActionMetadata.js';
 import {
@@ -18,6 +19,7 @@ import {
   REFERENCES_MAX,
 } from './infoActionLimits.js';
 import { canonicalBodyHashFor, type Cip108Body, type Cip108Reference } from './cip108Canonical.js';
+import { parseSurveyRefInput } from './surveyRef.js';
 import { verifyWalletAuthorWitness } from './authorWitness.js';
 import { pinInfoActionMetadata, type FileUploader } from './pinata.js';
 import { getGovActionMetadata, putGovActionMetadata } from '../db/govActionMetadata.js';
@@ -37,6 +39,9 @@ const bodySchema = z.object({
   motivation: z.string().min(1).max(INFO_MOTIVATION_MAX),
   rationale: z.string().min(1).max(INFO_RATIONALE_MAX),
   references: z.array(referenceSchema).max(REFERENCES_MAX).optional(),
+  // A CIP-179 survey reference the user pasted, either "<txId>:<index>" or a
+  // link containing one. Normalised (and rejected) by parseSurveyRefInput.
+  surveyRef: z.string().max(2048).optional(),
   author: z
     .object({
       name: z.string().min(1).max(AUTHOR_NAME_MAX),
@@ -64,17 +69,34 @@ function cleanReferences(refs: z.infer<typeof referenceSchema>[] | undefined): C
 
 // Sanitize every field, then re-check non-emptiness: sanitize can strip a
 // field to '' (e.g. an input that was only control characters).
-function cleanBody(b: z.infer<typeof bodySchema>): Cip108Body | null {
+type CleanBodyResult = { ok: true; body: Cip108Body } | { ok: false; error: string };
+
+function cleanBody(b: z.infer<typeof bodySchema>): CleanBodyResult {
   const clean: Cip108Body = {
     title: sanitizeExternalText(b.title, INFO_TITLE_MAX),
     abstract: sanitizeExternalMultiline(b.abstract, INFO_ABSTRACT_MAX),
     motivation: sanitizeExternalMultiline(b.motivation, INFO_MOTIVATION_MAX),
     rationale: sanitizeExternalMultiline(b.rationale, INFO_RATIONALE_MAX),
   };
-  if (!clean.title || !clean.abstract || !clean.motivation || !clean.rationale) return null;
+  if (!clean.title || !clean.abstract || !clean.motivation || !clean.rationale) {
+    return { ok: false, error: 'empty field after sanitization' };
+  }
   const references = cleanReferences(b.references);
   if (references) clean.references = references;
-  return clean;
+
+  // The survey link is built here, from a ref we normalised ourselves, so
+  // prepare and finalize always canonicalize the identical link.
+  if (b.surveyRef !== undefined && b.surveyRef.trim() !== '') {
+    const ref = parseSurveyRefInput(b.surveyRef);
+    if (!ref.ok) return { ok: false, error: ref.reason };
+    clean.cip179 = {
+      specVersion: SPEC_VERSION,
+      kind: 'survey-link',
+      surveyTxId: ref.txId,
+      surveyIndex: ref.index,
+    };
+  }
+  return { ok: true, body: clean };
 }
 
 export interface InfoActionMetadataInput {
@@ -102,9 +124,9 @@ export async function prepareInfoActionBodyHash(body: unknown): Promise<InfoActi
     if (!parsed.success) {
       return { status: 400, json: { error: parsed.error.issues[0]?.message ?? 'invalid input' } };
     }
-    const clean = cleanBody(parsed.data);
-    if (!clean) return { status: 400, json: { error: 'empty field after sanitization' } };
-    const bodyHash = await canonicalBodyHashFor(clean);
+    const cleaned = cleanBody(parsed.data);
+    if (!cleaned.ok) return { status: 400, json: { error: cleaned.error } };
+    const bodyHash = await canonicalBodyHashFor(cleaned.body);
     return { status: 200, json: { bodyHash } };
   } catch (err: unknown) {
     // Canonicalization is the only thing that can throw here, and when it does
@@ -139,8 +161,9 @@ export async function handleInfoActionMetadata(
     if (!parsed.success) {
       return { status: 400, json: { error: parsed.error.issues[0]?.message ?? 'invalid input' } };
     }
-    const clean = cleanBody(parsed.data);
-    if (!clean) return { status: 400, json: { error: 'empty field after sanitization' } };
+    const cleaned = cleanBody(parsed.data);
+    if (!cleaned.ok) return { status: 400, json: { error: cleaned.error } };
+    const clean = cleaned.body;
 
     // Authors: [] unless a valid wallet witness is supplied. The witness is
     // verified against the canonical hash of the SAME sanitized body that is

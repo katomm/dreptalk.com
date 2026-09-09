@@ -3,7 +3,7 @@
 // makes JSON.stringify deterministic, which is required because the hash is
 // the on-chain anchor hash. Reuses the verbatim CIP-108 @context from Task 1
 // so the served document is a conformant standalone CIP-108 document.
-import { CIP108_CONTEXT, type Cip108Body } from './cip108Canonical.js';
+import { contextForBody, type Cip108Body } from './cip108Canonical.js';
 import { blake2b256 } from '../crypto/blake.js';
 import { bytesToHex } from '../crypto/hex.js';
 import {
@@ -41,8 +41,22 @@ export function buildInfoActionMetadata(input: { body: Cip108Body; authors: Cip1
     // Fixed per-entry key order, mirroring the doc's own fixed key order.
     bodyDoc.references = input.body.references.map((r) => ({ '@type': r['@type'], label: r.label, uri: r.uri }));
   }
+  // The CIP-179 survey link, last and only when set. This rebuild is exactly
+  // why choosing the context is not enough on its own: a field missing here
+  // never reaches the document, however well the context maps it.
+  if (input.body.cip179) {
+    const l = input.body.cip179;
+    bodyDoc.cip179 = {
+      specVersion: l.specVersion,
+      kind: l.kind,
+      surveyTxId: l.surveyTxId,
+      surveyIndex: l.surveyIndex,
+    };
+  }
   const doc = {
-    '@context': CIP108_CONTEXT,
+    // Must be the same predicate the canonical body hash used, or the witness
+    // would cover a different document than the one pinned.
+    '@context': contextForBody(bodyDoc),
     hashAlgorithm: 'blake2b-256',
     authors: input.authors,
     body: bodyDoc,

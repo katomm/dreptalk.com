@@ -38,7 +38,8 @@
     "deploy:mainnet": "CONFIRM_PROD_SOFT=1 bash scripts/confirm-prod.sh 'mainnet deploy (app + gov-sync)' && CONFIRM_PROD_OK=1 npm run deploy:app && CONFIRM_PROD_OK=1 npm run deploy:sync",
     "deploy:preprod": "npm run deploy:app:preprod && npm run deploy:sync:preprod",
     "deploy:all": "npm run deploy:mainnet && npm run deploy:preprod",
-    "deploy": "npm run deploy:all"
+    "deploy": "npm run deploy:all",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@astrojs/cloudflare": "~14.2.2",
@@ -71,6 +72,7 @@
     "@types/node": "^26.4.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.2.7",
+    "patch-package": "^8.0.1",
     "satori": "^0.15.2",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10",

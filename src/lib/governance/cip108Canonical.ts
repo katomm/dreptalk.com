@@ -26,12 +26,24 @@ export interface Cip108Reference {
   uri: string;
 }
 
+/**
+ * The CIP-179 survey link a Conway Info Action carries to point at a survey.
+ * Lives at `body.cip179`, so it is inside what the author witness signs.
+ */
+export interface Cip179SurveyLink {
+  specVersion: number;
+  kind: 'survey-link';
+  surveyTxId: string;
+  surveyIndex: number;
+}
+
 export interface Cip108Body {
   title: string;
   abstract: string;
   motivation: string;
   rationale: string;
   references?: Cip108Reference[];
+  cip179?: Cip179SurveyLink;
 }
 
 // Verbatim @context from the official CIP-108 example
@@ -85,6 +97,45 @@ export const CIP108_CONTEXT = {
   },
 } as const;
 
+// CIP-179 linkage Change 3: a `body.cip179` link MUST be mapped by the
+// document's own @context. The CIP-108 context sets no @vocab, so an unmapped
+// field is not merely cosmetic, it is dropped from the canonical form (jsonld
+// safe mode raises it outright) and would sit outside the author witness, which
+// the spec forbids. `anchorContextMapsCip179Terms` from the cip-179 package
+// checks the shape but neither the `@id` nor whether the IRIs are usable, so it
+// is necessary and not sufficient: cip179Link.test.ts proves each of the four
+// sub-fields actually moves the canonical hash.
+const CIP179_NS = 'https://github.com/cardano-foundation/CIPs/blob/master/CIP-0179/README.md#';
+
+export const CIP108_CONTEXT_WITH_CIP179 = {
+  ...CIP108_CONTEXT,
+  CIP179: CIP179_NS,
+  body: {
+    ...CIP108_CONTEXT.body,
+    '@context': {
+      ...CIP108_CONTEXT.body['@context'],
+      cip179: {
+        '@id': 'CIP179:link',
+        '@context': {
+          specVersion: 'CIP179:specVersion',
+          kind: 'CIP179:kind',
+          surveyTxId: 'CIP179:surveyTxId',
+          surveyIndex: 'CIP179:surveyIndex',
+        },
+      },
+    },
+  },
+} as const;
+
+/**
+ * The context a body must be canonicalized and served with. One predicate, so
+ * the witness, the canonical hash and the pinned bytes can never disagree about
+ * which context a document uses.
+ */
+export function contextForBody(body: Cip108Body): typeof CIP108_CONTEXT | typeof CIP108_CONTEXT_WITH_CIP179 {
+  return body.cip179 ? CIP108_CONTEXT_WITH_CIP179 : CIP108_CONTEXT;
+}
+
 const TEXT_ENCODER = new TextEncoder();
 
 // jsonld.canonize resolves any remote `@context` URL it encounters. Our context is
@@ -103,7 +154,7 @@ export async function canonicalBodyHashFor(body: Cip108Body): Promise<string> {
   // extra `references` key (typed `any`), which is unaffected by this typing.
   // @types/jsonld's NodeObject shape is far stricter than the actual runtime
   // API (which accepts any JSON-LD-compatible document), so this cast is required.
-  const doc = { '@context': CIP108_CONTEXT, body } as unknown as JsonLdDocument;
+  const doc = { '@context': contextForBody(body), body } as unknown as JsonLdDocument;
   const canonical = await canonize(doc, {
     algorithm: 'URDNA2015',
     format: 'application/n-quads',

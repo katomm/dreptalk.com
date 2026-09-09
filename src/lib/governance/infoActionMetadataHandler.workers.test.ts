@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { handleInfoActionMetadata } from './infoActionMetadataHandler.js';
+import { handleInfoActionMetadata, prepareInfoActionBodyHash } from './infoActionMetadataHandler.js';
+import { canonicalBodyHashFor } from './cip108Canonical.js';
 import { getGovActionMetadata } from '@/lib/db/govActionMetadata.js';
 
 const body = { title: 'Ping', abstract: 'A', motivation: 'M', rationale: 'R' };
@@ -158,5 +159,73 @@ describe('handleInfoActionMetadata', () => {
     expect(doc.body.references).toEqual([
       { '@type': 'Other', label: 'Forum thread', uri: 'https://example.com/thread' },
     ]);
+  });
+});
+
+describe('CIP-179 survey link', () => {
+  const TX = 'cd'.repeat(32);
+
+  it('embeds the link and pins a document a CIP-179 reader accepts', async () => {
+    let pinned = '';
+    const capture = async (file: File) => {
+      pinned = await file.text();
+      return { cid: CID, size: (await file.arrayBuffer()).byteLength };
+    };
+    const res = await handleInfoActionMetadata({
+      body: { ...body, title: 'Linked', surveyRef: `${TX}:2` },
+      db: env.DB, jwt: 'jwt', now: 1, expectedNetworkId: 0, upload: capture,
+    });
+    expect(res.status).toBe(200);
+
+    const doc = JSON.parse(pinned);
+    expect(doc.body.cip179).toEqual({
+      specVersion: 5, kind: 'survey-link', surveyTxId: TX, surveyIndex: 2,
+    });
+    // That a real CIP-179 reader accepts this document is asserted in the node
+    // test (cip179Link.test.ts): cip-179/domain cannot be imported at runtime
+    // under workerd, only its types.
+    expect(doc['@context']).toHaveProperty('CIP179');
+  });
+
+  it('accepts a pasted link and normalises it to the ref', async () => {
+    let pinned = '';
+    const capture = async (file: File) => {
+      pinned = await file.text();
+      return { cid: CID, size: (await file.arrayBuffer()).byteLength };
+    };
+    await handleInfoActionMetadata({
+      body: { ...body, title: 'Pasted URL', surveyRef: `https://tessera.example/s/${TX.toUpperCase()}:0?x=1` },
+      db: env.DB, jwt: 'jwt', now: 1, expectedNetworkId: 0, upload: capture,
+    });
+    expect(JSON.parse(pinned).body.cip179).toMatchObject({ surveyTxId: TX, surveyIndex: 0 });
+  });
+
+  it('rejects a malformed ref before any upload, and says why', async () => {
+    let calls = 0;
+    const counting = async (file: File) => { calls++; return { cid: CID, size: (await file.arrayBuffer()).byteLength }; };
+    const res = await handleInfoActionMetadata({
+      body: { ...body, surveyRef: 'not-a-ref' },
+      db: env.DB, jwt: 'jwt', now: 1, expectedNetworkId: 0, upload: counting,
+    });
+    expect(res.status).toBe(400);
+    expect(String((res.json as { error: string }).error)).toMatch(/survey reference/i);
+    expect(calls).toBe(0);
+  });
+
+  it('prepare signs exactly the body finalize anchors', async () => {
+    const input = { ...body, title: 'Same body', surveyRef: `${TX}:5` };
+
+    const prep = await prepareInfoActionBodyHash(input);
+    expect(prep.status).toBe(200);
+
+    let pinned = '';
+    const capture = async (file: File) => {
+      pinned = await file.text();
+      return { cid: CID, size: (await file.arrayBuffer()).byteLength };
+    };
+    await handleInfoActionMetadata({ body: input, db: env.DB, jwt: 'jwt', now: 1, expectedNetworkId: 0, upload: capture });
+
+    const anchored = JSON.parse(pinned).body;
+    expect(await canonicalBodyHashFor(anchored)).toBe((prep.json as { bodyHash: string }).bodyHash);
   });
 });
