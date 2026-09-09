@@ -506,7 +506,12 @@ export async function castSurveyResponse(
 ): Promise<{ txHash: string }> {
   const client = makeClient(opts.network, opts.origin, opts.walletApi);
   const availableUtxos = await collectWalletUtxos(opts.network, opts.origin, opts.walletApi);
-  const inputs = pickInputsToCover(availableUtxos, FUNDING_HEADROOM_LOVELACE);
+  // No deposit here, so the inputs only need to cover the fee.
+  const sel = selectFundingInputs(availableUtxos, FUNDING_HEADROOM_LOVELACE);
+  if (!sel.ok) {
+    throw new Error(`Insufficient funds: need ${sel.requiredLovelace} lovelace, wallet has ${sel.availableLovelace}.`);
+  }
+  const inputs = sel.inputs;
 
   const built = await queueSurveyResponseOps(client.newTx(), {
     payload: opts.payload,
