@@ -11,6 +11,7 @@ function fm(from: number, to: number): string {
   return `---
 title: T
 standfirst: S
+edition: ${from}
 epochFrom: ${from}
 epochTo: ${to}
 published: 2026-09-02
@@ -38,6 +39,12 @@ function checkDir(files: Array<[string, string]>) {
 }
 
 describe('edition files', () => {
+  it('numbers the published editions once each, in epoch order', () => {
+    const editions = readEditionDir(CONTENT).sort((a, b) => a.frontmatter.epochFrom - b.frontmatter.epochFrom);
+    const numbers = editions.map((e) => e.frontmatter.edition);
+    expect(new Set(numbers).size).toBe(numbers.length);
+    for (let i = 1; i < numbers.length; i++) expect(numbers[i], `${editions[i].slug} after ${editions[i - 1].slug}`).toBeGreaterThan(numbers[i - 1]);
+  });
   it('accepts a contiguous set', () => {
     expect(() => checkDir([['epochs-650-652.md', fm(650, 652)], ['epochs-653-655.md', fm(653, 655)]])).not.toThrow();
   });

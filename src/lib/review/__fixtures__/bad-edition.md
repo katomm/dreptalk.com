@@ -1,6 +1,7 @@
 ---
 title: A bad edition
 standfirst: A fixture that breaks one rule of the fact check per line, on purpose.
+edition: 1
 epochFrom: 650
 epochTo: 652
 published: 2026-09-06

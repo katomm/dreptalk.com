@@ -7,7 +7,7 @@ import { actionRowSchema } from './schema.js';
 
 const CONTENT = path.join(import.meta.dirname, '../../content/review');
 const FIX = path.join(import.meta.dirname, '__fixtures__');
-const emptyFrontmatter = {
+const emptyFrontmatter = { edition: 1,
   title: 'T',
   standfirst: 'S',
   epochFrom: 647,

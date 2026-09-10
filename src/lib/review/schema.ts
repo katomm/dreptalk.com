@@ -35,6 +35,10 @@ export const reviewFrontmatterSchema = z
      *  the piece. Without it the index falls back to the standfirst, which is
      *  written for someone who has already opened the edition. */
     teaser: z.string().min(1).max(320).optional(),
+    // The edition's number in the series, 1 for the oldest window. The backfill
+    // partition is fixed, so numbers are assigned up front and never shift when
+    // an edition is written out of order.
+    edition: z.number().int().positive(),
     epochFrom: z.number().int().positive(),
     epochTo: z.number().int().positive(),
     published: z.coerce.date(),

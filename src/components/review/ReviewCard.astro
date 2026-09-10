@@ -17,6 +17,8 @@ const href = `/governance-review/${editionSlug(edition)}/`;
 
 <article class:list={['rv-card', lead && 'rv-card--lead']}>
   <p class="rv-card__kicker">
+    <span>No. {d.edition}</span>
+    <span aria-hidden="true">·</span>
     <span>Epochs {d.epochFrom} to {d.epochTo}</span>
     <span aria-hidden="true">·</span>
     <span>{formatWindowDates(d.epochFrom, d.epochTo, cfg)}</span>

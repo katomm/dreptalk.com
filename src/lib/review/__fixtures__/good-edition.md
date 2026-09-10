@@ -1,6 +1,7 @@
 ---
 title: A good edition
 standfirst: A fixture where every number, chart series, link and name traces to the pack.
+edition: 1
 epochFrom: 650
 epochTo: 652
 published: 2026-09-06
