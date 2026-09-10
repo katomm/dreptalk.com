@@ -74,7 +74,7 @@ describe('factCheckEdition on the bad fixture', () => {
   });
   it('compares the action rows with the pack', () => {
     const m = messages('action-row-mismatch');
-    expect(m.some((x) => x.includes('is not the pack title'))).toBe(true);
+    expect(m.some((x) => x.includes('is neither the pack title'))).toBe(true);
     expect(m.some((x) => x.includes('is not the pack status'))).toBe(true);
     expect(m.some((x) => x.includes('is not an event epoch'))).toBe(true);
   });
@@ -131,6 +131,32 @@ describe('an action ratified in the window and enacted after it', () => {
   it('accepts the ratification as the row outcome', () => expect(check('ratified', 649)).toEqual([]));
   it('still accepts the pack status itself', () => expect(check('enacted', 649)).toEqual([]));
   it('rejects an outcome the window never saw', () => expect(check('expired', 649).length).toBe(1));
+});
+
+describe('an on-chain title that carries a typographic dash', () => {
+  const id = `${'d'.repeat(64)}#0`;
+  const packTitle = 'Tweag Core Cardano Infrastructure: Treasury Withdrawal 2026–2028';
+  const pack = {
+    actions: {
+      events: [{ id, title: packTitle, status: 'expired', expiryEpoch: 635, eventsInWindow: [{ kind: 'expired', epoch: 635 }] }],
+      closingAtBoundary: [],
+      open: [],
+      comparisons: [],
+    },
+  };
+  const run = (title: string) =>
+    factCheckEdition({
+      frontmatter: {
+        ...emptyFrontmatter,
+        alsoDecided: [{ id, title, aliases: [], type: 'TreasuryWithdrawals', outcome: 'expired', epoch: 635, drepYesPct: null }],
+      } as never,
+      body: '## X\n\nNothing to see.',
+      pack,
+    }).filter((f) => f.rule === 'action-row-mismatch');
+
+  it('accepts the dash spelled out, so the page never renders one', () => expect(run('Tweag Core Cardano Infrastructure: Treasury Withdrawal 2026 to 2028')).toEqual([]));
+  it('still accepts the title exactly as the record holds it', () => expect(run(packTitle)).toEqual([]));
+  it('rejects any other rewording', () => expect(run('Tweag Core Cardano Infrastructure: Treasury Withdrawal').length).toBe(1));
 });
 
 describe('an action the record has no title for', () => {

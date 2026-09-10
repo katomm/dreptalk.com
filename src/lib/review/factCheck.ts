@@ -103,7 +103,7 @@ function collectStrings(v: unknown, keys: RegExp, out: Set<string>): void {
 }
 
 /** Capitalized only because they open a sentence. Any other word at a sentence start is checked like the rest. */
-const SENTENCE_STARTERS = new Set(['The', 'A', 'An', 'In', 'By', 'On', 'At', 'As', 'Of', 'And', 'For', 'With', 'That', 'This', 'These', 'Those', 'It', 'Its', 'He', 'She', 'They', 'We', 'But', 'So', 'If', 'When', 'While', 'After', 'Before', 'Since', 'Until', 'Both', 'Neither', 'Every', 'Each', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Half', 'Most', 'Some', 'None', 'Not', 'No', 'Yes', 'What', 'Where', 'Why', 'How', 'Whatever', 'Part', 'Compared', 'Read', 'Only', 'Also', 'Still', 'Then', 'There', 'Here', 'Nothing', 'Everything', 'Nobody', 'Whether', 'Unless', 'Without', 'Behind', 'Between', 'Under', 'Over', 'Across', 'Against', 'Steps', 'Rewards', 'More', 'Together', 'Share', 'Underneath', 'Concentration', 'Voting', 'Ratification', 'Repricing', 'Power', 'Participation', 'Almost', 'Abstaining', 'Taken']);
+const SENTENCE_STARTERS = new Set(['The', 'A', 'An', 'In', 'By', 'On', 'At', 'As', 'Of', 'And', 'For', 'With', 'That', 'This', 'These', 'Those', 'It', 'Its', 'He', 'She', 'They', 'We', 'But', 'So', 'If', 'When', 'While', 'After', 'Before', 'Since', 'Until', 'Both', 'Neither', 'Every', 'Each', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Half', 'Most', 'Some', 'None', 'Not', 'No', 'Yes', 'What', 'Where', 'Why', 'How', 'Whatever', 'Part', 'Compared', 'Read', 'Only', 'Also', 'Still', 'Then', 'There', 'Here', 'Nothing', 'Everything', 'Nobody', 'Whether', 'Unless', 'Without', 'Behind', 'Between', 'Under', 'Over', 'Across', 'Against', 'Steps', 'Rewards', 'More', 'Together', 'Share', 'Underneath', 'Concentration', 'Voting', 'Ratification', 'Repricing', 'Power', 'Participation', 'Almost', 'Abstaining', 'Taken', 'All', 'Paying', 'Same']);
 
 const GOVERNANCE_TERMS = new Set([
   'Cardano', 'DRep', 'DReps', 'SPO', 'SPOs', 'Constitutional Committee', 'Constitution', 'Governance Review', 'DRepTalk',
@@ -400,7 +400,10 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
       return;
     }
     const p = hit.row;
-    if (p.title != null && r.title !== p.title) out.push({ rule: 'action-row-mismatch', message: `${at}: title "${r.title}" is not the pack title "${p.title}"` });
+    // A row repeats the on-chain title, with one licence: a typographic dash in
+    // it is spelled out, because the rendered page must not carry one. Nothing
+    // else about the title may differ.
+    if (p.title != null && r.title !== p.title && r.title !== p.title.replace(/\s*[—–―]\s*/g, ' to ')) out.push({ rule: 'action-row-mismatch', message: `${at}: title "${r.title}" is neither the pack title "${p.title}" nor its dash-free form` });
     // An action the pack still lists as running has no outcome yet, whatever its status column says.
     const stillOpen = hit.group === 'closingAtBoundary' || hit.group === 'open' || p.open === true;
     if (stillOpen && r.outcome !== 'open') out.push({ rule: 'action-row-mismatch', message: `${at}: outcome "${r.outcome}" but the pack still lists the action as running` });
