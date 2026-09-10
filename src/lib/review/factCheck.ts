@@ -218,6 +218,8 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
     if (spec.type === 'line') for (const [i, mk] of spec.markers.entries()) segments.push({ label: `chart ${n} marker ${i + 1} label`, text: mk.label });
     if (spec.type === 'hbars') for (const [i, r] of spec.rows.entries()) segments.push({ label: `chart ${n} row ${i + 1} label`, text: r.label });
     if (spec.type === 'seats') for (const [i, g] of spec.groups.entries()) segments.push({ label: `chart ${n} group ${i + 1} label`, text: g.label });
+    if (spec.type === 'scatter') { segments.push({ label: `chart ${n} x label`, text: spec.xLabel }); for (const [i, p] of spec.points.entries()) segments.push({ label: `chart ${n} point ${i + 1} label`, text: p.label }); }
+    if (spec.type === 'power') for (const [i, r] of spec.rows.entries()) segments.push({ label: `chart ${n} row ${i + 1} label`, text: r.label });
     if (spec.type === 'lines') for (const [i, s] of spec.series.entries()) segments.push({ label: `chart ${n} series ${i + 1} name`, text: s.name });
     // epoch-indexed charts: the epoch source must yield exactly the epochs the chart shows
     if (spec.type === 'line' || spec.type === 'bars' || spec.type === 'stacked') {
@@ -228,20 +230,27 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
         out.push({ rule: 'chart-source-mismatch', message: `chart ${chartIndex}: shown epochs ${shownEpochs[0]} to ${shownEpochs.at(-1)} do not match ${spec.epochSource} (epoch ${srcEpochs[0]} to ${srcEpochs.at(-1)})` });
       }
     }
-    const series: number[][] =
-      spec.type === 'line' ? [spec.values.map((v) => v ?? Number.NaN)]
-      : spec.type === 'lines' ? spec.series.map((x) => x.values)
-      : spec.type === 'stacked' ? [spec.yes, spec.no, spec.abstain]
-      : spec.type === 'bars' ? [spec.values]
-      : spec.type === 'hbars' ? spec.rows.map((r) => [r.value])
-      : spec.groups.map((g) => [g.count]);
+    // A series is checked against one source path. Most charts hold one unit, so
+    // the spec's own format scales them. A scatter carries two units and a power
+    // chart three plus a share, so those name the unit per series.
+    type Series = { vals: number[]; format: 'M' | 'B' | '%' | 'int' };
+    const one = (vals: number[], format = spec.format): Series => ({ vals, format });
+    const series: Series[] =
+      spec.type === 'line' ? [one(spec.values.map((v) => v ?? Number.NaN))]
+      : spec.type === 'lines' ? spec.series.map((x) => one(x.values))
+      : spec.type === 'stacked' ? [one(spec.yes), one(spec.no), one(spec.abstain)]
+      : spec.type === 'bars' ? [one(spec.values)]
+      : spec.type === 'hbars' ? spec.rows.map((r) => one([r.value]))
+      : spec.type === 'scatter' ? spec.points.flatMap((p) => [one([p.x], spec.xFormat), one([p.y])])
+      : spec.type === 'power' ? spec.rows.flatMap((r) => [one([r.yes]), one([r.no]), one([r.abstain]), one([r.share], '%')])
+      : spec.groups.map((g) => one([g.count]));
     if (series.length !== spec.sources.length) {
       out.push({ rule: 'chart-source-mismatch', message: `chart ${chartIndex}: ${series.length} series but ${spec.sources.length} sources` });
       continue;
     }
-    series.forEach((vals, k) => {
+    series.forEach(({ vals, format }, k) => {
       const rawSeries = resolvePath(scope, spec.sources[k]);
-      const src = (Array.isArray(rawSeries) ? rawSeries : [rawSeries]).map((x) => (typeof x === 'number' ? x / scaleFor(spec.format) : Number.NaN));
+      const src = (Array.isArray(rawSeries) ? rawSeries : [rawSeries]).map((x) => (typeof x === 'number' ? x / scaleFor(format) : Number.NaN));
       vals.forEach((v, i) => {
         if (Number.isNaN(v)) return; // a gap in the chart is not a claim
         const decimals = (String(v).split('.')[1] ?? '').length;
