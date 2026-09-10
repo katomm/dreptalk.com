@@ -120,6 +120,8 @@ const GOVERNANCE_TERMS = new Set([
 const OUTCOME_WORDS = /\b(ratified|enacted|expired|dropped|rejected|approved|passed|pass|failed|fail|carried|adopted|defeated|succeeded)\b/i;
 
 /** Typographic dashes and the HTML entities that render as one. */
+/** A title with its typographic dashes spelled out, the one rewording a row or a link text may apply. */
+const dashFree = (t: string | undefined) => t?.replace(/\s*[—–―]\s*/g, ' to ');
 const DASHES = /[—–―]|&mdash;|&ndash;|&#8212;|&#8211;|&#x2014;|&#x2013;/;
 const LANDS = /\bland(s|ed|ing)?\s+(on|there|where|exactly|in|at)\b/i;
 /** A number-shaped run in prose, with the unit it is shown in. Case-insensitive: "4.3m" claims the same as "4.3M". */
@@ -317,8 +319,10 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
     if (kind === 'ga') {
       linkedActionIds.add(id);
       if (!ids.has(id)) out.push({ rule: 'link-not-in-pack', message: `link to unknown action ${id}` });
-      else if (text !== titleFor(id) && !(aliasesById.get(id) ?? []).includes(text)) out.push({ rule: 'link-not-in-pack', message: `link text "${text}" is neither the title nor an alias of ${id}` });
-      else canonical = text === titleFor(id);
+      else if (text !== titleFor(id) && text !== dashFree(titleFor(id)) && !(aliasesById.get(id) ?? []).includes(text)) out.push({ rule: 'link-not-in-pack', message: `link text "${text}" is neither the title nor an alias of ${id}` });
+      // The dash-free form of a title is the title, not an alias: the page must
+      // not render a typographic dash, and the words are still the record's own.
+      else canonical = text === titleFor(id) || text === dashFree(titleFor(id));
     } else if (!drepNames.has(id)) out.push({ rule: 'link-not-in-pack', message: `link to unknown DRep ${id}` });
     else if (text !== drepNames.get(id)) out.push({ rule: 'link-not-in-pack', message: `link text "${text}" is not the pack name of ${id}` });
     else canonical = true;
@@ -421,7 +425,7 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
     // A row repeats the on-chain title, with one licence: a typographic dash in
     // it is spelled out, because the rendered page must not carry one. Nothing
     // else about the title may differ.
-    if (p.title != null && r.title !== p.title && r.title !== p.title.replace(/\s*[—–―]\s*/g, ' to ')) out.push({ rule: 'action-row-mismatch', message: `${at}: title "${r.title}" is neither the pack title "${p.title}" nor its dash-free form` });
+    if (p.title != null && r.title !== p.title && r.title !== dashFree(p.title)) out.push({ rule: 'action-row-mismatch', message: `${at}: title "${r.title}" is neither the pack title "${p.title}" nor its dash-free form` });
     // An action the pack still lists as running has no outcome yet, whatever its status column says.
     const stillOpen = hit.group === 'closingAtBoundary' || hit.group === 'open' || p.open === true;
     if (stillOpen && r.outcome !== 'open') out.push({ rule: 'action-row-mismatch', message: `${at}: outcome "${r.outcome}" but the pack still lists the action as running` });

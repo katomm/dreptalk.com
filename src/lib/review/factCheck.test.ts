@@ -181,6 +181,18 @@ describe('an on-chain title that carries a typographic dash', () => {
   it('accepts the dash spelled out, so the page never renders one', () => expect(run('Tweag Core Cardano Infrastructure: Treasury Withdrawal 2026 to 2028')).toEqual([]));
   it('still accepts the title exactly as the record holds it', () => expect(run(packTitle)).toEqual([]));
   it('rejects any other rewording', () => expect(run('Tweag Core Cardano Infrastructure: Treasury Withdrawal').length).toBe(1));
+  it('takes the dash-free title as a verified link text, so its words are not scanned', () => {
+    const findings = factCheckEdition({
+      frontmatter: {
+        ...emptyFrontmatter,
+        alsoDecided: [{ id, title: 'Tweag Core Cardano Infrastructure: Treasury Withdrawal 2026 to 2028', aliases: [], type: 'TreasuryWithdrawals', outcome: 'expired', epoch: 635, drepYesPct: null }],
+      } as never,
+      body: `## X\n\n[Tweag Core Cardano Infrastructure: Treasury Withdrawal 2026 to 2028](/ga/${'d'.repeat(64)}00/) expired.`,
+      pack,
+    });
+    expect(findings.filter((f) => f.rule === 'link-not-in-pack')).toEqual([]);
+    expect(findings.filter((f) => f.message.includes('2026'))).toEqual([]);
+  });
 });
 
 describe('an action the record has no title for', () => {
