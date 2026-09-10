@@ -58,7 +58,7 @@ export const reviewFrontmatterSchema = z
       treasuryEndAda: z.number().nullable(),
       limitations: z.array(z.string()).default([]),
     }),
-    derived: z.array(z.object({ value: z.number(), op: z.enum(['sum', 'diff']), from: z.array(z.string()).min(1).max(3) })).default([]),
+    derived: z.array(z.object({ value: z.number(), op: z.enum(['sum', 'diff']), from: z.array(z.string()).min(1).max(30) })).default([]),
     corrections: z.array(z.object({ date: z.coerce.date(), note: z.string() })).default([]),
     // Every "highest" or "lowest" the prose claims for a series metric, so the
     // fact check can hold it against pack.records: the extreme has to fall
