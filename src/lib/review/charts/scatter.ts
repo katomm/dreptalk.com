@@ -2,7 +2,9 @@ import { esc, fmt, frame, span, svgOpen, ticksFor, type Format } from './svg.js'
 import type { ScatterSpec } from './schema.js';
 
 /**
- * Amount asked against the share that answered. Amounts across a budget round
+ * Amount asked against the share that answered. Both coordinates are already in
+ * the unit their format names, the same as every other chart here: an `xFormat`
+ * of M means the x values are millions. Amounts across a budget round
  * span three orders of magnitude, so the x axis is logarithmic, which keeps a
  * ₳540,750 request visible next to a ₳62M one. Ticks are the decades inside the
  * range, so the axis never claims a spacing it does not have.
@@ -11,8 +13,6 @@ function decades(min: number, max: number): number[] {
   const lo = Math.floor(Math.log10(min)), hi = Math.ceil(Math.log10(max));
   return Array.from({ length: hi - lo + 1 }, (_, i) => 10 ** (lo + i)).filter((t) => t >= min && t <= max);
 }
-
-const unit = (f: Format) => (f === 'M' ? 1e6 : f === 'B' ? 1e9 : 1);
 
 export function renderScatter(s: ScatterSpec): string {
   const W = 700, LABELS = 250, LEAD = 14;
@@ -34,14 +34,14 @@ export function renderScatter(s: ScatterSpec): string {
   let out = svgOpen(W, H, `${s.title}${s.subtitle ? `. ${s.subtitle}` : ''}`) + grid;
   for (const t of decades(xMin, xMax)) {
     out += `<line class="rv-grid" x1="${x(t).toFixed(1)}" x2="${x(t).toFixed(1)}" y1="${fr.y1}" y2="${fr.y0}"/>`;
-    out += `<text x="${x(t).toFixed(1)}" y="${fr.y0 + 18}" text-anchor="middle">${esc(fmt(t / unit(xf), xf))}</text>`;
+    out += `<text x="${x(t).toFixed(1)}" y="${fr.y0 + 18}" text-anchor="middle">${esc(fmt(t, xf))}</text>`;
   }
   out += `<text class="rv-muted" x="${fr.x0}" y="${fr.y0 + 36}">${esc(s.xLabel)}</text>`;
 
   if (s.threshold != null) {
     const ty = fr.y(s.threshold);
     out += `<line class="rv-thr" x1="${fr.x0}" x2="${fr.x1}" y1="${ty.toFixed(1)}" y2="${ty.toFixed(1)}"/>`;
-    out += `<text class="rv-ann" x="${fr.x0 + 4}" y="${(ty - 6).toFixed(1)}">${esc(`${fmt(s.threshold, yf)} bar`)}</text>`;
+    out += `<text class="rv-ann" x="${fr.x0 + 4}" y="${(ty - 9).toFixed(1)}">${esc(`${fmt(s.threshold, yf)} bar`)}</text>`;
   }
 
   const tone = { yes: 's1', no: 's2', abstain: 's3' } as const;
@@ -62,7 +62,7 @@ export function renderScatter(s: ScatterSpec): string {
   const lx = fr.x1 + LEAD;
   rows.forEach((r, i) => {
     out += `<polyline class="rv-lead" points="${(r.cx + 7).toFixed(1)},${r.cy.toFixed(1)} ${(fr.x1 + 6).toFixed(1)},${ly[i].toFixed(1)} ${lx.toFixed(1)},${ly[i].toFixed(1)}"/>`;
-    out += `<circle class="rv-dot rv-${tone[r.p.tone ?? 'yes']}" cx="${r.cx.toFixed(1)}" cy="${r.cy.toFixed(1)}" r="5"><title>${esc(`${r.p.label}: ${fmt(r.p.x / unit(xf), xf)}, ${fmt(r.p.y, yf)}`)}</title></circle>`;
+    out += `<circle class="rv-dot rv-${tone[r.p.tone ?? 'yes']}" cx="${r.cx.toFixed(1)}" cy="${r.cy.toFixed(1)}" r="5"><title>${esc(`${r.p.label}: ${fmt(r.p.x, xf)}, ${fmt(r.p.y, yf)}`)}</title></circle>`;
     out += `<text class="rv-lbl" x="${(lx + 5).toFixed(1)}" y="${(ly[i] + 4).toFixed(1)}">${esc(r.p.label)}</text>`;
   });
   return out + '</svg>';

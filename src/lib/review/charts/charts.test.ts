@@ -27,9 +27,9 @@ const scatter = {
   threshold: 67,
   sources: ['a.x', 'a.y', 'b.x', 'b.y', 'c.x', 'c.y'],
   points: [
-    { label: 'Consensus', x: 27714342, y: 87.99, tone: 'yes' as const },
-    { label: 'Dolos', x: 540750, y: 68.37, tone: 'yes' as const },
-    { label: 'Blockfrost', x: 7920000, y: 24.15, tone: 'no' as const },
+    { label: 'Consensus', x: 27.714342, y: 87.99, tone: 'yes' as const },
+    { label: 'Dolos', x: 0.54075, y: 68.37, tone: 'yes' as const },
+    { label: 'Blockfrost', x: 7.92, y: 24.15, tone: 'no' as const },
   ],
 };
 
@@ -121,7 +121,7 @@ describe('scatter', () => {
     const svg = renderChart(scatter);
     const cx = [...svg.matchAll(/<circle[^>]*cx="([\d.]+)"/g)].map((m) => Number(m[1]));
     const [big, small, mid] = cx;
-    // 540,750 to 7.92M is a wider ratio than 7.92M to 27.7M, so it must be the wider gap.
+    // ₳0.54M to ₳7.92M is a wider ratio than ₳7.92M to ₳27.7M, so it must be the wider gap.
     expect(mid - small).toBeGreaterThan(big - mid);
   });
   it('pushes colliding labels apart without moving the dots', () => {
