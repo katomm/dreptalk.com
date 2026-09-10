@@ -20,8 +20,8 @@ const entry = await getEntry('review', slug);
 if (!entry) return new Response('Not found', { status: 404 });
 const d = entry.data;
 // The Governance Review is mainnet only. Editions are mainnet facts bundled
-// into every deployment, so the window dates and the kicker read mainnet
-// regardless of the network this worker runs on.
+// into every deployment, so the window dates read mainnet regardless of the
+// network this worker runs on.
 const cfg = resolveNetwork('mainnet');
 const { Content } = await render(entry);
 const editions = await loadEditions();
@@ -77,7 +77,7 @@ Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
     <p class="rv-kicker">
       <a href="/governance-review/">Governance Review</a><span>No. {d.edition}</span><span>Epochs {d.epochFrom} to {d.epochTo}</span><span
         >{dates}</span
-      ><span>Mainnet</span>
+      >
     </p>
     <h1 class="rv-title">{d.title}</h1>
     <p class="rv-stand">{d.standfirst}</p>
