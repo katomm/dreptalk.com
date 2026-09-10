@@ -60,6 +60,12 @@ export const reviewFrontmatterSchema = z
     }),
     derived: z.array(z.object({ value: z.number(), op: z.enum(['sum', 'diff']), from: z.array(z.string()).min(1).max(3) })).default([]),
     corrections: z.array(z.object({ date: z.coerce.date(), note: z.string() })).default([]),
+    // Every "highest" or "lowest" the prose claims for a series metric, so the
+    // fact check can hold it against pack.records: the extreme has to fall
+    // inside the window. A record is only ever a record up to the window's
+    // last epoch, and the closing sweep of the backfill rereads these against
+    // the newest pack to see which still stand.
+    recordClaims: z.array(z.object({ metric: z.string().min(1), kind: z.enum(['max', 'min']) })).default([]),
   })
   .refine((d) => d.epochTo - d.epochFrom >= 2 && d.epochTo - d.epochFrom <= 5, {
     message: 'an edition covers 3 to 6 epochs',

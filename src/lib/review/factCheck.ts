@@ -260,6 +260,15 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
       });
     });
   }
+  // 4b. record claims: a "highest" or "lowest" is only allowed for a metric
+  // whose extreme, in this pack's own records block, falls inside the window.
+  const records = (resolvePath(pack, 'records') as Array<{ metric: string; max: { epoch: number }; min: { epoch: number } }> | undefined) ?? [];
+  for (const c of fm.recordClaims ?? []) {
+    const r = records.find((x) => x.metric === c.metric);
+    if (!r) out.push({ rule: 'record-claim', message: `record claim: ${c.metric} is not a metric in pack.records` });
+    else if (r[c.kind].epoch < fm.epochFrom || r[c.kind].epoch > fm.epochTo) out.push({ rule: 'record-claim', message: `record claim: the ${c.kind} of ${c.metric} is at epoch ${r[c.kind].epoch}, outside epochs ${fm.epochFrom} to ${fm.epochTo}` });
+  }
+
   const prose = body.replace(CHART_RE, '');
 
   // 5. links

@@ -133,6 +133,30 @@ describe('an action ratified in the window and enacted after it', () => {
   it('rejects an outcome the window never saw', () => expect(check('expired', 649).length).toBe(1));
 });
 
+describe('a record the prose claims', () => {
+  const pack = {
+    actions: { events: [], closingAtBoundary: [], open: [], comparisons: [] },
+    records: [
+      { metric: 'gini', unit: 'ratio', max: { epoch: 638, value: 0.94 }, min: { epoch: 508, value: 0.85 } },
+      { metric: 'top10SharePct', unit: 'pct', max: { epoch: 510, value: 54.24 }, min: { epoch: 549, value: 41.18 } },
+    ],
+  };
+  const run = (claims: Array<{ metric: string; kind: 'max' | 'min' }>) =>
+    factCheckEdition({
+      frontmatter: { ...emptyFrontmatter, epochFrom: 636, epochTo: 638, recordClaims: claims } as never,
+      body: '## X\n\nNothing to see.',
+      pack,
+    }).filter((f) => f.rule === 'record-claim');
+
+  it('passes when the extreme falls inside the window', () => expect(run([{ metric: 'gini', kind: 'max' }])).toEqual([]));
+  it('flags a record the pack places in another epoch', () => {
+    const m = run([{ metric: 'top10SharePct', kind: 'max' }]);
+    expect(m.length).toBe(1);
+    expect(m[0].message).toContain('epoch 510');
+  });
+  it('flags a metric the records block does not carry', () => expect(run([{ metric: 'votesCast', kind: 'max' }]).length).toBe(1));
+});
+
 describe('an on-chain title that carries a typographic dash', () => {
   const id = `${'d'.repeat(64)}#0`;
   const packTitle = 'Tweag Core Cardano Infrastructure: Treasury Withdrawal 2026–2028';
