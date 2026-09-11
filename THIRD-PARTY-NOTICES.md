@@ -18,6 +18,16 @@ NOTICE:
 
     This product includes software developed at Strica (https://strica.io).
 
+## Tessera
+
+The survey results projection in `src/lib/surveys/tallyView.ts` is ported from
+Tessera's own results model (`frontend/app/src/domain/results.ts`), the reference
+implementation of the CIP-179 results view. Licensed under the Apache License,
+Version 2.0.
+
+- Homepage: https://github.com/mpizenberg/Tessera
+- License: https://www.apache.org/licenses/LICENSE-2.0
+
 ## Plus Jakarta Sans
 
 The site's typeface, bundled as static weights and a latin subset in `public/fonts`
