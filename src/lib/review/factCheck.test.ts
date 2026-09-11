@@ -204,6 +204,22 @@ describe('an action ratified in the window and enacted after it', () => {
     }).filter((f) => f.rule === 'action-row-mismatch');
 
   it('accepts the ratification as the row outcome', () => expect(check('ratified', 649)).toEqual([]));
+  it('accepts an open row for an action whose voting ran past the window', () => {
+    const pack2 = {
+      actions: {
+        events: [{ id: base.id, title: 'T', status: 'closed', expiryEpoch: 655, eventsInWindow: [{ kind: 'submitted', epoch: 648 }] }],
+        closingAtBoundary: [],
+        open: [],
+        comparisons: [],
+      },
+    };
+    const findings = factCheckEdition({
+      frontmatter: { ...emptyFrontmatter, openActions: [{ ...base, outcome: 'open', epoch: 655 }] } as never,
+      body: '## X\n\nNothing to see.',
+      pack: pack2,
+    }).filter((f) => f.rule === 'action-row-mismatch');
+    expect(findings).toEqual([]);
+  });
   it('still accepts the pack status itself', () => expect(check('enacted', 649)).toEqual([]));
   it('rejects an outcome the window never saw', () => expect(check('expired', 649).length).toBe(1));
 });

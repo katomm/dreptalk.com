@@ -103,7 +103,7 @@ function collectStrings(v: unknown, keys: RegExp, out: Set<string>): void {
 }
 
 /** Capitalized only because they open a sentence. Any other word at a sentence start is checked like the rest. */
-const SENTENCE_STARTERS = new Set(['The', 'A', 'An', 'In', 'By', 'On', 'At', 'As', 'Of', 'And', 'For', 'With', 'That', 'This', 'These', 'Those', 'It', 'Its', 'He', 'She', 'They', 'We', 'But', 'So', 'If', 'When', 'While', 'After', 'Before', 'Since', 'Until', 'Both', 'Neither', 'Every', 'Each', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Half', 'Most', 'Some', 'None', 'Not', 'No', 'Yes', 'What', 'Where', 'Why', 'How', 'Whatever', 'Part', 'Compared', 'Read', 'Only', 'Also', 'Still', 'Then', 'There', 'Here', 'Nothing', 'Everything', 'Nobody', 'Whether', 'Unless', 'Without', 'Behind', 'Between', 'Under', 'Over', 'Across', 'Against', 'Steps', 'Rewards', 'More', 'Together', 'Share', 'Underneath', 'Concentration', 'Voting', 'Ratification', 'Repricing', 'Power', 'Participation', 'Almost', 'Abstaining', 'Taken', 'All', 'Paying', 'Same', 'Constitutional', 'Amount', 'Size', 'Count', 'Fewer', 'Neither', 'Twelve', 'Nine', 'Six', 'Nineteen', 'Forty', 'Delegation', 'Missed', 'Among', 'Bars', 'Follow', 'Their', 'Smaller', 'Ranked', 'Around', 'Stake', 'Final', 'According', 'Eleven', 'Dropped', 'Metadata', 'Opposing', 'Revised']);
+const SENTENCE_STARTERS = new Set(['The', 'A', 'An', 'In', 'By', 'On', 'At', 'As', 'Of', 'And', 'For', 'With', 'That', 'This', 'These', 'Those', 'It', 'Its', 'He', 'She', 'They', 'We', 'But', 'So', 'If', 'When', 'While', 'After', 'Before', 'Since', 'Until', 'Both', 'Neither', 'Every', 'Each', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Half', 'Most', 'Some', 'None', 'Not', 'No', 'Yes', 'What', 'Where', 'Why', 'How', 'Whatever', 'Part', 'Compared', 'Read', 'Only', 'Also', 'Still', 'Then', 'There', 'Here', 'Nothing', 'Everything', 'Nobody', 'Whether', 'Unless', 'Without', 'Behind', 'Between', 'Under', 'Over', 'Across', 'Against', 'Steps', 'Rewards', 'More', 'Together', 'Share', 'Underneath', 'Concentration', 'Voting', 'Ratification', 'Repricing', 'Power', 'Participation', 'Almost', 'Abstaining', 'Taken', 'All', 'Paying', 'Same', 'Constitutional', 'Amount', 'Size', 'Count', 'Fewer', 'Neither', 'Twelve', 'Nine', 'Six', 'Nineteen', 'Forty', 'Delegation', 'Missed', 'Among', 'Bars', 'Follow', 'Their', 'Smaller', 'Ranked', 'Around', 'Stake', 'Final', 'According', 'Eleven', 'Dropped', 'Metadata', 'Opposing', 'Revised', 'Should', 'Dividing', 'Raising', 'Participation']);
 
 const GOVERNANCE_TERMS = new Set([
   'Cardano', 'DRep', 'DReps', 'SPO', 'SPOs', 'Constitutional Committee', 'Constitution', 'Governance Review', 'DRepTalk',
@@ -444,7 +444,13 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
     // later one, so holding the row to the status would force an enactment the
     // window never saw.
     const ratifiedInWindow = (p.eventsInWindow ?? []).some((e) => e.kind === 'ratified');
-    const outcomeAllowed = r.outcome === p.status || (r.outcome === 'ratified' && ratifiedInWindow);
+    // An action whose voting ran past this window was still being voted on at its
+    // close, whatever status the pack has recorded since. The edition may list it
+    // as open, so a proposal submitted inside the window is not dropped from the
+    // open table just because the snapshot already knows how it ended.
+    const openPastWindow = p.expiryEpoch != null && p.expiryEpoch > fm.epochTo + 1;
+    const outcomeAllowed =
+      r.outcome === p.status || (r.outcome === 'ratified' && ratifiedInWindow) || (r.outcome === 'open' && openPastWindow);
     if (!stillOpen && !outcomeAllowed) out.push({ rule: 'action-row-mismatch', message: `${at}: outcome "${r.outcome}" is not the pack status "${p.status}"` });
     // An open row is rendered as a voting close ("undecided at the close of
     // epoch N", "voting ends at the start of epoch N"), so its epoch is the
