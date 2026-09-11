@@ -9,6 +9,8 @@ export const prerender = false;
 import { env } from 'cloudflare:workers';
 import Layout from '@/layouts/Layout.astro';
 import { listSyncRuns, latestSyncRunByKind, type SyncRun } from '@/lib/db/syncRuns.js';
+import { readVotingTimingSnapshot } from '@/lib/db/votingTimingSnapshot.js';
+import { classifySnapshot, type VotingTimingSnapshotHealth } from '@/lib/analytics/votingTimingSnapshotHealth.js';
 import { countGivenUpMetaActions } from '@/lib/db/governance.js';
 import { countGivenUpAvatars } from '@/lib/db/dreps.js';
 import { AVATAR_FETCH_MAX_ATTEMPTS } from '@/lib/dreps/avatarStore.js';
@@ -52,6 +54,19 @@ try {
 } catch (err) {
   // Most likely the sync_runs migration has not been applied yet.
   loadError = errorMessage(err);
+}
+
+// Voting-timing snapshot health. Neither the phase log nor sync_runs
+// distinguishes "the phase threw" from "the row is silently ancient" or "the
+// row is there but unusable", so all three are surfaced here. One read: an
+// unusable payload still returns its metadata, so the age stays reportable.
+let snapshot: VotingTimingSnapshotHealth | null = null;
+let snapshotError: string | null = null;
+try {
+  snapshot = classifySnapshot(await readVotingTimingSnapshot(db), now);
+} catch (err) {
+  // Most likely migration 0097 has not been applied yet.
+  snapshotError = errorMessage(err);
 }
 
 // Sources the syncs have permanently abandoned. They drop out of their retry
@@ -100,6 +115,19 @@ Astro.response.headers.set('Refresh', '60');
   </p>
 
   {loadError && <p class="error-text">Could not read sync_runs: {loadError} (is migration 0026 applied?)</p>}
+
+  <h2>Voting timing snapshot</h2>
+  {snapshotError && <p class="error-text">Could not read voting_timing_snapshot: {snapshotError} (is migration 0097 applied?)</p>}
+  {snapshot?.state === 'absent' && <p>No snapshot yet. Both pages are computing the timing aggregates live.</p>}
+  {snapshot?.state === 'invalid' && (
+    <p class="error-text">The stored snapshot is unusable, so every render falls back to live computation.</p>
+  )}
+  {(snapshot?.state === 'fresh' || snapshot?.state === 'overdue') && (
+    <p class={snapshot.state === 'overdue' ? 'error-text' : undefined}>
+      Computed {Math.round((snapshot.ageMs as number) / 60000)} min ago in epoch {snapshot.epoch}.
+      {snapshot.state === 'overdue' && ' Overdue: more than 24 h old, the dreps cron may be failing.'}
+    </p>
+  )}
 
   <div class="cards">
     {KINDS.map(({ kind, label, cron }) => {
