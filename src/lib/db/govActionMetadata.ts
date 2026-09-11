@@ -4,42 +4,50 @@
 // resubmission of identical content skip the re-upload, and gives audit and
 // rate-limit context. Mirrors db/voteRationale and db/drepMetadata.
 //
-// It is also the collector's only source of file ids: the Pinata account is
-// shared with another project, so nothing here ever enumerates that account,
-// and a row with a NULL pinata_file_id is by definition not ours to delete.
+// It is also the collector's work queue, and its only source of file ids: the
+// Pinata account is shared with another project, so nothing ever enumerates
+// that account, and a row with a NULL pinata_file_id is by definition not ours
+// to delete. An attempt counter on the domain table is the house pattern for
+// this (meta_attempts on governance_actions, image_fetch_attempts on dreps).
+//
+// One invariant the queries lean on: hash, bytes and cid are 1:1. `hash` is
+// blake2b of the exact document bytes and `cid` is the IPFS hash of those same
+// bytes, so two rows cannot describe the same content, and a duplicate upload
+// never records a file id at all (see pinata.ts). Two rows therefore cannot
+// share a pinata_file_id, which is why nothing here guards against it.
 
 /** One document the collector may consider deleting. */
 export interface CollectablePin {
   hash: string;
-  cid: string;
   pinataFileId: string;
 }
 
 /**
- * Returns the CID a hash was pinned under, or null if never stored.
+ * Hands a previously pinned CID back to a submitter, or null if there is none.
  *
- * Touches `last_served_at`, because handing a CID back is what restarts the
- * grace period: without it a user could resubmit a week-old draft, receive its
- * CID, and watch the collector delete that pin minutes later. A row already
- * marked for deletion is reported as absent, so the caller re-pins instead of
- * reusing a CID that is about to disappear. Re-pinning identical bytes returns
- * the identical CID, so nothing is lost by that.
+ * Named for the write it performs rather than the read it looks like: serving a
+ * CID restarts the grace period, so a week-old draft resubmitted now cannot
+ * have its pin collected minutes later. A plain getter would let any future
+ * read path extend that clock by accident.
+ *
+ * A row claimed for deletion reads as absent, so the caller re-pins instead of
+ * reusing a CID that is about to disappear. Re-pinning identical bytes yields
+ * the identical CID, so nothing is lost.
  */
-export async function getGovActionMetadata(
+export async function serveGovActionMetadata(
   db: D1Database,
   hash: string,
   now: number,
 ): Promise<{ cid: string } | null> {
   const row = await db
-    .prepare(`SELECT cid FROM gov_action_metadata WHERE hash = ? AND deleting_at IS NULL`)
-    .bind(hash)
-    .first<{ cid: string }>();
-  if (!row) return null;
-  await db
-    .prepare(`UPDATE gov_action_metadata SET last_served_at = ? WHERE hash = ? AND deleting_at IS NULL`)
+    .prepare(
+      `UPDATE gov_action_metadata SET last_served_at = ?
+        WHERE hash = ? AND deleting_at IS NULL
+        RETURNING cid`,
+    )
     .bind(now, hash)
-    .run();
-  return { cid: row.cid };
+    .first<{ cid: string }>();
+  return row ? { cid: row.cid } : null;
 }
 
 export async function putGovActionMetadata(
@@ -55,74 +63,76 @@ export async function putGovActionMetadata(
     .run();
 }
 
+// The one definition of "collectable", shared by the selection and its count so
+// the two can never drift into reporting different populations. `deleting_at`
+// is a LEASE, not a lock: a run killed mid-flight would otherwise strand a row
+// that is never served and never re-selected, so a stale claim is reclaimed the
+// way runRecorder reaps stale sync runs.
+const COLLECTABLE_WHERE = `
+        WHERE pinata_file_id IS NOT NULL
+          AND (deleting_at IS NULL OR deleting_at < ?)
+          AND last_served_at < ?
+          AND hash NOT IN (SELECT anchor_hash FROM governance_actions WHERE anchor_hash IS NOT NULL)`;
+
+export interface CollectableOpts {
+  /** Unix seconds; rows served after this are still protected. */
+  graceCutoff: number;
+  /** Unix seconds; a claim older than this is treated as abandoned. */
+  staleClaimCutoff: number;
+  limit: number;
+}
+
 /**
- * Documents whose pin is a candidate for collection: ours to delete, past the
- * grace cutoff, not anchored by any governance action we know of, and not
- * already given up on.
+ * Documents whose pin is a candidate for collection, plus how many are waiting
+ * in total.
  *
- * Two guards that look redundant and are not. A file id may be shared by more
- * than one row (Pinata deduplicates by content), so a row is held back while
- * ANY row sharing its id is still anchored or still inside its grace window.
- * And the ordering is load-bearing: with a bare LIMIT, a full batch of
- * permanently failing rows is re-selected every run and starves everything
- * behind it, so the queue never drains.
+ * The total comes from a window function rather than a second query, so the
+ * backlog figure is always the same population the selection draws from.
+ *
+ * The ordering is load-bearing: with a bare LIMIT, rows that keep failing are
+ * re-selected every run and starve everything behind them. Fewest attempts
+ * first means a poison row drifts to the back instead of blocking the queue,
+ * which is why there is no attempt cutoff. A cutoff would retire rows
+ * permanently after a couple of hours of Pinata being down, which is worse than
+ * occasionally retrying a genuinely dead one.
  */
 export async function getCollectablePins(
   db: D1Database,
-  opts: { graceCutoff: number; maxAttempts: number; limit: number },
-): Promise<CollectablePin[]> {
+  opts: CollectableOpts,
+): Promise<{ pins: CollectablePin[]; total: number }> {
   const res = await db
     .prepare(
-      `SELECT m.hash AS hash, m.cid AS cid, m.pinata_file_id AS pinata_file_id
-         FROM gov_action_metadata m
-        WHERE m.pinata_file_id IS NOT NULL
-          AND m.deleting_at IS NULL
-          AND m.last_served_at < ?
-          AND m.delete_attempts < ?
-          AND m.hash NOT IN (SELECT anchor_hash FROM governance_actions WHERE anchor_hash IS NOT NULL)
-          AND NOT EXISTS (
-                SELECT 1 FROM gov_action_metadata k
-                 WHERE k.pinata_file_id = m.pinata_file_id
-                   AND k.hash <> m.hash
-                   AND (k.last_served_at >= ?
-                        OR k.hash IN (SELECT anchor_hash FROM governance_actions
-                                       WHERE anchor_hash IS NOT NULL)))
-        ORDER BY m.delete_attempts ASC, m.last_served_at ASC
+      `SELECT hash, pinata_file_id, COUNT(*) OVER () AS total
+         FROM gov_action_metadata
+         ${COLLECTABLE_WHERE}
+        ORDER BY delete_attempts ASC, last_served_at ASC
         LIMIT ?`,
     )
-    .bind(opts.graceCutoff, opts.maxAttempts, opts.graceCutoff, opts.limit)
-    .all<{ hash: string; cid: string; pinata_file_id: string }>();
-  return (res.results ?? []).map((r) => ({ hash: r.hash, cid: r.cid, pinataFileId: r.pinata_file_id }));
-}
-
-/** How many collectable rows are waiting, for the backlog log line. */
-export async function countCollectablePins(
-  db: D1Database,
-  opts: { graceCutoff: number; maxAttempts: number },
-): Promise<number> {
-  const row = await db
-    .prepare(
-      `SELECT COUNT(*) AS n
-         FROM gov_action_metadata m
-        WHERE m.pinata_file_id IS NOT NULL
-          AND m.deleting_at IS NULL
-          AND m.last_served_at < ?
-          AND m.delete_attempts < ?
-          AND m.hash NOT IN (SELECT anchor_hash FROM governance_actions WHERE anchor_hash IS NOT NULL)`,
-    )
-    .bind(opts.graceCutoff, opts.maxAttempts)
-    .first<{ n: number }>();
-  return row?.n ?? 0;
+    .bind(opts.staleClaimCutoff, opts.graceCutoff, opts.limit)
+    .all<{ hash: string; pinata_file_id: string; total: number }>();
+  const rows = res.results ?? [];
+  return {
+    pins: rows.map((r) => ({ hash: r.hash, pinataFileId: r.pinata_file_id })),
+    total: rows[0]?.total ?? 0,
+  };
 }
 
 /**
  * Claims a row for deletion. Returns false when another run already holds it,
  * so two overlapping cron ticks cannot both delete the same file.
  */
-export async function markPinDeleting(db: D1Database, hash: string, now: number): Promise<boolean> {
+export async function markPinDeleting(
+  db: D1Database,
+  hash: string,
+  now: number,
+  staleClaimCutoff: number,
+): Promise<boolean> {
   const res = await db
-    .prepare(`UPDATE gov_action_metadata SET deleting_at = ? WHERE hash = ? AND deleting_at IS NULL`)
-    .bind(now, hash)
+    .prepare(
+      `UPDATE gov_action_metadata SET deleting_at = ?
+        WHERE hash = ? AND (deleting_at IS NULL OR deleting_at < ?)`,
+    )
+    .bind(now, hash, staleClaimCutoff)
     .run();
   return (res.meta?.changes ?? 0) > 0;
 }

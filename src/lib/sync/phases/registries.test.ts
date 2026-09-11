@@ -32,7 +32,7 @@ function govCtx(
     vapid: null,
     telegramBotToken: null,
     tessera: opts.tessera ? ({} as GovernanceSyncContext['tessera']) : null,
-    discovery: { ran: false, failed: 0 },
+    state: { mirrorHealthy: false },
     pinGc: opts.pinGc ? { groupId: 'grp', jwt: 'jwt' } : null,
   };
 }

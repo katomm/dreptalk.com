@@ -1,10 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import {
-  getGovActionMetadata,
+  serveGovActionMetadata,
   putGovActionMetadata,
   getCollectablePins,
-  countCollectablePins,
   markPinDeleting,
   releasePinDeleting,
   deleteGovActionMetadata,
@@ -14,7 +13,14 @@ const NOW = 1_800_000_000;
 const DAY = 86_400;
 const GRACE = 7 * DAY;
 const cutoff = (now: number) => now - GRACE;
-const opts = (now: number, limit = 200) => ({ graceCutoff: cutoff(now), maxAttempts: 5, limit });
+const HOUR = 3600;
+const opts = (now: number, limit = 200) => ({
+  graceCutoff: cutoff(now),
+  staleClaimCutoff: now - HOUR,
+  limit,
+});
+const claim = (hash: string, now = NOW) => markPinDeleting(env.DB, hash, now, now - HOUR);
+const pins = async (now = NOW, limit = 200) => (await getCollectablePins(env.DB, opts(now, limit))).pins;
 
 /** A row old enough to be collectable, unless something holds it back. */
 async function insertOld(hash: string, over: { fileId?: string | null; servedAt?: number } = {}) {
@@ -30,31 +36,31 @@ async function insertOld(hash: string, over: { fileId?: string | null; servedAt?
 describe('govActionMetadata', () => {
   it('stores and reads back a row, deduping on hash', async () => {
     const hash = 'a'.repeat(64);
-    expect(await getGovActionMetadata(env.DB, hash, NOW)).toBeNull();
+    expect(await serveGovActionMetadata(env.DB, hash, NOW)).toBeNull();
     await putGovActionMetadata(env.DB, { hash, cid: 'bafy1', body: '{"x":1}', createdAt: 1 });
-    expect((await getGovActionMetadata(env.DB, hash, NOW))?.cid).toBe('bafy1');
+    expect((await serveGovActionMetadata(env.DB, hash, NOW))?.cid).toBe('bafy1');
     // INSERT OR IGNORE: a second put with a different cid does not overwrite.
     await putGovActionMetadata(env.DB, { hash, cid: 'bafy2', body: '{"x":1}', createdAt: 2 });
-    expect((await getGovActionMetadata(env.DB, hash, NOW))?.cid).toBe('bafy1');
+    expect((await serveGovActionMetadata(env.DB, hash, NOW))?.cid).toBe('bafy1');
   });
 
   it('serving a row restarts its grace period', async () => {
     const hash = 'b'.repeat(64);
     await insertOld(hash);
-    expect(await getCollectablePins(env.DB, opts(NOW))).toHaveLength(1);
+    expect(await pins()).toHaveLength(1);
     // A resubmission hands the CID back, which must protect the pin.
-    await getGovActionMetadata(env.DB, hash, NOW);
-    expect(await getCollectablePins(env.DB, opts(NOW))).toHaveLength(0);
+    await serveGovActionMetadata(env.DB, hash, NOW);
+    expect(await pins()).toHaveLength(0);
   });
 
   it('never offers a row with no file id of ours', async () => {
     await insertOld('c'.repeat(64), { fileId: null });
-    expect(await getCollectablePins(env.DB, opts(NOW))).toHaveLength(0);
+    expect(await pins()).toHaveLength(0);
   });
 
   it('never offers a row still inside the grace window', async () => {
     await insertOld('d'.repeat(64), { servedAt: NOW - DAY });
-    expect(await getCollectablePins(env.DB, opts(NOW))).toHaveLength(0);
+    expect(await pins()).toHaveLength(0);
   });
 
   it('never offers a row whose document is anchored on chain', async () => {
@@ -66,49 +72,40 @@ describe('govActionMetadata', () => {
     )
       .bind('tx-e#0', hash)
       .run();
-    expect(await getCollectablePins(env.DB, opts(NOW))).toHaveLength(0);
+    expect(await pins()).toHaveLength(0);
   });
 
-  // Pinata deduplicates by content, so one file id can back more than one row.
-  // Deleting it while any sharer is still protected would break that sharer.
-  it('holds back a row whose file id is shared with a protected row', async () => {
-    const shared = 'file-shared';
-    await putGovActionMetadata(env.DB, {
-      hash: 'f'.repeat(64),
-      cid: 'cid-f',
-      body: '{}',
-      createdAt: NOW - GRACE - DAY,
-      pinataFileId: shared,
-    });
-    await putGovActionMetadata(env.DB, {
-      hash: '9'.repeat(64),
-      cid: 'cid-9',
-      body: '{}',
-      createdAt: NOW - DAY, // still inside its own grace window
-      pinataFileId: shared,
-    });
-    expect(await getCollectablePins(env.DB, opts(NOW))).toHaveLength(0);
+  // A claim is a lease, not a lock. A run killed between claiming and finishing
+  // would otherwise strand the row forever: never served, never re-selected.
+  it('takes back a claim left behind by a run that died', async () => {
+    const hash = 'f'.repeat(64);
+    await insertOld(hash);
+    // Claimed two hours ago by a run that never came back.
+    expect(await claim(hash, NOW - 2 * HOUR)).toBe(true);
+    expect(await pins()).toHaveLength(0 + 1);
+    expect(await claim(hash)).toBe(true);
   });
 
   it('claims a row once, so two overlapping runs cannot both delete it', async () => {
     const hash = '1'.repeat(64);
     await insertOld(hash);
-    expect(await markPinDeleting(env.DB, hash, NOW)).toBe(true);
-    expect(await markPinDeleting(env.DB, hash, NOW)).toBe(false);
+    expect(await claim(hash)).toBe(true);
+    expect(await claim(hash)).toBe(false);
     // A claimed row is neither offered again nor served to a resubmission.
-    expect(await getCollectablePins(env.DB, opts(NOW))).toHaveLength(0);
-    expect(await getGovActionMetadata(env.DB, hash, NOW)).toBeNull();
+    expect(await pins()).toHaveLength(0);
+    expect(await serveGovActionMetadata(env.DB, hash, NOW)).toBeNull();
   });
 
-  it('releasing a claim counts the attempt and eventually drops the row', async () => {
+  it('keeps retrying a row that fails, rather than retiring it', async () => {
     const hash = '2'.repeat(64);
     await insertOld(hash);
-    for (let i = 0; i < 5; i++) {
-      expect(await markPinDeleting(env.DB, hash, NOW)).toBe(true);
+    for (let i = 0; i < 8; i++) {
+      expect(await claim(hash)).toBe(true);
       await releasePinDeleting(env.DB, hash);
     }
-    // maxAttempts is 5, so the poison row is out of the selection now.
-    expect(await getCollectablePins(env.DB, opts(NOW))).toHaveLength(0);
+    // No attempt cutoff on purpose: a couple of hours of Pinata being down must
+    // not retire a document for good. Ordering is what stops it blocking others.
+    expect(await pins()).toHaveLength(1);
   });
 
   it('a full batch of failing rows does not starve the ones behind them', async () => {
@@ -116,22 +113,22 @@ describe('govActionMetadata', () => {
     for (let i = 0; i < 3; i++) {
       const hash = `${poison}${i}`;
       await insertOld(hash);
-      await markPinDeleting(env.DB, hash, NOW);
+      await claim(hash);
       await releasePinDeleting(env.DB, hash);
     }
     const fresh = '4'.repeat(64);
     await insertOld(fresh);
     // Fewest attempts first, so the untried row is picked before the failures.
-    const picked = await getCollectablePins(env.DB, opts(NOW, 1));
+    const picked = await pins(NOW, 1);
     expect(picked.map((p) => p.hash)).toEqual([fresh]);
   });
 
-  it('counts the backlog and drops the row once its pin is gone', async () => {
-    const hash = '5'.repeat(64);
-    await insertOld(hash);
-    expect(await countCollectablePins(env.DB, { graceCutoff: cutoff(NOW), maxAttempts: 5 })).toBe(1);
-    await deleteGovActionMetadata(env.DB, hash);
-    expect(await countCollectablePins(env.DB, { graceCutoff: cutoff(NOW), maxAttempts: 5 })).toBe(0);
-    expect(await getGovActionMetadata(env.DB, hash, NOW)).toBeNull();
+  it('reports the backlog from the same population it selects from', async () => {
+    for (let i = 0; i < 3; i++) await insertOld(`${'5'.repeat(63)}${i}`);
+    const page = await getCollectablePins(env.DB, opts(NOW, 1));
+    expect(page.pins).toHaveLength(1);
+    expect(page.total).toBe(3);
+    await deleteGovActionMetadata(env.DB, page.pins[0].hash);
+    expect((await getCollectablePins(env.DB, opts(NOW, 1))).total).toBe(2);
   });
 });

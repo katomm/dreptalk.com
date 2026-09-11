@@ -26,7 +26,7 @@ import { resolveCronKind } from '../../../src/lib/freshness.js';
 import { recordSyncRun, type PhaseFn } from '../../../src/lib/sync/runRecorder.js';
 import { runPhases } from '../../../src/lib/sync/phases/registry.js';
 import type { CoreSyncContext } from '../../../src/lib/sync/phases/context.js';
-import { governancePhases } from '../../../src/lib/sync/phases/governance.js';
+import { governancePhases, initialGovernanceSyncState } from '../../../src/lib/sync/phases/governance.js';
 import { votePhases } from '../../../src/lib/sync/phases/votes.js';
 import { drepPhases, initialDrepSyncState } from '../../../src/lib/sync/phases/dreps.js';
 import { imagesDownscaler } from '../../../src/lib/dreps/avatarStore.js';
@@ -137,7 +137,6 @@ export default {
                     timeoutMs: 10_000,
                   })
                 : null,
-              discovery: { ran: false, failed: 0 },
               // Both halves required: the group is what proves a file is ours to
               // delete on an account shared with another project, and the token
               // is separate from the app's upload-only one.
@@ -145,6 +144,7 @@ export default {
                 env.PINATA_GOV_GROUP_ID && env.PINATA_GC_JWT
                   ? { groupId: env.PINATA_GOV_GROUP_ID, jwt: env.PINATA_GC_JWT }
                   : null,
+              state: initialGovernanceSyncState(),
             };
             return runPhases(governancePhases, ctx, phase);
           }

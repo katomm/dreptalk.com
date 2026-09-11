@@ -22,7 +22,7 @@ import { canonicalBodyHashFor, type Cip108Body, type Cip108Reference } from './c
 import { parseSurveyRefInput } from './surveyRef.js';
 import { verifyWalletAuthorWitness } from './authorWitness.js';
 import { pinInfoActionMetadata, type FileUploader } from './pinata.js';
-import { getGovActionMetadata, putGovActionMetadata } from '../db/govActionMetadata.js';
+import { serveGovActionMetadata, putGovActionMetadata } from '../db/govActionMetadata.js';
 
 const AUTHOR_NAME_MAX = 120;
 
@@ -202,7 +202,7 @@ export async function handleInfoActionMetadata(
     // just handed. A row already claimed for deletion reads as absent and is
     // re-pinned instead, which yields the same CID anyway.
     const nowSec = Math.floor(input.now / 1000);
-    const existing = await getGovActionMetadata(input.db, hash, nowSec);
+    const existing = await serveGovActionMetadata(input.db, hash, nowSec);
     if (existing) {
       return { status: 200, json: { anchorUrl: `ipfs://${existing.cid}`, anchorHash: hash } };
     }

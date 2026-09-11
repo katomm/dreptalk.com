@@ -25,6 +25,29 @@ const TEXT_ENCODER = new TextEncoder();
 // bafybei... for dag-pb/raw). Pinata's public gateway returns CIDv1 by default.
 const CID_RE = /^(Qm[1-9A-HJ-NP-Za-km-z]{44}|b[a-z2-7]{58,})$/;
 
+// Every Pinata call this app makes lives in this module: upload, read, delete.
+// One place owns the base URLs, the bearer header, the v3 `data` envelope and
+// the error shape, and one place enforces the rule that protects the shared
+// account (see removeFile). Tests inject fakes at the two seams below and never
+// make a real network call.
+const FETCH_TIMEOUT_MS = 8_000;
+const FILES_API = 'https://api.pinata.cloud/v3/files/public';
+
+/** Pinata with a bound timeout: a hung call must not park a cron phase. */
+async function pinataFetch(url: string, jwt: string, init: RequestInit = {}): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, {
+      ...init,
+      headers: { ...(init.headers ?? {}), authorization: `Bearer ${jwt}` },
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // Talks to Pinata's v3 file upload API. Isolated here so tests inject a fake
 // FileUploader and never make a real network call.
 const defaultUpload: FileUploader = async (file, jwt, groupId) => {
@@ -38,9 +61,8 @@ const defaultUpload: FileUploader = async (file, jwt, groupId) => {
   // ours to delete. Uploading without it is allowed and simply means the file
   // can never be garbage collected, which is the safe direction to fail.
   if (groupId) form.append('group_id', groupId);
-  const resp = await fetch('https://uploads.pinata.cloud/v3/files', {
+  const resp = await pinataFetch('https://uploads.pinata.cloud/v3/files', jwt, {
     method: 'POST',
-    headers: { authorization: `Bearer ${jwt}` },
     body: form,
   });
   if (!resp.ok) {
@@ -86,4 +108,54 @@ export async function pinInfoActionMetadata(input: {
   // CID is the same bytes either way, which is the whole point of content
   // addressing. Same for an upload that produced no id at all.
   return { cid, fileId: isDuplicate ? null : fileId };
+}
+
+// ---------------------------------------------------------------------------
+// Deleting, for the pin collector
+// ---------------------------------------------------------------------------
+
+/**
+ * Outcome of asking Pinata to drop a file.
+ *
+ * `not-ours` is the one that matters. The Pinata account is SHARED with another
+ * project, and a scoped API key restricts permissions, not which files those
+ * permissions reach, so a token that can delete our files can delete theirs.
+ * The only real boundary is the group, which is why removeFile REQUIRES one and
+ * checks it itself rather than trusting its caller to have looked.
+ */
+export type RemoveOutcome = 'removed' | 'already-gone' | 'not-ours';
+
+/** The delete half of the Pinata surface, injectable so tests never hit the network. */
+export interface PinataFileRemover {
+  /** Drops a file, but only if it is in `requireGroup`. Throws on a transport error. */
+  removeFile(fileId: string, requireGroup: string): Promise<RemoveOutcome>;
+}
+
+/**
+ * The real deleter. Needs org:files:read (for the group check) and
+ * org:files:write. Never given to the app worker, which only ever uploads.
+ *
+ * There is deliberately NO list operation here or anywhere else: the collector
+ * must never enumerate an account it shares, and the absence of the capability
+ * is what makes that structural rather than a rule someone has to remember.
+ */
+export function makePinataRemover(jwt: string): PinataFileRemover {
+  return {
+    async removeFile(fileId, requireGroup) {
+      const path = `${FILES_API}/${encodeURIComponent(fileId)}`;
+      const read = await pinataFetch(path, jwt);
+      // Already gone is the goal state, not a failure.
+      if (read.status === 404) return 'already-gone';
+      if (!read.ok) throw new Error(`pinata read failed: ${read.status}`);
+      const json = (await read.json()) as { data?: { group_id?: string | null } };
+      // The ownership test. It is done here, on every delete, precisely so a
+      // second caller cannot skip it by forgetting to look first.
+      if ((json.data?.group_id ?? null) !== requireGroup) return 'not-ours';
+
+      const del = await pinataFetch(path, jwt, { method: 'DELETE' });
+      if (del.status === 404) return 'already-gone';
+      if (!del.ok) throw new Error(`pinata delete failed: ${del.status}`);
+      return 'removed';
+    },
+  };
 }
