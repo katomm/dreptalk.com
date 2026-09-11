@@ -78,9 +78,22 @@ const MAX_AUTHORS = 10;
 // cannot silently truncate our own documents on the way back in. Only the count
 // differs, and deliberately: see REFERENCES_READ_MAX.
 export const MAX_REFERENCES = REFERENCES_READ_MAX;
-// A document may list thousands of entries; scanning a bounded slice of them is
-// enough to fill the cap with distinct links without walking a 2MB array.
-const MAX_REFERENCE_SCAN = MAX_REFERENCES * 10;
+
+/** How the read path bounds the references of someone else's CIP-108 document. */
+const CIP108_REFERENCE_POLICY: ReferenceListPolicy = {
+  maxItems: MAX_REFERENCES,
+  maxLabelLen: REFERENCE_LABEL_MAX,
+  maxUriLen: REFERENCE_URI_MAX,
+  // A proposal routinely anchors its supporting documents on IPFS, where a DRep
+  // profile link is a web page, so this path admits ipfs: and the profile does not.
+  allowIpfs: true,
+  // No @type fallback: on a reference it is always "Other" or "Link", and an
+  // invented label like that tells the reader less than the URI would.
+  labelKeys: ['label', 'name'],
+  // Dedupe before the cap, so a document that lists one link twenty times cannot
+  // crowd the distinct ones out of the card.
+  dedupe: true,
+};
 
 const IPFS_GATEWAY = 'https://ipfs.io/ipfs/';
 
@@ -281,36 +294,6 @@ export function readReferenceList(raw: unknown, policy: ReferenceListPolicy): Do
 }
 
 /**
- * Reads CIP-108 `body.references` down to the label/uri pairs we display.
- *
- * `resolveAnchorUrl` doubles as the validity test on purpose: it is the same
- * allowlist the anchor fetch itself uses, so the card can never be handed a URI
- * the resolver would later refuse. What is stored is the RAW uri, not the
- * gateway form, so changing how an ipfs:// link is resolved stays a display
- * decision and needs no re-extract. An over-long URI is dropped rather than
- * truncated: a sliced URL still renders, it just points somewhere else.
- */
-function extractReferences(raw: unknown): AnchorReference[] | null {
-  if (!Array.isArray(raw)) return null;
-  const found: AnchorReference[] = [];
-  for (const entry of raw.slice(0, MAX_REFERENCE_SCAN)) {
-    const item = asRecord(entry);
-    // CIP-108 names the field `uri`; tolerate `url` as CIP-119 profiles do.
-    const rawUri = (jsonLdString(item.uri) || jsonLdString(item.url)).trim();
-    if (!rawUri || rawUri.length > REFERENCE_URI_MAX) continue;
-    if (!resolveAnchorUrl(rawUri)) continue;
-    // An explicit empty label is kept: the card falls back to showing the URI,
-    // which is honest, where a made-up label would not be.
-    const rawLabel = jsonLdStringOrNull(item.label) ?? jsonLdString(item.name);
-    found.push({ label: sanitizeExternalText(rawLabel, REFERENCE_LABEL_MAX), uri: rawUri });
-  }
-  // Dedupe before the cap, so a document that lists one link twenty times
-  // cannot crowd the distinct ones out of the card.
-  const refs = dedupeLinks(found).slice(0, MAX_REFERENCES);
-  return refs.length ? refs : null;
-}
-
-/**
  * Extracts title/abstract/rationale from a parsed CIP-108 document.
  *
  * `anchorUrl` (the untrusted on-chain anchor) is only used to build the "read the
@@ -352,7 +335,7 @@ function extractCip108(doc: unknown, anchorUrl?: string): AnchorMetadata {
     abstract: abstract || null,
     rationaleHtml: rationaleRaw ? renderMarkdown(rationaleRaw) : null,
     authors: extractAuthorNames(root.authors),
-    references: extractReferences(body.references),
+    references: readReferenceList(body.references, CIP108_REFERENCE_POLICY),
   };
 }
 
