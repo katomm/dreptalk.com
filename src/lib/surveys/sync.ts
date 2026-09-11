@@ -280,9 +280,10 @@ async function applyDelta(
 
   const rolledBack = withdrawn.length > 0 ? await withdrawSurveys(db, withdrawn, now) : 0;
   if (statements.length > 0) await db.batch(statements);
-  // The delete drops the queue row too, so the enqueue has to come after it, or
-  // a survey whose artifact just moved would lose the work order for its own
-  // recomputation.
+  // The delete drops the queue row along with the tally row, so the enqueue
+  // comes after it and a survey whose artifact just moved keeps the work order
+  // for its own recomputation. Pass 4's no-row trigger would find it again in
+  // this same run, so the order is belt and braces rather than the only path.
   await deleteSurveyTallies(db, [...new Set([...deleted, ...movedArtifact])]);
   await enqueueSurveyTallies(
     db,

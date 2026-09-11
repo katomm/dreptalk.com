@@ -81,9 +81,10 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
       });
       console.log(
         `[surveys] notReady=${r.notReady} written=${r.written} published=${r.published}` +
-          ` rolledBack=${r.rolledBack} finalCounts=${r.finalCounts} failed=${r.failed}`,
+          ` rolledBack=${r.rolledBack} finalCounts=${r.finalCounts} tallies=${r.tallies}` +
+          ` failed=${r.failed}`,
       );
-      return { items: r.written + r.published + r.finalCounts, failed: r.failed };
+      return { items: r.written + r.published + r.finalCounts + r.tallies, failed: r.failed };
     },
   },
   {
