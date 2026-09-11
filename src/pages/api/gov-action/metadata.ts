@@ -30,7 +30,7 @@ const RATE_WINDOW_SEC = 60;
 export async function gateInfoActionRequest(
   ctx: { request: Request; locals: App.Locals },
   deps?: { network?: NetworkConfig; env?: Cloudflare.Env },
-): Promise<Response | { db: D1Database; jwt: string; networkId: number }> {
+): Promise<Response | { db: D1Database; jwt: string; groupId: string | undefined; networkId: number }> {
   const net = deps?.network ?? currentNetwork();
   if (net.network !== 'preprod') return new Response('Not found', { status: 404 });
 
@@ -64,7 +64,12 @@ export async function gateInfoActionRequest(
   }
   if (!allowed) return jsonResponse({ error: 'rate_limited' }, 429);
 
-  return { db, jwt, networkId: net.networkId };
+  // Optional on purpose: without it the upload simply carries no group, and the
+  // file is then never collectable. Failing closed here would take the feature
+  // down for a cleanup detail.
+  const groupId = env.PINATA_GOV_GROUP_ID || undefined;
+
+  return { db, jwt, groupId, networkId: net.networkId };
 }
 
 export const POST: APIRoute = async ({ request, locals }) => {
@@ -82,6 +87,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     body,
     db: gate.db,
     jwt: gate.jwt,
+    groupId: gate.groupId,
     now: Date.now(),
     expectedNetworkId: gate.networkId,
   });

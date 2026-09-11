@@ -9,12 +9,13 @@ import { describe, expect, it } from 'vitest';
 // one side only is a live defect, not a config nit: TESSERA_BACKEND_URL on the
 // app alone offers answers on surveys the site can no longer refresh, on
 // gov-sync alone mirrors surveys nobody can see; a VAPID key mismatch sends
-// pushes the subscription cannot verify. Absent on both sides is a legitimate
+// pushes the subscription cannot verify; a PINATA_GOV_GROUP_ID mismatch makes
+// the pin collector refuse every file it is meant to collect. Absent on both sides is a legitimate
 // state (the surveys switch is deliberately off on mainnet), so the assertion
 // is equality, with the always-present VAPID key proving the parsers actually
 // match something.
 
-const KEYS = ['CARDANO_NETWORK', 'VAPID_PUBLIC_KEY', 'TESSERA_BACKEND_URL'] as const;
+const KEYS = ['CARDANO_NETWORK', 'VAPID_PUBLIC_KEY', 'TESSERA_BACKEND_URL', 'PINATA_GOV_GROUP_ID'] as const;
 
 function read(path: string): string {
   return readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');

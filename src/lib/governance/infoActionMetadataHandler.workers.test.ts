@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { handleInfoActionMetadata, prepareInfoActionBodyHash } from './infoActionMetadataHandler.js';
 import { canonicalBodyHashFor } from './cip108Canonical.js';
-import { getGovActionMetadata } from '@/lib/db/govActionMetadata.js';
+import { serveGovActionMetadata } from '@/lib/db/govActionMetadata.js';
 
 const body = { title: 'Ping', abstract: 'A', motivation: 'M', rationale: 'R' };
 const CID = 'bafybeihgxdzljxb26q6nf3r3eifqeedsvt2eubqtskghpme66cgjyw4fra';
@@ -22,7 +22,7 @@ describe('handleInfoActionMetadata', () => {
     const json = res.json as { anchorUrl: string; anchorHash: string };
     expect(json.anchorUrl).toBe(`ipfs://${CID}`);
     expect(json.anchorHash).toMatch(/^[0-9a-f]{64}$/);
-    expect((await getGovActionMetadata(env.DB, json.anchorHash))?.cid).toBe(CID);
+    expect((await serveGovActionMetadata(env.DB, json.anchorHash, 1))?.cid).toBe(CID);
   });
 
   it('rejects missing body fields', async () => {

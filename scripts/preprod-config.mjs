@@ -34,6 +34,12 @@ cfg.vars = {
   TESSERA_BACKEND_URL: 'https://tessera-backend-preprod.matthieu-pizenberg.workers.dev',
   // Deep-link target on survey cards ("open in Tessera"); display-only.
   TESSERA_APP_URL: 'https://tessera-preprod.matthieu-pizenberg.workers.dev',
+  // Pinata group every governance-action anchor is uploaded into. The account
+  // is shared with another project, and this group is what the cron worker's
+  // pin collector checks before deleting anything, so the two copies must
+  // agree: uploading into one group and collecting against another would make
+  // the collector refuse every file (safe, but silently useless).
+  PINATA_GOV_GROUP_ID: 'd07e6e80-916c-4c2b-bf9d-9663d91fc485',
 };
 cfg.routes = [{ pattern: 'preprod.dreptalk.com', custom_domain: true }];
 cfg.d1_databases = [

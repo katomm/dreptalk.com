@@ -19,6 +19,8 @@ import {
   backfillGovStatusTimes,
 } from '../../governance/tallySync.js';
 import { syncProtocolParams } from '../../governance/paramsSync.js';
+import { collectUnreferencedPins } from '../../governance/pinCollector.js';
+import { makePinataRemover } from '../../governance/pinata.js';
 import { runCip100Sync } from '../../cip100/cron.js';
 import { originForNetwork } from '../../cip100/origin.js';
 import { runPostErasureSweep } from '../../db/postErasure.js';
@@ -41,12 +43,38 @@ export interface GovernanceSyncContext extends CoreSyncContext {
   /** Null while TESSERA_BACKEND_URL is unset/empty (the maintainer's off switch
    * for CIP-179 surveys); the surveys phase is gated out entirely. */
   tessera: SurveysTessera | null;
+  /** Our Pinata group plus the delete-capable token. Null disables the collector. */
+  pinGc: { groupId: string; jwt: string } | null;
+  state: GovernanceSyncState;
+}
+
+/**
+ * Values that genuinely flow between phases in one run, kept apart from the
+ * immutable config above so the type says which fields a phase may write.
+ * Mirrors DrepSyncState.
+ */
+export interface GovernanceSyncState {
+  /**
+   * False until discovery completes without losing an import. Only the pin
+   * collector reads it, and it has to: its "is this document anchored" test is
+   * a join against our own governance_actions, so a run that dropped an import
+   * would read a freshly anchored document as unreferenced and delete it.
+   * A `when` predicate cannot express this, since the registry evaluates every
+   * predicate before the first phase runs.
+   */
+  mirrorHealthy: boolean;
+}
+
+export function initialGovernanceSyncState(): GovernanceSyncState {
+  return { mirrorHealthy: false };
 }
 
 // Per-run tally budget: each run tallies at most this many (stale-first), paced
 // apart, and the backlog drains over a few runs. Kept small so that even when
 // every Koios call runs to the 25s timeout the run stays well within cron limits.
 const TALLY_LIMIT = 12;
+// See the pin-gc phase comment: chosen against the per-invocation D1 budget.
+const PIN_GC_LIMIT = 50;
 const TALLY_PACE_MS = 200;
 
 /** Short random hex for topic slug suffixes. */
@@ -65,6 +93,10 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
         koios: ctx.koios, db: ctx.db, network: ctx.cfg.network, now: ctx.now, rand: randSuffix,
       });
       console.log(`[gov-sync] total=${disc.total} created=${disc.created} skipped=${disc.skipped} failed=${disc.failed}`);
+      // Recorded for the pin collector, which must not delete on a mirror that
+      // just lost an import.
+      // Set after the sync returned, so a throw leaves it false.
+      ctx.state.mirrorHealthy = disc.failed === 0;
       return { items: disc.total, failed: disc.failed };
     },
   },
@@ -155,6 +187,43 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
       const titles = await backfillGovTopicTitles({ db: ctx.db, network: ctx.cfg.network, limit: 200 });
       console.log(`[gov-title-backfill] scanned=${titles.scanned} updated=${titles.updated}`);
       return { items: titles.updated };
+    },
+  },
+  {
+    // Unpin InfoAction metadata documents that no governance action anchored:
+    // abandoned submissions, and anything pinned to abuse the submit endpoint.
+    // After 'metadata' so a document confirmed this run is never a candidate.
+    //
+    // Sized against the D1 query budget, which is the binding limit here and not
+    // subrequests: each candidate costs a claim plus one terminal write, so 50
+    // is ~101 queries of the 1000 an invocation gets, leaving room for the nine
+    // phases behind this one. Drain rate is the lesser concern, since the seven
+    // day grace means this is never racing a live submission.
+    name: 'pin-gc',
+    when: (ctx) => ctx.heavy && ctx.pinGc !== null,
+    run: async (ctx) => {
+      // Narrowing only: `when` already required it. Configuring no group keeps
+      // the phase out of the run entirely, which is the refusal that matters.
+      const gc = ctx.pinGc;
+      if (!gc) return { items: 0 };
+      // The anchored test is a join against our own mirror, so a run that lost
+      // an import would read a freshly anchored document as unreferenced.
+      if (!ctx.state.mirrorHealthy) {
+        // Discovery logs its own counts, so this only says it stood down.
+        console.log('[pin-gc] skipped: discovery did not complete cleanly');
+        return { items: 0 };
+      }
+      const res = await collectUnreferencedPins({
+        db: ctx.db,
+        remover: makePinataRemover(gc.jwt),
+        groupId: gc.groupId,
+        now: Math.floor(ctx.now / 1000),
+        limit: PIN_GC_LIMIT,
+      });
+      console.log(
+        `[pin-gc] scanned=${res.scanned} deleted=${res.deleted} failed=${res.failed} foreign=${res.foreign} backlog=${res.backlog}`,
+      );
+      return { items: res.deleted, failed: res.failed };
     },
   },
   {

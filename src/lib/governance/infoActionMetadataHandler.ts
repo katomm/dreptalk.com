@@ -22,7 +22,7 @@ import { canonicalBodyHashFor, type Cip108Body, type Cip108Reference } from './c
 import { parseSurveyRefInput } from './surveyRef.js';
 import { verifyWalletAuthorWitness } from './authorWitness.js';
 import { pinInfoActionMetadata, type FileUploader } from './pinata.js';
-import { getGovActionMetadata, putGovActionMetadata } from '../db/govActionMetadata.js';
+import { serveGovActionMetadata, putGovActionMetadata } from '../db/govActionMetadata.js';
 
 const AUTHOR_NAME_MAX = 120;
 
@@ -105,6 +105,11 @@ export interface InfoActionMetadataInput {
   jwt: string;
   now: number; // milliseconds
   expectedNetworkId: number;
+  /**
+   * Our Pinata group. Absent is allowed and simply means the uploaded file is
+   * never collectable, which is the safe direction to fail on a shared account.
+   */
+  groupId?: string;
   upload?: FileUploader;
 }
 
@@ -192,14 +197,30 @@ export async function handleInfoActionMetadata(
 
     const { body, hash } = buildInfoActionMetadata({ body: clean, authors });
 
-    // Dedup: reuse an existing CID without re-uploading.
-    const existing = await getGovActionMetadata(input.db, hash);
+    // Dedup: reuse an existing CID without re-uploading. Serving a row restarts
+    // its grace period, so a resubmitted old draft cannot lose the pin it was
+    // just handed. A row already claimed for deletion reads as absent and is
+    // re-pinned instead, which yields the same CID anyway.
+    const nowSec = Math.floor(input.now / 1000);
+    const existing = await serveGovActionMetadata(input.db, hash, nowSec);
     if (existing) {
       return { status: 200, json: { anchorUrl: `ipfs://${existing.cid}`, anchorHash: hash } };
     }
 
-    const { cid } = await pinInfoActionMetadata({ body, anchorHash: hash, jwt: input.jwt, upload: input.upload });
-    await putGovActionMetadata(input.db, { hash, cid, body, createdAt: Math.floor(input.now / 1000) });
+    const { cid, fileId } = await pinInfoActionMetadata({
+      body,
+      anchorHash: hash,
+      jwt: input.jwt,
+      groupId: input.groupId,
+      upload: input.upload,
+    });
+    await putGovActionMetadata(input.db, {
+      hash,
+      cid,
+      body,
+      createdAt: nowSec,
+      pinataFileId: fileId,
+    });
     return { status: 200, json: { anchorUrl: `ipfs://${cid}`, anchorHash: hash } };
   } catch (err: unknown) {
     // Several unrelated things can fail here (canonicalization, the Pinata
