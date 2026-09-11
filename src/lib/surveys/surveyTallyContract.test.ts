@@ -6,7 +6,28 @@ describe('survey tally contract', () => {
     for (const [key, m] of Object.entries(SURVEY_TALLY_METRICS)) {
       expect(m.column, key).toBeTruthy();
       expect(m.definition.length, key).toBeGreaterThan(20);
-      expect(m.source, key).toBeTruthy();
+      expect(m.source.live, key).toBeTruthy();
+      expect(m.source.artifact, key).toBeTruthy();
+    }
+  });
+
+  // The structured field drifted the same way the definition texts had: all four
+  // of these said where the LIVE value comes from while tallyCompute substitutes
+  // an artifact value, and the 'artifact' source was carried by no metric at all.
+  // A truthy check cannot see that, so each path is asserted by name here.
+  it('names the artifact as the source of every figure the artifact path substitutes', () => {
+    for (const key of ['matchedCount', 'answeredPower', 'totalPower', 'powerEpoch'] as const) {
+      const s = SURVEY_TALLY_METRICS[key].source;
+      expect(s.artifact, key).toBe('artifact');
+      expect(s.live, key).not.toBe('artifact');
+    }
+  });
+
+  it('keeps the audit-only figures on one source, since neither path changes them', () => {
+    for (const key of ['counted', 'excluded'] as const) {
+      const s = SURVEY_TALLY_METRICS[key].source;
+      expect(s.live, key).toBe('audit-unit');
+      expect(s.artifact, key).toBe('audit-unit');
     }
   });
 

@@ -8,13 +8,15 @@
 // reason: a JSON blob plus a handful of integers is exactly where settled
 // semantics rot if they are not written down next to the code that reads them.
 //
-// Every figure here has TWO paths, live and artifact, and a definition that
-// describes only the live one is drift, not brevity: see
+// FOUR of the six figures here have two paths, live and artifact, and for those
+// four a definition that describes only the live one is drift, not brevity: see
 // src/lib/surveys/tallyCompute.ts, where the artifact substitutes its own value
-// for four of them. surveyTallyContract.test.ts holds each of those four to
-// naming both paths.
+// for matched_count, answered_power, total_power and power_epoch. The other two,
+// counted and excluded, are this site's own audit of the response bundle on both
+// paths, so they have one source and one definition. surveyTallyContract.test.ts
+// holds each of the four to naming both paths, in its text and in its source.
 
-/** Where a stored figure comes from. */
+/** Where a stored figure comes from on one path. */
 export type SurveyTallyMetricSource =
   /** Our own cip-179 audit of the response bundle, at unit weight. */
   | 'audit-unit'
@@ -25,10 +27,24 @@ export type SurveyTallyMetricSource =
   /** The local DRep power history and the epoch aggregates over it. */
   | 'local-power';
 
+/**
+ * Where a figure comes from on each path. One source per metric cannot state the
+ * truth for a figure tallyCompute substitutes, and that is exactly how the
+ * earlier drift survived: four of these read 'audit-weighted' or 'local-power'
+ * while the artifact path had already replaced the value, and the 'artifact'
+ * source was named by no metric at all. The audit-only figures name the same
+ * source twice, which is the shape that says this one does not depend on the
+ * path.
+ */
+export interface SurveyTallyMetricSources {
+  live: SurveyTallyMetricSource;
+  artifact: SurveyTallyMetricSource;
+}
+
 export interface SurveyTallyMetric {
   /** Column in survey_tally. Static, never user input. */
   column: string;
-  source: SurveyTallyMetricSource;
+  source: SurveyTallyMetricSources;
   /**
    * Whether the special auto-voting ids are part of the value. A boolean cannot
    * say "unknown", so where the answer differs by path the definition text is the
@@ -53,45 +69,45 @@ export type SurveyTallyMetricKey =
 export const SURVEY_TALLY_METRICS: Record<SurveyTallyMetricKey, SurveyTallyMetric> = {
   counted: {
     column: 'counted',
-    source: 'audit-unit',
+    source: { live: 'audit-unit', artifact: 'audit-unit' },
     includesSpecials: false,
     definition:
       'Responses claiming role DRep that the cip-179 audit counted: in window, valid against the definition, credential proof not refuted, and the latest per credential. The head count of record, and the only figure that survives when a responder cannot be weighted.',
   },
   matchedCount: {
     column: 'matched_count',
-    source: 'audit-weighted',
+    source: { live: 'audit-weighted', artifact: 'artifact' },
     includesSpecials: false,
     definition:
       'On the live path, counted responses that were given a weight, zero weight included. A DRep registered with no power is matched and weighs nothing, so this figure must never be described as the responses that carry voting power. On the artifact path it is the number of responders the published tally artifact committed for the DRep role, which additionally requires DRep membership at the end epoch, so it is normally lower than the counted head count.',
   },
   answeredPower: {
     column: 'answered_power',
-    source: 'audit-weighted',
+    source: { live: 'audit-weighted', artifact: 'artifact' },
     includesSpecials: false,
     definition:
       'On the live path, summed voting power in lovelace of the matched responders at power_epoch. On the artifact path, the sum of the weights the published tally artifact committed for its own responders, at the end epoch it was weighted at. Summed over responders in both cases, never reduced out of the questions: each question commits its own answered weight, so two responders answering two different optional questions give question weights whose maximum is smaller than the participating power. The turnout numerator, and the single-choice share divides by its own question answered weight rather than by this. May legitimately be zero.',
   },
   totalPower: {
     column: 'total_power',
-    source: 'local-power',
+    source: { live: 'local-power', artifact: 'artifact' },
     includesSpecials: false,
     definition:
       'On the live path, representative DRep voting power in lovelace at power_epoch, from governance_epoch_stats.total_drep_power, which excludes the two auto-voting special ids, so includesSpecials above holds for this path. On the artifact path it is the DRep electorate total the published tally artifact committed at the end epoch, and whether that total counts the two special ids is the artifact author\'s decision, unknown to this site and never to be asserted either way: the card names it as the artifact\'s own total instead of repeating the live basis. The turnout denominator, and null when the epoch has no row, never zero.',
   },
   excluded: {
     column: 'excluded',
-    source: 'audit-unit',
+    source: { live: 'audit-unit', artifact: 'audit-unit' },
     includesSpecials: false,
     definition:
       'Responses claiming role DRep that the audit did not count, whatever the reason. The claimed role is used because a response can be excluded precisely for naming an ineligible role, and a claim is the only role such a record has.',
   },
   powerEpoch: {
     column: 'power_epoch',
-    source: 'local-power',
+    source: { live: 'local-power', artifact: 'artifact' },
     includesSpecials: false,
     definition:
-      "The epoch the weights were snapshotted at: the newest epoch in drep_voting_power_history on the live path, and the survey's end_epoch on the artifact path. Taken from the same table the weights come from, so the stated basis and the weights cannot disagree.",
+      "The epoch the weights were snapshotted at: the newest epoch in drep_voting_power_history on the live path, and the survey's end_epoch as the published tally artifact's own body states it on the artifact path. On the live path it is read from the same table the weights come from, so the stated basis and the weights cannot disagree. On the artifact path no table is read for it at all, and the epoch and the weights are both the artifact's own, so those two cannot disagree either.",
   },
 };
 
