@@ -2,10 +2,18 @@
 // D1 and open one system thread per survey a linking action imported here
 // entitles to one. DRepTalk implements no CIP-179 rule of its own: records
 // arrive decoded by cardano-tessera-client, lifecycle/cancellation come from
-// cip-179's published aggregate(), and both participation figures are
-// Tessera's own: the index's audited per-role count while a survey is open,
-// the finalized tally artifact's DRep responders once it is decided. Nothing
-// here counts a response.
+// cip-179's published aggregate(), and Pass 4 below does compute an
+// informational tally, but every counting decision in it is still a cip-179
+// call: auditResponses decides what counts and which of several responses
+// from one credential wins, weightedTallySurvey aggregates, and
+// toArtifactQuestions shapes the result into a tally artifact's own form.
+// What this codebase chooses is the responder sets and the weights, nothing
+// else, which is why two runs exist: one over every counted DRep at unit
+// weight, the head count of record, and one over only the DReps a local
+// voting-power row could be found for. Where a survey has a finalized tally
+// artifact, the weighted figures come from that artifact instead of our own
+// recomputation. The binding semantics of every stored figure live in
+// ./surveyTallyContract.ts, read that next.
 //
 // The mirror is Tessera's change selection: every run asks once for what
 // moved since its cursor: each survey whose projection changed (a new
