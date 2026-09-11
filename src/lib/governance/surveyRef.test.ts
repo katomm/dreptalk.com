@@ -21,6 +21,20 @@ describe('parseSurveyRefInput', () => {
       .toEqual({ ok: true, txId: TX, index: 0 });
   });
 
+  // The live Tessera app percent-encodes the colon in its own survey links, so
+  // a user who simply copies the address bar hands us "<tx>%3A<index>". Real URL
+  // captured from tessera-preprod on 2026-09-11.
+  it('accepts a real Tessera link with the colon percent-encoded', () => {
+    const url =
+      'https://tessera-preprod.matthieu-pizenberg.workers.dev/survey/' +
+      'e5ebf91d14e30d5b4e0b1a551296ca75421ac142f32272ee5988d9875738cf98%3A0';
+    expect(parseSurveyRefInput(url)).toEqual({
+      ok: true,
+      txId: 'e5ebf91d14e30d5b4e0b1a551296ca75421ac142f32272ee5988d9875738cf98',
+      index: 0,
+    });
+  });
+
   it('rejects a malformed transaction id', () => {
     expect(parseSurveyRefInput(`${'a'.repeat(63)}:0`).ok).toBe(false);
     expect(parseSurveyRefInput(`${'z'.repeat(64)}:0`).ok).toBe(false);
