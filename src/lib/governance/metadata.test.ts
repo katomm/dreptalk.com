@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { fetchAnchorMetadata, MAX_ANCHOR_BYTES } from './metadata.js';
+import {
+  fetchAnchorMetadata,
+  MAX_ANCHOR_BYTES,
+  readReferenceList,
+  type ReferenceListPolicy,
+} from './metadata.js';
 import { blake2b256 } from '../crypto/blake.js';
 import { bytesToHex } from '../crypto/hex.js';
 
@@ -327,5 +332,144 @@ describe('fetchAnchorMetadata', () => {
     });
     expect(res.metadata?.authors).toHaveLength(10);
     for (const n of res.metadata?.authors ?? []) expect(n.length).toBeLessThanOrEqual(80);
+  });
+});
+
+// The two policies the shared reader actually serves. Restated here (the caps
+// are module-private) so a caller's policy changing silently is a test failure,
+// not a surprise in production.
+const PROFILE_POLICY: ReferenceListPolicy = {
+  maxItems: 10,
+  maxLabelLen: 100,
+  maxUriLen: 2_048,
+  allowIpfs: false,
+  labelKeys: ['label', 'name', '@type'],
+};
+
+// What the CIP-108 governance-action path asks for: ipfs: admitted, no @type
+// fallback, duplicates collapsed before the (smaller) cap.
+const ACTION_POLICY: ReferenceListPolicy = {
+  maxItems: 5,
+  maxLabelLen: 60,
+  maxUriLen: 500,
+  allowIpfs: true,
+  labelKeys: ['label', 'name'],
+  dedupe: true,
+};
+
+describe('readReferenceList', () => {
+  it('drops an over-long uri instead of slicing it', () => {
+    const longUri = `https://example.com/${'p'.repeat(2_100)}`;
+    const out = readReferenceList([{ label: 'Too long', uri: longUri }], PROFILE_POLICY);
+    expect(out).toBeNull();
+  });
+
+  it('keeps a uri exactly at the cap', () => {
+    const prefix = 'https://example.com/';
+    const uri = prefix + 'p'.repeat(2_048 - prefix.length);
+    expect(uri).toHaveLength(2_048);
+    expect(readReferenceList([{ label: 'Edge', uri }], PROFILE_POLICY)).toEqual([
+      { label: 'Edge', uri },
+    ]);
+  });
+
+  it('honours each policy uri cap independently', () => {
+    const uri = `https://example.com/${'p'.repeat(600)}`;
+    expect(readReferenceList([{ label: 'A', uri }], PROFILE_POLICY)).toEqual([{ label: 'A', uri }]);
+    expect(readReferenceList([{ label: 'A', uri }], ACTION_POLICY)).toBeNull();
+  });
+
+  it('caps the label per policy', () => {
+    const refs = [{ label: 'L'.repeat(200), uri: 'https://example.com' }];
+    expect(readReferenceList(refs, PROFILE_POLICY)![0].label).toHaveLength(100);
+    expect(readReferenceList(refs, ACTION_POLICY)![0].label).toHaveLength(60);
+  });
+
+  it('caps the entry count per policy', () => {
+    const refs = Array.from({ length: 15 }, (_, i) => ({ label: `L${i}`, uri: `https://e.example/${i}` }));
+    expect(readReferenceList(refs, PROFILE_POLICY)).toHaveLength(10);
+    expect(readReferenceList(refs, ACTION_POLICY)).toHaveLength(5);
+  });
+
+  it('admits ipfs only where the policy allows it, and stores the raw uri', () => {
+    const refs = [
+      { label: 'Doc', uri: 'ipfs://QmSomeHash/doc.json' },
+      { label: 'Site', uri: 'https://ok.example' },
+    ];
+    expect(readReferenceList(refs, PROFILE_POLICY)).toEqual([{ label: 'Site', uri: 'https://ok.example' }]);
+    expect(readReferenceList(refs, ACTION_POLICY)).toEqual([
+      { label: 'Doc', uri: 'ipfs://QmSomeHash/doc.json' },
+      { label: 'Site', uri: 'https://ok.example' },
+    ]);
+  });
+
+  it('drops every other scheme under both policies', () => {
+    const refs = [
+      { label: 'Junk', uri: 'javascript:void(0)' },
+      { label: 'Data', uri: 'data:text/html,<h1>x</h1>' },
+      { label: 'File', uri: 'file:///etc/passwd' },
+      { label: 'Nothing' },
+    ];
+    expect(readReferenceList(refs, PROFILE_POLICY)).toBeNull();
+    expect(readReferenceList(refs, ACTION_POLICY)).toBeNull();
+  });
+
+  it('falls back to @type only where the policy lists it', () => {
+    const refs = [{ '@type': 'Link', uri: 'https://example.com' }];
+    expect(readReferenceList(refs, PROFILE_POLICY)).toEqual([{ label: 'Link', uri: 'https://example.com' }]);
+    expect(readReferenceList(refs, ACTION_POLICY)).toEqual([{ label: '', uri: 'https://example.com' }]);
+  });
+
+  it('keeps an explicit empty label rather than falling through to the next key', () => {
+    const refs = [{ label: '', name: 'Fallback', '@type': 'Link', uri: 'https://example.com' }];
+    expect(readReferenceList(refs, PROFILE_POLICY)).toEqual([{ label: '', uri: 'https://example.com' }]);
+  });
+
+  it('unwraps the JSON-LD @value form on both uri and label', () => {
+    const refs = [{ label: { '@value': 'Site' }, uri: { '@value': 'https://example.com' } }];
+    expect(readReferenceList(refs, PROFILE_POLICY)).toEqual([{ label: 'Site', uri: 'https://example.com' }]);
+  });
+
+  it('reads url as well as uri', () => {
+    expect(readReferenceList([{ label: 'Site', url: 'https://example.com' }], PROFILE_POLICY)).toEqual([
+      { label: 'Site', uri: 'https://example.com' },
+    ]);
+  });
+
+  it('dedupes before the cap only where the policy asks for it', () => {
+    const refs = [
+      ...Array.from({ length: 8 }, () => ({ label: 'Same', uri: 'https://same.example' })),
+      { label: 'Other', uri: 'https://other.example' },
+    ];
+    // Deduping first leaves room for the distinct link. Without it the repeats
+    // fill the cap and the distinct one is never reached.
+    expect(readReferenceList(refs, { ...ACTION_POLICY, maxItems: 3 })).toEqual([
+      { label: 'Same', uri: 'https://same.example' },
+      { label: 'Other', uri: 'https://other.example' },
+    ]);
+    expect(readReferenceList(refs, { ...PROFILE_POLICY, maxItems: 3 })).toEqual(
+      Array.from({ length: 3 }, () => ({ label: 'Same', uri: 'https://same.example' })),
+    );
+  });
+
+  it('returns null for a non-array field and for an empty array', () => {
+    expect(readReferenceList(undefined, PROFILE_POLICY)).toBeNull();
+    expect(readReferenceList({ uri: 'https://example.com' }, PROFILE_POLICY)).toBeNull();
+    expect(readReferenceList([], PROFILE_POLICY)).toBeNull();
+  });
+
+  it('survives junk entries without throwing', () => {
+    const refs = [42, null, undefined, [], 'https://example.com', { uri: 'https://ok.example' }];
+    expect(readReferenceList(refs, PROFILE_POLICY)).toEqual([{ label: '', uri: 'https://ok.example' }]);
+  });
+
+  it('stops scanning a pathologically long array', () => {
+    // Bounded at maxItems * 10 entries, so a 50k-entry array cannot be walked
+    // in full. The one valid link past that bound is not reached.
+    const refs = [
+      ...Array.from({ length: 50_000 }, () => ({ label: 'Junk', uri: 'javascript:void(0)' })),
+      { label: 'Real', uri: 'https://real.example' },
+    ];
+    expect(readReferenceList(refs, PROFILE_POLICY)).toBeNull();
   });
 });

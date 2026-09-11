@@ -8,7 +8,7 @@
 import type { CSSProperties } from 'react';
 import { CopyButton } from '@/components/CopyButton.js';
 import type { DrepProfileValue } from '@/components/DrepProfileFields.js';
-import { linkDisplayLabel, dedupeLinks } from '@/lib/dreps/linkLabel.js';
+import { linkDisplayLabel, dedupeLinks } from '@/lib/governance/documentLinks.js';
 import { splitSocialLinks, SOCIAL_NAMES } from '@/lib/dreps/socialLinks.js';
 import SocialLinkIcons from '@/components/SocialLinkIcons.js';
 import { identiconDataUri } from '@/lib/identity/identicon.js';
