@@ -42,6 +42,7 @@ interface PackActionShape {
   expiryEpoch?: number | null;
   eventsInWindow?: Array<{ epoch: number; kind?: string }>;
   tally?: { drep?: { yesPct?: number | null } };
+  withdrawalAda?: number | null;
 }
 
 const ACTION_GROUPS = ['events', 'closingAtBoundary', 'open', 'comparisons'] as const;
@@ -474,6 +475,11 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
     const packPct = p.tally?.drep?.yesPct ?? null;
     const rowPct = r.drepYesPct ?? null;
     if (rowPct !== packPct) out.push({ rule: 'action-row-mismatch', message: `${at}: drepYesPct ${String(rowPct)} is not the pack tally ${String(packPct)}` });
+    // An amount in a row is the pack's own withdrawal figure, never a rounded or
+    // remembered one, so the column cannot drift from the snapshot.
+    if (r.amountAda != null && r.amountAda !== (p.withdrawalAda ?? null)) {
+      out.push({ rule: 'action-row-mismatch', message: `${at}: amountAda ${r.amountAda} is not the pack withdrawal ${String(p.withdrawalAda ?? 'none')}` });
+    }
   };
   for (const [i, r] of fm.alsoDecided.entries()) checkRow('alsoDecided', i, r);
   for (const [i, r] of fm.openActions.entries()) checkRow('openActions', i, r);

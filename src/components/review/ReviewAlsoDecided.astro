@@ -18,6 +18,11 @@ interface Props {
 const { rows, open, featured, epochTo } = Astro.props;
 const shown = rows.filter((r) => !featured.includes(r.id));
 
+// A window that decided thirty payment requests has a list nobody reads in
+// place, so past this many rows the table is collapsed behind its own count.
+// Everything stays on the page and in the markup, one click away.
+const FOLD_ABOVE = 8;
+
 // "Enacted 650", "Expired 651", and for an action still in its voting window the
 // state it was in when the window closed.
 function outcomeLabel(row: ActionRow): string {
@@ -42,6 +47,15 @@ function yesPct(row: ActionRow): string {
   return `${row.drepYesPct.toFixed(1)}%`;
 }
 
+// Millions with one decimal down to ₳0.1M, whole ada below that: a ₳45,217
+// request must not print as ₳0.0M beside a ₳96.8M one.
+function amount(row: ActionRow): string {
+  const v = row.amountAda;
+  if (v == null) return '';
+  if (Math.abs(v) < 100_000) return `₳${Math.round(v).toLocaleString('en-US')}`;
+  return `₳${(v / 1_000_000).toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}M`;
+}
+
 const NOTE_TEXT: Record<'not-applicable' | 'later-tally', string> = {
   'not-applicable': 'n/a: DReps had no vote on this action under the rules then in force, so the record stores no share of theirs.',
   'later-tally': 'n/a: the record holds no DRep share from inside this window for this action, only a tally read after it closed.',
@@ -53,29 +67,34 @@ function notesFor(all: readonly ActionRow[]): string[] {
   const used = new Set(all.map((r) => r.drepYesPctNote).filter((n): n is 'not-applicable' | 'later-tally' => n != null));
   return (['not-applicable', 'later-tally'] as const).filter((k) => used.has(k)).map((k) => NOTE_TEXT[k]);
 }
-const decidedNotes = notesFor(shown);
-const openNotes = notesFor(open);
+
+const tables = [
+  { heading: 'Decided in this window', status: 'Outcome', list: shown, notes: notesFor(shown) },
+  { heading: 'Open at the close of the window', status: 'Status', list: open, notes: notesFor(open) },
+].filter((t) => t.list.length > 0);
 ---
 
 {
-  shown.length > 0 && (
-    <section class="rv-also">
-      <h2>Decided in this window</h2>
+  tables.map((t) => {
+    const withAmounts = t.list.some((r) => r.amountAda != null);
+    const table = (
       <div class="rv-also__scroll">
         <table>
           <thead>
             <tr>
               <th scope="col">Action</th>
-              <th scope="col">Outcome</th>
+              {withAmounts && <th scope="col">Amount</th>}
+              <th scope="col">{t.status}</th>
               <th scope="col">DRep yes</th>
             </tr>
           </thead>
           <tbody>
-            {shown.map((row) => (
+            {t.list.map((row) => (
               <tr>
                 <td>
                   <a href={govActionHref(row.id)}>{row.title}</a>
                 </td>
+                {withAmounts && <td class="rv-num">{amount(row)}</td>}
                 <td>
                   <span class={`rv-pill rv-pill--${row.outcome}`}>{outcomeLabel(row)}</span>
                 </td>
@@ -85,46 +104,24 @@ const openNotes = notesFor(open);
           </tbody>
         </table>
       </div>
-      {decidedNotes.map((n) => (
-        <p class="rv-also__note">{n}</p>
-      ))}
-    </section>
-  )
-}
-
-{
-  open.length > 0 && (
-    <section class="rv-also">
-      <h2>Open at the close of the window</h2>
-      <div class="rv-also__scroll">
-        <table>
-          <thead>
-            <tr>
-              <th scope="col">Action</th>
-              <th scope="col">Status</th>
-              <th scope="col">DRep yes</th>
-            </tr>
-          </thead>
-          <tbody>
-            {open.map((row) => (
-              <tr>
-                <td>
-                  <a href={govActionHref(row.id)}>{row.title}</a>
-                </td>
-                <td>
-                  <span class="rv-pill rv-pill--open">{openLabel(row)}</span>
-                </td>
-                <td class="rv-num">{yesPct(row)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {openNotes.map((n) => (
-        <p class="rv-also__note">{n}</p>
-      ))}
-    </section>
-  )
+    );
+    return (
+      <section class="rv-also">
+        <h2>{t.heading}</h2>
+        {t.list.length > FOLD_ABOVE ? (
+          <details>
+            <summary>{t.list.length} actions, open the full list</summary>
+            {table}
+          </details>
+        ) : (
+          table
+        )}
+        {t.notes.map((n) => (
+          <p class="rv-also__note">{n}</p>
+        ))}
+      </section>
+    );
+  })
 }
 
 <style>
@@ -132,6 +129,8 @@ const openNotes = notesFor(open);
   .rv-also h2 { font-size: 1.25rem; margin: 0 0 0.75rem; }
   .rv-also__scroll { overflow-x: auto; }
   .rv-also__note { font-size: 0.82rem; color: var(--muted); line-height: 1.5; margin: 0.6rem 0 0; }
+  summary { cursor: pointer; font-size: 0.9rem; color: var(--accent); padding: 0.35rem 0; }
+  details[open] summary { margin-bottom: 0.35rem; }
   table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
   th { text-align: left; font-size: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); font-weight: 600; padding: 0 0.6rem 0.5rem 0; }
   td { padding: 0.6rem 0.6rem 0.6rem 0; border-top: 1px solid var(--border); vertical-align: top; }

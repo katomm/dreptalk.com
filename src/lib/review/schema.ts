@@ -22,6 +22,10 @@ export const actionRowSchema = z.object({
    *  inside the window exists. Either way the table prints n/a and explains it,
    *  while drepYesPct keeps repeating the pack so the fact check stays exact. */
   drepYesPctNote: z.enum(['not-applicable', 'later-tally']).optional(),
+  /** What the action asks to withdraw, in ada, for a treasury withdrawal. Repeats
+   *  the pack's own figure so the table can carry an amount column: a list of
+   *  payment requests without amounts makes the reader open every one of them. */
+  amountAda: z.number().nullable().optional(),
 });
 export type ActionRow = z.infer<typeof actionRowSchema>;
 
