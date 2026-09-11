@@ -3,6 +3,9 @@
 // featured ones are covered in the body, so they are left out of the decided
 // table. The open table keeps all of its rows: an action that was still being
 // voted on has no outcome anywhere else on the page, featured or not.
+// The decided table says "Decided in this window" rather than "Also decided":
+// an edition that features nothing lists its main story here too, and "also"
+// would then promise a second set of actions that does not exist.
 import type { ActionRow } from '@/lib/review/schema.js';
 import { govActionHref } from '@/lib/review/links.js';
 
@@ -57,7 +60,7 @@ const openNotes = notesFor(open);
 {
   shown.length > 0 && (
     <section class="rv-also">
-      <h2>Also decided</h2>
+      <h2>Decided in this window</h2>
       <div class="rv-also__scroll">
         <table>
           <thead>
