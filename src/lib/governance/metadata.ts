@@ -65,7 +65,26 @@ const MAX_RATIONALE_LEN = 100_000;
 const MAX_AUTHOR_NAME_LEN = 80;
 const MAX_AUTHORS = 10;
 
-const IPFS_GATEWAY = 'https://ipfs.io/ipfs/';
+/**
+ * Public IPFS gateways, tried in order, for resolving an ipfs:// anchor.
+ *
+ * A list rather than a single gateway because the long-standing default,
+ * ipfs.io, now answers every plain HTTPS fetch with 429 and a "switching to a
+ * service worker gateway only" body; its siblings (dweb.link, w3s.link,
+ * nftstorage.link) do the same. With one hard-wired gateway that turned every
+ * ipfs:// anchor on the site into "could not be retrieved", even though the
+ * document was perfectly reachable elsewhere.
+ *
+ * Trusting the gateway is not required: whatever it hands back must still hash
+ * to the on-chain anchor hash (see verifyAnchorDoc), so a hostile or broken
+ * gateway can withhold a document but never substitute one. The first entry is
+ * also the one used for reader-facing anchor links.
+ */
+export const IPFS_GATEWAYS = [
+  'https://gateway.pinata.cloud/ipfs/',
+  'https://ipfs.filebase.io/ipfs/',
+  'https://ipfs.decoo.io/ipfs/',
+] as const;
 
 export interface AnchorMetadata {
   title: string | null;
@@ -97,19 +116,29 @@ export type AnchorResult =
  * for most users).
  */
 export function resolveAnchorUrl(raw: string): string | null {
+  return resolveAnchorUrls(raw)[0] ?? null;
+}
+
+/**
+ * Every fetchable URL for an on-chain anchor, in the order they should be tried:
+ * a single entry for http(s), one per IPFS gateway for ipfs://, and none at all
+ * for an unsupported scheme. Only the fetch path walks the whole list; display
+ * surfaces take the first entry via resolveAnchorUrl.
+ */
+export function resolveAnchorUrls(raw: string): string[] {
   let url: URL;
   try {
     url = new URL(raw);
   } catch {
-    return null;
+    return [];
   }
-  if (url.protocol === 'https:' || url.protocol === 'http:') return url.href;
+  if (url.protocol === 'https:' || url.protocol === 'http:') return [url.href];
   if (url.protocol === 'ipfs:') {
     // ipfs://<cid>/<path> -> gateway. host holds the CID for ipfs:// URLs.
     const cidPath = (url.host + url.pathname).replace(/^\/+/, '');
-    return cidPath ? IPFS_GATEWAY + cidPath : null;
+    return cidPath ? IPFS_GATEWAYS.map((gw) => gw + cidPath) : [];
   }
-  return null;
+  return [];
 }
 
 function looksLikeJsonOrText(contentType: string | null): boolean {
@@ -391,12 +420,35 @@ export async function fetchAnchorDoc(
   const fetchImpl = deps.fetchImpl ?? fetch;
   const timeoutMs = deps.timeoutMs ?? ANCHOR_FETCH_TIMEOUT_MS;
 
-  const resolved = resolveAnchorUrl(anchorUrl);
-  if (!resolved) return { status: 'unsupported-url', doc: null };
+  const candidates = resolveAnchorUrls(anchorUrl);
+  if (candidates.length === 0) return { status: 'unsupported-url', doc: null };
 
+  // Walk the candidates (one per IPFS gateway; a single URL for http(s)) until
+  // one hands over bytes. Only a transport-level miss moves on: once any source
+  // delivers a body, the verdict is about the document itself, and asking a
+  // different gateway for the same CID cannot change it.
+  let status: Exclude<AnchorStatus, 'ok'> = 'fetch-failed';
+  for (const resolved of candidates) {
+    const attempt = await fetchAnchorBytes(resolved, fetchImpl, timeoutMs);
+    if (attempt.bytes) return verifyAnchorDoc(attempt.bytes, anchorHash);
+    status = attempt.status;
+    if (status !== 'fetch-failed' && status !== 'bad-content-type') break;
+  }
+  return { status, doc: null };
+}
+
+/**
+ * One GET against one resolved anchor URL, with the timeout, content-type check
+ * and size cap applied. Returns the raw bytes on success (verification is the
+ * caller's job) or the failure status that describes why this source is out.
+ */
+async function fetchAnchorBytes(
+  resolved: string,
+  fetchImpl: typeof fetch,
+  timeoutMs: number,
+): Promise<{ bytes: Uint8Array | null; status: Exclude<AnchorStatus, 'ok'> }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  let bytes: Uint8Array;
   try {
     const res = await fetchImpl(resolved, {
       method: 'GET',
@@ -404,26 +456,24 @@ export async function fetchAnchorDoc(
       signal: controller.signal,
       headers: { accept: 'application/json, text/plain' },
     });
-    if (!res.ok) return { status: 'fetch-failed', doc: null };
+    if (!res.ok) return { bytes: null, status: 'fetch-failed' };
     if (!looksLikeJsonOrText(res.headers.get('content-type'))) {
-      return { status: 'bad-content-type', doc: null };
+      return { bytes: null, status: 'bad-content-type' };
     }
     const declared = Number(res.headers.get('content-length'));
     if (Number.isFinite(declared) && declared > MAX_ANCHOR_BYTES) {
-      return { status: 'too-large', doc: null };
+      return { bytes: null, status: 'too-large' };
     }
     // Content-Length is only a fast path; the bounded reader enforces the cap
     // even for chunked or lying senders without buffering past the limit.
     const read = await readBodyLimited(res.body, MAX_ANCHOR_BYTES);
-    if (!read.ok) return { status: 'too-large', doc: null };
-    bytes = read.bytes;
+    if (!read.ok) return { bytes: null, status: 'too-large' };
+    return { bytes: read.bytes, status: 'fetch-failed' };
   } catch {
-    return { status: 'fetch-failed', doc: null };
+    return { bytes: null, status: 'fetch-failed' };
   } finally {
     clearTimeout(timer);
   }
-
-  return verifyAnchorDoc(bytes, anchorHash);
 }
 
 /**

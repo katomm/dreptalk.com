@@ -192,6 +192,12 @@ export interface GovernanceAction {
   thresholdsEpoch: number | null;
   /** Metadata-extraction version stored with this row's title/abstract/rationale_html. */
   metaVersion: number;
+  /**
+   * Failed anchor re-extractions so far. Below META_REEXTRACT_MAX_ATTEMPTS the
+   * backfill is still going to retry this anchor, which is what lets display
+   * surfaces tell "not fetched yet" apart from "given up on".
+   */
+  metaAttempts: number;
   topicId: string | null;
   createdAt: number;
   lastSyncedAt: number;
@@ -254,6 +260,7 @@ interface GovernanceActionRow {
   thresholds_json: string | null;
   thresholds_epoch: number | null;
   meta_version: number;
+  meta_attempts: number;
   topic_id: string | null;
   created_at: number;
   last_synced_at: number;
@@ -338,6 +345,7 @@ function rowToGovernanceAction(r: GovernanceActionRow): GovernanceAction {
     thresholdsJson: r.thresholds_json,
     thresholdsEpoch: r.thresholds_epoch,
     metaVersion: r.meta_version,
+    metaAttempts: r.meta_attempts ?? 0,
     topicId: r.topic_id,
     createdAt: r.created_at,
     lastSyncedAt: r.last_synced_at,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { fetchAnchorMetadata, MAX_ANCHOR_BYTES } from './metadata.js';
+import { fetchAnchorMetadata, IPFS_GATEWAYS, MAX_ANCHOR_BYTES, resolveAnchorUrl } from './metadata.js';
 import { blake2b256 } from '../crypto/blake.js';
 import { bytesToHex } from '../crypto/hex.js';
 
@@ -163,8 +163,76 @@ describe('fetchAnchorMetadata', () => {
         return resp(json);
       },
     });
-    expect(fetched).toBe('https://ipfs.io/ipfs/QmCidExample/meta.json');
+    expect(fetched).toBe(`${IPFS_GATEWAYS[0]}QmCidExample/meta.json`);
     expect(res.status).toBe('ok');
+  });
+
+  it('falls back to the next ipfs gateway when the first one refuses the fetch', async () => {
+    const json = jsonOf(doc);
+    const tried: string[] = [];
+    const res = await fetchAnchorMetadata('ipfs://QmCid/meta.json', hashOf(json), {
+      fetchImpl: async (url) => {
+        tried.push(String(url));
+        // The deprecated public gateways answer every direct fetch with 429.
+        if (tried.length === 1) return resp('rate limited', { status: 429, contentType: 'text/plain' });
+        return resp(json);
+      },
+    });
+    expect(tried).toEqual([`${IPFS_GATEWAYS[0]}QmCid/meta.json`, `${IPFS_GATEWAYS[1]}QmCid/meta.json`]);
+    expect(res.status).toBe('ok');
+  });
+
+  it('falls back when a gateway answers with an html error page', async () => {
+    const json = jsonOf(doc);
+    let calls = 0;
+    const res = await fetchAnchorMetadata('ipfs://QmCid/meta.json', hashOf(json), {
+      fetchImpl: async () => {
+        calls++;
+        if (calls === 1) return resp('<html>nope</html>', { contentType: 'text/html' });
+        return resp(json);
+      },
+    });
+    expect(calls).toBe(2);
+    expect(res.status).toBe('ok');
+  });
+
+  it('reports fetch-failed only after every ipfs gateway was tried', async () => {
+    let calls = 0;
+    const res = await fetchAnchorMetadata('ipfs://QmDead/meta.json', 'ab'.repeat(32), {
+      fetchImpl: async () => {
+        calls++;
+        return resp('rate limited', { status: 429, contentType: 'text/plain' });
+      },
+    });
+    expect(calls).toBe(IPFS_GATEWAYS.length);
+    expect(res.status).toBe('fetch-failed');
+  });
+
+  it('stops at the first gateway that delivers bytes, even when they fail verification', async () => {
+    const json = jsonOf(doc);
+    let calls = 0;
+    const res = await fetchAnchorMetadata('ipfs://QmWrong/meta.json', 'ab'.repeat(32), {
+      fetchImpl: async () => {
+        calls++;
+        return resp(json);
+      },
+    });
+    // A hash mismatch is a verdict about the document, not a transport problem:
+    // asking another gateway for the same CID cannot change it.
+    expect(calls).toBe(1);
+    expect(res.status).toBe('hash-mismatch');
+  });
+
+  it('does not retry an http(s) anchor against ipfs gateways', async () => {
+    let calls = 0;
+    const res = await fetchAnchorMetadata('https://example.com/m.json', hashOf(jsonOf(doc)), {
+      fetchImpl: async () => {
+        calls++;
+        return resp('nope', { status: 500, contentType: 'text/plain' });
+      },
+    });
+    expect(calls).toBe(1);
+    expect(res.status).toBe('fetch-failed');
   });
 
   it('preserves markdown structure in rationale (headings, paragraphs, lists)', async () => {
@@ -284,7 +352,7 @@ describe('fetchAnchorMetadata', () => {
     const html = res.metadata?.rationaleHtml ?? '';
     expect(html.toLowerCase()).toContain('truncated');
     // Links to the resolved gateway URL of the anchor.
-    expect(html).toContain('https://ipfs.io/ipfs/QmHugeCid/meta.json');
+    expect(html).toContain(`${IPFS_GATEWAYS[0]}QmHugeCid/meta.json`);
   });
 
   it('extracts author names, compact and @value form, in document order', async () => {
@@ -327,5 +395,26 @@ describe('fetchAnchorMetadata', () => {
     });
     expect(res.metadata?.authors).toHaveLength(10);
     for (const n of res.metadata?.authors ?? []) expect(n.length).toBeLessThanOrEqual(80);
+  });
+});
+
+describe('resolveAnchorUrl', () => {
+  it('links an ipfs anchor through the primary gateway', () => {
+    expect(resolveAnchorUrl('ipfs://QmCid/meta.json')).toBe(`${IPFS_GATEWAYS[0]}QmCid/meta.json`);
+  });
+
+  it('passes http(s) through unchanged and rejects other schemes', () => {
+    expect(resolveAnchorUrl('https://example.com/m.json')).toBe('https://example.com/m.json');
+    expect(resolveAnchorUrl('ftp://example.com/m.json')).toBeNull();
+  });
+
+  it('only lists gateways that serve plain https fetches', () => {
+    // ipfs.io and its siblings (dweb.link, w3s.link, nftstorage.link) answer every
+    // direct fetch with 429 since they moved to a service-worker-only gateway.
+    for (const gw of IPFS_GATEWAYS) {
+      expect(gw).toMatch(/^https:\/\/[^/]+\/ipfs\/$/);
+      expect(gw).not.toMatch(/ipfs\.io|dweb\.link|w3s\.link|nftstorage\.link/);
+    }
+    expect(IPFS_GATEWAYS.length).toBeGreaterThan(1);
   });
 });

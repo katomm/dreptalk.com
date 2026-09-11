@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { extractCip119Profile } from './metadata.js';
+import { extractCip119Profile, IPFS_GATEWAYS } from './metadata.js';
 
 // Helper: build a canonical full CIP-119 doc with all fields under body.
 function fullDoc() {
@@ -107,13 +107,13 @@ describe('extractCip119Profile', () => {
   it('resolves an ipfs: image URL to the public gateway', () => {
     const doc = { body: { image: 'ipfs://QmSomeHash' } };
     const profile = extractCip119Profile(doc);
-    expect(profile.imageUrl).toBe('https://ipfs.io/ipfs/QmSomeHash');
+    expect(profile.imageUrl).toBe(`${IPFS_GATEWAYS[0]}QmSomeHash`);
   });
 
   it('resolves an ipfs: contentUrl in an ImageObject to the gateway', () => {
     const doc = { body: { image: { contentUrl: 'ipfs://QmOtherHash/avatar.png' } } };
     const profile = extractCip119Profile(doc);
-    expect(profile.imageUrl).toBe('https://ipfs.io/ipfs/QmOtherHash/avatar.png');
+    expect(profile.imageUrl).toBe(`${IPFS_GATEWAYS[0]}QmOtherHash/avatar.png`);
   });
 
   it('keeps only http(s) references, dropping junk entries', () => {
