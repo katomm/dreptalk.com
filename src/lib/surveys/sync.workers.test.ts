@@ -33,6 +33,7 @@ import {
   getTopicSlugBySurveyRef,
   listSurveysWithTopics,
 } from '../db/surveys.js';
+import { formatRelativeTime } from '../forum/view.js';
 import {
   MAX_LIST_PAGES,
   MAX_TALLY_REQUESTS,
@@ -175,6 +176,9 @@ const POWER_EPOCH = 312;
 /** The end epoch an artifact commits its weighting to, the survey's own. */
 const ARTIFACT_END_EPOCH = 300;
 const NOW = 1_780_000_500_000;
+/** The same instant in unix seconds, which is the unit both stamp columns of
+ * survey_tally carry. */
+const NOW_S = Math.floor(NOW / 1000);
 /** What the tally pass may spend on a quiet tick: the run's only earlier
  * request is the one delta call of pass 1. A test that wants a survey to
  * consume the whole allowance sizes its bundle by this. */
@@ -1309,11 +1313,29 @@ describe('syncSurveys tally pass', () => {
       matchedCount: 2,
       answeredPower: '5000000',
       totalPower: '20000000000000',
-      computedAt: NOW,
+      computedAt: NOW_S,
       bundleFetchedAt: tip.time,
     });
     // Written, so the queue row this run stamped is gone.
     expect(await takeSurveyTallyWork(env.DB, 10)).toEqual([]);
+  });
+
+  // The stamp's UNIT, asserted the way the card actually consumes it rather than
+  // as a bare number. SurveyTally.astro renders formatRelativeTime(computedAt *
+  // 1000, now), and formatRelativeTime answers 'just now' for every diff under a
+  // minute, negative ones included. So a computedAt written in milliseconds would
+  // read as "computed just now" for ever, which is exactly the claim the line
+  // exists to avoid, and no equality assertion on the number would say so.
+  it('stamps computed_at in seconds, so the reading ages instead of reading as fresh for ever', async () => {
+    await importLinkingAction();
+    await seedPower();
+    await syncSurveys(deps(fakeTessera(), NOW));
+
+    const t = await getSurveyTally(env.DB, KEY_LINKED);
+    expect(formatRelativeTime(t!.computedAt * 1000, NOW + HOUR_MS)).toBe('1h ago');
+    // And the same unit as its neighbour, which arrives from the serving tier in
+    // seconds: the two columns may never drift apart by a factor of 1000.
+    expect(Math.abs(t!.computedAt - t!.bundleFetchedAt)).toBeLessThan(86_400);
   });
 
   it('dequeues only after a successful write', async () => {

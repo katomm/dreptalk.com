@@ -42,9 +42,15 @@ CREATE TABLE survey_tally (
   excluded_by     TEXT,
   -- Counted responses per claimed role, JSON, role int to count. Feeds the line
   -- naming that other roles responded, which must never be derived from
-  -- eligible_roles: admission proves permission, never participation.
+  -- eligible_roles: admission proves permission, never participation. NULL here
+  -- means DRep only, NOT unknown, so it is a different NULL from excluded_by's
+  -- above: there is nothing to name when no other role answered.
   role_counts     TEXT,
+  -- Unix SECONDS. The snapshot stamp of the bundle the head count was audited
+  -- from, as the serving tier reports it.
   bundle_fetched_at INTEGER NOT NULL,
+  -- Unix SECONDS, the same unit as bundle_fetched_at. The sync phase's run clock
+  -- is unix ms, so the writer reduces it before it gets here.
   computed_at     INTEGER NOT NULL
 );
 

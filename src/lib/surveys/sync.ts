@@ -447,8 +447,12 @@ async function tallyOneSurvey(
     surveyRef: ref,
     artifactHash: artifact === null ? null : expectedArtifactHash,
     expectedArtifactHash,
+    // Both stamps are unix SECONDS, the unit bundle.fetchedAt already arrives in
+    // and the unit the card reads them back as. The run clock `now` is unix ms
+    // (see src/lib/sync/phases/context.ts), so it is reduced here for both: two
+    // adjacent columns in one unit, never one each.
     bundleFetchedAt: bundle.fetchedAt ?? Math.floor(now / 1000),
-    computedAt: now,
+    computedAt: Math.floor(now / 1000),
   });
 }
 

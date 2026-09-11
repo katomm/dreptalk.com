@@ -44,8 +44,20 @@ export interface NewSurveyTally {
   excluded: number;
   /** Null means unknown. An empty object would claim nothing was excluded. */
   excludedBy: Partial<Record<ExclusionKey, number>> | null;
+  /**
+   * Counted responses per claimed role. NULL means DRep only, never unknown: the
+   * line it feeds exists to name the OTHER roles that answered, so a DRep-only
+   * survey has nothing to store. That is a different NULL from excludedBy's in
+   * the same row, where NULL does mean unknown.
+   */
   roleCounts: Record<number, number> | null;
+  /** Unix SECONDS, the snapshot stamp of the bundle behind the head count. */
   bundleFetchedAt: number;
+  /**
+   * Unix SECONDS, the same unit as bundleFetchedAt. The run clock of the sync
+   * phase is unix ms, so a writer reduces it before it reaches this field, and
+   * the card multiplies by 1000 to read the reading's own age back.
+   */
   computedAt: number;
   /**
    * The survey's artifact_hash as it stood when the computation started. The
