@@ -5,7 +5,7 @@
 // never depends on the global cloudflare:workers env (preprod-only in prod).
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { gateInfoActionRequest } from './metadata.js';
+import { gateInfoActionRequest } from '../metadata.js';
 
 const preprod = { network: 'preprod', networkId: 0 } as never; // minimal NetworkConfig stub
 const mainnet = { network: 'mainnet', networkId: 1 } as never;
