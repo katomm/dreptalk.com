@@ -8,6 +8,7 @@ import type { GovernanceAction } from '@/lib/db/governance.js';
 import type { OnchainChanges } from '@/lib/governance/onchain.js';
 import { enhanceStoredHtml, renderMarkdown } from '@/lib/markdown.js';
 import { resolveAnchorUrl } from '@/lib/governance/metadata.js';
+import { describeMissingBody } from '@/lib/governance/anchorState.js';
 
 interface Props {
   action: GovernanceAction;
@@ -32,30 +33,20 @@ const rationaleText = action.rationaleHtml
 const isLongRationale = rationaleText.length > 5000;
 
 // When neither an abstract nor a rationale renders, "No details available" is
-// misleading: most such actions DID ship a full metadata document, but the
-// proposer anchored it to a mutable URL that has since 404'd or drifted from the
-// on-chain hash. anchor_status records which of those it was, so we can name the
-// real cause instead of implying the proposer supplied nothing. The anchor stays
-// linkable (resolving ipfs:// to a gateway) so a reader can still inspect the
-// source, with the integrity caveat spelled out for a hash mismatch.
+// misleading: most such actions DID ship a full metadata document, and naming
+// the real cause is the point (see anchorState.ts). A freshly submitted action
+// whose anchor is still being fetched reads as a loading state, not a failure.
+// The anchor stays linkable (resolving ipfs:// to a gateway) in every case, so a
+// reader can inspect the source themselves.
 const hasBody = Boolean(abstractHtml || action.rationaleHtml);
 const anchorHref = action.anchorUrl ? resolveAnchorUrl(action.anchorUrl) : null;
-let emptyReason = 'No details are available for this action.';
-if (!hasBody) {
-  if (!action.anchorUrl) {
-    emptyReason = 'The proposer did not attach a metadata document to this action.';
-  } else if (action.anchorStatus === 'ok') {
-    emptyReason = 'The attached metadata document contains no summary or rationale.';
-  } else if (action.anchorStatus === 'hash-mismatch') {
-    emptyReason =
-      'The metadata document at the anchor no longer matches the on-chain hash, so it cannot be shown here.';
-  } else if (action.anchorStatus === 'pending') {
-    emptyReason = 'The metadata document has not been retrieved yet.';
-  } else {
-    // fetch-failed, too-large, bad-content-type, parse-failed, unsupported-url
-    emptyReason = 'The metadata document could not be retrieved from its anchor.';
-  }
-}
+const missing = hasBody
+  ? null
+  : describeMissingBody({
+      anchorUrl: action.anchorUrl,
+      anchorStatus: action.anchorStatus,
+      metaAttempts: action.metaAttempts,
+    });
 ---
 
 <section class="ga-overview">
@@ -86,9 +77,10 @@ if (!hasBody) {
     </div>
   )}
 
-  {!hasBody && (
-    <p class="ga-overview__empty">
-      {emptyReason}
+  {missing && (
+    <p class:list={['ga-overview__empty', missing.syncing && 'ga-overview__empty--syncing']}>
+      {missing.syncing && <span class="ga-overview__pulse" aria-hidden="true" />}
+      {missing.message}
       {anchorHref && (
         <>
           {' '}
@@ -110,6 +102,30 @@ if (!hasBody) {
     font-style: italic;
     font-size: 0.9375rem;
     margin: 0;
+  }
+
+  /* Loading state: the anchor has not been read yet and the backfill is still
+     retrying, so this reads as "wait a moment", not as a failure. */
+  .ga-overview__empty--syncing { font-style: normal; }
+
+  .ga-overview__pulse {
+    display: inline-block;
+    width: 0.5rem;
+    height: 0.5rem;
+    margin-right: 0.45rem;
+    border-radius: 50%;
+    background: var(--accent);
+    vertical-align: baseline;
+    animation: ga-overview-pulse 1.6s ease-in-out infinite;
+  }
+
+  @keyframes ga-overview-pulse {
+    0%, 100% { opacity: 0.25; }
+    50% { opacity: 1; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ga-overview__pulse { animation: none; opacity: 0.6; }
   }
 
   .ga-overview__anchor {
