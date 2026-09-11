@@ -1,6 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { syncGovernanceActions, backfillActionMetadata, backfillGovTopicSubmittedAt, backfillGovTopicTitles, refreshTrendingScores } from './sync.js';
+import {
+  syncGovernanceActions,
+  createDeferredGovTopics,
+  DEFERRED_TOPIC_MAX_ATTEMPTS,
+  backfillActionMetadata,
+  backfillGovTopicSubmittedAt,
+  backfillGovTopicTitles,
+  refreshTrendingScores,
+} from './sync.js';
 import { META_EXTRACT_VERSION, META_REEXTRACT_MAX_ATTEMPTS } from './metadata.js';
 import { buildInsertGovernanceAction, getGovernanceActionByTopicId } from '../db/governance.js';
 import { activityInsert } from '../db/activity.js';
@@ -1194,5 +1202,172 @@ describe('syncGovernanceActions self-hosted anchors', () => {
     expect(fetcher.calls()).toBe(0);
     const ga = await env.DB.prepare(`SELECT anchor_status FROM governance_actions WHERE id = ?`).bind(`${'dd'.repeat(32)}#0`).first<{ anchor_status: string }>();
     expect(ga?.anchor_status).toBe('fetch-failed');
+  });
+});
+
+describe('deferred governance topics', () => {
+  const txHash = '1a'.repeat(32);
+  const actionId = `${txHash}#0`;
+  const deferrable: ProposalListRow = {
+    proposal_id: 'gov_action1defer',
+    proposal_tx_hash: txHash,
+    proposal_index: 0,
+    proposal_type: 'InfoAction',
+    deposit: '100000000000',
+    return_address: 'stake_test1defer',
+    proposed_epoch: 300,
+    expiration: 310,
+    block_time: 1_700_000_900,
+    meta_url: 'https://example.com/defer.json',
+    meta_hash: anchorHash,
+  };
+  const fetchFail: typeof fetch = async () => {
+    throw new Error('gateway down');
+  };
+
+  async function discoverWithFailedAnchor(): Promise<void> {
+    let n = 900;
+    await syncGovernanceActions({
+      koios: fakeKoios([deferrable]),
+      db: env.DB,
+      network: 'preprod',
+      now: 1_700_000_900_000,
+      rand: () => `rd${n++}`,
+      fetchImpl: fetchFail,
+    });
+  }
+
+  it('opens no thread for an action whose anchor was unreadable at discovery', async () => {
+    await discoverWithFailedAnchor();
+
+    const row = await env.DB.prepare('SELECT topic_id, title FROM governance_actions WHERE id = ?')
+      .bind(actionId)
+      .first<{ topic_id: string | null; title: string | null }>();
+    expect(row).toBeTruthy();
+    expect(row!.topic_id).toBeNull();
+    expect(row!.title).toBeNull();
+
+    // Nothing user-visible yet: no thread, and no feed event announcing one.
+    const topics = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM topics WHERE title LIKE 'Info Action (1a1a1a1a%'",
+    ).first<{ n: number }>();
+    expect(topics!.n).toBe(0);
+  });
+
+  it('opens the thread immediately when the anchor reads but carries no title', async () => {
+    // A readable but titleless document will never yield a better title, so
+    // deferring it would only delay the thread.
+    const titleless = JSON.stringify({ body: { abstract: 'No title here.' } });
+    const titlelessHash = bytesToHex(blake2b256(new TextEncoder().encode(titleless)));
+    const p: ProposalListRow = {
+      ...deferrable,
+      proposal_tx_hash: '2b'.repeat(32),
+      proposal_id: 'gov_action1notitle',
+      meta_hash: titlelessHash,
+    };
+    let n = 950;
+    await syncGovernanceActions({
+      koios: fakeKoios([p]),
+      db: env.DB,
+      network: 'preprod',
+      now: 1_700_000_950_000,
+      rand: () => `rn${n++}`,
+      fetchImpl: async () => new Response(titleless, { headers: { 'content-type': 'application/json' } }),
+    });
+    const row = await env.DB.prepare('SELECT topic_id FROM governance_actions WHERE id = ?')
+      .bind(`${'2b'.repeat(32)}#0`)
+      .first<{ topic_id: string | null }>();
+    expect(row!.topic_id).toBeTruthy();
+  });
+
+  it('opens the thread with the recovered title once the anchor becomes readable', async () => {
+    await discoverWithFailedAnchor();
+
+    let n = 960;
+    const r = await createDeferredGovTopics({
+      db: env.DB,
+      network: 'preprod',
+      now: 1_700_001_000_000,
+      rand: () => `rc${n++}`,
+      fetchImpl: fetchOk,
+      limit: 10,
+    });
+    expect(r).toMatchObject({ scanned: 1, created: 1, deferred: 0 });
+
+    const row = await env.DB.prepare('SELECT topic_id, title FROM governance_actions WHERE id = ?')
+      .bind(actionId)
+      .first<{ topic_id: string; title: string }>();
+    expect(row!.title).toBe('Fund Community Tooling');
+    const topic = await env.DB.prepare('SELECT slug, title, created_at FROM topics WHERE id = ?')
+      .bind(row!.topic_id)
+      .first<{ slug: string; title: string; created_at: number }>();
+    expect(topic!.title).toBe('Fund Community Tooling');
+    expect(topic!.slug.startsWith('fund-community-tooling-')).toBe(true);
+    // The thread keeps the on-chain submission time, not the (later) creation time.
+    expect(topic!.created_at).toBe(1_700_000_900_000);
+
+    const ev = await env.DB.prepare("SELECT COUNT(*) AS n FROM activity WHERE type = 'gov_created' AND topic_id = ?")
+      .bind(row!.topic_id)
+      .first<{ n: number }>();
+    expect(ev!.n).toBe(1);
+  });
+
+  it('leaves the action pending and counts the attempt while the anchor stays unreadable', async () => {
+    await discoverWithFailedAnchor();
+
+    let n = 970;
+    const r = await createDeferredGovTopics({
+      db: env.DB,
+      network: 'preprod',
+      now: 1_700_001_100_000,
+      rand: () => `rp${n++}`,
+      fetchImpl: fetchFail,
+      limit: 10,
+    });
+    expect(r).toMatchObject({ scanned: 1, created: 0, deferred: 1 });
+
+    const row = await env.DB.prepare('SELECT topic_id, meta_attempts FROM governance_actions WHERE id = ?')
+      .bind(actionId)
+      .first<{ topic_id: string | null; meta_attempts: number }>();
+    expect(row!.topic_id).toBeNull();
+    expect(row!.meta_attempts).toBe(1);
+  });
+
+  it('opens the thread with the fallback title once the attempt budget is spent', async () => {
+    await discoverWithFailedAnchor();
+    await env.DB.prepare('UPDATE governance_actions SET meta_attempts = ? WHERE id = ?')
+      .bind(DEFERRED_TOPIC_MAX_ATTEMPTS, actionId)
+      .run();
+
+    let n = 980;
+    const r = await createDeferredGovTopics({
+      db: env.DB,
+      network: 'preprod',
+      now: 1_700_001_200_000,
+      rand: () => `rg${n++}`,
+      fetchImpl: fetchFail,
+      limit: 10,
+    });
+    expect(r).toMatchObject({ scanned: 1, created: 1, deferred: 0 });
+
+    const row = await env.DB.prepare('SELECT topic_id FROM governance_actions WHERE id = ?')
+      .bind(actionId)
+      .first<{ topic_id: string }>();
+    const topic = await env.DB.prepare('SELECT title FROM topics WHERE id = ?')
+      .bind(row!.topic_id)
+      .first<{ title: string }>();
+    expect(topic!.title).toBe('Info Action (1a1a1a1a#0)');
+  });
+
+  it('scans nothing once every action has a thread', async () => {
+    const r = await createDeferredGovTopics({
+      db: env.DB,
+      network: 'preprod',
+      now: 1_700_001_300_000,
+      rand: () => 'rz0',
+      fetchImpl: fetchOk,
+      limit: 10,
+    });
+    expect(r).toMatchObject({ scanned: 0, created: 0, deferred: 0 });
   });
 });

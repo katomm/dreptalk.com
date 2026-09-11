@@ -24,6 +24,8 @@ import {
   updateActionOnchainPayload,
   getActionIdsMissingSubmittedAt,
   updateActionSubmittedAt,
+  getActionsAwaitingTopic,
+  buildAttachActionTopic,
 } from '../db/governance.js';
 import { trendingOrderKey } from './sort.js';
 import { GOVERNANCE_CATEGORY_SLUG } from '../../../config/categories.js';
@@ -33,9 +35,33 @@ export const GOV_SYNC_AUTHOR = 'gov-sync';
 
 export interface SyncResult {
   total: number;
+  /** Actions discovered AND given their thread in this run. */
   created: number;
+  /** Actions discovered but still waiting for a readable anchor (no thread yet). */
+  deferred: number;
   skipped: number;
   failed: number;
+}
+
+/**
+ * How many times opening a thread may be postponed because the action's anchor
+ * is still unreadable. The thread title is the source of the slug, and the slug
+ * is frozen at creation, so a thread opened on the fallback title keeps a URL
+ * like /t/info-action-375f7ed7-0-... forever even after the real title arrives.
+ * Waiting a few cron ticks costs nothing (a fresh action has no votes and no
+ * readers yet) and gets the vast majority of slow anchors, IPFS propagation in
+ * particular. Past the cap the thread opens on the fallback title anyway: a
+ * missing thread is worse than an ugly URL.
+ */
+export const DEFERRED_TOPIC_MAX_ATTEMPTS = 6;
+
+/**
+ * The discovery-time title for an action whose anchor yielded none. The proposal
+ * index is part of it so several actions in one transaction (same tx hash) stay
+ * distinguishable.
+ */
+function fallbackActionTitle(type: string, txHash: string, index: number): string {
+  return `${readableType(type)} (${txHash.slice(0, 8)}#${index})`;
 }
 
 export interface GovSyncDeps {
@@ -93,6 +119,7 @@ export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResu
   const cfg = resolveNetwork(network);
 
   let created = 0;
+  let deferred = 0;
   let skipped = 0;
   let failed = 0;
 
@@ -122,10 +149,7 @@ export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResu
           : { status: 'no-anchor' as const, metadata: null };
 
       const meta = anchor.metadata;
-      // Fallback title includes the proposal index so multiple actions in one
-      // transaction (same tx hash) get distinct titles.
-      const title =
-        meta?.title || `${readableType(p.proposal_type)} (${p.proposal_tx_hash.slice(0, 8)}#${p.proposal_index})`;
+      const title = meta?.title || fallbackActionTitle(p.proposal_type, p.proposal_tx_hash, p.proposal_index);
 
       const bodyMd = composeFirstPostMd(
         {
@@ -151,6 +175,46 @@ export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResu
             ? epochStartMs(p.proposed_epoch, cfg)
             : now;
 
+      const insertAction = (topicId: string | null) =>
+        buildInsertGovernanceAction(db, {
+          id,
+          proposalId: p.proposal_id,
+          type: p.proposal_type,
+          title: meta?.title ?? null,
+          abstract: meta?.abstract ?? null,
+          rationaleHtml: meta?.rationaleHtml ?? null,
+          authors: meta?.authors ?? null,
+          references: meta?.references ?? null,
+          anchorUrl: p.meta_url ?? null,
+          anchorHash: p.meta_hash ?? null,
+          anchorStatus: anchor.status,
+          returnAddress: p.return_address ?? null,
+          deposit: p.deposit ?? null,
+          submittedEpoch: p.proposed_epoch ?? null,
+          submittedAt: p.block_time != null ? p.block_time * 1000 : null,
+          expiryEpoch: p.expiration ?? null,
+          enactedEpoch: p.enacted_epoch ?? null,
+          onchainPayload: p.proposal_description != null ? JSON.stringify(p.proposal_description) : null,
+          // Only claim the current extractor version when the anchor actually
+          // extracted ok (or there is no anchor to read). A failed fetch leaves
+          // the row below current so the metadata backfill retries it later,
+          // instead of treating the empty metadata as final and never revisiting.
+          metaVersion: anchor.status === 'ok' || anchor.status === 'no-anchor' ? META_EXTRACT_VERSION : 0,
+          topicId,
+          now,
+        });
+
+      // An unreadable anchor means the title we would open the thread with is the
+      // fallback, and the slug built from it is permanent. Store the action alone
+      // and let createDeferredGovTopics open the thread once the anchor answers
+      // (or once it has run out of tries). A readable anchor that simply carries
+      // no title is NOT deferred: retrying it would never produce a better one.
+      if (!meta?.title && anchor.status !== 'ok' && anchor.status !== 'no-anchor') {
+        await db.batch([insertAction(null)]);
+        deferred++;
+        continue;
+      }
+
       // The governance_actions row is committed in the same atomic batch as the
       // topic and first post, so a partial write can never leave an orphan topic
       // (which the next run would re-create as a duplicate).
@@ -165,33 +229,7 @@ export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResu
         postedAt: submittedAtMs,
         rand: rand(),
         batchWith: (topicId) => [
-          buildInsertGovernanceAction(db, {
-            id,
-            proposalId: p.proposal_id,
-            type: p.proposal_type,
-            title: meta?.title ?? null,
-            abstract: meta?.abstract ?? null,
-            rationaleHtml: meta?.rationaleHtml ?? null,
-            authors: meta?.authors ?? null,
-            references: meta?.references ?? null,
-            anchorUrl: p.meta_url ?? null,
-            anchorHash: p.meta_hash ?? null,
-            anchorStatus: anchor.status,
-            returnAddress: p.return_address ?? null,
-            deposit: p.deposit ?? null,
-            submittedEpoch: p.proposed_epoch ?? null,
-            submittedAt: p.block_time != null ? p.block_time * 1000 : null,
-            expiryEpoch: p.expiration ?? null,
-            enactedEpoch: p.enacted_epoch ?? null,
-            onchainPayload: p.proposal_description != null ? JSON.stringify(p.proposal_description) : null,
-            // Only claim the current extractor version when the anchor actually
-            // extracted ok (or there is no anchor to read). A failed fetch leaves
-            // the row below current so the metadata backfill retries it later,
-            // instead of treating the empty metadata as final and never revisiting.
-            metaVersion: anchor.status === 'ok' || anchor.status === 'no-anchor' ? META_EXTRACT_VERSION : 0,
-            topicId,
-            now,
-          }),
+          insertAction(topicId),
           // The newly discovered action is a feed event. created_at is the
           // submission time (same as the topic's), so the feed and the topic
           // agree on the action's date. notified_at is the real detection time
@@ -249,7 +287,125 @@ export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResu
     }
   }
 
-  return { total: proposals.length, created, skipped, failed };
+  return { total: proposals.length, created, deferred, skipped, failed };
+}
+
+export interface DeferredTopicResult {
+  scanned: number;
+  /** Actions that got their thread in this run. */
+  created: number;
+  /** Actions still waiting: their anchor is unreadable and they have tries left. */
+  deferred: number;
+  failed: number;
+}
+
+export interface DeferredTopicDeps {
+  db: D1Database;
+  network: CardanoNetwork;
+  now: number;
+  /** Slug-suffix source (injected for deterministic tests). */
+  rand: () => string;
+  /** Anchor fetch implementation (injected for tests). */
+  fetchImpl?: typeof fetch;
+  /** Max waiting actions to handle per run (bounds anchor fetches per tick). */
+  limit: number;
+}
+
+/**
+ * Opens the threads discovery held back because the action's anchor was
+ * unreadable (see DEFERRED_TOPIC_MAX_ATTEMPTS). Re-reads the anchor for each
+ * waiting action: on success the recovered metadata is stored and the thread
+ * opens under the real title, so its slug is the readable one. A still-failing
+ * anchor counts one attempt and the action waits for the next run, until the
+ * attempt budget is spent and the thread opens on the fallback title.
+ *
+ * Self-limiting: once every action has a thread the candidate set is empty and
+ * the phase writes nothing, so it is safe to call every tick.
+ */
+export async function createDeferredGovTopics(deps: DeferredTopicDeps): Promise<DeferredTopicResult> {
+  const { db, network, now, rand, fetchImpl, limit } = deps;
+  const cfg = resolveNetwork(network);
+  const candidates = await getActionsAwaitingTopic(db, limit);
+  let created = 0;
+  let deferred = 0;
+  let failed = 0;
+
+  for (const ga of candidates) {
+    try {
+      let title = ga.title;
+      let abstract = ga.abstract;
+
+      if (!title && ga.anchorUrl && ga.anchorHash && ga.metaAttempts < DEFERRED_TOPIC_MAX_ATTEMPTS) {
+        const result = await fetchAnchorMetadata(ga.anchorUrl, ga.anchorHash, { fetchImpl, db });
+        if (result.status !== 'ok') {
+          await incrementActionMetaAttempts(db, ga.id);
+          deferred++;
+          continue;
+        }
+        // Store the recovered document now: the thread below is rendered from it,
+        // and the metadata backfill then has nothing left to do for this row.
+        await updateActionMetadata(db, ga.id, {
+          title: result.metadata.title,
+          abstract: result.metadata.abstract,
+          rationaleHtml: result.metadata.rationaleHtml,
+          authors: result.metadata.authors,
+          references: result.metadata.references,
+          metaVersion: META_EXTRACT_VERSION,
+        });
+        title = result.metadata.title;
+        abstract = result.metadata.abstract;
+      }
+
+      // Either a real title, or the budget is spent and the fallback has to do.
+      const [txHash, indexStr] = ga.id.split('#');
+      const topicTitle = title || fallbackActionTitle(ga.type, txHash, Number(indexStr));
+      const bodyMd = composeFirstPostMd(
+        {
+          proposalType: ga.type,
+          returnAddress: ga.returnAddress,
+          deposit: ga.deposit,
+          proposedEpoch: ga.submittedEpoch,
+          expiration: ga.expiryEpoch,
+          proposalId: ga.proposalId,
+        },
+        abstract,
+        network,
+      );
+      // Same post date as a thread opened at discovery: the on-chain submission
+      // time, so waiting for the anchor never shows up as a later date.
+      const postedAt =
+        ga.submittedAt ?? (ga.submittedEpoch != null ? epochStartMs(ga.submittedEpoch, cfg) : now);
+
+      await createTopic(db, {
+        categorySlug: GOVERNANCE_CATEGORY_SLUG,
+        authorId: GOV_SYNC_AUTHOR,
+        title: topicTitle,
+        bodyMd,
+        bodyHtml: renderMarkdown(bodyMd),
+        source: 'governance',
+        now,
+        postedAt,
+        rand: rand(),
+        batchWith: (topicId) => [
+          buildAttachActionTopic(db, ga.id, topicId),
+          // notified_at is the detection time, so a thread that waited for its
+          // anchor still counts as new against the notification cursors.
+          activityInsert(db, {
+            type: 'gov_created',
+            topicId,
+            payload: { type: ga.type, title: topicTitle },
+            createdAt: postedAt,
+            notifiedAt: now,
+          }),
+        ],
+      });
+      created++;
+    } catch {
+      failed++;
+    }
+  }
+
+  return { scanned: candidates.length, created, deferred, failed };
 }
 
 export interface MetaBackfillResult {

@@ -71,7 +71,8 @@ export interface NewGovernanceAction {
   onchainPayload?: string | null;
   /** Metadata-extraction version used when writing title/abstract/rationale_html. */
   metaVersion: number;
-  topicId: string;
+  /** Null while the action waits for a readable anchor before its thread opens. */
+  topicId: string | null;
   now: number;
 }
 
@@ -970,6 +971,36 @@ export async function getActionsNeedingMetaReextract(
       .all<GovernanceActionRow>()
   ).results ?? [];
   return rows.map(rowToGovernanceAction);
+}
+
+/**
+ * Actions discovered without a thread yet: the anchor was unreadable at
+ * discovery, so opening the thread (and freezing its title-derived slug on a
+ * fallback title) was deferred. meta_attempts rides along because it is the
+ * shared give-up budget with the metadata backfill.
+ */
+export async function getActionsAwaitingTopic(
+  db: D1Database,
+  limit: number,
+): Promise<(GovernanceAction & { metaAttempts: number })[]> {
+  const rows = (
+    await db
+      .prepare('SELECT * FROM governance_actions WHERE topic_id IS NULL LIMIT ?')
+      .bind(limit)
+      .all<GovernanceActionRow & { meta_attempts: number }>()
+  ).results ?? [];
+  return rows.map((r) => ({ ...rowToGovernanceAction(r), metaAttempts: r.meta_attempts }));
+}
+
+/**
+ * Attaches a freshly created topic to its action, as a prepared statement so it
+ * commits in the same batch as the topic and its first post. The topic_id guard
+ * makes a concurrent second run a no-op instead of a silent re-point.
+ */
+export function buildAttachActionTopic(db: D1Database, id: string, topicId: string): D1PreparedStatement {
+  return db
+    .prepare('UPDATE governance_actions SET topic_id = ? WHERE id = ? AND topic_id IS NULL')
+    .bind(topicId, id);
 }
 
 /** Records one failed metadata re-extraction attempt; drives the give-up cap. */

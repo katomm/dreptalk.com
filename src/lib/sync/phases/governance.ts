@@ -7,6 +7,7 @@
 import { bytesToHex } from '../../crypto/hex.js';
 import {
   syncGovernanceActions,
+  createDeferredGovTopics,
   backfillActionMetadata,
   backfillGovTopicSubmittedAt,
   backfillGovTopicTitles,
@@ -92,12 +93,32 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
       const disc = await syncGovernanceActions({
         koios: ctx.koios, db: ctx.db, network: ctx.cfg.network, now: ctx.now, rand: randSuffix,
       });
-      console.log(`[gov-sync] total=${disc.total} created=${disc.created} skipped=${disc.skipped} failed=${disc.failed}`);
+      console.log(
+        `[gov-sync] total=${disc.total} created=${disc.created} deferred=${disc.deferred}` +
+          ` skipped=${disc.skipped} failed=${disc.failed}`,
+      );
       // Recorded for the pin collector, which must not delete on a mirror that
-      // just lost an import.
+      // just lost an import. A deferred action is not a lost import: its row is
+      // written, so its anchor hash protects the pin.
       // Set after the sync returned, so a throw leaves it false.
       ctx.state.mirrorHealthy = disc.failed === 0;
       return { items: disc.total, failed: disc.failed };
+    },
+  },
+  {
+    // Open the threads discovery held back because the action's anchor was not
+    // readable yet (a freshly pinned IPFS document, typically). Every tick, not
+    // heavy-only: the whole point is to get the thread out within minutes, and
+    // the candidate set is empty on a settled run.
+    name: 'gov-deferred-topics',
+    run: async (ctx) => {
+      const r = await createDeferredGovTopics({
+        db: ctx.db, network: ctx.cfg.network, now: ctx.now, rand: randSuffix, fetchImpl: fetch, limit: 10,
+      });
+      if (r.scanned > 0) {
+        console.log(`[gov-deferred-topics] scanned=${r.scanned} created=${r.created} deferred=${r.deferred} failed=${r.failed}`);
+      }
+      return { items: r.created, failed: r.failed };
     },
   },
   {
