@@ -1883,6 +1883,13 @@ describe('syncSurveys tally pass', () => {
     expect(await getSurveyTally(env.DB, KEY_LINKED)).toBeNull();
     expect(await getSurveyTally(env.DB, KEY_SECOND)).toBeNull();
     expect(await getSurveyTally(env.DB, KEY_UNLINKED)).toBeNull();
+    // The queue row survives, because only a written tally drops one. Each such
+    // survey costs one row read per run and no upstream request, and the attempt
+    // stamp this run wrote sends it to the back of the order, so it can neither
+    // spend the budget nor hold up work that has something to compute.
+    expect((await takeSurveyTallyWork(env.DB, 10)).sort()).toEqual(
+      [KEY_LINKED, KEY_SECOND, KEY_UNLINKED].sort(),
+    );
   });
 
   it('writes no tally when the power history is empty', async () => {
