@@ -84,7 +84,15 @@ declare namespace Cloudflare {
     LEGAL_VAT_ID?: string;
     /** Local dev only: '1' switches voting-power-origins to a fixture payload, bypassing Koios (astro dev SSR fetch hangs, see the DEV stub comment there). */
     PROVENANCE_STUB?: string;
-    /** Auth token for Pinata's IPFS pinning API, used to anchor InfoAction metadata. */
+    /**
+     * Auth token for Pinata, used by the app worker to pin InfoAction metadata
+     * and by the cron worker to collect unreferenced pins. The SAME token on
+     * both, like KOIOS_API_KEY: Pinata's Files permission is one
+     * None/Read/Write selector and uploading already requires Write, so no
+     * token exists that can pin without also being able to delete. A second key
+     * would have identical rights and buy only separate revocation. Split it if
+     * Pinata ever ships a create-only tier.
+     */
     PINATA_JWT?: string;
     /**
      * Pinata group the InfoAction anchors are uploaded into. The account is
@@ -93,14 +101,5 @@ declare namespace Cloudflare {
      * garbage collected, which is the safe direction to fail.
      */
     PINATA_GOV_GROUP_ID?: string;
-    /**
-     * Separate Pinata token for the cron worker's pin collector. Needs the Files
-     * permission at Write, which is the same level PINATA_JWT needs to upload:
-     * Pinata has no tier that allows creating a file but not deleting one, so
-     * this token is no more powerful than the app's and the split buys
-     * independent revocation, not a privilege boundary. The group check in
-     * removeFile is the boundary.
-     */
-    PINATA_GC_JWT?: string;
   }
 }

@@ -132,10 +132,10 @@ export interface PinataFileRemover {
 }
 
 /**
- * The real deleter. Needs the Files permission at Write, which is the same level
- * uploading needs, so this token is not less powerful than the app's: Pinata has
- * no tier that permits creating a file but not deleting one. Keeping it separate
- * is about revoking one without the other, not about capability.
+ * The real deleter. Takes the same token the upload uses, because Pinata's Files
+ * permission is a single None/Read/Write selector and uploading already requires
+ * Write: there is no token that can pin a document without also being able to
+ * delete one, so a second key would carry identical rights.
  *
  * There is deliberately NO list operation here or anywhere else: the collector
  * must never enumerate an account it shares, and the absence of the capability

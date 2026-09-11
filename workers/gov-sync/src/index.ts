@@ -137,12 +137,13 @@ export default {
                     timeoutMs: 10_000,
                   })
                 : null,
-              // Both halves required: the group is what proves a file is ours to
-              // delete on an account shared with another project, and the token
-              // is separate from the app's upload-only one.
+              // Both halves required. The group is what proves a file is ours
+              // to delete on an account shared with another project; the token
+              // is the same PINATA_JWT the app uploads with, since Pinata has no
+              // permission tier that can create a file but not delete one.
               pinGc:
-                env.PINATA_GOV_GROUP_ID && env.PINATA_GC_JWT
-                  ? { groupId: env.PINATA_GOV_GROUP_ID, jwt: env.PINATA_GC_JWT }
+                env.PINATA_GOV_GROUP_ID && env.PINATA_JWT
+                  ? { groupId: env.PINATA_GOV_GROUP_ID, jwt: env.PINATA_JWT }
                   : null,
               state: initialGovernanceSyncState(),
             };
