@@ -787,6 +787,38 @@ export default function SubmitInfoAction({ network }: SubmitInfoActionProps) {
                 </div>
               )}
 
+              {/* Order of operations, stated before the button rather than
+                  discovered at the wallet prompt. The publish step comes first
+                  because the transaction anchors the document by its hash, so
+                  the document has to exist to be anchored. That makes the text
+                  public one step before the user commits on chain, which is the
+                  part nobody expects, so it is said plainly. */}
+              <div className="callout callout--info">
+                <div className="callout__body">
+                  <p style={{ margin: 0 }}>
+                    <strong>What happens when you submit</strong>
+                  </p>
+                  <ol style={{ margin: '0.4rem 0 0', paddingLeft: '1.15rem', fontSize: '0.875rem', lineHeight: 1.5 }}>
+                    {signAsAuthor && (
+                      <li>Your wallet asks you to sign the metadata. This is the author signature, not a payment.</li>
+                    )}
+                    <li>
+                      The document is published to IPFS, where it is public and permanent. It stays published even if
+                      you decline the next step.
+                    </li>
+                    <li>
+                      Your wallet asks you to sign the transaction, which locks the
+                      {deposit.status === 'ready' ? ` ${formatAda(deposit.lovelace)} tADA ` : ' '}
+                      deposit and puts the proposal on chain.
+                    </li>
+                  </ol>
+                  <p style={{ margin: '0.4rem 0 0', fontSize: '0.875rem' }}>
+                    So {signAsAuthor ? 'there are two wallet prompts, and nothing costs' : 'nothing costs'} ada until
+                    the last one. Stopping before it leaves the text published with no proposal pointing at it.
+                  </p>
+                </div>
+              </div>
+
               <div>
                 <button type="submit" className="btn btn-primary" disabled={busy || deposit.status !== 'ready'}>
                   {phase.status === 'submitting' ? 'Awaiting wallet...' : 'Submit proposal'}
@@ -795,7 +827,9 @@ export default function SubmitInfoAction({ network }: SubmitInfoActionProps) {
 
               {phase.status === 'submitting' && (
                 <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
-                  Please review and approve the transaction in your wallet.
+                  {signAsAuthor
+                    ? 'Please approve each wallet prompt. The first signs the metadata, the second sends the transaction.'
+                    : 'Please review and approve the transaction in your wallet.'}
                 </p>
               )}
             </form>
