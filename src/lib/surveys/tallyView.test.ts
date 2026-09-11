@@ -83,6 +83,40 @@ describe('questionView, options kind', () => {
     expect(v.bars[1]!.frac).toBeCloseTo(0.3333, 4);
   });
 
+  it('fills a ranking bar relative to the leading bar, never as a share of the answered weight', () => {
+    // The committed tally carries first preferences only, so a share would
+    // claim the full ranking. 3 of 4 million would read as 0.75 on a share
+    // basis, where the leader basis puts the leading bar at 1.0 and the runner
+    // up at a third of it. A regression that extended the single-choice share
+    // divergence to rankingFirst fails both assertions below.
+    const ranking: Question = {
+      type: 'ranking',
+      prompt: 'Order these',
+      options: { type: 'options', labels: ['A', 'B', 'C'] },
+      minRanked: 1,
+      maxRanked: 3,
+    };
+    const v = questionView(ranking, {
+      kind: 'options',
+      unit: 'rankingFirst',
+      options: [
+        { index: 0, weight: '3000000', count: 2 },
+        { index: 1, weight: '1000000', count: 1 },
+      ],
+      answeredCount: 3,
+      answeredWeight: '4000000',
+    });
+    expect(v.kind).toBe('bars');
+    if (v.kind !== 'bars') throw new Error('kind');
+    expect(v.unit).toBe('rankingFirst');
+    expect(v.bars[0]!.frac).toBe(1);
+    expect(v.bars[1]!.frac).toBeCloseTo(0.3333, 4);
+    // The unranked third option still shows, empty.
+    expect(v.bars.map(b => b.label)).toEqual(['A', 'B', 'C']);
+    expect(v.bars[2]!.count).toBe(0);
+    expect(v.bars[2]!.frac).toBe(0);
+  });
+
   it('caps the refill of a hostile declared option count but keeps a high answered index', () => {
     const hostile: Question = {
       type: 'singleChoice',
