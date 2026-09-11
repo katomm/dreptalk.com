@@ -507,11 +507,7 @@ export async function castSurveyResponse(
   const client = makeClient(opts.network, opts.origin, opts.walletApi);
   const availableUtxos = await collectWalletUtxos(opts.network, opts.origin, opts.walletApi);
   // No deposit here, so the inputs only need to cover the fee.
-  const sel = selectFundingInputs(availableUtxos, FUNDING_HEADROOM_LOVELACE);
-  if (!sel.ok) {
-    throw new Error(`Insufficient funds: need ${sel.requiredLovelace} lovelace, wallet has ${sel.availableLovelace}.`);
-  }
-  const inputs = sel.inputs;
+  const inputs = pickInputsToCover(availableUtxos, FUNDING_HEADROOM_LOVELACE);
 
   const built = await queueSurveyResponseOps(client.newTx(), {
     payload: opts.payload,
@@ -583,3 +579,7 @@ export async function delegateVotesToDRep(opts: DelegateVotesOpts): Promise<{ tx
 
   return signAndSubmit(built, opts.walletApi);
 }
+
+// Exported for the sibling client-side tx builders (infoActionTx), which reuse
+// the same client construction and the same sign/splice/submit tail.
+export { makeClient, signAndSubmit };

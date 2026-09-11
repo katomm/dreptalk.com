@@ -4,8 +4,14 @@
 // submission is a testing/demo flow, never offered on mainnet).
 
 import { Anchor, GovernanceAction, RewardAccount, Url } from '@evolution-sdk/evolution';
-import { collectWalletUtxos, makeClient, signAndSubmit, type WalletApi } from './drepTx.js';
-import { FUNDING_HEADROOM_LOVELACE, selectFundingInputs } from './funding.js';
+import { makeClient, signAndSubmit } from './drepTx.js';
+import {
+  FUNDING_HEADROOM_LOVELACE,
+  collectWalletUtxos,
+  pickInputsToCover,
+  totalLovelace,
+  type WalletApi,
+} from './walletUtxos.js';
 import { dreptalkCip20Metadatum, DREPTALK_CIP20_LABEL } from '../cardano/tx.js';
 import { hexToBytes } from '../crypto/hex.js';
 import type { CardanoNetwork } from '../config/network.js';
@@ -67,16 +73,23 @@ export async function submitInfoAction(opts: SubmitInfoActionOpts): Promise<{ tx
 
   const availableUtxos = await collectWalletUtxos(opts.network, opts.origin, opts.walletApi);
   // The proposal locks the gov action deposit, so the inputs must cover deposit + fee.
-  const sel = selectFundingInputs(availableUtxos, opts.govActionDepositLovelace + FUNDING_HEADROOM_LOVELACE);
-  if (!sel.ok) {
-    throw new Error(`Insufficient tADA for the deposit: need ${sel.requiredLovelace} lovelace, wallet has ${sel.availableLovelace}.`);
+  const requiredLovelace = opts.govActionDepositLovelace + FUNDING_HEADROOM_LOVELACE;
+  // Fail on the shortfall here rather than letting the builder's balance error
+  // carry it: the submit form turns these two numbers into a readable message,
+  // and tells a Preview wallet (zero preprod UTxOs) apart from an empty one.
+  const availableLovelace = totalLovelace(availableUtxos);
+  if (availableLovelace < requiredLovelace) {
+    throw new Error(
+      `Insufficient tADA for the deposit: need ${requiredLovelace} lovelace, wallet has ${availableLovelace}.`,
+    );
   }
+  const inputs = pickInputsToCover(availableUtxos, requiredLovelace);
 
   const built = await makeClient(opts.network, opts.origin, opts.walletApi)
     .newTx()
     .propose({ governanceAction, rewardAccount, anchor })
     .attachMetadata({ label: DREPTALK_CIP20_LABEL, metadata: dreptalkCip20Metadatum() })
-    .collectFrom({ inputs: sel.inputs })
+    .collectFrom({ inputs })
     .build({ availableUtxos });
 
   // signAndSubmit already returns { txHash }; return it directly, do not re-wrap.

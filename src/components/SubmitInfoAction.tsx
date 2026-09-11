@@ -14,6 +14,7 @@ import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { CopyButton } from '@/components/CopyButton.js';
 import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
 import { submitInfoAction } from '@/lib/governance/infoActionTx.js';
+import type { WalletApi } from '@/lib/governance/walletUtxos.js';
 import {
   INFO_TITLE_MAX,
   INFO_ABSTRACT_MAX,
@@ -44,10 +45,9 @@ const AUTHOR_NAME_MAX = 120;
 
 
 // The real CIP-30 DataSignature shape (COSE_Sign1 signature + COSE_Key). The
-// drepTx WalletApi omits signData entirely (no tx builder there calls it), so
-// this island defines its own fuller CIP-30 surface. It is a structural
-// superset of drepTx's WalletApi, so passing it to submitInfoAction needs no
-// cast.
+// shared tx WalletApi declares signData in the looser shape the SDK wants, so
+// this island defines its own fuller CIP-30 surface and bridges the two at the
+// one call that hands the api to the tx builder.
 type DataSignature = { signature: string; key: string };
 
 interface Cip30Api {
@@ -459,8 +459,10 @@ export default function SubmitInfoAction({ network }: SubmitInfoActionProps) {
       const { anchorUrl, anchorHash } = (await metaRes.json()) as { anchorUrl: string; anchorHash: string };
 
       // The wallet builds, signs (deposit + fee shown here), and submits.
+      // Bridged over the signData shape (see Cip30Api above). Nothing in the
+      // submit path calls signData, so the two surfaces are interchangeable here.
       const { txHash } = await submitInfoAction({
-        walletApi: api,
+        walletApi: api as unknown as WalletApi,
         network,
         origin: window.location.origin,
         rewardAddressHex,
