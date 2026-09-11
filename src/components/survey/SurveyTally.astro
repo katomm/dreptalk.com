@@ -336,7 +336,7 @@ function surveyWideNote(world: NoWeighting | null, t: SurveyTallyRow): string | 
     case 'none-answered':
       return t.weightedSource === 'artifact'
         ? "No DRep response to this survey is counted in this site's own audit of it, so there is no head count to put beside the published tally artifact's figures."
-        : 'No DRep has answered this survey yet, so there is nothing to count and nothing to weigh. The options below are listed with no figures behind them.';
+        : 'No DRep has answered this survey yet, so there is nothing to count and nothing to weigh. Every count below is a zero.';
     case 'unmatched':
       return t.weightedSource === 'artifact'
         ? "The survey's published tally artifact committed no weighted responder for the DRep role, so a weighting of this survey is undefined. Every figure below is a head count."
@@ -385,7 +385,13 @@ function questionWeightingNote(
   }
   const unmatched = Math.max(0, headAnswered - weightedAnswered);
   if (unmatched > 0) {
-    return `Every DRep whose response to this question was matched held zero voting power at epoch ${powerEpoch}, and ${plural(unmatched, 'further answer', 'further answers')} could not be matched to a DRep in this site's voting power history, so what those DReps hold is unknown here. Either way there is nothing to weight this question by. The figures below are head counts.`;
+    // The unmatched tail is a count, so its clause has to agree with it: one
+    // answer is one DRep whose holding is unknown, not several.
+    const unknown =
+      unmatched === 1
+        ? 'so what that DRep holds is unknown here'
+        : 'so what those DReps hold is unknown here';
+    return `Every DRep whose response to this question was matched held zero voting power at epoch ${powerEpoch}, and ${plural(unmatched, 'further answer', 'further answers')} could not be matched to a DRep in this site's voting power history, ${unknown}. Either way there is nothing to weight this question by. The figures below are head counts.`;
   }
   return `Every DRep that answered this question held zero voting power at epoch ${powerEpoch}, so a weighting of it is undefined. The figures below are head counts.`;
 }
@@ -646,16 +652,30 @@ function build(t: SurveyTallyRow): Built {
   // And "these figures" is never said of an artifact-sourced reading: only the
   // weighted half comes from the artifact, while the counted figure, the head
   // counts and the exclusions stay this site's own current audit of the bundle.
-  // That is also why the counted figure here is normally higher than the card's
-  // own count at close, and the sentence says so rather than leaving two numbers
-  // called "counted" side by side with no stated relationship.
+  //
+  // The two figures are stated one after the other on the artifact path, each
+  // with its own source, and never paired as "x of y". Only the live path's
+  // matchedCount is a subset of counted, by construction: tallyCompute.ts filters
+  // the counted DReps down to the ones a power row was found for. On the artifact
+  // path matchedCount is artifact.role.responders.length, a figure the survey
+  // creator committed, while counted stays this site's own audit of a bundle
+  // refetched after close, so neither bounds the other and "3 of 2" is a state
+  // the card could reach. The sentence also avoids pointing at the participation
+  // line: a finalized artifact-sourced survey whose final_counted_dreps is still
+  // null renders that line as a plain count, with no count at close on screen.
+  // The responder clause agrees with its own count, which the artifact path can
+  // legitimately put at one.
+  const artifactResponders =
+    t.matchedCount === 1
+      ? '1 responder that was still a DRep member at close'
+      : `${t.matchedCount} responders that were still DRep members at close`;
   const gapLine =
     t.counted === 0
       ? t.weightedSource === 'artifact'
         ? `The weighted figures come from the survey's published tally artifact, weighted at epoch ${t.powerEpoch}. The head counts and the exclusions are this site's own current audit of the responses.`
         : null
       : t.weightedSource === 'artifact'
-        ? `${t.matchedCount} of ${plural(t.counted, 'counted response', 'counted responses')} were still DRep members at close and carry a weight the published tally artifact committed, weighted at epoch ${t.powerEpoch}. Only the weighted figures come from that artifact. The counted figure, the head counts and the exclusions are this site's own current audit, which counts a response whether or not its DRep was still a member at close, so it is normally higher than the count at close in this card's participation line.`
+        ? `The published tally artifact committed a weight for ${artifactResponders}, weighted at epoch ${t.powerEpoch}. Only the weighted figures come from that artifact. The head counts, the exclusions and the counted figure of ${plural(t.counted, 'DRep response', 'DRep responses')} are this site's own current audit, which counts a response whether or not its DRep was still a member at close, so that figure and the artifact's responder count rest on different bases and need not agree.`
         : `${t.matchedCount} of ${plural(t.counted, 'counted response', 'counted responses')} could be matched to a DRep with a known voting power · power as of epoch ${t.powerEpoch}`;
 
   const sealedNote =
