@@ -103,7 +103,7 @@ function collectStrings(v: unknown, keys: RegExp, out: Set<string>): void {
 }
 
 /** Capitalized only because they open a sentence. Any other word at a sentence start is checked like the rest. */
-const SENTENCE_STARTERS = new Set(['The', 'A', 'An', 'In', 'By', 'On', 'At', 'As', 'Of', 'And', 'For', 'With', 'That', 'This', 'These', 'Those', 'It', 'Its', 'He', 'She', 'They', 'We', 'But', 'So', 'If', 'When', 'While', 'After', 'Before', 'Since', 'Until', 'Both', 'Neither', 'Every', 'Each', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Half', 'Most', 'Some', 'None', 'Not', 'No', 'Yes', 'What', 'Where', 'Why', 'How', 'Whatever', 'Part', 'Compared', 'Read', 'Only', 'Also', 'Still', 'Then', 'There', 'Here', 'Nothing', 'Everything', 'Nobody', 'Whether', 'Unless', 'Without', 'Behind', 'Between', 'Under', 'Over', 'Across', 'Against', 'Steps', 'Rewards', 'More', 'Together', 'Share', 'Underneath', 'Concentration', 'Voting', 'Ratification', 'Repricing', 'Power', 'Participation', 'Almost', 'Abstaining', 'Taken', 'All', 'Paying', 'Same', 'Constitutional', 'Amount', 'Size', 'Count', 'Fewer', 'Neither', 'Twelve', 'Nine', 'Six', 'Nineteen', 'Forty', 'Delegation', 'Missed', 'Among', 'Bars', 'Follow', 'Their', 'Smaller', 'Ranked', 'Around', 'Stake', 'Final', 'According', 'Eleven', 'Dropped', 'Metadata', 'Opposing', 'Revised', 'Should', 'Dividing', 'Raising', 'Participation', 'Pools', 'Delegated', 'Voting', 'Deciding', 'From', 'Until', 'Ratification', 'Weight', 'Governance', 'Which', 'Who', 'Its', 'Within', 'Inside', 'Nothing']);
+const SENTENCE_STARTERS = new Set(['The', 'A', 'An', 'In', 'By', 'On', 'At', 'As', 'Of', 'And', 'For', 'With', 'That', 'This', 'These', 'Those', 'It', 'Its', 'He', 'She', 'They', 'We', 'But', 'So', 'If', 'When', 'While', 'After', 'Before', 'Since', 'Until', 'Both', 'Neither', 'Every', 'Each', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Half', 'Most', 'Some', 'None', 'Not', 'No', 'Yes', 'What', 'Where', 'Why', 'How', 'Whatever', 'Part', 'Compared', 'Read', 'Only', 'Also', 'Still', 'Then', 'There', 'Here', 'Nothing', 'Everything', 'Nobody', 'Whether', 'Unless', 'Without', 'Behind', 'Between', 'Under', 'Over', 'Across', 'Against', 'Steps', 'Rewards', 'More', 'Together', 'Share', 'Underneath', 'Concentration', 'Voting', 'Ratification', 'Repricing', 'Power', 'Participation', 'Almost', 'Abstaining', 'Taken', 'All', 'Paying', 'Same', 'Constitutional', 'Amount', 'Size', 'Count', 'Fewer', 'Neither', 'Twelve', 'Nine', 'Six', 'Nineteen', 'Forty', 'Delegation', 'Missed', 'Among', 'Bars', 'Follow', 'Their', 'Smaller', 'Ranked', 'Around', 'Stake', 'Final', 'According', 'Eleven', 'Dropped', 'Metadata', 'Opposing', 'Revised', 'Should', 'Dividing', 'Raising', 'Participation', 'Pools', 'Delegated', 'Voting', 'Deciding', 'From', 'Until', 'Ratification', 'Weight', 'Governance', 'Which', 'Who', 'Its', 'Within', 'Inside', 'Nothing', 'Below', 'Thirty', 'Approving', 'Better', 'Neither', 'Both', 'Calling', 'Endorsing', 'Across']);
 
 const GOVERNANCE_TERMS = new Set([
   'Cardano', 'DRep', 'DReps', 'SPO', 'SPOs', 'Constitutional Committee', 'Constitution', 'Governance Review', 'DRepTalk',
@@ -407,9 +407,16 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
   // title stem or a declared alias is how a paragraph about the action is found,
   // so an action written around all three is only caught by rule 10 below.
   const closing = (resolvePath(pack, 'actions.closingAtBoundary') as PackActionShape[] | undefined) ?? [];
+  const allTitles = [...packById.values()].map((h) => h.row.title ?? '');
   for (const a of closing) {
     const title = a.title ?? '';
-    const needles = [a.id, title.slice(0, 24), ...(aliasesById.get(a.id) ?? [])].filter(Boolean);
+    // The title stem is a 24 character prefix, long enough to survive a
+    // paraphrase. Budget titles share far more than that with each other, and a
+    // stem another action's title also starts with would flag every paragraph
+    // about that other action, so an ambiguous stem is widened to the full title.
+    const stem = title.slice(0, 24);
+    const ambiguous = allTitles.filter((t) => t.startsWith(stem)).length > 1;
+    const needles = [a.id, ambiguous ? title : stem, ...(aliasesById.get(a.id) ?? [])].filter(Boolean);
     paragraphs.forEach((para, i) => {
       if (!needles.some((n) => para.includes(n))) return;
       if (OUTCOME_WORDS.test(para)) out.push({ rule: 'closing-outcome-stated', message: `"${title}" closes at the boundary but the text states an outcome (paragraph ${i + 1})` });
