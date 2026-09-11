@@ -190,6 +190,7 @@ async function importLinkingAction(proposalId = ACTION_ID, now = 1): Promise<voi
     abstract: null,
     rationaleHtml: null,
     authors: null,
+    references: null,
     anchorUrl: null,
     anchorHash: null,
     anchorStatus: 'no-anchor',

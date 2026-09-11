@@ -202,16 +202,28 @@ describe('extractCip119Profile', () => {
     expect(profile.links![0].label.length).toBe(100);
   });
 
-  it('caps link uri at 2048 characters', () => {
-    const path = 'p'.repeat(2100);
-    const longUri = `https://example.com/${path}`;
+  it('drops an over-long link uri instead of truncating it', () => {
+    // A sliced URL still renders as a working link, it just points at a
+    // different resource than the DRep registered. Dropping it is the honest
+    // outcome, so the entry must disappear rather than come back shortened.
+    const longUri = `https://example.com/${'p'.repeat(2100)}`;
     const doc = {
       body: {
-        references: [{ label: 'Test', uri: longUri }],
+        references: [
+          { label: 'Too long', uri: longUri },
+          { label: 'Fine', uri: 'https://example.com/ok' },
+        ],
       },
     };
     const profile = extractCip119Profile(doc);
-    expect(profile.links![0].uri.length).toBeLessThanOrEqual(2048);
+    expect(profile.links).toEqual([{ label: 'Fine', uri: 'https://example.com/ok' }]);
+  });
+
+  it('returns null links when the only reference has an over-long uri', () => {
+    const doc = {
+      body: { references: [{ label: 'Too long', uri: `https://example.com/${'p'.repeat(2100)}` }] },
+    };
+    expect(extractCip119Profile(doc).links).toBeNull();
   });
 
   it('returns all-null profile for an empty/garbage doc, never throws', () => {
