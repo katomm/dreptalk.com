@@ -77,6 +77,12 @@ VAPID_PUBLIC_KEY = "BP8lsNXkOYQipYvkb5iBFeXOlDdkcDrlC7Dqbgw3e1bNd9UhgF3KdbpjHCwE
 # src/lib/deployVars.test.ts: set on one side only, the site either offers
 # answers nothing settles or mirrors surveys nobody can see.
 TESSERA_BACKEND_URL = "https://tessera-backend-preprod.matthieu-pizenberg.workers.dev"
+# Pinata group every governance-action anchor is uploaded into, checked by the
+# pin-gc phase before it deletes anything. Held equal to the app's copy by
+# src/lib/deployVars.test.ts: a mismatch makes the collector refuse every file,
+# which is the safe direction but silently does nothing. Not a secret, a group
+# id is useless without a token. Absent on mainnet, where the feature is off.
+PINATA_GOV_GROUP_ID = "d07e6e80-916c-4c2b-bf9d-9663d91fc485"
 
 [[env.preprod.d1_databases]]
 binding = "DB"

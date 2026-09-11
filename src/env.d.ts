@@ -94,10 +94,12 @@ declare namespace Cloudflare {
      */
     PINATA_GOV_GROUP_ID?: string;
     /**
-     * Separate Pinata token for the cron worker's pin collector, scoped for
-     * org:files:read + org:files:write. Kept off the app worker, which only
-     * ever uploads. Note a scoped key limits permissions and NOT which files
-     * they reach, so it is hygiene, not a boundary: the group check is.
+     * Separate Pinata token for the cron worker's pin collector. Needs the Files
+     * permission at Write, which is the same level PINATA_JWT needs to upload:
+     * Pinata has no tier that allows creating a file but not deleting one, so
+     * this token is no more powerful than the app's and the split buys
+     * independent revocation, not a privilege boundary. The group check in
+     * removeFile is the boundary.
      */
     PINATA_GC_JWT?: string;
   }

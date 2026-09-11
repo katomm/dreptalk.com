@@ -19,9 +19,12 @@
 //      bookkeeping being correct: an id that reached the table by any route,
 //      including a compromised writer, still fails it.
 //
-// A scoped Pinata API key is NOT a third property. A key restricts permissions,
-// not which files those permissions reach, so a key holding org:files:write can
-// delete anything on the account. Never present the key split as a safeguard.
+// A scoped Pinata API key is NOT a third property, and the reason is sharper
+// than "scopes are coarse": Pinata's Files permission is a single
+// None/Read/Write selector, and UPLOADING requires Write. So any token that can
+// pin a document can also delete any file on the account, and the app worker's
+// upload token is already one of those. A separate collector token buys
+// independent revocation, nothing more. Never present it as a safeguard.
 
 import {
   getCollectablePins,

@@ -132,8 +132,10 @@ export interface PinataFileRemover {
 }
 
 /**
- * The real deleter. Needs org:files:read (for the group check) and
- * org:files:write. Never given to the app worker, which only ever uploads.
+ * The real deleter. Needs the Files permission at Write, which is the same level
+ * uploading needs, so this token is not less powerful than the app's: Pinata has
+ * no tier that permits creating a file but not deleting one. Keeping it separate
+ * is about revoking one without the other, not about capability.
  *
  * There is deliberately NO list operation here or anywhere else: the collector
  * must never enumerate an account it shares, and the absence of the capability
