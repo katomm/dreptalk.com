@@ -26,6 +26,8 @@ import {
   getSurveyGovLinks,
   getSurveySyncState,
 } from '@/lib/db/surveys.js';
+import { getSurveyTally } from '@/lib/db/surveyTally.js';
+import { newestPowerEpoch } from '@/lib/db/drepPower.js';
 import { surveyState } from '@/lib/surveys/state.js';
 import { surveysEnabled } from '@/lib/surveys/switch.js';
 import { parseSurveyDefinition } from '@/lib/surveys/view.js';
@@ -241,13 +243,25 @@ const reviewWindow = reviewSlug ? parseSlug(reviewSlug) : null;
 const surveyDefinition: SurveyDefinition | null = surveyRow
   ? parseSurveyDefinition(surveyRow.definitionJson)
   : null;
-const [surveyLinks, linkedSurvey, surveySync] = await Promise.all([
+const [surveyLinks, linkedSurvey, surveySync, surveyTally, surveyPowerEpoch] = await Promise.all([
   surveyRow && db ? getSurveyGovLinks(db, surveyRow.ref) : Promise.resolve([]),
   db && govAction?.proposalId
     ? getLinkedSurveyForAction(db, govAction.proposalId)
     : Promise.resolve(null),
   surveyRow && db ? getSurveySyncState(db) : Promise.resolve(null),
+  surveyRow && db ? getSurveyTally(db, surveyRow.ref) : Promise.resolve(null),
+  // Loaded beside the tally because a null tally row cannot say why it is null:
+  // an empty power history means no reading can be computed at all, which is a
+  // different sentence from one that has not been computed yet.
+  surveyRow && db ? newestPowerEpoch(db) : Promise.resolve(null),
 ]);
+
+// A tally computed from a different artifact than the survey now names is not a
+// current result, whatever its own columns say. Recognising a hash change as
+// work is not enough: if the recomputation failed or ran out of budget, the old
+// artifact's figures would keep reading as current.
+const tallyIsCurrent =
+  surveyTally !== null && surveyTally.artifactHash === (surveyRow?.artifactHash ?? null);
 
 // If this action defines or challenges an NCL period, show its live tracker.
 const nclPeriod = govAction
@@ -896,6 +910,9 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
             now={now}
             appUrl={env.TESSERA_APP_URL}
             asOf={surveySync?.tesseraFetchedAt ?? null}
+            tally={tallyIsCurrent ? surveyTally : null}
+            tallyStale={surveyTally !== null && !tallyIsCurrent}
+            powerEpoch={surveyPowerEpoch}
           />
         )}
         {surveyRow && canAnswerSurvey && viewerDrepId && (

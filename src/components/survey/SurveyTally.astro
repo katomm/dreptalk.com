@@ -1,0 +1,863 @@
+---
+// The informational tally of a CIP-179 survey: a named reading of the counted
+// responses, never "the result". Every figure it draws comes from the
+// precomputed survey_tally row, and every share names the denominator it stands
+// on.
+//
+// BOTH stored projections are read, and joined per question and per option. The
+// bar's length and its weighted denominator come from the weighted run. The
+// option's response count and the question's answered count come from the
+// head-count run, because a counted DRep whose voting power could not be
+// resolved locally is absent from the weighted run by design: reading counts out
+// of the weighted run would make that answer vanish from its option and reappear
+// as an abstention nobody made.
+//
+// The bar basis per question kind is not decided here. It is declared in
+// src/lib/surveys/surveyTallyContract.ts, and only single choice carries a
+// percentage, because only there do the shares sum to one whole.
+//
+// No <script>: the page runs a strict CSP where an inline script needs a
+// registered hash, so the breakdown is a native <details>.
+import { Role, type Question, type SurveyDefinition } from 'cip-179';
+import type { ExclusionKey } from 'cip-179/domain';
+import type { ArtifactQuestion } from 'cip-179/tally';
+import type { SurveyRow } from '@/lib/db/surveys.js';
+import type { SurveyTallyRow } from '@/lib/db/surveyTally.js';
+import { lovelaceToAdaDecimal } from '@/lib/format/ada.js';
+import { formatRelativeTime } from '@/lib/forum/view.js';
+import type { SurveyLifecycle } from '@/lib/surveys/state.js';
+import {
+  QUESTION_KIND_DISPLAY,
+  type BarBasis,
+  type QuestionDisplayKey,
+} from '@/lib/surveys/surveyTallyContract.js';
+import { questionView, ratingScaleInfo, ratioOf } from '@/lib/surveys/tallyView.js';
+import { ROLE_LABELS, questionViews } from '@/lib/surveys/view.js';
+import { MAX_EXTERNAL_TITLE_LEN, sanitizeExternalText } from '@/lib/validation/input.js';
+
+interface Props {
+  /** The precomputed reading, or null when there is none to show. */
+  tally: SurveyTallyRow | null;
+  /** A stored tally computed from a different artifact than the survey now
+   * names. Work in progress, never figures. */
+  tallyStale: boolean;
+  /** Newest epoch the local power history holds, null when it holds nothing.
+   * The only thing that tells an uncomputed reading apart from an uncomputable
+   * one. */
+  powerEpoch: number | null;
+  survey: SurveyRow;
+  definition: SurveyDefinition | null;
+  lifecycle: SurveyLifecycle;
+  /** Wall clock in ms, for the reading's own age. */
+  now: number;
+}
+
+const { tally, tallyStale, powerEpoch, survey, definition, lifecycle, now } = Astro.props;
+
+// ---------------------------------------------------------------------------
+// Display helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Exact lovelace to a grouped ada label. The canonical formatAda divides
+ * through Number, and an electorate total in lovelace is past what Number holds
+ * exactly, so the reduction to ada runs in BigInt first through the canonical
+ * lovelaceToAdaDecimal. Whole ada is small enough to group safely.
+ */
+function adaLabel(lovelace: bigint): string {
+  const whole = lovelaceToAdaDecimal(lovelace).split('.')[0] ?? '0';
+  return `${Number(whole).toLocaleString('en-US')} ₳`;
+}
+
+/** A stored decimal string as a bigint, or null when the column is null or
+ * unreadable. A zero is a value, never a missing one. */
+function bigOrNull(s: string | null): bigint | null {
+  if (s === null || s === '') return null;
+  try {
+    return BigInt(s);
+  } catch {
+    return null;
+  }
+}
+
+function plural(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+function pctLabel(frac: number): string {
+  return `${(frac * 100).toFixed(1)}%`;
+}
+
+function widthOf(frac: number): string {
+  const clamped = Math.max(0, Math.min(1, frac));
+  return `${(clamped * 100).toFixed(1)}%`;
+}
+
+function label(text: string): string {
+  return sanitizeExternalText(text, MAX_EXTERNAL_TITLE_LEN);
+}
+
+/** Which row of the display contract governs this question. */
+function displayKeyOf(aq: ArtifactQuestion): QuestionDisplayKey {
+  switch (aq.kind) {
+    case 'options':
+      return aq.unit;
+    case 'perOption':
+      return aq.unit;
+    case 'numeric':
+      return 'numeric';
+    case 'custom':
+      return 'custom';
+  }
+}
+
+/** What one unit beside a bar is called, per question kind. */
+function countLabel(key: QuestionDisplayKey, n: number): string {
+  switch (key) {
+    case 'multiSelect':
+      return plural(n, 'responder', 'responders');
+    case 'rankingFirst':
+      return plural(n, 'first preference', 'first preferences');
+    case 'rating':
+      return plural(n, 'rating', 'ratings');
+    case 'points':
+      return plural(n, 'allocation', 'allocations');
+    default:
+      return plural(n, 'response', 'responses');
+  }
+}
+
+/**
+ * Give the two runs the same populated index set. questionView fills every
+ * declared option and then appends any answered index beyond that, so two runs
+ * that answered different indices would produce two differently shaped lists,
+ * and reading one against the other by position would pair an option with
+ * another option's count. An injected entry renders exactly as a missing one
+ * (no weight, no count, and no mean, since its own denominator is zero), so the
+ * only effect is that both lists carry the same indices in the same order.
+ *
+ * Numeric questions are deliberately left alone: their buckets are per answered
+ * value, and an injected zero-weight bucket can move the weighted median. Those
+ * two runs are joined on the value instead, further down.
+ */
+function alignIndices(
+  w: ArtifactQuestion,
+  h: ArtifactQuestion,
+): [ArtifactQuestion, ArtifactQuestion] {
+  if (w.kind === 'options' && h.kind === 'options') {
+    const all = [...new Set([...w.options.map(o => o.index), ...h.options.map(o => o.index)])];
+    const fill = (q: typeof w): typeof w => {
+      const have = new Set(q.options.map(o => o.index));
+      const extra = all
+        .filter(i => !have.has(i))
+        .map(index => ({ index, weight: '0', count: 0 }));
+      if (extra.length === 0) return q;
+      return { ...q, options: [...q.options, ...extra].sort((a, b) => a.index - b.index) };
+    };
+    return [fill(w), fill(h)];
+  }
+  if (w.kind === 'perOption' && h.kind === 'perOption') {
+    const all = [...new Set([...w.perOption.map(o => o.index), ...h.perOption.map(o => o.index)])];
+    const fill = (q: typeof w): typeof w => {
+      const have = new Set(q.perOption.map(o => o.index));
+      const extra = all
+        .filter(i => !have.has(i))
+        .map(index => ({ index, weightedSum: '0', answeredWeight: '0', count: 0 }));
+      if (extra.length === 0) return q;
+      return { ...q, perOption: [...q.perOption, ...extra].sort((a, b) => a.index - b.index) };
+    };
+    return [fill(w), fill(h)];
+  }
+  return [w, h];
+}
+
+// ---------------------------------------------------------------------------
+// Nothing to show: one named reason, never an empty card
+// ---------------------------------------------------------------------------
+
+const sealedWithoutArtifact = survey.sealed && survey.artifactHash === null;
+const takesDreps = survey.eligibleRoles.includes(Role.DRep);
+
+// One reason, and the most specific one first: the survey's own state outranks
+// the tally's, because a reading of a survey the index no longer holds, or that
+// CIP-179 never produced a tally for, is not made better by being fresh. The
+// stale guard then outranks a missing row, and an empty power history outranks
+// "not computed yet", since nothing can be computed without it.
+const refusal: string | null = survey.unavailable
+  ? 'This survey is no longer in the index, so the responses it had are no longer a record this site will read. No figures are shown.'
+  : survey.externalContent
+    ? 'This survey keeps its questions in an external document that is not loaded here, so its answers are not counted on this site.'
+    : lifecycle === 'cancelled'
+      ? 'This survey was cancelled by its creator, and CIP-179 produces no tally for a cancelled survey, so there is nothing to read.'
+      : lifecycle === 'untalliable'
+        ? "This survey's definition is invalid under CIP-179, so it was never talliable and no reading of it exists."
+        : !takesDreps
+          ? 'This survey does not accept DRep responses, and a DRep reading is the only one this site counts.'
+          : sealedWithoutArtifact
+            ? 'The answers to this survey are timelock-encrypted. They stay unreadable until it closes and its tally artifact is published, so nothing can be counted yet.'
+            : tallyStale
+              ? "These figures are being recomputed. The survey's tally artifact has changed, so the stored reading describes a different artifact than the survey now names, and showing it as current would be wrong."
+              : tally === null
+                ? powerEpoch === null
+                  ? 'No reading yet: this site holds no DRep voting power history for this network, and a weighted reading cannot be computed without one.'
+                  : 'No reading computed yet. The sync pass that counts the responses has not reached this survey.'
+                : null;
+
+// ---------------------------------------------------------------------------
+// The reading
+// ---------------------------------------------------------------------------
+
+type Mode = 'weighted' | 'headcount';
+
+interface BuiltBar {
+  label: string;
+  frac: number;
+  /** Share with its own denominator beside it, on a share basis only. */
+  share: string | null;
+  /** Ada behind the bar, in weighted mode only. */
+  ada: string | null;
+  /** Head count, from the head-count run. */
+  count: string | null;
+}
+
+interface BuiltRow {
+  label: string;
+  frac: number;
+  figure: string;
+  count: string | null;
+}
+
+interface BuiltQuestion {
+  prompt: string;
+  required: boolean;
+  kindLabel: string;
+  /** What the bars of this kind are sized against, from the display contract. */
+  basisNote: string | null;
+  bars: BuiltBar[];
+  rows: BuiltRow[];
+  /** Mean and median of a numeric question. */
+  centralLine: string | null;
+  /** The head-count sentence: who answered, who left it out. */
+  answeredLine: string;
+  /** Set when this question alone has no weight to stand on. */
+  weightingNote: string | null;
+}
+
+interface Built {
+  questions: BuiltQuestion[];
+  gapLine: string;
+  sealedNote: string | null;
+  noPowerNote: string | null;
+  excludedSummary: string;
+  /** The same figure as a plain line, for when there is nothing to expand. */
+  excludedLine: string;
+  exclusions: { label: string; hint: string; count: number }[];
+  exclusionsUnknown: boolean;
+  turnoutLine: string | null;
+  rolesLine: string | null;
+  readingLines: string[];
+  computedLine: string;
+}
+
+const EXCLUSION_ORDER: ExclusionKey[] = [
+  'after-deadline',
+  'invalid',
+  'unproven',
+  'superseded',
+  'undecryptable',
+];
+
+/**
+ * What the bars stand against, in the reader's words. The basis itself is the
+ * display contract's to declare, never this component's: only a share has a
+ * denominator, and the other two bases are comparisons that must not be read as
+ * parts of one whole.
+ */
+function basisNote(basis: BarBasis): string | null {
+  switch (basis) {
+    case 'relative-to-leader':
+      return 'Bars are sized against the leading option. They compare the options, they are not shares of anything.';
+    case 'within-scale':
+      return 'Bars sit within the scale this question declares, and each option has its own raters, so the means are not parts of one whole.';
+    default:
+      return null;
+  }
+}
+
+function exclusionLabel(key: ExclusionKey): string {
+  switch (key) {
+    case 'after-deadline':
+      return 'Sent after the deadline';
+    case 'invalid':
+      return 'Invalid against the definition';
+    case 'unproven':
+      return 'Credential not proven';
+    case 'superseded':
+      return 'Replaced by a later answer';
+    case 'undecryptable':
+      return 'Could not be revealed';
+  }
+}
+
+function exclusionHint(key: ExclusionKey, endEpoch: number): string {
+  switch (key) {
+    case 'after-deadline':
+      return `The response transaction is in an epoch later than epoch ${endEpoch}, the last epoch this survey accepts.`;
+    case 'invalid':
+      return 'The answers did not satisfy the survey as defined, for example a required question left out or an option outside its range.';
+    case 'unproven':
+      return 'Nothing in the response transaction proved the credential it claims to answer with.';
+    case 'superseded':
+      return 'The same credential answered again later, and only the latest answer per credential counts.';
+    case 'undecryptable':
+      return 'A sealed answer that did not decrypt, or did not hold up against the definition once revealed.';
+  }
+}
+
+function buildQuestion(
+  q: Question | undefined,
+  prompt: { prompt: string; kindLabel: string; required: boolean } | undefined,
+  position: number,
+  wq: ArtifactQuestion | undefined,
+  hq: ArtifactQuestion | undefined,
+  t: SurveyTallyRow,
+  surveyWideNoPower: boolean,
+): BuiltQuestion {
+  // With no readable definition the stored aggregates are still true, so they
+  // are shown, but the prompt says plainly that the question text is missing
+  // rather than inventing one.
+  const base = {
+    prompt: prompt?.prompt ?? `Question ${position + 1}, its text could not be read`,
+    required: prompt?.required === true,
+    kindLabel: prompt?.kindLabel ?? '',
+  };
+  const empty: BuiltQuestion = {
+    ...base,
+    basisNote: null,
+    bars: [],
+    rows: [],
+    centralLine: null,
+    answeredLine: 'No aggregate is stored for this question.',
+    weightingNote: null,
+  };
+  const kindSource = wq ?? hq;
+  if (kindSource === undefined) return empty;
+
+  const [wAligned, hAligned] =
+    wq !== undefined && hq !== undefined ? alignIndices(wq, hq) : [wq, hq];
+  const wview = wAligned !== undefined ? questionView(q, wAligned) : null;
+  const hview = hAligned !== undefined ? questionView(q, hAligned) : null;
+
+  // The weighted run can have nothing to divide by: every matched DRep may hold
+  // zero power, or this one question may have been answered only by DReps that
+  // hold none. The head-count run is then what the bars stand on, and the copy
+  // says so instead of a percentage of nothing. With no head-count run at all
+  // (a shape the compute never writes, the two arrays are written together) the
+  // weighted run is all there is, and no head count is claimed.
+  const mode: Mode =
+    hview === null
+      ? 'weighted'
+      : wview === null || wview.answeredWeight === 0n || surveyWideNoPower
+        ? 'headcount'
+        : 'weighted';
+  const shown = mode === 'weighted' ? wview : hview;
+  if (shown === null) return empty;
+
+  const key = displayKeyOf(kindSource);
+  const display = QUESTION_KIND_DISPLAY[key];
+  const weighted = mode === 'weighted';
+
+  // The answered count is the head count's, always. The weighted run is short of
+  // every counted DRep whose power could not be resolved.
+  const answeredCount = hview?.answeredCount ?? shown.answeredCount;
+  // Abstentions come off the head count too, never off the weighted run.
+  const unanswered = Math.max(0, t.counted - answeredCount);
+  // A sealed survey's head counts are the artifact's own post-membership set, so
+  // the difference against the counted set is not abstention alone and is not
+  // described as one.
+  const answeredLine =
+    t.headcountSource === 'artifact'
+      ? `${plural(answeredCount, 'response', 'responses')} in the counted set at close answered this question.`
+      : unanswered > 0
+        ? `${plural(unanswered, 'counted response', 'counted responses')} of ${t.counted} left this question unanswered.`
+        : `${plural(answeredCount, 'counted response', 'counted responses')} answered this question, none left it out.`;
+
+  // A share is only ever printed next to the denominator it divides by, so a
+  // percentage can never be read without knowing what it is a percentage of.
+  // Zero is a legitimate denominator here (nobody answered), and it becomes no
+  // share at all rather than a percentage of nothing.
+  const hasDenominator = shown.answeredWeight > 0n;
+  const share = display.barBasis === 'share-of-answered' && hasDenominator;
+  const denomLabel = weighted
+    ? adaLabel(shown.answeredWeight)
+    : countLabel(key, shown.answeredCount);
+
+  const weightingNote =
+    mode === 'headcount' && !surveyWideNoPower
+      ? `No DRep that answered this question held voting power at epoch ${t.powerEpoch}, so a weighting of it is undefined. The figures below are head counts.`
+      : null;
+
+  const bars: BuiltBar[] = [];
+  const rows: BuiltRow[] = [];
+  let centralLine: string | null = null;
+
+  if (shown.kind === 'bars') {
+    const counts = hview?.kind === 'bars' ? hview.bars : null;
+    shown.bars.forEach((b, i) => {
+      const count = counts?.[i]?.count ?? (weighted ? null : b.count);
+      bars.push({
+        label: label(b.label),
+        frac: b.frac,
+        share: share ? `${pctLabel(b.frac)} of ${denomLabel} answering` : null,
+        ada: weighted ? adaLabel(b.weight) : null,
+        count: count === null ? null : countLabel(key, count),
+      });
+    });
+  } else if (shown.kind === 'histogram') {
+    // Numeric buckets are joined on the value, not by position: the two runs
+    // bucket whatever values they saw, so their lists are genuinely different
+    // shapes. Every value either run saw is rendered, so a value answered only
+    // by an unweighted DRep still shows its head count.
+    const byValue = new Map(shown.bins.map(b => [b.label, b]));
+    const countByValue = new Map((hview?.kind === 'histogram' ? hview.bins : []).map(b => [b.label, b.count]));
+    const values = [...new Set([...byValue.keys(), ...countByValue.keys()])].sort(
+      (a, b) => Number(a) - Number(b),
+    );
+    for (const value of values) {
+      const bin = byValue.get(value);
+      const count = countByValue.get(value) ?? (weighted ? null : (bin?.count ?? 0));
+      bars.push({
+        label: value,
+        frac: bin?.frac ?? 0,
+        share: null,
+        ada: weighted ? adaLabel(bin?.weight ?? 0n) : null,
+        count: count === null ? null : countLabel(key, count),
+      });
+    }
+    const meanWord = weighted ? 'Weighted mean' : 'Plain mean';
+    const medianWord = weighted ? 'weighted median' : 'plain median';
+    centralLine =
+      shown.mean === null
+        ? null
+        : `${meanWord} ${shown.mean.toFixed(2)}, ${medianWord} ${shown.median === null ? 'undefined' : shown.median.toFixed(2)}.`;
+  } else if (shown.kind === 'rows') {
+    const counts = hview?.kind === 'rows' ? hview.rows : null;
+    const scale = q !== undefined && q.type === 'rating' ? ratingScaleInfo(q.scale) : null;
+    const span = scale !== null ? (scale.levels - 1) * scale.step : 0;
+    const leader = shown.rows.reduce((m, r) => (r.avg !== null && r.avg > m ? r.avg : m), 0);
+    const meanWord = weighted ? 'weighted mean' : 'plain mean';
+    shown.rows.forEach((r, i) => {
+      const count = counts?.[i]?.count ?? (weighted ? null : r.count);
+      let frac = 0;
+      let figure: string;
+      if (r.avg === null) {
+        figure = shown.unit === 'rating' ? 'not rated' : 'no allocation';
+      } else if (shown.unit === 'rating' && scale !== null) {
+        // Within the scale the definition declares, the basis the contract names
+        // for a rating: each option commits its own denominator, so the means are
+        // not parts of one whole.
+        frac = span > 0 ? (r.avg - scale.baseMin) / span : 0;
+        const levelIndex = Math.max(
+          0,
+          Math.min(scale.levels - 1, Math.round((r.avg - scale.baseMin) / scale.step)),
+        );
+        const levelLabel = scale.levelLabels?.[levelIndex];
+        figure = `${meanWord} ${r.avg.toFixed(2)}${levelLabel ? ` (${label(levelLabel)})` : ''}`;
+      } else {
+        frac = leader > 0 ? r.avg / leader : 0;
+        figure = `${meanWord} ${r.avg.toFixed(2)}${shown.unit === 'points' ? ' points' : ''}`;
+      }
+      rows.push({
+        label: label(r.label),
+        frac,
+        figure,
+        count: count === null ? null : countLabel(key, count),
+      });
+    });
+  }
+
+  return {
+    ...base,
+    basisNote: bars.length > 0 || rows.length > 0 ? basisNote(display.barBasis) : null,
+    bars,
+    rows,
+    centralLine,
+    answeredLine: hasDenominator ? answeredLine : 'No counted response answered this question.',
+    weightingNote,
+  };
+}
+
+function build(t: SurveyTallyRow): Built {
+  const prompts = definition ? questionViews(definition) : [];
+  const questions = definition?.questions ?? [];
+  const answeredPower = bigOrNull(t.answeredPower) ?? 0n;
+  const surveyWideNoPower = answeredPower === 0n;
+  const count = Math.max(questions.length, t.questions.weighted.length, t.questions.headcount.length);
+
+  const built: BuiltQuestion[] = [];
+  for (let i = 0; i < count; i++) {
+    built.push(
+      buildQuestion(
+        questions[i],
+        prompts[i],
+        i,
+        t.questions.weighted[i],
+        t.questions.headcount[i],
+        t,
+        surveyWideNoPower,
+      ),
+    );
+  }
+
+  const gapLine =
+    t.weightedSource === 'artifact'
+      ? `These figures were fixed when the survey closed: they come from its published tally artifact, weighted at the survey's end epoch, epoch ${survey.endEpoch}.`
+      : `${t.matchedCount} of ${plural(t.counted, 'counted response', 'counted responses')} could be matched to a DRep with a known voting power · power as of epoch ${t.powerEpoch}`;
+
+  const sealedNote =
+    t.headcountSource === 'artifact'
+      ? 'This survey was sealed, so its answers became readable only at close. The head counts below describe the counted set the tally artifact committed, not a wider set of responses.'
+      : null;
+
+  const noPowerNote = surveyWideNoPower
+    ? `No DRep whose response was counted held voting power at epoch ${t.powerEpoch}, so a weighting of this survey is undefined. Every figure below is a head count.`
+    : null;
+
+  const excludedSummary =
+    t.excluded === 0
+      ? 'No response was left out of the count, and the turnout behind these figures'
+      : `${plural(t.excluded, 'response was', 'responses were')} left out of the count, and why, with the turnout behind these figures`;
+
+  const excludedLine =
+    t.excluded === 0
+      ? 'No response was left out of the count.'
+      : `${plural(t.excluded, 'response was', 'responses were')} left out of the count.`;
+
+  const exclusions = t.excludedBy
+    ? EXCLUSION_ORDER.filter(k => (t.excludedBy?.[k] ?? 0) > 0).map(k => ({
+        label: exclusionLabel(k),
+        hint: exclusionHint(k, survey.endEpoch),
+        count: t.excludedBy?.[k] ?? 0,
+      }))
+    : [];
+
+  const totalPower = bigOrNull(t.totalPower);
+  // Turnout is omitted outright when its denominator is missing or zero. A zero
+  // would read as nobody holding power, and a ratio over it has no value at all.
+  const turnoutFrac = totalPower !== null && totalPower > 0n ? ratioOf(answeredPower, totalPower) : null;
+  const turnoutLine =
+    turnoutFrac === null || totalPower === null
+      ? null
+      : `Turnout ${pctLabel(turnoutFrac)}: ${adaLabel(answeredPower)} of ${adaLabel(totalPower)}, measured as representative DRep voting power at epoch ${t.powerEpoch}, which leaves out the two auto-voting special ids.`;
+
+  const otherRoles = Object.entries(t.roleCounts ?? {})
+    .filter(([role]) => Number(role) !== Role.DRep)
+    .map(([role, n]) => `${ROLE_LABELS[Number(role)] ?? `role ${role}`} (${n})`);
+  const rolesLine =
+    otherRoles.length > 0
+      ? `Other roles answered this survey too: ${otherRoles.join(', ')}. Those responses are outside every figure above, which counts DRep responses only.`
+      : null;
+
+  const readingLines = [
+    'Counted under the generic CIP-179 rules only: no survey-specific validity rules, no allow-lists, no custom weighting.',
+    "What the answers mean is the survey creator's to say, not this site's. This is a reading of the responses, not a decision.",
+  ];
+  if (t.weightedSource === 'live') {
+    readingLines.push(
+      `The weighting stands on epoch ${t.powerEpoch}, the newest epoch this site holds DRep power for, not on the epoch the survey closes in, so these figures can still move.`,
+    );
+  }
+
+  return {
+    questions: built,
+    gapLine,
+    sealedNote,
+    noPowerNote,
+    excludedSummary,
+    excludedLine,
+    exclusions,
+    exclusionsUnknown: t.excludedBy === null,
+    turnoutLine,
+    rolesLine,
+    readingLines,
+    computedLine: `Reading computed ${formatRelativeTime(t.computedAt * 1000, now)}, which is its own age and not the survey data time above.`,
+  };
+}
+
+const built = refusal === null && tally !== null ? build(tally) : null;
+---
+
+<section class="svy-tally">
+  <h3 class="svy-tally__title">Informational tally</h3>
+
+  {refusal !== null || built === null ? (
+    <p class="svy-tally__none">{refusal ?? 'No reading of the responses is available.'}</p>
+  ) : (
+    <>
+      <p class="svy-tally__lead">
+        A reading of the counted responses. Not an official result: CIP-179 mandates no counting
+        policy, so this is one named reading with its denominators stated.
+      </p>
+
+      {built.noPowerNote && <p class="svy-tally__note">{built.noPowerNote}</p>}
+      {built.sealedNote && <p class="svy-tally__note">{built.sealedNote}</p>}
+
+      <ol class="svy-tally__questions">
+        {built.questions.map((q) => (
+          <li class="svy-tq">
+            <p class="svy-tq__prompt">
+              {q.prompt}
+              {q.required && (
+                <span class="svy-tq__req" title="An answer must include this question"> *</span>
+              )}
+            </p>
+            {q.kindLabel && <p class="svy-tq__meta">{q.kindLabel}</p>}
+            {q.weightingNote && <p class="svy-tq__note">{q.weightingNote}</p>}
+
+            {q.bars.length > 0 && (
+              <ul class="svy-tq__bars">
+                {q.bars.map((b) => (
+                  <li class="svy-bar">
+                    <span class="svy-bar__label">{b.label}</span>
+                    <span class="svy-bar__figs">
+                      {b.share && <span class="svy-bar__share">{b.share}</span>}
+                      {b.ada && <span class="svy-bar__ada">{b.ada}</span>}
+                      {b.count && <span class="svy-bar__count">{b.count}</span>}
+                    </span>
+                    <span class="svy-bar__track" aria-hidden="true">
+                      <span class="svy-bar__fill" style={`width:${widthOf(b.frac)}`}></span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {q.rows.length > 0 && (
+              <ul class="svy-tq__bars">
+                {q.rows.map((r) => (
+                  <li class="svy-bar">
+                    <span class="svy-bar__label">{r.label}</span>
+                    <span class="svy-bar__figs">
+                      <span class="svy-bar__ada">{r.figure}</span>
+                      {r.count && <span class="svy-bar__count">{r.count}</span>}
+                    </span>
+                    <span class="svy-bar__track" aria-hidden="true">
+                      <span class="svy-bar__fill" style={`width:${widthOf(r.frac)}`}></span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {q.centralLine && <p class="svy-tq__central">{q.centralLine}</p>}
+            {q.basisNote && <p class="svy-tq__basis">{q.basisNote}</p>}
+            <p class="svy-tq__answered">{q.answeredLine}</p>
+          </li>
+        ))}
+      </ol>
+
+      <p class="svy-tally__gap">{built.gapLine}</p>
+
+      {built.exclusionsUnknown || built.exclusions.length > 0 || built.turnoutLine ? (
+        <details class="svy-tally__more">
+          <summary class="svy-tally__summary">{built.excludedSummary}</summary>
+          <div class="svy-tally__morebody">
+            {built.exclusionsUnknown ? (
+              <p class="svy-tally__note">
+                Why responses were left out is not recorded for this survey, so no breakdown is
+                shown. A zeroed list would claim more than is known.
+              </p>
+            ) : built.exclusions.length > 0 ? (
+              <dl class="svy-tally__excl">
+                {built.exclusions.map((e) => (
+                  <div>
+                    <dt>{e.label}: {e.count}</dt>
+                    <dd>{e.hint}</dd>
+                  </div>
+                ))}
+              </dl>
+            ) : null}
+            {built.turnoutLine && <p class="svy-tally__turnout">{built.turnoutLine}</p>}
+          </div>
+        </details>
+      ) : (
+        <p class="svy-tally__gap">{built.excludedLine}</p>
+      )}
+
+      {built.rolesLine && <p class="svy-tally__roles">{built.rolesLine}</p>}
+
+      <ul class="svy-tally__reading">
+        {built.readingLines.map((line) => <li>{line}</li>)}
+      </ul>
+
+      <p class="svy-tally__computed">{built.computedLine}</p>
+    </>
+  )}
+</section>
+
+<style>
+  .svy-tally {
+    border-top: 1px solid var(--border);
+    padding-top: 0.9rem;
+    margin: 0 0 1rem;
+  }
+  .svy-tally__title {
+    margin: 0;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .svy-tally__lead {
+    margin: 0.35rem 0 0.75rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  .svy-tally__none {
+    margin: 0.35rem 0 0;
+    font-size: 0.875rem;
+    color: var(--muted);
+    font-style: italic;
+  }
+  .svy-tally__note,
+  .svy-tq__note {
+    margin: 0 0 0.6rem;
+    font-size: 0.8125rem;
+    color: var(--fg);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+    border-radius: 8px;
+    padding: 0.5rem 0.7rem;
+  }
+  .svy-tally__questions {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+  .svy-tq__prompt {
+    margin: 0;
+    font-size: 0.9375rem;
+    font-weight: 600;
+  }
+  .svy-tq__req {
+    color: var(--danger);
+  }
+  .svy-tq__meta,
+  .svy-tq__central,
+  .svy-tq__basis,
+  .svy-tq__answered {
+    margin: 0.15rem 0 0;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+  .svy-tq__bars {
+    margin: 0.5rem 0 0.35rem;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  /* A bar is a text row first: label, figures, then the track. The track is
+     decoration, so it is the part that may get thin, never the figures. */
+  .svy-bar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: 'label figs' 'track track';
+    gap: 0.1rem 0.6rem;
+    align-items: baseline;
+  }
+  .svy-bar__label {
+    grid-area: label;
+    font-size: 0.875rem;
+    overflow-wrap: anywhere;
+  }
+  .svy-bar__figs {
+    grid-area: figs;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.45rem;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+  .svy-bar__share {
+    font-weight: 600;
+    color: var(--fg);
+  }
+  .svy-bar__track {
+    grid-area: track;
+    display: block;
+    height: 6px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--border) 70%, transparent);
+    overflow: hidden;
+  }
+  .svy-bar__fill {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: var(--accent);
+  }
+  @media (min-width: 30rem) {
+    .svy-bar {
+      grid-template-columns: minmax(6rem, 1fr) minmax(4rem, 8rem) auto;
+      grid-template-areas: 'label track figs';
+      align-items: center;
+    }
+  }
+  .svy-tally__gap {
+    margin: 0.9rem 0 0;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+  .svy-tally__more {
+    margin-top: 0.5rem;
+  }
+  .svy-tally__summary {
+    cursor: pointer;
+    font-size: 0.8125rem;
+    color: var(--accent);
+  }
+  .svy-tally__morebody {
+    padding: 0.5rem 0 0;
+  }
+  .svy-tally__excl {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .svy-tally__excl dt {
+    font-size: 0.8125rem;
+    font-weight: 600;
+  }
+  .svy-tally__excl dd {
+    margin: 0.1rem 0 0;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+  .svy-tally__turnout,
+  .svy-tally__roles {
+    margin: 0.6rem 0 0;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+  .svy-tally__reading {
+    margin: 0.75rem 0 0;
+    padding-left: 1.1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+  .svy-tally__computed {
+    margin: 0.6rem 0 0;
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+</style>

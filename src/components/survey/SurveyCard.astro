@@ -1,11 +1,20 @@
 ---
 // The survey thread's header card, from what the page loaded out of D1, the
-// "as of" line owns the staleness. Deliberately no tally figure of any kind:
-// CIP-179 mandates no counting policy, so the card shows participation, never
-// "the result".
+// "as of" line owns the staleness.
+//
+// It does show a tally, in SurveyTally below, and what makes that honest is how
+// it is presented: a named reading rather than a claimed result. CIP-179 still
+// mandates no counting policy, so the card says which rules the reading counts
+// under, names the denominator under every share, and keeps the head count
+// visible next to the weighted figures so a counted DRep whose voting power
+// could not be resolved never disappears from its own answer. Where a
+// denominator is empty or the stored reading is not current, the card says which
+// of those it is instead of drawing a figure.
 import type { SurveyDefinition } from 'cip-179';
 import SurveyBadges from '@/components/survey/SurveyBadges.astro';
+import SurveyTally from '@/components/survey/SurveyTally.astro';
 import type { NetworkConfig } from '@/lib/config/network.js';
+import type { SurveyTallyRow } from '@/lib/db/surveyTally.js';
 import type { SurveyGovLinkView, SurveyRow } from '@/lib/db/surveys.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
 import { deadlineLabel, participationLabel, surveyState } from '@/lib/surveys/state.js';
@@ -32,9 +41,18 @@ interface Props {
    * that moved, so no row is fresher than the mirror. Null until a run has
    * applied one. */
   asOf: number | null;
+  /** The precomputed informational tally, or null when there is none to show.
+   * A row computed from an artifact the survey no longer names arrives as null
+   * with `tallyStale` set, never as figures. */
+  tally: SurveyTallyRow | null;
+  tallyStale: boolean;
+  /** Newest epoch the local power history holds, null when it holds nothing.
+   * Tells an uncomputed reading apart from an uncomputable one. */
+  powerEpoch: number | null;
 }
 
-const { survey, definition, links, cfg, now, appUrl, asOf } = Astro.props;
+const { survey, definition, links, cfg, now, appUrl, asOf, tally, tallyStale, powerEpoch } =
+  Astro.props;
 
 const { lifecycle, participation } = surveyState(survey, now, cfg);
 const questions = definition ? questionViews(definition) : [];
@@ -81,6 +99,16 @@ const deepLink = tesseraSurveyUrl(appUrl, survey.ref);
       </li>
     ))}
   </ol>
+
+  <SurveyTally
+    tally={tally}
+    tallyStale={tallyStale}
+    powerEpoch={powerEpoch}
+    survey={survey}
+    definition={definition}
+    lifecycle={lifecycle}
+    now={now}
+  />
 
   <dl class="svy-card__facts">
     <div>
