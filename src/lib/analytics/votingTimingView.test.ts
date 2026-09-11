@@ -9,7 +9,7 @@ function input(over: Partial<BuildVotingTimingInput> = {}): BuildVotingTimingInp
     spoByType: [],
     drepOverall: null,
     spoOverall: null,
-    halfDays: [],
+    half: { medianDay: null, basis: 0 },
     thirds: emptyThirds,
     ...over,
   };
@@ -42,12 +42,18 @@ describe('buildVotingTiming', () => {
     expect(v.spoTimed).toBe(40);
   });
 
-  it('passes the window thirds and computes the half-turnout median from the raw days', () => {
+  it('passes the window thirds and the reduced half-turnout figure through', () => {
     const thirds = { early: 10, middle: 20, late: 5, afterClose: 2, basis: 35 };
-    const v = buildVotingTiming(input({ thirds, halfDays: [1, 3, 5] }));
+    const v = buildVotingTiming(input({ thirds, half: { medianDay: 3, basis: 3 } }));
     expect(v.thirds).toBe(thirds);
     expect(v.halfTurnoutMedianDay).toBe(3);
     expect(v.halfBasis).toBe(3);
+  });
+
+  it('reports the half-turnout figure exactly as given, without re-reducing', () => {
+    const v = buildVotingTiming(input({ half: { medianDay: 2.5, basis: 4 } }));
+    expect(v.halfTurnoutMedianDay).toBe(2.5);
+    expect(v.halfBasis).toBe(4);
   });
 
   it('floors byType at 20 timed DRep votes, dropping thinner types entirely', () => {
