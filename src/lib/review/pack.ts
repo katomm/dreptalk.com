@@ -20,7 +20,7 @@ import type { EpochStatsRow } from '../analytics/epochStats.js';
 import { epochFromUnix, type NetworkConfig } from '../config/network.js';
 import { readThresholdSnapshot } from '../governance/thresholds.js';
 import { govActionHref } from './links.js';
-import { NCL_PERIODS } from '../../../config/ncl-periods.js';
+import { NCL_PERIODS, type NclPeriod } from '../../../config/ncl-periods.js';
 import { nclStatusFor } from '../governance/ncl.js';
 import { epochReadiness, watermarks, type EpochReadiness } from './readiness.js';
 import { epochBoundsUnix, lovelaceToAda, REVIEW_PACK_VERSION } from './units.js';
@@ -610,7 +610,23 @@ function buildNcl(
     const lovelace = withdrawalLovelace(w.onchain_payload);
     if (lovelace != null) readable.push({ enactedEpoch: w.enacted_epoch, lovelace });
   }
-  return NCL_PERIODS.filter((p) => p.startEpoch <= to && p.endEpoch >= from)
+  // A pack reports the period as it stood at the window's end. A later defining
+  // action that raised the ceiling or extended the runtime was not a fact yet in
+  // an earlier window, so before its epoch the earlier values are the operative
+  // ones and the raise is not announced at all.
+  const asOfWindow = (p: NclPeriod): NclPeriod => {
+    if (p.revisedFromEpoch == null || to >= p.revisedFromEpoch) return p;
+    return {
+      ...p,
+      ceilingLovelace: p.previousCeilingLovelace ?? p.ceilingLovelace,
+      previousCeilingLovelace: undefined,
+      endEpoch: p.previousEndEpoch ?? p.endEpoch,
+      previousEndEpoch: undefined,
+      revisedFromEpoch: undefined,
+    };
+  };
+  return NCL_PERIODS.map(asOfWindow)
+    .filter((p) => p.startEpoch <= to && p.endEpoch >= from)
     .sort((a, b) => b.startEpoch - a.startEpoch)
     .map((p) => {
       const status = nclStatusFor(p, readable);

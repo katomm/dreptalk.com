@@ -24,6 +24,7 @@ const emptyFrontmatter = { edition: 1,
   numbers: { delegatedPowerStartAda: null, delegatedPowerEndAda: null, votesCast: null, finalDrepVoters: null, treasuryStartAda: null, treasuryEndAda: null, limitations: [] },
   derived: [],
   corrections: [],
+  external: [],
 };
 
 const load = (name: string) => {
@@ -108,6 +109,80 @@ describe('an alias is no escape hatch', () => {
     const rules = factCheckEdition({ ...g, frontmatter: fm, body }).map((f) => f.rule);
     expect(rules).not.toContain('link-not-in-pack');
     expect(rules).toContain('name-not-in-pack');
+  });
+});
+
+describe('a DRep share the edition may not print as a share', () => {
+  const id = `${'e'.repeat(64)}#0`;
+  const pack = {
+    actions: {
+      events: [],
+      closingAtBoundary: [],
+      open: [{ id, title: 'Untouched', status: 'closed', expiryEpoch: 655, tally: { drep: { yesPct: 76.54 } } }],
+      comparisons: [],
+    },
+  };
+  const run = (row: Record<string, unknown>) =>
+    factCheckEdition({
+      frontmatter: { ...emptyFrontmatter, openActions: [{ id, title: 'Untouched', aliases: [], type: 'InfoAction', outcome: 'open', epoch: 655, ...row }] } as never,
+      body: `## X\n\nAs of the close, [Untouched](/ga/${'e'.repeat(64)}00/) was still being voted on.`,
+      pack,
+    }).filter((f) => f.rule === 'action-row-mismatch');
+
+  it('takes a note beside the stored share', () => expect(run({ drepYesPct: 76.54, drepYesPctNote: 'later-tally' })).toEqual([]));
+  it('does not let the note replace the stored share', () => {
+    expect(run({ drepYesPct: null, drepYesPctNote: 'later-tally' })).toEqual([expect.objectContaining({ message: expect.stringContaining('is not the pack tally') })]);
+  });
+  it('rejects a reason outside the two the schema names', () => {
+    expect(actionRowSchema.safeParse({ id, title: 'T', aliases: [], type: 'InfoAction', outcome: 'open', epoch: 655, drepYesPct: null, drepYesPctNote: 'because' }).success).toBe(false);
+  });
+});
+
+describe('a fact read outside the frozen pack', () => {
+  const pack = { actions: { events: [], closingAtBoundary: [], open: [], comparisons: [] } };
+  const run = (external: unknown[], body: string) =>
+    factCheckEdition({
+      frontmatter: { ...emptyFrontmatter, external } as never,
+      body,
+      pack,
+    });
+  const declared = [
+    {
+      claim: 'The spending period originally ran to the end of epoch 604, and a later action extended it by eight epochs.',
+      source: 'https://www.intersectmbo.org/news/recent-cardano-governance-actions',
+      sourceTitle: 'Intersect on the spending period',
+      numbers: [604],
+      names: ['Amaru'],
+    },
+  ];
+
+  // The bare fixture frontmatter has findings of its own, so each case reads the
+  // one rule it is about.
+  const of = (rule: string, external: unknown[], body: string) =>
+    run(external, body)
+      .filter((f) => f.rule === rule && !/\((title|standfirst)\)$/.test(f.message))
+      .map((f) => f.message);
+
+  it('licenses a declared number', () => {
+    expect(of('number-not-in-pack', declared, 'The period ran to the end of epoch 604.')).toEqual([]);
+  });
+  it('licenses a declared name', () => {
+    expect(of('name-not-in-pack', declared, 'Amaru asked for the extension.')).toEqual([]);
+  });
+  it('prints nothing for a body the declaration covers', () => {
+    expect(of('forbidden-phrasing', declared, 'Amaru asked for the extension.')).toEqual([]);
+  });
+  it('still flags a number nobody declared', () => {
+    expect(of('number-not-in-pack', declared, 'The period ran to the end of epoch 604, and 4,321 DReps agreed.')).toEqual([
+      expect.stringContaining('4,321'),
+    ]);
+  });
+  it('still flags a name nobody declared', () => {
+    expect(of('name-not-in-pack', declared, 'Fantasia asked for the extension.')).toEqual([expect.stringContaining('Fantasia')]);
+  });
+  it('holds the declared claim itself to the phrasing rules', () => {
+    const bad = [{ ...declared[0], claim: 'The period ran to 604 to a later action extended it, 4,321 times over.' }];
+    expect(of('number-not-in-pack', bad, 'Nothing to see.')).toEqual([expect.stringContaining('4,321')]);
   });
 });
 

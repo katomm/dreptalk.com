@@ -31,9 +31,27 @@ function openLabel(row: ActionRow): string {
   return `Voting ends at the start of epoch ${row.epoch}`;
 }
 
+// A stored share is only printed when it is a share of this window. A row that
+// carries a note prints n/a instead, and the note under the table says why, so
+// a number the reader cannot use is never dressed up as one they can.
 function yesPct(row: ActionRow): string {
-  return row.drepYesPct === null ? 'n/a' : `${row.drepYesPct.toFixed(1)}%`;
+  if (row.drepYesPctNote != null || row.drepYesPct === null) return 'n/a';
+  return `${row.drepYesPct.toFixed(1)}%`;
 }
+
+const NOTE_TEXT: Record<'not-applicable' | 'later-tally', string> = {
+  'not-applicable': 'n/a: DReps had no vote on this action under the rules then in force, so the record stores no share of theirs.',
+  'later-tally': 'n/a: the record holds no DRep share from inside this window for this action, only a tally read after it closed.',
+};
+
+// One line per reason actually used, in a fixed order so the wording of a page
+// does not depend on the order of its rows.
+function notesFor(all: readonly ActionRow[]): string[] {
+  const used = new Set(all.map((r) => r.drepYesPctNote).filter((n): n is 'not-applicable' | 'later-tally' => n != null));
+  return (['not-applicable', 'later-tally'] as const).filter((k) => used.has(k)).map((k) => NOTE_TEXT[k]);
+}
+const decidedNotes = notesFor(shown);
+const openNotes = notesFor(open);
 ---
 
 {
@@ -64,6 +82,9 @@ function yesPct(row: ActionRow): string {
           </tbody>
         </table>
       </div>
+      {decidedNotes.map((n) => (
+        <p class="rv-also__note">{n}</p>
+      ))}
     </section>
   )
 }
@@ -96,6 +117,9 @@ function yesPct(row: ActionRow): string {
           </tbody>
         </table>
       </div>
+      {openNotes.map((n) => (
+        <p class="rv-also__note">{n}</p>
+      ))}
     </section>
   )
 }
@@ -104,6 +128,7 @@ function yesPct(row: ActionRow): string {
   .rv-also { margin: 2.5rem 0 0; }
   .rv-also h2 { font-size: 1.25rem; margin: 0 0 0.75rem; }
   .rv-also__scroll { overflow-x: auto; }
+  .rv-also__note { font-size: 0.82rem; color: var(--muted); line-height: 1.5; margin: 0.6rem 0 0; }
   table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
   th { text-align: left; font-size: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); font-weight: 600; padding: 0 0.6rem 0.5rem 0; }
   td { padding: 0.6rem 0.6rem 0.6rem 0; border-top: 1px solid var(--border); vertical-align: top; }

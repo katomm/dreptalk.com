@@ -1,0 +1,39 @@
+---
+// Facts the frozen pack does not carry, each with the source it was read from.
+// The snapshot next to the article is the floor of the research, not its
+// ceiling: an edition may explain what a proposal asked for or which rules
+// applied at the time. Printing those claims here keeps the two kinds of fact
+// apart, so a reader always knows which figures trace to the snapshot and which
+// were read somewhere else.
+import type { ReviewFrontmatter } from '@/lib/review/schema.js';
+
+interface Props {
+  external: ReviewFrontmatter['external'];
+}
+const { external } = Astro.props;
+---
+
+{
+  external.length > 0 && (
+    <section class="rv-sources">
+      <h2>Read outside the frozen data</h2>
+      <ul>
+        {external.map((x) => (
+          <li>
+            {x.claim}{' '}
+            <a href={x.source} rel="noopener nofollow">
+              {x.sourceTitle}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
+<style>
+  .rv-sources { margin: 2.5rem 0 0; }
+  .rv-sources h2 { font-size: 1.25rem; margin: 0 0 0.75rem; }
+  ul { margin: 0; padding-left: 1.1rem; font-size: 0.88rem; line-height: 1.55; color: var(--muted); }
+  li + li { margin-top: 0.5rem; }
+</style>

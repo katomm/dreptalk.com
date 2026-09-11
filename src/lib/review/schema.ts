@@ -15,6 +15,13 @@ export const actionRowSchema = z.object({
   outcome: z.enum(['ratified', 'enacted', 'expired', 'dropped', 'closed', 'open', 'submitted']),
   epoch: z.number().int(),
   drepYesPct: z.number().nullable(),
+  /** Why the stored DRep share is not a reading this edition may print as one.
+   *  "not-applicable": the role had no vote on this action under the rules then
+   *  in force, so a stored 0% is not a rejection by DReps. "later-tally": the
+   *  pack holds only a tally read after the window closed, so no share from
+   *  inside the window exists. Either way the table prints n/a and explains it,
+   *  while drepYesPct keeps repeating the pack so the fact check stays exact. */
+  drepYesPctNote: z.enum(['not-applicable', 'later-tally']).optional(),
 });
 export type ActionRow = z.infer<typeof actionRowSchema>;
 
@@ -64,6 +71,24 @@ export const reviewFrontmatterSchema = z
     }),
     derived: z.array(z.object({ value: z.number(), op: z.enum(['sum', 'diff']), from: z.array(z.string()).min(1).max(40) })).default([]),
     corrections: z.array(z.object({ date: z.coerce.date(), note: z.string() })).default([]),
+    /** Facts the frozen pack does not carry: what a proposal asked for, the
+     *  rules that applied at the time, a value read from a primary source. The
+     *  pack is the floor of the research, not its ceiling, so an edition may
+     *  explain its subject. Each entry names its source and declares the
+     *  numbers and proper names it licenses for the prose, which keeps the
+     *  number and name scans exhaustive: a figure in the text is either in the
+     *  pack or listed here with where it came from. The page prints the list. */
+    external: z
+      .array(
+        z.object({
+          claim: z.string().min(1),
+          source: z.url(),
+          sourceTitle: z.string().min(1),
+          numbers: z.array(z.number()).default([]),
+          names: z.array(z.string().min(1)).default([]),
+        }),
+      )
+      .default([]),
     // Every "highest" or "lowest" the prose claims for a series metric, so the
     // fact check can hold it against pack.records: the extreme has to fall
     // inside the window. A record is only ever a record up to the window's

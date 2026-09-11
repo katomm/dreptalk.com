@@ -166,11 +166,16 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
   // Source paths resolve against the pack plus the verified derived values under the reserved key "derived".
   const scope = { ...(pack as Record<string, unknown>), derived: verifiedDerived };
 
-  // Candidate numbers: every number and array length in the pack, the verified derived values, and epochs around the window.
+  // Candidate numbers: every number and array length in the pack, the verified
+  // derived values, epochs around the window, and the numbers the external
+  // block declares. An external number is licensed by its own source line, not
+  // by the pack: the page prints the claim and the source next to the article,
+  // so a reader sees where a figure the snapshot never held came from.
   const candidates = new Set<number>();
   collectNumbers(pack, candidates);
   for (const d of verifiedDerived) if (d) candidates.add(d.value);
   for (let e = fm.epochFrom - 30; e <= fm.epochTo + 30; e++) candidates.add(e);
+  for (const x of fm.external ?? []) for (const n of x.numbers) candidates.add(n);
   const known = (shown: Shown) => [...candidates].some((c) => shownMatches(shown, c));
 
   // 1. fact tiles and the social figure, which is a fact tile on a card
@@ -193,6 +198,7 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
     { label: 'ogFigure label', text: fm.ogFigure.label },
     ...fm.facts.map((f, i) => ({ label: `fact ${i + 1} label`, text: f.label })),
     ...fm.corrections.map((c, i) => ({ label: `correction ${i + 1} note`, text: c.note })),
+    ...(fm.external ?? []).map((x, i) => ({ label: `external ${i + 1} claim`, text: x.claim })),
   ];
 
   // 4. chart blocks, then strip them from the prose
@@ -357,6 +363,10 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
   // name the record does not carry. Whether the short form is used for the
   // right action stays layer 2's job, like every other known name.
   const knownRuns = new Set<string>([...GOVERNANCE_TERMS, ...verifiedLinkTexts]);
+  // Names the external block declares, for the same reason as its numbers: a
+  // proposal's applicant or a body the rules name exists outside the snapshot,
+  // and the page prints where the edition read it.
+  for (const x of fm.external ?? []) for (const n of x.names) knownRuns.add(n);
   const titleWord = (w: string) => w.replace(/[.,:;!?()"“”]+$/, '').replace(/^[("“]+/, '').replace(/[’']s$/, '');
   for (const [id, list] of aliasesById) {
     const words = new Set((titleFor(id) ?? '').split(/\s+/).map(titleWord).filter(Boolean));

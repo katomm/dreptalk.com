@@ -6,6 +6,7 @@ import JsonLd from '@/components/JsonLd.astro';
 import ReviewFacts from '@/components/review/ReviewFacts.astro';
 import ReviewAlsoDecided from '@/components/review/ReviewAlsoDecided.astro';
 import ReviewNumbers from '@/components/review/ReviewNumbers.astro';
+import ReviewSources from '@/components/review/ReviewSources.astro';
 import { loadEditions, editionSlug, formatWindowDates } from '@/lib/review/editions.js';
 import { govActionHref } from '@/lib/review/links.js';
 import { parseSlug } from '@/lib/review/windows.js';
@@ -97,6 +98,7 @@ Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
     <div class="rv-body prose"><Content /></div>
     <ReviewAlsoDecided rows={d.alsoDecided} open={d.openActions} featured={d.featuredActions} epochTo={d.epochTo} />
     <ReviewNumbers numbers={d.numbers} from={d.epochFrom} to={d.epochTo} />
+    <ReviewSources external={d.external} />
     <p class="rv-data">
       Data behind this edition: a snapshot of the site's governance data taken {dataAsOf}, frozen as{' '}
       <a href={packUrl} rel="noopener">{slug}.pack.json</a> next to the article. Every figure above traces to a field in that file. Its git blob hash{' '}
