@@ -8,6 +8,7 @@ import type { CommitteeMemberTerm } from '@/lib/koios/committeeTimeline.js';
 const cfg = resolveNetwork('preprod');
 
 const action = (over: Partial<TrendAssemblyInputs['action']> = {}): TrendAssemblyInputs['action'] => ({
+  status: 'closed',
   submittedEpoch: 10,
   expiryEpoch: 20,
   decidedEpoch: 15,

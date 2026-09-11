@@ -15,7 +15,7 @@ const hotToCold = new Map([
 const nameIndex = { byHot: () => null, byCold: (c: string) => (c === 'cold1' ? 'Alice Org' : null) };
 
 const action = (over: Partial<DecidedCcAction>): DecidedCcAction => ({
-  gaId: 'ga1', title: 'T', topicSlug: null, type: 'InfoAction', decidedEpoch: 600,
+  gaId: 'ga1', title: 'T', topicSlug: null, type: 'InfoAction', status: 'closed', decidedEpoch: 600, ratifiedEpoch: null, expiryEpoch: null,
   submittedAt: 0, ccYesPct: 100, thresholdsJson: '{"cc":66.7,"ccBelowMinSize":false,"v":2}',
   ...over,
 });

@@ -1,10 +1,11 @@
 // Assembles the CC vote breakdown rows for one action. Pure, no I/O. Eligible
-// members are those active at the epoch (the same set activeCommitteeMembersAt
-// computes for the CC tally), so breakdown and tally never disagree. Votes are
+// members are those active for the action's committee reference (the same set
+// the CC tally resolves, see committeeReferenceForAction), so breakdown and tally
+// never disagree. Votes are
 // deduped with finalCcVoteByMember (the same the tally uses). These rows are NOT
 // DReps: the caller renders them directly (identicon + name), never through
 // voterDescriptor/AuthorIdentity/drepPath.
-import { activeCommitteeMembersAt, type CommitteeMemberTerm } from '../koios/committeeTimeline.js';
+import { activeCommitteeMembersFor, type CommitteeMemberTerm, type CommitteeReference } from '../koios/committeeTimeline.js';
 import { finalCcVoteByMember } from '../koios/corrections.js';
 import type { CcVoteRow } from '../db/committee.js';
 import type { CcNameIndex } from './ccNames.js';
@@ -23,7 +24,8 @@ export interface CcPositionRow {
 
 const VOTE_ORDER: Record<string, number> = { Yes: 0, No: 1, Abstain: 2 };
 
-function termRowAt(members: CommitteeMemberTerm[], coldKeyHex: string, epoch: number): CommitteeMemberTerm | null {
+function termRowAt(members: CommitteeMemberTerm[], coldKeyHex: string, ref: CommitteeReference | number): CommitteeMemberTerm | null {
+  const epoch = typeof ref === 'number' ? ref : ref.epoch;
   return members.find((m) => m.coldKeyHex === coldKeyHex && m.versionFrom <= epoch && (m.versionTo == null || m.versionTo >= epoch)) ?? null;
 }
 
@@ -39,14 +41,15 @@ export function buildCcPositions(input: {
   members: CommitteeMemberTerm[];
   hotToCold: Map<string, string>;
   votes: CcVoteRow[];
-  epoch: number | null;
+  /** The committee reference of the action (a bare number is an observed epoch). */
+  epoch: CommitteeReference | number | null;
   currentEpoch: number | null;
   nameIndex: CcNameIndex;
   rationales: Map<string, { bodyHtml: string | null; status: string }>;
 }): CcPositionRow[] {
   const { members, hotToCold, votes, epoch, currentEpoch, nameIndex, rationales } = input;
   if (epoch == null) return [];
-  const active = activeCommitteeMembersAt(members, epoch);
+  const active = activeCommitteeMembersFor(members, epoch);
   if (active.size === 0) return [];
 
   const coldToHot = new Map<string, string>();

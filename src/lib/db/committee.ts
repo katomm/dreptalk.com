@@ -4,7 +4,7 @@
 // live Koios sync and the one-time historical seed. Distinct from
 // koios/committee.ts, which is pure math on a single live committee_info snapshot.
 import type { CommitteeMember } from '../koios/client.js';
-import type { CommitteeMemberTerm } from '../koios/committeeTimeline.js';
+import { boundaryOf, observedAt, type CommitteeMemberTerm, type CommitteeReference } from '../koios/committeeTimeline.js';
 import { ccTallyPct, type CcVote } from '../koios/corrections.js';
 import { concludedStatusSql } from './sql.js';
 
@@ -170,7 +170,10 @@ export interface DecidedCcAction {
   title: string | null;
   topicSlug: string | null;
   type: string;
+  status: string;
   decidedEpoch: number;
+  ratifiedEpoch: number | null;
+  expiryEpoch: number | null;
   submittedAt: number | null;
   ccYesPct: number | null;
   thresholdsJson: string | null;
@@ -180,7 +183,7 @@ export interface DecidedCcAction {
 export async function listDecidedCcActions(db: D1Database): Promise<DecidedCcAction[]> {
   const res = await db
     .prepare(
-      `SELECT g.id, g.title, t.slug AS topic_slug, g.type, g.decided_epoch, g.submitted_at, g.cc_yes_pct, g.thresholds_json
+      `SELECT g.id, g.title, t.slug AS topic_slug, g.type, g.status, g.decided_epoch, g.ratified_epoch, g.expiry_epoch, g.submitted_at, g.cc_yes_pct, g.thresholds_json
          FROM governance_actions g
          LEFT JOIN topics t ON t.id = g.topic_id
         WHERE g.decided_epoch IS NOT NULL AND ${concludedStatusSql('g')}`,
@@ -190,7 +193,10 @@ export async function listDecidedCcActions(db: D1Database): Promise<DecidedCcAct
       title: string | null;
       topic_slug: string | null;
       type: string;
+      status: string;
       decided_epoch: number;
+      ratified_epoch: number | null;
+      expiry_epoch: number | null;
       submitted_at: number | null;
       cc_yes_pct: number | null;
       thresholds_json: string | null;
@@ -200,7 +206,10 @@ export async function listDecidedCcActions(db: D1Database): Promise<DecidedCcAct
     title: r.title,
     topicSlug: r.topic_slug,
     type: r.type,
+    status: r.status,
     decidedEpoch: r.decided_epoch,
+    ratifiedEpoch: r.ratified_epoch,
+    expiryEpoch: r.expiry_epoch,
     submittedAt: r.submitted_at,
     ccYesPct: r.cc_yes_pct,
     thresholdsJson: r.thresholds_json,
@@ -259,19 +268,22 @@ export async function ledgerCcTally(
   db: D1Database,
   timeline: CommitteeTimeline,
   gaId: string,
-  epoch: number | null,
+  ref: CommitteeReference | null,
 ): Promise<{ yesPct: number; noPct: number; yes: number; no: number; abstain: number } | null> {
-  if (timeline.members.length === 0 || epoch == null) return null;
+  if (timeline.members.length === 0 || ref == null) return null;
   const votes = await getCommitteeVotes(db, gaId);
   if (votes.length === 0) return null;
-  const t = ccTallyPct(votes, timeline.members, timeline.hotToCold, epoch);
+  const t = ccTallyPct(votes, timeline.members, timeline.hotToCold, ref);
   if (t.yesPct == null || t.noPct == null) return null;
   return { yesPct: t.yesPct, noPct: t.noPct, yes: t.yes, no: t.no, abstain: t.abstain };
 }
 
 interface RecomputeRow {
   id: string;
+  status: string;
   decidedEpoch: number | null;
+  ratifiedEpoch: number | null;
+  expiryEpoch: number | null;
   ccYesPct: number | null;
   ccNoPct: number | null;
   ccYes: number | null;
@@ -283,7 +295,7 @@ interface RecomputeRow {
 async function getActionsForCommitteeRecompute(db: D1Database, limit: number): Promise<RecomputeRow[]> {
   const res = await db
     .prepare(
-      `SELECT ga.id, ga.decided_epoch, ga.cc_yes_pct, ga.cc_no_pct, ga.cc_yes, ga.cc_no, ga.cc_abstain
+      `SELECT ga.id, ga.status, ga.decided_epoch, ga.ratified_epoch, ga.expiry_epoch, ga.cc_yes_pct, ga.cc_no_pct, ga.cc_yes, ga.cc_no, ga.cc_abstain
          FROM governance_actions ga
         WHERE EXISTS (SELECT 1 FROM drep_votes v WHERE v.ga_id = ga.id AND v.voter_role = 'ConstitutionalCommittee')
         LIMIT ?`,
@@ -291,7 +303,10 @@ async function getActionsForCommitteeRecompute(db: D1Database, limit: number): P
     .bind(limit)
     .all<{
       id: string;
+      status: string;
       decided_epoch: number | null;
+      ratified_epoch: number | null;
+      expiry_epoch: number | null;
       cc_yes_pct: number | null;
       cc_no_pct: number | null;
       cc_yes: number | null;
@@ -300,7 +315,10 @@ async function getActionsForCommitteeRecompute(db: D1Database, limit: number): P
     }>();
   return (res.results ?? []).map((r) => ({
     id: r.id,
+    status: r.status,
     decidedEpoch: r.decided_epoch,
+    ratifiedEpoch: r.ratified_epoch,
+    expiryEpoch: r.expiry_epoch,
     ccYesPct: r.cc_yes_pct,
     ccNoPct: r.cc_no_pct,
     ccYes: r.cc_yes,
@@ -309,13 +327,39 @@ async function getActionsForCommitteeRecompute(db: D1Database, limit: number): P
   }));
 }
 
+/** The lifecycle fields the committee reference of an action is derived from. */
+export interface CommitteeReferenceInput {
+  status: string;
+  decidedEpoch: number | null;
+  ratifiedEpoch?: number | null;
+  expiryEpoch?: number | null;
+}
+
+/** Statuses of an action whose decision boundary has passed. */
+const DECIDED_STATUSES = new Set(['ratified', 'enacted', 'expired', 'dropped', 'closed']);
+
 /**
- * The epoch whose committee may vote on an action: its decided epoch, or the
- * current epoch while still open. The single rule the CC tally and the CC
- * breakdown both use, so they never resolve different committees.
+ * The committee an action is judged by, the single rule the CC tally, the
+ * threshold snapshot, the CC breakdown and the review pack all use, so they
+ * never resolve different committees. A decided action is judged at its
+ * decision boundary: the start of its ratified epoch, or of its expiry epoch
+ * when it ran out, or of the epoch it was dropped or closed in. An enacted row
+ * from before the ratified_epoch column carries only the enactment epoch, one
+ * past the ratification, so the boundary is derived from it. An action still
+ * open has no boundary yet and is described as observed at the current epoch.
+ * Null when neither can be told (no lifecycle epoch and no current epoch).
  */
-export function committeeEpochForAction(decidedEpoch: number | null, currentEpoch: number | null): number | null {
-  return decidedEpoch ?? currentEpoch;
+export function committeeReferenceForAction(a: CommitteeReferenceInput, currentEpoch: number | null): CommitteeReference | null {
+  if (DECIDED_STATUSES.has(a.status)) {
+    if (a.ratifiedEpoch != null) return boundaryOf(a.ratifiedEpoch);
+    if (a.status === 'enacted') return a.decidedEpoch != null ? boundaryOf(a.decidedEpoch - 1) : null;
+    if (a.status === 'expired') {
+      const e = a.expiryEpoch ?? a.decidedEpoch;
+      return e != null ? boundaryOf(e) : null;
+    }
+    return a.decidedEpoch != null ? boundaryOf(a.decidedEpoch) : null;
+  }
+  return currentEpoch != null ? observedAt(currentEpoch) : null;
 }
 
 export interface CommitteePctRecomputeResult {
@@ -326,9 +370,9 @@ export interface CommitteePctRecomputeResult {
 
 /**
  * Replaces the stored Koios committee_yes_pct with the ledger-exact recompute for
- * every action that has committee votes. Uses the action's decided epoch (or the
- * current epoch while still open) to resolve the committee size, and the per-voter
- * votes deduped per member. Only-changed: writes only when the pct actually moves,
+ * every action that has committee votes. Resolves the committee at the action's
+ * decision boundary (or as observed at the current epoch while still open, see
+ * committeeReferenceForAction), and dedupes the per-voter votes per member. Only-changed: writes only when the pct actually moves,
  * so a settled action converges after one pass. Skips (keeps the Koios value) when
  * the committee at that epoch is unknown (data older than the seed).
  */
@@ -343,13 +387,13 @@ export async function recomputeCommitteePct(
   let updated = 0;
   let skipped = 0;
   for (const a of actions) {
-    const epoch = committeeEpochForAction(a.decidedEpoch, currentEpoch);
-    if (epoch == null) {
+    const ref = committeeReferenceForAction(a, currentEpoch);
+    if (ref == null) {
       skipped++;
       continue;
     }
     const votes = await getCommitteeVotes(db, a.id);
-    const { yesPct, noPct, yes, no, abstain } = ccTallyPct(votes, members, hotToCold, epoch);
+    const { yesPct, noPct, yes, no, abstain } = ccTallyPct(votes, members, hotToCold, ref);
     if (yesPct == null || noPct == null) {
       skipped++;
       continue;

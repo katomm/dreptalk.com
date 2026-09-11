@@ -48,3 +48,62 @@ export function activeCommitteeMembersAt(members: CommitteeMemberTerm[], epoch: 
 export function activeCommitteeSizeAt(members: CommitteeMemberTerm[], epoch: number): number {
   return activeCommitteeMembersAt(members, epoch).size;
 }
+
+/**
+ * When a committee is resolved. The ledger decides a governance action at an
+ * epoch boundary, so a decided action is judged by the committee that stood at
+ * that boundary ('boundary', epoch R = the epoch the boundary opens). An action
+ * still open has no such point yet and is described as observed at the end of
+ * an epoch ('observed'), the epoch-end reading activeCommitteeMembersAt gives.
+ * A bare number is read as an observed epoch, which keeps older callers valid.
+ */
+export type CommitteeReference = { kind: 'boundary'; epoch: number } | { kind: 'observed'; epoch: number };
+
+export function observedAt(epoch: number): CommitteeReference {
+  return { kind: 'observed', epoch };
+}
+
+export function boundaryOf(epoch: number): CommitteeReference {
+  return { kind: 'boundary', epoch };
+}
+
+/**
+ * The cold-key members the ledger counts at the boundary that opens epoch R.
+ * Conway ratifies at the epoch transition into R: the committee enactments of
+ * that same boundary are applied first, the ratification check then compares
+ * with R itself (Ratify.hs, committeeAcceptedRatio), and the certificate state
+ * it sees is the one before any transaction of epoch R. Hence:
+ *  - the version in force from R counts (a committee change enacted at this
+ *    boundary is already the committee),
+ *  - a term that expires before R is out, one expiring in R-1 included,
+ *  - a hot key authorized inside R does not count yet (authorizedFrom <= R-1),
+ *  - a resignation inside R has not happened yet (resignedAt >= R stays active).
+ * The last rule is what separates this from the epoch-end reading: a member who
+ * resigned in the epoch a ratification opened still voted at that boundary.
+ */
+export function activeCommitteeMembersAtBoundary(members: CommitteeMemberTerm[], epoch: number): Set<string> {
+  const active = new Set<string>();
+  for (const m of members) {
+    if (
+      m.versionFrom <= epoch &&
+      (m.versionTo == null || m.versionTo >= epoch) &&
+      m.termExpiration >= epoch &&
+      m.authorizedFrom <= epoch - 1 &&
+      (m.resignedAt == null || m.resignedAt >= epoch)
+    ) {
+      active.add(m.coldKeyHex);
+    }
+  }
+  return active;
+}
+
+/** The active members for a reference, boundary or observed. */
+export function activeCommitteeMembersFor(members: CommitteeMemberTerm[], ref: CommitteeReference | number): Set<string> {
+  if (typeof ref === 'number') return activeCommitteeMembersAt(members, ref);
+  return ref.kind === 'boundary' ? activeCommitteeMembersAtBoundary(members, ref.epoch) : activeCommitteeMembersAt(members, ref.epoch);
+}
+
+/** The active committee size for a reference: the denominator before abstains leave it. */
+export function activeCommitteeSizeFor(members: CommitteeMemberTerm[], ref: CommitteeReference | number): number {
+  return activeCommitteeMembersFor(members, ref).size;
+}
