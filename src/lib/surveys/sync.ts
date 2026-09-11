@@ -20,22 +20,37 @@
 // imported here, is the one no verdict on an answer depends on.
 
 import {
+  collectSurveyBundle,
   MAX_PAGE_LIMIT,
+  type SurveyBundlePayload,
   type SurveyChangesPayload,
   type SurveyListPayload,
   type TesseraClient,
 } from 'cardano-tessera-client';
 import { Role, type SurveyDefinition } from 'cip-179';
-import { aggregate, type ChainTip, type SurveyAggregate } from 'cip-179/domain';
+import { aggregate, bytesToHex, type ChainTip, type SurveyAggregate } from 'cip-179/domain';
 import { toJsonSafe } from 'cip-179/tally';
 import { SURVEYS_CATEGORY_SLUG } from '../../../config/categories.js';
+import { loadPowerLookup, newestPowerEpoch } from '../db/drepPower.js';
 import { createTopic } from '../db/forum.js';
+import {
+  deleteSurveyTallies,
+  dequeueSurveyTally,
+  enqueueSurveyTallies,
+  getRefsWithoutTally,
+  getStaleLiveRefs,
+  markSurveyTallyAttempt,
+  takeSurveyTallyWork,
+  upsertSurveyTally,
+} from '../db/surveyTally.js';
 import {
   buildDeleteGovLinks,
   buildInsertGovLink,
   buildPublishSurvey,
   buildUpsertSurvey,
   getPublishableSurveys,
+  getStoredSurveyFacts,
+  getSurveyByRef,
   getSurveySyncState,
   getSurveysAwaitingFinalCount,
   type NewSurvey,
@@ -48,9 +63,20 @@ import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
 import { renderMarkdown } from '../markdown.js';
 import { MAX_EXTERNAL_TITLE_LEN, sanitizeExternalText } from '../validation/input.js';
 import { eligibleSurvey } from './admission.js';
+import { type ArtifactInput, computeSurveyTally } from './tallyCompute.js';
 import { parseSurveyDefinition, roleLabels, surveyDescription, surveyTitle } from './view.js';
 
-export type SurveysTessera = Pick<TesseraClient, 'changes' | 'changesSince' | 'artifactByHash'>;
+/**
+ * `bundle`, deliberately not `wholeBundle`. wholeBundle is collectSurveyBundle
+ * wrapped around bundle, and it pages with no limit at all while restarting the
+ * whole collection on a snapshot change, so calling it hands away the only
+ * boundary a request budget can be enforced at. The tally pass drives
+ * collectSurveyBundle itself, with a page fetcher that reserves budget first.
+ */
+export type SurveysTessera = Pick<
+  TesseraClient,
+  'changes' | 'changesSince' | 'artifactByHash' | 'bundle'
+>;
 
 export interface SurveysSyncDeps {
   db: D1Database;
@@ -74,6 +100,8 @@ export interface SurveysSyncResult {
   rolledBack: number;
   /** Finalized surveys whose artifact count was stored this run. */
   finalCounts: number;
+  /** Surveys whose informational tally was written this run. */
+  tallies: number;
   failed: number;
 }
 
@@ -83,6 +111,15 @@ export interface SurveysSyncResult {
  * warning. The warning is the cue to raise the cap, not something to page
  * around. */
 export const MAX_LIST_PAGES = 25;
+
+/**
+ * Requests the tally pass may spend per run, counted in actual HTTP requests
+ * rather than in bundles: a bundle pages with no limit of its own and restarts
+ * its whole collection on a snapshot change (up to MAX_BUNDLE_RESYNCS), so a
+ * per-bundle cap bounds nothing. A survey that does not fit the remaining
+ * allowance stays queued and the next run continues from the same place.
+ */
+export const MAX_TALLY_REQUESTS = 40;
 
 interface DecodedSet {
   aggregates: SurveyAggregate[];
@@ -185,6 +222,7 @@ async function applyDelta(
   const { db, now } = deps;
   const withdrawn = [...removed];
   const statements: D1PreparedStatement[] = [];
+  const admitted: NewSurvey[] = [];
   let written = 0;
   for (const a of set.aggregates) {
     if (!eligibleSurvey(a)) {
@@ -213,10 +251,44 @@ async function applyDelta(
       buildDeleteGovLinks(db, a.key),
       ...a.govLinks.map(l => buildInsertGovLink(db, a.key, l.actionId, linkTitle(l.title))),
     );
+    admitted.push(row);
     written++;
   }
+
+  // The stored rows as they stand before this delivery is applied, read in one
+  // query: which withdrawn rows the withdrawal will actually delete (a published
+  // one is only flagged), and which delivered rows change their artifact hash.
+  // Both questions are about the precomputed tally, and both have to be asked
+  // now, since applying the delivery is what erases the answer.
+  const before = await getStoredSurveyFacts(db, [...withdrawn, ...admitted.map(r => r.ref)]);
+  // A published survey keeps its tally: the removal is advisory and can be
+  // transient (a reorg relands the transaction), the card shows the unavailable
+  // reason instead of the figures, and throwing the aggregate away would mean
+  // refetching a bundle to rebuild what we still had.
+  const deleted = withdrawn.filter(ref => before.get(ref)?.published === false);
+  // A tally computed against one artifact may never be shown beside another, and
+  // recognising the change as work is not enough: a recomputation that fails or
+  // runs out of budget would leave the previous artifact's figures standing as
+  // current. So the row goes now, which also makes the survey a no-row survey,
+  // the one selection getRefsWithoutTally already finds.
+  const movedArtifact = admitted
+    .filter(r => {
+      const stored = before.get(r.ref);
+      return stored !== undefined && stored.artifactHash !== r.artifactHash;
+    })
+    .map(r => r.ref);
+
   const rolledBack = withdrawn.length > 0 ? await withdrawSurveys(db, withdrawn, now) : 0;
   if (statements.length > 0) await db.batch(statements);
+  // The delete drops the queue row too, so the enqueue has to come after it, or
+  // a survey whose artifact just moved would lose the work order for its own
+  // recomputation.
+  await deleteSurveyTallies(db, [...new Set([...deleted, ...movedArtifact])]);
+  await enqueueSurveyTallies(
+    db,
+    admitted.map(r => r.ref),
+    now,
+  );
   return { written, rolledBack };
 }
 
@@ -245,6 +317,131 @@ async function publish(deps: SurveysSyncDeps, p: PublishableSurvey): Promise<voi
   });
 }
 
+/** A shared, mutable request allowance. Reserved before every single request,
+ * because the unbounded dimension is bundle pages, not bundles. */
+interface RequestBudget {
+  left: number;
+}
+
+/** Reserve one request, or refuse. Refusing is not an error: the survey stays
+ * queued and the next run continues from the same place. */
+function reserve(budget: RequestBudget): boolean {
+  if (budget.left <= 0) return false;
+  budget.left--;
+  return true;
+}
+
+class BudgetExhausted extends Error {}
+
+/**
+ * One survey's tally, or false when nothing should be written: it is not
+ * eligible, the power history cannot weigh it, the budget ran out mid-bundle, or
+ * it was withdrawn while the bundle was being collected. A partial bundle is a
+ * wrong result rather than a stale one, so nothing is ever written
+ * half-computed.
+ */
+async function tallyOneSurvey(
+  db: D1Database,
+  tessera: SurveysTessera,
+  ref: string,
+  now: number,
+  budget: RequestBudget,
+): Promise<boolean> {
+  const row = await getSurveyByRef(db, ref);
+  if (row === null) return false;
+
+  // Eligibility from the row's own flags. Deliberately NOT via surveyState:
+  // none of these need the epoch calendar, so the pass needs no NetworkConfig,
+  // and syncSurveys has none to give.
+  const finalized = row.finalState === 'finalized' && row.artifactHash !== null;
+  if (
+    row.unavailable ||
+    row.externalContent ||
+    row.cancelled ||
+    row.finalState === 'untalliable' ||
+    !row.eligibleRoles.includes(Role.DRep)
+  ) {
+    return false;
+  }
+  // Sealed is excluded from the LIVE path only. With an artifact it is an
+  // ordinary artifact-path survey, and its head count comes from the artifact
+  // because auditResponses cannot see a sealed answer. computeSurveyTally only
+  // documents that precondition, this guard is what enforces it.
+  if (row.sealed && !finalized) return false;
+
+  const definition = parseSurveyDefinition(row.definitionJson);
+  if (definition === null) return false;
+
+  // The hash the computation assumes. The guarded write compares the survey's
+  // value against exactly this, so an artifact that appears mid-fetch refuses
+  // the write instead of being silently mixed in.
+  const expectedArtifactHash = row.artifactHash;
+
+  let bundle: SurveyBundlePayload;
+  try {
+    bundle = await collectSurveyBundle(async cursor => {
+      if (!reserve(budget)) throw new BudgetExhausted();
+      const page = await tessera.bundle(ref, cursor);
+      if (!page.ready) throw new Error(`bundle for ${ref} not ready`);
+      return page.body;
+    });
+  } catch (err) {
+    // Out of budget is an ordinary deferral, not a failure to report. Every
+    // other error, including collectSurveyBundle's restart limit, is a failure.
+    if (err instanceof BudgetExhausted) return false;
+    throw err;
+  }
+
+  const credentials = bundle.responses.map(r => {
+    const c = r.response.credential;
+    return c.type === 'key'
+      ? { hex: bytesToHex(c.keyHash), isScript: false }
+      : { hex: bytesToHex(c.scriptHash), isScript: true };
+  });
+  const power = await loadPowerLookup(db, credentials);
+  if (power === null) return false;
+
+  // Three distinct states, decided from the survey's own state rather than from
+  // a list of repair candidates: no artifact (live), an artifact whose DRep role
+  // is present, and an artifact whose DRep role is absent, which means zero
+  // counted responders and is STILL the artifact path. Pass 3 already documents
+  // that reading.
+  let artifact: ArtifactInput | null = null;
+  if (finalized) {
+    if (!reserve(budget)) return false;
+    const a = await tessera.artifactByHash(row.artifactHash as string);
+    if (a === null) throw new Error(`artifact ${row.artifactHash} unknown to the backend`);
+    const role = a.tally.perRole.find(r => r.role === Role.DRep) ?? {
+      role: Role.DRep,
+      total: null,
+      responders: [],
+      questions: [],
+    };
+    artifact = { role, endEpoch: a.tally.survey.endEpoch };
+  }
+
+  const computed = computeSurveyTally({
+    definition,
+    responses: bundle.responses,
+    verdicts: bundle.verdicts,
+    power,
+    artifact,
+    sealed: row.sealed,
+  });
+
+  // computeSurveyTally has no hash to report: it was handed a role tally and an
+  // epoch, never an address. The hash the computation was bound to is the
+  // caller's to record, and only on the artifact path.
+  return upsertSurveyTally(db, {
+    ...computed,
+    surveyRef: ref,
+    artifactHash: artifact === null ? null : expectedArtifactHash,
+    expectedArtifactHash,
+    bundleFetchedAt: bundle.fetchedAt ?? Math.floor(now / 1000),
+    computedAt: now,
+  });
+}
+
 export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncResult> {
   const { db, tessera, now } = deps;
   const state = await getSurveySyncState(db);
@@ -252,13 +449,20 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
   let published = 0;
   let rolledBack = 0;
   let finalCounts = 0;
+  let tallies = 0;
   let failed = 0;
+  /** Requests the earlier passes actually issued, which is what the tally
+   * pass's allowance is reduced by. Counted rather than assumed: the delta
+   * pages, and the final-count pass has no artifact-request ceiling of its
+   * own. */
+  let requestsSpent = 0;
   const result = (notReady: boolean): SurveysSyncResult => ({
     notReady,
     written,
     published,
     rolledBack,
     finalCounts,
+    tallies,
     failed,
   });
 
@@ -282,6 +486,7 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
   let mirrorComplete = false;
   try {
     for (let n = 0; n < MAX_LIST_PAGES; n++) {
+      requestsSpent++;
       const answer =
         cursor === null
           ? await tessera.changesSince(0, MAX_PAGE_LIMIT)
@@ -352,6 +557,7 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
   try {
     for (const { ref, artifactHash } of await getSurveysAwaitingFinalCount(db)) {
       try {
+        requestsSpent++;
         const artifact = await tessera.artifactByHash(artifactHash);
         if (artifact === null) throw new Error(`artifact ${artifactHash} unknown to the backend`);
         const dreps = artifact.tally.perRole.find(r => r.role === Role.DRep);
@@ -364,6 +570,63 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
     }
   } catch (err) {
     console.error('[surveys] final count pass failed', err);
+    failed++;
+  }
+
+  // --- Pass 4: the informational tally.
+  //
+  // Every trigger is funnelled into the durable queue first, and the work order
+  // is then read from the queue alone. Three triggers: the delta (pass 1), a
+  // live row whose weighting stands on an older epoch than the power history's
+  // newest, and a survey with no tally row at all. The third is the backfill:
+  // on the day the migration lands both new tables are empty while the mirror's
+  // cursor is not, so an existing survey that receives no further delta would
+  // otherwise never get a first tally, and the staleness query cannot see it
+  // because that query reads the table it has no row in.
+  //
+  // Reading the order from the queue is not a detail. A candidate appended to an
+  // in-memory list carries no attempt history, so one oversized or repeatedly
+  // failing survey would sit at the front of every single run.
+  try {
+    const epoch = await newestPowerEpoch(db);
+    if (epoch === null) {
+      console.warn('[surveys] no DRep power history yet; tally pass skipped');
+    } else {
+      await enqueueSurveyTallies(
+        db,
+        [
+          ...(await getStaleLiveRefs(db, epoch, MAX_TALLY_REQUESTS)),
+          ...(await getRefsWithoutTally(db, MAX_TALLY_REQUESTS)),
+        ],
+        now,
+      );
+      // What the earlier passes actually spent, not an assumption: pass 3 has no
+      // artifact-request ceiling of its own.
+      const budget = { left: Math.max(0, MAX_TALLY_REQUESTS - requestsSpent) };
+      for (const ref of await takeSurveyTallyWork(db, MAX_TALLY_REQUESTS)) {
+        if (budget.left <= 0) {
+          console.warn('[surveys] tally request budget spent; remaining surveys stay queued');
+          break;
+        }
+        await markSurveyTallyAttempt(db, ref, now);
+        try {
+          const wrote = await tallyOneSurvey(db, tessera, ref, now, budget);
+          if (wrote) {
+            // Conditional on the attempt this pass stamped, so a survey
+            // re-enqueued by a later delta keeps its new queue row.
+            await dequeueSurveyTally(db, ref, now);
+            tallies++;
+          }
+        } catch (err) {
+          // The queue row stays, its attempt counter has risen, and it now sorts
+          // last, so a survey that keeps failing cannot starve the others.
+          console.error(`[surveys] tally for ${ref} failed`, err);
+          failed++;
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[surveys] tally pass failed', err);
     failed++;
   }
 

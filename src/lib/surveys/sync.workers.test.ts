@@ -1,15 +1,30 @@
 import { env } from 'cloudflare:test';
 import {
+  MAX_BUNDLE_RESYNCS,
   MAX_PAGE_LIMIT,
+  type SurveyBundlePayload,
   type SurveyChangesPayload,
   type SurveyListPayload,
   TesseraHttpError,
 } from 'cardano-tessera-client';
 import { Role, type SurveyDefinition } from 'cip-179';
-import { type ChainTip, hexToBytes, type SurveyRecord } from 'cip-179/domain';
+import {
+  type ChainTip,
+  hexToBytes,
+  QUICKNET_CHAIN_HASH,
+  type ResponseRecord,
+  type SurveyRecord,
+} from 'cip-179/domain';
 import type { TallyArtifact } from 'cip-179/tally';
 import { describe, expect, it } from 'vitest';
 import { buildInsertGovernanceAction } from '../db/governance.js';
+import {
+  deleteSurveyTallies,
+  enqueueSurveyTallies,
+  getSurveyTally,
+  markSurveyTallyAttempt,
+  takeSurveyTallyWork,
+} from '../db/surveyTally.js';
 import {
   getLinkedSurveyForAction,
   getSurveyByTopicId,
@@ -18,7 +33,13 @@ import {
   getTopicSlugBySurveyRef,
   listSurveysWithTopics,
 } from '../db/surveys.js';
-import { MAX_LIST_PAGES, type SurveysSyncDeps, type SurveysTessera, syncSurveys } from './sync.js';
+import {
+  MAX_LIST_PAGES,
+  MAX_TALLY_REQUESTS,
+  type SurveysSyncDeps,
+  type SurveysTessera,
+  syncSurveys,
+} from './sync.js';
 
 const TX_LINKED = 'a'.repeat(64);
 const TX_SECOND = 'b'.repeat(64);
@@ -145,6 +166,208 @@ function artifactOf(drepResponders: number): TallyArtifact {
   } as unknown as TallyArtifact;
 }
 
+/** The two DReps the bundle's responses come from, and the one nothing weighs.
+ * Deliberately not the definition owner's hash ('11'), so a responder is never
+ * confused with the survey's owner. */
+const DREP_A = '44'.repeat(28);
+const DREP_B = '55'.repeat(28);
+const POWER_EPOCH = 312;
+/** The end epoch an artifact commits its weighting to, the survey's own. */
+const ARTIFACT_END_EPOCH = 300;
+const NOW = 1_780_000_500_000;
+/** What the tally pass may spend on a quiet tick: the run's only earlier
+ * request is the one delta call of pass 1. A test that wants a survey to
+ * consume the whole allowance sizes its bundle by this. */
+const QUIET_BUDGET = MAX_TALLY_REQUESTS - 1;
+
+/** The power history the tally pass weighs a response against, plus the
+ * epoch's representative total. */
+async function seedPower(epoch = POWER_EPOCH): Promise<void> {
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO dreps (drep_id, hex, has_script, status, active, last_synced_at, created_at)
+       VALUES ('drep_a', ?, 0, 'active', 1, 0, 0)`,
+    ).bind(DREP_A),
+    env.DB.prepare(
+      `INSERT INTO dreps (drep_id, hex, has_script, status, active, last_synced_at, created_at)
+       VALUES ('drep_b', ?, 0, 'active', 1, 0, 0)`,
+    ).bind(DREP_B),
+    env.DB.prepare(
+      `INSERT INTO drep_voting_power_history (drep_id, epoch, amount)
+       VALUES ('drep_a', ?, '4000000'), ('drep_b', ?, '1000000')`,
+    ).bind(epoch, epoch),
+    env.DB.prepare(
+      `INSERT INTO governance_epoch_stats
+         (epoch, total_drep_power, powered_drep_count, recently_voting_drep_count, gini,
+          top10_share_pct, min_coalition_50, min_coalition_67, votes_cast, vote_data_complete,
+          computed_at)
+       VALUES (?, '20000000000000', 2, 1, 0.5, 10.0, 5, 9, 2, 0, 0)`,
+    ).bind(epoch),
+  ]);
+}
+
+/** One more epoch in the power history: the advance that makes a live tally
+ * stale, with the same weights so only the epoch moves. */
+async function advancePowerEpoch(epoch: number): Promise<void> {
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO drep_voting_power_history (drep_id, epoch, amount)
+       VALUES ('drep_a', ?, '4000000'), ('drep_b', ?, '1000000')`,
+    ).bind(epoch, epoch),
+    env.DB.prepare(
+      `INSERT INTO governance_epoch_stats
+         (epoch, total_drep_power, powered_drep_count, recently_voting_drep_count, gini,
+          top10_share_pct, min_coalition_50, min_coalition_67, votes_cast, vote_data_complete,
+          computed_at)
+       VALUES (?, '20000000000000', 2, 1, 0.5, 10.0, 5, 9, 2, 0, 0)`,
+    ).bind(epoch),
+  ]);
+}
+
+/** One on-chain response, in the window of the default definition (end epoch
+ * 300, one single-choice question with two options). */
+function response(drepHex: string, optionIndex: number, txHash: string): ResponseRecord {
+  return {
+    txHash,
+    slot: tip.slot - 5_000,
+    epochNo: tip.epoch - 1,
+    responseIndex: 0,
+    response: {
+      specVersion: 5,
+      surveyRef: { txId: hexToBytes(TX_LINKED), index: 0 },
+      role: Role.DRep,
+      credential: { type: 'key', keyHash: hexToBytes(drepHex) },
+      answers: {
+        type: 'public',
+        answers: [{ type: 'singleChoice', questionIndex: 0, optionIndex }],
+      },
+    },
+  };
+}
+
+/** Two counted DReps, weighing 4,000,000 and 1,000,000 lovelace. */
+function twoResponses(): ResponseRecord[] {
+  return [response(DREP_A, 0, 'e'.repeat(64)), response(DREP_B, 1, 'f'.repeat(64))];
+}
+
+/** One bundle page. Everything but `responses` describes the whole survey on
+ * every page, as the contract says, and nothing in the tally pass reads the
+ * page's own survey record, so one record serves every ref here. */
+function bundlePage(
+  responses: ResponseRecord[],
+  extra: { nextCursor?: string | null; resync?: boolean } = {},
+): SurveyBundlePayload {
+  return {
+    survey: surveyRecord(TX_LINKED, definition()),
+    responses,
+    cancellations: [],
+    tip,
+    fetchedAt: tip.time,
+    ...extra,
+  };
+}
+
+/** A bundle source that pages: `pages[ref]` page fetches per survey, one by
+ * default, with the responses on the first page. Every fetch is recorded in
+ * `log` as `<ref>@<cursor>`, which is how the budget tests count requests
+ * rather than bundles. */
+function pagingBundle(pages: Record<string, number>, log: string[]): SurveysTessera['bundle'] {
+  return async (survey, cursor) => {
+    const ref = survey as string;
+    log.push(`${ref}@${cursor ?? 'first'}`);
+    const total = pages[ref] ?? 1;
+    const page = cursor ? Number(cursor.split('#')[1]) : 1;
+    return {
+      ready: true,
+      body: bundlePage(page === 1 ? twoResponses() : [], {
+        nextCursor: page < total ? `${ref}#${page + 1}` : null,
+      }),
+    };
+  };
+}
+
+/** A finalized artifact in the shape the tally pass reads: the DRep role's
+ * electorate total, its counted responders with their committed weights, its
+ * questions, and the end epoch the weighting stands on. `dreps: null` is a role
+ * ABSENT from perRole, which means zero counted responders and is still the
+ * artifact path. */
+function tallyArtifact(
+  opts: { dreps?: readonly { credential: string; weight: string }[] | null; total?: string } = {},
+): TallyArtifact {
+  const dreps =
+    opts.dreps === undefined ? [{ credential: `key:${DREP_A}`, weight: '7000000' }] : opts.dreps;
+  return {
+    tally: {
+      survey: { txId: TX_LINKED, index: 0, endEpoch: ARTIFACT_END_EPOCH },
+      perRole:
+        dreps === null
+          ? []
+          : [
+              {
+                role: Role.DRep,
+                total: opts.total ?? '50000000',
+                responders: dreps.map(d => ({ ...d, txHash: TX_LINKED, responseIndex: 0 })),
+                questions: [
+                  {
+                    kind: 'options',
+                    unit: 'singleChoice',
+                    options: [{ index: 0, weight: '7000000', count: 1 }],
+                    answeredCount: 1,
+                    answeredWeight: '7000000',
+                  },
+                ],
+              },
+            ],
+    },
+  } as unknown as TallyArtifact;
+}
+
+const TX_OF: Record<string, string> = {
+  [KEY_LINKED]: TX_LINKED,
+  [KEY_SECOND]: TX_SECOND,
+  [KEY_NON_DREP]: TX_NON_DREP,
+  [KEY_UNLINKED]: TX_UNLINKED,
+};
+
+/** A list body delivering the named surveys, each linked, each with a distinct
+ * title (two surveys sharing one would collide on the thread slug, since the
+ * suffix is fixed in these tests) and two audited DRep responses. */
+function corpusOf(
+  keys: readonly string[],
+  opts: {
+    finalState?: SurveyListPayload['finalState'];
+    defs?: Record<string, SurveyDefinition>;
+  } = {},
+): SurveyListPayload {
+  return {
+    ...setOf(
+      keys.map(k =>
+        surveyRecord(TX_OF[k], opts.defs?.[k] ?? definition({ title: `Survey ${k.slice(0, 4)}` })),
+      ),
+      keys.map(k => ({
+        surveyKey: k,
+        actionId: k === KEY_SECOND ? ACTION_SECOND : ACTION_ID,
+        endEpoch: 300,
+        title: null,
+      })),
+      {},
+      Object.fromEntries(keys.map(k => [k, { [Role.DRep]: 2 }])),
+    ),
+    ...(opts.finalState ? { finalState: opts.finalState } : {}),
+  };
+}
+
+/** Queue order is (last_attempt, queued_at), so a test that cares which survey
+ * the pass reaches first has to separate the queued_at stamps one enqueue call
+ * gives them all. */
+async function orderQueue(refs: readonly string[]): Promise<void> {
+  for (const [i, ref] of refs.entries()) {
+    await env.DB.prepare('UPDATE survey_tally_queue SET queued_at = ? WHERE survey_ref = ?')
+      .bind(1_000 + i, ref)
+      .run();
+  }
+}
+
 function fakeTessera(overrides: Partial<SurveysTessera> = {}): SurveysTessera {
   // The whole corpus, as the bootstrap delivers it: the delta carries no
   // filter, so a linked non-DRep survey and a DRep-eligible survey nothing
@@ -174,6 +397,9 @@ function fakeTessera(overrides: Partial<SurveysTessera> = {}): SurveysTessera {
     // Nothing moved since the cursor: the steady state of every tick.
     changes: overrides.changes ?? (async () => ({ ready: true, body: deltaOf(setOf([], [], {})) })),
     artifactByHash: overrides.artifactByHash ?? (async () => artifactOf(2)),
+    // One page, two counted DReps, no continuation: the bundle of a survey
+    // nothing special is being asked about.
+    bundle: overrides.bundle ?? (async () => ({ ready: true, body: bundlePage(twoResponses()) })),
   };
 }
 
@@ -987,6 +1213,7 @@ describe('syncSurveys', () => {
       published: 0,
       rolledBack: 0,
       finalCounts: 0,
+      tallies: 0,
       failed: 0,
     };
     // Before the bootstrap, and once a cursor is held.
@@ -1057,5 +1284,617 @@ describe('syncSurveys', () => {
     });
     await syncSurveys(deps(quiet, now + 2 * HOUR_MS));
     expect((await getSurveySyncState(env.DB)).tesseraFetchedAt).toBe(tip.time + 180);
+  });
+});
+
+// The informational tally, pass 4. Every trigger is funnelled into the durable
+// queue and the work order is read from the queue alone, and the request budget
+// is reserved per REQUEST, because the unbounded dimension of a bundle is its
+// pages rather than the bundle itself.
+describe('syncSurveys tally pass', () => {
+  it('writes a tally for a survey the delta delivered', async () => {
+    await importLinkingAction();
+    await seedPower();
+
+    const r = await syncSurveys(deps(fakeTessera(), NOW));
+    expect(r).toMatchObject({ written: 1, tallies: 1, failed: 0 });
+
+    const t = await getSurveyTally(env.DB, KEY_LINKED);
+    expect(t).toMatchObject({
+      weightedSource: 'live',
+      headcountSource: 'audit',
+      artifactHash: null,
+      powerEpoch: POWER_EPOCH,
+      counted: 2,
+      matchedCount: 2,
+      answeredPower: '5000000',
+      totalPower: '20000000000000',
+      computedAt: NOW,
+      bundleFetchedAt: tip.time,
+    });
+    // Written, so the queue row this run stamped is gone.
+    expect(await takeSurveyTallyWork(env.DB, 10)).toEqual([]);
+  });
+
+  it('dequeues only after a successful write', async () => {
+    await importLinkingAction();
+    await seedPower();
+
+    const down = fakeTessera({
+      bundle: async () => {
+        throw new TesseraHttpError('/api/surveys/a/0', 500, '');
+      },
+    });
+    expect(await syncSurveys(deps(down, NOW))).toMatchObject({ tallies: 0, failed: 1 });
+    expect(await getSurveyTally(env.DB, KEY_LINKED)).toBeNull();
+    expect(await takeSurveyTallyWork(env.DB, 10)).toEqual([KEY_LINKED]);
+
+    // The next tick delivers nothing, so the durable queue row is the only
+    // work order there is, and it is dropped once the write lands.
+    expect(await syncSurveys(deps(fakeTessera(), NOW + HOUR_MS))).toMatchObject({
+      written: 0,
+      tallies: 1,
+    });
+    expect(await getSurveyTally(env.DB, KEY_LINKED)).not.toBeNull();
+    expect(await takeSurveyTallyWork(env.DB, 10)).toEqual([]);
+  });
+
+  it('gives an existing survey its first tally with no new delta at all', async () => {
+    await importLinkingAction();
+    await seedPower();
+    await syncSurveys(deps(fakeTessera(), NOW));
+
+    // The migration day: the survey row and the delta cursor are stored while
+    // both tally tables are empty. Without the no-row trigger this survey would
+    // never be tallied: no delta delivers it again, and the staleness query
+    // reads the very table it has no row in.
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM survey_tally'),
+      env.DB.prepare('DELETE FROM survey_tally_queue'),
+    ]);
+    const silent = fakeTessera({
+      changesSince: async () => {
+        throw new Error('no bootstrap once a cursor is held');
+      },
+    });
+    expect(await syncSurveys(deps(silent, NOW + HOUR_MS))).toMatchObject({
+      written: 0,
+      tallies: 1,
+      failed: 0,
+    });
+    expect((await getSurveyTally(env.DB, KEY_LINKED))?.counted).toBe(2);
+  });
+
+  it('leaves a capped-out survey queued and tallies it on the next run', async () => {
+    // Stored with no power history, so the first run queues both surveys and
+    // tallies neither.
+    const two = fakeTessera({
+      changesSince: async () => ({
+        ready: true,
+        body: deltaOf(corpusOf([KEY_LINKED, KEY_SECOND]), [], BOOT_CURSOR),
+      }),
+    });
+    expect(await syncSurveys(deps(two, NOW))).toMatchObject({ written: 2, tallies: 0 });
+    await seedPower();
+    await orderQueue([KEY_LINKED, KEY_SECOND]);
+
+    // The first survey's bundle costs the whole allowance.
+    const log: string[] = [];
+    const paging = fakeTessera({ bundle: pagingBundle({ [KEY_LINKED]: QUIET_BUDGET }, log) });
+    expect(await syncSurveys(deps(paging, NOW + HOUR_MS))).toMatchObject({
+      tallies: 1,
+      failed: 0,
+    });
+    expect(await getSurveyTally(env.DB, KEY_LINKED)).not.toBeNull();
+    expect(await getSurveyTally(env.DB, KEY_SECOND)).toBeNull();
+    expect(await takeSurveyTallyWork(env.DB, 10)).toEqual([KEY_SECOND]);
+    // Nothing was even asked about the second survey: the budget was gone
+    // before its turn came.
+    expect(log.filter(e => e.startsWith(KEY_SECOND))).toEqual([]);
+
+    const next: string[] = [];
+    expect(
+      await syncSurveys(deps(fakeTessera({ bundle: pagingBundle({}, next) }), NOW + 2 * HOUR_MS)),
+    ).toMatchObject({ tallies: 1 });
+    expect(await getSurveyTally(env.DB, KEY_SECOND)).not.toBeNull();
+    expect(await takeSurveyTallyWork(env.DB, 10)).toEqual([]);
+    expect(next.map(e => e.split('@')[0])).toEqual([KEY_SECOND]);
+  });
+
+  it('counts every bundle PAGE against the budget, not every bundle', async () => {
+    const three = fakeTessera({
+      changesSince: async () => ({
+        ready: true,
+        body: deltaOf(corpusOf([KEY_LINKED, KEY_SECOND, KEY_UNLINKED]), [], BOOT_CURSOR),
+      }),
+    });
+    expect(await syncSurveys(deps(three, NOW))).toMatchObject({ written: 3, tallies: 0 });
+    await seedPower();
+    await orderQueue([KEY_LINKED, KEY_SECOND, KEY_UNLINKED]);
+
+    // A bundle of many pages costs one request per page. Counting bundles
+    // instead would leave the allowance almost untouched and tally all three.
+    const log: string[] = [];
+    const paging = fakeTessera({
+      bundle: pagingBundle({ [KEY_LINKED]: QUIET_BUDGET - 1, [KEY_SECOND]: 1 }, log),
+    });
+    expect(await syncSurveys(deps(paging, NOW + HOUR_MS))).toMatchObject({
+      tallies: 2,
+      failed: 0,
+    });
+    expect(log.length).toBe(QUIET_BUDGET);
+    expect(await getSurveyTally(env.DB, KEY_LINKED)).not.toBeNull();
+    expect(await getSurveyTally(env.DB, KEY_SECOND)).not.toBeNull();
+    expect(await getSurveyTally(env.DB, KEY_UNLINKED)).toBeNull();
+    expect(await takeSurveyTallyWork(env.DB, 10)).toEqual([KEY_UNLINKED]);
+  });
+
+  it('aborts mid-collection when the budget runs out and writes nothing', async () => {
+    await seedPower();
+    // A bundle that never ends: the reservation refuses the page after the
+    // allowance, and a half-collected bundle is a wrong result, not a stale one.
+    const log: string[] = [];
+    const endless = fakeTessera({
+      bundle: async (_survey, cursor) => {
+        log.push(String(cursor ?? 'first'));
+        return { ready: true, body: bundlePage(twoResponses(), { nextCursor: 'more' }) };
+      },
+    });
+    // Out of budget is a deferral, not a failure.
+    expect(await syncSurveys(deps(endless, NOW))).toMatchObject({ tallies: 0, failed: 0 });
+    expect(log.length).toBe(QUIET_BUDGET);
+    expect(await getSurveyTally(env.DB, KEY_LINKED)).toBeNull();
+    expect(await takeSurveyTallyWork(env.DB, 10)).toEqual([KEY_LINKED]);
+  });
+
+  it('counts resync restarts against the budget', async () => {
+    const three = fakeTessera({
+      changesSince: async () => ({
+        ready: true,
+        body: deltaOf(corpusOf([KEY_LINKED, KEY_SECOND, KEY_UNLINKED]), [], BOOT_CURSOR),
+      }),
+    });
+    await syncSurveys(deps(three, NOW));
+    await seedPower();
+    await orderQueue([KEY_LINKED, KEY_SECOND, KEY_UNLINKED]);
+
+    // The first survey's second page reports resync once, so the collection is
+    // abandoned and restarted: its first page is fetched a second time and that
+    // repeat is a further reserved request. Four requests for one bundle, and
+    // the third survey is out of allowance because of it.
+    const log: string[] = [];
+    const paged = pagingBundle({ [KEY_SECOND]: QUIET_BUDGET - 4 }, log);
+    let resynced = false;
+    const fake = fakeTessera({
+      bundle: async (survey, cursor) => {
+        const ref = survey as string;
+        if (ref !== KEY_LINKED) return paged(survey, cursor);
+        log.push(`${ref}@${cursor ?? 'first'}`);
+        if (!cursor) return { ready: true, body: bundlePage(twoResponses(), { nextCursor: 'p2' }) };
+        if (!resynced) {
+          resynced = true;
+          return { ready: true, body: bundlePage([], { resync: true }) };
+        }
+        return { ready: true, body: bundlePage([], { nextCursor: null }) };
+      },
+    });
+    expect(await syncSurveys(deps(fake, NOW + HOUR_MS))).toMatchObject({
+      tallies: 2,
+      failed: 0,
+    });
+    expect(log.filter(e => e.startsWith(KEY_LINKED)).length).toBe(4);
+    expect(log.length).toBe(QUIET_BUDGET);
+    expect(await getSurveyTally(env.DB, KEY_UNLINKED)).toBeNull();
+    expect(await takeSurveyTallyWork(env.DB, 10)).toEqual([KEY_UNLINKED]);
+  });
+
+  it('refuses the artifact read when no budget is left for it', async () => {
+    await importLinkingAction();
+    await syncSurveys(deps(fakeTessera(), NOW));
+    await seedPower();
+
+    // This run spends two requests before the tally pass: the delta, and the
+    // final-count pass's own artifact read. The bundle then takes the rest, so
+    // the tally pass has nothing left to reserve for its artifact request.
+    const artifacts: string[] = [];
+    const log: string[] = [];
+    const fake = fakeTessera({
+      changes: async () => ({
+        ready: true,
+        body: deltaOf({ ...corpusOf([KEY_LINKED]), finalState: FINALIZED }),
+      }),
+      artifactByHash: async hash => {
+        artifacts.push(hash);
+        return tallyArtifact();
+      },
+      bundle: pagingBundle({ [KEY_LINKED]: MAX_TALLY_REQUESTS - 2 }, log),
+    });
+    expect(await syncSurveys(deps(fake, NOW + HOUR_MS))).toMatchObject({
+      finalCounts: 1,
+      tallies: 0,
+      failed: 0,
+    });
+    // Only the final-count pass asked. A budget that ignored what the earlier
+    // passes spent would have had room for a second artifact request here.
+    expect(artifacts).toEqual([ARTIFACT_HASH]);
+    expect(log.length).toBe(MAX_TALLY_REQUESTS - 2);
+    expect(await getSurveyTally(env.DB, KEY_LINKED)).toBeNull();
+    expect(await takeSurveyTallyWork(env.DB, 10)).toEqual([KEY_LINKED]);
+  });
+
+  it('records an attempt and does not starve a third survey when a fetch throws', async () => {
+    const three = fakeTessera({
+      changesSince: async () => ({
+        ready: true,
+        body: deltaOf(corpusOf([KEY_LINKED, KEY_SECOND, KEY_UNLINKED]), [], BOOT_CURSOR),
+      }),
+    });
+    await syncSurveys(deps(three, NOW));
+    await seedPower();
+    await orderQueue([KEY_LINKED, KEY_SECOND, KEY_UNLINKED]);
+
+    const log: string[] = [];
+    const paged = pagingBundle({}, log);
+    const fake = fakeTessera({
+      bundle: async (survey, cursor) => {
+        if ((survey as string) === KEY_LINKED) throw new TesseraHttpError('/api/surveys', 500, '');
+        return paged(survey, cursor);
+      },
+    });
+    expect(await syncSurveys(deps(fake, NOW + HOUR_MS))).toMatchObject({
+      tallies: 2,
+      failed: 1,
+    });
+    expect(await getSurveyTally(env.DB, KEY_LINKED)).toBeNull();
+    expect(await getSurveyTally(env.DB, KEY_SECOND)).not.toBeNull();
+    expect(await getSurveyTally(env.DB, KEY_UNLINKED)).not.toBeNull();
+    expect(await takeSurveyTallyWork(env.DB, 10)).toEqual([KEY_LINKED]);
+
+    // The attempt was recorded, so a never-tried survey sorts ahead of the one
+    // that keeps failing and it can never hold the front of the queue.
+    await enqueueSurveyTallies(env.DB, [KEY_NON_DREP], NOW + 2 * HOUR_MS);
+    expect(await takeSurveyTallyWork(env.DB, 10)).toEqual([KEY_NON_DREP, KEY_LINKED]);
+  });
+
+  it('writes nothing when the bundle collection throws its restart limit', async () => {
+    await seedPower();
+    const log: string[] = [];
+    const churning = fakeTessera({
+      bundle: async (_survey, cursor) => {
+        log.push(String(cursor ?? 'first'));
+        if (!cursor) return { ready: true, body: bundlePage(twoResponses(), { nextCursor: 'p2' }) };
+        return { ready: true, body: bundlePage([], { resync: true }) };
+      },
+    });
+    expect(await syncSurveys(deps(churning, NOW))).toMatchObject({ tallies: 0, failed: 1 });
+    // Two pages per attempt, one attempt more than the restart limit allows.
+    expect(log.length).toBe(2 * (MAX_BUNDLE_RESYNCS + 1));
+    expect(await getSurveyTally(env.DB, KEY_LINKED)).toBeNull();
+    expect(await takeSurveyTallyWork(env.DB, 10)).toEqual([KEY_LINKED]);
+  });
+
+  it('requeues a live row after an epoch advance and never an artifact row', async () => {
+    await seedPower();
+    const both = fakeTessera({
+      changesSince: async () => ({
+        ready: true,
+        body: deltaOf(
+          corpusOf([KEY_LINKED, KEY_SECOND], {
+            finalState: { [KEY_SECOND]: { state: 'finalized', artifactHash: ARTIFACT_HASH } },
+          }),
+          [],
+          BOOT_CURSOR,
+        ),
+      }),
+      artifactByHash: async () => tallyArtifact(),
+    });
+    expect(await syncSurveys(deps(both, NOW))).toMatchObject({ tallies: 2, failed: 0 });
+    const artifactRow = await getSurveyTally(env.DB, KEY_SECOND);
+    expect(artifactRow).toMatchObject({
+      weightedSource: 'artifact',
+      powerEpoch: ARTIFACT_END_EPOCH,
+    });
+    // Both were written, so neither is in the queue: the staleness funnel is
+    // what has to put the live one back.
+    expect(await takeSurveyTallyWork(env.DB, 10)).toEqual([]);
+
+    await advancePowerEpoch(POWER_EPOCH + 1);
+    const log: string[] = [];
+    const quiet = fakeTessera({
+      artifactByHash: async () => tallyArtifact(),
+      bundle: pagingBundle({}, log),
+    });
+    expect(await syncSurveys(deps(quiet, NOW + HOUR_MS))).toMatchObject({
+      tallies: 1,
+      failed: 0,
+    });
+    expect((await getSurveyTally(env.DB, KEY_LINKED))?.powerEpoch).toBe(POWER_EPOCH + 1);
+    // The artifact row weighs at the survey's end epoch, which every later
+    // local epoch passes, so requeueing it would never stop.
+    expect(await getSurveyTally(env.DB, KEY_SECOND)).toEqual(artifactRow);
+    expect(log.map(e => e.split('@')[0])).toEqual([KEY_LINKED]);
+  });
+
+  it('selects strictly by queue attempt history, not by trigger order', async () => {
+    await seedPower();
+    const both = fakeTessera({
+      changesSince: async () => ({
+        ready: true,
+        body: deltaOf(corpusOf([KEY_LINKED, KEY_SECOND]), [], BOOT_CURSOR),
+      }),
+    });
+    expect(await syncSurveys(deps(both, NOW))).toMatchObject({ tallies: 2 });
+
+    // The state under test: the second survey is back to having no tally row
+    // and no queue row (the no-row trigger's candidate), while the first is a
+    // stale live row whose last attempt failed. Staleness is funnelled first,
+    // and the queue's own order has to override that.
+    await deleteSurveyTallies(env.DB, [KEY_SECOND]);
+    await enqueueSurveyTallies(env.DB, [KEY_LINKED], NOW);
+    await markSurveyTallyAttempt(env.DB, KEY_LINKED, NOW);
+    await advancePowerEpoch(POWER_EPOCH + 1);
+
+    // The never-tried survey must go first and take the whole allowance. Were
+    // the stale one picked first it would be recomputed at the new epoch and
+    // the never-tried one would abort one page short.
+    const log: string[] = [];
+    const paging = fakeTessera({ bundle: pagingBundle({ [KEY_SECOND]: QUIET_BUDGET }, log) });
+    expect(await syncSurveys(deps(paging, NOW + HOUR_MS))).toMatchObject({
+      tallies: 1,
+      failed: 0,
+    });
+    expect((await getSurveyTally(env.DB, KEY_SECOND))?.powerEpoch).toBe(POWER_EPOCH + 1);
+    expect((await getSurveyTally(env.DB, KEY_LINKED))?.powerEpoch).toBe(POWER_EPOCH);
+    expect(await takeSurveyTallyWork(env.DB, 10)).toEqual([KEY_LINKED]);
+    expect(log.filter(e => e.startsWith(KEY_LINKED))).toEqual([]);
+  });
+
+  it('takes every weighted figure from the artifact once the survey is finalized', async () => {
+    await seedPower();
+    const finalized = fakeTessera({
+      changesSince: async () => ({
+        ready: true,
+        body: deltaOf(corpusOf([KEY_LINKED], { finalState: FINALIZED }), [], BOOT_CURSOR),
+      }),
+      artifactByHash: async () => tallyArtifact(),
+    });
+    expect(await syncSurveys(deps(finalized, NOW))).toMatchObject({
+      finalCounts: 1,
+      tallies: 1,
+      failed: 0,
+    });
+    const t = await getSurveyTally(env.DB, KEY_LINKED);
+    expect(t).toMatchObject({
+      weightedSource: 'artifact',
+      headcountSource: 'audit',
+      artifactHash: ARTIFACT_HASH,
+      // The epoch the artifact committed its weighting to, not the local one.
+      powerEpoch: ARTIFACT_END_EPOCH,
+      matchedCount: 1,
+      answeredPower: '7000000',
+      totalPower: '50000000',
+      // The head count stays ours: an artifact carries none.
+      counted: 2,
+    });
+  });
+
+  it('stays on the artifact path when the artifact has no DRep role', async () => {
+    await seedPower();
+    const finalized = fakeTessera({
+      changesSince: async () => ({
+        ready: true,
+        body: deltaOf(corpusOf([KEY_LINKED], { finalState: FINALIZED }), [], BOOT_CURSOR),
+      }),
+      // A role with no counted responder is absent from perRole, which means
+      // zero, not an absent artifact.
+      artifactByHash: async () => tallyArtifact({ dreps: null }),
+    });
+    expect(await syncSurveys(deps(finalized, NOW))).toMatchObject({ tallies: 1, failed: 0 });
+    const t = await getSurveyTally(env.DB, KEY_LINKED);
+    expect(t).toMatchObject({
+      weightedSource: 'artifact',
+      artifactHash: ARTIFACT_HASH,
+      matchedCount: 0,
+      answeredPower: '0',
+      totalPower: null,
+      counted: 2,
+    });
+    // The head count survives, which is the whole point of the unit-weight run.
+    expect(t?.questions.headcount).toHaveLength(1);
+    expect(t?.questions.weighted).toEqual([]);
+  });
+
+  it('tallies a sealed survey from its artifact and marks the head count source', async () => {
+    await seedPower();
+    // Sealed on quicknet, so admission stores it. Responses stay encrypted, so
+    // the bundle carries none here: nothing can read an answer before the
+    // artifact exists.
+    const sealed = definition({
+      title: 'Sealed poll',
+      submissionMode: {
+        type: 'sealed',
+        chainHash: QUICKNET_CHAIN_HASH,
+        round: 1_000,
+        paddingSize: 64,
+      },
+    });
+    const defs = { [KEY_LINKED]: sealed };
+    const open = fakeTessera({
+      changesSince: async () => ({
+        ready: true,
+        body: deltaOf(corpusOf([KEY_LINKED], { defs }), [], BOOT_CURSOR),
+      }),
+      bundle: async () => ({ ready: true, body: bundlePage([]) }),
+    });
+    // No artifact: no row at all, rather than a row claiming an empty result.
+    expect(await syncSurveys(deps(open, NOW))).toMatchObject({
+      written: 1,
+      tallies: 0,
+      failed: 0,
+    });
+    expect(await getSurveyTally(env.DB, KEY_LINKED)).toBeNull();
+
+    const closed = fakeTessera({
+      changes: async () => ({
+        ready: true,
+        body: deltaOf({ ...corpusOf([KEY_LINKED], { defs }), finalState: FINALIZED }),
+      }),
+      artifactByHash: async () => tallyArtifact(),
+      bundle: async () => ({ ready: true, body: bundlePage([]) }),
+    });
+    expect(await syncSurveys(deps(closed, NOW + HOUR_MS))).toMatchObject({
+      tallies: 1,
+      failed: 0,
+    });
+    const t = await getSurveyTally(env.DB, KEY_LINKED);
+    expect(t).toMatchObject({ weightedSource: 'artifact', headcountSource: 'artifact' });
+    expect(t?.questions.headcount).toEqual(t?.questions.weighted);
+  });
+
+  it('deletes the old tally when the artifact hash changes, so nothing stale shows', async () => {
+    await seedPower();
+    const serving = (artifactHash: string, artifact: () => TallyArtifact | null) =>
+      fakeTessera({
+        changesSince: async () => ({
+          ready: true,
+          body: deltaOf(
+            corpusOf([KEY_LINKED], {
+              finalState: { [KEY_LINKED]: { state: 'finalized', artifactHash } },
+            }),
+            [],
+            BOOT_CURSOR,
+          ),
+        }),
+        changes: async () => ({
+          ready: true,
+          body: deltaOf(
+            corpusOf([KEY_LINKED], {
+              finalState: { [KEY_LINKED]: { state: 'finalized', artifactHash } },
+            }),
+          ),
+        }),
+        artifactByHash: async () => artifact(),
+      });
+    await syncSurveys(deps(serving(ARTIFACT_HASH, () => tallyArtifact()), NOW));
+    expect(await getSurveyTally(env.DB, KEY_LINKED)).toMatchObject({
+      artifactHash: ARTIFACT_HASH,
+    });
+
+    // A second artifact is named and cannot be read. The old figures describe
+    // the old artifact, so they go rather than keep being shown as current.
+    const moved = 'ef'.repeat(32);
+    const r = await syncSurveys(
+      deps(
+        serving(moved, () => {
+          throw new TesseraHttpError('/api/artifacts', 500, '');
+        }),
+        NOW + HOUR_MS,
+      ),
+    );
+    expect(r).toMatchObject({ written: 1, tallies: 0, failed: 2 });
+    expect(await getSurveyTally(env.DB, KEY_LINKED)).toBeNull();
+    expect(await takeSurveyTallyWork(env.DB, 10)).toEqual([KEY_LINKED]);
+  });
+
+  it('refuses the write when the survey was withdrawn during the fetch', async () => {
+    await seedPower();
+    const vanishing = fakeTessera({
+      bundle: async () => {
+        await env.DB.prepare('DELETE FROM survey WHERE ref = ?').bind(KEY_LINKED).run();
+        return { ready: true, body: bundlePage(twoResponses()) };
+      },
+    });
+    expect(await syncSurveys(deps(vanishing, NOW))).toMatchObject({ tallies: 0, failed: 0 });
+    expect(await getSurveyTally(env.DB, KEY_LINKED)).toBeNull();
+    expect(await takeSurveyTallyWork(env.DB, 10)).toEqual([KEY_LINKED]);
+  });
+
+  it('refuses the write when an artifact appeared during the fetch', async () => {
+    await seedPower();
+    const overtaken = fakeTessera({
+      bundle: async () => {
+        await env.DB.prepare('UPDATE survey SET artifact_hash = ? WHERE ref = ?')
+          .bind(ARTIFACT_HASH, KEY_LINKED)
+          .run();
+        return { ready: true, body: bundlePage(twoResponses()) };
+      },
+    });
+    // The computation assumed no artifact, so its result may not be stored
+    // beside one.
+    expect(await syncSurveys(deps(overtaken, NOW))).toMatchObject({ tallies: 0, failed: 0 });
+    expect(await getSurveyTally(env.DB, KEY_LINKED)).toBeNull();
+    expect(await takeSurveyTallyWork(env.DB, 10)).toEqual([KEY_LINKED]);
+  });
+
+  it('deletes tally rows only for surveys the withdrawal actually deleted', async () => {
+    // One published survey (its linking action is imported) and one with no
+    // thread. Withdrawal deletes the second and only flags the first.
+    await importLinkingAction();
+    await seedPower();
+    const both = fakeTessera({
+      changesSince: async () => ({
+        ready: true,
+        body: deltaOf(corpusOf([KEY_LINKED, KEY_SECOND]), [], BOOT_CURSOR),
+      }),
+    });
+    expect(await syncSurveys(deps(both, NOW))).toMatchObject({ published: 1, tallies: 2 });
+
+    const gone = fakeTessera({
+      changes: async () => ({
+        ready: true,
+        body: deltaOf(setOf([], [], {}), [KEY_LINKED, KEY_SECOND]),
+      }),
+    });
+    expect(await syncSurveys(deps(gone, NOW + HOUR_MS))).toMatchObject({ rolledBack: 2 });
+    // The published row kept its thread and its figures: a removal is advisory
+    // and can be transient, and the card shows the unavailable reason instead
+    // of the figures while it stands.
+    expect(await getSurveyTally(env.DB, KEY_LINKED)).not.toBeNull();
+    expect((await surveyRows())[0]).toMatchObject({ ref: KEY_LINKED, unavailable: 1 });
+    // The deleted row's derived figures went with it: D1 has no cascade.
+    expect(await getSurveyTally(env.DB, KEY_SECOND)).toBeNull();
+    expect(await takeSurveyTallyWork(env.DB, 10)).toEqual([]);
+  });
+
+  it('writes no tally for an external-content, cancelled or untalliable survey', async () => {
+    await seedPower();
+    const external = definition({
+      title: 'External poll',
+      contentAnchor: { uri: 'ipfs://QmExternal', hash: hexToBytes('ab'.repeat(32)) },
+    });
+    const mixed = fakeTessera({
+      changesSince: async () => ({
+        ready: true,
+        body: deltaOf(
+          corpusOf([KEY_LINKED, KEY_SECOND, KEY_UNLINKED], {
+            defs: { [KEY_LINKED]: external },
+            finalState: {
+              [KEY_SECOND]: { state: 'cancelled', artifactHash: ARTIFACT_HASH },
+              [KEY_UNLINKED]: { state: 'untalliable' },
+            },
+          }),
+          [],
+          BOOT_CURSOR,
+        ),
+      }),
+    });
+    expect(await syncSurveys(deps(mixed, NOW))).toMatchObject({ written: 3, tallies: 0 });
+    // No row at all, not an empty one: none of the three has figures to show.
+    expect(await getSurveyTally(env.DB, KEY_LINKED)).toBeNull();
+    expect(await getSurveyTally(env.DB, KEY_SECOND)).toBeNull();
+    expect(await getSurveyTally(env.DB, KEY_UNLINKED)).toBeNull();
+  });
+
+  it('writes no tally when the power history is empty', async () => {
+    await importLinkingAction();
+    expect(await syncSurveys(deps(fakeTessera(), NOW))).toMatchObject({
+      written: 1,
+      tallies: 0,
+      failed: 0,
+    });
+    expect(await getSurveyTally(env.DB, KEY_LINKED)).toBeNull();
+    // Queued all the same, so the first run after the history fills in has its
+    // work order waiting.
+    expect(await takeSurveyTallyWork(env.DB, 10)).toEqual([KEY_LINKED]);
   });
 });
