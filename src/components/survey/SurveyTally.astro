@@ -683,10 +683,13 @@ function build(t: SurveyTallyRow): Built {
   // would read as nobody holding power, and a ratio over it has no value at all.
   // It is omitted in the unmatched and unreadable worlds too, where its numerator
   // would be a zero nobody measured, and printing 0% beside a note saying the
-  // weighting is undefined would contradict that note. The zero-power world keeps
+  // weighting is undefined would contradict that note. Same for none-answered,
+  // where there is no participation to measure at all. The zero-power world keeps
   // it, because there the zero is the measurement.
   const turnoutKnown =
-    surveyWideNoWeighting !== 'unmatched' && surveyWideNoWeighting !== 'unreadable';
+    surveyWideNoWeighting !== 'unmatched' &&
+    surveyWideNoWeighting !== 'unreadable' &&
+    surveyWideNoWeighting !== 'none-answered';
   const turnoutFrac =
     turnoutKnown && totalPower !== null && totalPower > 0n
       ? ratioOf(answeredPower, totalPower)
