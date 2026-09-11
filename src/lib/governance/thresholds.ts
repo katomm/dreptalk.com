@@ -121,20 +121,14 @@ export function evaluateThresholds(input: ThresholdInput, p: ProtocolParams): Bo
 }
 
 /** Per-body threshold percentages (0..100), frozen with an action at its decision. */
-// Snapshot schema version. v1 (no `v` field) stored only the per-body threshold
-// percentages. v2 added ccBelowMinSize, the frozen constitutional-committee quorum
-// gate. v3 pins that gate to the decision BOUNDARY (the start of the ratified or
-// expiry epoch, see committeeReferenceForAction) instead of the epoch the action
-// was last touched in, and records its provenance: the boundary epoch, the
-// committee size counted there, the minimum in force and where it came from. v2
-// snapshots measured the committee at the end of the decided epoch, which for an
-// enacted action is the enactment epoch, one past the vote, so a resignation
-// after the boundary could flag a ratified action as below the minimum. v3 also
-// records whether the stored tallies contradict the ledger's outcome.
+// Snapshot schema version. v1 (no `v` field): per-body threshold percentages.
+// v2: plus ccBelowMinSize, the frozen committee quorum gate. v3: the gate is
+// measured at the decision boundary (see decisionBoundaryEpoch) with its
+// provenance, plus the outcome check. Bumping it re-drives the backfill.
 export const THRESHOLD_SNAPSHOT_VERSION = 3;
 
-/** Where the frozen committee minimum came from. */
-export type CcMinSizeSource = 'epoch-params' | 'current-params';
+/** Where the frozen committee minimum came from: the parameters of the boundary epoch, or the live cache for an action still open. */
+export type CcMinSizeSource = 'epoch-params' | 'live';
 
 export interface CcGateProvenance {
   /** The epoch whose opening boundary the committee was resolved at. */
@@ -143,7 +137,6 @@ export interface CcGateProvenance {
   sizeAtBoundary: number | null;
   /** The committee minimum size in force for that boundary. */
   minSize: number | null;
-  /** 'epoch-params' when read for the boundary epoch, 'current-params' when only the live cache was available. */
   minSizeSource: CcMinSizeSource | null;
 }
 
@@ -213,7 +206,7 @@ function readGate(o: unknown): CcGateProvenance | null {
     boundaryEpoch: num(g.boundaryEpoch),
     sizeAtBoundary: num(g.sizeAtBoundary),
     minSize: num(g.minSize),
-    minSizeSource: g.minSizeSource === 'epoch-params' || g.minSizeSource === 'current-params' ? g.minSizeSource : null,
+    minSizeSource: g.minSizeSource === 'epoch-params' || g.minSizeSource === 'live' ? g.minSizeSource : null,
   };
 }
 

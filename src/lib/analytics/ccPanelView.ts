@@ -8,9 +8,9 @@
 // (epochs 507 to 580) and its elected-committee credential (since 581) are
 // two cold keys with their own eligibility windows, so merging them by name
 // would misstate eligibility.
-import { activeCommitteeMembersFor, type CommitteeMemberTerm } from '../koios/committeeTimeline.js';
+import { activeCommitteeMembersAtBoundary, committeeBoundaryForAction, type CommitteeMemberTerm } from '../koios/committeeTimeline.js';
 import { finalCcVoteByMember } from '../koios/corrections.js';
-import { committeeReferenceForAction, type CcVoteRow, type DecidedCcAction } from '../db/committee.js';
+import type { CcVoteRow, DecidedCcAction } from '../db/committee.js';
 import type { CcNameIndex } from '../governance/ccNames.js';
 import { readThresholdSnapshot } from '../governance/thresholds.js';
 import { isCcEligible } from '../governance/view.js';
@@ -163,12 +163,12 @@ export function buildCcPanel(input: {
     .sort((x, y) => x.decidedEpoch - y.decidedEpoch || x.gaId.localeCompare(y.gaId));
 
   for (const a of eligibleActions) {
-    const ref = committeeReferenceForAction(a, currentEpoch);
-    if (ref == null) {
+    const boundary = committeeBoundaryForAction(a, currentEpoch);
+    if (boundary == null) {
       skipped += 1;
       continue;
     }
-    const active = activeCommitteeMembersFor(members, ref);
+    const active = activeCommitteeMembersAtBoundary(members, boundary);
     if (active.size === 0) {
       skipped += 1;
       continue;
@@ -176,7 +176,7 @@ export function buildCcPanel(input: {
     considered += 1;
     const index = actionEpochs.length;
     actionEpochs.push(a.decidedEpoch);
-    const finalByCold = finalCcVoteByMember(votesByAction.get(a.gaId) ?? [], members, hotToCold, ref);
+    const finalByCold = finalCcVoteByMember(votesByAction.get(a.gaId) ?? [], members, hotToCold, boundary);
     turnouts.push((finalByCold.size / active.size) * 100);
 
     let hasYes = false;

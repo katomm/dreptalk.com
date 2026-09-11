@@ -47,7 +47,7 @@ import {
 import { headlineComposition, isSpoLedType, isCcEligible } from '@/lib/governance/view.js';
 import { lateVoterIds } from '@/lib/governance/lateVotes.js';
 import { getVotesByGaId, getActionVoters, countActionVoters, getViewerVote, getActionSpoVoters, countActionSpoVoters, getActionVoterRank, getVoteTrendRows, listDrepVotePowers, type ActionVoterRow, type TrendVoteRow } from '@/lib/db/drepVotes.js';
-import { getCommitteeVotes, getCommitteeTimeline, getActionCcVoteRows, committeeReferenceForAction } from '@/lib/db/committee.js';
+import { getCommitteeVotes, getCommitteeTimeline, getActionCcVoteRows } from '@/lib/db/committee.js';
 import { buildVoteConcentration, requiredYesPower, type VoteConcentrationView } from '@/lib/analytics/voteConcentration.js';
 import { buildActionVoteChanges, describeActionVoteChanges } from '@/lib/analytics/voteChangeView.js';
 import { readThresholdSnapshot } from '@/lib/governance/thresholds.js';
@@ -55,7 +55,7 @@ import type { CcVote } from '@/lib/koios/corrections.js';
 import { getAllCcMemberNames } from '@/lib/db/ccMemberName.js';
 import { buildCcNameIndex } from '@/lib/governance/ccNames.js';
 import { buildCcPositions, type CcPositionRow } from '@/lib/governance/ccPositions.js';
-import { activeCommitteeSizeFor } from '@/lib/koios/committeeTimeline.js';
+import { activeCommitteeSizeAtBoundary, committeeBoundaryForAction } from '@/lib/koios/committeeTimeline.js';
 import { computeVoteTrendSeries, buildTrendChart, type TrendChart } from '@/lib/governance/voteTrend.js';
 import { assembleTrendInputs } from '@/lib/governance/voteTrendAssembly.js';
 import { epochFromUnix, resolveNetwork } from '@/lib/config/network.js';
@@ -475,11 +475,11 @@ if (db && govAction && tab === 'history') {
 }
 
 // CC segment on the Positions tab: the breakdown row per active committee member,
-// eligible for the same committee reference the CC tally itself uses (committeeReferenceForAction),
+// eligible at the same committee boundary the CC tally itself uses (committeeBoundaryForAction),
 // so the two never disagree. Reuses params.epoch and committee loaded above
 // instead of a second protocol-params read.
 const currentEpoch = params?.epoch ?? null;
-const ccEpoch = govAction ? committeeReferenceForAction(govAction, currentEpoch) : null;
+const ccEpoch = govAction ? committeeBoundaryForAction(govAction, currentEpoch) : null;
 
 let ccRows: CcPositionRow[] = [];
 let ccTotal = 0;
@@ -499,7 +499,7 @@ if (db && govAction && tab === 'positions' && committee.members.length > 0 && cc
     nameIndex,
     rationales: ccRationales,
   });
-  ccTotal = activeCommitteeSizeFor(committee.members, ccEpoch);
+  ccTotal = activeCommitteeSizeAtBoundary(committee.members, ccEpoch);
 }
 
 // Effective voting concentration for the Positions tab's DRep list: computed

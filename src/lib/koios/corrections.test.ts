@@ -144,8 +144,8 @@ describe('ccTallyPct', () => {
     expect(ccTallyPct(votes, v3, hotToCold, 634)).toEqual({ yesPct: 83.33, noPct: 16.67, yes: 5, no: 0, abstain: 2 });
   });
 
-  it('drops a resigned member from numerator and denominator (epoch-597 boundary)', () => {
-    // Committee v2 at epoch 597: the resigner is out, 6 active members remain.
+  it('drops a resigned member from numerator and denominator once the boundary after the resignation has passed', () => {
+    // Committee v2 judged at the boundary to 598: the epoch-597 resigner is out, 6 members remain.
     const v2: CommitteeMemberTerm[] = [
       { coldKeyHex: 'resigner', versionFrom: 581, versionTo: 601, termExpiration: 653, authorizedFrom: 507, resignedAt: 597 },
       ...Array.from({ length: 6 }, (_, i) => ({
@@ -166,7 +166,9 @@ describe('ccTallyPct', () => {
       ...Array.from({ length: 6 }, (_, i) => ({ hotKeyHex: `h${i}`, vote: 'Yes' as const, blockTime: 1 })),
     ];
     // Without the active-member filter this reads 7/6 > 100 %. Correct: 6 yes / 6 active = 100 %.
-    expect(ccTallyPct(votes, v2, hotToCold, 597)).toEqual({ yesPct: 100, noPct: 0, yes: 6, no: 0, abstain: 0 });
+    expect(ccTallyPct(votes, v2, hotToCold, 598)).toEqual({ yesPct: 100, noPct: 0, yes: 6, no: 0, abstain: 0 });
+    // At the boundary to 597 itself the resignation had not happened yet: 7 of 7.
+    expect(ccTallyPct(votes, v2, hotToCold, 597)).toEqual({ yesPct: 100, noPct: 0, yes: 7, no: 0, abstain: 0 });
   });
 
   it('is null when no committee is active at the epoch', () => {

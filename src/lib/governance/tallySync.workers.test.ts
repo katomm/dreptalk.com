@@ -79,6 +79,9 @@ function fakeTallyKoios(lifecycle: ProposalListRow[], s: VotingSummary | null = 
     async proposalVotingSummary(): Promise<VotingSummary | null> {
       return s;
     },
+    async epochParams(): Promise<EpochParamsRow | null> {
+      return null;
+    },
   };
 }
 

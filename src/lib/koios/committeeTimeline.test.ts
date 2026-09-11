@@ -1,68 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
-  activeCommitteeMembersAt,
   activeCommitteeMembersAtBoundary,
-  activeCommitteeMembersFor,
-  activeCommitteeSizeAt,
-  activeCommitteeSizeFor,
-  boundaryOf,
-  observedAt,
+  activeCommitteeSizeAtBoundary,
+  committeeBoundaryForAction,
+  committeeStanding,
+  decisionBoundaryEpoch,
+  versionCovers,
   type CommitteeMemberTerm,
 } from './committeeTimeline.js';
-
-// Mirrors committee v2 (active epochs 581 to 601, 7 members) with the real
-// resignation: cold-key 349e55f8 de-registered its hot key at epoch 597.
-const v2: CommitteeMemberTerm[] = [
-  { coldKeyHex: 'resigner', versionFrom: 581, versionTo: 601, termExpiration: 653, authorizedFrom: 507, resignedAt: 597 },
-  ...Array.from({ length: 6 }, (_, i) => ({
-    coldKeyHex: `m${i}`,
-    versionFrom: 581,
-    versionTo: 601 as number | null,
-    termExpiration: 653,
-    authorizedFrom: 507,
-    resignedAt: null as number | null,
-  })),
-];
-
-describe('activeCommitteeSizeAt', () => {
-  it('counts all 7 members before the resignation', () => {
-    expect(activeCommitteeSizeAt(v2, 596)).toBe(7);
-  });
-
-  it('drops the resigned member from the epoch of resignation onward', () => {
-    expect(activeCommitteeSizeAt(v2, 597)).toBe(6);
-    expect(activeCommitteeSizeAt(v2, 601)).toBe(6);
-  });
-
-  it('excludes term-expired members (still active during the expiration epoch)', () => {
-    const bootstrap: CommitteeMemberTerm[] = [
-      { coldKeyHex: 'x', versionFrom: 500, versionTo: null, termExpiration: 580, authorizedFrom: 507, resignedAt: null },
-    ];
-    expect(activeCommitteeSizeAt(bootstrap, 580)).toBe(1);
-    expect(activeCommitteeSizeAt(bootstrap, 581)).toBe(0);
-  });
-
-  it('excludes members whose version has not started or has already ended', () => {
-    expect(activeCommitteeSizeAt(v2, 580)).toBe(0); // v2 starts 581
-    expect(activeCommitteeSizeAt(v2, 602)).toBe(0); // v2 ends 601
-  });
-
-  it('excludes members whose hot key was not yet registered', () => {
-    const late: CommitteeMemberTerm[] = [
-      { coldKeyHex: 'y', versionFrom: 581, versionTo: null, termExpiration: 653, authorizedFrom: 586, resignedAt: null },
-    ];
-    expect(activeCommitteeSizeAt(late, 585)).toBe(0);
-    expect(activeCommitteeSizeAt(late, 586)).toBe(1);
-  });
-});
-
-describe('activeCommitteeMembersAt', () => {
-  it('returns the active cold keys, excluding the resigned one from its epoch', () => {
-    expect(activeCommitteeMembersAt(v2, 596).has('resigner')).toBe(true);
-    expect(activeCommitteeMembersAt(v2, 597).has('resigner')).toBe(false);
-    expect(activeCommitteeMembersAt(v2, 597).size).toBe(6);
-  });
-});
 
 // The seeded mainnet committee (migration 0048): the interim version 507 to 580,
 // the elected version 581 to 601 with three members authorizing their hot keys
@@ -89,10 +34,9 @@ describe('activeCommitteeMembersAtBoundary', () => {
     const at597 = activeCommitteeMembersAtBoundary(seed, 597);
     expect(at597.has('atlantic')).toBe(true);
     expect(at597.size).toBe(7);
-    // The epoch-end reading of the same epoch has already lost the member.
-    expect(activeCommitteeMembersAt(seed, 597).size).toBe(6);
     // One boundary later the resignation has happened.
     expect(activeCommitteeMembersAtBoundary(seed, 598).has('atlantic')).toBe(false);
+    expect(activeCommitteeSizeAtBoundary(seed, 598)).toBe(6);
   });
 
   it('counts the whole interim committee at the constitution ratification (541)', () => {
@@ -124,11 +68,45 @@ describe('activeCommitteeMembersAtBoundary', () => {
   });
 });
 
-describe('activeCommitteeMembersFor', () => {
-  it('dispatches a boundary and an observed reference, and reads a bare number as observed', () => {
-    expect(activeCommitteeMembersFor(seed, boundaryOf(597)).size).toBe(7);
-    expect(activeCommitteeMembersFor(seed, observedAt(597)).size).toBe(6);
-    expect(activeCommitteeMembersFor(seed, 597).size).toBe(6);
-    expect(activeCommitteeSizeFor(seed, boundaryOf(581))).toBe(3);
+describe('committeeStanding', () => {
+  const m: CommitteeMemberTerm = { coldKeyHex: 'x', versionFrom: 581, versionTo: null, termExpiration: 653, authorizedFrom: 586, resignedAt: 640 };
+
+  it('names why a seat does not count, in the order the ledger would notice', () => {
+    expect(committeeStanding(m, 585)).toBe('not-authorized');
+    expect(committeeStanding(m, 586)).toBe('not-authorized');
+    expect(committeeStanding(m, 587)).toBeNull();
+    expect(committeeStanding(m, 640)).toBeNull();
+    expect(committeeStanding(m, 641)).toBe('resigned');
+    expect(committeeStanding(m, 654)).toBe('expired');
+  });
+
+  it('is the rule the boundary set is built from', () => {
+    expect([...activeCommitteeMembersAtBoundary(seed, 597)].every((c) => seed.some((s) => s.coldKeyHex === c && versionCovers(s, 597) && committeeStanding(s, 597) == null))).toBe(true);
+  });
+});
+
+describe('decisionBoundaryEpoch and committeeBoundaryForAction', () => {
+  it('reads the ratified epoch, or derives it for a pre-0093 enacted row', () => {
+    expect(decisionBoundaryEpoch({ status: 'enacted', decidedEpoch: 598, ratifiedEpoch: 597 })).toBe(597);
+    expect(decisionBoundaryEpoch({ status: 'ratified', decidedEpoch: 597, ratifiedEpoch: 597 })).toBe(597);
+    expect(decisionBoundaryEpoch({ status: 'enacted', decidedEpoch: 638 })).toBe(637);
+  });
+
+  it('places an expired action at its expiry epoch, a closed or dropped one at its decided epoch', () => {
+    expect(decisionBoundaryEpoch({ status: 'expired', decidedEpoch: 581, expiryEpoch: 581 })).toBe(581);
+    expect(decisionBoundaryEpoch({ status: 'expired', decidedEpoch: 546 })).toBe(546);
+    expect(decisionBoundaryEpoch({ status: 'closed', decidedEpoch: 529 })).toBe(529);
+    expect(decisionBoundaryEpoch({ status: 'dropped', decidedEpoch: 614 })).toBe(614);
+  });
+
+  it('has no boundary for an open action, or without a lifecycle epoch', () => {
+    expect(decisionBoundaryEpoch({ status: 'active', decidedEpoch: null })).toBeNull();
+    expect(decisionBoundaryEpoch({ status: 'enacted', decidedEpoch: null })).toBeNull();
+  });
+
+  it('judges an open action at the next transition and a decided one at its boundary', () => {
+    expect(committeeBoundaryForAction({ status: 'active', decidedEpoch: null }, 700)).toBe(701);
+    expect(committeeBoundaryForAction({ status: 'enacted', decidedEpoch: 598, ratifiedEpoch: 597 }, 700)).toBe(597);
+    expect(committeeBoundaryForAction({ status: 'active', decidedEpoch: null }, null)).toBeNull();
   });
 });

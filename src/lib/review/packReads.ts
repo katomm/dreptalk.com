@@ -238,14 +238,6 @@ export async function readCommitteeMinSizeAt(db: D1Database, epoch: number): Pro
   return { value: row.committee_min_size, observedAtEpoch: row.epoch };
 }
 
-/** Self-declared committee member names, keyed by lower-case hot key. */
-export async function readCcMemberNames(db: D1Database): Promise<Map<string, string>> {
-  const res = await db.prepare('SELECT hot_key_hex, name FROM cc_member_name').all<{ hot_key_hex: string; name: string }>();
-  const out = new Map<string, string>();
-  for (const r of res.results ?? []) out.set(r.hot_key_hex.toLowerCase(), r.name);
-  return out;
-}
-
 /** Treasury withdrawals enacted at or before `epoch`. Later ones never exist for a historical window. */
 export async function readEnactedWithdrawals(db: D1Database, epoch: number): Promise<Array<{ id: string; title: string | null; enacted_epoch: number; onchain_payload: string | null }>> {
   const res = await db

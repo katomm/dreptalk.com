@@ -9,8 +9,7 @@ import type { TrendVoteRow } from '@/lib/db/drepVotes.js';
 import type { CcVote } from '@/lib/koios/corrections.js';
 import { ccFinalVotesByMember } from '@/lib/koios/corrections.js';
 import type { CommitteeMemberTerm } from '@/lib/koios/committeeTimeline.js';
-import { activeCommitteeSizeFor } from '@/lib/koios/committeeTimeline.js';
-import { committeeReferenceForAction } from '@/lib/db/committee.js';
+import { activeCommitteeSizeAtBoundary, committeeBoundaryForAction } from '@/lib/koios/committeeTimeline.js';
 import { epochStartUnix, type NetworkConfig } from '@/lib/config/network.js';
 import type { TrendBodyInput } from '@/lib/governance/voteTrend.js';
 
@@ -26,7 +25,7 @@ export interface TrendAssemblyInputs {
   /** Current time in unix seconds. When set, an action still in its voting window
       stops at now instead of running flat to its future expiry epoch. Omit to not cap. */
   nowSec?: number;
-  /** The current epoch, the committee observation point for an action still open. */
+  /** The current epoch, whose next transition is the committee reference for an action still open. */
   currentEpoch?: number | null;
 }
 
@@ -113,12 +112,12 @@ export function assembleTrendInputs(a: TrendAssemblyInputs): TrendAssemblyResult
       .map((r) => ({ blockTime: r.block_time, weight: r.voted_power as number }));
 
   // CC yes votes: dedup to one final vote per active member, weight 1 each.
-  // The committee is the one that judged the action (committeeReferenceForAction):
-  // at its decision boundary once decided, observed at the current epoch while open.
-  const ccRef = committeeReferenceForAction(action, a.currentEpoch ?? null);
-  const ccFinal = ccRef != null ? ccFinalVotesByMember(ccVotes, committee.members, committee.hotToCold, ccRef) : [];
+  // The committee is the one that judges the action (committeeBoundaryForAction):
+  // at its decision boundary once decided, at the next transition while open.
+  const ccBoundary = committeeBoundaryForAction(action, a.currentEpoch ?? null);
+  const ccFinal = ccBoundary != null ? ccFinalVotesByMember(ccVotes, committee.members, committee.hotToCold, ccBoundary) : [];
   const ccYes = ccFinal.filter((m) => m.vote === 'Yes').map((m) => ({ blockTime: m.blockTime, weight: 1 }));
-  const ccSize = ccRef != null ? activeCommitteeSizeFor(committee.members, ccRef) : 0;
+  const ccSize = ccBoundary != null ? activeCommitteeSizeAtBoundary(committee.members, ccBoundary) : 0;
 
   const inputs: TrendBodyInput[] = [
     { key: 'DRep', yesVotes: yesByRole('DRep'), finalPct: action.drepYesPct, thresholdPct: null, finalLabel: '' },
