@@ -12,8 +12,11 @@
 // weight, the head count of record, and one over only the DReps a local
 // voting-power row could be found for. Where a survey has a finalized tally
 // artifact, the weighted figures come from that artifact instead of our own
-// recomputation. The binding semantics of every stored figure live in
-// ./surveyTallyContract.ts, read that next.
+// recomputation. The binding semantics of the numeric figures and of each
+// question kind's bar basis live in ./surveyTallyContract.ts, read that next.
+// The column-level rules for the rest, such as what a source value or a null
+// versus an empty object means, live instead on the types in
+// ../db/surveyTally.ts.
 //
 // The mirror is Tessera's change selection: every run asks once for what
 // moved since its cursor: each survey whose projection changed (a new
