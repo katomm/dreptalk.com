@@ -35,7 +35,7 @@ function definition(overrides: Partial<SurveyDefinition> = {}): SurveyDefinition
 function response(
   drepHex: string,
   optionIndex: number,
-  opts: { epochNo?: number; slot?: number; txHash?: string; role?: Role } = {},
+  opts: { epochNo?: number; slot?: number; txHash?: string; role?: Role; isScript?: boolean } = {},
 ): ResponseRecord {
   return {
     txHash: opts.txHash ?? TX,
@@ -46,7 +46,9 @@ function response(
       specVersion: 5,
       surveyRef: { txId: hexToBytes(TX), index: 0 },
       role: opts.role ?? Role.DRep,
-      credential: { type: 'key', keyHash: hexToBytes(drepHex) },
+      credential: opts.isScript
+        ? { type: 'script', scriptHash: hexToBytes(drepHex) }
+        : { type: 'key', keyHash: hexToBytes(drepHex) },
       answers: {
         type: 'public',
         answers: [{ type: 'singleChoice', questionIndex: 0, optionIndex }],
@@ -55,11 +57,21 @@ function response(
   };
 }
 
-function power(map: Record<string, bigint | null>, total: string | null = '10000000'): PowerLookup {
+// scriptMap is keyed the same way as map, but only consulted for a script
+// credential. Most tests never pass it, so a key credential and a script
+// credential sharing a hex never collide unless a test asks for both.
+function power(
+  map: Record<string, bigint | null>,
+  total: string | null = '10000000',
+  scriptMap: Record<string, bigint | null> = {},
+): PowerLookup {
   return {
     epoch: 312,
     totalPower: total,
-    weightOf: (hex) => (hex in map ? map[hex]! : null),
+    weightOf: (hex, isScript) => {
+      const m = isScript ? scriptMap : map;
+      return hex in m ? m[hex]! : null;
+    },
   };
 }
 
@@ -160,6 +172,10 @@ describe('computeSurveyTally', () => {
     });
     expect(r.counted).toBe(1);
     expect(r.excluded).toBe(0);
+    // {} means audited and nothing excluded, a known fact. null would mean
+    // the breakdown is unknown, which this function never produces.
+    expect(r.excludedBy).toEqual({});
+    expect(r.excludedBy).not.toBeNull();
   });
 
   it('excludes a response whose proof verdict is false', () => {
@@ -345,5 +361,42 @@ describe('computeSurveyTally', () => {
       sealed: false,
     });
     expect(r.answeredPower).toBe(big.toString());
+  });
+
+  it('weights a script credential from the script power row, not a key row sharing its hash', () => {
+    const r = computeSurveyTally({
+      definition: definition(),
+      responses: [response(DREP_A, 0, { isScript: true })],
+      verdicts: undefined,
+      // Same hash, two different rows: key weighs 1,000,000 and script weighs
+      // 9,000,000. Dropping isScript from the lookup key would silently pick
+      // the key row and this test would catch the wrong weight.
+      power: power({ [DREP_A]: 1_000_000n }, '10000000', { [DREP_A]: 9_000_000n }),
+      artifact: null,
+      sealed: false,
+    });
+    expect(r.matchedCount).toBe(1);
+    expect(r.answeredPower).toBe('9000000');
+  });
+
+  it('narrows excluded and excludedBy to the DRep claim, same as counted', () => {
+    const r = computeSurveyTally({
+      definition: definition({ eligibleRoles: [Role.DRep, Role.SPO] }),
+      responses: [
+        response(DREP_A, 0),
+        response(DREP_B, 1, { txHash: 'b'.repeat(64), role: Role.SPO }),
+      ],
+      // Both responses fail their proof verdict, so both are excluded by the
+      // library's audit, one claiming DRep and one claiming SPO.
+      verdicts: { [`${TX}:0`]: false, [`${'b'.repeat(64)}:0`]: false },
+      power: power({ [DREP_A]: 1n, [DREP_B]: 1n }),
+      artifact: null,
+      sealed: false,
+    });
+    expect(r.counted).toBe(0);
+    // Only the DRep exclusion shows up. If the role filter were removed, this
+    // would read excluded: 2 and excludedBy: { unproven: 2 }.
+    expect(r.excluded).toBe(1);
+    expect(r.excludedBy).toEqual({ unproven: 1 });
   });
 });
