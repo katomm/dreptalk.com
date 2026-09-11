@@ -44,10 +44,14 @@ import WalletConnection from '@/components/WalletConnection.js';
 const AUTHOR_NAME_MAX = 120;
 
 
-// The real CIP-30 DataSignature shape (COSE_Sign1 signature + COSE_Key). The
-// shared tx WalletApi declares signData in the looser shape the SDK wants, so
-// this island defines its own fuller CIP-30 surface and bridges the two at the
-// one call that hands the api to the tx builder.
+// The real CIP-30 DataSignature shape (COSE_Sign1 signature + COSE_Key), which
+// is what every wallet actually returns and what the author witness reads.
+// The shared tx WalletApi cannot use it: it has to mirror whatever
+// Client.withCip30 accepts, and the SDK types that return value as
+// {payload, signature} (sdk/wallet/Wallet.d.ts SignedMessage), a shape no
+// CIP-30 wallet produces. The same package defines a SECOND SignedMessage in
+// cose/SignData.d.ts that IS {signature, key}, so the two disagree upstream.
+// Hence this island keeps the correct shape and casts once at the hand-off.
 type DataSignature = { signature: string; key: string };
 
 interface Cip30Api {
@@ -122,13 +126,16 @@ function formatAda(lovelace: bigint | string): string {
 const INSUFFICIENT_FUNDS_RE = /^Insufficient tADA for the deposit: need (\d+) lovelace, wallet has (\d+)\.$/;
 
 /**
- * Maps a submitInfoAction failure to a readable message. The network guard
- * already ran at connect time, so by the time this fires the wallet is
- * confirmed to be on preprod; a zero-UTxO shortfall on a preprod wallet is far
- * more often "this is a Preview wallet, not Preprod" than "genuinely empty",
- * so that case gets its own wording instead of the generic insufficient-funds
- * message. Anything else (including a wallet-rejected signTx) falls back to
- * the shared CIP-30 error reader.
+ * Maps a submitInfoAction failure to a readable message.
+ *
+ * The network guard ran at connect time, but it proves less than it looks:
+ * CIP-30 getNetworkId() answers 0 for EVERY testnet, so a wallet on Preview
+ * passes the preprod check unchanged (see networkGuard.ts). That is exactly why
+ * the zero-UTxO case earns its own wording. A wallet that cleared the guard and
+ * then shows no preprod UTxOs at all is far more often on Preview than
+ * genuinely empty, and telling the user to fund an already-funded wallet would
+ * send them the wrong way. Anything else (including a wallet-rejected signTx)
+ * falls back to the shared CIP-30 error reader.
  */
 function mapSubmitError(err: unknown): string {
   const raw = err instanceof Error ? err.message : String(err);
@@ -459,8 +466,11 @@ export default function SubmitInfoAction({ network }: SubmitInfoActionProps) {
       const { anchorUrl, anchorHash } = (await metaRes.json()) as { anchorUrl: string; anchorHash: string };
 
       // The wallet builds, signs (deposit + fee shown here), and submits.
-      // Bridged over the signData shape (see Cip30Api above). Nothing in the
-      // submit path calls signData, so the two surfaces are interchangeable here.
+      // The double cast is forced by the SDK's wrong signData return type (see
+      // DataSignature above), not by a real difference: every other method
+      // matches. It is safe because nothing in the submit path calls signData,
+      // so the field the SDK invents is never read. Drop the cast if the SDK
+      // ever corrects that type.
       const { txHash } = await submitInfoAction({
         walletApi: api as unknown as WalletApi,
         network,
