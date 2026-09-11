@@ -952,7 +952,10 @@ export async function updateVotedPower(db: D1Database, id: string, p: VotePowerF
  * such a row is stamped at the current version with empty metadata, so the
  * version check alone would never revisit it. Rows that have failed
  * re-extraction maxAttempts times are excluded: their anchor is treated as
- * permanently dead so the backfill stops retrying it every run.
+ * permanently dead so the backfill stops retrying it every run. Actions still
+ * waiting for their thread (topic_id IS NULL) are excluded too: createDeferredGovTopics
+ * re-reads those anchors itself, and a second reader would fetch the same document
+ * twice per run and double-spend the shared meta_attempts budget.
  */
 export async function getActionsNeedingMetaReextract(
   db: D1Database,
@@ -964,7 +967,8 @@ export async function getActionsNeedingMetaReextract(
     await db
       .prepare(
         `SELECT * FROM governance_actions
-         WHERE anchor_url IS NOT NULL AND (meta_version < ? OR anchor_status != 'ok') AND meta_attempts < ?
+         WHERE anchor_url IS NOT NULL AND topic_id IS NOT NULL
+           AND (meta_version < ? OR anchor_status != 'ok') AND meta_attempts < ?
          LIMIT ?`,
       )
       .bind(currentVersion, maxAttempts, limit)
@@ -976,20 +980,16 @@ export async function getActionsNeedingMetaReextract(
 /**
  * Actions discovered without a thread yet: the anchor was unreadable at
  * discovery, so opening the thread (and freezing its title-derived slug on a
- * fallback title) was deferred. meta_attempts rides along because it is the
- * shared give-up budget with the metadata backfill.
+ * fallback title) was deferred.
  */
-export async function getActionsAwaitingTopic(
-  db: D1Database,
-  limit: number,
-): Promise<(GovernanceAction & { metaAttempts: number })[]> {
+export async function getActionsAwaitingTopic(db: D1Database, limit: number): Promise<GovernanceAction[]> {
   const rows = (
     await db
       .prepare('SELECT * FROM governance_actions WHERE topic_id IS NULL LIMIT ?')
       .bind(limit)
-      .all<GovernanceActionRow & { meta_attempts: number }>()
+      .all<GovernanceActionRow>()
   ).results ?? [];
-  return rows.map((r) => ({ ...rowToGovernanceAction(r), metaAttempts: r.meta_attempts }));
+  return rows.map(rowToGovernanceAction);
 }
 
 /**

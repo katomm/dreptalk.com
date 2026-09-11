@@ -93,7 +93,7 @@ describe('governancePhases', () => {
     expect(activePhaseNames(governancePhases, govCtx(true))).not.toContain('pin-gc');
     expect(activePhaseNames(governancePhases, govCtx(false, { pinGc: true }))).not.toContain('pin-gc');
     expect(activePhaseNames(governancePhases, govCtx(true, { pinGc: true }))).toEqual([
-      'discovery', 'tallies', 'gov-status-times', 'voted-power',
+      'discovery', 'gov-deferred-topics', 'tallies', 'gov-status-times', 'voted-power',
       'threshold-backfill', 'metadata', 'gov-titles', 'pin-gc', 'post-dates', 'trending', 'params',
       'delegation-fanout', 'webpush', 'telegram', 'delegation-refresh', 'post-erasure', 'cip100',
     ]);

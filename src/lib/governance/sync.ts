@@ -4,9 +4,20 @@
 // run. Tallies, lifecycle status, and vote badges are a later sync phase.
 
 import type { ProposalListRow } from '../koios/client.js';
-import { governanceActionUrl, epochStartMs, resolveNetwork, type CardanoNetwork } from '../config/network.js';
+import {
+  governanceActionUrl,
+  epochStartMs,
+  resolveNetwork,
+  type CardanoNetwork,
+  type NetworkConfig,
+} from '../config/network.js';
 import { readableType, formatAda } from './view.js';
-import { fetchAnchorMetadata, META_EXTRACT_VERSION, META_REEXTRACT_MAX_ATTEMPTS } from './metadata.js';
+import {
+  fetchAnchorMetadata,
+  META_EXTRACT_VERSION,
+  META_REEXTRACT_MAX_ATTEMPTS,
+  type AnchorMetadata,
+} from './metadata.js';
 import { renderMarkdown } from '../markdown.js';
 import { createTopic, buildTopicPostedAtStatements, setGovTopicTitleAndBody, getAllTopicsByCategory } from '../db/forum.js';
 import { activityInsert, buildSetGovCreatedEventDate } from '../db/activity.js';
@@ -26,6 +37,7 @@ import {
   updateActionSubmittedAt,
   getActionsAwaitingTopic,
   buildAttachActionTopic,
+  type GovernanceAction,
 } from '../db/governance.js';
 import { trendingOrderKey } from './sort.js';
 import { GOVERNANCE_CATEGORY_SLUG } from '../../../config/categories.js';
@@ -56,11 +68,12 @@ export interface SyncResult {
 export const DEFERRED_TOPIC_MAX_ATTEMPTS = 6;
 
 /**
- * The discovery-time title for an action whose anchor yielded none. The proposal
- * index is part of it so several actions in one transaction (same tx hash) stay
- * distinguishable.
+ * The title for an action whose anchor yielded none, from the action id
+ * (`<tx hash>#<index>`). The index is part of it so several actions in one
+ * transaction stay distinguishable.
  */
-function fallbackActionTitle(type: string, txHash: string, index: number): string {
+function fallbackActionTitle(type: string, id: string): string {
+  const [txHash, index] = id.split('#');
   return `${readableType(type)} (${txHash.slice(0, 8)}#${index})`;
 }
 
@@ -111,6 +124,118 @@ function composeFirstPostMd(p: FirstPostFields, abstract: string | null, network
   return lines.join('\n');
 }
 
+/**
+ * Re-reads one stored action's anchor document and, on success, stores what it
+ * extracted (which also stamps the current extractor version and clears the
+ * attempt counter). Returns null when the anchor did not answer or failed its
+ * integrity check: that counts one attempt against the give-up budget and leaves
+ * the row for a later run. A successful read that simply contains no rationale or
+ * abstract is still a success, the row is current, just empty.
+ */
+async function rereadActionAnchor(
+  db: D1Database,
+  ga: GovernanceAction,
+  fetchImpl?: typeof fetch,
+): Promise<AnchorMetadata | null> {
+  if (!ga.anchorUrl || !ga.anchorHash) {
+    await incrementActionMetaAttempts(db, ga.id);
+    return null;
+  }
+  const result = await fetchAnchorMetadata(ga.anchorUrl, ga.anchorHash, { fetchImpl, db });
+  if (result.status !== 'ok') {
+    await incrementActionMetaAttempts(db, ga.id);
+    return null;
+  }
+  await updateActionMetadata(db, ga.id, {
+    title: result.metadata.title,
+    abstract: result.metadata.abstract,
+    rationaleHtml: result.metadata.rationaleHtml,
+    authors: result.metadata.authors,
+    references: result.metadata.references,
+    metaVersion: META_EXTRACT_VERSION,
+  });
+  return result.metadata;
+}
+
+/** The stored-action shape of FirstPostFields, shared by every re-render path. */
+function firstPostFieldsFromAction(ga: GovernanceAction): FirstPostFields {
+  return {
+    proposalType: ga.type,
+    returnAddress: ga.returnAddress,
+    deposit: ga.deposit,
+    proposedEpoch: ga.submittedEpoch,
+    expiration: ga.expiryEpoch,
+    proposalId: ga.proposalId,
+  };
+}
+
+/**
+ * The post date of a governance thread: the exact on-chain submission time
+ * (block_time). The epoch start is only a fallback (~5-day granularity, always
+ * at or before the true submission); stamping it made actions look days older
+ * than they are. Both paths that open a thread use this, so a thread that waited
+ * for its anchor carries the same date as one opened at discovery.
+ */
+function govPostedAtMs(
+  submittedAtMs: number | null,
+  submittedEpoch: number | null,
+  cfg: NetworkConfig,
+  now: number,
+): number {
+  if (submittedAtMs != null) return submittedAtMs;
+  return submittedEpoch != null ? epochStartMs(submittedEpoch, cfg) : now;
+}
+
+/**
+ * Opens one governance thread: the system topic, its rendered first post, and the
+ * gov_created feed event, plus whatever statement links the action to the new topic
+ * (the action INSERT at discovery, an UPDATE when the thread was held back). All of
+ * it commits in one atomic batch, so a partial write can never leave an orphan topic
+ * that the next run would re-create as a duplicate.
+ *
+ * created_at on the event is the submission time (same as the topic's), so the feed
+ * and the topic agree on the action's date. notified_at is the real detection time,
+ * so the action counts as new against the notification cursors even when created_at
+ * predates them (sync lag, the epoch-start fallback, or a thread that waited for its
+ * anchor). The title rides along in the payload so a single-action push can name it
+ * without a topic join.
+ */
+async function openGovActionTopic(
+  db: D1Database,
+  a: {
+    type: string;
+    title: string;
+    bodyMd: string;
+    postedAt: number;
+    now: number;
+    rand: string;
+    /** Statement linking the action row to the topic this creates. */
+    link: (topicId: string) => D1PreparedStatement;
+  },
+): Promise<void> {
+  await createTopic(db, {
+    categorySlug: GOVERNANCE_CATEGORY_SLUG,
+    authorId: GOV_SYNC_AUTHOR,
+    title: a.title,
+    bodyMd: a.bodyMd,
+    bodyHtml: renderMarkdown(a.bodyMd),
+    source: 'governance',
+    now: a.now,
+    postedAt: a.postedAt,
+    rand: a.rand,
+    batchWith: (topicId) => [
+      a.link(topicId),
+      activityInsert(db, {
+        type: 'gov_created',
+        topicId,
+        payload: { type: a.type, title: a.title },
+        createdAt: a.postedAt,
+        notifiedAt: a.now,
+      }),
+    ],
+  });
+}
+
 export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResult> {
   const { koios, db, network, now, rand, fetchImpl } = deps;
 
@@ -149,31 +274,8 @@ export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResu
           : { status: 'no-anchor' as const, metadata: null };
 
       const meta = anchor.metadata;
-      const title = meta?.title || fallbackActionTitle(p.proposal_type, p.proposal_tx_hash, p.proposal_index);
-
-      const bodyMd = composeFirstPostMd(
-        {
-          proposalType: p.proposal_type,
-          returnAddress: p.return_address ?? null,
-          deposit: p.deposit ?? null,
-          proposedEpoch: p.proposed_epoch ?? null,
-          expiration: p.expiration ?? null,
-          proposalId: p.proposal_id,
-        },
-        meta?.abstract ?? null,
-        network,
-      );
-      const bodyHtml = renderMarkdown(bodyMd);
-
-      // Post date = exact on-chain submission time (block_time). The epoch start is
-      // only a fallback (~5-day granularity, always at or before the true submission);
-      // stamping it as the post date made actions look days older than they are.
-      const submittedAtMs =
-        p.block_time != null
-          ? p.block_time * 1000
-          : p.proposed_epoch != null
-            ? epochStartMs(p.proposed_epoch, cfg)
-            : now;
+      const anchorRead = anchor.status === 'ok' || anchor.status === 'no-anchor';
+      const submittedAtMs = p.block_time != null ? p.block_time * 1000 : null;
 
       const insertAction = (topicId: string | null) =>
         buildInsertGovernanceAction(db, {
@@ -191,7 +293,7 @@ export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResu
           returnAddress: p.return_address ?? null,
           deposit: p.deposit ?? null,
           submittedEpoch: p.proposed_epoch ?? null,
-          submittedAt: p.block_time != null ? p.block_time * 1000 : null,
+          submittedAt: submittedAtMs,
           expiryEpoch: p.expiration ?? null,
           enactedEpoch: p.enacted_epoch ?? null,
           onchainPayload: p.proposal_description != null ? JSON.stringify(p.proposal_description) : null,
@@ -199,52 +301,41 @@ export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResu
           // extracted ok (or there is no anchor to read). A failed fetch leaves
           // the row below current so the metadata backfill retries it later,
           // instead of treating the empty metadata as final and never revisiting.
-          metaVersion: anchor.status === 'ok' || anchor.status === 'no-anchor' ? META_EXTRACT_VERSION : 0,
+          metaVersion: anchorRead ? META_EXTRACT_VERSION : 0,
           topicId,
           now,
         });
 
-      // An unreadable anchor means the title we would open the thread with is the
-      // fallback, and the slug built from it is permanent. Store the action alone
-      // and let createDeferredGovTopics open the thread once the anchor answers
-      // (or once it has run out of tries). A readable anchor that simply carries
-      // no title is NOT deferred: retrying it would never produce a better one.
-      if (!meta?.title && anchor.status !== 'ok' && anchor.status !== 'no-anchor') {
-        await db.batch([insertAction(null)]);
+      // No readable anchor means no real title, and the slug built from the fallback
+      // would be permanent (see DEFERRED_TOPIC_MAX_ATTEMPTS). Store the action alone
+      // and let createDeferredGovTopics open the thread once the anchor answers. An
+      // anchor that read fine but carries no title is NOT deferred: retrying it would
+      // never produce a better one.
+      if (!meta?.title && !anchorRead) {
+        await insertAction(null).run();
         deferred++;
         continue;
       }
 
-      // The governance_actions row is committed in the same atomic batch as the
-      // topic and first post, so a partial write can never leave an orphan topic
-      // (which the next run would re-create as a duplicate).
-      await createTopic(db, {
-        categorySlug: GOVERNANCE_CATEGORY_SLUG,
-        authorId: GOV_SYNC_AUTHOR,
-        title,
-        bodyMd,
-        bodyHtml,
-        source: 'governance',
+      await openGovActionTopic(db, {
+        type: p.proposal_type,
+        title: meta?.title || fallbackActionTitle(p.proposal_type, id),
+        bodyMd: composeFirstPostMd(
+          {
+            proposalType: p.proposal_type,
+            returnAddress: p.return_address ?? null,
+            deposit: p.deposit ?? null,
+            proposedEpoch: p.proposed_epoch ?? null,
+            expiration: p.expiration ?? null,
+            proposalId: p.proposal_id,
+          },
+          meta?.abstract ?? null,
+          network,
+        ),
+        postedAt: govPostedAtMs(submittedAtMs, p.proposed_epoch ?? null, cfg, now),
         now,
-        postedAt: submittedAtMs,
         rand: rand(),
-        batchWith: (topicId) => [
-          insertAction(topicId),
-          // The newly discovered action is a feed event. created_at is the
-          // submission time (same as the topic's), so the feed and the topic
-          // agree on the action's date. notified_at is the real detection time
-          // (now), so this action counts as new against the notification cursors
-          // even when created_at predates them (sync lag, or the epoch-start
-          // fallback). The title rides along in the payload so a single-action
-          // push can name it without a topic join.
-          activityInsert(db, {
-            type: 'gov_created',
-            topicId,
-            payload: { type: p.proposal_type, title },
-            createdAt: submittedAtMs,
-            notifiedAt: now,
-          }),
-        ],
+        link: insertAction,
       });
 
       created++;
@@ -312,15 +403,14 @@ export interface DeferredTopicDeps {
 }
 
 /**
- * Opens the threads discovery held back because the action's anchor was
- * unreadable (see DEFERRED_TOPIC_MAX_ATTEMPTS). Re-reads the anchor for each
- * waiting action: on success the recovered metadata is stored and the thread
- * opens under the real title, so its slug is the readable one. A still-failing
- * anchor counts one attempt and the action waits for the next run, until the
- * attempt budget is spent and the thread opens on the fallback title.
+ * Opens the threads discovery held back because the action's anchor was unreadable
+ * (see DEFERRED_TOPIC_MAX_ATTEMPTS for why waiting is worth it). Re-reads the anchor
+ * for each waiting action: on success the recovered metadata is stored and the thread
+ * opens under the real title. A still-failing anchor counts one attempt and the action
+ * waits for the next run, until the budget is spent and the fallback title has to do.
  *
- * Self-limiting: once every action has a thread the candidate set is empty and
- * the phase writes nothing, so it is safe to call every tick.
+ * Self-limiting: once every action has a thread the candidate set is empty and the
+ * phase writes nothing, so it is safe to call every tick.
  */
 export async function createDeferredGovTopics(deps: DeferredTopicDeps): Promise<DeferredTopicResult> {
   const { db, network, now, rand, fetchImpl, limit } = deps;
@@ -336,68 +426,24 @@ export async function createDeferredGovTopics(deps: DeferredTopicDeps): Promise<
       let abstract = ga.abstract;
 
       if (!title && ga.anchorUrl && ga.anchorHash && ga.metaAttempts < DEFERRED_TOPIC_MAX_ATTEMPTS) {
-        const result = await fetchAnchorMetadata(ga.anchorUrl, ga.anchorHash, { fetchImpl, db });
-        if (result.status !== 'ok') {
-          await incrementActionMetaAttempts(db, ga.id);
+        const meta = await rereadActionAnchor(db, ga, fetchImpl);
+        if (!meta) {
           deferred++;
           continue;
         }
-        // Store the recovered document now: the thread below is rendered from it,
-        // and the metadata backfill then has nothing left to do for this row.
-        await updateActionMetadata(db, ga.id, {
-          title: result.metadata.title,
-          abstract: result.metadata.abstract,
-          rationaleHtml: result.metadata.rationaleHtml,
-          authors: result.metadata.authors,
-          references: result.metadata.references,
-          metaVersion: META_EXTRACT_VERSION,
-        });
-        title = result.metadata.title;
-        abstract = result.metadata.abstract;
+        title = meta.title;
+        abstract = meta.abstract;
       }
 
       // Either a real title, or the budget is spent and the fallback has to do.
-      const [txHash, indexStr] = ga.id.split('#');
-      const topicTitle = title || fallbackActionTitle(ga.type, txHash, Number(indexStr));
-      const bodyMd = composeFirstPostMd(
-        {
-          proposalType: ga.type,
-          returnAddress: ga.returnAddress,
-          deposit: ga.deposit,
-          proposedEpoch: ga.submittedEpoch,
-          expiration: ga.expiryEpoch,
-          proposalId: ga.proposalId,
-        },
-        abstract,
-        network,
-      );
-      // Same post date as a thread opened at discovery: the on-chain submission
-      // time, so waiting for the anchor never shows up as a later date.
-      const postedAt =
-        ga.submittedAt ?? (ga.submittedEpoch != null ? epochStartMs(ga.submittedEpoch, cfg) : now);
-
-      await createTopic(db, {
-        categorySlug: GOVERNANCE_CATEGORY_SLUG,
-        authorId: GOV_SYNC_AUTHOR,
-        title: topicTitle,
-        bodyMd,
-        bodyHtml: renderMarkdown(bodyMd),
-        source: 'governance',
+      await openGovActionTopic(db, {
+        type: ga.type,
+        title: title || fallbackActionTitle(ga.type, ga.id),
+        bodyMd: composeFirstPostMd(firstPostFieldsFromAction(ga), abstract, network),
+        postedAt: govPostedAtMs(ga.submittedAt, ga.submittedEpoch, cfg, now),
         now,
-        postedAt,
         rand: rand(),
-        batchWith: (topicId) => [
-          buildAttachActionTopic(db, ga.id, topicId),
-          // notified_at is the detection time, so a thread that waited for its
-          // anchor still counts as new against the notification cursors.
-          activityInsert(db, {
-            type: 'gov_created',
-            topicId,
-            payload: { type: ga.type, title: topicTitle },
-            createdAt: postedAt,
-            notifiedAt: now,
-          }),
-        ],
+        link: (topicId) => buildAttachActionTopic(db, ga.id, topicId),
       });
       created++;
     } catch {
@@ -446,34 +492,13 @@ export async function backfillActionMetadata(deps: MetaBackfillDeps): Promise<Me
   let failed = 0;
 
   for (const ga of candidates) {
-    // anchor_url is guaranteed non-null by the DB query, but guard the type.
-    if (!ga.anchorUrl || !ga.anchorHash) {
-      failed++;
-      await incrementActionMetaAttempts(db, ga.id);
-      continue;
-    }
     try {
-      const result = await fetchAnchorMetadata(ga.anchorUrl, ga.anchorHash, { fetchImpl, db });
-      if (result.status !== 'ok') {
-        // Anchor unreachable or failed integrity check: do not bump version,
-        // count the failed attempt, and leave the row for the next run to retry
-        // (until it exhausts its attempt budget and is given up on).
-        failed++;
-        await incrementActionMetaAttempts(db, ga.id);
-        continue;
-      }
-      // Successful fetch (even when the doc has no rationale): bump version. The
-      // topic title + opening post are reconciled separately by backfillGovTopicTitles,
-      // so this stays focused on the action row.
-      await updateActionMetadata(db, ga.id, {
-        title: result.metadata.title,
-        abstract: result.metadata.abstract,
-        rationaleHtml: result.metadata.rationaleHtml,
-        authors: result.metadata.authors,
-        references: result.metadata.references,
-        metaVersion: META_EXTRACT_VERSION,
-      });
-      updated++;
+      // A row left for the next run (unreachable anchor, failed integrity check)
+      // keeps its old version, so it stays a candidate until it exhausts its
+      // attempt budget. The topic title and opening post are reconciled
+      // separately by backfillGovTopicTitles, so this stays on the action row.
+      if (await rereadActionAnchor(db, ga, fetchImpl)) updated++;
+      else failed++;
     } catch {
       failed++;
       await incrementActionMetaAttempts(db, ga.id);
@@ -568,18 +593,7 @@ export async function backfillGovTopicTitles(deps: TopicTitleBackfillDeps): Prom
   for (const ga of candidates) {
     // The query guarantees both, but the types are nullable: guard for safety.
     if (!ga.topicId || ga.title === null) continue;
-    const bodyMd = composeFirstPostMd(
-      {
-        proposalType: ga.type,
-        returnAddress: ga.returnAddress,
-        deposit: ga.deposit,
-        proposedEpoch: ga.submittedEpoch,
-        expiration: ga.expiryEpoch,
-        proposalId: ga.proposalId,
-      },
-      ga.abstract,
-      network,
-    );
+    const bodyMd = composeFirstPostMd(firstPostFieldsFromAction(ga), ga.abstract, network);
     await setGovTopicTitleAndBody(db, {
       topicId: ga.topicId,
       title: ga.title,

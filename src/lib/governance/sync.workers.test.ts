@@ -573,6 +573,22 @@ describe('backfillActionMetadata', () => {
     expect(got!.rationaleHtml).toBeNull();
   });
 
+  it('leaves an action that has no thread yet to the deferred-topic phase', async () => {
+    // A deferred action carries stale metadata and a failed anchor status, so it
+    // matches this backfill's candidate predicate too. Both phases fetching the
+    // same anchor would double-spend the shared meta_attempts budget.
+    const { id } = await insertStaleAction('https://example.com/nothread.json', backfillHash);
+    await env.DB.prepare('UPDATE governance_actions SET topic_id = NULL WHERE id = ?').bind(id).run();
+
+    const result = await backfillActionMetadata({
+      db: env.DB,
+      now: NOW_BF + 4,
+      fetchImpl: async () => new Response(backfillJson, { headers: { 'content-type': 'application/json' } }),
+      limit: 10,
+    });
+    expect(result.scanned).toBe(0);
+  });
+
   it('respects the limit parameter', async () => {
     await insertStaleAction('https://example.com/lim1.json', backfillHash);
     await insertStaleAction('https://example.com/lim2.json', backfillHash);
