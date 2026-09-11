@@ -16,6 +16,7 @@ import {
 const db = env.DB as D1Database;
 const REF = `${'a'.repeat(64)}:0`;
 const REF2 = `${'b'.repeat(64)}:0`;
+const REF3 = `${'c'.repeat(64)}:0`;
 
 /** The write is guarded against the survey table, so a test that expects it to
  * land must have the survey row. eligible_roles is JSON, as migration 0094
@@ -141,9 +142,22 @@ describe('survey_tally storage', () => {
   });
 
   it('excludes cancelled, external-content and untalliable surveys from the backfill scan', async () => {
+    // One survey per axis, all three ineligible, so the scan has to refuse each
+    // for its own reason rather than one of them standing in for the others.
     await seedSurvey(REF);
-    await db.prepare('UPDATE survey SET cancelled = 1 WHERE ref = ?').bind(REF).run();
+    await seedSurvey(REF2);
+    await seedSurvey(REF3);
+    await db.batch([
+      db.prepare('UPDATE survey SET cancelled = 1 WHERE ref = ?').bind(REF),
+      db.prepare('UPDATE survey SET external_content = 1 WHERE ref = ?').bind(REF2),
+      db.prepare("UPDATE survey SET final_state = 'untalliable' WHERE ref = ?").bind(REF3),
+    ]);
     expect(await getRefsWithoutTally(db, 10)).toEqual([]);
+
+    // And the scan is not refusing everything: clearing one axis brings its own
+    // survey back, which is what proves the three clauses are the reason.
+    await db.prepare('UPDATE survey SET cancelled = 0 WHERE ref = ?').bind(REF).run();
+    expect(await getRefsWithoutTally(db, 10)).toEqual([REF]);
   });
 
   it('hands out queue work least recently attempted first', async () => {

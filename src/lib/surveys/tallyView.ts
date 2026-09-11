@@ -37,10 +37,10 @@ export function ratioOf(num: bigint, den: bigint): number | null {
 /**
  * Upper bound on how many option/level buckets any widget will materialize. A
  * hostile definition can declare an astronomically large option `count` or
- * rating span. the committed tally is sparse (it grows with responses, never
+ * rating span. The committed tally is sparse (it grows with responses, never
  * with the declared span), but the display refills zero-answer buckets so the
  * reader sees every choice. Without this cap that refill is an
- * attacker-controlled allocation. No real survey approaches it. a pathological
+ * attacker-controlled allocation. No real survey approaches it. A pathological
  * one renders its first buckets plus whatever higher indices were answered.
  */
 export const MAX_DISPLAY_BUCKETS = 1000;
@@ -117,7 +117,7 @@ function declaredOptionCount(q: Question | undefined): number | null {
 
 /**
  * Which option indices to render for a *sparse* committed question. The tally
- * carries only answered options. here we fill 0..min(declared, cap) so
+ * carries only answered options. Here we fill 0..min(declared, cap) so
  * zero-answer options still show as empty rows, then append any populated index
  * beyond that (a hostile huge-count survey answered at a high index) so nothing
  * counted is hidden, all without ever materializing the attacker-declared
@@ -136,7 +136,7 @@ function renderIndices(q: Question | undefined, populated: readonly number[]): n
 
 /**
  * The value at which half the answered weight has accumulated. Bins arrive
- * value-ascending. when the halfway point falls exactly on a bin boundary the
+ * value-ascending. When the halfway point falls exactly on a bin boundary the
  * two neighbours are averaged, so at unit weights this is the ordinary median.
  */
 function weightedMedian(
@@ -213,7 +213,7 @@ export function questionView(q: Question | undefined, aq: ArtifactQuestion): Que
       ).map(index => {
         const o = byIndex.get(index);
         // Points omits the per-option denominator (it equals the question-level
-        // `answeredWeight`, identical for every option). rating commits its own.
+        // `answeredWeight`, identical for every option). Rating commits its own.
         const denom = o?.answeredWeight ?? aq.answeredWeight;
         return {
           label: optionLabelOf(q, index),
@@ -252,7 +252,7 @@ export function ratingScaleInfo(scale: RatingScale): {
       const min = Number(scale.constraints.min);
       const max = Number(scale.constraints.max);
       // A stepped scale (e.g. 0..10 by 2) has fewer distinct levels than its
-      // span. bucket on step units so the histogram has no empty gaps.
+      // span. Bucket on step units so the histogram has no empty gaps.
       const step =
         scale.constraints.step !== undefined && scale.constraints.step > 0n
           ? Number(scale.constraints.step)

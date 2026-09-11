@@ -291,8 +291,11 @@ async function applyDelta(
   if (statements.length > 0) await db.batch(statements);
   // The delete drops the queue row along with the tally row, so the enqueue
   // comes after it and a survey whose artifact just moved keeps the work order
-  // for its own recomputation. Pass 4's no-row trigger would find it again in
-  // this same run, so the order is belt and braces rather than the only path.
+  // for its own recomputation. Pass 4's no-row trigger usually finds it again in
+  // this same run as well, but only usually: getRefsWithoutTally is bounded and
+  // ordered by ref, so on a backlog larger than its limit a survey whose ref sorts
+  // late is outside that scan. The enqueue here is therefore the path that carries
+  // the guarantee, not a belt beside a brace.
   await deleteSurveyTallies(db, [...new Set([...deleted, ...movedArtifact])]);
   await enqueueSurveyTallies(
     db,

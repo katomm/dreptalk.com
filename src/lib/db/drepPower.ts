@@ -62,7 +62,6 @@ export async function loadPowerLookup(
   const weights = new Map<string, bigint>();
   // Two binds per credential plus the epoch, so chunk well under the cap.
   for (const chunk of chunked(credentials, Math.floor((D1_MAX_BINDS - 1) / 2))) {
-    if (chunk.length === 0) continue;
     const list = chunk.map(() => '(?, ?)').join(', ');
     const binds: (string | number)[] = [epoch];
     for (const c of chunk) binds.push(c.hex.toLowerCase(), c.isScript ? 1 : 0);
