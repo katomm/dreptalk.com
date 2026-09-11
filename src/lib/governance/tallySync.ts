@@ -31,7 +31,7 @@ import {
 } from '../db/governance.js';
 import { upsertVotes, markStalePendingVotesFailed, getVotesNeedingMetaHash, setVoteMetaHash, type VoteInput } from '../db/drepVotes.js';
 import { getCommitteeTimeline, ledgerCcTally } from '../db/committee.js';
-import { activeCommitteeSizeAtBoundary, committeeBoundaryForAction, decisionBoundaryEpoch, type CommitteeMemberTerm } from '../koios/committeeTimeline.js';
+import { activeCommitteeSizeAtBoundary, committeeBoundaryForAction, committeeCoversBoundary, decisionBoundaryEpoch, type CommitteeMemberTerm } from '../koios/committeeTimeline.js';
 import { insertGovStatusEventIfNew } from '../db/activity.js';
 import { isTerminalStatus } from './view.js';
 import { epochStartMs, resolveNetwork, type CardanoNetwork } from '../config/network.js';
@@ -398,7 +398,11 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
       // committee at its decision boundary and the minimum of that epoch's
       // parameters, while still open the live committee and minimum.
       const ccBelowMinSize = gate ? committeeBelowMinSize(gate.sizeAtBoundary, gate.minSize) : null;
-      const contradicts = tallyContradictsOutcome(thresholdResults, status, ccBelowMinSize);
+      const contradicts = tallyContradictsOutcome(thresholdResults, status, ccBelowMinSize, {
+        DRep: sumBallots(tally.drepYes, tally.drepNo, tally.drepAbstain),
+        SPO: sumBallots(tally.spoYes, tally.spoNo, tally.spoAbstain),
+        CC: sumBallots(tally.ccYes, tally.ccNo, tally.ccAbstain),
+      });
       const thresholdsJson = thresholdResults.length
         ? serializeThresholdSnapshot(thresholdResults, ccBelowMinSize, { ccGate: gate, tallyContradictsOutcome: contradicts })
         : null;
@@ -578,6 +582,12 @@ export interface ThresholdBackfillDeps {
   paceMs?: number;
 }
 
+/** Ballots cast by one body, null when none of the counts is known. */
+function sumBallots(...counts: (number | null | undefined)[]): number | null {
+  const known = counts.filter((c): c is number => c != null);
+  return known.length === 0 ? null : known.reduce((a, b) => a + b, 0);
+}
+
 /** Reads the committee minimum of one epoch's parameters from Koios, cached per epoch for the run. Null when Koios has no row. */
 function committeeMinSizeReader(koios: Pick<TallySyncDeps['koios'], 'epochParams'>): (epoch: number) => Promise<number | null> {
   const cache = new Map<number, number | null>();
@@ -595,7 +605,7 @@ function committeeMinSizeReader(koios: Pick<TallySyncDeps['koios'], 'epochParams
  * membership timeline and the minimum read for that epoch, a missing Koios row
  * leaving the minimum unknown rather than borrowing today's. Without a boundary
  * (the action is still open) the live committee size and minimum are the ones
- * in force. An empty timeline (preprod) leaves the size unknown.
+ * in force. A timeline that does not seat the boundary leaves the size unknown.
  */
 async function ccGateFor(
   boundaryEpoch: number | null,
@@ -607,7 +617,9 @@ async function ccGateFor(
     const minSize = await minSizeAt(boundaryEpoch);
     return {
       boundaryEpoch,
-      sizeAtBoundary: members.length > 0 ? activeCommitteeSizeAtBoundary(members, boundaryEpoch) : null,
+      // Unknown, not zero, when no version of the timeline seats this boundary
+      // (preprod, or an action older than the seed).
+      sizeAtBoundary: committeeCoversBoundary(members, boundaryEpoch) ? activeCommitteeSizeAtBoundary(members, boundaryEpoch) : null,
       minSize,
       minSizeSource: minSize == null ? null : 'epoch-params',
     };
@@ -667,7 +679,11 @@ export async function backfillThresholdSnapshots(deps: ThresholdBackfillDeps): P
         { type: ga.type, drepYesPct: ga.drepYesPct, spoYesPct: ga.spoYesPct, ccYesPct: ledgerCc?.yesPct ?? ga.ccYesPct, paramScope },
         params,
       );
-      const contradicts = tallyContradictsOutcome(results, ga.status, ccBelowMinSize);
+      const contradicts = tallyContradictsOutcome(results, ga.status, ccBelowMinSize, {
+        DRep: sumBallots(ga.drepYes, ga.drepNo, ga.drepAbstain),
+        SPO: sumBallots(ga.spoYes, ga.spoNo, ga.spoAbstain),
+        CC: ledgerCc ? ledgerCc.yes + ledgerCc.no + ledgerCc.abstain : sumBallots(ga.ccYes, ga.ccNo, ga.ccAbstain),
+      });
       if (contradicts) {
         console.warn(`[gov-threshold-backfill] action ${ga.id} is ${ga.status} but a stored tally reads below its threshold, reported not reconciled`);
       }

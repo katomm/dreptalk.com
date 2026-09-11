@@ -168,11 +168,20 @@ export function committeeBelowMinSize(size: number | null, minSize: number | nul
  * body's share reads below its bar, or the committee (where it votes on this
  * type) was frozen as below its minimum. Judged on the shares and the frozen
  * gate only, never on `met`, which for the CC folds in today's committee size.
+ * A body that cast no ballot at all is not judged: a ratified action with zero
+ * DRep ballots is a bootstrap-era decision, where the DRep bar did not apply.
  */
-export function tallyContradictsOutcome(results: BodyResult[], status: string | null, ccBelowMinSize: boolean | null): boolean | null {
+export function tallyContradictsOutcome(
+  results: BodyResult[],
+  status: string | null,
+  ccBelowMinSize: boolean | null,
+  ballots: Partial<Record<Body, number | null>> = {},
+): boolean | null {
   if (status !== 'ratified' && status !== 'enacted') return null;
   if (results.length === 0) return null;
-  const judged = results.filter((r): r is BodyResult & { yesPct: number; thresholdPct: number } => r.yesPct != null && r.thresholdPct != null);
+  const judged = results.filter(
+    (r): r is BodyResult & { yesPct: number; thresholdPct: number } => r.yesPct != null && r.thresholdPct != null && ballots[r.body] !== 0,
+  );
   if (judged.length === 0) return null;
   const ccVotes = results.some((r) => r.body === 'CC');
   return judged.some((r) => r.yesPct < r.thresholdPct) || (ccVotes && ccBelowMinSize === true);

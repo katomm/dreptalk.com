@@ -3,6 +3,7 @@ import {
   activeCommitteeMembersAtBoundary,
   activeCommitteeSizeAtBoundary,
   committeeBoundaryForAction,
+  committeeCoversBoundary,
   committeeStanding,
   decisionBoundaryEpoch,
   versionCovers,
@@ -65,6 +66,14 @@ describe('activeCommitteeMembersAtBoundary', () => {
     ];
     expect(activeCommitteeMembersAtBoundary(one, 580).size).toBe(1);
     expect(activeCommitteeMembersAtBoundary(one, 581).size).toBe(0);
+  });
+});
+
+describe('committeeCoversBoundary', () => {
+  it('tells an uncovered boundary from an empty committee', () => {
+    expect(committeeCoversBoundary(seed, 300)).toBe(false);
+    expect(committeeCoversBoundary(seed, 507)).toBe(true);
+    expect(committeeCoversBoundary(seed, 602)).toBe(false); // the seed above stops at version 581 to 601
   });
 });
 

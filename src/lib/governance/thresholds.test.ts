@@ -169,6 +169,14 @@ describe('tallyContradictsOutcome', () => {
     expect(tallyContradictsOutcome([met, ccToday], 'enacted', false)).toBe(false);
   });
 
+  it('does not judge a body that cast no ballot at all (a bootstrap-era decision)', () => {
+    const drepZero: BodyResult = { body: 'DRep', thresholdPct: 60, yesPct: 0, met: false };
+    const cc: BodyResult = { body: 'CC', thresholdPct: 66.67, yesPct: 100, met: true };
+    expect(tallyContradictsOutcome([drepZero, cc], 'enacted', false, { DRep: 0, CC: 7 })).toBe(false);
+    expect(tallyContradictsOutcome([drepZero, cc], 'enacted', false, { DRep: 3, CC: 7 })).toBe(true);
+    expect(tallyContradictsOutcome([drepZero], 'enacted', false, { DRep: 0 })).toBeNull();
+  });
+
   it('applies the frozen committee gate only where the committee votes on the type', () => {
     // NewCommittee: DReps and pools only, so a below-minimum committee is no contradiction.
     expect(tallyContradictsOutcome([met, { body: 'SPO', thresholdPct: 51, yesPct: 60, met: true }], 'enacted', true)).toBe(false);

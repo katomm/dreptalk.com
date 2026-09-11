@@ -61,6 +61,11 @@ export function activeCommitteeMembersAtBoundary(members: CommitteeMemberTerm[],
   return active;
 }
 
+/** Whether any committee version in the timeline seats the boundary that opens `epoch`. False means the timeline does not cover it, not that the committee was empty. */
+export function committeeCoversBoundary(members: CommitteeMemberTerm[], epoch: number): boolean {
+  return members.some((m) => versionCovers(m, epoch));
+}
+
 /** The active committee size at the boundary: the yes-percentage denominator (before abstains leave it). */
 export function activeCommitteeSizeAtBoundary(members: CommitteeMemberTerm[], epoch: number): number {
   return activeCommitteeMembersAtBoundary(members, epoch).size;
