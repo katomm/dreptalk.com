@@ -2,9 +2,9 @@
 -- The informational tally of a CIP-179 survey, precomputed by the gov-sync
 -- surveys phase so the thread page renders it from D1 and never calls Tessera.
 -- Derived data: every row is bound to the sources it was computed from and is
--- invalidated rather than patched when one of them moves. The binding
--- semantics of every column and of the JSON live in
--- src/lib/surveys/surveyTallyContract.ts, which is the contract, not this file.
+-- invalidated rather than patched when one of them moves. The numeric figures
+-- and the JSON's per-question bar bases are defined in
+-- src/lib/surveys/surveyTallyContract.ts rather than here.
 CREATE TABLE survey_tally (
   survey_ref      TEXT PRIMARY KEY,
   -- Where the WEIGHTED questions come from: 'live' (our own audit, weighted at
