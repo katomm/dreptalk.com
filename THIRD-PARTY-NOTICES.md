@@ -48,8 +48,9 @@ Version 2.0.
 ## Plus Jakarta Sans
 
 The site's typeface, bundled as static weights and a latin subset in `public/fonts`
-(used by the pages and by the Open Graph card renderer). Designed by Gumpita Rahayu
-(Tokotype). Licensed under the SIL Open Font License, Version 1.1.
+(used by the pages and by the Open Graph card renderer). `ada-symbol.ttf` in that
+folder is a one-glyph subset of it, the ada sign the cards draw. Designed by
+Gumpita Rahayu (Tokotype). Licensed under the SIL Open Font License, Version 1.1.
 
 - Homepage: https://github.com/tokotype/PlusJakartaSans
 - License: https://openfontlicense.org/open-font-license-official-text/
