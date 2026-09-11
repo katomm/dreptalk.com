@@ -154,11 +154,25 @@ describe('tallyContradictsOutcome', () => {
   it('flags a ratified or enacted action whose stored tally reads below a bar', () => {
     expect(tallyContradictsOutcome([met, short], 'enacted', false)).toBe(true);
     expect(tallyContradictsOutcome([met, short], 'ratified', false)).toBe(true);
-    expect(tallyContradictsOutcome([met], 'enacted', true)).toBe(true);
+    expect(tallyContradictsOutcome([met, { body: 'CC', thresholdPct: 66.67, yesPct: 100, met: true }], 'enacted', true)).toBe(true);
   });
 
   it('is false when every judged body met its bar', () => {
     expect(tallyContradictsOutcome([met], 'enacted', false)).toBe(false);
+  });
+
+  it('judges the shares, not the live committee gate folded into met', () => {
+    // Evaluated against today's params with a committee below minimum: met is
+    // false although the share clears the bar. The frozen gate says the boundary
+    // committee was fine, so nothing contradicts the outcome.
+    const ccToday: BodyResult = { body: 'CC', thresholdPct: 66.67, yesPct: 100, met: false };
+    expect(tallyContradictsOutcome([met, ccToday], 'enacted', false)).toBe(false);
+  });
+
+  it('applies the frozen committee gate only where the committee votes on the type', () => {
+    // NewCommittee: DReps and pools only, so a below-minimum committee is no contradiction.
+    expect(tallyContradictsOutcome([met, { body: 'SPO', thresholdPct: 51, yesPct: 60, met: true }], 'enacted', true)).toBe(false);
+    expect(tallyContradictsOutcome([met, { body: 'CC', thresholdPct: 66.67, yesPct: 100, met: true }], 'enacted', true)).toBe(true);
   });
 
   it('is null for an outcome the tallies cannot contradict, or without tallies to judge', () => {

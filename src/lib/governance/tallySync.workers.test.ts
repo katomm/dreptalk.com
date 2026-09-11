@@ -1346,6 +1346,30 @@ describe('backfillThresholdSnapshots', () => {
     expect(s?.v).toBe(3);
   });
 
+  it('defers an action whose boundary epoch has no committee minimum yet, and freezes it once Koios answers', async () => {
+    await upsertProtocolParams(db(), params);
+    await seedCommittee(6);
+    const a = await terminal(650, 655);
+    let answer = false;
+    const koios = {
+      async epochParams(epochNo?: number): Promise<EpochParamsRow | null> {
+        return answer ? { epoch_no: epochNo ?? null, committee_min_size: 5 } : null;
+      },
+    };
+    const first = await backfillThresholdSnapshots({ koios, db: db(), limit: 10 });
+    expect(first.actions).toBe(0);
+    expect(first.failed).toBe(0);
+    expect(await snapOf(a.topicId)).toBeNull(); // left for a later run, not frozen on a gap
+
+    answer = true;
+    const second = await backfillThresholdSnapshots({ koios, db: db(), limit: 10 });
+    expect(second.actions).toBe(1);
+    const s = await snapOf(a.topicId);
+    expect(s?.ccGate).toEqual({ boundaryEpoch: 650, sizeAtBoundary: 6, minSize: 5, minSizeSource: 'epoch-params' });
+    expect(s?.ccBelowMinSize).toBe(false);
+    expect(s?.tallyContradictsOutcome).toBe(false);
+  });
+
   it('skips the run (drains nothing) when protocol params are not synced', async () => {
     await seedCommittee(6);
     await terminal(600, 605); // no upsertProtocolParams

@@ -115,11 +115,14 @@ export interface WindowPack {
    *  end, or when the hot key is unmapped); `activeAtWindowEnd` is whether the member counts
    *  at the boundary that closes the window, the next transition after its last epoch. */
   ccVotes: Record<string, Array<{ hotKeyHex: string; name: string | null; vote: string; epochCast: number | null; activeAtDecision: boolean | null; activeAtWindowEnd: boolean | null }>>;
-  /** The committee as it stood at the window's end: every seat of the version in force
-   *  during the last epoch, with whether the seat counts at the boundary that closes the
-   *  window and why not. `eligible` is that count, `seats` the count of elected seats. */
+  /** The committee at the boundary that closes the window (the transition into
+   *  `asOfEpoch + 1`, the earliest point the ledger could decide anything still open):
+   *  every seat of the version in force there, with whether it counts and why not.
+   *  `eligible` is that count, `seats` the count of elected seats. The same boundary
+   *  gives `ccVotes[].activeAtWindowEnd`. */
   committee: {
     asOfEpoch: number;
+    boundaryEpoch: number;
     seats: number;
     eligible: number;
     members: Array<{
@@ -694,16 +697,16 @@ function buildNcl(
 }
 
 /**
- * Every seat of the committee version in force during `epoch`, with its standing
- * at the boundary that closes the epoch (committeeStanding). Names resolve like
- * everywhere else on the site: the member's self-declared vote anchors, newest
- * wins, then the curated table for seats that never declared one.
+ * Every seat of the committee version in force at the boundary that opens
+ * `boundaryEpoch`, with its standing there (committeeStanding). Names resolve
+ * like everywhere else on the site: the member's self-declared vote anchors,
+ * newest wins, then the curated table for seats that never declared one.
  */
-function committeeRoster(members: CommitteeMemberTerm[], names: CcNameIndex, epoch: number): WindowPack['committee']['members'] {
+function committeeRoster(members: CommitteeMemberTerm[], names: CcNameIndex, boundaryEpoch: number): WindowPack['committee']['members'] {
   return members
-    .filter((m) => versionCovers(m, epoch))
+    .filter((m) => versionCovers(m, boundaryEpoch))
     .map((m) => {
-      const exclusionReason = committeeStanding(m, epoch + 1);
+      const exclusionReason = committeeStanding(m, boundaryEpoch);
       return {
         coldKeyHex: m.coldKeyHex,
         name: names.byCold(m.coldKeyHex),
@@ -845,7 +848,7 @@ export async function buildWindowPack(
     activeCache.set(boundaryEpoch, set);
     return set;
   };
-  const committeeRows = committeeRoster(members, ccNames, to);
+  const committeeRows = committeeRoster(members, ccNames, to + 1);
   const minSizeRow = await readCommitteeMinSizeAt(db, to);
 
   const allStats = await listEpochStats(db);
@@ -883,6 +886,7 @@ export async function buildWindowPack(
     ccVotes: ccVotes(focusActions, focusCurrent, cfg, ccNames, hotToCold, activeAt, to),
     committee: {
       asOfEpoch: to,
+      boundaryEpoch: to + 1,
       seats: committeeRows.length,
       eligible: committeeRows.filter((m) => m.eligibleAtEnd).length,
       members: committeeRows,

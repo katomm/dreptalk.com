@@ -95,9 +95,12 @@ export function decisionBoundaryEpoch(a: DecisionBoundaryInput): number | null {
 
 /**
  * The boundary whose committee judges an action: its decision boundary once
- * decided, otherwise the next transition (`currentEpoch + 1`), the earliest
- * point the ledger can decide it. Null when neither is known.
+ * decided, the next transition (`currentEpoch + 1`, the earliest point the
+ * ledger can decide it) while still open. Null for a decided action the record
+ * cannot place in time, so a historical action is never judged by today's
+ * committee, and when no current epoch is known.
  */
 export function committeeBoundaryForAction(a: DecisionBoundaryInput, currentEpoch: number | null): number | null {
-  return decisionBoundaryEpoch(a) ?? (currentEpoch != null ? currentEpoch + 1 : null);
+  if (isTerminalStatus(a.status)) return decisionBoundaryEpoch(a);
+  return currentEpoch != null ? currentEpoch + 1 : null;
 }

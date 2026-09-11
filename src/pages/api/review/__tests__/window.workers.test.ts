@@ -164,9 +164,18 @@ describe('buildWindowPack', () => {
     // restores it, so clear it to assert on these three rows alone.
     await env.DB.prepare('DELETE FROM committee_member').run();
     await env.DB.prepare(`INSERT INTO committee_member (cold_key_hex, version_from, version_to, term_expiration, authorized_from, resigned_at) VALUES ('c1', 581, 601, 653, 581, NULL), ('c2', 602, NULL, 653, 602, NULL), ('c3', 602, NULL, 726, 602, 640)`).run();
+    // The roster is the committee at the boundary that closes the window: the
+    // window ending 601 closes with the transition into 602, where the next
+    // version has already been enacted, so the old seat is gone.
     const pack = await buildWindowPack(env.DB, cfg, 599, 601);
-    expect(pack.committee.members.map((m) => m.coldKeyHex)).toEqual(['c1']);
-    expect(pack.committee).toMatchObject({ seats: 1, eligible: 1 });
+    // Both new seats authorized their hot keys inside 602, so neither counts at that boundary yet.
+    expect(pack.committee.members.map((m) => [m.coldKeyHex, m.eligibleAtEnd, m.exclusionReason])).toEqual([
+      ['c2', false, 'not-authorized'],
+      ['c3', false, 'not-authorized'],
+    ]);
+    expect(pack.committee).toMatchObject({ asOfEpoch: 601, boundaryEpoch: 602, seats: 2, eligible: 0 });
+    const before = await buildWindowPack(env.DB, cfg, 598, 600);
+    expect(before.committee.members.map((m) => m.coldKeyHex)).toEqual(['c1']);
     const later = await buildWindowPack(env.DB, cfg, 650, 652);
     // The resigned seat stays on the roster, marked, so a reader can tell a
     // vacated seat from a seat that was never elected.

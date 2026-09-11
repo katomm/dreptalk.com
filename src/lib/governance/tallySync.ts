@@ -634,25 +634,43 @@ export async function backfillThresholdSnapshots(deps: ThresholdBackfillDeps): P
   // drain candidates with an empty snapshot (retry next cron once params are synced).
   const params = await getProtocolParams(db);
   if (!params) return { actions: 0, failed: 0 };
-  const { members } = await getCommitteeTimeline(db);
+  const committee = await getCommitteeTimeline(db);
+  const { members } = committee;
   const minSizeAt = committeeMinSizeReader(koios);
 
   let actions = 0;
   let failed = 0;
+  let deferred = 0;
   for (const [i, ga] of candidates.entries()) {
     if (paceMs > 0 && i > 0) await new Promise((resolve) => setTimeout(resolve, paceMs));
     try {
       // Terminal rows only (the candidate query), so this is a boundary or,
       // without any lifecycle epoch, nothing to measure against (live is null).
-      const gate = await ccGateFor(decisionBoundaryEpoch(ga), members, null, minSizeAt);
+      const boundary = decisionBoundaryEpoch(ga);
+      const [gate, ledgerCc] = await Promise.all([
+        ccGateFor(boundary, members, null, minSizeAt),
+        ledgerCcTally(db, committee, ga.id, boundary),
+      ]);
+      // A boundary whose minimum Koios did not return this time is a data gap,
+      // not an answer: leave the row for a later run instead of freezing v3 on it.
+      if (boundary != null && gate.minSize == null) {
+        deferred++;
+        continue;
+      }
       const ccBelowMinSize = committeeBelowMinSize(gate.sizeAtBoundary, gate.minSize);
 
+      // Judge the outcome on the ledger-exact committee share where the timeline
+      // gives one, the same value the tally sync writes, so the frozen check does
+      // not depend on whether the committee-pct recompute ran before this pass.
       const paramScope = ga.type === 'ParameterChange' ? parameterChangeScope(ga.onchainPayload ?? null) : null;
       const results = evaluateThresholds(
-        { type: ga.type, drepYesPct: ga.drepYesPct, spoYesPct: ga.spoYesPct, ccYesPct: ga.ccYesPct, paramScope },
+        { type: ga.type, drepYesPct: ga.drepYesPct, spoYesPct: ga.spoYesPct, ccYesPct: ledgerCc?.yesPct ?? ga.ccYesPct, paramScope },
         params,
       );
       const contradicts = tallyContradictsOutcome(results, ga.status, ccBelowMinSize);
+      if (contradicts) {
+        console.warn(`[gov-threshold-backfill] action ${ga.id} is ${ga.status} but a stored tally reads below its threshold, reported not reconciled`);
+      }
       const thresholdsJson = serializeThresholdSnapshot(results, ccBelowMinSize, { ccGate: gate, tallyContradictsOutcome: contradicts });
       await updateThresholdSnapshot(db, { id: ga.id, thresholdsJson, thresholdsEpoch: gate.boundaryEpoch });
       actions++;
@@ -661,6 +679,7 @@ export async function backfillThresholdSnapshots(deps: ThresholdBackfillDeps): P
       console.warn(`[gov-threshold-backfill] action ${ga.id} failed:`, err);
     }
   }
+  if (deferred > 0) console.log(`[gov-threshold-backfill] deferred=${deferred} (no committee minimum for the boundary epoch yet)`);
   return { actions, failed };
 }
 

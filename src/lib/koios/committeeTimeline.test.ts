@@ -109,4 +109,9 @@ describe('decisionBoundaryEpoch and committeeBoundaryForAction', () => {
     expect(committeeBoundaryForAction({ status: 'enacted', decidedEpoch: 598, ratifiedEpoch: 597 }, 700)).toBe(597);
     expect(committeeBoundaryForAction({ status: 'active', decidedEpoch: null }, null)).toBeNull();
   });
+
+  it('never judges a decided action the record cannot place in time by a projected committee', () => {
+    expect(committeeBoundaryForAction({ status: 'enacted', decidedEpoch: null }, 700)).toBeNull();
+    expect(committeeBoundaryForAction({ status: 'closed', decidedEpoch: null }, 700)).toBeNull();
+  });
 });

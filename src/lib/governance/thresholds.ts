@@ -163,13 +163,19 @@ export function committeeBelowMinSize(size: number | null, minSize: number | nul
   return size < minSize;
 }
 
-/** Whether stored tallies contradict a ratified or enacted outcome: some required body reads below its bar. */
+/**
+ * Whether stored tallies contradict a ratified or enacted outcome: a required
+ * body's share reads below its bar, or the committee (where it votes on this
+ * type) was frozen as below its minimum. Judged on the shares and the frozen
+ * gate only, never on `met`, which for the CC folds in today's committee size.
+ */
 export function tallyContradictsOutcome(results: BodyResult[], status: string | null, ccBelowMinSize: boolean | null): boolean | null {
   if (status !== 'ratified' && status !== 'enacted') return null;
   if (results.length === 0) return null;
-  const judged = results.filter((r) => r.yesPct != null && r.thresholdPct != null);
+  const judged = results.filter((r): r is BodyResult & { yesPct: number; thresholdPct: number } => r.yesPct != null && r.thresholdPct != null);
   if (judged.length === 0) return null;
-  return judged.some((r) => !r.met) || ccBelowMinSize === true;
+  const ccVotes = results.some((r) => r.body === 'CC');
+  return judged.some((r) => r.yesPct < r.thresholdPct) || (ccVotes && ccBelowMinSize === true);
 }
 
 /**
