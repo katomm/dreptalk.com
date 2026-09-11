@@ -179,6 +179,34 @@ export async function withdrawSurveys(
   return withdrawn;
 }
 
+/** What the mirror has to know about the stored rows before it applies a
+ * delivery, asked in bulk because a delta carries up to 200 surveys.
+ *
+ * Both facts are about derived data the delivery invalidates. Whether a row has
+ * a thread decides what withdrawal does to it: one with no thread is deleted,
+ * so its precomputed figures go with it, while a published one is only flagged
+ * and keeps them. The artifact hash decides whether a delivery moved the
+ * ground under the figures: a tally computed against one artifact may not be
+ * shown beside another. Refs never stored are absent from the map. */
+export async function getStoredSurveyFacts(
+  db: D1Database,
+  refs: readonly string[],
+): Promise<Map<string, { published: boolean; artifactHash: string | null }>> {
+  const facts = new Map<string, { published: boolean; artifactHash: string | null }>();
+  for (const chunk of chunked(refs, D1_MAX_BINDS)) {
+    const { results } = await db
+      .prepare(
+        `SELECT ref, topic_id, artifact_hash FROM survey WHERE ref IN (${sqlPlaceholders(chunk)})`,
+      )
+      .bind(...chunk)
+      .all<{ ref: string; topic_id: string | null; artifact_hash: string | null }>();
+    for (const r of results ?? []) {
+      facts.set(r.ref, { published: r.topic_id !== null, artifactHash: r.artifact_hash });
+    }
+  }
+  return facts;
+}
+
 /** Finalized surveys whose artifact count is still to be read: the decision
  * has been written but the artifact request has not answered yet. Asked on
  * every run, the set is normally empty, and an artifact is immutable once
@@ -231,6 +259,11 @@ export interface SurveyRow {
    * and forever on a cancelled or untalliable survey. */
   finalCountedDreps: number | null;
   finalState: string | null;
+  /** Content address of the tally artifact the decision published, null while
+   * the survey is undecided and on an untalliable one. The tally pass decides
+   * its path from this value and binds its write to it, and a reader compares
+   * it against the tally row's own to spot a figure the artifact moved under. */
+  artifactHash: string | null;
   unavailable: boolean;
 }
 
@@ -245,6 +278,7 @@ interface RawSurveyRow {
   counted_dreps: number | null;
   final_counted_dreps: number | null;
   final_state: string | null;
+  artifact_hash: string | null;
   unavailable: number;
 }
 
@@ -253,7 +287,7 @@ interface RawSurveyRow {
 const SURVEY_COLUMNS =
   'survey.ref, survey.end_epoch, survey.eligible_roles, survey.sealed, survey.cancelled, ' +
   'survey.external_content, survey.definition, survey.counted_dreps, ' +
-  'survey.final_counted_dreps, survey.final_state, survey.unavailable';
+  'survey.final_counted_dreps, survey.final_state, survey.artifact_hash, survey.unavailable';
 
 function rowToSurvey(r: RawSurveyRow): SurveyRow {
   return {
@@ -267,8 +301,20 @@ function rowToSurvey(r: RawSurveyRow): SurveyRow {
     countedDreps: r.counted_dreps,
     finalCountedDreps: r.final_counted_dreps,
     finalState: r.final_state,
+    artifactHash: r.artifact_hash,
     unavailable: r.unavailable === 1,
   };
+}
+
+/** One survey by its canonical reference, whether or not it has a thread. The
+ * tally pass reads it to decide eligibility and to learn the artifact hash its
+ * computation is bound to. */
+export async function getSurveyByRef(db: D1Database, ref: string): Promise<SurveyRow | null> {
+  const row = await db
+    .prepare(`SELECT ${SURVEY_COLUMNS} FROM survey WHERE survey.ref = ?`)
+    .bind(ref)
+    .first<RawSurveyRow>();
+  return row ? rowToSurvey(row) : null;
 }
 
 /** The survey behind one thread, or null for a non-survey topic. */
