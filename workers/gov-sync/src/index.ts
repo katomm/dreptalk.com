@@ -137,6 +137,14 @@ export default {
                     timeoutMs: 10_000,
                   })
                 : null,
+              discovery: { ran: false, failed: 0 },
+              // Both halves required: the group is what proves a file is ours to
+              // delete on an account shared with another project, and the token
+              // is separate from the app's upload-only one.
+              pinGc:
+                env.PINATA_GOV_GROUP_ID && env.PINATA_GC_JWT
+                  ? { groupId: env.PINATA_GOV_GROUP_ID, jwt: env.PINATA_GC_JWT }
+                  : null,
             };
             return runPhases(governancePhases, ctx, phase);
           }
