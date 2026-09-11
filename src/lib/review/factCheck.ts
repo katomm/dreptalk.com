@@ -103,7 +103,7 @@ function collectStrings(v: unknown, keys: RegExp, out: Set<string>): void {
 }
 
 /** Capitalized only because they open a sentence. Any other word at a sentence start is checked like the rest. */
-const SENTENCE_STARTERS = new Set(['The', 'A', 'An', 'In', 'By', 'On', 'At', 'As', 'Of', 'And', 'For', 'With', 'That', 'This', 'These', 'Those', 'It', 'Its', 'He', 'She', 'They', 'We', 'But', 'So', 'If', 'When', 'While', 'After', 'Before', 'Since', 'Until', 'Both', 'Neither', 'Every', 'Each', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Half', 'Most', 'Some', 'None', 'Not', 'No', 'Yes', 'What', 'Where', 'Why', 'How', 'Whatever', 'Part', 'Compared', 'Read', 'Only', 'Also', 'Still', 'Then', 'There', 'Here', 'Nothing', 'Everything', 'Nobody', 'Whether', 'Unless', 'Without', 'Behind', 'Between', 'Under', 'Over', 'Across', 'Against', 'Steps', 'Rewards', 'More', 'Together', 'Share', 'Underneath', 'Concentration', 'Voting', 'Ratification', 'Repricing', 'Power', 'Participation', 'Almost', 'Abstaining', 'Taken', 'All', 'Paying', 'Same', 'Constitutional', 'Amount', 'Size', 'Count', 'Fewer', 'Neither', 'Twelve', 'Nine', 'Six', 'Nineteen', 'Forty', 'Delegation', 'Missed', 'Among', 'Bars', 'Follow', 'Their', 'Smaller', 'Ranked', 'Around', 'Stake', 'Final', 'According', 'Eleven', 'Dropped', 'Metadata', 'Opposing', 'Revised', 'Should', 'Dividing', 'Raising', 'Participation', 'Pools', 'Delegated', 'Voting', 'Deciding', 'Nothing']);
+const SENTENCE_STARTERS = new Set(['The', 'A', 'An', 'In', 'By', 'On', 'At', 'As', 'Of', 'And', 'For', 'With', 'That', 'This', 'These', 'Those', 'It', 'Its', 'He', 'She', 'They', 'We', 'But', 'So', 'If', 'When', 'While', 'After', 'Before', 'Since', 'Until', 'Both', 'Neither', 'Every', 'Each', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Half', 'Most', 'Some', 'None', 'Not', 'No', 'Yes', 'What', 'Where', 'Why', 'How', 'Whatever', 'Part', 'Compared', 'Read', 'Only', 'Also', 'Still', 'Then', 'There', 'Here', 'Nothing', 'Everything', 'Nobody', 'Whether', 'Unless', 'Without', 'Behind', 'Between', 'Under', 'Over', 'Across', 'Against', 'Steps', 'Rewards', 'More', 'Together', 'Share', 'Underneath', 'Concentration', 'Voting', 'Ratification', 'Repricing', 'Power', 'Participation', 'Almost', 'Abstaining', 'Taken', 'All', 'Paying', 'Same', 'Constitutional', 'Amount', 'Size', 'Count', 'Fewer', 'Neither', 'Twelve', 'Nine', 'Six', 'Nineteen', 'Forty', 'Delegation', 'Missed', 'Among', 'Bars', 'Follow', 'Their', 'Smaller', 'Ranked', 'Around', 'Stake', 'Final', 'According', 'Eleven', 'Dropped', 'Metadata', 'Opposing', 'Revised', 'Should', 'Dividing', 'Raising', 'Participation', 'Pools', 'Delegated', 'Voting', 'Deciding', 'From', 'Until', 'Ratification', 'Weight', 'Governance', 'Which', 'Who', 'Its']);
 
 const GOVERNANCE_TERMS = new Set([
   'Cardano', 'DRep', 'DReps', 'SPO', 'SPOs', 'Constitutional Committee', 'Constitution', 'Governance Review', 'DRepTalk',
@@ -378,7 +378,9 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
     // A heading loses its "#" marks and then opens a sentence like any line.
     const sentences = stripHeadingMarks(seg.text).split(/(?<=[.!?])\s+|\n+/);
     for (const sentence of sentences) {
-      const words = sentence.trim().split(/\s+/).map((w) => w.replace(/[.,:;!?()"]+$/, '').replace(/^[("]+/, ''));
+      // A possessive is the name plus an ending, so "Cardano's" is checked as
+      // "Cardano". Without this every known name would need a second entry.
+      const words = sentence.trim().split(/\s+/).map((w) => w.replace(/[.,:;!?()"]+$/, '').replace(/^[("]+/, '').replace(/[’']s$/, ''));
       for (let i = 0; i < words.length; i++) {
         if (!/^[A-Z][\w₳'’.-]*$/.test(words[i])) continue;
         if (i === 0 && SENTENCE_STARTERS.has(words[0])) continue;
