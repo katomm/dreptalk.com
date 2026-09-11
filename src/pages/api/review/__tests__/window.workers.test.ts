@@ -159,16 +159,50 @@ describe('buildWindowPack', () => {
     expect(drepRows.reduce((a, r) => a + r.finalVoters, 0)).toBe(3);
   });
 
-  it('selects committee members active at epochTo with the inclusive version_to', async () => {
+  it('lists every seat of the version in force at epochTo, with eligibility and the reason for an exclusion', async () => {
     // A migration seeds the real committee timeline and the per-test reset
     // restores it, so clear it to assert on these three rows alone.
     await env.DB.prepare('DELETE FROM committee_member').run();
     await env.DB.prepare(`INSERT INTO committee_member (cold_key_hex, version_from, version_to, term_expiration, authorized_from, resigned_at) VALUES ('c1', 581, 601, 653, 581, NULL), ('c2', 602, NULL, 653, 602, NULL), ('c3', 602, NULL, 726, 602, 640)`).run();
+    // The roster is the committee at the boundary that closes the window: the
+    // window ending 601 closes with the transition into 602, where the next
+    // version has already been enacted, so the old seat is gone.
     const pack = await buildWindowPack(env.DB, cfg, 599, 601);
-    expect(pack.committee.members.map((m) => m.coldKeyHex)).toEqual(['c1']);
+    // Both new seats authorized their hot keys inside 602, so neither counts at that boundary yet.
+    expect(pack.committee.members.map((m) => [m.coldKeyHex, m.eligibleAtEnd, m.exclusionReason])).toEqual([
+      ['c2', false, 'not-authorized'],
+      ['c3', false, 'not-authorized'],
+    ]);
+    expect(pack.committee).toMatchObject({ asOfEpoch: 601, boundaryEpoch: 602, seats: 2, eligible: 0 });
+    const before = await buildWindowPack(env.DB, cfg, 598, 600);
+    expect(before.committee.members.map((m) => m.coldKeyHex)).toEqual(['c1']);
     const later = await buildWindowPack(env.DB, cfg, 650, 652);
-    expect(later.committee.members.map((m) => m.coldKeyHex)).toEqual(['c2']);
+    // The resigned seat stays on the roster, marked, so a reader can tell a
+    // vacated seat from a seat that was never elected.
+    expect(later.committee.members.map((m) => [m.coldKeyHex, m.eligibleAtEnd, m.exclusionReason])).toEqual([
+      ['c2', true, null],
+      ['c3', false, 'resigned'],
+    ]);
+    expect(later.committee).toMatchObject({ seats: 2, eligible: 1 });
     expect(later.committee.endingWithin12).toBe(1);
+  });
+
+  it('judges a committee ballot at the decision boundary, not at the end of the decided epoch', async () => {
+    // A member who resigned inside the epoch a ratification opened still counted
+    // at that boundary. The same ballot on an action still open at the window's
+    // end gets no verdict, only its standing at the window's end.
+    await env.DB.prepare('DELETE FROM committee_member').run();
+    await env.DB.prepare(`INSERT INTO committee_member (cold_key_hex, version_from, version_to, term_expiration, authorized_from, resigned_at) VALUES ('c1', 581, NULL, 653, 581, 597), ('c2', 581, NULL, 653, 581, NULL)`).run();
+    await env.DB.prepare(`INSERT INTO committee_hot_key (hot_key_hex, cold_key_hex) VALUES ('h1', 'c1'), ('h2', 'c2')`).run();
+    await seedAction(ids.ratifiedIn, 'TreasuryWithdrawals', 'enacted', { submitted: 592, ratified: 597, enacted: 598, decided: 598, expiry: 598 });
+    await seedAction(ids.open, 'InfoAction', 'active', { submitted: 597, expiry: 603 });
+    for (const [ga, hot, epoch] of [[ids.ratifiedIn, 'h1', 592], [ids.ratifiedIn, 'h2', 596], [ids.open, 'h1', 597]] as const) {
+      await env.DB.prepare(`INSERT INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, block_time, synced_at) VALUES (?, 'ConstitutionalCommittee', ?, ?, 'Yes', ?, 0)`).bind(ga, hot, hot, t(epoch)).run();
+    }
+    const pack = await buildWindowPack(env.DB, cfg, 597, 599);
+    const loan = pack.ccVotes[ids.ratifiedIn].map((v) => [v.hotKeyHex, v.activeAtDecision, v.activeAtWindowEnd]);
+    expect(loan).toEqual([['h1', true, false], ['h2', true, true]]);
+    expect(pack.ccVotes[ids.open].map((v) => [v.hotKeyHex, v.activeAtDecision, v.activeAtWindowEnd])).toEqual([['h1', null, false]]);
   });
 
   it('does not report a later parameter snapshot as the historical committee minimum', async () => {

@@ -49,7 +49,7 @@ const { action, trendRows, ccVotes, committee, params, network, now, slug, compa
   Astro.props;
 const cfg = resolveNetwork(network);
 
-const assembled = assembleTrendInputs({ action, trendRows, ccVotes, committee, cfg, nowSec: Math.floor(now / 1000) });
+const assembled = assembleTrendInputs({ action, trendRows, ccVotes, committee, cfg, nowSec: Math.floor(now / 1000), currentEpoch: params?.epoch ?? null });
 const { start, end } = assembled.window;
 const lineEnd = assembled.lineEnd;
 
@@ -104,6 +104,7 @@ if (compare) {
     committee,
     cfg,
     nowSec: Math.floor(now / 1000),
+    currentEpoch: params?.epoch ?? null,
   });
   const cInputs: TrendBodyInput[] = cAssembled.inputs.map((b) => ({
     ...b,

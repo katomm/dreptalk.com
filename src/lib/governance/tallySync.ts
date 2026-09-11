@@ -31,12 +31,19 @@ import {
 } from '../db/governance.js';
 import { upsertVotes, markStalePendingVotesFailed, getVotesNeedingMetaHash, setVoteMetaHash, type VoteInput } from '../db/drepVotes.js';
 import { getCommitteeTimeline, ledgerCcTally } from '../db/committee.js';
-import { activeCommitteeSizeAt } from '../koios/committeeTimeline.js';
+import { activeCommitteeSizeAtBoundary, committeeBoundaryForAction, committeeCoversBoundary, decisionBoundaryEpoch, type CommitteeMemberTerm } from '../koios/committeeTimeline.js';
 import { insertGovStatusEventIfNew } from '../db/activity.js';
 import { isTerminalStatus } from './view.js';
 import { epochStartMs, resolveNetwork, type CardanoNetwork } from '../config/network.js';
 import { getProtocolParams } from '../db/protocolParams.js';
-import { evaluateThresholds, serializeThresholdSnapshot, committeeBelowMinSize, THRESHOLD_SNAPSHOT_VERSION } from './thresholds.js';
+import {
+  evaluateThresholds,
+  serializeThresholdSnapshot,
+  committeeBelowMinSize,
+  tallyContradictsOutcome,
+  THRESHOLD_SNAPSHOT_VERSION,
+  type CcGateProvenance,
+} from './thresholds.js';
 import { parameterChangeScope } from './onchain.js';
 
 // Max actions a single tally/vote run processes when the caller does not specify
@@ -65,6 +72,8 @@ export interface TallySyncDeps {
   koios: {
     proposalList(limit?: number): Promise<ProposalListRow[]>;
     proposalVotingSummary(proposalId: string): Promise<VotingSummary | null>;
+    /** Parameters of one epoch, for the committee minimum in force at a decision boundary. */
+    epochParams(epochNo?: number): Promise<EpochParamsRow | null>;
   };
   db: D1Database;
   currentEpoch: number | null;
@@ -324,6 +333,7 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
   // Membership timeline for the ledger-exact committee override below, one read
   // per run. Empty on preprod (no seed coverage), which disables the override.
   const committee = await getCommitteeTimeline(db);
+  const minSizeAt = committeeMinSizeReader(koios);
 
   let updated = 0;
   let frozen = 0;
@@ -342,17 +352,30 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
 
       // The epoch the action was decided: the terminal lifecycle epoch, falling
       // back to the expiry epoch when status was derived from the expiry check.
+      const expiryEpoch = ga.expiryEpoch ?? life?.expiration ?? null;
       const decidedEpoch =
         life?.enacted_epoch ?? life?.ratified_epoch ?? life?.expired_epoch ?? life?.dropped_epoch ??
-        (status !== 'active' ? ga.expiryEpoch ?? life?.expiration ?? null : null);
+        (status !== 'active' ? expiryEpoch : null);
+      const decision = { status, decidedEpoch, ratifiedEpoch: life?.ratified_epoch ?? null, expiryEpoch };
+
+      // The committee that judges this action: the one at its decision boundary
+      // once decided, the one at the next transition while still open
+      // (committeeBoundaryForAction). Shared by the cc_* override, the quorum
+      // gate and the review pack, so none of them can resolve a different committee.
+      const ccBoundary = committeeBoundaryForAction(decision, currentEpoch);
 
       // Ledger-exact committee override: Koios' summary double-counts rotated
       // hot keys and mis-sizes the denominator (see ccTallyPct). Where the
       // membership timeline covers the action's epoch, replace the raw cc_*
       // numbers with the same recompute the committee-pct phase runs, so a
       // tally pass never reverts an already recomputed action and the
-      // threshold check below judges the exact value.
-      const ledgerCc = await ledgerCcTally(db, committee, ga.id, decidedEpoch ?? currentEpoch);
+      // threshold check below judges the exact value. The quorum gate reads the
+      // boundary's parameters from Koios, independent of the tally, so both run
+      // at once (the gate only matters once params are synced).
+      const [ledgerCc, gate] = await Promise.all([
+        ledgerCcTally(db, committee, ga.id, ccBoundary),
+        params ? ccGateFor(decisionBoundaryEpoch(decision), committee.members, params, minSizeAt) : null,
+      ]);
       if (ledgerCc) {
         tally.ccYes = ledgerCc.yes;
         tally.ccNo = ledgerCc.no;
@@ -371,11 +394,22 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
             params,
           )
         : [];
-      // Freeze the CC quorum gate too: for a just-concluding action the current
-      // committee size and min size are the ones in force at its decision epoch.
-      const ccBelowMinSize = committeeBelowMinSize(params?.committeeSize ?? null, params?.committeeMinSize ?? null);
-      const thresholdsJson = thresholdResults.length ? serializeThresholdSnapshot(thresholdResults, ccBelowMinSize) : null;
-      const thresholdsEpoch = params?.epoch ?? null;
+      // Freeze the CC quorum gate with the thresholds: for a decided action the
+      // committee at its decision boundary and the minimum of that epoch's
+      // parameters, while still open the live committee and minimum.
+      const ccBelowMinSize = gate ? committeeBelowMinSize(gate.sizeAtBoundary, gate.minSize) : null;
+      const contradicts = tallyContradictsOutcome(thresholdResults, status, ccBelowMinSize, {
+        DRep: sumBallots(tally.drepYes, tally.drepNo, tally.drepAbstain),
+        SPO: sumBallots(tally.spoYes, tally.spoNo, tally.spoAbstain),
+        CC: sumBallots(tally.ccYes, tally.ccNo, tally.ccAbstain),
+      });
+      const thresholdsJson = thresholdResults.length
+        ? serializeThresholdSnapshot(thresholdResults, ccBelowMinSize, { ccGate: gate, tallyContradictsOutcome: contradicts })
+        : null;
+      const thresholdsEpoch = gate?.boundaryEpoch ?? params?.epoch ?? null;
+      if (contradicts) {
+        console.warn(`[gov-tally] action ${ga.id} is ${status} but a stored tally reads below its threshold, reported not reconciled`);
+      }
 
       await updateGovernanceTallyAndStatus(db, {
         id: ga.id,
@@ -548,14 +582,60 @@ export interface ThresholdBackfillDeps {
   paceMs?: number;
 }
 
+/** Ballots cast by one body, null when none of the counts is known. */
+function sumBallots(...counts: (number | null | undefined)[]): number | null {
+  const known = counts.filter((c): c is number => c != null);
+  return known.length === 0 ? null : known.reduce((a, b) => a + b, 0);
+}
+
+/** Reads the committee minimum of one epoch's parameters from Koios, cached per epoch for the run. Null when Koios has no row. */
+function committeeMinSizeReader(koios: Pick<TallySyncDeps['koios'], 'epochParams'>): (epoch: number) => Promise<number | null> {
+  const cache = new Map<number, number | null>();
+  return async (epoch) => {
+    if (!cache.has(epoch)) {
+      const ep = await koios.epochParams(epoch);
+      cache.set(epoch, ep?.committee_min_size ?? null);
+    }
+    return cache.get(epoch) ?? null;
+  };
+}
+
+/**
+ * The frozen quorum gate. At a decision boundary the size is counted from the
+ * membership timeline and the minimum read for that epoch, a missing Koios row
+ * leaving the minimum unknown rather than borrowing today's. Without a boundary
+ * (the action is still open) the live committee size and minimum are the ones
+ * in force. A timeline that does not seat the boundary leaves the size unknown.
+ */
+async function ccGateFor(
+  boundaryEpoch: number | null,
+  members: CommitteeMemberTerm[],
+  live: { committeeSize: number | null; committeeMinSize: number | null } | null,
+  minSizeAt: (epoch: number) => Promise<number | null>,
+): Promise<CcGateProvenance> {
+  if (boundaryEpoch != null) {
+    const minSize = await minSizeAt(boundaryEpoch);
+    return {
+      boundaryEpoch,
+      // Unknown, not zero, when no version of the timeline seats this boundary
+      // (preprod, or an action older than the seed).
+      sizeAtBoundary: committeeCoversBoundary(members, boundaryEpoch) ? activeCommitteeSizeAtBoundary(members, boundaryEpoch) : null,
+      minSize,
+      minSizeSource: minSize == null ? null : 'epoch-params',
+    };
+  }
+  const minSize = live?.committeeMinSize ?? null;
+  return { boundaryEpoch: null, sizeAtBoundary: live?.committeeSize ?? null, minSize, minSizeSource: minSize == null ? null : 'live' };
+}
+
 /**
  * One-time, self-limiting backfill of the frozen CC quorum gate (ccBelowMinSize)
  * onto terminal actions whose threshold snapshot predates the current version. The
- * committee min size (Koios epoch_params at the decision epoch) and the active
- * committee size (the local committee timeline at that epoch) are both historically
- * volatile, so the gate must be reconstructed per action rather than read from
- * today's params. Threshold percentages are stable since Conway, so they come from
- * the current params. Bounded by `limit`; drains over several runs.
+ * committee min size (Koios epoch_params at the decision boundary's epoch) and the
+ * active committee size (the local committee timeline at that boundary) are both
+ * historically volatile, so the gate must be reconstructed per action rather than
+ * read from today's params. Threshold percentages are stable since Conway, so they
+ * come from the current params. Bounded by `limit`; drains over several runs.
  */
 export async function backfillThresholdSnapshots(deps: ThresholdBackfillDeps): Promise<ThresholdBackfillResult> {
   const { koios, db, limit = DEFAULT_TALLY_LIMIT, paceMs = 0 } = deps;
@@ -566,39 +646,56 @@ export async function backfillThresholdSnapshots(deps: ThresholdBackfillDeps): P
   // drain candidates with an empty snapshot (retry next cron once params are synced).
   const params = await getProtocolParams(db);
   if (!params) return { actions: 0, failed: 0 };
-  const { members } = await getCommitteeTimeline(db);
-  const minSizeByEpoch = new Map<number, number | null>();
+  const committee = await getCommitteeTimeline(db);
+  const { members } = committee;
+  const minSizeAt = committeeMinSizeReader(koios);
 
   let actions = 0;
   let failed = 0;
+  let deferred = 0;
   for (const [i, ga] of candidates.entries()) {
     if (paceMs > 0 && i > 0) await new Promise((resolve) => setTimeout(resolve, paceMs));
     try {
-      const decidedEpoch = ga.decidedEpoch ?? ga.expiryEpoch;
-      let minSize: number | null = null;
-      if (decidedEpoch != null) {
-        if (!minSizeByEpoch.has(decidedEpoch)) {
-          const ep = await koios.epochParams(decidedEpoch);
-          minSizeByEpoch.set(decidedEpoch, ep?.committee_min_size ?? null);
-        }
-        minSize = minSizeByEpoch.get(decidedEpoch) ?? null;
+      // Terminal rows only (the candidate query), so this is a boundary or,
+      // without any lifecycle epoch, nothing to measure against (live is null).
+      const boundary = decisionBoundaryEpoch(ga);
+      const [gate, ledgerCc] = await Promise.all([
+        ccGateFor(boundary, members, null, minSizeAt),
+        ledgerCcTally(db, committee, ga.id, boundary),
+      ]);
+      // A boundary whose minimum Koios did not return this time is a data gap,
+      // not an answer: leave the row for a later run instead of freezing v3 on it.
+      if (boundary != null && gate.minSize == null) {
+        deferred++;
+        continue;
       }
-      const size = decidedEpoch != null ? activeCommitteeSizeAt(members, decidedEpoch) : null;
-      const ccBelowMinSize = committeeBelowMinSize(size, minSize);
+      const ccBelowMinSize = committeeBelowMinSize(gate.sizeAtBoundary, gate.minSize);
 
+      // Judge the outcome on the ledger-exact committee share where the timeline
+      // gives one, the same value the tally sync writes, so the frozen check does
+      // not depend on whether the committee-pct recompute ran before this pass.
       const paramScope = ga.type === 'ParameterChange' ? parameterChangeScope(ga.onchainPayload ?? null) : null;
       const results = evaluateThresholds(
-        { type: ga.type, drepYesPct: ga.drepYesPct, spoYesPct: ga.spoYesPct, ccYesPct: ga.ccYesPct, paramScope },
+        { type: ga.type, drepYesPct: ga.drepYesPct, spoYesPct: ga.spoYesPct, ccYesPct: ledgerCc?.yesPct ?? ga.ccYesPct, paramScope },
         params,
       );
-      const thresholdsJson = serializeThresholdSnapshot(results, ccBelowMinSize);
-      await updateThresholdSnapshot(db, { id: ga.id, thresholdsJson, thresholdsEpoch: decidedEpoch });
+      const contradicts = tallyContradictsOutcome(results, ga.status, ccBelowMinSize, {
+        DRep: sumBallots(ga.drepYes, ga.drepNo, ga.drepAbstain),
+        SPO: sumBallots(ga.spoYes, ga.spoNo, ga.spoAbstain),
+        CC: ledgerCc ? ledgerCc.yes + ledgerCc.no + ledgerCc.abstain : sumBallots(ga.ccYes, ga.ccNo, ga.ccAbstain),
+      });
+      if (contradicts) {
+        console.warn(`[gov-threshold-backfill] action ${ga.id} is ${ga.status} but a stored tally reads below its threshold, reported not reconciled`);
+      }
+      const thresholdsJson = serializeThresholdSnapshot(results, ccBelowMinSize, { ccGate: gate, tallyContradictsOutcome: contradicts });
+      await updateThresholdSnapshot(db, { id: ga.id, thresholdsJson, thresholdsEpoch: gate.boundaryEpoch });
       actions++;
     } catch (err) {
       failed++;
       console.warn(`[gov-threshold-backfill] action ${ga.id} failed:`, err);
     }
   }
+  if (deferred > 0) console.log(`[gov-threshold-backfill] deferred=${deferred} (no committee minimum for the boundary epoch yet)`);
   return { actions, failed };
 }
 

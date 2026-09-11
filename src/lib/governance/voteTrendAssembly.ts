@@ -9,14 +9,14 @@ import type { TrendVoteRow } from '@/lib/db/drepVotes.js';
 import type { CcVote } from '@/lib/koios/corrections.js';
 import { ccFinalVotesByMember } from '@/lib/koios/corrections.js';
 import type { CommitteeMemberTerm } from '@/lib/koios/committeeTimeline.js';
-import { activeCommitteeSizeAt } from '@/lib/koios/committeeTimeline.js';
+import { activeCommitteeSizeAtBoundary, committeeBoundaryForAction } from '@/lib/koios/committeeTimeline.js';
 import { epochStartUnix, type NetworkConfig } from '@/lib/config/network.js';
 import type { TrendBodyInput } from '@/lib/governance/voteTrend.js';
 
 export interface TrendAssemblyInputs {
   action: Pick<
     GovernanceAction,
-    'submittedEpoch' | 'expiryEpoch' | 'decidedEpoch' | 'ratifiedEpoch' | 'drepYesPct' | 'spoYesPct' | 'ccYesPct'
+    'status' | 'submittedEpoch' | 'expiryEpoch' | 'decidedEpoch' | 'ratifiedEpoch' | 'drepYesPct' | 'spoYesPct' | 'ccYesPct'
   >;
   trendRows: TrendVoteRow[];
   ccVotes: CcVote[];
@@ -25,6 +25,8 @@ export interface TrendAssemblyInputs {
   /** Current time in unix seconds. When set, an action still in its voting window
       stops at now instead of running flat to its future expiry epoch. Omit to not cap. */
   nowSec?: number;
+  /** The current epoch, whose next transition is the committee reference for an action still open. */
+  currentEpoch?: number | null;
 }
 
 export interface TrendAssemblyResult {
@@ -87,7 +89,6 @@ export function assembleTrendInputs(a: TrendAssemblyInputs): TrendAssemblyResult
 
   // Voting window in unix seconds: from the submit epoch start to the decision (or
   // expiry) epoch start. Falls back to the span of observed votes when epochs are absent.
-  const decidedEpoch = action.decidedEpoch ?? action.expiryEpoch;
   // Clamped to expiry (see votingEndEpoch): unclamped, a compared action drew one
   // epoch of window that never existed and pushed the shared compare axis past
   // every real deadline.
@@ -111,16 +112,12 @@ export function assembleTrendInputs(a: TrendAssemblyInputs): TrendAssemblyResult
       .map((r) => ({ blockTime: r.block_time, weight: r.voted_power as number }));
 
   // CC yes votes: dedup to one final vote per active member, weight 1 each.
-  // The committee is selected as it stood when the tally froze, so this reads
-  // ratified_epoch where it is known. Falling back to decidedEpoch keeps
-  // pre-0093 rows working, but for an enacted action that value is the later
-  // enactment epoch, which can pick up a committee change made after the vote.
-  const committeeEpoch = action.ratifiedEpoch ?? decidedEpoch ?? 0;
-  const ccFinal = decidedEpoch != null
-    ? ccFinalVotesByMember(ccVotes, committee.members, committee.hotToCold, committeeEpoch)
-    : [];
+  // The committee is the one that judges the action (committeeBoundaryForAction):
+  // at its decision boundary once decided, at the next transition while open.
+  const ccBoundary = committeeBoundaryForAction(action, a.currentEpoch ?? null);
+  const ccFinal = ccBoundary != null ? ccFinalVotesByMember(ccVotes, committee.members, committee.hotToCold, ccBoundary) : [];
   const ccYes = ccFinal.filter((m) => m.vote === 'Yes').map((m) => ({ blockTime: m.blockTime, weight: 1 }));
-  const ccSize = decidedEpoch != null ? activeCommitteeSizeAt(committee.members, committeeEpoch) : 0;
+  const ccSize = ccBoundary != null ? activeCommitteeSizeAtBoundary(committee.members, ccBoundary) : 0;
 
   const inputs: TrendBodyInput[] = [
     { key: 'DRep', yesVotes: yesByRole('DRep'), finalPct: action.drepYesPct, thresholdPct: null, finalLabel: '' },

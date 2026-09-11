@@ -1,10 +1,11 @@
 // Assembles the CC vote breakdown rows for one action. Pure, no I/O. Eligible
-// members are those active at the epoch (the same set activeCommitteeMembersAt
-// computes for the CC tally), so breakdown and tally never disagree. Votes are
+// members are those counted at the action's committee boundary (the same set
+// the CC tally resolves, see committeeBoundaryForAction), so breakdown and tally
+// never disagree. Votes are
 // deduped with finalCcVoteByMember (the same the tally uses). These rows are NOT
 // DReps: the caller renders them directly (identicon + name), never through
 // voterDescriptor/AuthorIdentity/drepPath.
-import { activeCommitteeMembersAt, type CommitteeMemberTerm } from '../koios/committeeTimeline.js';
+import { activeCommitteeMembersAtBoundary, committeeStanding, versionCovers, type CommitteeMemberTerm } from '../koios/committeeTimeline.js';
 import { finalCcVoteByMember } from '../koios/corrections.js';
 import type { CcVoteRow } from '../db/committee.js';
 import type { CcNameIndex } from './ccNames.js';
@@ -24,21 +25,22 @@ export interface CcPositionRow {
 const VOTE_ORDER: Record<string, number> = { Yes: 0, No: 1, Abstain: 2 };
 
 function termRowAt(members: CommitteeMemberTerm[], coldKeyHex: string, epoch: number): CommitteeMemberTerm | null {
-  return members.find((m) => m.coldKeyHex === coldKeyHex && m.versionFrom <= epoch && (m.versionTo == null || m.versionTo >= epoch)) ?? null;
+  return members.find((m) => m.coldKeyHex === coldKeyHex && versionCovers(m, epoch)) ?? null;
 }
 
-// Standing relative to the current epoch, shown as neutral context (not an error).
+// Standing at the next transition after the current epoch, shown as neutral
+// context (not an error). A seat without an authorized hot key is still a seat.
 function standingAt(m: CommitteeMemberTerm | null, currentEpoch: number | null): 'Active' | 'Resigned' | 'Expired' {
   if (m == null || currentEpoch == null) return 'Active';
-  if (m.resignedAt != null && m.resignedAt <= currentEpoch) return 'Resigned';
-  if (m.termExpiration < currentEpoch) return 'Expired';
-  return 'Active';
+  const s = committeeStanding(m, currentEpoch + 1);
+  return s === 'resigned' ? 'Resigned' : s === 'expired' ? 'Expired' : 'Active';
 }
 
 export function buildCcPositions(input: {
   members: CommitteeMemberTerm[];
   hotToCold: Map<string, string>;
   votes: CcVoteRow[];
+  /** The boundary whose committee judges the action (committeeBoundaryForAction). */
   epoch: number | null;
   currentEpoch: number | null;
   nameIndex: CcNameIndex;
@@ -46,7 +48,7 @@ export function buildCcPositions(input: {
 }): CcPositionRow[] {
   const { members, hotToCold, votes, epoch, currentEpoch, nameIndex, rationales } = input;
   if (epoch == null) return [];
-  const active = activeCommitteeMembersAt(members, epoch);
+  const active = activeCommitteeMembersAtBoundary(members, epoch);
   if (active.size === 0) return [];
 
   const coldToHot = new Map<string, string>();

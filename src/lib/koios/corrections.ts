@@ -6,7 +6,7 @@
 // of ledger rules; tallySync.ts imports these when mapping a summary to the stored
 // tally). Pure functions, no I/O.
 import type { VotingSummary } from './client.js';
-import { activeCommitteeMembersAt, type CommitteeMemberTerm } from './committeeTimeline.js';
+import { activeCommitteeMembersAtBoundary, type CommitteeMemberTerm } from './committeeTimeline.js';
 
 /** Parses a Koios lovelace power string to a number; null when absent. The
     magnitudes (up to ~2.1e16) exceed Number.MAX_SAFE_INTEGER, but the lost
@@ -101,16 +101,17 @@ export interface CcVote {
 
 /**
  * The winning vote row per active committee member: drop hot keys whose member
- * is not active at `epoch`, then keep the latest block time per member. The one
- * dedup used by the tally, the trend chart, and the breakdown, so they agree.
+ * is not counted at the boundary that opens `boundaryEpoch`, then keep the
+ * latest block time per member. The one dedup used by the tally, the trend
+ * chart, and the breakdown, so they agree.
  */
 export function finalCcVoteByMember<T extends { hotKeyHex: string; blockTime: number | null }>(
   votes: T[],
   members: CommitteeMemberTerm[],
   hotToCold: Map<string, string>,
-  epoch: number,
+  boundaryEpoch: number,
 ): Map<string, T> {
-  const active = activeCommitteeMembersAt(members, epoch);
+  const active = activeCommitteeMembersAtBoundary(members, boundaryEpoch);
   const finalByMember = new Map<string, T>();
   for (const v of votes) {
     const cold = hotToCold.get(v.hotKeyHex);
@@ -125,10 +126,12 @@ export function finalCcVoteByMember<T extends { hotKeyHex: string; blockTime: nu
  * Ledger-exact committee yes/no percentages, replacing Koios' committee_yes_pct.
  * Koios' summary is wrong for several actions: it double-counts a duplicate hot-key
  * registration and keeps a resigned member in the denominator. We recompute from the
- * per-voter votes and the committee's composition at the action's decided epoch:
+ * per-voter votes and the committee's composition at the action's decision boundary
+ * (for an open action, the next transition):
  *
  * 1. Map each vote's hot key to its cold-key member; ignore votes from members not
- *    active at that epoch (resigned or term-expired), so a stale vote never counts.
+ *    counted at that boundary (resigned, term-expired, not yet authorized), so a
+ *    stale vote never counts.
  * 2. Keep one final vote per member (latest block time), collapsing rotations/re-votes.
  * 3. Conway rule: abstaining members leave the denominator, everyone else active
  *    (No, or did not vote) stays in it. yesPct = yes / (active - abstain).
@@ -143,12 +146,12 @@ export function ccTallyPct(
   votes: CcVote[],
   members: CommitteeMemberTerm[],
   hotToCold: Map<string, string>,
-  ratifiedEpoch: number,
+  boundaryEpoch: number,
 ): { yesPct: number | null; noPct: number | null; yes: number; no: number; abstain: number } {
-  const active = activeCommitteeMembersAt(members, ratifiedEpoch);
+  const active = activeCommitteeMembersAtBoundary(members, boundaryEpoch);
   if (active.size === 0) return { yesPct: null, noPct: null, yes: 0, no: 0, abstain: 0 };
 
-  const finalByMember = finalCcVoteByMember(votes, members, hotToCold, ratifiedEpoch);
+  const finalByMember = finalCcVoteByMember(votes, members, hotToCold, boundaryEpoch);
 
   let yes = 0;
   let no = 0;
@@ -176,16 +179,16 @@ export interface CcMemberFinalVote {
 /**
  * The final vote per active committee member, resolving hot-key rotations and
  * re-votes to the latest-blockTime vote (same dedup as ccTallyPct), keyed by the
- * stable cold key. Members not active at ratifiedEpoch, and votes with an unknown
+ * stable cold key. Members not counted at the boundary, and votes with an unknown
  * hot key, are dropped. Used by the voting-trend chart for the CC timeline.
  */
 export function ccFinalVotesByMember(
   votes: CcVote[],
   members: CommitteeMemberTerm[],
   hotToCold: Map<string, string>,
-  ratifiedEpoch: number,
+  boundaryEpoch: number,
 ): CcMemberFinalVote[] {
-  const finalByMember = finalCcVoteByMember(votes, members, hotToCold, ratifiedEpoch);
+  const finalByMember = finalCcVoteByMember(votes, members, hotToCold, boundaryEpoch);
   return [...finalByMember.entries()].map(([coldKeyHex, v]) => ({
     coldKeyHex,
     vote: v.vote,

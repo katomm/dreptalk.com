@@ -11,7 +11,7 @@ import {
   listDecidedCcActions,
   listDecidedCcVoteRows,
 } from './committee.js';
-import { activeCommitteeSizeAt, type CommitteeMemberTerm } from '../koios/committeeTimeline.js';
+import { activeCommitteeSizeAtBoundary, type CommitteeMemberTerm } from '../koios/committeeTimeline.js';
 import type { CommitteeMember } from '../koios/client.js';
 import { upsertVotes } from './drepVotes.js';
 
@@ -25,7 +25,7 @@ describe('committee membership accessors', () => {
     await db().prepare('DELETE FROM committee_hot_key').run();
   });
 
-  it('round-trips members and hot keys and resolves active size across the resignation boundary', async () => {
+  it('round-trips members and hot keys and resolves the active size across the resignation boundary', async () => {
     const members: CommitteeMemberTerm[] = [
       { coldKeyHex: 'aa', versionFrom: 581, versionTo: 601, termExpiration: 653, authorizedFrom: 507, resignedAt: 597 },
       { coldKeyHex: 'bb', versionFrom: 581, versionTo: 601, termExpiration: 653, authorizedFrom: 507, resignedAt: null },
@@ -43,8 +43,8 @@ describe('committee membership accessors', () => {
     expect(hotToCold.get('h_bb')).toBe('bb');
 
     // The resignation boundary survives the DB round-trip.
-    expect(activeCommitteeSizeAt(loaded, 596)).toBe(2);
-    expect(activeCommitteeSizeAt(loaded, 597)).toBe(1);
+    expect(activeCommitteeSizeAtBoundary(loaded, 597)).toBe(2); // the epoch-597 resignation has not happened at the boundary opening 597
+    expect(activeCommitteeSizeAtBoundary(loaded, 598)).toBe(1);
   });
 
   it('upsert replaces a member in place (same cold key + version)', async () => {
@@ -67,10 +67,10 @@ describe('seeded committee history', () => {
     const { members, hotToCold } = await getCommitteeTimeline(db());
     expect(members).toHaveLength(22);
     expect(hotToCold.size).toBe(14);
-    expect(activeCommitteeSizeAt(members, 550)).toBe(7); // bootstrap
-    expect(activeCommitteeSizeAt(members, 596)).toBe(7); // v2, before the resignation
-    expect(activeCommitteeSizeAt(members, 597)).toBe(6); // v2, resignation takes effect
-    expect(activeCommitteeSizeAt(members, 633)).toBe(7); // v3 (8 listed, resigner not authorized)
+    expect(activeCommitteeSizeAtBoundary(members, 550)).toBe(7); // bootstrap
+    expect(activeCommitteeSizeAtBoundary(members, 597)).toBe(7); // v2, the resignation inside 597 is after this boundary
+    expect(activeCommitteeSizeAtBoundary(members, 598)).toBe(6); // v2, resignation has taken effect
+    expect(activeCommitteeSizeAtBoundary(members, 633)).toBe(7); // v3 (8 listed, resigner not authorized)
   });
 
   it('live-syncs the current version: rotates hot keys, extends terms, protects the seed', async () => {

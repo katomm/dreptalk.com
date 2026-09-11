@@ -1159,6 +1159,7 @@ export interface CompareAction {
   id: string;
   title: string | null;
   type: string;
+  status: string;
   topicSlug: string;
   submittedEpoch: number | null;
   expiryEpoch: number | null;
@@ -1177,7 +1178,7 @@ export interface CompareAction {
 export async function getCompareActionBySlug(db: D1Database, slug: string): Promise<CompareAction | null> {
   const r = await db
     .prepare(
-      `SELECT g.id, g.title, g.type, g.submitted_epoch, g.expiry_epoch, g.decided_epoch, g.ratified_epoch,
+      `SELECT g.id, g.title, g.type, g.status, g.submitted_epoch, g.expiry_epoch, g.decided_epoch, g.ratified_epoch,
               g.drep_yes_pct, g.spo_yes_pct, g.cc_yes_pct, t.slug AS topic_slug
        FROM governance_actions g
        JOIN topics t ON t.id = g.topic_id
@@ -1189,6 +1190,7 @@ export async function getCompareActionBySlug(db: D1Database, slug: string): Prom
       id: string;
       title: string | null;
       type: string;
+      status: string;
       submitted_epoch: number | null;
       expiry_epoch: number | null;
       decided_epoch: number | null;
@@ -1203,6 +1205,7 @@ export async function getCompareActionBySlug(db: D1Database, slug: string): Prom
     id: r.id,
     title: r.title,
     type: r.type,
+    status: r.status,
     topicSlug: r.topic_slug,
     submittedEpoch: r.submitted_epoch,
     expiryEpoch: r.expiry_epoch,
