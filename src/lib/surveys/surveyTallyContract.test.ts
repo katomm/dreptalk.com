@@ -19,6 +19,26 @@ describe('survey tally contract', () => {
     expect(SURVEY_TALLY_METRICS.totalPower.includesSpecials).toBe(false);
   });
 
+  // The drift this guards against actually happened: three of these four
+  // definitions described the live path alone while tallyCompute substitutes an
+  // artifact value for each of them, so the binding contract asserted figures the
+  // artifact path does not produce. A definition that names only one path is the
+  // exact shape of that bug, so each is held to naming both.
+  it('defines every path-dependent figure on the artifact path as well as the live one', () => {
+    for (const key of ['matchedCount', 'answeredPower', 'totalPower', 'powerEpoch'] as const) {
+      const d = SURVEY_TALLY_METRICS[key].definition;
+      expect(d, key).toMatch(/artifact/i);
+      expect(d, key).toMatch(/live path|power_epoch|drep_voting_power_history/i);
+    }
+  });
+
+  it('leaves the specials claim on the live path only, since the artifact total is not ours to assert', () => {
+    const d = SURVEY_TALLY_METRICS.totalPower.definition;
+    // The flag cannot express "unknown on one path", so the definition has to.
+    expect(d).toMatch(/this path/i);
+    expect(d).toMatch(/unknown to this site/i);
+  });
+
   it('uses a share basis for single choice only', () => {
     expect(QUESTION_KIND_DISPLAY.singleChoice.barBasis).toBe('share-of-answered');
     expect(QUESTION_KIND_DISPLAY.multiSelect.barBasis).toBe('relative-to-leader');

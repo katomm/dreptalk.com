@@ -1,9 +1,18 @@
-// The binding contract for survey_tally: what every column means, where its
-// value comes from, and on what basis each question kind may be drawn. The
-// table's own comments point here, and a consumer that disagrees with this file
+// The binding contract for the six survey_tally figures a reader is shown: what
+// each means, where its value comes from, and on what basis each question kind
+// may be drawn. Not every column of the table, which has fifteen: the bookkeeping
+// ones (the two source flags, the artifact hash, the two stamps, the questions
+// blob itself) are documented on the table, in migrations/0099_survey_tally.sql.
+// For the six below this file is binding, and a consumer that disagrees with it
 // is wrong. Same role as src/lib/analytics/epochStatsContract.ts, and the same
 // reason: a JSON blob plus a handful of integers is exactly where settled
 // semantics rot if they are not written down next to the code that reads them.
+//
+// Every figure here has TWO paths, live and artifact, and a definition that
+// describes only the live one is drift, not brevity: see
+// src/lib/surveys/tallyCompute.ts, where the artifact substitutes its own value
+// for four of them. surveyTallyContract.test.ts holds each of those four to
+// naming both paths.
 
 /** Where a stored figure comes from. */
 export type SurveyTallyMetricSource =
@@ -20,7 +29,14 @@ export interface SurveyTallyMetric {
   /** Column in survey_tally. Static, never user input. */
   column: string;
   source: SurveyTallyMetricSource;
-  /** Whether the special auto-voting ids are part of the value. */
+  /**
+   * Whether the special auto-voting ids are part of the value. A boolean cannot
+   * say "unknown", so where the answer differs by path the definition text is the
+   * authority and this flag states the live path only. totalPower is the one
+   * figure that happens in: on the artifact path the value is the artifact's own
+   * electorate total, whose treatment of the two special ids this site does not
+   * know and must not assert.
+   */
   includesSpecials: boolean;
   /** One sentence, suitable as a footnote under the figure. */
   definition: string;
@@ -47,21 +63,21 @@ export const SURVEY_TALLY_METRICS: Record<SurveyTallyMetricKey, SurveyTallyMetri
     source: 'audit-weighted',
     includesSpecials: false,
     definition:
-      'Counted responses that were given a weight, zero weight included. A DRep registered with no power is matched and weighs nothing, so this figure must never be described as the responses that carry voting power.',
+      'On the live path, counted responses that were given a weight, zero weight included. A DRep registered with no power is matched and weighs nothing, so this figure must never be described as the responses that carry voting power. On the artifact path it is the number of responders the published tally artifact committed for the DRep role, which additionally requires DRep membership at the end epoch, so it is normally lower than the counted head count.',
   },
   answeredPower: {
     column: 'answered_power',
     source: 'audit-weighted',
     includesSpecials: false,
     definition:
-      'Summed voting power in lovelace of the matched responders at power_epoch. The denominator of every single-choice share, and the turnout numerator. May legitimately be zero.',
+      'On the live path, summed voting power in lovelace of the matched responders at power_epoch. On the artifact path, the sum of the weights the published tally artifact committed for its own responders, at the end epoch it was weighted at. Summed over responders in both cases, never reduced out of the questions: each question commits its own answered weight, so two responders answering two different optional questions give question weights whose maximum is smaller than the participating power. The turnout numerator, and the single-choice share divides by its own question answered weight rather than by this. May legitimately be zero.',
   },
   totalPower: {
     column: 'total_power',
     source: 'local-power',
     includesSpecials: false,
     definition:
-      'Representative DRep voting power in lovelace at power_epoch, from governance_epoch_stats.total_drep_power, which excludes the two auto-voting special ids. The turnout denominator, and null when the epoch has no row, never zero.',
+      'On the live path, representative DRep voting power in lovelace at power_epoch, from governance_epoch_stats.total_drep_power, which excludes the two auto-voting special ids, so includesSpecials above holds for this path. On the artifact path it is the DRep electorate total the published tally artifact committed at the end epoch, and whether that total counts the two special ids is the artifact author\'s decision, unknown to this site and never to be asserted either way: the card names it as the artifact\'s own total instead of repeating the live basis. The turnout denominator, and null when the epoch has no row, never zero.',
   },
   excluded: {
     column: 'excluded',
