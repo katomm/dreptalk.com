@@ -22,7 +22,7 @@ describe('handleInfoActionMetadata', () => {
     const json = res.json as { anchorUrl: string; anchorHash: string };
     expect(json.anchorUrl).toBe(`ipfs://${CID}`);
     expect(json.anchorHash).toMatch(/^[0-9a-f]{64}$/);
-    expect((await getGovActionMetadata(env.DB, json.anchorHash))?.cid).toBe(CID);
+    expect((await getGovActionMetadata(env.DB, json.anchorHash, 1))?.cid).toBe(CID);
   });
 
   it('rejects missing body fields', async () => {

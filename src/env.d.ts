@@ -86,5 +86,19 @@ declare namespace Cloudflare {
     PROVENANCE_STUB?: string;
     /** Auth token for Pinata's IPFS pinning API, used to anchor InfoAction metadata. */
     PINATA_JWT?: string;
+    /**
+     * Pinata group the InfoAction anchors are uploaded into. The account is
+     * shared with another project, so this group is what later proves a file is
+     * ours to delete. Unset means uploads carry no group and can never be
+     * garbage collected, which is the safe direction to fail.
+     */
+    PINATA_GOV_GROUP_ID?: string;
+    /**
+     * Separate Pinata token for the cron worker's pin collector, scoped for
+     * org:files:read + org:files:write. Kept off the app worker, which only
+     * ever uploads. Note a scoped key limits permissions and NOT which files
+     * they reach, so it is hygiene, not a boundary: the group check is.
+     */
+    PINATA_GC_JWT?: string;
   }
 }
