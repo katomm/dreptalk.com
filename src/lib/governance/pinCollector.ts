@@ -28,6 +28,7 @@ import {
   countCollectablePins,
   markPinDeleting,
   releasePinDeleting,
+  disownPin,
   deleteGovActionMetadata,
 } from '../db/govActionMetadata.js';
 
@@ -124,12 +125,15 @@ export async function collectUnreferencedPins(input: CollectPinsInput): Promise<
     try {
       const file = await input.client.read(pin.pinataFileId);
       if (file && file.groupId !== input.groupId) {
-        // Not ours. Do not delete, do not retry blindly, do make noise.
+        // Not ours. Never delete it, and never look at it again: a file outside
+        // our group cannot become ours, so retrying would only repeat this alarm
+        // until the attempt budget runs out. Forget the id instead. The row and
+        // its CID stay, so the document is still served.
         foreign++;
         console.error(
           `[pin-gc] REFUSING to delete ${pin.pinataFileId}: group ${file.groupId ?? 'none'} is not ours`,
         );
-        await releasePinDeleting(input.db, pin.hash);
+        await disownPin(input.db, pin.hash);
         continue;
       }
       // A file Pinata no longer has (read returned null) still needs its row

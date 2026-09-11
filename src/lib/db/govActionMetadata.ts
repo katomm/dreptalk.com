@@ -142,6 +142,21 @@ export async function releasePinDeleting(db: D1Database, hash: string): Promise<
     .run();
 }
 
+/**
+ * Marks a row as not ours to delete, permanently, by forgetting the file id.
+ *
+ * For a file that turned out to sit outside our Pinata group. Retrying it would
+ * be pointless, since it can never become ours, and burning delete_attempts on
+ * it would repeat the alarm five times before going quiet. The row and its CID
+ * stay: the document is still served, it simply leaves the collector's reach.
+ */
+export async function disownPin(db: D1Database, hash: string): Promise<void> {
+  await db
+    .prepare(`UPDATE gov_action_metadata SET pinata_file_id = NULL, deleting_at = NULL WHERE hash = ?`)
+    .bind(hash)
+    .run();
+}
+
 /** Drops the row once its pin is gone. Only ever called after a successful delete. */
 export async function deleteGovActionMetadata(db: D1Database, hash: string): Promise<void> {
   await db.prepare(`DELETE FROM gov_action_metadata WHERE hash = ?`).bind(hash).run();

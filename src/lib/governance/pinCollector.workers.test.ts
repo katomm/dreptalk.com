@@ -82,6 +82,15 @@ describe('collectUnreferencedPins', () => {
     expect(res).toMatchObject({ deleted: 0, foreign: 1 });
     expect(client.calls).toEqual([{ op: 'read', fileId: 'file-claimpaign' }]);
     expect((await getGovActionMetadata(env.DB, hash, NOW))?.cid).toBe('cid-bbbb');
+
+    // And it is never reconsidered: the id is forgotten, so a second run does
+    // not read the foreign file again or repeat the alarm.
+    const second = fakeClient({ groups: { 'file-claimpaign': 'group-other' } });
+    const again = await collectUnreferencedPins({
+      db: env.DB, client: second, groupId: OURS, now: NOW, limit: 200,
+    });
+    expect(again).toMatchObject({ scanned: 0, foreign: 0 });
+    expect(second.calls).toEqual([]);
   });
 
   it('refuses a file with no group at all', async () => {
