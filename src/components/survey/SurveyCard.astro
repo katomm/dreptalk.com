@@ -7,9 +7,9 @@ import type { SurveyDefinition } from 'cip-179';
 import SurveyBadges from '@/components/survey/SurveyBadges.astro';
 import type { NetworkConfig } from '@/lib/config/network.js';
 import type { SurveyGovLinkView, SurveyRow } from '@/lib/db/surveys.js';
-import { formatRelativeTime } from '@/lib/forum/view.js';
 import { deadlineLabel, participationLabel, surveyState } from '@/lib/surveys/state.js';
 import {
+  freshnessLine,
   questionViews,
   roleLabels,
   surveyDescription,
@@ -32,9 +32,12 @@ interface Props {
    * that moved, so no row is fresher than the mirror. Null until a run has
    * applied one. */
   asOf: number | null;
+  /** Whether that snapshot was served from a short scan, the mirror's stored
+   * flag. Part of the same line, since it qualifies the same figure. */
+  asOfIncomplete?: boolean;
 }
 
-const { survey, definition, links, cfg, now, appUrl, asOf } = Astro.props;
+const { survey, definition, links, cfg, now, appUrl, asOf, asOfIncomplete = false } = Astro.props;
 
 const { lifecycle, participation } = surveyState(survey, now, cfg);
 const questions = definition ? questionViews(definition) : [];
@@ -124,7 +127,7 @@ const deepLink = tesseraSurveyUrl(appUrl, survey.ref);
     )}
     {asOf != null && (
       <span class="svy-card__asof">
-        Survey data as of {formatRelativeTime(asOf * 1000, now)}. Cached, not live.
+        {freshnessLine(asOf, asOfIncomplete, now)}
       </span>
     )}
   </div>

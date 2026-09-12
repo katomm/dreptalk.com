@@ -896,6 +896,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
             now={now}
             appUrl={env.TESSERA_APP_URL}
             asOf={surveySync?.tesseraFetchedAt ?? null}
+            asOfIncomplete={surveySync?.incomplete ?? false}
           />
         )}
         {surveyRow && canAnswerSurvey && viewerDrepId && (

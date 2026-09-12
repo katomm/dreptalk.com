@@ -4,6 +4,7 @@
 // string-concatenated SQL. Rows are Tessera's answers written down. The sync
 // (src/lib/surveys/sync.ts) is the only writer.
 
+import type { TopicGuard } from './forum.js';
 import { chunked, D1_MAX_BINDS, sqlPlaceholders } from './sql.js';
 
 /** A survey as the mirror writes it: Tessera's answer, no thread of its own
@@ -129,17 +130,29 @@ export async function getPublishableSurveys(db: D1Database): Promise<Publishable
   }));
 }
 
-/** Publication: the row takes the thread just opened for it. Batched with the
- * topic and first post by createTopic, so a partial write can neither orphan
- * a thread nor publish a survey twice. */
-export function buildPublishSurvey(
+/** What makes a survey row still unpublished, written once. Two statements
+ * have to agree about it, and they are built from this together below. */
+const UNCLAIMED = 'ref = ? AND topic_id IS NULL';
+
+/**
+ * Publication as a claim on the row: the precondition the thread is opened
+ * under, and the update that takes the row. Both go into one createTopic
+ * batch, so a partial write can neither orphan a thread nor publish a survey
+ * twice, and two runs reading the same unpublished row cannot both open one.
+ * They are returned together because they must state the same predicate: a
+ * guard looser than the update leaves a thread nothing points at, a tighter
+ * one writes nothing while the claim was free.
+ */
+export function buildSurveyClaim(
   db: D1Database,
   ref: string,
-  topicId: string,
-): D1PreparedStatement {
-  return db
-    .prepare('UPDATE survey SET topic_id = ? WHERE ref = ? AND topic_id IS NULL')
-    .bind(topicId, ref);
+): { guard: TopicGuard; batchWith: (topicId: string) => D1PreparedStatement[] } {
+  return {
+    guard: { sql: `SELECT 1 FROM survey WHERE ${UNCLAIMED}`, binds: [ref] },
+    batchWith: topicId => [
+      db.prepare(`UPDATE survey SET topic_id = ? WHERE ${UNCLAIMED}`).bind(topicId, ref),
+    ],
+  };
 }
 
 /** Withdraws the surveys the latest answer no longer lists as eligible, a
@@ -197,16 +210,28 @@ export async function getSurveysAwaitingFinalCount(
   return results.map(r => ({ ref: r.ref, artifactHash: r.artifact_hash }));
 }
 
+/** Writes the figure read from one artifact, against the row that still names
+ * that artifact. The hash is part of the predicate because the count belongs
+ * to the artifact it was read from: an overlapping mirror can re-finalize the
+ * survey onto a second artifact while the request for the first is in flight,
+ * and a count written beside the newer hash would be wrong for good, a row
+ * that has one never being asked about again. False says the row moved on,
+ * which leaves it awaiting and the next run reads the artifact it now names. */
 export async function setSurveyFinalCount(
   db: D1Database,
   ref: string,
+  artifactHash: string,
   finalCountedDreps: number,
   now: number,
-): Promise<void> {
-  await db
-    .prepare('UPDATE survey SET final_counted_dreps = ?, synced_at = ? WHERE ref = ?')
-    .bind(finalCountedDreps, now, ref)
+): Promise<boolean> {
+  const r = await db
+    .prepare(
+      `UPDATE survey SET final_counted_dreps = ?, synced_at = ?
+       WHERE ref = ? AND artifact_hash = ? AND final_counted_dreps IS NULL`,
+    )
+    .bind(finalCountedDreps, now, ref, artifactHash)
     .run();
+  return (r.meta.changes ?? 0) > 0;
 }
 
 /** One published survey, as the pages read it (booleans decoded from 0/1).
@@ -409,27 +434,40 @@ export interface SurveySyncState {
    * the "as of" every survey page shows. Null until a run has applied a delta
    * to its end. */
   tesseraFetchedAt: number | null;
+  /** Whether that snapshot was short: the scan behind it could not read every
+   * matching record, so the rows are a prefix of on-chain state and any count
+   * taken from them may be low. Written only by a run that advances
+   * `tesseraFetchedAt`, so the two always describe the same snapshot. */
+  incomplete: boolean;
 }
 
 export async function getSurveySyncState(db: D1Database): Promise<SurveySyncState> {
   const row = await db
-    .prepare('SELECT changes_cursor, tessera_fetched_at FROM survey_sync_state WHERE id = 1')
-    .first<{ changes_cursor: string | null; tessera_fetched_at: number | null }>();
+    .prepare(
+      'SELECT changes_cursor, tessera_fetched_at, incomplete FROM survey_sync_state WHERE id = 1',
+    )
+    .first<{
+      changes_cursor: string | null;
+      tessera_fetched_at: number | null;
+      incomplete: number;
+    }>();
   return {
     changesCursor: row?.changes_cursor ?? null,
     tesseraFetchedAt: row?.tessera_fetched_at ?? null,
+    incomplete: row?.incomplete === 1,
   };
 }
 
 export async function putSurveySyncState(db: D1Database, s: SurveySyncState): Promise<void> {
   await db
     .prepare(
-      `INSERT INTO survey_sync_state (id, changes_cursor, tessera_fetched_at)
-       VALUES (1, ?, ?)
+      `INSERT INTO survey_sync_state (id, changes_cursor, tessera_fetched_at, incomplete)
+       VALUES (1, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          changes_cursor = excluded.changes_cursor,
-         tessera_fetched_at = excluded.tessera_fetched_at`,
+         tessera_fetched_at = excluded.tessera_fetched_at,
+         incomplete = excluded.incomplete`,
     )
-    .bind(s.changesCursor, s.tesseraFetchedAt)
+    .bind(s.changesCursor, s.tesseraFetchedAt, s.incomplete ? 1 : 0)
     .run();
 }
