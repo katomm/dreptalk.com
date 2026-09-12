@@ -91,6 +91,10 @@ interface DecodedSet {
   finalState: NonNullable<SurveyListPayload['finalState']>;
   /** Snapshot generation (unix s) the answer was served from. */
   fetchedAt: number | null;
+  /** The source read only a prefix of the matching records for this answer.
+   * Carried through because it is the difference between a snapshot that is
+   * current and one that is current and whole, and only the source knows. */
+  incomplete: boolean;
 }
 
 /** One delta as Tessera-computed aggregates. */
@@ -116,6 +120,7 @@ function decodeSet(set: SurveyChangesPayload): DecodedSet {
     countedByRole: set.countedByRole,
     finalState,
     fetchedAt: set.fetchedAt ?? null,
+    incomplete: set.incomplete === true,
   };
 }
 
@@ -220,18 +225,26 @@ async function applyDelta(
   return { written, rolledBack };
 }
 
-/** Opens the thread of one stored survey, from the row alone. The row takes
- * the topic in the same atomic batch as the topic and first post, so a
- * partial write can neither leave an orphan thread for the next run to
- * duplicate nor a published survey without one. The post date is the
- * publication time the row stored, since no tip need be at hand: the survey
- * may be waiting on an action imported on a tick whose delta was empty. */
-async function publish(deps: SurveysSyncDeps, p: PublishableSurvey): Promise<void> {
+/** Opens the thread of one stored survey, from the row alone, and says
+ * whether this call is the one that opened it. The row takes the topic in the
+ * same atomic batch as the topic and first post, so a partial write can
+ * neither leave an orphan thread for the next run to duplicate nor a
+ * published survey without one. Two runs whose publish passes overlap read
+ * the same unpublished row, so the batch also carries the claim as its
+ * precondition: the loser writes nothing and returns false, where an
+ * unconditional insert would have left a second thread nothing points at.
+ * The post date is the publication time the row stored, since no tip need be
+ * at hand: the survey may be waiting on an action imported on a tick whose
+ * delta was empty. */
+export async function publishSurvey(
+  deps: SurveysSyncDeps,
+  p: PublishableSurvey,
+): Promise<boolean> {
   const { db, now, rand } = deps;
   const def = parseSurveyDefinition(p.definitionJson);
   if (def === null) throw new Error('stored record does not decode');
   const bodyMd = composeFirstPostMd(def, p.externalContent);
-  await createTopic(db, {
+  const created = await createTopic(db, {
     categorySlug: SURVEYS_CATEGORY_SLUG,
     authorId: GOV_SYNC_AUTHOR,
     title: surveyTitle(def, p.ref),
@@ -241,8 +254,10 @@ async function publish(deps: SurveysSyncDeps, p: PublishableSurvey): Promise<voi
     now,
     postedAt: p.submittedAt,
     rand: rand(),
+    guard: { sql: 'SELECT 1 FROM survey WHERE ref = ? AND topic_id IS NULL', binds: [p.ref] },
     batchWith: topicId => [buildPublishSurvey(db, p.ref, topicId)],
   });
+  return created !== null;
 }
 
 export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncResult> {
@@ -280,6 +295,9 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
   /** The mirror reflects `asOf` after this pass: the delta was applied to its
    * end. */
   let mirrorComplete = false;
+  /** Whether any page the run applied was served from a short scan. One short
+   * page makes the whole snapshot short, so this only ever turns on. */
+  let sourceIncomplete = false;
   try {
     for (let n = 0; n < MAX_LIST_PAGES; n++) {
       const answer =
@@ -293,6 +311,7 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
       written += applied.written;
       rolledBack += applied.rolledBack;
       if (set.fetchedAt !== null) asOf = set.fetchedAt;
+      if (set.incomplete) sourceIncomplete = true;
       cursor = delta.nextCursor;
       // A short answer on both axes is one that reached the published
       // generation. A full one may have more behind it.
@@ -313,9 +332,12 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
   // snapshot the rows now reflect. The "as of" advances only when the delta
   // was applied to its end. A run that broke off leaves rows describing an
   // older snapshot, and the line must not promise fresher.
+  const advanced = mirrorComplete && asOf !== null;
   await putSurveySyncState(db, {
     changesCursor: cursor,
-    tesseraFetchedAt: mirrorComplete && asOf !== null ? asOf : state.tesseraFetchedAt,
+    tesseraFetchedAt: advanced ? asOf : state.tesseraFetchedAt,
+    // The flag belongs to the snapshot the line names, so it moves with it.
+    incomplete: advanced ? sourceIncomplete : state.incomplete,
   });
 
   // --- Pass 2: publish. DRepTalk's half of admission, asked of the stored
@@ -328,8 +350,7 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
   try {
     for (const p of await getPublishableSurveys(db)) {
       try {
-        await publish(deps, p);
-        published++;
+        if (await publishSurvey(deps, p)) published++;
       } catch (err) {
         console.error(`[surveys] publishing ${p.ref} failed`, err);
         failed++;
@@ -355,8 +376,9 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
         const artifact = await tessera.artifactByHash(artifactHash);
         if (artifact === null) throw new Error(`artifact ${artifactHash} unknown to the backend`);
         const dreps = artifact.tally.perRole.find(r => r.role === Role.DRep);
-        await setSurveyFinalCount(db, ref, dreps ? dreps.responders.length : 0, now);
-        finalCounts++;
+        if (await setSurveyFinalCount(db, ref, artifactHash, dreps ? dreps.responders.length : 0, now)) {
+          finalCounts++;
+        }
       } catch (err) {
         console.error(`[surveys] final count for ${ref} failed`, err);
         failed++;

@@ -14,6 +14,28 @@ import {
   sanitizeExternalText,
 } from '../validation/input.js';
 
+/**
+ * One wording for the freshness line, so the category list and the two cards
+ * cannot describe the same snapshot differently. Null while no run has dated
+ * the mirror, which is when there is nothing honest to say about it.
+ *
+ * `incomplete` is the source's own report that the scan behind the snapshot
+ * read only part of the matching records. It is a separate fact from the age:
+ * a snapshot can be minutes old and still short, and a count taken from it is
+ * then a floor, not a total. Saying only how fresh it is would present the
+ * undercount as whole.
+ */
+export function freshnessLine(
+  asOfSeconds: number,
+  incomplete: boolean,
+  relativeAge: (ms: number) => string,
+): string {
+  const age = `Survey data as of ${relativeAge(asOfSeconds * 1000)}. Cached, not live.`;
+  return incomplete
+    ? `${age} The source read only part of the records for this snapshot, so counts may be low.`
+    : age;
+}
+
 export const ROLE_LABELS: Record<number, string> = {
   [Role.DRep]: 'DReps',
   [Role.SPO]: 'SPOs',

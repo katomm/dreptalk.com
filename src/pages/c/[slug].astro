@@ -11,6 +11,7 @@ import Pager from '@/components/Pager.astro';
 import CategoryShell from '@/components/CategoryShell.astro';
 import { getCategories, isDiscussion, GOVERNANCE_CATEGORY_SLUG, BUDGET_CATEGORY_SLUG, SURVEYS_CATEGORY_SLUG } from '../../../config/categories.js';
 import { surveysEnabled } from '@/lib/surveys/switch.js';
+import { freshnessLine } from '@/lib/surveys/view.js';
 import SurveyRow from '@/components/survey/SurveyRow.astro';
 import { getSurveySyncState, listSurveysWithTopics, type SurveyListEntry } from '@/lib/db/surveys.js';
 import { getTopicsByIds, getCategoryStats, type Topic } from '@/lib/db/forum.js';
@@ -135,6 +136,7 @@ let excerptHtml = new Map<string, string>();
 // row that moved, so no row is fresher than the mirror.
 let surveyEntries: SurveyListEntry[] = [];
 let surveyAsOf: number | null = null;
+let surveyAsOfIncomplete = false;
 
 // The category sidebar stats are independent of the per-category data loaded
 // below, so start the query now and let it overlap with that work instead of
@@ -188,10 +190,13 @@ if (category && db) {
       null,
     );
   } else if (isSurveysCategory) {
-    [surveyEntries, surveyAsOf] = await Promise.all([
+    let syncState;
+    [surveyEntries, syncState] = await Promise.all([
       listSurveysWithTopics(db, { limit: PAGE_SIZE, offset }),
-      getSurveySyncState(db).then((s) => s.tesseraFetchedAt),
+      getSurveySyncState(db),
     ]);
+    surveyAsOf = syncState.tesseraFetchedAt;
+    surveyAsOfIncomplete = syncState.incomplete;
   } else {
     topics = await getDiscussionTopics(db, category.slug, { sort: discussionSort, limit: PAGE_SIZE, offset });
     const topicIds = topics.map((t) => t.id);
@@ -480,7 +485,7 @@ const breadcrumbLd = {
                 ))}
               </div>
               {surveyAsOf != null && (
-                <p class="ga-asof">Survey data as of {formatRelativeTime(surveyAsOf * 1000, now)}. Cached, not live.</p>
+                <p class="ga-asof">{freshnessLine(surveyAsOf, surveyAsOfIncomplete, (ms) => formatRelativeTime(ms, now))}</p>
               )}
             </>
           )}

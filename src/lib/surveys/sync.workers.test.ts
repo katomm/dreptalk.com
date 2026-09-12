@@ -11,6 +11,7 @@ import type { TallyArtifact } from 'cip-179/tally';
 import { describe, expect, it } from 'vitest';
 import { buildInsertGovernanceAction } from '../db/governance.js';
 import {
+  getPublishableSurveys,
   getLinkedSurveyForAction,
   getSurveyByTopicId,
   getSurveyGovLinks,
@@ -18,7 +19,13 @@ import {
   getTopicSlugBySurveyRef,
   listSurveysWithTopics,
 } from '../db/surveys.js';
-import { MAX_LIST_PAGES, type SurveysSyncDeps, type SurveysTessera, syncSurveys } from './sync.js';
+import {
+  MAX_LIST_PAGES,
+  publishSurvey,
+  type SurveysSyncDeps,
+  type SurveysTessera,
+  syncSurveys,
+} from './sync.js';
 
 const TX_LINKED = 'a'.repeat(64);
 const TX_SECOND = 'b'.repeat(64);
@@ -572,7 +579,91 @@ describe('syncSurveys', () => {
     expect(await getSurveySyncState(env.DB)).toEqual({
       changesCursor: `cursor-${MAX_LIST_PAGES}`,
       tesseraFetchedAt: null,
+      incomplete: false,
     });
+  });
+
+  it('opens one thread when two overlapping runs publish the same survey', async () => {
+    await importLinkingAction();
+    // Pass 1 alone: the row is stored and eligible for a thread, and both
+    // candidates below are the same unpublished row, which is exactly what
+    // two runs whose publish passes overlap each read.
+    await syncSurveys(deps(fakeTessera({ changes: async () => ({ ready: true, body: deltaOf(setOf([], [], {})) }) })));
+    await env.DB.prepare('UPDATE survey SET topic_id = NULL WHERE ref = ?').bind(KEY_LINKED).run();
+    await env.DB.prepare("DELETE FROM topics WHERE source = 'survey'").run();
+    const [candidate] = await getPublishableSurveys(env.DB);
+
+    const d = deps(fakeTessera());
+    const claimed = await Promise.all([publishSurvey(d, candidate), publishSurvey(d, candidate)]);
+
+    // Exactly one claim, and the loser wrote nothing at all: an orphan thread
+    // would sit in the category forever, since the claim it was opened for is
+    // taken and no later run offers the survey again.
+    expect(claimed.filter(Boolean)).toHaveLength(1);
+    const { results: threads } = await env.DB.prepare(
+      "SELECT id FROM topics WHERE source = 'survey'",
+    ).all<{ id: string }>();
+    expect(threads).toHaveLength(1);
+    const { results: posts } = await env.DB.prepare(
+      "SELECT id FROM posts WHERE topic_id IN (SELECT id FROM topics WHERE source = 'survey')",
+    ).all<{ id: string }>();
+    expect(posts).toHaveLength(1);
+    expect((await surveyRows())[0].topic_id).toBe(threads[0].id);
+  });
+
+  it('does not write a final count against an artifact hash the row no longer names', async () => {
+    await importLinkingAction();
+    const decided = setOf(
+      [surveyRecord(TX_LINKED, definition())],
+      LINKED_LINKS,
+      { [KEY_LINKED]: 3 },
+    );
+    const finalized: SurveyListPayload = {
+      ...decided,
+      finalState: { [KEY_LINKED]: { state: 'finalized', artifactHash: ARTIFACT_HASH } },
+    };
+    const r = await syncSurveys(
+      deps(
+        fakeTessera({
+          changesSince: async () => ({ ready: true, body: deltaOf(finalized, [], BOOT_CURSOR) }),
+          // The overlapping mirror: it re-finalizes the survey onto a second
+          // artifact while this run's request for the first is in flight.
+          artifactByHash: async () => {
+            await env.DB.prepare('UPDATE survey SET artifact_hash = ? WHERE ref = ?')
+              .bind('cd'.repeat(32), KEY_LINKED)
+              .run();
+            return artifactOf(9);
+          },
+        }),
+      ),
+    );
+
+    // The figure belongs to the artifact it was read from. Writing it beside
+    // the newer hash would pin a wrong final count for good, since a row with
+    // a count is never asked about again.
+    expect(r).toMatchObject({ finalCounts: 0 });
+    const [row] = await surveyRows();
+    expect(row).toMatchObject({ artifact_hash: 'cd'.repeat(32), final_counted_dreps: null });
+  });
+
+  it('records an incomplete upstream scan with the snapshot it describes, and clears it', async () => {
+    await importLinkingAction();
+    const short: SurveyChangesPayload = {
+      ...deltaOf(setOf([surveyRecord(TX_LINKED, definition())], LINKED_LINKS, { [KEY_LINKED]: 3 }), [], BOOT_CURSOR),
+      incomplete: true,
+    };
+    await syncSurveys(deps(fakeTessera({ changesSince: async () => ({ ready: true, body: short }) })));
+    // The snapshot is current and short at once. The page may say how fresh
+    // it is, but not that it is whole.
+    expect(await getSurveySyncState(env.DB)).toEqual({
+      changesCursor: BOOT_CURSOR,
+      tesseraFetchedAt: tip.time,
+      incomplete: true,
+    });
+
+    // A later answer that read everything takes the claim back.
+    await syncSurveys(deps(fakeTessera()));
+    expect(await getSurveySyncState(env.DB)).toMatchObject({ incomplete: false });
   });
 
   it('keeps the cursor and the "as of" it could not advance when the delta fails', async () => {
@@ -997,6 +1088,7 @@ describe('syncSurveys', () => {
     expect(await getSurveySyncState(env.DB)).toEqual({
       changesCursor: null,
       tesseraFetchedAt: null,
+      incomplete: false,
     });
     await importLinkingAction();
     await syncSurveys(deps(fakeTessera()));
@@ -1006,6 +1098,7 @@ describe('syncSurveys', () => {
     expect(await getSurveySyncState(env.DB)).toEqual({
       changesCursor: BOOT_CURSOR,
       tesseraFetchedAt: tip.time,
+      incomplete: false,
     });
   });
 
