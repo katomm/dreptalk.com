@@ -9,6 +9,7 @@ import { pct4 } from '../format/pct.js';
 import { ancIsNoSide } from '../governance/fullStakeView.js';
 import { lineagePredecessor } from '../governance/onchain.js';
 import { readThresholdSnapshot } from '../governance/thresholds.js';
+import { median } from './median.js';
 
 export interface SpoSnapshot {
   /** Decided actions that carry an on-chain SPO threshold. */
@@ -85,13 +86,6 @@ export interface ThroughputView {
 
 const WINDOW_EPOCHS = 12;
 const MIN_TYPE_ROWS_FOR_MEDIAN = 3;
-
-function median(values: number[]): number | null {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((x, y) => x - y);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
-}
 
 /** Whether a body's tally met its threshold, null unless both are known. */
 function verdict(thresholdPct: number | null | undefined, yesPct: number | null): boolean | null {

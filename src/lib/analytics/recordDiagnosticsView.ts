@@ -5,6 +5,7 @@
 import { classificationEndEpoch } from '../governance/voteTrendAssembly.js';
 import { epochStartMs, type NetworkConfig } from '../config/network.js';
 import type { NetworkTypeTiming, OwnVoteTiming } from '../db/recordDiagnostics.js';
+import { median } from './median.js';
 
 export interface HistogramBucket {
   fromPct: number;
@@ -59,13 +60,6 @@ export function buildHistogram(values: number[], ownValue: number | null): Histo
     buckets[bucketIndex(clamped)].isOwn = true;
   }
   return buckets;
-}
-
-function median(values: number[]): number | null {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((x, y) => x - y);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
 }
 
 /**
