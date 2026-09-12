@@ -38,10 +38,10 @@ export function formatWindowDates(from: number, to: number, cfg: NetworkConfig):
   return `${DATE.format(new Date(epochStartMs(from, cfg)))} to ${DATE.format(new Date(epochStartMs(to + 1, cfg)))}`;
 }
 
-/** What the index and the homepage teaser show, which is not what the edition
- *  page shows: a short title and two sentences, never the full standfirst. */
+/** What the index and the homepage teaser show next to the title, which is not
+ *  what the edition page shows: two sentences, never the full standfirst. */
 export function cardTitle(e: Edition): string {
-  return e.data.listTitle ?? e.data.title;
+  return e.data.title;
 }
 export function cardTeaser(e: Edition): string {
   return e.data.teaser ?? e.data.standfirst;

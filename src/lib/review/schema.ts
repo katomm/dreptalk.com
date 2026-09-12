@@ -41,7 +41,6 @@ export const reviewFrontmatterSchema = z
     standfirst: z.string().min(1),
     /** Short form of the title for the index and the homepage teaser. The full
      *  title stays on the edition page, where a reader has already chosen it. */
-    listTitle: z.string().min(1).max(90).optional(),
     /** Two sentences for the index: what happened, and what a reader gets from
      *  the piece. Without it the index falls back to the standfirst, which is
      *  written for someone who has already opened the edition. */

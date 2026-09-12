@@ -194,7 +194,6 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
   const segments: Segment[] = [
     { label: 'title', text: fm.title },
     { label: 'standfirst', text: fm.standfirst },
-    ...(fm.listTitle ? [{ label: 'listTitle', text: fm.listTitle }] : []),
     ...(fm.teaser ? [{ label: 'teaser', text: fm.teaser }] : []),
     { label: 'ogFigure label', text: fm.ogFigure.label },
     ...fm.facts.map((f, i) => ({ label: `fact ${i + 1} label`, text: f.label })),
