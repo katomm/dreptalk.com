@@ -109,15 +109,16 @@ describe('definition round-trip and rendering', () => {
 });
 
 describe('freshnessLine', () => {
-  const age = (ms: number) => `${ms / 1000}s ago`;
+  const asOf = 1_780_000_000;
+  const now = (asOf + 300) * 1000;
 
   it('says how fresh a whole snapshot is and nothing more', () => {
-    expect(freshnessLine(5, false, age)).toBe('Survey data as of 5s ago. Cached, not live.');
+    expect(freshnessLine(asOf, false, now)).toBe('Survey data as of 5m ago. Cached, not live.');
   });
 
   it('qualifies the counts of a short one, since fresh and whole are separate facts', () => {
-    const line = freshnessLine(5, true, age);
-    expect(line).toContain('as of 5s ago');
+    const line = freshnessLine(asOf, true, now);
+    expect(line).toContain('as of 5m ago');
     expect(line).toContain('counts may be low');
   });
 });

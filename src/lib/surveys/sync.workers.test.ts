@@ -584,13 +584,13 @@ describe('syncSurveys', () => {
   });
 
   it('opens one thread when two overlapping runs publish the same survey', async () => {
+    // A run before the linking action is imported here stores the row and
+    // opens no thread, which is the state a publish pass starts from. Both
+    // calls below then read that same unpublished row, exactly what two runs
+    // whose publish passes overlap each do.
+    await syncSurveys(deps(fakeTessera()));
+    expect((await surveyRows())[0].topic_id).toBeNull();
     await importLinkingAction();
-    // Pass 1 alone: the row is stored and eligible for a thread, and both
-    // candidates below are the same unpublished row, which is exactly what
-    // two runs whose publish passes overlap each read.
-    await syncSurveys(deps(fakeTessera({ changes: async () => ({ ready: true, body: deltaOf(setOf([], [], {})) }) })));
-    await env.DB.prepare('UPDATE survey SET topic_id = NULL WHERE ref = ?').bind(KEY_LINKED).run();
-    await env.DB.prepare("DELETE FROM topics WHERE source = 'survey'").run();
     const [candidate] = await getPublishableSurveys(env.DB);
 
     const d = deps(fakeTessera());

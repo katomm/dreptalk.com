@@ -190,11 +190,11 @@ if (category && db) {
       null,
     );
   } else if (isSurveysCategory) {
-    let syncState;
-    [surveyEntries, syncState] = await Promise.all([
+    const [entries, syncState] = await Promise.all([
       listSurveysWithTopics(db, { limit: PAGE_SIZE, offset }),
       getSurveySyncState(db),
     ]);
+    surveyEntries = entries;
     surveyAsOf = syncState.tesseraFetchedAt;
     surveyAsOfIncomplete = syncState.incomplete;
   } else {
@@ -485,7 +485,7 @@ const breadcrumbLd = {
                 ))}
               </div>
               {surveyAsOf != null && (
-                <p class="ga-asof">{freshnessLine(surveyAsOf, surveyAsOfIncomplete, (ms) => formatRelativeTime(ms, now))}</p>
+                <p class="ga-asof">{freshnessLine(surveyAsOf, surveyAsOfIncomplete, now)}</p>
               )}
             </>
           )}

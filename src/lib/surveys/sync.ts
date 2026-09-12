@@ -33,7 +33,7 @@ import { createTopic } from '../db/forum.js';
 import {
   buildDeleteGovLinks,
   buildInsertGovLink,
-  buildPublishSurvey,
+  buildSurveyClaim,
   buildUpsertSurvey,
   getPublishableSurveys,
   getSurveySyncState,
@@ -254,8 +254,7 @@ export async function publishSurvey(
     now,
     postedAt: p.submittedAt,
     rand: rand(),
-    guard: { sql: 'SELECT 1 FROM survey WHERE ref = ? AND topic_id IS NULL', binds: [p.ref] },
-    batchWith: topicId => [buildPublishSurvey(db, p.ref, topicId)],
+    ...buildSurveyClaim(db, p.ref),
   });
   return created !== null;
 }

@@ -4,6 +4,7 @@
 // string-concatenated SQL. Rows are Tessera's answers written down. The sync
 // (src/lib/surveys/sync.ts) is the only writer.
 
+import type { TopicGuard } from './forum.js';
 import { chunked, D1_MAX_BINDS, sqlPlaceholders } from './sql.js';
 
 /** A survey as the mirror writes it: Tessera's answer, no thread of its own
@@ -129,17 +130,29 @@ export async function getPublishableSurveys(db: D1Database): Promise<Publishable
   }));
 }
 
-/** Publication: the row takes the thread just opened for it. Batched with the
- * topic and first post by createTopic, so a partial write can neither orphan
- * a thread nor publish a survey twice. */
-export function buildPublishSurvey(
+/** What makes a survey row still unpublished, written once. Two statements
+ * have to agree about it, and they are built from this together below. */
+const UNCLAIMED = 'ref = ? AND topic_id IS NULL';
+
+/**
+ * Publication as a claim on the row: the precondition the thread is opened
+ * under, and the update that takes the row. Both go into one createTopic
+ * batch, so a partial write can neither orphan a thread nor publish a survey
+ * twice, and two runs reading the same unpublished row cannot both open one.
+ * They are returned together because they must state the same predicate: a
+ * guard looser than the update leaves a thread nothing points at, a tighter
+ * one writes nothing while the claim was free.
+ */
+export function buildSurveyClaim(
   db: D1Database,
   ref: string,
-  topicId: string,
-): D1PreparedStatement {
-  return db
-    .prepare('UPDATE survey SET topic_id = ? WHERE ref = ? AND topic_id IS NULL')
-    .bind(topicId, ref);
+): { guard: TopicGuard; batchWith: (topicId: string) => D1PreparedStatement[] } {
+  return {
+    guard: { sql: `SELECT 1 FROM survey WHERE ${UNCLAIMED}`, binds: [ref] },
+    batchWith: topicId => [
+      db.prepare(`UPDATE survey SET topic_id = ? WHERE ${UNCLAIMED}`).bind(topicId, ref),
+    ],
+  };
 }
 
 /** Withdraws the surveys the latest answer no longer lists as eligible, a
