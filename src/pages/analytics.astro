@@ -23,13 +23,8 @@ import { listDecidedActionRationaleCoverage, countRationaleAddedViaRevote } from
 import { listDecidedCcActions, listDecidedCcVoteRows, getCommitteeTimeline, type CcVoteRow } from '@/lib/db/committee.js';
 import { getAllCcMemberNames } from '@/lib/db/ccMemberName.js';
 import { listDecidedOutcomeRows, countSubmittedSince, countActionsByStatus, listDroppedActions, listLineageSuccessors } from '@/lib/db/hubOutcomes.js';
-import {
-  getNetworkTimingByType,
-  getNetworkTimingOverall,
-  getHalfTurnoutDays,
-  getWindowThirds,
-  type WindowThirds,
-} from '@/lib/db/recordDiagnostics.js';
+import { resolveVotingTimingView } from '@/lib/analytics/votingTimingResolve.js';
+import { EMPTY_TIMING_VIEW } from '@/lib/analytics/votingTimingView.js';
 import { lineagePredecessorTxIds } from '@/lib/governance/onchain.js';
 import { fmtPct, readableType, TONE_BAR_COLORS } from '@/lib/governance/view.js';
 import { buildCcNameIndex } from '@/lib/governance/ccNames.js';
@@ -42,7 +37,6 @@ import { buildVoteChangeView } from '@/lib/analytics/voteChangeView.js';
 import { buildRationaleCoverage } from '@/lib/analytics/rationaleCoverageView.js';
 import { buildCcPanel, selectExtremes } from '@/lib/analytics/ccPanelView.js';
 import { buildDroppedActions, buildSpoSnapshot, buildThroughput } from '@/lib/analytics/outcomesView.js';
-import { buildVotingTiming } from '@/lib/analytics/votingTimingView.js';
 import { ogCardVersion } from '@/lib/og/version.js';
 import type { EpochStatsRow } from '@/lib/analytics/epochStats.js';
 import { HUB_SECTION_IDS as HUB } from '@/lib/analytics/hubSections.js';
@@ -210,38 +204,26 @@ const tenureLabel = (t: { from: number; to: number | null }): string =>
 // two whole-table reads those panels also need. The 12-epoch submitted
 // window counts back from the current epoch, or from epoch 0 (and is not
 // rendered) while the current epoch is not yet known.
-// The voting-timing reads (chapter 3) share this batch instead of opening
-// their own round-trip: they are action-level reads like the outcome ones.
-// The window thirds need the network's epoch anchor to turn an epoch number
-// into a timestamp inside SQL.
-const emptyThirds: WindowThirds = { early: 0, middle: 0, late: 0, afterClose: 0, basis: 0 };
+// The voting timing (chapter 3) joins this batch as one ready-built view: the
+// resolver reads the precomputed snapshot and only computes live when there is
+// no usable row, so it stays a single entry here rather than six reads.
 const [
   outcomeRows,
   submittedRecent,
   statusCounts,
-  drepTimingByType,
-  spoTimingByType,
-  drepTimingOverall,
-  spoTimingOverall,
-  halfTurnoutDays,
-  windowThirds,
+  timing,
   droppedRows,
 ] = db
   ? await Promise.all([
       listDecidedOutcomeRows(db),
       countSubmittedSince(db, (params?.epoch ?? 0) - 11),
       countActionsByStatus(db),
-      getNetworkTimingByType(db, 'DRep'),
-      getNetworkTimingByType(db, 'SPO'),
-      getNetworkTimingOverall(db, 'DRep'),
-      getNetworkTimingOverall(db, 'SPO'),
-      getHalfTurnoutDays(db),
-      getWindowThirds(db, currentNetwork().epochAnchor),
+      resolveVotingTimingView(db, currentNetwork()),
       // A count of dropped actions with no way to see which ones raises more
       // questions than it answers, so the panel lists them by name.
       listDroppedActions(db),
     ])
-  : [[], 0, {}, [], [], null, null, [], emptyThirds, []];
+  : [[], 0, {}, EMPTY_TIMING_VIEW, []];
 const spo = buildSpoSnapshot(outcomeRows);
 const throughput = buildThroughput(outcomeRows, statusCounts, submittedRecent);
 // The successor lookup depends on the dropped rows, so it cannot join the
@@ -254,15 +236,6 @@ const droppedActions = buildDroppedActions(droppedRows, successorRows);
 // Guards the footnote line and the number in it against drifting apart.
 const unlistedDropped = throughput.dropped - droppedActions.length;
 const showSubmittedRecent = params?.epoch != null;
-const timing = buildVotingTiming({
-  drepByType: drepTimingByType,
-  spoByType: spoTimingByType,
-  drepOverall: drepTimingOverall,
-  spoOverall: spoTimingOverall,
-  halfDays: halfTurnoutDays,
-  thirds: windowThirds,
-});
-
 const fmtShare = (pct: number | null): string => (pct != null ? `${pct.toFixed(1)}%` : 'n/a');
 const inactiveLabel = (retired: boolean): string => (retired ? 'retired' : 'inactive');
 // Medians can end in .5 with an even action count, render as-is.

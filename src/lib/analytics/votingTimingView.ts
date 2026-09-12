@@ -29,19 +29,12 @@ export interface BuildVotingTimingInput {
   spoByType: NetworkTypeTiming[];
   drepOverall: NetworkOverallTiming | null;
   spoOverall: NetworkOverallTiming | null;
-  /** Raw half-turnout day values, one per decided action, median computed here. */
-  halfDays: number[];
+  /** Half-turnout median across decided actions, already reduced by the snapshot reducer. */
+  half: { medianDay: number | null; basis: number };
   thirds: WindowThirds;
 }
 
 const MIN_TYPE_TIMED_VOTES = 20;
-
-function median(values: number[]): number | null {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((x, y) => x - y);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
-}
 
 /**
  * Network-wide voting timing: overall DRep vs SPO median day-to-vote (null
@@ -77,8 +70,24 @@ export function buildVotingTiming(input: BuildVotingTimingInput): VotingTimingVi
     spoMedianDay: input.spoOverall?.medianDay ?? null,
     spoTimed: input.spoOverall?.timedVotes ?? 0,
     thirds: input.thirds,
-    halfTurnoutMedianDay: median(input.halfDays),
-    halfBasis: input.halfDays.length,
+    halfTurnoutMedianDay: input.half.medianDay,
+    halfBasis: input.half.basis,
     byType,
   };
 }
+
+/**
+ * The empty view, for a render with no database binding at all. Frozen because
+ * it is a shared module-level singleton: without this one page could mutate what
+ * another renders.
+ */
+export const EMPTY_TIMING_VIEW: VotingTimingView = Object.freeze(
+  buildVotingTiming({
+    drepByType: [],
+    spoByType: [],
+    drepOverall: null,
+    spoOverall: null,
+    half: { medianDay: null, basis: 0 },
+    thirds: { early: 0, middle: 0, late: 0, afterClose: 0, basis: 0 },
+  }),
+);

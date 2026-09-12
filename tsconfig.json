@@ -16,6 +16,7 @@
     "vitest.workspace.ts",
     "vitest.workers.config.ts",
     "src/**/*.workers.test.ts",
-    "src/lib/test-setup.workers.ts"
+    "src/lib/test-setup.workers.ts",
+    "src/lib/db/votingTimingFixture.workers.ts"
   ]
 }
