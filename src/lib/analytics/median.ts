@@ -1,10 +1,10 @@
 /**
  * Median of a list of numbers: null when empty, the middle value at odd
- * length, and the mean of the two middle values at even length. Lifted out of
- * votingTimingView so the snapshot reducer computes the stored half-turnout
- * figure with exactly the logic the view used before, which is what keeps the
- * snapshot path and the live fallback path numerically identical. Sorts
- * numerically, since the default Array.prototype.sort orders values as strings.
+ * length, and the mean of the two middle values at even length. Sorts
+ * numerically, since the default Array.prototype.sort orders values as
+ * strings, and sorts a copy so the caller's array keeps its own order.
+ * The single definition every analytics view shares, so the snapshot reducer
+ * and the live fallback path stay numerically identical.
  */
 export function median(values: number[]): number | null {
   if (values.length === 0) return null;

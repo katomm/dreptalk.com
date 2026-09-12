@@ -2,6 +2,7 @@
 // breakdown into donut arcs and formats the rationale / participation lines.
 // Kept out of the .astro component so the arithmetic is unit-tested, mirroring
 // the concentrationView.ts split.
+import { median } from '../analytics/median.js';
 import { TONE_COLORS, voteTone } from '../governance/view.js';
 import type { DrepVoteBreakdown, DrepRationaleStats, DrepParticipation } from '../db/drepVotes.js';
 
@@ -111,13 +112,9 @@ export interface VoteTimingStat {
  * skipped rather than distorting the median. Null when nothing usable remains.
  */
 export function voteTimingStat(rows: { blockTime: number; submittedAt: number }[]): VoteTimingStat | null {
-  const days = rows
-    .map((r) => (r.blockTime * 1000 - r.submittedAt) / 86_400_000)
-    .filter((d) => d >= 0)
-    .sort((a, b) => a - b);
-  if (days.length === 0) return null;
-  const mid = Math.floor(days.length / 2);
-  const medianDay = days.length % 2 === 0 ? (days[mid - 1] + days[mid]) / 2 : days[mid];
+  const days = rows.map((r) => (r.blockTime * 1000 - r.submittedAt) / 86_400_000).filter((d) => d >= 0);
+  const medianDay = median(days);
+  if (medianDay === null) return null;
   return { medianDay, timed: days.length };
 }
 
