@@ -63,4 +63,23 @@ describe('deploy vars lockstep', () => {
       preprodAppVar(key),
     );
   });
+
+  // The preprod app config is derived by spreading the mainnet [vars], so a
+  // network-bound value that nobody overrides silently carries mainnet's into
+  // preprod. TESSERA_APP_URL is the one such var the lockstep check above
+  // cannot see, gov-sync having no copy of it: a carried-over value would
+  // deep-link preprod survey cards into the mainnet Tessera app, which looks
+  // like a working link and answers on the wrong chain. "Different from
+  // mainnet" alone would not catch it, since a deleted override also reads as
+  // different (null): the override has to be present as well.
+  it.each(['TESSERA_BACKEND_URL', 'TESSERA_APP_URL'] as const)(
+    'preprod overrides the mainnet %s rather than inheriting it',
+    key => {
+      const mainnet = tomlVar('wrangler.toml', 'vars', key);
+      const preprod = preprodAppVar(key);
+      expect(mainnet).not.toBeNull();
+      expect(preprod).not.toBeNull();
+      expect(preprod).not.toBe(mainnet);
+    },
+  );
 });

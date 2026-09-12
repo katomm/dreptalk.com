@@ -17,12 +17,8 @@ faqs:
     a: "Yes. Answer again and the later response replaces the earlier one, so the participation count does not go up. You pay the network fee a second time."
   - q: "Can I answer after the closing epoch?"
     a: "The transaction would still be built and you would still pay the network fee, but a response that arrives after the closing epoch is not counted. Answer while the card still shows the survey as open."
-updated: 2026-09-09
+updated: 2026-09-12
 ---
-
-> Surveys are live on the preprod test deployment only. To see one, open the
-> Surveys category on [preprod.dreptalk.com](https://preprod.dreptalk.com/c/surveys/).
-> Nothing on this page applies to mainnet yet.
 
 [CIP-179](https://github.com/cardano-foundation/CIPs/tree/master/CIP-0179) puts
 surveys and polls on the Cardano chain, as transaction metadata under label 17.
