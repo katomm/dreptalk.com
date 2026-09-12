@@ -50,7 +50,7 @@ declare namespace Cloudflare {
     /** Optional Koios secret for higher rate limits (app proxy + gov-sync). */
     KOIOS_API_KEY?: string;
     /**
-     * Tessera serving backend for CIP-179 surveys (preprod only for now).
+     * Tessera serving backend for CIP-179 surveys, per network.
      * Non-empty = the surveys feature is on: gov-sync mirrors the linked
      * surveys and the app renders /c/surveys/ from D1. Empty or unset = off,
      * the sync phase is gated out and the category does not exist (unlisted,

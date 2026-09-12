@@ -49,6 +49,16 @@ VAPID_PUBLIC_KEY = "BNDdHbTHnKPFLX9oqH-EeZfQJvzppkj1SRK1-dqnRGOGJWkiazQcjw2_AeKz
 # webhook secret is TELEGRAM_WEBHOOK_SECRET, also a secret.
 TELEGRAM_BOT_USERNAME = "DRepTalkBot"
 
+# CIP-179 surveys. TESSERA_BACKEND_URL is the feature switch: the app checks
+# only its presence (without it the surveys category does not exist and
+# /c/surveys/ is a 404), gov-sync is the one caller of the URL. The client
+# refuses a backend whose /health reports a different network, so this URL and
+# the deployment's network cannot silently disagree. Held equal to gov-sync's
+# copy by src/lib/deployVars.test.ts. TESSERA_APP_URL is the display-only
+# "open in Tessera" deep link on survey cards.
+TESSERA_BACKEND_URL = "https://tessera-backend-mainnet.matthieu-pizenberg.workers.dev"
+TESSERA_APP_URL = "https://tessera-mainnet.matthieu-pizenberg.workers.dev"
+
 # D1 database for application data.
 [[d1_databases]]
 binding = "DB"
