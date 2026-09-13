@@ -7,6 +7,19 @@ Disallow: /api
 Disallow: /imprint
 Disallow: /privacy
 
+# Share-preview cards under /og/ are generated on demand for social scrapers,
+# so a preview shows up when someone posts a link. Amazonbot crawls every page
+# and fetches the card each page points at, without ever displaying one, so it
+# is asked to skip them while the pages themselves stay crawlable. This group
+# repeats the default disallows, because a named group replaces the wildcard
+# group rather than adding to it.
+User-agent: Amazonbot
+Disallow: /og/
+Disallow: /admin
+Disallow: /api
+Disallow: /imprint
+Disallow: /privacy
+
 # AI training crawlers: blocked. Public deliberation should be discoverable in
 # answer engines, but the content is not offered up for model training. The
 # live citing bots above are deliberately kept out of this group, and so is
