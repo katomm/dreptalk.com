@@ -73,7 +73,7 @@ import { renderMarkdown } from '../markdown.js';
 import { MAX_EXTERNAL_TITLE_LEN, sanitizeExternalText } from '../validation/input.js';
 import { eligibleSurvey } from './admission.js';
 import { type ArtifactInput, computeSurveyTally } from './tallyCompute.js';
-import { parseSurveyDefinition, roleLabels, surveyDescription, surveyTitle } from './view.js';
+import { parseSurveyDefinition, surveyDescription, surveyTitle } from './view.js';
 
 /**
  * `bundle`, deliberately not `wholeBundle`. wholeBundle is collectSurveyBundle
@@ -177,7 +177,6 @@ function countedDreps(set: DecodedSet, key: string): number | null {
  * governance threads (the description is untrusted on-chain data, capped
  * like an action's abstract before it gets there). */
 function composeFirstPostMd(def: SurveyDefinition, external: boolean): string {
-  const roles = roleLabels(def.eligibleRoles);
   const description = surveyDescription(def);
   const lines: string[] = ['**On-chain CIP-179 survey.**', ''];
   if (external) {
@@ -185,8 +184,11 @@ function composeFirstPostMd(def: SurveyDefinition, external: boolean): string {
   } else if (description) {
     lines.push(description, '');
   }
-  lines.push(`- Eligible to respond: ${roles}`);
-  lines.push(`- Responses accepted through epoch ${def.endEpoch} (inclusive)`);
+  // The roles and the closing epoch are deliberately absent: the thread's own
+  // sidebar states both, from the stored row rather than from a post frozen at
+  // publication, and a survey whose record later moves would leave this text
+  // disagreeing with it. The sealed line stays because it explains the badge
+  // beside it rather than repeating it.
   if (def.submissionMode.type === 'sealed') {
     lines.push('- Sealed survey: answers stay encrypted until the reveal time');
   }
