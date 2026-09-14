@@ -201,9 +201,15 @@ export async function getStaleLiveRefs(
   return (results ?? []).map(r => r.survey_ref);
 }
 
-/** Queue a survey for the tally pass. Idempotent, and it never resets an
- * existing row's attempt counter, so a repeatedly failing survey keeps its
- * place at the back of the work order. */
+/** Queue a survey for the tally pass. Idempotent in the sense that matters: it
+ * never resets an existing row's attempt counter, so a repeatedly failing survey
+ * keeps its place at the back of the work order.
+ *
+ * It does move `queued_at` forward on a row that already exists, and that is the
+ * whole record of "new work arrived". A delta for a survey whose bundle is being
+ * fetched right now finds the row already there, so without this the enqueue
+ * would be a no-op and the finishing pass would retire the row, dropping the
+ * change it never saw. dequeueSurveyTally reads this to refuse exactly that. */
 export async function enqueueSurveyTallies(
   db: D1Database,
   refs: readonly string[],
@@ -217,7 +223,8 @@ export async function enqueueSurveyTallies(
         db
           .prepare(
             `INSERT INTO survey_tally_queue (survey_ref, queued_at)
-             VALUES (?, ?) ON CONFLICT(survey_ref) DO NOTHING`,
+             VALUES (?, ?)
+             ON CONFLICT(survey_ref) DO UPDATE SET queued_at = excluded.queued_at`,
           )
           .bind(ref, now),
       ),
@@ -243,18 +250,27 @@ export async function takeSurveyTallyWork(db: D1Database, limit: number): Promis
   return (results ?? []).map(r => r.survey_ref);
 }
 
-/** Refs of eligible surveys that have no tally row at all, bounded. The
- * backfill trigger: on the day the migration lands both new tables are empty
- * while the mirror's delta cursor is not, so a stored survey that gets no
- * further delta is in no queue, and getStaleLiveRefs cannot see it either
- * because that query reads the very table it has no row in. Eligibility is
- * checked again by the pass, this only narrows the scan. */
+/** Refs of eligible surveys that are in no queue and have no tally row at all,
+ * bounded. The backfill trigger: on the first run after the migration both new
+ * tables are empty while the mirror's delta cursor is not, so a stored survey
+ * that gets no further delta is in no queue, and getStaleLiveRefs cannot see it
+ * either because that query reads the very table it has no row in. Eligibility
+ * is checked again by the pass, this only narrows the scan.
+ *
+ * Surveys already queued are excluded, and that exclusion is what keeps the
+ * backfill moving. Some surveys are queued and never produce a tally row: a
+ * sealed one waiting for its artifact is the standing case, a repeatedly failing
+ * bundle fetch another. Without the exclusion those permanently unrowed surveys
+ * would fill this bounded scan on every run, and a survey ordered after them
+ * would never be enqueued at all. */
 export async function getRefsWithoutTally(db: D1Database, limit: number): Promise<string[]> {
   const { results } = await db
     .prepare(
       `SELECT s.ref AS ref FROM survey s
        LEFT JOIN survey_tally t ON t.survey_ref = s.ref
+       LEFT JOIN survey_tally_queue q ON q.survey_ref = s.ref
        WHERE t.survey_ref IS NULL
+         AND q.survey_ref IS NULL
          AND s.unavailable = 0
          AND s.cancelled = 0
          AND s.external_content = 0
@@ -282,18 +298,30 @@ export async function markSurveyTallyAttempt(
 }
 
 /**
- * Drop a queue row, but only the exact one this pass attempted. A survey
- * re-enqueued by a later delta while the bundle was in flight must keep its new
- * queue row, so the delete matches on the attempt stamp the pass itself wrote.
+ * Drop a queue row, but only the exact work this pass attempted. Two guards, and
+ * each catches something the other cannot:
+ *
+ * `last_attempt` catches a second pass that took the same survey and stamped its
+ * own attempt. `queued_at` catches a delta that arrived while the bundle was in
+ * flight: that enqueue finds the row already there, so it changes no attempt at
+ * all and moves only this column. Without the second guard the finishing pass
+ * would retire a row whose reason for existing it never read.
+ *
+ * `attemptedAt` is the pass's own clock, which is both the stamp it wrote and the
+ * instant it started from. A queued_at at or before it is work this pass already
+ * accounts for, its own pre-take enqueue included. A later one is not.
  */
 export async function dequeueSurveyTally(
   db: D1Database,
   ref: string,
-  expectedLastAttempt: number,
+  attemptedAt: number,
 ): Promise<void> {
   await db
-    .prepare('DELETE FROM survey_tally_queue WHERE survey_ref = ? AND last_attempt = ?')
-    .bind(ref, expectedLastAttempt)
+    .prepare(
+      `DELETE FROM survey_tally_queue
+       WHERE survey_ref = ? AND last_attempt = ? AND queued_at <= ?`,
+    )
+    .bind(ref, attemptedAt, attemptedAt)
     .run();
 }
 

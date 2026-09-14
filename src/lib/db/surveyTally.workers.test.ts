@@ -142,6 +142,27 @@ describe('survey_tally storage', () => {
     expect(await getRefsWithoutTally(db, 10)).toEqual([REF2]);
   });
 
+  it('leaves already queued surveys out of the backfill scan', async () => {
+    // The scan's whole job is to put surveys that are in no queue into one. A
+    // survey that is already queued but never produces a tally row, a sealed one
+    // still waiting for its artifact being the standing case, would otherwise
+    // fill the bounded scan for ever and no later survey would reach the queue.
+    await seedSurvey(REF);
+    await seedSurvey(REF2);
+    await enqueueSurveyTallies(db, [REF], 1_700_000_000);
+    expect(await getRefsWithoutTally(db, 10)).toEqual([REF2]);
+  });
+
+  it('keeps the backfill moving past a bounded run of permanently queued surveys', async () => {
+    // Two queued blockers and a limit of two: the blockers would take the whole
+    // scan on every run, so the third survey would never be enqueued at all.
+    await seedSurvey(REF);
+    await seedSurvey(REF2);
+    await seedSurvey(REF3);
+    await enqueueSurveyTallies(db, [REF, REF2], 1_700_000_000);
+    expect(await getRefsWithoutTally(db, 2)).toEqual([REF3]);
+  });
+
   it('excludes unavailable, cancelled, external-content and untalliable surveys from the backfill scan', async () => {
     // One survey per axis, all four ineligible, so the scan has to refuse each
     // for its own reason rather than one of them standing in for the others.
@@ -191,6 +212,29 @@ describe('survey_tally storage', () => {
     await markSurveyTallyAttempt(db, REF, 1_700_000_900);
     await dequeueSurveyTally(db, REF, 1_700_000_500);
     expect(await takeSurveyTallyWork(db, 10)).toEqual([REF]);
+  });
+
+  it('keeps a queue row that a new delta re-enqueued while the pass was running', async () => {
+    // Run A stamps its attempt and goes off to fetch a bundle. While it is in
+    // flight a later run receives a new delta for the same survey and enqueues
+    // it again. That enqueue finds the same row, so nothing about the attempt
+    // changes, and only the fresh queued_at can tell the finishing run that the
+    // work it is about to retire is already out of date.
+    await enqueueSurveyTallies(db, [REF], 1_700_000_000);
+    await markSurveyTallyAttempt(db, REF, 1_700_000_500);
+    await enqueueSurveyTallies(db, [REF], 1_700_000_700);
+    await dequeueSurveyTally(db, REF, 1_700_000_500);
+    expect(await takeSurveyTallyWork(db, 10)).toEqual([REF]);
+  });
+
+  it('still dequeues a row the pass itself enqueued on the same clock', async () => {
+    // Every pass enqueues before it takes work, so its own enqueue carries the
+    // pass's own now. That must not read as a delta arriving mid-flight, or no
+    // survey would ever leave the queue.
+    await enqueueSurveyTallies(db, [REF], 1_700_000_500);
+    await markSurveyTallyAttempt(db, REF, 1_700_000_500);
+    await dequeueSurveyTally(db, REF, 1_700_000_500);
+    expect(await takeSurveyTallyWork(db, 10)).toEqual([]);
   });
 
   it('enqueues idempotently without resetting the attempt counter', async () => {

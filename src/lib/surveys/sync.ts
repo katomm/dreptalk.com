@@ -652,8 +652,9 @@ export async function syncSurveys(deps: SurveysSyncDeps): Promise<SurveysSyncRes
         try {
           const wrote = await tallyOneSurvey(db, tessera, ref, now, budget);
           if (wrote) {
-            // Conditional on the attempt this pass stamped, so a survey
-            // re-enqueued by a later delta keeps its new queue row.
+            // Conditional on both the attempt this pass stamped and the instant
+            // it started from, so a survey re-enqueued by a delta that arrived
+            // while the bundle was in flight keeps its queue row.
             await dequeueSurveyTally(db, ref, now);
             tallies++;
           }
