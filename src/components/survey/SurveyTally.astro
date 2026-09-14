@@ -32,7 +32,7 @@ import {
   type BarBasis,
   type QuestionDisplayKey,
 } from '@/lib/surveys/surveyTallyContract.js';
-import { abstentions, alignIndices, joinNumericBins } from '@/lib/surveys/tallyJoin.js';
+import { abstentions, alignIndices, joinNumericBins, unitWeighted } from '@/lib/surveys/tallyJoin.js';
 import { questionView, ratingScaleInfo, ratioOf } from '@/lib/surveys/tallyView.js';
 import { ROLE_LABELS, type QuestionView, questionViews } from '@/lib/surveys/view.js';
 import { MAX_EXTERNAL_TITLE_LEN, sanitizeExternalText } from '@/lib/validation/input.js';
@@ -319,7 +319,11 @@ function surveyWideNote(world: NoWeighting | null, t: SurveyTallyRow): string | 
     case 'none-answered':
       return t.weightedSource === 'artifact'
         ? "No DRep response to this survey is counted in this site's own audit of it, so there is no head count to put beside the published tally artifact's figures."
-        : 'No DRep has answered this survey yet, so there is nothing to count and nothing to weigh. Every count below is a zero.';
+        : // Not "nobody answered": counted zero can also mean responses arrived and
+          // every one of them was excluded, and the exclusion figure below would
+          // then contradict this line. What is true either way is that nothing is
+          // counted, and the breakdown beside it says which of the two it was.
+          'No DRep response to this survey is counted, so there is nothing to weigh. Every count below is a zero.';
     case 'unmatched':
       return t.weightedSource === 'artifact'
         ? "The survey's published tally artifact committed no weighted responder for the DRep role, so a weighting of this survey is undefined. Every figure below is a head count."
@@ -410,8 +414,18 @@ function buildQuestion(
   const kindSource = wq ?? hq;
   if (kindSource === undefined) return empty;
 
+  // A sealed survey's stored head count IS the artifact's own questions, because
+  // auditResponses cannot see a sealed answer. Those carry voting power, not
+  // responders, so they are rewritten to the counts the artifact commits beside
+  // those weights before anything reads them as a head count. The one kind that
+  // rewrite cannot express is a rating or points question, and there no head
+  // count exists at all, which the card says rather than approximating one.
+  const headStored = t.headcountSource === 'artifact' && hq !== undefined ? unitWeighted(hq) : hq;
+  const headMissing = headStored === null;
+  const hqRun = headStored ?? undefined;
+
   const [wAligned, hAligned] =
-    wq !== undefined && hq !== undefined ? alignIndices(wq, hq) : [wq, hq];
+    wq !== undefined && hqRun !== undefined ? alignIndices(wq, hqRun) : [wq, hqRun];
   const wview = wAligned !== undefined ? questionView(q, wAligned) : null;
   const hview = hAligned !== undefined ? questionView(q, hAligned) : null;
 
@@ -430,12 +444,20 @@ function buildQuestion(
   // says which world it is instead of a percentage of nothing. With no head-count
   // run at all (a shape the compute never writes, the two arrays are written
   // together) the weighted run is all there is, and no head count is claimed.
-  const mode: Mode =
-    hview === null
-      ? 'weighted'
-      : nothingWeighted || weighsNothing || surveyWideNoWeighting !== null
-        ? 'headcount'
-        : 'weighted';
+  const noWeighting = nothingWeighted || weighsNothing || surveyWideNoWeighting !== null;
+  // A sealed rating or points question whose weighting is degenerate has nothing
+  // left to draw: the weighted bars would all be zero, and the head count that
+  // would normally stand in for them is not in the artifact. Naming that is the
+  // only honest option, an empty bar beside a counted response is not.
+  if (headMissing && noWeighting) {
+    return {
+      ...empty,
+      answeredLine: `${plural(hq?.answeredCount ?? 0, 'response', 'responses')} in the counted set at close answered this question.`,
+      weightingNote:
+        "This survey was sealed, so its answers were only ever readable through the published tally artifact, and that artifact carries no weight for this question. A rating or points question commits the weighted sum of its answers rather than the answers, so no head count of it can be formed here either, and no figure is drawn.",
+    };
+  }
+  const mode: Mode = hview === null ? 'weighted' : noWeighting ? 'headcount' : 'weighted';
   const shown = mode === 'weighted' ? wview : hview;
   if (shown === null) return empty;
 
@@ -654,13 +676,23 @@ function build(t: SurveyTallyRow): Built {
     t.matchedCount === 1
       ? '1 responder that was still a DRep member at close'
       : `${t.matchedCount} responders that were still DRep members at close`;
+  // Which half of the reading came from the artifact is not one fact but two, and
+  // a sealed survey is the case where they differ: there the head counts are the
+  // artifact's too, because a sealed answer is unreadable outside it. Claiming
+  // otherwise put this line in plain contradiction with the sealed note printed
+  // directly above it. What stays this site's own on every artifact path is the
+  // exclusions and the counted figure, which is why they are named separately.
+  const headFromArtifact = t.headcountSource === 'artifact';
+  const ownWork = headFromArtifact
+    ? 'The exclusions'
+    : 'The head counts and the exclusions';
   const gapLine =
     t.counted === 0
       ? t.weightedSource === 'artifact'
-        ? `The weighted figures come from the survey's published tally artifact, weighted at epoch ${t.powerEpoch}. The head counts and the exclusions are this site's own current audit of the responses.`
+        ? `${headFromArtifact ? 'The weighted figures and the head counts both come' : 'The weighted figures come'} from the survey's published tally artifact, weighted at epoch ${t.powerEpoch}. ${ownWork} ${headFromArtifact ? 'is' : 'are'} this site's own current audit of the responses.`
         : null
       : t.weightedSource === 'artifact'
-        ? `The published tally artifact committed a weight for ${artifactResponders}, weighted at epoch ${t.powerEpoch}. Only the weighted figures come from that artifact. The head counts, the exclusions and the counted figure of ${plural(t.counted, 'DRep response', 'DRep responses')} are this site's own current audit, which counts a response whether or not its DRep was still a member at close, so that figure and the artifact's responder count rest on different bases and need not agree.`
+        ? `The published tally artifact committed a weight for ${artifactResponders}, weighted at epoch ${t.powerEpoch}. ${headFromArtifact ? 'Both the weighted figures and the head counts come' : 'Only the weighted figures come'} from that artifact. ${headFromArtifact ? 'The exclusions and the counted figure' : 'The head counts, the exclusions and the counted figure'} of ${plural(t.counted, 'DRep response', 'DRep responses')} are this site's own current audit, which counts a response whether or not its DRep was still a member at close, so that figure and the artifact's responder count rest on different bases and need not agree.`
         : `${t.matchedCount} of ${plural(t.counted, 'counted response', 'counted responses')} could be matched to a DRep with a known voting power · power as of epoch ${t.powerEpoch}`;
 
   const sealedNote =

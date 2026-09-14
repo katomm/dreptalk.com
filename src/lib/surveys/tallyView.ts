@@ -137,7 +137,8 @@ function renderIndices(q: Question | undefined, populated: readonly number[]): n
 /**
  * The value at which half the answered weight has accumulated. Bins arrive
  * value-ascending. When the halfway point falls exactly on a bin boundary the
- * two neighbours are averaged, so at unit weights this is the ordinary median.
+ * two neighbouring *weighed* values are averaged, so at unit weights this is the
+ * ordinary median.
  */
 function weightedMedian(
   bins: readonly { value: string; weight: string }[],
@@ -150,9 +151,17 @@ function weightedMedian(
     const doubled = cumulative * 2n;
     if (doubled > answeredWeight) return Number(bins[i]!.value);
     if (doubled === answeredWeight) {
-      const next = bins[i + 1];
       const here = Number(bins[i]!.value);
-      return next ? (here + Number(next.value)) / 2 : here;
+      // The neighbour that shares the median is the next bin any weight sits in,
+      // not simply the next bin. A registered DRep with no voting power is
+      // counted at 0n and keeps its bin, so a value can carry a count and no
+      // weight at all. The median divides weight, so a weightless bin holds no
+      // half of anything, and averaging with it would put the median on a value
+      // no weighed responder chose.
+      for (let j = i + 1; j < bins.length; j++) {
+        if (BigInt(bins[j]!.weight) > 0n) return (here + Number(bins[j]!.value)) / 2;
+      }
+      return here;
     }
   }
   return null;

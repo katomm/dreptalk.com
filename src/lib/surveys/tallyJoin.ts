@@ -28,9 +28,12 @@ import type { BarView } from './tallyView.js';
  * single-choice denominator, which is the question-level answered weight.
  *
  * Numeric questions are deliberately left alone: their buckets are per answered
- * value, and an injected zero-weight bucket can move the weighted median, which
- * walks the bins accumulating weight. Those runs go through
- * {@link joinNumericBins} instead, which joins on the value.
+ * value, not per declared option, so position carries no meaning across the two
+ * runs and filling by index would attach a head count to whatever value happened
+ * to sit at that position. Those runs go through {@link joinNumericBins}
+ * instead, which joins on the value itself. (The weighted median no longer moves
+ * under an injected weightless bin, weightedMedian steps over those, but the
+ * mismatched counts alone are reason enough.)
  */
 export function alignIndices(
   w: ArtifactQuestion,
@@ -116,4 +119,52 @@ export function joinNumericBins(
  */
 export function abstentions(counted: number, answeredCount: number): number {
   return Math.max(0, counted - answeredCount);
+}
+
+/**
+ * One artifact question re-expressed as a unit-weight run: every weight becomes
+ * the responder count it already carries beside it.
+ *
+ * A sealed survey is the only caller's case. auditResponses counts a sealed
+ * response for participation but cannot see its answers, so this site can build
+ * no head-count run of its own and the stored head count is the artifact's own
+ * questions, with headcountSource saying so. Those questions carry real voting
+ * power, so rendering them as head counts would draw weight and label it
+ * responders, and where every committed weight is zero it would draw an empty
+ * bar beside a response that exists. Each artifact entry already commits its
+ * responder count, so this is a rewrite of a figure the artifact states, never a
+ * reconstruction of one it does not.
+ *
+ * Returns null for a rating or points question, the one kind it cannot express.
+ * Those commit a weighted SUM of the answers rather than the answers, so the
+ * unweighted sum is not in the artifact at all: swapping the denominator alone
+ * would divide a weighted sum by a responder count and print it as a plain mean.
+ * The caller shows a named refusal for that question instead of a wrong figure.
+ */
+export function unitWeighted(aq: ArtifactQuestion): ArtifactQuestion | null {
+  switch (aq.kind) {
+    case 'options':
+      return {
+        ...aq,
+        options: aq.options.map(o => ({ ...o, weight: String(o.count) })),
+        answeredWeight: String(aq.answeredCount),
+      };
+    case 'numeric': {
+      // The plain sum is recoverable exactly: a value counted n times contributes
+      // n times itself. BigInt throughout, the values are decimal strings off the
+      // chain and a numeric range is not bounded by Number's exact integers.
+      let sum = 0n;
+      for (const v of aq.values) sum += BigInt(v.value) * BigInt(v.count);
+      return {
+        ...aq,
+        values: aq.values.map(v => ({ ...v, weight: String(v.count) })),
+        weightedSum: String(sum),
+        answeredWeight: String(aq.answeredCount),
+      };
+    }
+    case 'custom':
+      return { ...aq, answeredWeight: String(aq.answeredCount) };
+    case 'perOption':
+      return null;
+  }
 }

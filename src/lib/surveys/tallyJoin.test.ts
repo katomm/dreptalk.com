@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Question } from 'cip-179';
 import type { ArtifactQuestion } from 'cip-179/tally';
-import { abstentions, alignIndices, joinNumericBins } from './tallyJoin.js';
+import { abstentions, alignIndices, joinNumericBins, unitWeighted } from './tallyJoin.js';
 import { questionView } from './tallyView.js';
 
 /** Two declared options, so a populated index 5 is beyond the declared width. */
@@ -153,9 +153,9 @@ describe('abstentions', () => {
 });
 
 describe('joinNumericBins', () => {
-  // (d) Why numeric is joined on the value and never by injection: the weighted
-  // median walks the bins accumulating weight, so a zero-weight bin at the
-  // halfway point moves it.
+  // (d) Why numeric is joined on the value and never by injection: a numeric
+  // bucket is per answered value, so the two runs' bins do not line up by
+  // position, and filling by index would hang a head count on the wrong value.
   it('renders a value only the head-count run saw without moving the median', () => {
     const weighted: ArtifactQuestion = {
       kind: 'numeric',
@@ -191,9 +191,11 @@ describe('joinNumericBins', () => {
     expect(injected.count).toBe(1);
     expect(injected.weight).toBe(0n);
     expect(injected.frac).toBe(0);
-    // The weighted run is untouched, so its median is still the real one. This
-    // is what injecting a zero-weight 15 bin instead would have done to it, and
-    // the reason numeric is joined on the value.
+    // The weighted run is untouched, so its median is still the real one, and
+    // injecting the bin into it would no longer move the median either:
+    // weightedMedian steps over bins that carry no weight. Pinned here because
+    // that immunity is a property this join is allowed to rely on, and a
+    // regression in it must fail a test rather than quietly skew a figure.
     const injectedRun = questionView(undefined, {
       ...weighted,
       values: [
@@ -203,7 +205,7 @@ describe('joinNumericBins', () => {
       ],
     });
     if (injectedRun.kind !== 'histogram') throw new Error('kind');
-    expect(injectedRun.median).toBe(12.5);
+    expect(injectedRun.median).toBe(15);
     expect(wview.median).toBe(15);
   });
 
@@ -281,5 +283,95 @@ describe('alignIndices, rating questions', () => {
     // The real option keeps its own mean, unchanged by the injection.
     expect(vw.rows[0]!.avg).toBeCloseTo(4, 4);
     expect(vh.rows[2]!.avg).toBeCloseTo(3, 4);
+  });
+});
+
+describe('unitWeighted', () => {
+  // A sealed survey's head-count run is the artifact's own questions, because
+  // auditResponses cannot see a sealed answer. Those questions carry real
+  // weights, so rendering them as a head count would draw voting power and call
+  // it responders. Every artifact entry also carries its responder count, which
+  // is exactly the unit-weight run, so the projection is a rewrite, not a guess.
+  it('re-weights an option question by its responder counts', () => {
+    const aq = options(
+      'singleChoice',
+      [
+        { index: 0, weight: '9000000', count: 1 },
+        { index: 1, weight: '1000000', count: 3 },
+      ],
+      4,
+      '10000000',
+    );
+    const head = unitWeighted(aq);
+    if (head === null || head.kind !== 'options') throw new Error('kind');
+    expect(head.options.map(o => o.weight)).toEqual(['1', '3']);
+    expect(head.answeredWeight).toBe('4');
+    // The counts themselves are untouched, and so is the answered count.
+    expect(head.options.map(o => o.count)).toEqual([1, 3]);
+    expect(head.answeredCount).toBe(4);
+    // The bars now compare responders: the option one DRep picked is the shorter
+    // one, though its voting power is nine times the other's.
+    const view = questionView(SINGLE, head);
+    if (view.kind !== 'bars') throw new Error('kind');
+    expect(view.bars[0]!.frac).toBeCloseTo(0.25, 4);
+    expect(view.bars[1]!.frac).toBeCloseTo(0.75, 4);
+  });
+
+  it('gives a zero-weight option question a readable denominator', () => {
+    // The case that produced an empty bar beside "1 response": every responder
+    // the artifact committed weighs nothing, so the weighted run has no
+    // denominator at all while the head count plainly has one.
+    const aq = options('singleChoice', [{ index: 0, weight: '0', count: 1 }], 1, '0');
+    const head = unitWeighted(aq);
+    if (head === null || head.kind !== 'options') throw new Error('kind');
+    expect(head.answeredWeight).toBe('1');
+    const view = questionView(SINGLE, head);
+    if (view.kind !== 'bars') throw new Error('kind');
+    expect(view.answeredWeight).toBe(1n);
+    expect(view.bars[0]!.frac).toBe(1);
+  });
+
+  it('rebuilds a numeric question sum from its values and counts', () => {
+    const head = unitWeighted({
+      kind: 'numeric',
+      weightedSum: '150000000',
+      answeredWeight: '10000000',
+      answeredCount: 3,
+      values: [
+        { value: '10', weight: '9000000', count: 1 },
+        { value: '20', weight: '1000000', count: 2 },
+      ],
+    });
+    if (head === null || head.kind !== 'numeric') throw new Error('kind');
+    // 10 once and 20 twice is 50 over 3 answers, a plain mean of 16.67, where the
+    // weighted mean of the same data is 11.
+    expect(head.weightedSum).toBe('50');
+    expect(head.answeredWeight).toBe('3');
+    const view = questionView(undefined, head);
+    if (view.kind !== 'histogram') throw new Error('kind');
+    expect(view.mean).toBeCloseTo(16.6667, 3);
+    expect(view.median).toBe(20);
+  });
+
+  it('refuses a rating or points question rather than inventing a plain mean', () => {
+    // perOption commits a weighted sum of the ratings, not the ratings, so the
+    // unweighted sum cannot be recovered from the artifact at all. Returning the
+    // question with its counts swapped in would divide a weighted sum by a
+    // responder count and print the result as a plain mean.
+    expect(
+      unitWeighted({
+        kind: 'perOption',
+        unit: 'rating',
+        perOption: [{ index: 0, weightedSum: '9000000', answeredWeight: '3000000', count: 2 }],
+        answeredCount: 2,
+        answeredWeight: '3000000',
+      }),
+    ).toBeNull();
+  });
+
+  it('gives a custom question its answered count as the denominator', () => {
+    const head = unitWeighted({ kind: 'custom', answeredCount: 2, answeredWeight: '7000000' });
+    if (head === null || head.kind !== 'custom') throw new Error('kind');
+    expect(head.answeredWeight).toBe('2');
   });
 });

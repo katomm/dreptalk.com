@@ -176,6 +176,50 @@ describe('questionView, numeric kind', () => {
     expect(v.median).toBe(3);
   });
 
+  it('steps over a zero-weight bin when the halfway point falls on a boundary', () => {
+    // A registered DRep with no voting power is counted at 0n and keeps its bin,
+    // so a value can carry a count while carrying no weight. The median divides
+    // weight, so such a bin holds no half of anything: averaging with it would
+    // put the median on a value no weighed responder chose. Here the weighed
+    // answers are 0 and 10, whose median is 5, not the 1 that averaging with the
+    // zero-weight bin at 2 would give.
+    const v = questionView(
+      { type: 'numericRange', prompt: 'How much', constraints: { min: 0n, max: 10n } },
+      {
+        kind: 'numeric',
+        weightedSum: '10',
+        answeredWeight: '2',
+        answeredCount: 3,
+        values: [
+          { value: '0', weight: '1', count: 1 },
+          { value: '2', weight: '0', count: 1 },
+          { value: '10', weight: '1', count: 1 },
+        ],
+      },
+    );
+    if (v.kind !== 'histogram') throw new Error('kind');
+    expect(v.median).toBe(5);
+  });
+
+  it('keeps the last weighed value when only zero-weight bins follow', () => {
+    const v = questionView(
+      { type: 'numericRange', prompt: 'How much', constraints: { min: 0n, max: 10n } },
+      {
+        kind: 'numeric',
+        weightedSum: '4',
+        answeredWeight: '2',
+        answeredCount: 3,
+        values: [
+          { value: '0', weight: '1', count: 1 },
+          { value: '4', weight: '1', count: 1 },
+          { value: '9', weight: '0', count: 1 },
+        ],
+      },
+    );
+    if (v.kind !== 'histogram') throw new Error('kind');
+    expect(v.median).toBe(2);
+  });
+
   it('reports a null mean and median with no answers rather than zero', () => {
     const v = questionView(
       { type: 'numericRange', prompt: 'How much', constraints: { min: 0n, max: 10n } },
