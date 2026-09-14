@@ -10,14 +10,14 @@ faqs:
   - q: "Why do only some surveys appear on DRepTalk?"
     a: "A survey gets a thread here when DReps may answer it, its definition is valid, any encryption it uses can be decrypted, and a governance action DRepTalk has imported carries a valid link to it. That keeps the category tied to the proposals under discussion here instead of listing every survey on the chain."
   - q: "Does DRepTalk show the result of a survey?"
-    a: "No. CIP-179 leaves weighting and aggregation out of scope, so whoever counts a survey picks a rule and should say which one. DRepTalk shows how many DRep responses were counted and links to Tessera, where the tally is shown with its counting rule named."
+    a: "It shows a reading, never a result. CIP-179 leaves weighting and aggregation out of scope, so whoever counts a survey picks a rule and should say which one. The survey card draws an informational tally counted under the generic CIP-179 rules, states the denominator under every share, and links to Tessera, which shows its own tally of the same survey."
   - q: "What does answering put on chain?"
     a: "Your DRep credential, your role and your answers, permanently. On a sealed survey the answers stay encrypted until the reveal time, but the credential and the role are public from the start."
   - q: "Can I change my answer?"
     a: "Yes. Answer again and the later response replaces the earlier one, so the participation count does not go up. You pay the network fee a second time."
   - q: "Can I answer after the closing epoch?"
     a: "The transaction would still be built and you would still pay the network fee, but a response that arrives after the closing epoch is not counted. Answer while the card still shows the survey as open."
-updated: 2026-09-09
+updated: 2026-09-14
 ---
 
 > Surveys are live on the preprod test deployment only. To see one, open the
@@ -52,9 +52,10 @@ lists the surveys attached to proposals under discussion here, not every survey
 that exists on the chain.
 
 The thread is opened automatically and its first post is written by the system.
-The survey card at the top carries the questions, the roles that may answer, the
-closing epoch, the linking governance action and a link into Tessera. Below the
-card it is an ordinary forum thread. Anyone can read it, and anyone with a
+The survey card at the top carries the questions and the tally of the responses.
+Beside it, a column carries the facts about the survey: where it stands, the
+roles that may answer, the closing epoch, the linking governance action and a
+link into Tessera. Below the card it is an ordinary forum thread. Anyone can read it, and anyone with a
 wallet-verified role, so DReps, SPOs, Constitutional Committee members and
 proposers, can reply.
 
@@ -88,9 +89,9 @@ arrives after that is not counted, although the transaction is still built and
 the fee still spent, so answer while the card still shows the survey as open.
 
 Once submitted you get the transaction hash with a link to an explorer. The
-participation count on the page does not move on its own. It changes after the
-index has seen your transaction and the next mirror run has picked it up, so
-reload the page a few minutes later.
+figures on the page do not move on their own. They change after the index has
+seen your transaction and the next mirror run has picked it up, so reload the
+page a few minutes later.
 
 ## Answering is not voting
 
@@ -99,23 +100,75 @@ governance vote, it does not appear on the action's tally, and it neither
 replaces nor implies a vote on the linked governance action. Voting is a
 separate step, described in [Voting on a governance action](/help/voting/).
 
-## What the count means, and what it does not
+## The informational tally
 
-The card shows a line such as "3 DRep responses counted". That number comes from
-Tessera, and it counts participation, never a result.
+The survey card draws a tally of the responses it counted. It is a reading, not
+a result, and the difference is the whole reason it can be shown at all. CIP-179
+deliberately leaves weighting and aggregation out of scope, so whoever counts a
+survey picks a rule. A chart with no rule named would present one reading as if
+it were the reading, so every share on the card states the denominator it
+divides by, and this section names the rule.
 
-While a survey is open the figure is provisional. It counts responses whose
+The rule is the generic one: the validity rules CIP-179 itself defines, and
+nothing beyond them. No survey-specific validity rules, no allow-lists, no
+custom weighting. What the answers mean is the survey creator's to say, not this
+site's. A reading of the responses is not a decision about them.
+
+Only DRep responses are counted. A survey that other roles may answer too will
+say so under the figures, and those responses sit outside every number on the
+card.
+
+### Two figures, because they answer different questions
+
+Where a weighting exists, the card puts the DRep voting power behind an option
+next to the number of DReps that picked it. Both are shown on purpose. A DRep
+whose voting power this site cannot resolve is missing from the weighted figure,
+and dropping the head count would make that DRep vanish from their own answer
+and reappear as an abstention nobody made. Under the questions the card states
+how many of the counted responses it could match to a known voting power, which
+is the gap between the two readings.
+
+Bars are shares only where the shares add up to one whole, which is single
+choice. On every other question type they compare the options against the
+leading one, and the card says so beneath them. A rating question is different
+again: its bars sit within the scale the survey declares, and each option is
+rated by its own group, so those means are not parts of one whole either.
+
+Responses can be left out of the count, and the card breaks down why: sent after
+the deadline, invalid against the definition, credential not proven, replaced by
+a later answer, or a sealed answer that did not reveal. The same panel carries
+the turnout behind the figures, with both halves of the fraction named.
+
+### Why the figures can still move
+
+While a survey is open, the weighting stands on the newest epoch this site holds
+DRep voting power for, not on the epoch the survey closes in. Voting power moves
+every epoch, so the figures move with it.
+
+The count is provisional for a second reason. It includes responses whose
 credential proof has not been checked yet, because a proof that is merely
-pending must not read as a failed one. Once the survey is finalized the number
-comes from the tally artifact instead, which also applies role membership at the
-closing epoch, so the final figure can be lower than the one shown while the
-survey was running.
+pending must not read as a failed one.
 
-DRepTalk renders no result of its own. CIP-179 leaves weighting and aggregation
-out of scope, so whoever counts a survey picks a rule, and a chart here would
-present one reading as if it were the reading. Tessera's page for a survey shows
-an informational tally with its counting rule named, and the survey card links
-there.
+Once a survey is finalized and has published a tally artifact, the weighted
+figures come from that artifact instead. The artifact also applies role
+membership at the closing epoch, so its responder count can be lower than the
+figure shown while the survey was running. The two rest on different bases and
+need not agree, and the card says which figure came from where.
+
+A sealed survey is a stronger case: its answers are timelock-encrypted, so
+nothing can be counted at all until it closes and its artifact is published. The
+card says so instead of drawing an empty chart.
+
+[Tessera](https://github.com/mpizenberg/cardano-tessera) shows its own
+informational tally of the same survey, counted under its own stated rule, and
+the card links there.
+
+## What the participation count means
+
+Where no tally can exist, the card shows a line such as "3 DRep responses
+counted" instead. That number comes from Tessera and it counts participation,
+never a result. Once the survey is finalized it is the tally artifact's figure,
+counted at close.
 
 ## The labels on a survey
 

@@ -232,7 +232,6 @@ interface Built {
   exclusionsUnknown: boolean;
   turnoutLine: string | null;
   rolesLine: string | null;
-  readingLines: string[];
   computedLine: string;
 }
 
@@ -734,16 +733,6 @@ function build(t: SurveyTallyRow): Built {
   const excludedSummary =
     inside.length === 0 ? excludedLine : `${excludedLine} Inside: ${joinAnd(inside)}.`;
 
-  const readingLines = [
-    'Counted under the generic CIP-179 rules only: no survey-specific validity rules, no allow-lists, no custom weighting.',
-    "What the answers mean is the survey creator's to say, not this site's. This is a reading of the responses, not a decision.",
-  ];
-  if (t.weightedSource === 'live') {
-    readingLines.push(
-      `The weighting stands on epoch ${t.powerEpoch}, the newest epoch this site holds DRep power for, not on the epoch the survey closes in, so these figures can still move.`,
-    );
-  }
-
   const otherRoles = Object.entries(t.roleCounts ?? {})
     .filter(([role]) => Number(role) !== Role.DRep)
     .map(([role, n]) => `${ROLE_LABELS[Number(role)] ?? `role ${role}`} (${n})`);
@@ -763,8 +752,7 @@ function build(t: SurveyTallyRow): Built {
     exclusionsUnknown,
     turnoutLine,
     rolesLine,
-    readingLines,
-    computedLine: `Reading computed ${formatRelativeTime(t.computedAt * 1000, now)}, which is its own age and not the survey data time above.`,
+    computedLine: `Reading computed ${formatRelativeTime(t.computedAt * 1000, now)}.`,
   };
 }
 
@@ -775,12 +763,19 @@ const built = refusal === null && tally !== null ? build(tally) : null;
   <h3 class="svy-tally__title">Informational tally</h3>
 
   {refusal !== null || built === null ? (
-    <p class="svy-tally__none">{refusal ?? 'No reading of the responses is available.'}</p>
+    <p class="svy-tally__none">
+      {refusal ?? 'No reading of the responses is available.'}{' '}
+      <a class="svy-tally__help" href="/help/cip-179-surveys/#the-informational-tally">
+        How surveys are counted here
+      </a>
+    </p>
   ) : (
     <>
       <p class="svy-tally__lead">
-        A reading of the counted responses. Not an official result: CIP-179 mandates no counting
-        policy, so this is one named reading with its denominators stated.
+        A reading of the counted responses, not an official result.{' '}
+        <a class="svy-tally__help" href="/help/cip-179-surveys/#the-informational-tally">
+          How this is counted and what it leaves out
+        </a>
       </p>
 
       {built.noPowerNote && <p class="svy-tally__note">{built.noPowerNote}</p>}
@@ -876,10 +871,6 @@ const built = refusal === null && tally !== null ? build(tally) : null;
       )}
 
       {built.rolesLine && <p class="svy-tally__roles">{built.rolesLine}</p>}
-
-      <ul class="svy-tally__reading">
-        {built.readingLines.map((line) => <li>{line}</li>)}
-      </ul>
 
       <p class="svy-tally__computed">{built.computedLine}</p>
     </>
@@ -1061,14 +1052,8 @@ const built = refusal === null && tally !== null ? build(tally) : null;
     font-size: 0.8125rem;
     color: var(--muted);
   }
-  .svy-tally__reading {
-    margin: 0.75rem 0 0;
-    padding-left: 1.1rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    font-size: 0.8125rem;
-    color: var(--muted);
+  .svy-tally__help {
+    color: var(--accent);
   }
   .svy-tally__computed {
     margin: 0.6rem 0 0;
