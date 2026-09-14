@@ -125,7 +125,7 @@ export default {
               vapid: buildVapid(env, core.cfg.siteOrigin),
               telegramBotToken: env.TELEGRAM_BOT_TOKEN ?? null,
               // Non-empty TESSERA_BACKEND_URL switches the surveys phase on
-              // (preprod only today). The client itself refuses a backend whose
+              // (set on both networks). The client itself refuses a backend whose
               // /health network differs from this deployment's, or whose
               // contract major is not the one it was written against. Ten
               // seconds per request, body included: a stalled body with nothing
