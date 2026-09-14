@@ -20,10 +20,6 @@ faqs:
 updated: 2026-09-14
 ---
 
-> Surveys are live on the preprod test deployment only. To see one, open the
-> Surveys category on [preprod.dreptalk.com](https://preprod.dreptalk.com/c/surveys/).
-> Nothing on this page applies to mainnet yet.
-
 [CIP-179](https://github.com/cardano-foundation/CIPs/tree/master/CIP-0179) puts
 surveys and polls on the Cardano chain, as transaction metadata under label 17.
 The roles allowed to answer, the closing epoch and the shape of each question
@@ -55,9 +51,9 @@ The thread is opened automatically and its first post is written by the system.
 The survey card at the top carries the questions and the tally of the responses.
 Beside it, a column carries the facts about the survey: where it stands, the
 roles that may answer, the closing epoch, the linking governance action and a
-link into Tessera. Below the card it is an ordinary forum thread. Anyone can read it, and anyone with a
-wallet-verified role, so DReps, SPOs, Constitutional Committee members and
-proposers, can reply.
+link into Tessera. Below the card it is an ordinary forum thread. Anyone can
+read it, and anyone with a wallet-verified role, so DReps, SPOs, Constitutional
+Committee members and proposers, can reply.
 
 ## Answering one
 

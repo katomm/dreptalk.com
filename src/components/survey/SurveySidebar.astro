@@ -12,9 +12,8 @@
 import SurveyBadges from '@/components/survey/SurveyBadges.astro';
 import type { NetworkConfig } from '@/lib/config/network.js';
 import type { SurveyGovLinkView, SurveyRow } from '@/lib/db/surveys.js';
-import { formatRelativeTime } from '@/lib/forum/view.js';
 import { deadlineFact, type SurveyLifecycle } from '@/lib/surveys/state.js';
-import { roleLabels, tesseraSurveyUrl } from '@/lib/surveys/view.js';
+import { freshnessLine, roleLabels, tesseraSurveyUrl } from '@/lib/surveys/view.js';
 
 interface Props {
   survey: SurveyRow;
@@ -27,9 +26,12 @@ interface Props {
    * null until a run has applied one. Describes the mirror, not the tally,
    * which carries its own age. */
   asOf: number | null;
+  /** Whether that snapshot came from a short scan, the mirror's stored flag.
+   * Part of the same line, since it qualifies the same figure. */
+  asOfIncomplete?: boolean;
 }
 
-const { survey, links, lifecycle, cfg, now, appUrl, asOf } = Astro.props;
+const { survey, links, lifecycle, cfg, now, appUrl, asOf, asOfIncomplete = false } = Astro.props;
 
 const deadline = deadlineFact(lifecycle, survey.endEpoch, cfg);
 const deepLink = tesseraSurveyUrl(appUrl, survey.ref);
@@ -88,9 +90,7 @@ const deepLink = tesseraSurveyUrl(appUrl, survey.ref);
         The app this survey was created in. Answer it there, or read its own view of the responses.
       </span>
       {asOf != null && (
-        <span class="svy-side__note">
-          This site's copy updated {formatRelativeTime(asOf * 1000, now)}
-        </span>
+        <span class="svy-side__note">{freshnessLine(asOf, asOfIncomplete, now)}</span>
       )}
     </a>
   )}

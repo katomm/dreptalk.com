@@ -163,56 +163,97 @@ export function slugify(title: string, rand: string): string {
   return `${base}-${rand}`;
 }
 
+/** A precondition the topic and its first post are inserted under. When the
+ * fragment matches no row nothing is written and `createTopic` returns null,
+ * so a caller claiming a one-thread-per-row slot can lose the claim to a
+ * concurrent run and write nothing at all, rather than a thread the claim can
+ * no longer take. Statements passed through `batchWith` are not wrapped: they
+ * carry their own predicate, which is what makes them the claim. */
+export interface TopicGuard {
+  /** A SELECT the whole batch is conditioned on, used as `WHERE EXISTS (...)`. */
+  sql: string;
+  binds: unknown[];
+}
+
+interface CreateTopicArgs {
+  categorySlug: string;
+  authorId: string;
+  title: string;
+  bodyMd: string;
+  bodyHtml: string;
+  source?: 'user' | 'governance' | 'survey';
+  now: number;
+  // Overrides the timestamp written to the topic's created_at/last_post_at and the
+  // first post's created_at. Defaults to `now`. The governance sync passes the
+  // on-chain submission time so a synced action's post date is its submission date.
+  postedAt?: number;
+  rand: string;
+  // The co-proposer grant active at write time, or null/omitted for a
+  // personal post. Stamped on both the topic and its first post.
+  proposerGrantId?: string | null;
+  // Extra statements to commit atomically in the same batch as the topic and
+  // first post (e.g. a governance_actions row). Receives the new topic id.
+  batchWith?: (topicId: string) => D1PreparedStatement[];
+  guard?: TopicGuard;
+}
+
 /**
  * Creates a new topic and its first post atomically (D1 batch).
- * Returns the created topic and first post.
+ * Returns the created topic and first post, or null when a `guard` was given
+ * and no longer held, in which case nothing was written.
  * source defaults to 'user'.
  */
 export async function createTopic(
   db: D1Database,
-  args: {
-    categorySlug: string;
-    authorId: string;
-    title: string;
-    bodyMd: string;
-    bodyHtml: string;
-    source?: 'user' | 'governance' | 'survey';
-    now: number;
-    // Overrides the timestamp written to the topic's created_at/last_post_at and the
-    // first post's created_at. Defaults to `now`. The governance sync passes the
-    // on-chain submission time so a synced action's post date is its submission date.
-    postedAt?: number;
-    rand: string;
-    // The co-proposer grant active at write time, or null/omitted for a
-    // personal post. Stamped on both the topic and its first post.
-    proposerGrantId?: string | null;
-    // Extra statements to commit atomically in the same batch as the topic and
-    // first post (e.g. a governance_actions row). Receives the new topic id.
-    batchWith?: (topicId: string) => D1PreparedStatement[];
-  },
-): Promise<{ topic: Topic; firstPost: Post }> {
-  const { categorySlug, authorId, title, bodyMd, bodyHtml, source = 'user', now, rand, batchWith } = args;
+  args: CreateTopicArgs & { guard?: undefined },
+): Promise<{ topic: Topic; firstPost: Post }>;
+export async function createTopic(
+  db: D1Database,
+  args: CreateTopicArgs & { guard: TopicGuard },
+): Promise<{ topic: Topic; firstPost: Post } | null>;
+export async function createTopic(
+  db: D1Database,
+  args: CreateTopicArgs,
+): Promise<{ topic: Topic; firstPost: Post } | null> {
+  const { categorySlug, authorId, title, bodyMd, bodyHtml, source = 'user', now, rand, batchWith, guard } = args;
   const postedAt = args.postedAt ?? now;
   const proposerGrantId = args.proposerGrantId ?? null;
   const slug = slugify(title, rand);
   const topicId = crypto.randomUUID();
   const postId = crypto.randomUUID();
 
+  // `SELECT ... WHERE EXISTS` rather than VALUES so the guard, when there is
+  // one, applies to both inserts. An unguarded SELECT with no FROM yields
+  // exactly one row, so the plain path writes what it always did.
+  const where = guard ? ` WHERE EXISTS (${guard.sql})` : '';
+  const guardBinds = guard ? guard.binds : [];
+
   const insertTopic = db
     .prepare(
       `INSERT INTO topics
          (id, category_slug, author_id, source, title, slug, post_count, last_post_at, created_at, proposer_grant_id)
-       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
+       SELECT ?, ?, ?, ?, ?, ?, 1, ?, ?, ?${where}`,
     )
-    .bind(topicId, categorySlug, authorId, source, title, slug, postedAt, postedAt, proposerGrantId);
+    .bind(
+      topicId,
+      categorySlug,
+      authorId,
+      source,
+      title,
+      slug,
+      postedAt,
+      postedAt,
+      proposerGrantId,
+      ...guardBinds,
+    );
 
   const insertPost = db
     .prepare(
       `INSERT INTO posts
          (id, topic_id, author_id, body_md, body_html, created_at, proposer_grant_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       SELECT ?, ?, ?, ?, ?, ?, ?${where}`,
     )
-    .bind(postId, topicId, authorId, bodyMd, bodyHtml, postedAt, proposerGrantId);
+    .bind(postId, topicId, authorId, bodyMd, bodyHtml, postedAt, proposerGrantId, ...guardBinds);
 
   const extra = batchWith ? batchWith(topicId) : [];
   // A user-created topic emits a 'topic_created' event in the same atomic batch.
@@ -222,7 +263,10 @@ export async function createTopic(
     source === 'user'
       ? [activityInsert(db, { type: 'topic_created', topicId, actorId: authorId, createdAt: postedAt })]
       : [];
-  await db.batch([insertTopic, insertPost, ...events, ...extra]);
+  const written = await db.batch([insertTopic, insertPost, ...events, ...extra]);
+  // The batch is one transaction, so a guard that no longer holds left every
+  // statement in it a no-op, this call included.
+  if (guard && (written[0].meta.changes ?? 0) === 0) return null;
 
   // Construct return objects from the known inputs and D1 column defaults;
   // avoids a SELECT round-trip after the batch insert.

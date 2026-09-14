@@ -4,6 +4,7 @@ import { toJsonSafe } from 'cip-179/tally';
 import { hexToBytes } from 'cip-179/domain';
 import { MAX_EXTERNAL_PROSE_LEN, MAX_EXTERNAL_TITLE_LEN } from '../validation/input.js';
 import {
+  freshnessLine,
   parseSurveyDefinition,
   questionViews,
   roleLabels,
@@ -104,5 +105,20 @@ describe('definition round-trip and rendering', () => {
       `https://app.example/survey/${'a'.repeat(64)}:0`,
     );
     expect(tesseraSurveyUrl(undefined, 'x:0')).toBeNull();
+  });
+});
+
+describe('freshnessLine', () => {
+  const asOf = 1_780_000_000;
+  const now = (asOf + 300) * 1000;
+
+  it('says how fresh a whole snapshot is and nothing more', () => {
+    expect(freshnessLine(asOf, false, now)).toBe('Survey data as of 5m ago. Cached, not live.');
+  });
+
+  it('qualifies the counts of a short one, since fresh and whole are separate facts', () => {
+    const line = freshnessLine(asOf, true, now);
+    expect(line).toContain('as of 5m ago');
+    expect(line).toContain('counts may be low');
   });
 });

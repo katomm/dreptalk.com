@@ -22,6 +22,13 @@ import {
 import { renderMarkdown } from '../markdown.js';
 import { isCardanoPaymentAddress } from '../cardano/identity.js';
 import { selfHostedRef, readSelfHostedBody } from './selfHostedDocs.js';
+import { dedupeLinks, type DocumentLink } from './documentLinks.js';
+import {
+  REFERENCE_LABEL_MAX,
+  REFERENCE_URI_MAX,
+  REFERENCES_READ_MAX,
+  type Cip108ReferenceLink,
+} from './infoActionLimits.js';
 
 // Upper bound on the anchor document we download and hash-verify. Real mainnet
 // CIP-108 proposals reach ~1.2MB because the rationale can embed long markdown
@@ -40,8 +47,10 @@ export const ANCHOR_FETCH_TIMEOUT_MS = 8_000;
  * motivation + rationale (instead of dropping motivation) and the abstract/rationale
  * caps were raised, so every existing row re-renders with the full body.
  * Bumped to 4 when the extractor started reading the top-level authors array.
+ * Bumped to 5 when it started reading body.references, so existing rows pick up
+ * the proposer's own supporting links without a manual backfill.
  */
-export const META_EXTRACT_VERSION = 4;
+export const META_EXTRACT_VERSION = 5;
 
 /**
  * How many times the metadata backfill may fail to fetch or verify an action's
@@ -64,8 +73,39 @@ const MAX_RATIONALE_LEN = 100_000;
 // and 10 entries covers the largest real co-signed action (5).
 const MAX_AUTHOR_NAME_LEN = 80;
 const MAX_AUTHORS = 10;
+// CIP-108 body.references caps. The label and URI caps are the same constants
+// the submit path enforces, imported rather than restated so raising one side
+// cannot silently truncate our own documents on the way back in. Only the count
+// differs, and deliberately: see REFERENCES_READ_MAX.
+export const MAX_REFERENCES = REFERENCES_READ_MAX;
+
+/** How the read path bounds the references of someone else's CIP-108 document. */
+const CIP108_REFERENCE_POLICY: ReferenceListPolicy = {
+  maxItems: MAX_REFERENCES,
+  maxLabelLen: REFERENCE_LABEL_MAX,
+  maxUriLen: REFERENCE_URI_MAX,
+  // A proposal routinely anchors its supporting documents on IPFS, where a DRep
+  // profile link is a web page, so this path admits ipfs: and the profile does not.
+  allowIpfs: true,
+  // No @type fallback: on a reference it is always "Other" or "Link", and an
+  // invented label like that tells the reader less than the URI would.
+  labelKeys: ['label', 'name'],
+  // Dedupe before the cap, so a document that lists one link twenty times cannot
+  // crowd the distinct ones out of the card.
+  dedupe: true,
+};
 
 const IPFS_GATEWAY = 'https://ipfs.io/ipfs/';
+
+/**
+ * One entry of CIP-108 `body.references`, reduced to what we display. The `uri`
+ * is untrusted chain input restricted to http(s)/ipfs on extraction; `label` may
+ * be empty when the document supplies none, and the display falls back to the
+ * URI itself rather than inventing a title. `referenceHash` is spec-optional and
+ * deliberately neither read nor stored: we do not fetch these links, so a hash we
+ * never verify would only look like an assurance.
+ */
+export type AnchorReference = Cip108ReferenceLink;
 
 export interface AnchorMetadata {
   title: string | null;
@@ -73,6 +113,8 @@ export interface AnchorMetadata {
   rationaleHtml: string | null;
   /** Self-declared author names from the document's top-level authors array. */
   authors: string[] | null;
+  /** Supporting links from body.references, or null when the doc carries none. */
+  references: AnchorReference[] | null;
 }
 
 export type AnchorStatus =
@@ -170,6 +212,87 @@ function extractAuthorNames(raw: unknown): string[] | null {
   return names.length ? names : null;
 }
 
+/** Returns true for http(s) URLs that parse without error. */
+function isHttpUrl(raw: string): boolean {
+  try {
+    const { protocol } = new URL(raw);
+    return protocol === 'https:' || protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Per-caller policy for reading a JSON-LD `body.references` array. Both on-chain
+ * document surfaces carry the same shape but bound it differently: a CIP-119
+ * DRep profile keeps http(s) only and lets `@type` stand in for a missing label,
+ * a CIP-108 governance action also admits ipfs: and collapses duplicates.
+ */
+export interface ReferenceListPolicy {
+  /** How many entries survive. The rest of the array is ignored. */
+  maxItems: number;
+  /** Label cap, applied by the shared external-text sanitizer. */
+  maxLabelLen: number;
+  /**
+   * URI cap. An entry above it is DROPPED, never truncated: a sliced URL still
+   * renders as a working link, it just points at a different resource than the
+   * document meant, which is worse than showing no link at all.
+   */
+  maxUriLen: number;
+  /** Whether ipfs: URIs are kept. They are stored raw and resolved for display. */
+  allowIpfs: boolean;
+  /** Label fields in precedence order. The first one present wins, "" included. */
+  labelKeys: readonly string[];
+  /** Collapse repeated URIs before the cap, so one link listed many times cannot
+   *  crowd the distinct ones out. Off where the display surface dedupes itself. */
+  dedupe?: boolean;
+}
+
+// A document may list thousands of entries. Scanning a bounded multiple of the
+// cap is enough to fill it with distinct links without walking a 2MB array.
+const REFERENCE_SCAN_FACTOR = 10;
+
+/**
+ * Reads a JSON-LD `body.references` array down to the label/uri pairs we show,
+ * under the caller's caps and scheme set. Shared by the CIP-119 DRep profile and
+ * the CIP-108 governance-action paths, which read the identical shape out of two
+ * different untrusted documents.
+ *
+ * What is stored is the RAW uri, not a resolved gateway form, so changing how an
+ * ipfs: link is resolved stays a display decision and needs no re-extract.
+ *
+ * Returns null (not []) when the field is absent or nothing survives, so callers
+ * can tell "no references" from "references we refused".
+ */
+export function readReferenceList(raw: unknown, policy: ReferenceListPolicy): DocumentLink[] | null {
+  if (!Array.isArray(raw)) return null;
+  const found: DocumentLink[] = [];
+  for (const entry of raw.slice(0, policy.maxItems * REFERENCE_SCAN_FACTOR)) {
+    // Without dedupe the cap is reached for good. With it, later entries may
+    // still contribute a label to an earlier duplicate.
+    if (!policy.dedupe && found.length >= policy.maxItems) break;
+    const item = asRecord(entry);
+    // CIP-108 names the field `uri`, CIP-119 profiles in the wild also use `url`.
+    const uri = (jsonLdString(item.uri) || jsonLdString(item.url)).trim();
+    if (!uri || uri.length > policy.maxUriLen) continue;
+    // resolveAnchorUrl doubles as the ipfs validity test on purpose: it is the
+    // same allowlist the anchor fetch uses, so a display surface can never be
+    // handed a URI the resolver would later refuse.
+    if (!(policy.allowIpfs ? resolveAnchorUrl(uri) !== null : isHttpUrl(uri))) continue;
+    // An explicit empty label is kept rather than falling through to the next
+    // key: the display falls back to the URI, which is honest, where an invented
+    // label would not be.
+    let rawLabel: string | null = null;
+    for (const key of policy.labelKeys) {
+      rawLabel = jsonLdStringOrNull(item[key]);
+      if (rawLabel !== null) break;
+    }
+    found.push({ label: sanitizeExternalText(rawLabel ?? '', policy.maxLabelLen), uri });
+  }
+  const kept = (policy.dedupe ? dedupeLinks(found) : found).slice(0, policy.maxItems);
+  return kept.length > 0 ? kept : null;
+}
+
 /**
  * Extracts title/abstract/rationale from a parsed CIP-108 document.
  *
@@ -212,6 +335,7 @@ function extractCip108(doc: unknown, anchorUrl?: string): AnchorMetadata {
     abstract: abstract || null,
     rationaleHtml: rationaleRaw ? renderMarkdown(rationaleRaw) : null,
     authors: extractAuthorNames(root.authors),
+    references: readReferenceList(body.references, CIP108_REFERENCE_POLICY),
   };
 }
 
@@ -243,21 +367,11 @@ export interface Cip119Profile {
   imageDataUri: string | null;
   /** sha256 (64 hex) of the image bytes, when the ImageObject carries one. */
   imageSha256: string | null;
-  links: { label: string; uri: string }[] | null;
+  links: DocumentLink[] | null;
   motivations: string | null;
   qualifications: string | null;
   paymentAddress: string | null;
   doNotList: boolean;
-}
-
-/** Returns true for http(s) URLs that parse without error. */
-function isHttpUrl(raw: string): boolean {
-  try {
-    const { protocol } = new URL(raw);
-    return protocol === 'https:' || protocol === 'http:';
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -268,9 +382,11 @@ function isHttpUrl(raw: string): boolean {
  * re-fetched and re-extracted once over the next few sync runs (bounded by the
  * per-run anchor budget). Bumped to 1 when the extractor learned to unwrap the
  * JSON-LD expanded @value form, healing every DRep whose name/bio/links were
- * previously dropped for using that encoding.
+ * previously dropped for using that encoding. Bumped to 2 when an over-long link
+ * URI started being dropped instead of truncated, so every profile that stored a
+ * sliced URL (a working link pointing at the wrong resource) is re-extracted.
  */
-export const PROFILE_EXTRACT_VERSION = 1;
+export const PROFILE_EXTRACT_VERSION = 2;
 
 /** Extracts a CIP-119 DRep profile from a parsed, untrusted on-chain metadata doc. */
 export function extractCip119Profile(doc: unknown): Cip119Profile {
@@ -311,26 +427,17 @@ export function extractCip119Profile(doc: unknown): Cip119Profile {
   const rawSha256 = jsonLdString(imgRecord?.sha256);
   const imageSha256 = HEX_HASH_256_RE.test(rawSha256) ? rawSha256 : null;
 
-  // links: body.references is an array; keep only items with http(s) uri/url.
-  let links: { label: string; uri: string }[] | null = null;
-  if (Array.isArray(body.references)) {
-    const valid = body.references
-      .filter((item): item is Record<string, unknown> => item !== null && typeof item === 'object')
-      .reduce<{ label: string; uri: string }[]>((acc, item) => {
-        if (acc.length >= MAX_PROFILE_LINKS) return acc;
-        const rawUri = jsonLdString(item.uri) || jsonLdString(item.url);
-        if (!isHttpUrl(rawUri)) return acc;
-        const uri = rawUri.slice(0, MAX_PROFILE_LINK_URI_LEN);
-        // Precedence label -> name -> @type; an explicit "" label is kept (?? not ||)
-        // rather than falling through, matching the pre-@value behavior.
-        const rawLabel =
-          jsonLdStringOrNull(item.label) ?? jsonLdStringOrNull(item.name) ?? jsonLdString(item['@type']);
-        const label = sanitizeExternalText(rawLabel, MAX_PROFILE_LINK_LABEL_LEN);
-        acc.push({ label, uri });
-        return acc;
-      }, []);
-    links = valid.length > 0 ? valid : null;
-  }
+  // links: body.references, http(s) only. Duplicates are left in place. The
+  // profile page collapses them at render, where it also picks the best label.
+  const links = readReferenceList(body.references, {
+    maxItems: MAX_PROFILE_LINKS,
+    maxLabelLen: MAX_PROFILE_LINK_LABEL_LEN,
+    maxUriLen: MAX_PROFILE_LINK_URI_LEN,
+    allowIpfs: false,
+    // CIP-119 docs commonly carry an @type ("Link", "Identity") and no label at
+    // all, so the profile path falls back to it where the CIP-108 path does not.
+    labelKeys: ['label', 'name', '@type'],
+  });
 
   const motivations =
     sanitizeExternalMultiline(jsonLdString(body.motivations), MAX_PROFILE_MOTIVATIONS_LEN) || null;

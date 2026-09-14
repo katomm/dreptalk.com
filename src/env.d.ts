@@ -50,7 +50,7 @@ declare namespace Cloudflare {
     /** Optional Koios secret for higher rate limits (app proxy + gov-sync). */
     KOIOS_API_KEY?: string;
     /**
-     * Tessera serving backend for CIP-179 surveys (preprod only for now).
+     * Tessera serving backend for CIP-179 surveys, per network.
      * Non-empty = the surveys feature is on: gov-sync mirrors the linked
      * surveys and the app renders /c/surveys/ from D1. Empty or unset = off,
      * the sync phase is gated out and the category does not exist (unlisted,
@@ -84,5 +84,22 @@ declare namespace Cloudflare {
     LEGAL_VAT_ID?: string;
     /** Local dev only: '1' switches voting-power-origins to a fixture payload, bypassing Koios (astro dev SSR fetch hangs, see the DEV stub comment there). */
     PROVENANCE_STUB?: string;
+    /**
+     * Auth token for Pinata, used by the app worker to pin InfoAction metadata
+     * and by the cron worker to collect unreferenced pins. The SAME token on
+     * both, like KOIOS_API_KEY: Pinata's Files permission is one
+     * None/Read/Write selector and uploading already requires Write, so no
+     * token exists that can pin without also being able to delete. A second key
+     * would have identical rights and buy only separate revocation. Split it if
+     * Pinata ever ships a create-only tier.
+     */
+    PINATA_JWT?: string;
+    /**
+     * Pinata group the InfoAction anchors are uploaded into. The account is
+     * shared with another project, so this group is what later proves a file is
+     * ours to delete. Unset means uploads carry no group and can never be
+     * garbage collected, which is the safe direction to fail.
+     */
+    PINATA_GOV_GROUP_ID?: string;
   }
 }
