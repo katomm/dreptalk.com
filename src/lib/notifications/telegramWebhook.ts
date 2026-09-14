@@ -68,7 +68,7 @@ export async function handleTelegramUpdate(
   // The guard decides itself whether an update is in its group; anything it
   // ignores falls through to the private-chat logic, which drops group chats.
   if (deps.group) {
-    const outcome = await handleGroupUpdate(kv, update, deps.group.target, deps.group.deps);
+    const outcome = await handleGroupUpdate(db, update, deps.group.target, deps.group.deps, deps.now);
     if (outcome !== 'ignored') return `group:${outcome}`;
   }
   const msg = readMessage(update);

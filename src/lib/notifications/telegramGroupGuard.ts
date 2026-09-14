@@ -128,56 +128,61 @@ export interface GroupGuardDeps {
 /** 'ignored' covers everything outside the group or from an account not under watch. */
 export type GroupGuardOutcome = 'joined' | 'clean' | 'deleted' | 'banned' | 'ignored';
 
-interface Watch {
-  clean: number;
-  strikes: number;
-}
-
-const watchKey = (chatId: string, userId: number) => `tg:newcomer:${chatId}:${userId}`;
-
 /** The update's message or edited message when it is in the given chat, else null. */
-function messageInChat(update: unknown, chatId: string): Record<string, unknown> | null {
+function messageInChat(update: unknown, chatId: string): { message: Record<string, unknown>; edited: boolean } | null {
   if (typeof update !== 'object' || update === null) return null;
   const u = update as { message?: unknown; edited_message?: unknown };
-  const message = u.message ?? u.edited_message;
+  const edited = u.message === undefined;
+  const message = edited ? u.edited_message : u.message;
   if (typeof message !== 'object' || message === null) return null;
   const chat = (message as { chat?: unknown }).chat;
   if (typeof chat !== 'object' || chat === null) return null;
   const id = (chat as { id?: unknown }).id;
   if (typeof id !== 'number' && typeof id !== 'string') return null;
-  return String(id) === chatId ? (message as Record<string, unknown>) : null;
+  return String(id) === chatId ? { message: message as Record<string, unknown>, edited } : null;
 }
 
 /**
  * Applies the guard to one update. Anything outside the configured group, or
- * from an account that was never seen joining, is ignored; joins open a watch
- * (the watch window is the KV entry's TTL); a watched account's message is
- * judged, deleted when suspicious, and the account banned once it reaches the
- * strike limit. Never throws on bad input.
+ * from an account that is not under watch, is ignored; joins open a watch with
+ * a fixed expiry; a watched account's message is judged, deleted when
+ * suspicious, and the account banned once it reaches the strike limit. The
+ * counters are bumped with single UPDATE statements, so two messages arriving
+ * at once cannot lose a strike. Never throws on bad input.
  */
 export async function handleGroupUpdate(
-  kv: KVNamespace,
+  db: D1Database,
   update: unknown,
   target: GroupGuardTarget,
   deps: GroupGuardDeps,
+  now: number,
 ): Promise<GroupGuardOutcome> {
-  const message = messageInChat(update, target.chatId);
-  if (!message) return 'ignored';
-  const ttl = Math.max(60, Math.round(target.cfg.watchHours * 3600));
-  const put = (key: string, watch: Watch) => kv.put(key, JSON.stringify(watch), { expirationTtl: ttl });
+  const hit = messageInChat(update, target.chatId);
+  if (!hit) return 'ignored';
+  const { message, edited } = hit;
+  const chatId = target.chatId;
 
   const joined = message.new_chat_members;
   if (Array.isArray(joined)) {
-    const opened: Promise<void>[] = [];
+    const expiresAt = now + target.cfg.watchHours * 3_600_000;
+    // A rejoin starts a fresh watch; expired rows are swept while we are here.
+    const stmts = [db.prepare('DELETE FROM telegram_group_watch WHERE expires_at <= ?').bind(now)];
     for (const member of joined) {
       if (typeof member !== 'object' || member === null) continue;
       const { id, is_bot: isBot } = member as { id?: unknown; is_bot?: unknown };
       // A bot in the list was added by an admin on purpose, not a newcomer.
       if (typeof id !== 'number' || isBot === true) continue;
-      opened.push(put(watchKey(target.chatId, id), { clean: 0, strikes: 0 }));
+      stmts.push(
+        db
+          .prepare(
+            `INSERT INTO telegram_group_watch (chat_id, user_id, expires_at, clean, strikes) VALUES (?, ?, ?, 0, 0)
+             ON CONFLICT (chat_id, user_id) DO UPDATE SET expires_at = excluded.expires_at, clean = 0, strikes = 0`,
+          )
+          .bind(chatId, id, expiresAt),
+      );
     }
-    await Promise.all(opened);
-    return opened.length > 0 ? 'joined' : 'ignored';
+    await db.batch(stmts);
+    return stmts.length > 1 ? 'joined' : 'ignored';
   }
 
   const from = message.from;
@@ -185,26 +190,46 @@ export async function handleGroupUpdate(
   const messageId = message.message_id;
   if (typeof userId !== 'number' || typeof messageId !== 'number') return 'ignored';
 
-  const key = watchKey(target.chatId, userId);
-  const watch = await kv.get<Watch>(key, 'json');
-  if (!watch) return 'ignored';
-
   if (!isSuspiciousMessage(message, target.botUsername, target.cfg.patterns)) {
-    watch.clean++;
-    await (watch.clean >= target.cfg.cleanMessages ? kv.delete(key) : put(key, watch));
+    // Edits of an existing message are judged but do not count towards release,
+    // otherwise one message plus two harmless edits would end the watch.
+    if (edited) return 'ignored';
+    const row = await db
+      .prepare(
+        `UPDATE telegram_group_watch SET clean = clean + 1
+         WHERE chat_id = ? AND user_id = ? AND expires_at > ? RETURNING clean`,
+      )
+      .bind(chatId, userId, now)
+      .first<{ clean: number }>();
+    if (!row) return 'ignored';
+    if (row.clean >= target.cfg.cleanMessages) {
+      await db.prepare('DELETE FROM telegram_group_watch WHERE chat_id = ? AND user_id = ?').bind(chatId, userId).run();
+    }
     return 'clean';
   }
 
-  watch.strikes++;
-  const banning = watch.strikes >= target.cfg.strikesToBan;
-  // The Telegram calls and the KV bookkeeping are independent, so they overlap.
+  const row = await db
+    .prepare(
+      `UPDATE telegram_group_watch SET strikes = strikes + 1
+       WHERE chat_id = ? AND user_id = ? AND expires_at > ? RETURNING strikes`,
+    )
+    .bind(chatId, userId, now)
+    .first<{ strikes: number }>();
+  if (!row) return 'ignored';
+
+  const banning = row.strikes >= target.cfg.strikesToBan;
   const [del, ban] = await Promise.all([
-    deps.deleteMessage(target.chatId, messageId),
-    banning ? deps.banChatMember(target.chatId, userId) : null,
-    banning ? kv.delete(key) : put(key, watch),
+    deps.deleteMessage(chatId, messageId),
+    banning ? deps.banChatMember(chatId, userId) : null,
   ]);
   if (!del.ok) console.warn(`[telegram-guard] delete failed status=${del.status} ${del.description}`);
-  if (ban && !ban.ok) console.warn(`[telegram-guard] ban failed status=${ban.status} ${ban.description}`);
-  if (banning) console.log(`[telegram-guard] banned user=${userId} after ${watch.strikes} strikes`);
-  return banning ? 'banned' : 'deleted';
+  if (!ban) return 'deleted';
+  if (!ban.ok) {
+    // The watch stays, so the next message is judged again and the ban retried.
+    console.warn(`[telegram-guard] ban failed status=${ban.status} ${ban.description}`);
+    return 'deleted';
+  }
+  await db.prepare('DELETE FROM telegram_group_watch WHERE chat_id = ? AND user_id = ?').bind(chatId, userId).run();
+  console.log(`[telegram-guard] banned user=${userId} after ${row.strikes} strikes`);
+  return 'banned';
 }

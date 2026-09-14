@@ -167,7 +167,7 @@ describe('handleTelegramUpdate with the group guard configured', () => {
     const d = guarded(r.reply, deleted);
     const join = { message: { message_id: 1, chat: { id: Number(GROUP), type: 'supergroup' }, new_chat_members: [{ id: 900 }] } };
     expect(await handleTelegramUpdate(db(), kv(), join, d)).toBe('group:joined');
-    expect(await handleTelegramUpdate(db(), kv(), groupMsg(2, 900, linkEntities), d)).toBe('group:deleted');
+    expect(await handleTelegramUpdate(db(), kv(), groupMsg(2, 900, linkEntities), { ...d, now: 2_000 })).toBe('group:deleted');
     expect(deleted).toEqual([2]);
     expect(r.calls).toHaveLength(0);
   });
