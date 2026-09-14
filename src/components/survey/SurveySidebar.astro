@@ -1,0 +1,184 @@
+---
+// Sidebar column for a survey thread: the facts about the survey, moved out of
+// the header card so that card can be the survey's content (its questions and
+// the informational tally) and nothing else.
+//
+// Everything here is a fact ABOUT the survey rather than a reading OF it, which
+// is the line the split follows. The one figure deliberately absent is the
+// participation count: while a tally is on the page it owns that number, says
+// which rules it counted under and how old it is, and a second count in a
+// sidebar with none of that context could only disagree with it. The card falls
+// back to the participation line itself where no tally can exist.
+import SurveyBadges from '@/components/survey/SurveyBadges.astro';
+import type { NetworkConfig } from '@/lib/config/network.js';
+import type { SurveyGovLinkView, SurveyRow } from '@/lib/db/surveys.js';
+import { formatRelativeTime } from '@/lib/forum/view.js';
+import { deadlineFact, type SurveyLifecycle } from '@/lib/surveys/state.js';
+import { roleLabels, tesseraSurveyUrl } from '@/lib/surveys/view.js';
+
+interface Props {
+  survey: SurveyRow;
+  links: SurveyGovLinkView[];
+  lifecycle: SurveyLifecycle;
+  cfg: NetworkConfig;
+  now: number;
+  appUrl: string | undefined;
+  /** Snapshot time (unix s) of the last Tessera answer the mirror applied, or
+   * null until a run has applied one. Describes the mirror, not the tally,
+   * which carries its own age. */
+  asOf: number | null;
+}
+
+const { survey, links, lifecycle, cfg, now, appUrl, asOf } = Astro.props;
+
+const deadline = deadlineFact(lifecycle, survey.endEpoch, cfg);
+const deepLink = tesseraSurveyUrl(appUrl, survey.ref);
+---
+
+<aside class="svy-side" aria-label="About this survey">
+  <div class="sidebar-card">
+    <span class="sidebar-card__title">Status</span>
+    <SurveyBadges lifecycle={lifecycle} sealed={survey.sealed} unavailable={survey.unavailable} />
+    <dl class="svy-side__facts">
+      <div>
+        <dt>{deadline.term}</dt>
+        <dd>{deadline.detail}</dd>
+        {deadline.note && <dd class="svy-side__note">{deadline.note}</dd>}
+      </div>
+      <div>
+        <dt>Who can take part</dt>
+        <dd>{roleLabels(survey.eligibleRoles)}</dd>
+      </div>
+    </dl>
+  </div>
+
+  {links.length > 0 && (
+    <div class="sidebar-card">
+      <span class="sidebar-card__title">
+        Advertised by {links.length === 1 ? 'a governance action' : `${links.length} governance actions`}
+      </span>
+      <ul class="svy-side__links">
+        {links.map((l) => (
+          <li>
+            {l.topicSlug ? (
+              <a class="svy-side__link" href={`/t/${l.topicSlug}/`}>
+                {l.actionTitle ?? l.title ?? l.actionId}
+              </a>
+            ) : (
+              <>
+                <span class="svy-side__linktext">{l.title ?? l.actionId}</span>
+                <span class="svy-side__note">Not indexed on this site</span>
+              </>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )}
+
+  {deepLink && (
+    <a
+      class="sidebar-card sidebar-card--link"
+      href={deepLink}
+      target="_blank"
+      rel="noopener noreferrer"
+    >
+      <span class="sidebar-card__title">On Tessera</span>
+      <span class="svy-side__desc">
+        The app this survey was created in. Answer it there, or read its own view of the responses.
+      </span>
+      {asOf != null && (
+        <span class="svy-side__note">
+          This site's copy updated {formatRelativeTime(asOf * 1000, now)}
+        </span>
+      )}
+    </a>
+  )}
+</aside>
+
+<style>
+  .svy-side {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  /* Matches the .sidebar-card / .sidebar-card__title convention the governance
+     action's sidebar cards each redeclare in their own scoped styles. */
+  .sidebar-card {
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 0.875rem 1rem;
+    background: var(--surface);
+  }
+  .sidebar-card__title {
+    display: block;
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin: 0 0 0.625rem;
+  }
+  .sidebar-card--link {
+    display: flex;
+    flex-direction: column;
+    text-decoration: none;
+    color: inherit;
+    transition: border-color 0.15s ease;
+  }
+  .sidebar-card--link:hover {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  }
+
+  .svy-side__facts {
+    margin: 0.75rem 0 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+  }
+  .svy-side__facts dt {
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+  }
+  .svy-side__facts dd {
+    margin: 0.15rem 0 0;
+    font-size: 0.9rem;
+    /* External survey text and long ids arrive from the chain, so a single
+       unbroken string must wrap rather than widen the 300px track. */
+    overflow-wrap: anywhere;
+  }
+  .svy-side__note {
+    display: block;
+    font-size: 0.78rem;
+    color: var(--muted);
+    margin-top: 0.2rem;
+  }
+  .svy-side__desc {
+    font-size: 0.85rem;
+    line-height: 1.45;
+  }
+  .svy-side__links {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    font-size: 0.9rem;
+  }
+  .svy-side__link {
+    color: var(--accent);
+    text-decoration: none;
+    overflow-wrap: anywhere;
+  }
+  .svy-side__link:hover {
+    text-decoration: underline;
+  }
+  .svy-side__linktext {
+    overflow-wrap: anywhere;
+  }
+</style>

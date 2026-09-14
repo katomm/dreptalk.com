@@ -18,6 +18,7 @@ import GaSidebar from '@/components/ga/GaSidebar.astro';
 import GlossaryTerms from '@/components/glossary/GlossaryTerms.astro';
 import ShareButton from '@/components/ShareButton.astro';
 import SurveyCard from '@/components/survey/SurveyCard.astro';
+import SurveySidebar from '@/components/survey/SurveySidebar.astro';
 import LinkedSurveyCard from '@/components/survey/LinkedSurveyCard.astro';
 import RespondPanel from '@/components/survey/RespondPanel.astro';
 import {
@@ -353,9 +354,17 @@ const isScriptDrep = viewerDrepId ? parseDrepId(viewerDrepId)?.kind === 'script'
 // answer becomes visible here only through the sync, so with
 // TESSERA_BACKEND_URL gone the panel would invite fees for a survey whose
 // count, deadline and lifecycle stopped being refreshed.
+// A governance action and a survey both render a sidebar beside their content,
+// so both take the wide shell (see the Layout props below). Everything else
+// stays a single reading column.
+//
+// One state for the whole page: the card, the sidebar and the answer gate all
+// read it, which is the point of deriving it in a single place.
+const surveyStateNow = surveyRow ? surveyState(surveyRow, now, netCfg) : null;
+
 const canAnswerSurvey =
   !!surveyRow &&
-  surveyState(surveyRow, now, netCfg).answerable &&
+  surveyStateNow!.answerable &&
   surveyDefinition !== null &&
   surveysEnabled(env) &&
   !!viewerDrepId &&
@@ -696,8 +705,8 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
     title={`${topic.title} - DRepTalk`}
     description={metaDescription}
     ogImage={ogImage}
-    wide={isGovernanceTopic}
-    readingWidth={!isGovernanceTopic}
+    wide={isGovernanceTopic || isSurveyTopic}
+    readingWidth={!isGovernanceTopic && !isSurveyTopic}
   >
     {cip100ManifestUrl && (
       <link rel="alternate" type="application/ld+json" href={cip100ManifestUrl} slot="head" />
@@ -900,16 +909,14 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
     ) : (
       // Non-governance topics: a single focused reading column. A survey topic
       // leads with its mirrored survey card.
+      <div class:list={['thread-layout', { 'thread-layout--sidebar': !!surveyRow }]}>
       <div class="thread-single">
         {surveyRow && (
           <SurveyCard
             survey={surveyRow}
             definition={surveyDefinition}
-            links={surveyLinks}
             cfg={netCfg}
             now={now}
-            appUrl={env.TESSERA_APP_URL}
-            asOf={surveySync?.tesseraFetchedAt ?? null}
             tally={tallyIsCurrent ? surveyTally : null}
             tallyStale={surveyTally !== null && !tallyIsCurrent}
             powerEpoch={surveyPowerEpoch}
@@ -953,6 +960,20 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
           </section>
         )}
       </div>
+      {surveyRow && (
+        <div class="thread-layout__sidebar">
+          <SurveySidebar
+            survey={surveyRow}
+            links={surveyLinks}
+            lifecycle={surveyStateNow!.lifecycle}
+            cfg={netCfg}
+            now={now}
+            appUrl={env.TESSERA_APP_URL}
+            asOf={surveySync?.tesseraFetchedAt ?? null}
+          />
+        </div>
+      )}
+      </div>
     )}
 
     {/* Term tooltips only on the synced governance prose (abstract, proposer
@@ -968,6 +989,35 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
      Layout `readingWidth` prop, so breadcrumb, title, and posts all align. */
   .thread-single {
     min-width: 0;
+  }
+  /* A survey thread is two columns: its content and the facts about it. Mirrors
+     .ga-detail-layout above, since both are the same shape of page. Without the
+     --sidebar modifier this is an inert wrapper, which is what a plain
+     discussion topic gets. */
+  .thread-layout--sidebar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 300px;
+    gap: 2rem;
+    align-items: start;
+  }
+  /* Grid items default to min-width:auto, so a long unbroken id or a wide table
+     in a post would force the track past the viewport and scroll the whole page
+     sideways. See the same note on .ga-detail-layout. */
+  .thread-layout__sidebar {
+    min-width: 0;
+    position: sticky;
+    top: 1.5rem;
+  }
+  @media (max-width: 900px) {
+    .thread-layout--sidebar {
+      grid-template-columns: 1fr;
+      gap: 1.5rem;
+    }
+    /* The questions and the tally come first on a phone, so the facts simply
+       stack after them. No source reordering, unlike the governance overview. */
+    .thread-layout__sidebar {
+      position: static;
+    }
   }
   .thread-related {
     margin-top: 2rem;

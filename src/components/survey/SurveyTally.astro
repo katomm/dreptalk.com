@@ -26,6 +26,7 @@ import type { SurveyTallyRow } from '@/lib/db/surveyTally.js';
 import { lovelaceToAdaDecimal } from '@/lib/format/ada.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
 import type { SurveyLifecycle } from '@/lib/surveys/state.js';
+import { tallyRefusal } from '@/lib/surveys/tallyRefusal.js';
 import {
   QUESTION_KIND_DISPLAY,
   type BarBasis,
@@ -33,7 +34,7 @@ import {
 } from '@/lib/surveys/surveyTallyContract.js';
 import { abstentions, alignIndices, joinNumericBins } from '@/lib/surveys/tallyJoin.js';
 import { questionView, ratingScaleInfo, ratioOf } from '@/lib/surveys/tallyView.js';
-import { ROLE_LABELS, questionViews } from '@/lib/surveys/view.js';
+import { ROLE_LABELS, type QuestionView, questionViews } from '@/lib/surveys/view.js';
 import { MAX_EXTERNAL_TITLE_LEN, sanitizeExternalText } from '@/lib/validation/input.js';
 
 interface Props {
@@ -139,53 +140,23 @@ function countLabel(key: QuestionDisplayKey, n: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Nothing to show: one named reason, never an empty card
+// Nothing to show: one named reason, never an empty card. The decision itself
+// is in ./tallyRefusal.ts, because the card reads it too.
 // ---------------------------------------------------------------------------
 
-// The same expression the tally pass refuses on, in src/lib/surveys/sync.ts: a
-// sealed survey is readable only once it is finalized AND carries an artifact
-// hash. Testing the hash alone would tell a reader to wait for a pass that
-// refuses this survey by design.
-const sealedWithoutArtifact =
-  survey.sealed && !(survey.finalState === 'finalized' && survey.artifactHash !== null);
-const takesDreps = survey.eligibleRoles.includes(Role.DRep);
-
-// One reason, and the most specific one first: the survey's own state outranks
-// the tally's, because a reading of a survey the index no longer holds, or that
-// CIP-179 never produced a tally for, is not made better by being fresh. The
-// stale guard then outranks a missing row, and an empty power history outranks
-// "not computed yet", since nothing can be computed without it.
-//
-// The survey-state sentences cover exactly the states the tally pass itself
-// refuses on (sync.ts, tallyOneSurvey), the unreadable definition included. A
-// state the pass refuses must never fall through to "not computed yet", which
-// would tell the reader to wait for a pass that is never coming.
-const refusal: string | null = survey.unavailable
-  ? 'This survey is no longer in the index, so the responses it had are no longer a record this site will read. No figures are shown.'
-  : survey.externalContent
-    ? 'This survey keeps its questions in an external document that is not loaded here, so its answers are not counted on this site.'
-    : lifecycle === 'cancelled'
-      ? 'This survey was cancelled by its creator, and CIP-179 produces no tally for a cancelled survey, so there is nothing to read.'
-      : lifecycle === 'untalliable'
-        ? "This survey's definition is invalid under CIP-179, so it was never talliable and no reading of it exists."
-        : !takesDreps
-          ? 'This survey does not accept DRep responses, and a DRep reading is the only one this site counts.'
-          : sealedWithoutArtifact
-            ? 'The answers to this survey are timelock-encrypted. They stay unreadable until it closes and its tally artifact is published, so no answer can be counted yet.'
-            : definition === null
-              ? "This survey's stored definition could not be read here, and without it an answer cannot be attributed to the question it belongs to, so the stored reading cannot be shown here."
-              : tallyStale
-                ? "These figures are being recomputed. The survey's tally artifact has changed, so the stored reading describes a different artifact than the survey now names, and showing it as current would be wrong."
-                : tally === null
-                  ? powerEpoch === null
-                    ? 'No reading yet: this site holds no DRep voting power history for this network, and a weighted reading cannot be computed without one.'
-                    : // True of both states the page cannot tell apart: a survey the
-                      // pass has not reached yet, and one it reached and whose bundle
-                      // fetch keeps failing. The queue's attempt counter would separate
-                      // them, and the page does not load it, so the sentence claims
-                      // neither.
-                      'No reading computed yet. The sync pass that counts the responses has not produced one for this survey.'
-                  : null;
+const refusal = tallyRefusal({
+  unavailable: survey.unavailable,
+  externalContent: survey.externalContent,
+  sealed: survey.sealed,
+  finalState: survey.finalState,
+  artifactHash: survey.artifactHash,
+  eligibleRoles: survey.eligibleRoles,
+  lifecycle,
+  definitionReadable: definition !== null,
+  tallyStale,
+  hasTally: tally !== null,
+  powerEpoch,
+});
 
 // ---------------------------------------------------------------------------
 // The reading
@@ -231,6 +202,11 @@ interface BuiltQuestion {
   prompt: string;
   required: boolean;
   kindLabel: string;
+  /** The question's options as a plain list, set only where this question draws
+   * no bars and no rows. Where it draws them, every option is already a bar
+   * (zero-answer options included), so a list beside them would repeat it. */
+  options: string[] | null;
+  optionNote: string | null;
   /** What the bars of this kind are sized against, from the display contract. */
   basisNote: string | null;
   bars: BuiltBar[];
@@ -398,7 +374,7 @@ function questionWeightingNote(
 
 function buildQuestion(
   q: Question | undefined,
-  prompt: { prompt: string; kindLabel: string; required: boolean } | undefined,
+  prompt: QuestionView | undefined,
   position: number,
   wq: ArtifactQuestion | undefined,
   hq: ArtifactQuestion | undefined,
@@ -412,6 +388,8 @@ function buildQuestion(
     prompt: prompt?.prompt ?? `Question ${position + 1}, its text could not be read`,
     required: prompt?.required === true,
     kindLabel: prompt?.kindLabel ?? '',
+    options: prompt?.options ?? null,
+    optionNote: prompt?.optionNote ?? null,
   };
   const empty: BuiltQuestion = {
     ...base,
@@ -586,12 +564,12 @@ function buildQuestion(
     });
   }
 
+  const hasFigures = bars.length > 0 || rows.length > 0;
   return {
     ...base,
-    basisNote:
-      bars.length > 0 || rows.length > 0
-        ? basisNote(key, display.barBasis, withinScale)
-        : null,
+    options: hasFigures ? null : base.options,
+    optionNote: hasFigures ? null : base.optionNote,
+    basisNote: hasFigures ? basisNote(key, display.barBasis, withinScale) : null,
     bars,
     rows,
     centralLine,
@@ -756,14 +734,6 @@ function build(t: SurveyTallyRow): Built {
   const excludedSummary =
     inside.length === 0 ? excludedLine : `${excludedLine} Inside: ${joinAnd(inside)}.`;
 
-  const otherRoles = Object.entries(t.roleCounts ?? {})
-    .filter(([role]) => Number(role) !== Role.DRep)
-    .map(([role, n]) => `${ROLE_LABELS[Number(role)] ?? `role ${role}`} (${n})`);
-  const rolesLine =
-    otherRoles.length > 0
-      ? `Other roles answered this survey too: ${otherRoles.join(', ')}. Those responses are outside every figure above, which counts DRep responses only.`
-      : null;
-
   const readingLines = [
     'Counted under the generic CIP-179 rules only: no survey-specific validity rules, no allow-lists, no custom weighting.',
     "What the answers mean is the survey creator's to say, not this site's. This is a reading of the responses, not a decision.",
@@ -773,6 +743,14 @@ function build(t: SurveyTallyRow): Built {
       `The weighting stands on epoch ${t.powerEpoch}, the newest epoch this site holds DRep power for, not on the epoch the survey closes in, so these figures can still move.`,
     );
   }
+
+  const otherRoles = Object.entries(t.roleCounts ?? {})
+    .filter(([role]) => Number(role) !== Role.DRep)
+    .map(([role, n]) => `${ROLE_LABELS[Number(role)] ?? `role ${role}`} (${n})`);
+  const rolesLine =
+    otherRoles.length > 0
+      ? `Other roles answered this survey too: ${otherRoles.join(', ')}. Those responses are outside every figure above, which counts DRep responses only.`
+      : null;
 
   return {
     questions: built,
@@ -809,8 +787,9 @@ const built = refusal === null && tally !== null ? build(tally) : null;
       {built.sealedNote && <p class="svy-tally__note">{built.sealedNote}</p>}
 
       <ol class="svy-tally__questions">
-        {built.questions.map((q) => (
+        {built.questions.map((q, index) => (
           <li class="svy-tq">
+            <span class="svy-tq__number">Question {index + 1}</span>
             <p class="svy-tq__prompt">
               {q.prompt}
               {q.required && (
@@ -818,6 +797,12 @@ const built = refusal === null && tally !== null ? build(tally) : null;
               )}
             </p>
             {q.kindLabel && <p class="svy-tq__meta">{q.kindLabel}</p>}
+            {q.options && (
+              <ul class="svy-tq__options">
+                {q.options.map((o) => <li>{o}</li>)}
+              </ul>
+            )}
+            {q.optionNote && <p class="svy-tq__meta">{q.optionNote}</p>}
             {q.weightingNote && <p class="svy-tq__note">{q.weightingNote}</p>}
 
             {q.bars.length > 0 && (
@@ -941,12 +926,36 @@ const built = refusal === null && tally !== null ? build(tally) : null;
     list-style: none;
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 1.75rem;
   }
+  .svy-tq__number {
+    display: block;
+    margin-bottom: 0.35rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--muted);
+  }
+  /* This is the page's only question list wherever the tally draws, so the
+     prompt carries the weight the card's own list used to. */
   .svy-tq__prompt {
     margin: 0;
-    font-size: 0.9375rem;
+    font-size: 1.25rem;
+    line-height: 1.4;
     font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+  /* Only reached where this question draws nothing, so it never sits beside the
+     bars that would already name every option. */
+  .svy-tq__options {
+    margin: 0.6rem 0 0;
+    padding-left: 1.1rem;
+    font-size: 0.9375rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .svy-tq__options li {
+    overflow-wrap: anywhere;
   }
   .svy-tq__req {
     color: var(--danger);
