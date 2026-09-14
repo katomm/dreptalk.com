@@ -102,6 +102,8 @@ Timing is measured in epochs, not calendar days, because both submission and dec
 
 DRepTalk records one row of governance aggregates per epoch, built from the same chain data that powers the rest of the site. Voting power snapshots come from the per-epoch stake distribution, vote counts from the on-chain votes themselves, and the concentration figures from the full distribution of delegated power across DReps, with the two default options excluded. The effective-representation panel measures each action against its decision epoch, while the tally bar on an action page uses the epoch of the latest tally, so the two can sit one epoch apart for the same action. The threshold marker on the full-stake bar sits on the ratification denominator, the yes votes plus the No side as the ledger counts it, which already includes the always-no-confidence weight, so the marker is the same bar the chain measures against.
 
+The same aggregates are the basis of the [Governance Review](/help/governance-review/), which takes one window of a few epochs, freezes the figures for it, and writes up what happened. Where this page shows the numbers as they stand now, an edition is a dated account of one stretch.
+
 ## Frequently asked questions
 
 ### Why do some charts start later than others?

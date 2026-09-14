@@ -208,7 +208,7 @@ const helpEntries: HelpEntry[] = await getHelpEntries();
         </nav>
 
         <div class="header-actions">
-          <SearchTrigger client:idle helpEntries={helpEntries} initialScope={searchScope ?? scopeForPath(pathname)} />
+          <SearchTrigger client:idle helpEntries={helpEntries} signedIn={!!sessionUser} initialScope={searchScope ?? scopeForPath(pathname)} />
           {/* Share the current page. Only shown in the installed standalone app,
               where there is no address bar to copy or share the URL from. */}
           <span class="header-share"><ShareButton iconOnly ariaLabel="Share this page" /></span>

@@ -7,6 +7,8 @@ const SearchPalette = lazy(() => import('./SearchPalette').catch(() => ({ defaul
 
 interface TriggerProps {
   helpEntries: HelpEntry[];
+  /** Whether a session exists, so the palette can offer the personal pages. */
+  signedIn?: boolean;
   /** Scope pill the palette opens with on this page (defaults to "all"). */
   initialScope?: Scope;
 }
@@ -16,7 +18,7 @@ interface TriggerProps {
  * fields). The palette body is lazy-loaded on first open so the header island
  * stays tiny; `loaded` starts false, so SSR renders only the button.
  */
-export default function SearchTrigger({ helpEntries, initialScope }: TriggerProps) {
+export default function SearchTrigger({ helpEntries, signedIn, initialScope }: TriggerProps) {
   const [open, setOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -84,7 +86,7 @@ export default function SearchTrigger({ helpEntries, initialScope }: TriggerProp
       </button>
       {loaded && (
         <Suspense fallback={null}>
-          <SearchPalette open={open} onClose={() => setOpen(false)} returnFocusRef={btnRef} helpEntries={helpEntries} initialScope={initialScope} />
+          <SearchPalette open={open} onClose={() => setOpen(false)} returnFocusRef={btnRef} helpEntries={helpEntries} signedIn={signedIn} initialScope={initialScope} />
         </Suspense>
       )}
     </>

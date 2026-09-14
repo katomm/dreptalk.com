@@ -16,6 +16,8 @@ interface PaletteProps {
   onClose: () => void;
   returnFocusRef?: React.RefObject<HTMLButtonElement | null>;
   helpEntries: HelpEntry[];
+  /** Whether a session exists, so the personal pages can be offered. */
+  signedIn?: boolean;
   /** Scope pill preselected each time the palette opens (defaults to "all").
       Help and glossary pages pass "help" so a search starts within them. */
   initialScope?: Scope;
@@ -38,7 +40,7 @@ interface Row {
 const DEBOUNCE_MS = 250;
 const MIN_QUERY = 2;
 
-function buildRows(q: string, data: SearchResponseBody | null, helpEntries: HelpEntry[]): Row[] {
+function buildRows(q: string, data: SearchResponseBody | null, helpEntries: HelpEntry[], signedIn: boolean): Row[] {
   const rows: Row[] = [];
   if (data?.exact) {
     rows.push({
@@ -97,7 +99,7 @@ function buildRows(q: string, data: SearchResponseBody | null, helpEntries: Help
       ...(r.imageHash ? { avatar: `/api/avatar/${r.imageHash}` } : {}),
     });
   }
-  for (const e of matchStaticEntries(q)) {
+  for (const e of matchStaticEntries(q, signedIn)) {
     rows.push({ key: `static-${e.href}`, href: e.href, group: e.group, label: e.label });
   }
   for (const e of matchEntries(helpEntries, q)) {
@@ -106,7 +108,7 @@ function buildRows(q: string, data: SearchResponseBody | null, helpEntries: Help
   return rows;
 }
 
-export default function SearchPalette({ open, onClose, returnFocusRef, helpEntries, initialScope = 'all' }: PaletteProps) {
+export default function SearchPalette({ open, onClose, returnFocusRef, helpEntries, signedIn = false, initialScope = 'all' }: PaletteProps) {
   const [q, setQ] = useState('');
   const [data, setData] = useState<SearchResponseBody | null>(null);
   const [error, setError] = useState(false);
@@ -119,7 +121,7 @@ export default function SearchPalette({ open, onClose, returnFocusRef, helpEntri
   const hasQuery = trimmed.length >= MIN_QUERY;
 
   // Build all rows, then narrow to the active scope pill (pure client filter).
-  const allRows = useMemo(() => buildRows(q, hasQuery ? data : null, helpEntries), [q, hasQuery, data, helpEntries]);
+  const allRows = useMemo(() => buildRows(q, hasQuery ? data : null, helpEntries, signedIn), [q, hasQuery, data, helpEntries, signedIn]);
   const rows = useMemo(() => filterRowsByScope(allRows, scope), [allRows, scope]);
   const clampedActive = Math.min(active, Math.max(rows.length - 1, 0));
 
