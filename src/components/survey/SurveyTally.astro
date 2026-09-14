@@ -1014,6 +1014,24 @@ const built = refusal === null && tally !== null ? build(tally) : null;
       grid-template-areas: 'label track figs';
       align-items: center;
     }
+    /* Every bar is its own grid, so its figures column sizes to its own text:
+       "2 responses" is wider than "1 response", that difference widens the label
+       column beside it, and the track starts further right. Tracks that begin on
+       different x cannot be compared by eye, which is the one thing a bar is
+       for. Subgrid hands every row the list's columns instead, so all three
+       resolve once. Without subgrid the rows keep their own columns and read as
+       they did before, which is imperfect but never wrong. */
+    @supports (grid-template-columns: subgrid) {
+      .svy-tq__bars {
+        display: grid;
+        grid-template-columns: minmax(6rem, 1fr) minmax(4rem, 8rem) auto;
+        column-gap: 0.6rem;
+      }
+      .svy-bar {
+        grid-column: 1 / -1;
+        grid-template-columns: subgrid;
+      }
+    }
   }
   .svy-tally__gap {
     margin: 0.9rem 0 0;
