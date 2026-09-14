@@ -23,7 +23,7 @@ import type { ExclusionKey } from 'cip-179/domain';
 import type { ArtifactQuestion } from 'cip-179/tally';
 import type { SurveyRow } from '@/lib/db/surveys.js';
 import type { SurveyTallyRow } from '@/lib/db/surveyTally.js';
-import { lovelaceToAdaDecimal } from '@/lib/format/ada.js';
+import { formatAdaCompact } from '@/lib/format/ada.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
 import type { SurveyLifecycle } from '@/lib/surveys/state.js';
 import { tallyRefusal } from '@/lib/surveys/tallyRefusal.js';
@@ -61,18 +61,26 @@ const { tally, tallyStale, powerEpoch, survey, definition, lifecycle, now } = As
 // ---------------------------------------------------------------------------
 
 /**
- * Exact lovelace to a grouped ada label. The canonical formatAda divides
- * through Number, and an electorate total in lovelace is past what Number holds
- * exactly, so the reduction to ada runs in BigInt first through the canonical
- * lovelaceToAdaDecimal. Whole ada is small enough to group safely.
+ * Exact lovelace to the compact ada label the rest of the site uses ("40K ₳",
+ * "39.6M ₳"). A grouped full figure beside every bar, every denominator and
+ * both halves of the turnout crowded the row it stood in and left the bars no
+ * width to be compared in.
+ *
+ * formatAdaCompact reduces through Number, which an electorate total in
+ * lovelace exceeds in exact-integer range. That is harmless here and only here:
+ * the label keeps three significant digits where Number keeps fifteen, so the
+ * rounding the label does swamps the rounding Number does. Every figure the
+ * label stands on was summed in BigInt, and the shares beside it are computed
+ * from those exact values, never from this text.
  */
 function adaLabel(lovelace: bigint): string {
-  const whole = lovelaceToAdaDecimal(lovelace).split('.')[0] ?? '0';
-  // Truncating a holding under one whole ada to "0 ₳" would print no power at
-  // all beside a bar that has some, and would make a denominator read as empty
-  // when it is not. Say what it is instead of rounding it out of existence.
-  if (whole === '0' && lovelace > 0n) return 'under 1 ₳';
-  return `${Number(whole).toLocaleString('en-US')} ₳`;
+  const short = formatAdaCompact(lovelace.toString());
+  if (short === null) return '0 ₳';
+  // A holding under a twentieth of an ada compacts to "0 ₳", which would print
+  // no power at all beside a bar that has some, and would make a denominator
+  // read as empty when it is not. Say what it is instead of rounding it away.
+  if (lovelace > 0n && short.startsWith('0 ')) return 'under 1 ₳';
+  return short;
 }
 
 /** A stored decimal string as a bigint, or null when the column is null or
@@ -1009,10 +1017,21 @@ const built = refusal === null && tally !== null ? build(tally) : null;
     background: var(--accent);
   }
   @media (min-width: 30rem) {
+    /* The track is the column that flexes, and the label is sized to its own
+       text within a cap. The other way round the label column absorbed every
+       spare pixel and pushed the tracks against the figures, which put the one
+       thing a reader compares in the least room on the row. */
     .svy-bar {
-      grid-template-columns: minmax(6rem, 1fr) minmax(4rem, 8rem) auto;
+      grid-template-columns: minmax(6rem, auto) minmax(4rem, 1fr) auto;
       grid-template-areas: 'label track figs';
       align-items: center;
+    }
+    /* Caps what the label column can claim. Its width is the widest label's, and
+       an option label is external text of any length, so without a ceiling one
+       long option would squeeze every track on the question down to its
+       minimum. */
+    .svy-bar__label {
+      max-width: 18rem;
     }
     /* Every bar is its own grid, so its figures column sizes to its own text:
        "2 responses" is wider than "1 response", that difference widens the label
@@ -1024,7 +1043,7 @@ const built = refusal === null && tally !== null ? build(tally) : null;
     @supports (grid-template-columns: subgrid) {
       .svy-tq__bars {
         display: grid;
-        grid-template-columns: minmax(6rem, 1fr) minmax(4rem, 8rem) auto;
+        grid-template-columns: minmax(6rem, auto) minmax(4rem, 1fr) auto;
         column-gap: 0.6rem;
       }
       .svy-bar {
