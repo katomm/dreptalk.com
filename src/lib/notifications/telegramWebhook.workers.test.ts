@@ -140,3 +140,44 @@ describe('handleTelegramUpdate', () => {
     expect(r.calls).toHaveLength(0);
   });
 });
+
+describe('handleTelegramUpdate with the group guard configured', () => {
+  const GROUP = '-1005555';
+  const groupMsg = (id: number, from: number, extra: Record<string, unknown>) => ({
+    message: { message_id: id, chat: { id: Number(GROUP), type: 'supergroup' }, from: { id: from }, text: 'x', ...extra },
+  });
+  const linkEntities = { entities: [{ type: 'url', offset: 0, length: 1 }] };
+
+  function guarded(reply: TelegramWebhookDeps['reply'], deleted: number[]): TelegramWebhookDeps {
+    return {
+      ...deps(reply),
+      group: {
+        target: { chatId: GROUP, botUsername: 'DRepTalkBot', cfg: { watchHours: 24, cleanMessages: 3, strikesToBan: 2, patterns: [] } },
+        deps: {
+          deleteMessage: async (_c, messageId) => { deleted.push(messageId); return { ok: true, status: 200, description: '' }; },
+          banChatMember: async () => ({ ok: true, status: 200, description: '' }),
+        },
+      },
+    };
+  }
+
+  it('routes updates from the configured group into the guard and never replies there', async () => {
+    const r = fakeReply();
+    const deleted: number[] = [];
+    const d = guarded(r.reply, deleted);
+    const join = { message: { message_id: 1, chat: { id: Number(GROUP), type: 'supergroup' }, new_chat_members: [{ id: 900 }] } };
+    expect(await handleTelegramUpdate(db(), kv(), join, d)).toBe('group:joined');
+    expect(await handleTelegramUpdate(db(), kv(), groupMsg(2, 900, linkEntities), d)).toBe('group:deleted');
+    expect(deleted).toEqual([2]);
+    expect(r.calls).toHaveLength(0);
+  });
+
+  it('a /start from the guarded group is not a link attempt either', async () => {
+    const r = fakeReply();
+    const d = guarded(r.reply, []);
+    const code = await issueLinkCode(kv(), 'user-g1');
+    const outcome = await handleTelegramUpdate(db(), kv(), groupMsg(3, 901, { text: `/start ${code}` }), d);
+    expect(outcome).toBe('ignored');
+    expect(await listChannels(db(), 'user-g1')).toHaveLength(0);
+  });
+});

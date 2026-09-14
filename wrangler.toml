@@ -48,6 +48,12 @@ VAPID_PUBLIC_KEY = "BNDdHbTHnKPFLX9oqH-EeZfQJvzppkj1SRK1-dqnRGOGJWkiazQcjw2_AeKz
 # token is a secret (TELEGRAM_BOT_TOKEN), never stored in this file; the
 # webhook secret is TELEGRAM_WEBHOOK_SECRET, also a secret.
 TELEGRAM_BOT_USERNAME = "DRepTalkBot"
+# The public Telegram group the bot moderates (anti-spam for newly joined
+# accounts). Only the mainnet bot sits in a group; scripts/preprod-config.mjs
+# blanks this for preprod, which switches the guard off. The thresholds live
+# in the TELEGRAM_GROUP_GUARD secret (JSON, see
+# src/lib/notifications/telegramGroupGuard.ts), not here.
+TELEGRAM_GROUP_CHAT_ID = "-1004408916643"
 
 # CIP-179 surveys. TESSERA_BACKEND_URL is the feature switch: the app checks
 # only its presence (without it the surveys category does not exist and

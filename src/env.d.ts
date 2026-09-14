@@ -75,6 +75,10 @@ declare namespace Cloudflare {
     TELEGRAM_WEBHOOK_SECRET?: string;
     /** Bot username used to build the t.me deep link, e.g. "DRepTalkBot". */
     TELEGRAM_BOT_USERNAME?: string;
+    /** Chat id of the public group the bot moderates; unset disables the guard. */
+    TELEGRAM_GROUP_CHAT_ID?: string;
+    /** Secret JSON with the guard thresholds and patterns, see telegramGroupGuard.ts. */
+    TELEGRAM_GROUP_GUARD?: string;
     /** Imprint/legal page contact data, set as vars so the repo stays address-free. */
     LEGAL_OPERATOR_NAME?: string;
     LEGAL_OPERATOR_ADDRESS?: string;
