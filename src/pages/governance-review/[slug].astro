@@ -9,13 +9,21 @@ import ReviewNumbers from '@/components/review/ReviewNumbers.astro';
 import ReviewSources from '@/components/review/ReviewSources.astro';
 import { loadEditions, editionSlug, formatWindowDates } from '@/lib/review/editions.js';
 import { govActionHref } from '@/lib/review/links.js';
-import { parseSlug } from '@/lib/review/windows.js';
+import { parseSlug, parseEditionNumber } from '@/lib/review/windows.js';
 import { buildBreadcrumbLd } from '@/lib/jsonld/breadcrumb.js';
 import { resolveNetwork } from '@/lib/config/network';
 import { cacheControlFor } from '@/lib/forum/view.js';
 import { ogCardVersion } from '@/lib/og/version.js';
 
 const slug = Astro.params.slug ?? '';
+// /governance-review/41/ is the short way to cite an edition. The epochs slug
+// stays the canonical address, so the number only redirects to it.
+const number = parseEditionNumber(slug);
+if (number !== null) {
+  const byNumber = (await loadEditions()).find((e) => e.data.edition === number);
+  if (!byNumber) return new Response('Not found', { status: 404 });
+  return Astro.redirect(`/governance-review/${editionSlug(byNumber)}/`, 301);
+}
 if (!parseSlug(slug)) return new Response('Not found', { status: 404 });
 const entry = await getEntry('review', slug);
 if (!entry) return new Response('Not found', { status: 404 });

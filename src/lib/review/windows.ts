@@ -7,6 +7,12 @@ export function slugFor(from: number, to: number): string {
   return `epochs-${from}-${to}`;
 }
 
+/** An edition number typed as the slug ("41"), the short way to cite an edition.
+ *  The epochs slug stays canonical, a number only redirects to it. */
+export function parseEditionNumber(slug: string): number | null {
+  return /^[1-9]\d{0,3}$/.test(slug) ? Number(slug) : null;
+}
+
 export function parseSlug(slug: string): Window | null {
   const m = /^epochs-(\d+)-(\d+)$/.exec(slug);
   if (!m) return null;
