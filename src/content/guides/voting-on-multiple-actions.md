@@ -12,7 +12,7 @@ When several governance actions are open at the same time, you do not have to vo
 ## How it works
 
 1. Open your voting dashboard and connect as usual (see [How to vote](/help/voting/)).
-2. Each open action has Yes, No, and Abstain buttons directly in its row. Pick a choice for every action you want to vote on; clicking the same choice again deselects it.
+2. Each open action has Yes, No, and Abstain buttons directly in its row. Pick a choice for every action you want to vote on. Clicking the same choice again deselects it.
 3. A bar appears at the bottom counting your selections. Open **Review & submit** to check the batch: change or remove entries, add rationales, then submit.
 4. Your wallet shows one transaction containing all selected votes. Approve it once and every vote is cast together.
 
@@ -28,12 +28,12 @@ You have three options, and you can mix them freely:
 - **One shared rationale.** Write a single text that is attached to every vote in the batch.
 - **Per-action rationales.** Give any action its own custom text, which replaces the shared rationale for that action only.
 
-Rationales are written in the same editor as single votes, with Markdown support and a preview. Each rationale is published on-chain (CIP-100) with its vote; identical texts share one published document.
+Rationales are written in the same editor as single votes, with Markdown support and a preview. Each rationale is published on-chain (CIP-100) with its vote. Identical texts share one published document.
 
 ## Limits
 
 - **Up to 50 votes per batch.** All submitted as one transaction. In practice the real ceiling is simply how many governance actions are open at the same time.
-- **Up to 10 different rationale texts per batch.** What counts is the number of distinct texts, not the number of votes. No rationale and one shared rationale always work, at any batch size: a shared text counts once even when it is attached to 50 votes. Identical custom texts are also counted once. If a batch exceeds the limit, the submit button is disabled and a notice explains it before anything is signed; reuse the shared rationale for some votes, or split the batch into two submissions.
+- **Up to 10 different rationale texts per batch.** What counts is the number of distinct texts, not the number of votes. No rationale and one shared rationale always work, at any batch size: a shared text counts once even when it is attached to 50 votes. Identical custom texts are also counted once. If a batch exceeds the limit, the submit button is disabled and a notice explains it before anything is signed. Reuse the shared rationale for some votes, or split the batch into two submissions.
 - **Up to 60,000 characters per rationale**, same as for single votes.
 
 ## Good to know

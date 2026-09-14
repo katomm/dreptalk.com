@@ -22,7 +22,7 @@ export const FRESHNESS: readonly FreshnessRow[] = [
     key: 'posts',
     label: 'Forum posts and topics',
     refresh: 'Immediate',
-    notes: 'Real forum activity is not delayed; anonymous views are edge-cached for about 30 seconds.',
+    notes: 'Real forum activity is not delayed. Anonymous views are edge-cached for about 30 seconds.',
   },
   {
     key: 'ga-discovery',

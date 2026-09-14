@@ -23,7 +23,7 @@ You can vote in two places: inline on a governance action, or from your voting d
 4. Optionally add a rationale explaining your decision.
 5. Approve the transaction in your wallet.
 
-The vote is built for you, but your wallet signs and submits it. Your private keys never leave your wallet; DRepTalk never sees them. Your vote appears immediately and is confirmed once it is recorded on-chain.
+The vote is built for you, but your wallet signs and submits it. Your private keys never leave your wallet. DRepTalk never sees them. Your vote appears immediately and is confirmed once it is recorded on-chain.
 
 ## Adding a rationale
 
@@ -33,7 +33,7 @@ A rationale is optional but encouraged. When you include one, it is recorded wit
 
 ## Changing your vote
 
-While an action is still open you can change your vote. Cast again with the new choice and the later vote replaces the earlier one on-chain; if you included a rationale, it is replaced along with the vote. Once the action closes, votes are final.
+While an action is still open you can change your vote. Cast again with the new choice and the later vote replaces the earlier one on-chain. If you included a rationale, it is replaced along with the vote. Once the action closes, votes are final.
 
 ## Related
 

@@ -59,7 +59,7 @@ To register as a DRep you need:
   actions require a wallet that supports the CIP-95 governance standard. Lace,
   Eternl, and Typhon all support this. Standard staking-only wallets do not.
 - **A refundable 500 ada deposit.** Registering locks 500 ada on the chain.
-  This deposit is returned in full when you deregister. It is not a fee; it
+  This deposit is returned in full when you deregister. It is not a fee. It
   is automatically refunded to your wallet when you retire your DRep.
 - **A small amount of ada for network fees.** The registration transaction
   itself costs a small fee (a few tenths of an ada), similar to any other

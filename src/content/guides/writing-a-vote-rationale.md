@@ -11,7 +11,7 @@ A vote rationale is a short written explanation of why you voted the way you did
 
 ## Why it matters
 
-A rationale does three things. First, it builds trust with your delegators. They cannot vote themselves and are counting on you to act in their interest; explaining your position closes that accountability gap. Second, it creates a public record. On-chain governance is a long game, and a trail of reasoned votes tells future delegators something meaningful about how you operate. Third, it helps the community weigh the action. A well-argued rationale from a known DRep can sharpen the debate and surface considerations others may have missed.
+A rationale does three things. First, it builds trust with your delegators. They cannot vote themselves and are counting on you to act in their interest. Explaining your position closes that accountability gap. Second, it creates a public record. On-chain governance is a long game, and a trail of reasoned votes tells future delegators something meaningful about how you operate. Third, it helps the community weigh the action. A well-argued rationale from a known DRep can sharpen the debate and surface considerations others may have missed.
 
 ## What to include
 
@@ -33,11 +33,11 @@ If you are not sure where to start, this outline works for most rationales:
 3. Any reservations or conditions, if relevant.
 4. Links to discussion or evidence, if you have them.
 
-That is enough. Most published rationales are a paragraph or two. Longer is not better; clearer is.
+That is enough. Most published rationales are a paragraph or two. Longer is not better. Clearer is.
 
 ## How it is published
 
-When you vote with a rationale on DRepTalk, you write it in the editor and your wallet submits it together with the vote. The rationale is a small document in the community metadata standard **CIP-100**; in practice most rationales use a single comment field, and the editor formats it for you.
+When you vote with a rationale on DRepTalk, you write it in the editor and your wallet submits it together with the vote. The rationale is a small document in the community metadata standard **CIP-100**. In practice most rationales use a single comment field, and the editor formats it for you.
 
 <img class="shot" src="/help/shots/rationale-editor.webp" alt="The vote rationale editor: a Markdown text area with formatting toolbar and preview, opened while casting a vote" width="686" height="573" loading="lazy" />
 
@@ -52,7 +52,7 @@ The long file name is the document's blake2b-256 hash, the same value recorded w
 
 ## What about IPFS?
 
-Many DReps publish rationales on IPFS, so you might expect DRepTalk to do the same. We deliberately host the document ourselves instead: publishing stays one step at vote time, with no pinning service or personal server to run. The guarantee people look to IPFS for, that content cannot change behind an address, comes from the fingerprint either way; an IPFS address and a DRepTalk address are both just places the bytes live, and the chain holds the hash that proves them.
+Many DReps publish rationales on IPFS, so you might expect DRepTalk to do the same. We deliberately host the document ourselves instead: publishing stays one step at vote time, with no pinning service or personal server to run. The guarantee people look to IPFS for, that content cannot change behind an address, comes from the fingerprint either way. An IPFS address and a DRepTalk address are both just places the bytes live, and the chain holds the hash that proves them.
 
 IPFS is not automatically permanent, either: a file there lives only as long as some node keeps pinning it, so it faces the same availability question as any host, just spread across whoever chooses to pin. Whichever host serves it, the chain guarantees what you committed to, not where it is stored.
 
@@ -62,7 +62,7 @@ You do not need to understand CIP-100 to write a good rationale. What matters is
 
 Your rationale is always recorded on-chain with your vote and shown on the action's Votes tab, whichever way you vote. Separately, when you submit a vote with a rationale, a checkbox lets you also post a copy of it into the action's discussion thread, so other DReps and delegators can respond to it there.
 
-That cross-post is optional and off by default. Leave the box unchecked and your rationale stays on the Votes tab only; check it and a frozen copy also appears in the discussion. The discussion copy is tied to your on-chain vote and cannot be edited. If you later re-vote with the box unchecked, the discussion copy is removed again.
+That cross-post is optional and off by default. Leave the box unchecked and your rationale stays on the Votes tab only. Check it and a frozen copy also appears in the discussion. The discussion copy is tied to your on-chain vote and cannot be edited. If you later re-vote with the box unchecked, the discussion copy is removed again.
 
 ## Related
 

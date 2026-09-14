@@ -13,14 +13,14 @@ It also means these values are **cached, not live**: each one is shown with an
 explicit "as of" time, and we never claim it is live. Forum posts themselves
 are never delayed. Here is how often each thing updates.
 
-<!-- This table is one of two hand-maintained copies of the cadences; the other
+<!-- This table is one of two hand-maintained copies of the cadences. The other
 is the FRESHNESS array in src/lib/freshness.ts (rendered by /debug/sync). Keep
 both in sync when a cadence changes. freshness.table.test.ts fails CI if the rows
 below no longer match FRESHNESS (label, refresh, and notes columns, in order). -->
 
 | Data | Refresh | Notes |
 |------|---------|-------|
-| Forum posts and topics | Immediate | Real forum activity is not delayed; anonymous views are edge-cached for about 30 seconds. |
+| Forum posts and topics | Immediate | Real forum activity is not delayed. Anonymous views are edge-cached for about 30 seconds. |
 | Governance actions (new threads) | About every 5 minutes | A discovery cron opens one thread per new on-chain action. |
 | CIP-179 surveys (definitions and response counts) | About every 5 minutes | Mirrored from the Tessera index on the discovery cron, on both mainnet and preprod. A submitted answer is counted once the index has confirmed its transaction, usually under ten minutes. |
 | Governance tallies and status (DRep, SPO, CC) | About every 15 minutes, active actions only | Frozen once an action is ratified, enacted, expired, or dropped. Shown with an "as of" time. |

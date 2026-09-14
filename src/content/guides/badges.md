@@ -4,9 +4,10 @@ description: "How achievement badges work on DRepTalk: earned automatically from
 cardLabel: "Badges"
 category: "About DRepTalk"
 order: 4
+updated: 2026-08-10
 ---
 
-Badges recognize governance participation. They are earned automatically; there is
+Badges recognize governance participation. They are earned automatically. There is
 nothing to claim or apply for. The [badge overview](/badges/) lists every
 badge and how many participants have earned it.
 
@@ -16,8 +17,8 @@ badge and how many participants have earned it.
   and voting on it on-chain.
 
 - **Never the direction of a vote.** No badge depends on voting Yes,
-  No, or Abstain. Participation, transparency, and consistency are rewarded;
-  positions are not.
+  No, or Abstain. Participation, transparency, and consistency are rewarded.
+  Positions are not.
 
 - **Tiers.** Count-based badges come in bronze, silver, and gold. The
   badge keeps its motif and changes its color as you reach the next milestone.
@@ -27,7 +28,7 @@ badge and how many participants have earned it.
 
 - **Where they attach.** On-chain badges belong to the on-chain
   identity (a DRep's badges show on its profile even if it never signed in). Forum
-  badges belong to the forum account; for a signed-in DRep both appear together.
+  badges belong to the forum account. For a signed-in DRep both appear together.
 
 - **Hidden badges.** A few badges only reveal their name and criterion
   when earned. They show up as ??? cards until then.
