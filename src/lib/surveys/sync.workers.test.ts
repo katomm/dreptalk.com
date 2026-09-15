@@ -28,6 +28,7 @@ import {
 import {
   getPublishableSurveys,
   getLinkedSurveyForAction,
+  getSurveyByRef,
   getSurveyByTopicId,
   getSurveyGovLinks,
   getSurveySyncState,
@@ -43,6 +44,7 @@ import {
   type SurveysTessera,
   syncSurveys,
 } from './sync.js';
+import { parseSurveyDefinition } from './view.js';
 
 const TX_LINKED = 'a'.repeat(64);
 const TX_SECOND = 'b'.repeat(64);
@@ -733,6 +735,34 @@ describe('syncSurveys', () => {
     ).toBe(1);
     expect((await surveyRows())[0]).toMatchObject({ counted_dreps: 3, synced_at: again });
     expect((await linksOf(KEY_LINKED)).map(l => l.action_id)).toEqual([ACTION_ID, ACTION_SECOND]);
+  });
+
+  it('rewrites the stored definition on delivery, so a form an older codec wrote decodes again', async () => {
+    await importLinkingAction();
+    await syncSurveys(deps(fakeTessera()));
+    const stored = async () => (await getSurveyByRef(env.DB, KEY_LINKED))?.definitionJson ?? '';
+
+    // The row as a cip-179 wire change leaves it: stored under a form this
+    // build's decoder refuses.
+    const legacy = JSON.parse(await stored());
+    delete legacy.definition.questions;
+    await env.DB.prepare('UPDATE survey SET definition = ? WHERE ref = ?')
+      .bind(JSON.stringify(legacy), KEY_LINKED)
+      .run();
+    expect(parseSurveyDefinition(await stored())).toBeNull();
+
+    // Tessera re-stamps the survey: the delivery carries the current form, and
+    // the row takes it.
+    const restamped = fakeTessera({
+      changes: async () => ({
+        ready: true,
+        body: deltaOf(
+          setOf([surveyRecord(TX_LINKED, definition())], LINKED_LINKS, { [KEY_LINKED]: 3 }),
+        ),
+      }),
+    });
+    expect((await syncSurveys(deps(restamped))).written).toBe(1);
+    expect(parseSurveyDefinition(await stored())?.questions).toHaveLength(1);
   });
 
   it('bootstraps from instant zero once, then asks only for what changed from its cursor', async () => {
