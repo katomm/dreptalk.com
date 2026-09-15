@@ -17,6 +17,14 @@ export interface NclPeriod {
   startEpoch: number;
   /** Effective end epoch after any extension (inclusive). */
   endEpoch: number;
+  /** The end epoch this period ran on before a later defining action extended
+   *  it. Absent when the runtime was never moved. */
+  previousEndEpoch?: number;
+  /** The epoch from which the revised ceiling and end epoch are the operative
+   *  ones, which is the epoch the later defining action closed in. Before it the
+   *  period ran on previousCeilingLovelace and previousEndEpoch, and anything
+   *  reporting on a window that ended earlier has to say those. */
+  revisedFromEpoch?: number;
   /** Authoritative action id(s) that establish/extend this NCL: "txHash#index". */
   definingActionIds: string[];
   /** Curated competing/challenging action ids for the same window (may be empty). */
@@ -30,6 +38,8 @@ export const NCL_PERIODS: NclPeriod[] = [
     ceilingLovelace: 350_000_000_000_000n,
     startEpoch: 532,
     endEpoch: 612, // original 532 to 604, extended by 8 epochs to 612
+    previousEndEpoch: 604,
+    revisedFromEpoch: 604, // the extension signal closed at the start of epoch 604
     definingActionIds: [
       '9b62b3c632f329016a968ac25211825bb4f84b12461121c7da3aa11df92370f9#0',
       'd16dffbae9d86a73cb343506e6712d79c278096dc25e8ba6900eb24522726bba#0',
@@ -45,6 +55,7 @@ export const NCL_PERIODS: NclPeriod[] = [
     previousCeilingLovelace: 350_000_000_000_000n,
     startEpoch: 613,
     endEpoch: 713, // 2026-02-13 to 2027-07-03
+    revisedFromEpoch: 647, // the raise signal closed at the start of epoch 647
     definingActionIds: [
       'dc4c679c8cf1cec49817d4d2c1c96cd802ec8a047a11dc0b0bb125b5af0a76cd#0', // original 350M
       'a75645e0871f3dbb6207df867d9bd6a1a3a5befa40d68df6da651db4d6607fbf#0', // raise to 500M

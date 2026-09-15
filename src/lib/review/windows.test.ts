@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { slugFor, parseSlug, assertContiguous, buildEditionIndex } from './windows.js';
+import { slugFor, parseSlug, parseEditionNumber, assertContiguous, buildEditionIndex } from './windows.js';
 
 describe('slugs', () => {
   it('derives and parses the epochs slug', () => {
@@ -7,6 +7,12 @@ describe('slugs', () => {
     expect(parseSlug('epochs-650-652')).toEqual({ from: 650, to: 652 });
     expect(parseSlug('epochs-652-650')).toBeNull();
     expect(parseSlug('something')).toBeNull();
+  });
+  it('reads an edition number, nothing else', () => {
+    expect(parseEditionNumber('41')).toBe(41);
+    expect(parseEditionNumber('041')).toBeNull();
+    expect(parseEditionNumber('0')).toBeNull();
+    expect(parseEditionNumber('epochs-650-652')).toBeNull();
   });
 });
 

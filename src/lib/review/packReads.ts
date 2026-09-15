@@ -16,13 +16,15 @@ export interface ActionDbRow {
   drep_yes: number; drep_no: number; drep_abstain: number; drep_yes_pct: number | null; drep_no_pct: number | null;
   drep_yes_power: string | null; drep_no_power: string | null; drep_abstain_power: string | null;
   spo_yes: number; spo_no: number; spo_abstain: number; spo_yes_pct: number | null; spo_no_pct: number | null;
+  spo_yes_power: number | null; spo_no_side_power: string | null; spo_eligible_power: number | null; tally_epoch: number | null;
   cc_yes: number; cc_no: number; cc_abstain: number; cc_yes_pct: number | null;
   thresholds_json: string | null;
 }
 
 const ACTION_COLUMNS = `id, type, title, status, submitted_epoch, ratified_epoch, enacted_epoch, decided_epoch, expiry_epoch, onchain_payload,
   drep_yes, drep_no, drep_abstain, drep_yes_pct, drep_no_pct, drep_yes_power, drep_no_power, drep_abstain_power,
-  spo_yes, spo_no, spo_abstain, spo_yes_pct, spo_no_pct, cc_yes, cc_no, cc_abstain, cc_yes_pct, thresholds_json`;
+  spo_yes, spo_no, spo_abstain, spo_yes_pct, spo_no_pct, spo_yes_power, spo_no_side_power, spo_eligible_power, tally_epoch,
+  cc_yes, cc_no, cc_abstain, cc_yes_pct, thresholds_json`;
 
 /**
  * Every action whose lifecycle could overlap the window: submitted at or before
@@ -113,6 +115,34 @@ export async function readVotesForActions(db: D1Database, ids: string[], endUnix
       )
       .bind(...batch, endUnix)
       .all<VoteRow>();
+    out.push(...(res.results ?? []));
+  }
+  return out;
+}
+
+export interface RationaleRow {
+  ga_id: string;
+  voter_role: string;
+  voter_id: string;
+  voter_hex: string | null;
+  vote: string;
+  body_text: string;
+  source: string;
+}
+
+/** Every readable vote rationale on the given actions, any role, joined to the ballot it explains. */
+export async function readRationalesForActions(db: D1Database, ids: string[]): Promise<RationaleRow[]> {
+  const out: RationaleRow[] = [];
+  for (const batch of chunked(ids, ID_CHUNK)) {
+    const res = await db
+      .prepare(
+        `SELECT r.ga_id, v.voter_role, r.voter_id, v.voter_hex, v.vote, r.body_text, r.source
+           FROM action_rationale r
+           JOIN drep_votes v ON v.ga_id = r.ga_id AND v.voter_id = r.voter_id
+          WHERE r.ga_id IN (${sqlPlaceholders(batch)}) AND r.body_html IS NOT NULL AND r.body_text <> ''`,
+      )
+      .bind(...batch)
+      .all<RationaleRow>();
     out.push(...(res.results ?? []));
   }
   return out;
@@ -234,14 +264,6 @@ export async function readCommitteeMinSizeAt(db: D1Database, epoch: number): Pro
     return { value: null, observedAtEpoch: row.epoch, reason: `snapshot at epoch ${row.epoch} has no committee minimum` };
   }
   return { value: row.committee_min_size, observedAtEpoch: row.epoch };
-}
-
-/** Self-declared committee member names, keyed by lower-case hot key. */
-export async function readCcMemberNames(db: D1Database): Promise<Map<string, string>> {
-  const res = await db.prepare('SELECT hot_key_hex, name FROM cc_member_name').all<{ hot_key_hex: string; name: string }>();
-  const out = new Map<string, string>();
-  for (const r of res.results ?? []) out.set(r.hot_key_hex.toLowerCase(), r.name);
-  return out;
 }
 
 /** Treasury withdrawals enacted at or before `epoch`. Later ones never exist for a historical window. */

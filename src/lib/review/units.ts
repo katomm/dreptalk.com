@@ -1,6 +1,6 @@
 import { EPOCH_LENGTH_SECONDS, epochStartUnix, type CardanoNetwork, type NetworkConfig } from '../config/network.js';
 
-export const REVIEW_PACK_VERSION = 1;
+export const REVIEW_PACK_VERSION = 2;
 
 /** First epoch with a governance_epoch_stats row, per network. Mainnet: the first
  *  epoch with DRep power after the Chang hard fork. Verified against the stored

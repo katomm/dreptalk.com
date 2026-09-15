@@ -42,6 +42,7 @@ interface PackActionShape {
   expiryEpoch?: number | null;
   eventsInWindow?: Array<{ epoch: number; kind?: string }>;
   tally?: { drep?: { yesPct?: number | null } };
+  withdrawalAda?: number | null;
 }
 
 const ACTION_GROUPS = ['events', 'closingAtBoundary', 'open', 'comparisons'] as const;
@@ -103,13 +104,13 @@ function collectStrings(v: unknown, keys: RegExp, out: Set<string>): void {
 }
 
 /** Capitalized only because they open a sentence. Any other word at a sentence start is checked like the rest. */
-const SENTENCE_STARTERS = new Set(['The', 'A', 'An', 'In', 'By', 'On', 'At', 'As', 'Of', 'And', 'For', 'With', 'That', 'This', 'These', 'Those', 'It', 'Its', 'He', 'She', 'They', 'We', 'But', 'So', 'If', 'When', 'While', 'After', 'Before', 'Since', 'Until', 'Both', 'Neither', 'Every', 'Each', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Half', 'Most', 'Some', 'None', 'Not', 'No', 'Yes', 'What', 'Where', 'Why', 'How', 'Whatever', 'Part', 'Compared', 'Read', 'Only', 'Also', 'Still', 'Then', 'There', 'Here', 'Nothing', 'Everything', 'Nobody', 'Whether', 'Unless', 'Without', 'Behind', 'Between', 'Under', 'Over', 'Across', 'Against', 'Steps', 'Rewards']);
+const SENTENCE_STARTERS = new Set(['The', 'A', 'An', 'In', 'By', 'On', 'At', 'As', 'Of', 'And', 'For', 'With', 'That', 'This', 'These', 'Those', 'It', 'Its', 'He', 'She', 'They', 'We', 'But', 'So', 'If', 'When', 'While', 'After', 'Before', 'Since', 'Until', 'Both', 'Neither', 'Every', 'Each', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Half', 'Most', 'Some', 'None', 'Not', 'No', 'Yes', 'What', 'Where', 'Why', 'How', 'Whatever', 'Part', 'Compared', 'Read', 'Only', 'Also', 'Still', 'Then', 'There', 'Here', 'Nothing', 'Everything', 'Nobody', 'Whether', 'Unless', 'Without', 'Behind', 'Between', 'Under', 'Over', 'Across', 'Against', 'Steps', 'Rewards', 'More', 'Together', 'Share', 'Underneath', 'Concentration', 'Voting', 'Ratification', 'Repricing', 'Power', 'Participation', 'Almost', 'Abstaining', 'Taken', 'All', 'Paying', 'Same', 'Constitutional', 'Amount', 'Size', 'Count', 'Fewer', 'Neither', 'Twelve', 'Nine', 'Six', 'Nineteen', 'Forty', 'Delegation', 'Missed', 'Among', 'Bars', 'Follow', 'Their', 'Smaller', 'Ranked', 'Around', 'Stake', 'Final', 'According', 'Eleven', 'Dropped', 'Metadata', 'Opposing', 'Revised', 'Should', 'Dividing', 'Raising', 'Participation', 'Pools', 'Delegated', 'Voting', 'Deciding', 'From', 'Until', 'Ratification', 'Weight', 'Governance', 'Which', 'Who', 'Its', 'Within', 'Inside', 'Nothing', 'Below', 'Thirty', 'Approving', 'Better', 'Neither', 'Both', 'Calling', 'Endorsing', 'Across', 'Ballots', 'Payments', 'Support', 'Weight', 'Pools', 'Instead', 'Rather', 'Getting', 'Read', 'Whichever', 'Carrying', 'Unpaid', 'Doing', 'Being', 'Losing', 'During', 'Anything', 'Ninety', 'Adding', 'Provisions', 'Definitions', 'Payments', 'Reach', 'Hit', 'Proposing', 'Any', 'To', 'Reading', 'Counting', 'Users', 'Another', 'Pool', 'Losing']);
 
 const GOVERNANCE_TERMS = new Set([
   'Cardano', 'DRep', 'DReps', 'SPO', 'SPOs', 'Constitutional Committee', 'Constitution', 'Governance Review', 'DRepTalk',
   'Yes', 'No', 'Abstain', 'Epoch', 'Epochs', 'Mainnet', 'Koios', 'Plutus', 'Treasury', 'Intersect',
   'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December',
-  'Info', 'Parameter', 'Hard', 'Fork', 'Protocol', 'Version', 'Update', 'Committee', 'Chang', 'Plomin', 'Van Rossem', 'Interim',
+  'Info', 'Parameter', 'Hard', 'Fork', 'Gini', 'Protocol', 'Version', 'Update', 'Committee', 'Chang', 'Plomin', 'Van Rossem', 'Interim',
 ]);
 
 /**
@@ -120,6 +121,8 @@ const GOVERNANCE_TERMS = new Set([
 const OUTCOME_WORDS = /\b(ratified|enacted|expired|dropped|rejected|approved|passed|pass|failed|fail|carried|adopted|defeated|succeeded)\b/i;
 
 /** Typographic dashes and the HTML entities that render as one. */
+/** A title with its typographic dashes spelled out, the one rewording a row or a link text may apply. */
+const dashFree = (t: string | undefined) => t?.replace(/\s*[—–―]\s*/g, ' to ');
 const DASHES = /[—–―]|&mdash;|&ndash;|&#8212;|&#8211;|&#x2014;|&#x2013;/;
 const LANDS = /\bland(s|ed|ing)?\s+(on|there|where|exactly|in|at)\b/i;
 /** A number-shaped run in prose, with the unit it is shown in. Case-insensitive: "4.3m" claims the same as "4.3M". */
@@ -164,11 +167,16 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
   // Source paths resolve against the pack plus the verified derived values under the reserved key "derived".
   const scope = { ...(pack as Record<string, unknown>), derived: verifiedDerived };
 
-  // Candidate numbers: every number and array length in the pack, the verified derived values, and epochs around the window.
+  // Candidate numbers: every number and array length in the pack, the verified
+  // derived values, epochs around the window, and the numbers the external
+  // block declares. An external number is licensed by its own source line, not
+  // by the pack: the page prints the claim and the source next to the article,
+  // so a reader sees where a figure the snapshot never held came from.
   const candidates = new Set<number>();
   collectNumbers(pack, candidates);
   for (const d of verifiedDerived) if (d) candidates.add(d.value);
   for (let e = fm.epochFrom - 30; e <= fm.epochTo + 30; e++) candidates.add(e);
+  for (const x of fm.external ?? []) for (const n of x.numbers) candidates.add(n);
   const known = (shown: Shown) => [...candidates].some((c) => shownMatches(shown, c));
 
   // 1. fact tiles and the social figure, which is a fact tile on a card
@@ -186,11 +194,11 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
   const segments: Segment[] = [
     { label: 'title', text: fm.title },
     { label: 'standfirst', text: fm.standfirst },
-    ...(fm.listTitle ? [{ label: 'listTitle', text: fm.listTitle }] : []),
     ...(fm.teaser ? [{ label: 'teaser', text: fm.teaser }] : []),
     { label: 'ogFigure label', text: fm.ogFigure.label },
     ...fm.facts.map((f, i) => ({ label: `fact ${i + 1} label`, text: f.label })),
     ...fm.corrections.map((c, i) => ({ label: `correction ${i + 1} note`, text: c.note })),
+    ...(fm.external ?? []).map((x, i) => ({ label: `external ${i + 1} claim`, text: x.claim })),
   ];
 
   // 4. chart blocks, then strip them from the prose
@@ -218,6 +226,8 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
     if (spec.type === 'line') for (const [i, mk] of spec.markers.entries()) segments.push({ label: `chart ${n} marker ${i + 1} label`, text: mk.label });
     if (spec.type === 'hbars') for (const [i, r] of spec.rows.entries()) segments.push({ label: `chart ${n} row ${i + 1} label`, text: r.label });
     if (spec.type === 'seats') for (const [i, g] of spec.groups.entries()) segments.push({ label: `chart ${n} group ${i + 1} label`, text: g.label });
+    if (spec.type === 'scatter') { segments.push({ label: `chart ${n} x label`, text: spec.xLabel }); for (const [i, p] of spec.points.entries()) segments.push({ label: `chart ${n} point ${i + 1} label`, text: p.label }); }
+    if (spec.type === 'power') for (const [i, r] of spec.rows.entries()) segments.push({ label: `chart ${n} row ${i + 1} label`, text: r.label });
     if (spec.type === 'lines') for (const [i, s] of spec.series.entries()) segments.push({ label: `chart ${n} series ${i + 1} name`, text: s.name });
     // epoch-indexed charts: the epoch source must yield exactly the epochs the chart shows
     if (spec.type === 'line' || spec.type === 'bars' || spec.type === 'stacked') {
@@ -228,20 +238,27 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
         out.push({ rule: 'chart-source-mismatch', message: `chart ${chartIndex}: shown epochs ${shownEpochs[0]} to ${shownEpochs.at(-1)} do not match ${spec.epochSource} (epoch ${srcEpochs[0]} to ${srcEpochs.at(-1)})` });
       }
     }
-    const series: number[][] =
-      spec.type === 'line' ? [spec.values.map((v) => v ?? Number.NaN)]
-      : spec.type === 'lines' ? spec.series.map((x) => x.values)
-      : spec.type === 'stacked' ? [spec.yes, spec.no, spec.abstain]
-      : spec.type === 'bars' ? [spec.values]
-      : spec.type === 'hbars' ? spec.rows.map((r) => [r.value])
-      : spec.groups.map((g) => [g.count]);
+    // A series is checked against one source path. Most charts hold one unit, so
+    // the spec's own format scales them. A scatter carries two units and a power
+    // chart three plus a share, so those name the unit per series.
+    type Series = { vals: number[]; format: 'M' | 'B' | '%' | 'int' };
+    const one = (vals: number[], format = spec.format): Series => ({ vals, format });
+    const series: Series[] =
+      spec.type === 'line' ? [one(spec.values.map((v) => v ?? Number.NaN))]
+      : spec.type === 'lines' ? spec.series.map((x) => one(x.values))
+      : spec.type === 'stacked' ? [one(spec.yes), one(spec.no), one(spec.abstain)]
+      : spec.type === 'bars' ? [one(spec.values)]
+      : spec.type === 'hbars' ? spec.rows.map((r) => one([r.value]))
+      : spec.type === 'scatter' ? spec.points.flatMap((p) => [one([p.x], spec.xFormat), one([p.y])])
+      : spec.type === 'power' ? spec.rows.flatMap((r) => [one([r.yes]), one([r.no]), one([r.abstain]), one([r.share], '%')])
+      : spec.groups.map((g) => one([g.count]));
     if (series.length !== spec.sources.length) {
       out.push({ rule: 'chart-source-mismatch', message: `chart ${chartIndex}: ${series.length} series but ${spec.sources.length} sources` });
       continue;
     }
-    series.forEach((vals, k) => {
+    series.forEach(({ vals, format }, k) => {
       const rawSeries = resolvePath(scope, spec.sources[k]);
-      const src = (Array.isArray(rawSeries) ? rawSeries : [rawSeries]).map((x) => (typeof x === 'number' ? x / scaleFor(spec.format) : Number.NaN));
+      const src = (Array.isArray(rawSeries) ? rawSeries : [rawSeries]).map((x) => (typeof x === 'number' ? x / scaleFor(format) : Number.NaN));
       vals.forEach((v, i) => {
         if (Number.isNaN(v)) return; // a gap in the chart is not a claim
         const decimals = (String(v).split('.')[1] ?? '').length;
@@ -251,6 +268,15 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
       });
     });
   }
+  // 4b. record claims: a "highest" or "lowest" is only allowed for a metric
+  // whose extreme, in this pack's own records block, falls inside the window.
+  const records = (resolvePath(pack, 'records') as Array<{ metric: string; max: { epoch: number }; min: { epoch: number } }> | undefined) ?? [];
+  for (const c of fm.recordClaims ?? []) {
+    const r = records.find((x) => x.metric === c.metric);
+    if (!r) out.push({ rule: 'record-claim', message: `record claim: ${c.metric} is not a metric in pack.records` });
+    else if (r[c.kind].epoch < fm.epochFrom || r[c.kind].epoch > fm.epochTo) out.push({ rule: 'record-claim', message: `record claim: the ${c.kind} of ${c.metric} is at epoch ${r[c.kind].epoch}, outside epochs ${fm.epochFrom} to ${fm.epochTo}` });
+  }
+
   const prose = body.replace(CHART_RE, '');
 
   // 5. links
@@ -280,6 +306,8 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
   const drepNames = new Map<string, string>();
   for (const d of (resolvePath(pack, 'topDreps') as Array<{ drepId: string; name: string | null }> | undefined) ?? []) if (d.name) drepNames.set(d.drepId, d.name);
   for (const list of Object.values((resolvePath(pack, 'topVoters') as Record<string, Array<{ drepId: string; name: string | null }>> | undefined) ?? {})) for (const v of list) if (v.name) drepNames.set(v.drepId, v.name);
+  // A quoted voter is linked like any other DRep, so the rationale rows license ids too (pack version 2).
+  for (const list of Object.values((resolvePath(pack, 'rationales') as Record<string, Array<{ voterId: string; role: string; name: string | null }>> | undefined) ?? {})) for (const v of list) if (v.role === 'DRep' && v.name) drepNames.set(v.voterId, v.name);
   // Only a link text that IS the pack title or the pack name earns the two
   // exemptions below (dropped from the number scan, added to the name
   // whitelist). An alias is the author's own wording: the link itself is
@@ -299,8 +327,10 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
     if (kind === 'ga') {
       linkedActionIds.add(id);
       if (!ids.has(id)) out.push({ rule: 'link-not-in-pack', message: `link to unknown action ${id}` });
-      else if (text !== titleFor(id) && !(aliasesById.get(id) ?? []).includes(text)) out.push({ rule: 'link-not-in-pack', message: `link text "${text}" is neither the title nor an alias of ${id}` });
-      else canonical = text === titleFor(id);
+      else if (text !== titleFor(id) && text !== dashFree(titleFor(id)) && !(aliasesById.get(id) ?? []).includes(text)) out.push({ rule: 'link-not-in-pack', message: `link text "${text}" is neither the title nor an alias of ${id}` });
+      // The dash-free form of a title is the title, not an alias: the page must
+      // not render a typographic dash, and the words are still the record's own.
+      else canonical = text === titleFor(id) || text === dashFree(titleFor(id));
     } else if (!drepNames.has(id)) out.push({ rule: 'link-not-in-pack', message: `link to unknown DRep ${id}` });
     else if (text !== drepNames.get(id)) out.push({ rule: 'link-not-in-pack', message: `link text "${text}" is not the pack name of ${id}` });
     else canonical = true;
@@ -308,11 +338,12 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
   }
 
   // Body paragraphs, headings included. A verified link span is removed whole
-  // (a year inside a verified title is not a claim), every other link keeps its
-  // text. Numbering is over the paragraphs of the body, charts already removed.
+  // (a year inside a verified title is not a claim), and so is a link to another
+  // edition, whose epochs name the pointer and not a figure. Every other link
+  // keeps its text. Numbering is over the paragraphs of the body, charts already removed.
   const paragraphs = prose.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
   paragraphs.forEach((p, i) => {
-    segments.push({ label: `paragraph ${i + 1}`, text: p.replace(/\[([^\]]+)\]\([^)]*\)/g, (_, text: string) => (verifiedLinkTexts.has(text) ? '' : text)) });
+    segments.push({ label: `paragraph ${i + 1}`, text: p.replace(/\[([^\]]+)\]\(([^)]*)\)/g, (_, text: string, href: string) => (verifiedLinkTexts.has(text) || href.startsWith('/governance-review/') ? '' : text)) });
   });
 
   // 2. numbers, in every scanned segment
@@ -335,6 +366,10 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
   // name the record does not carry. Whether the short form is used for the
   // right action stays layer 2's job, like every other known name.
   const knownRuns = new Set<string>([...GOVERNANCE_TERMS, ...verifiedLinkTexts]);
+  // Names the external block declares, for the same reason as its numbers: a
+  // proposal's applicant or a body the rules name exists outside the snapshot,
+  // and the page prints where the edition read it.
+  for (const x of fm.external ?? []) for (const n of x.names) knownRuns.add(n);
   const titleWord = (w: string) => w.replace(/[.,:;!?()"“”]+$/, '').replace(/^[("“]+/, '').replace(/[’']s$/, '');
   for (const [id, list] of aliasesById) {
     const words = new Set((titleFor(id) ?? '').split(/\s+/).map(titleWord).filter(Boolean));
@@ -346,7 +381,9 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
     // A heading loses its "#" marks and then opens a sentence like any line.
     const sentences = stripHeadingMarks(seg.text).split(/(?<=[.!?])\s+|\n+/);
     for (const sentence of sentences) {
-      const words = sentence.trim().split(/\s+/).map((w) => w.replace(/[.,:;!?()"]+$/, '').replace(/^[("]+/, ''));
+      // A possessive is the name plus an ending, so "Cardano's" is checked as
+      // "Cardano". Without this every known name would need a second entry.
+      const words = sentence.trim().split(/\s+/).map((w) => w.replace(/[.,:;!?()"]+$/, '').replace(/^[("]+/, '').replace(/[’']s$/, ''));
       for (let i = 0; i < words.length; i++) {
         if (!/^[A-Z][\w₳'’.-]*$/.test(words[i])) continue;
         if (i === 0 && SENTENCE_STARTERS.has(words[0])) continue;
@@ -373,9 +410,16 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
   // title stem or a declared alias is how a paragraph about the action is found,
   // so an action written around all three is only caught by rule 10 below.
   const closing = (resolvePath(pack, 'actions.closingAtBoundary') as PackActionShape[] | undefined) ?? [];
+  const allTitles = [...packById.values()].map((h) => h.row.title ?? '');
   for (const a of closing) {
     const title = a.title ?? '';
-    const needles = [a.id, title.slice(0, 24), ...(aliasesById.get(a.id) ?? [])].filter(Boolean);
+    // The title stem is a 24 character prefix, long enough to survive a
+    // paraphrase. Budget titles share far more than that with each other, and a
+    // stem another action's title also starts with would flag every paragraph
+    // about that other action, so an ambiguous stem is widened to the full title.
+    const stem = title.slice(0, 24);
+    const ambiguous = allTitles.filter((t) => t.startsWith(stem)).length > 1;
+    const needles = [a.id, ambiguous ? title : stem, ...(aliasesById.get(a.id) ?? [])].filter(Boolean);
     paragraphs.forEach((para, i) => {
       if (!needles.some((n) => para.includes(n))) return;
       if (OUTCOME_WORDS.test(para)) out.push({ rule: 'closing-outcome-stated', message: `"${title}" closes at the boundary but the text states an outcome (paragraph ${i + 1})` });
@@ -400,7 +444,10 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
       return;
     }
     const p = hit.row;
-    if (p.title != null && r.title !== p.title) out.push({ rule: 'action-row-mismatch', message: `${at}: title "${r.title}" is not the pack title "${p.title}"` });
+    // A row repeats the on-chain title, with one licence: a typographic dash in
+    // it is spelled out, because the rendered page must not carry one. Nothing
+    // else about the title may differ.
+    if (p.title != null && r.title !== p.title && r.title !== dashFree(p.title)) out.push({ rule: 'action-row-mismatch', message: `${at}: title "${r.title}" is neither the pack title "${p.title}" nor its dash-free form` });
     // An action the pack still lists as running has no outcome yet, whatever its status column says.
     const stillOpen = hit.group === 'closingAtBoundary' || hit.group === 'open' || p.open === true;
     if (stillOpen && r.outcome !== 'open') out.push({ rule: 'action-row-mismatch', message: `${at}: outcome "${r.outcome}" but the pack still lists the action as running` });
@@ -409,7 +456,13 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
     // later one, so holding the row to the status would force an enactment the
     // window never saw.
     const ratifiedInWindow = (p.eventsInWindow ?? []).some((e) => e.kind === 'ratified');
-    const outcomeAllowed = r.outcome === p.status || (r.outcome === 'ratified' && ratifiedInWindow);
+    // An action whose voting ran past this window was still being voted on at its
+    // close, whatever status the pack has recorded since. The edition may list it
+    // as open, so a proposal submitted inside the window is not dropped from the
+    // open table just because the snapshot already knows how it ended.
+    const openPastWindow = p.expiryEpoch != null && p.expiryEpoch > fm.epochTo + 1;
+    const outcomeAllowed =
+      r.outcome === p.status || (r.outcome === 'ratified' && ratifiedInWindow) || (r.outcome === 'open' && openPastWindow);
     if (!stillOpen && !outcomeAllowed) out.push({ rule: 'action-row-mismatch', message: `${at}: outcome "${r.outcome}" is not the pack status "${p.status}"` });
     // An open row is rendered as a voting close ("undecided at the close of
     // epoch N", "voting ends at the start of epoch N"), so its epoch is the
@@ -424,6 +477,11 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
     const packPct = p.tally?.drep?.yesPct ?? null;
     const rowPct = r.drepYesPct ?? null;
     if (rowPct !== packPct) out.push({ rule: 'action-row-mismatch', message: `${at}: drepYesPct ${String(rowPct)} is not the pack tally ${String(packPct)}` });
+    // An amount in a row is the pack's own withdrawal figure, never a rounded or
+    // remembered one, so the column cannot drift from the snapshot.
+    if (r.amountAda != null && r.amountAda !== (p.withdrawalAda ?? null)) {
+      out.push({ rule: 'action-row-mismatch', message: `${at}: amountAda ${r.amountAda} is not the pack withdrawal ${String(p.withdrawalAda ?? 'none')}` });
+    }
   };
   for (const [i, r] of fm.alsoDecided.entries()) checkRow('alsoDecided', i, r);
   for (const [i, r] of fm.openActions.entries()) checkRow('openActions', i, r);

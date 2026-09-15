@@ -173,6 +173,7 @@ export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResu
             abstract: meta?.abstract ?? null,
             rationaleHtml: meta?.rationaleHtml ?? null,
             authors: meta?.authors ?? null,
+            references: meta?.references ?? null,
             anchorUrl: p.meta_url ?? null,
             anchorHash: p.meta_hash ?? null,
             anchorStatus: anchor.status,
@@ -313,6 +314,7 @@ export async function backfillActionMetadata(deps: MetaBackfillDeps): Promise<Me
         abstract: result.metadata.abstract,
         rationaleHtml: result.metadata.rationaleHtml,
         authors: result.metadata.authors,
+        references: result.metadata.references,
         metaVersion: META_EXTRACT_VERSION,
       });
       updated++;

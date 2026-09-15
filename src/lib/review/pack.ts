@@ -13,19 +13,20 @@
 //
 // All ada amounts are numbers in ada and their field names end in Ada.
 import { getCommitteeTimeline } from '../db/committee.js';
-import { activeCommitteeMembersAt } from '../koios/committeeTimeline.js';
+import { getAllCcMemberNames } from '../db/ccMemberName.js';
+import { activeCommitteeMembersAtBoundary, committeeStanding, decisionBoundaryEpoch, versionCovers, type CommitteeMemberTerm } from '../koios/committeeTimeline.js';
+import { buildCcNameIndex, type CcNameIndex } from '../governance/ccNames.js';
 import { listEpochStats } from '../db/governanceEpochStats.js';
 import { EPOCH_STATS_METRICS, type EpochStatsMetricKey } from '../analytics/epochStatsContract.js';
 import type { EpochStatsRow } from '../analytics/epochStats.js';
 import { epochFromUnix, type NetworkConfig } from '../config/network.js';
 import { readThresholdSnapshot } from '../governance/thresholds.js';
 import { govActionHref } from './links.js';
-import { NCL_PERIODS } from '../../../config/ncl-periods.js';
+import { NCL_PERIODS, type NclPeriod } from '../../../config/ncl-periods.js';
 import { nclStatusFor } from '../governance/ncl.js';
 import { epochReadiness, watermarks, type EpochReadiness } from './readiness.js';
 import { epochBoundsUnix, lovelaceToAda, REVIEW_PACK_VERSION } from './units.js';
 import {
-  readCcMemberNames,
   readCommitteeMinSizeAt,
   readDrepNames,
   readEarlierActionsOfTypes,
@@ -33,6 +34,7 @@ import {
   readPowerCoverage,
   readPowerDrops,
   readPowerForDreps,
+  readRationalesForActions,
   readTopDrepsAtEpoch,
   readVoteHistoryForActions,
   readVoteHistoryInRange,
@@ -40,8 +42,10 @@ import {
   readVotesInRange,
   readWindowActions,
   type ActionDbRow,
+  type RationaleRow,
   type VoteRow,
 } from './packReads.js';
+import { positionsVoterAnchor } from '../governance/voteStatement.js';
 
 export interface PackAction {
   id: string;
@@ -57,10 +61,26 @@ export interface PackAction {
   withdrawalAda: number | null;
   tally: {
     drep: { yes: number; no: number; abstain: number; yesPct: number | null; noPct: number | null; yesPowerAda: number | null; noPowerAda: number | null; abstainPowerAda: number | null; abstainExcluded: true };
-    spo: { yes: number; no: number; abstain: number; yesPct: number | null; noPct: number | null };
+    spo: {
+      yes: number; no: number; abstain: number; yesPct: number | null; noPct: number | null;
+      /** The stake behind the pool yes ballots, the stake on the ratification No side (cast No,
+       *  default No and always no confidence together) and the eligible stake, as the tally
+       *  source reported them, so a share can be checked. Null before the buckets were captured. */
+      yesPowerAda: number | null; noSidePowerAda: number | null; eligiblePowerAda: number | null;
+      /** The epoch the tally source reported the summary for. */
+      tallyEpoch: number | null;
+    };
     cc: { yes: number; no: number; abstain: number; yesPct: number | null; abstainExcluded: true };
   };
-  thresholds: { drep: number | null; spo: number | null; cc: number | null; ccBelowMinSize: boolean | null };
+  thresholds: {
+    drep: number | null; spo: number | null; cc: number | null; ccBelowMinSize: boolean | null;
+    /** How the committee gate was measured: the boundary epoch, the size counted there,
+     *  the minimum in force and its source. Null on snapshots frozen before the gate
+     *  carried provenance. */
+    ccGate: { boundaryEpoch: number | null; sizeAtBoundary: number | null; minSize: number | null; minSizeSource: string | null } | null;
+    /** The stored tallies read below a bar the ledger evidently accepted. */
+    tallyContradictsOutcome: boolean | null;
+  };
   eventsInWindow: Array<{ kind: 'submitted' | 'ratified' | 'enacted' | 'expired' | 'dropped' | 'closed'; epoch: number }>;
   open: boolean;
   /** The close epoch was inferred from decided_epoch because the action predates the ratified_epoch column. */
@@ -93,8 +113,38 @@ export interface WindowPack {
   voteTimeline: Record<string, Array<{ epoch: number; byCount: { yes: number; no: number; abstain: number }; byPowerAda: { yes: number; no: number; abstain: number } | null }>>;
   topVoters: Record<string, Array<{ drepId: string; name: string | null; vote: string; epochCast: number | null; powerAda: number | null; powerAsOfEpoch: number }>>;
   topDreps: Array<{ drepId: string; name: string | null; powerAda: number; ballots: Record<string, string | 'did not vote'> }>;
-  ccVotes: Record<string, Array<{ hotKeyHex: string; name: string | null; vote: string; epochCast: number | null; activeAtDecision: boolean | null }>>;
-  committee: { asOfEpoch: number; members: Array<{ coldKeyHex: string; termExpiration: number; authorizedFrom: number; resignedAt: number | null }>; minSize: { value: number | null; observedAtEpoch: number | null; reason?: string }; endingWithin12: number };
+  /** Per action, every committee ballot. `activeAtDecision` is whether the member counted
+   *  at the action's decision boundary (null while the action is still open at the window's
+   *  end, or when the hot key is unmapped); `activeAtWindowEnd` is whether the member counts
+   *  at the boundary that closes the window, the next transition after its last epoch. */
+  ccVotes: Record<string, Array<{ hotKeyHex: string; name: string | null; vote: string; epochCast: number | null; activeAtDecision: boolean | null; activeAtWindowEnd: boolean | null }>>;
+  /** Per action in events and closingAtBoundary: what voters wrote about their
+   *  ballot, in their own words. The largest DRep voters by power at epochTo
+   *  that left a rationale, every committee member's, and a few pool operators'.
+   *  Excerpts are the opening of the rationale, the url opens the full text. */
+  rationales: Record<string, Array<{ voterId: string; role: 'DRep' | 'SPO' | 'CC'; name: string | null; vote: string; powerAda: number | null; excerpt: string; url: string }>>;
+  /** The committee at the boundary that closes the window (the transition into
+   *  `asOfEpoch + 1`, the earliest point the ledger could decide anything still open):
+   *  every seat of the version in force there, with whether it counts and why not.
+   *  `eligible` is that count, `seats` the count of elected seats. The same boundary
+   *  gives `ccVotes[].activeAtWindowEnd`. */
+  committee: {
+    asOfEpoch: number;
+    boundaryEpoch: number;
+    seats: number;
+    eligible: number;
+    members: Array<{
+      coldKeyHex: string;
+      name: string | null;
+      termExpiration: number;
+      authorizedFrom: number;
+      resignedAt: number | null;
+      eligibleAtEnd: boolean;
+      exclusionReason: 'not-authorized' | 'resigned' | 'expired' | null;
+    }>;
+    minSize: { value: number | null; observedAtEpoch: number | null; reason?: string };
+    endingWithin12: number;
+  };
   epochStats: { rows: Array<Record<string, number | string | boolean | null> & { epoch: number }>; metrics: Record<string, { column: string; definition: string; reliability: string; unit: PackUnit }> };
   powerHistory: { coverage: { from: number; to: number } | null; covered: boolean; coveredAtTo: boolean; drops: Array<{ drepId: string; name: string | null; fromAda: number; toAda: number; deltaAda: number; deregistered: boolean }> | null; dropsRange: { from: number; to: number } | null };
   /** The curated net change limit periods this window falls in, with what the
@@ -140,6 +190,9 @@ const LEAD_IN_EPOCHS = 20;
 const VOTE_LEAD_IN_EPOCHS = 4;
 const TOP_DREPS = 15;
 const TOP_VOTERS = 12;
+/** Rationales kept per action and role: DReps by power, pools by ballot order, every committee member. */
+const TOP_RATIONALES = { DRep: 8, SPO: 3 } as const;
+const RATIONALE_EXCERPT = 700;
 const TOP_WITHDRAWALS = 5;
 const MAX_DROPS = 10;
 /** A committee term expiring this soon after the window is worth a sentence. */
@@ -189,19 +242,14 @@ function eventsInWindow(r: ActionDbRow, from: number, to: number): PackAction['e
 }
 
 /**
- * Voting closes at the ratification epoch, or at the terminal epoch for
- * expired, dropped and closed actions. Null while still open. Actions from
- * before the ratified_epoch column exists carry only an enactment epoch, and
- * ratification is the epoch before enactment, so that is derived rather than
- * reported as "still open" (which would put a long-settled action in the
- * window's open list).
+ * Voting closes at the decision boundary (decisionBoundaryEpoch), null while
+ * still open. An enacted row from before the ratified_epoch column carries only
+ * its enactment epoch, so its close is derived rather than reported as "still
+ * open" (which would put a long-settled action in the window's open list).
  */
 function closeEpoch(r: ActionDbRow): { epoch: number | null; derived: boolean } {
-  if (r.ratified_epoch != null) return { epoch: r.ratified_epoch, derived: false };
-  if (r.status === 'enacted') {
-    return r.decided_epoch != null ? { epoch: r.decided_epoch - 1, derived: true } : { epoch: null, derived: false };
-  }
-  return { epoch: r.decided_epoch, derived: false };
+  const epoch = decisionBoundaryEpoch({ status: r.status, decidedEpoch: r.decided_epoch, ratifiedEpoch: r.ratified_epoch, expiryEpoch: r.expiry_epoch });
+  return { epoch, derived: epoch != null && r.ratified_epoch == null && r.status === 'enacted' };
 }
 
 export function toPackAction(r: ActionDbRow, from: number, to: number): PackAction {
@@ -225,10 +273,18 @@ export function toPackAction(r: ActionDbRow, from: number, to: number): PackActi
         yesPowerAda: lovelaceToAda(r.drep_yes_power), noPowerAda: lovelaceToAda(r.drep_no_power), abstainPowerAda: lovelaceToAda(r.drep_abstain_power),
         abstainExcluded: true,
       },
-      spo: { yes: r.spo_yes, no: r.spo_no, abstain: r.spo_abstain, yesPct: r.spo_yes_pct, noPct: r.spo_no_pct },
+      spo: {
+        yes: r.spo_yes, no: r.spo_no, abstain: r.spo_abstain, yesPct: r.spo_yes_pct, noPct: r.spo_no_pct,
+        yesPowerAda: lovelaceToAda(r.spo_yes_power), noSidePowerAda: lovelaceToAda(r.spo_no_side_power), eligiblePowerAda: lovelaceToAda(r.spo_eligible_power),
+        tallyEpoch: r.tally_epoch,
+      },
       cc: { yes: r.cc_yes, no: r.cc_no, abstain: r.cc_abstain, yesPct: r.cc_yes_pct, abstainExcluded: true },
     },
-    thresholds: { drep: th?.drep ?? null, spo: th?.spo ?? null, cc: th?.cc ?? null, ccBelowMinSize: th?.ccBelowMinSize ?? null },
+    thresholds: {
+      drep: th?.drep ?? null, spo: th?.spo ?? null, cc: th?.cc ?? null, ccBelowMinSize: th?.ccBelowMinSize ?? null,
+      ccGate: th?.ccGate ?? null,
+      tallyContradictsOutcome: th?.tallyContradictsOutcome ?? null,
+    },
     eventsInWindow: eventsInWindow(r, from, to),
     open: r.status === 'active',
   };
@@ -401,31 +457,88 @@ function topVoters(
   return out;
 }
 
+/** The opening of a rationale, cut on a word boundary so a quote never ends mid-word. */
+function rationaleExcerpt(text: string): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  if (flat.length <= RATIONALE_EXCERPT) return flat;
+  const cut = flat.slice(0, RATIONALE_EXCERPT);
+  return `${cut.slice(0, Math.max(cut.lastIndexOf(' '), RATIONALE_EXCERPT - 80))}…`;
+}
+
+/** Per action, the rationales worth reading: the largest DRep voters by power at the window's end, every committee member, a few pools. */
+function rationales(
+  ids: string[],
+  rows: RationaleRow[],
+  power: Map<string, number>,
+  names: Map<string, string | null>,
+  ccNames: CcNameIndex,
+  to: number,
+): WindowPack['rationales'] {
+  const out: WindowPack['rationales'] = {};
+  for (const id of ids) out[id] = [];
+  for (const r of rows) {
+    if (!out[r.ga_id]) continue;
+    const role = r.voter_role === 'DRep' ? 'DRep' : r.voter_role === 'SPO' ? 'SPO' : r.voter_role === 'ConstitutionalCommittee' ? 'CC' : null;
+    if (!role) continue;
+    out[r.ga_id].push({
+      voterId: r.voter_id,
+      role,
+      name: role === 'DRep' ? names.get(r.voter_id) ?? null : role === 'CC' && r.voter_hex ? ccNames.byHot(r.voter_hex) ?? null : null,
+      vote: r.vote,
+      powerAda: role === 'DRep' ? power.get(powerKey(r.voter_id, to)) ?? null : null,
+      excerpt: rationaleExcerpt(r.body_text),
+      url: `${govActionHref(r.ga_id)}${positionsVoterAnchor(r.voter_id, role === 'SPO' ? 'spo' : role === 'CC' ? 'cc' : undefined)}`,
+    });
+  }
+  for (const id of ids) {
+    const byRole = (role: 'DRep' | 'SPO' | 'CC') => out[id].filter((r) => r.role === role);
+    const dreps = byRole('DRep').sort((a, b) => (b.powerAda ?? -1) - (a.powerAda ?? -1) || a.voterId.localeCompare(b.voterId)).slice(0, TOP_RATIONALES.DRep);
+    const spos = byRole('SPO').sort((a, b) => a.voterId.localeCompare(b.voterId)).slice(0, TOP_RATIONALES.SPO);
+    const cc = byRole('CC').sort((a, b) => a.voterId.localeCompare(b.voterId));
+    out[id] = [...dreps, ...cc, ...spos];
+  }
+  return out;
+}
+
+/**
+ * The boundary an action was decided at, as seen from the window's end: null
+ * while the action was still open then, whatever its later lifecycle says (the
+ * pack must not import a later decision into an earlier window).
+ */
+function decisionBoundaryBy(a: PackAction, to: number): number | null {
+  const epoch = decisionBoundaryEpoch(a);
+  return epoch == null || epoch > to ? null : epoch;
+}
+
 /** Per action, the committee ballots with whether the member could act at the decision. */
 function ccVotes(
   actions: PackAction[],
   current: VoteRow[],
   cfg: NetworkConfig,
-  names: Map<string, string>,
+  names: CcNameIndex,
   hotToCold: Map<string, string>,
-  activeAt: (epoch: number) => Set<string>,
+  activeAt: (boundaryEpoch: number) => Set<string>,
   to: number,
 ): WindowPack['ccVotes'] {
-  const decidedBy = new Map(actions.map((a) => [a.id, a.decidedEpoch ?? to]));
+  const boundaryBy = new Map(actions.map((a) => [a.id, decisionBoundaryBy(a, to)]));
+  const atEnd = activeAt(to + 1);
   const out: WindowPack['ccVotes'] = {};
   for (const a of actions) out[a.id] = [];
   for (const v of current) {
     if (v.voter_role !== 'ConstitutionalCommittee' || !out[v.ga_id] || !v.voter_hex) continue;
     const hot = v.voter_hex.toLowerCase();
     const cold = hotToCold.get(hot);
+    const boundary = boundaryBy.get(v.ga_id) ?? null;
     out[v.ga_id].push({
       hotKeyHex: hot,
-      name: names.get(hot) ?? null,
+      name: names.byHot(hot),
       vote: v.vote,
       epochCast: v.block_time == null ? null : epochFromUnix(v.block_time, cfg),
       // Null, not false: an unmapped hot key means we cannot tell, and a
       // committee ballot reported as inactive when it was not is a wrong claim.
-      activeAtDecision: cold == null ? null : activeAt(decidedBy.get(v.ga_id) ?? to).has(cold),
+      // Null too while the action is still open at the window's end.
+      activeAtDecision: cold == null || boundary == null ? null : activeAt(boundary).has(cold),
+      activeAtWindowEnd: cold == null ? null : atEnd.has(cold),
     });
   }
   for (const id of Object.keys(out)) out[id].sort((a, b) => (a.epochCast ?? 0) - (b.epochCast ?? 0) || a.hotKeyHex.localeCompare(b.hotKeyHex));
@@ -610,7 +723,23 @@ function buildNcl(
     const lovelace = withdrawalLovelace(w.onchain_payload);
     if (lovelace != null) readable.push({ enactedEpoch: w.enacted_epoch, lovelace });
   }
-  return NCL_PERIODS.filter((p) => p.startEpoch <= to && p.endEpoch >= from)
+  // A pack reports the period as it stood at the window's end. A later defining
+  // action that raised the ceiling or extended the runtime was not a fact yet in
+  // an earlier window, so before its epoch the earlier values are the operative
+  // ones and the raise is not announced at all.
+  const asOfWindow = (p: NclPeriod): NclPeriod => {
+    if (p.revisedFromEpoch == null || to >= p.revisedFromEpoch) return p;
+    return {
+      ...p,
+      ceilingLovelace: p.previousCeilingLovelace ?? p.ceilingLovelace,
+      previousCeilingLovelace: undefined,
+      endEpoch: p.previousEndEpoch ?? p.endEpoch,
+      previousEndEpoch: undefined,
+      revisedFromEpoch: undefined,
+    };
+  };
+  return NCL_PERIODS.map(asOfWindow)
+    .filter((p) => p.startEpoch <= to && p.endEpoch >= from)
     .sort((a, b) => b.startEpoch - a.startEpoch)
     .map((p) => {
       const status = nclStatusFor(p, readable);
@@ -635,6 +764,30 @@ function buildNcl(
         asOfEpoch: to,
       };
     });
+}
+
+/**
+ * Every seat of the committee version in force at the boundary that opens
+ * `boundaryEpoch`, with its standing there (committeeStanding). Names resolve
+ * like everywhere else on the site: the member's self-declared vote anchors,
+ * newest wins, then the curated table for seats that never declared one.
+ */
+function committeeRoster(members: CommitteeMemberTerm[], names: CcNameIndex, boundaryEpoch: number): WindowPack['committee']['members'] {
+  return members
+    .filter((m) => versionCovers(m, boundaryEpoch))
+    .map((m) => {
+      const exclusionReason = committeeStanding(m, boundaryEpoch);
+      return {
+        coldKeyHex: m.coldKeyHex,
+        name: names.byCold(m.coldKeyHex),
+        termExpiration: m.termExpiration,
+        authorizedFrom: m.authorizedFrom,
+        resignedAt: m.resignedAt,
+        eligibleAtEnd: exclusionReason == null,
+        exclusionReason,
+      };
+    })
+    .sort((a, b) => a.coldKeyHex.localeCompare(b.coldKeyHex));
 }
 
 /** The minimum and maximum window length an edition may cover, in epochs. */
@@ -755,19 +908,18 @@ export async function buildWindowPack(
   // The two epochs a drop row compares, so a reader of the pack can name the span.
   const dropsRange = drops == null ? null : { from: dropsFrom, to };
 
-  const [ccNames, { members, hotToCold }] = await Promise.all([readCcMemberNames(db), getCommitteeTimeline(db)]);
-  const activeAtCache = new Map<number, Set<string>>();
-  const activeAt = (epoch: number): Set<string> => {
-    const hit = activeAtCache.get(epoch);
+  const [ccNameRows, { members, hotToCold }] = await Promise.all([getAllCcMemberNames(db), getCommitteeTimeline(db)]);
+  const ccNames = buildCcNameIndex(ccNameRows, hotToCold);
+  const rationaleRows = await readRationalesForActions(db, focusIds);
+  const activeCache = new Map<number, Set<string>>();
+  const activeAt = (boundaryEpoch: number): Set<string> => {
+    const hit = activeCache.get(boundaryEpoch);
     if (hit) return hit;
-    const set = activeCommitteeMembersAt(members, epoch);
-    activeAtCache.set(epoch, set);
+    const set = activeCommitteeMembersAtBoundary(members, boundaryEpoch);
+    activeCache.set(boundaryEpoch, set);
     return set;
   };
-  const activeAtTo = activeAt(to);
-  const committeeRows = members.filter(
-    (m) => activeAtTo.has(m.coldKeyHex) && m.versionFrom <= to && (m.versionTo == null || m.versionTo >= to),
-  );
+  const committeeRows = committeeRoster(members, ccNames, to + 1);
   const minSizeRow = await readCommitteeMinSizeAt(db, to);
 
   const allStats = await listEpochStats(db);
@@ -803,11 +955,15 @@ export async function buildWindowPack(
     topVoters: topVoters(focusIds, focusCurrent, cfg, power, names, to),
     topDreps,
     ccVotes: ccVotes(focusActions, focusCurrent, cfg, ccNames, hotToCold, activeAt, to),
+    rationales: rationales(focusIds, rationaleRows, power, names, ccNames, to),
     committee: {
       asOfEpoch: to,
-      members: committeeRows.map((m) => ({ coldKeyHex: m.coldKeyHex, termExpiration: m.termExpiration, authorizedFrom: m.authorizedFrom, resignedAt: m.resignedAt })),
+      boundaryEpoch: to + 1,
+      seats: committeeRows.length,
+      eligible: committeeRows.filter((m) => m.eligibleAtEnd).length,
+      members: committeeRows,
       minSize: minSizeRow ?? { value: null, observedAtEpoch: null, reason: 'no parameter snapshot at or before the window' },
-      endingWithin12: committeeRows.filter((m) => m.termExpiration <= to + TERM_HORIZON).length,
+      endingWithin12: committeeRows.filter((m) => m.eligibleAtEnd && m.termExpiration <= to + TERM_HORIZON).length,
     },
     epochStats: { rows: windowStats.map(packStatsRow), metrics: statsMetrics() },
     powerHistory: { coverage, covered, coveredAtTo, drops, dropsRange },

@@ -33,11 +33,11 @@ Your voting record is public on your profile and on every governance action
 page, and it is the first thing an undecided delegator checks. Two habits make
 it work for you:
 
-- **Vote on everything you reasonably can.** Actions you skip are visible too;
-  a thin record is a reason to delegate elsewhere.
+- **Vote on everything you reasonably can.** Actions you skip are visible too.
+  A thin record is a reason to delegate elsewhere.
 - **Vote early in the voting window.** Most attention lands on an action while
   it is open and undecided. An early vote puts you on the action page during
-  exactly that window; a vote cast just before expiry is technically identical
+  exactly that window. A vote cast just before expiry is technically identical
   but nobody is watching anymore.
 
 ## Write a rationale for every vote
@@ -64,7 +64,7 @@ after.
 
 Your DRepTalk profile page collects your record in one link: votes, rationales,
 delegator count, badges, and posts. Share it in your social bios and include it
-in the reference links of your on-chain metadata; the page renders a rich
+in the reference links of your on-chain metadata. The page renders a rich
 preview card when the link is shared, so it works as a landing page for anyone
 deciding whether to delegate to you.
 
@@ -79,7 +79,7 @@ after voting: readers see your reasoning first and can act on it in place.
 
 Getting the link takes one click: open the action's **Votes** tab and use
 the copy-link button on your row, or copy the URL from your vote's page. You
-can also link any action or profile from a raw on-chain id; [Linking to
+can also link any action or profile from a raw on-chain id. [Linking to
 DReps, governance actions, and votes](/help/linking/) shows all the
 patterns, including how a pasted `gov_action1…` id inside a post becomes a
 linked chip automatically.
@@ -89,7 +89,7 @@ linked chip automatically.
 Consistency reads better than bursts. [Achievement badges](/help/badges/) are
 earned automatically from your on-chain and forum activity, and the biggest
 voting-power gains of each epoch are listed on
-[Movers of the epoch](/dreps/movers/); both reward steady participation over
+[Movers of the epoch](/dreps/movers/). Both reward steady participation over
 time. A DRep who has voted, explained, and answered questions for months has a
 story no promotion can fake.
 
@@ -112,7 +112,7 @@ appears within minutes rather than instantly. See
 It is not required, but it clearly helps your visibility. Every post carries
 your DRep identity and links back to your profile, so the discussions are where
 undecided delegators get to know you. Your on-chain voting record remains the
-foundation; the forum is how people find the person behind it.
+foundation. The forum is how people find the person behind it.
 
 ## Related
 

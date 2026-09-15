@@ -6,22 +6,31 @@ import JsonLd from '@/components/JsonLd.astro';
 import ReviewFacts from '@/components/review/ReviewFacts.astro';
 import ReviewAlsoDecided from '@/components/review/ReviewAlsoDecided.astro';
 import ReviewNumbers from '@/components/review/ReviewNumbers.astro';
+import ReviewSources from '@/components/review/ReviewSources.astro';
 import { loadEditions, editionSlug, formatWindowDates } from '@/lib/review/editions.js';
 import { govActionHref } from '@/lib/review/links.js';
-import { parseSlug } from '@/lib/review/windows.js';
+import { parseSlug, parseEditionNumber } from '@/lib/review/windows.js';
 import { buildBreadcrumbLd } from '@/lib/jsonld/breadcrumb.js';
 import { resolveNetwork } from '@/lib/config/network';
 import { cacheControlFor } from '@/lib/forum/view.js';
 import { ogCardVersion } from '@/lib/og/version.js';
 
 const slug = Astro.params.slug ?? '';
+// /governance-review/41/ is the short way to cite an edition. The epochs slug
+// stays the canonical address, so the number only redirects to it.
+const number = parseEditionNumber(slug);
+if (number !== null) {
+  const byNumber = (await loadEditions()).find((e) => e.data.edition === number);
+  if (!byNumber) return new Response('Not found', { status: 404 });
+  return Astro.redirect(`/governance-review/${editionSlug(byNumber)}/`, 301);
+}
 if (!parseSlug(slug)) return new Response('Not found', { status: 404 });
 const entry = await getEntry('review', slug);
 if (!entry) return new Response('Not found', { status: 404 });
 const d = entry.data;
 // The Governance Review is mainnet only. Editions are mainnet facts bundled
-// into every deployment, so the window dates and the kicker read mainnet
-// regardless of the network this worker runs on.
+// into every deployment, so the window dates read mainnet regardless of the
+// network this worker runs on.
 const cfg = resolveNetwork('mainnet');
 const { Content } = await render(entry);
 const editions = await loadEditions();
@@ -75,9 +84,9 @@ Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
   <JsonLd data={crumbs} />
   <article class="rv">
     <p class="rv-kicker">
-      <a href="/governance-review/">Governance Review</a><span>Epochs {d.epochFrom} to {d.epochTo}</span><span
+      <a href="/governance-review/">Governance Review</a><span>No. {d.edition}</span><span>Epochs {d.epochFrom} to {d.epochTo}</span><span
         >{dates}</span
-      ><span>Mainnet</span>
+      >
     </p>
     <h1 class="rv-title">{d.title}</h1>
     <p class="rv-stand">{d.standfirst}</p>
@@ -97,6 +106,7 @@ Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
     <div class="rv-body prose"><Content /></div>
     <ReviewAlsoDecided rows={d.alsoDecided} open={d.openActions} featured={d.featuredActions} epochTo={d.epochTo} />
     <ReviewNumbers numbers={d.numbers} from={d.epochFrom} to={d.epochTo} />
+    <ReviewSources external={d.external} />
     <p class="rv-data">
       Data behind this edition: a snapshot of the site's governance data taken {dataAsOf}, frozen as{' '}
       <a href={packUrl} rel="noopener">{slug}.pack.json</a> next to the article. Every figure above traces to a field in that file. Its git blob hash{' '}
@@ -143,9 +153,10 @@ Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
   .rv-svg .rv-line.rv-s2 { stroke: var(--rv-s2); }
   .rv-svg .rv-dot.rv-s1, .rv-svg .rv-bar.rv-s1, .rv-legend i.rv-s1 { stroke: var(--rv-s1); fill: var(--rv-s1); background: var(--rv-s1); }
   .rv-svg .rv-dot.rv-s2, .rv-svg .rv-bar.rv-s2, .rv-legend i.rv-s2 { stroke: var(--rv-s2); fill: var(--rv-s2); background: var(--rv-s2); }
-  .rv-svg .rv-bar.rv-s3, .rv-legend i.rv-s3 { fill: var(--rv-s3); background: var(--rv-s3); }
+  .rv-svg .rv-bar.rv-s3, .rv-svg .rv-dot.rv-s3, .rv-legend i.rv-s3 { fill: var(--rv-s3); background: var(--rv-s3); }
   .rv-svg .rv-dot { stroke: var(--rv-card); stroke-width: 2; }
   .rv-svg .rv-hit { fill: transparent; }
+  .rv-svg .rv-lead { fill: none; stroke: var(--rv-grid); stroke-width: 1; }
   .rv-svg .rv-area { fill: var(--rv-s1); opacity: 0.08; }
   .rv-svg .rv-shade { fill: var(--rv-s2); opacity: 0.1; }
   .rv-svg .rv-bar.rv-dim { opacity: 0.35; }

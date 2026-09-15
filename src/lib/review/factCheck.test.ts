@@ -7,7 +7,7 @@ import { actionRowSchema } from './schema.js';
 
 const CONTENT = path.join(import.meta.dirname, '../../content/review');
 const FIX = path.join(import.meta.dirname, '__fixtures__');
-const emptyFrontmatter = {
+const emptyFrontmatter = { edition: 1,
   title: 'T',
   standfirst: 'S',
   epochFrom: 647,
@@ -24,6 +24,7 @@ const emptyFrontmatter = {
   numbers: { delegatedPowerStartAda: null, delegatedPowerEndAda: null, votesCast: null, finalDrepVoters: null, treasuryStartAda: null, treasuryEndAda: null, limitations: [] },
   derived: [],
   corrections: [],
+  external: [],
 };
 
 const load = (name: string) => {
@@ -74,7 +75,7 @@ describe('factCheckEdition on the bad fixture', () => {
   });
   it('compares the action rows with the pack', () => {
     const m = messages('action-row-mismatch');
-    expect(m.some((x) => x.includes('is not the pack title'))).toBe(true);
+    expect(m.some((x) => x.includes('is neither the pack title'))).toBe(true);
     expect(m.some((x) => x.includes('is not the pack status'))).toBe(true);
     expect(m.some((x) => x.includes('is not an event epoch'))).toBe(true);
   });
@@ -111,6 +112,80 @@ describe('an alias is no escape hatch', () => {
   });
 });
 
+describe('a DRep share the edition may not print as a share', () => {
+  const id = `${'e'.repeat(64)}#0`;
+  const pack = {
+    actions: {
+      events: [],
+      closingAtBoundary: [],
+      open: [{ id, title: 'Untouched', status: 'closed', expiryEpoch: 655, tally: { drep: { yesPct: 76.54 } } }],
+      comparisons: [],
+    },
+  };
+  const run = (row: Record<string, unknown>) =>
+    factCheckEdition({
+      frontmatter: { ...emptyFrontmatter, openActions: [{ id, title: 'Untouched', aliases: [], type: 'InfoAction', outcome: 'open', epoch: 655, ...row }] } as never,
+      body: `## X\n\nAs of the close, [Untouched](/ga/${'e'.repeat(64)}00/) was still being voted on.`,
+      pack,
+    }).filter((f) => f.rule === 'action-row-mismatch');
+
+  it('takes a note beside the stored share', () => expect(run({ drepYesPct: 76.54, drepYesPctNote: 'later-tally' })).toEqual([]));
+  it('does not let the note replace the stored share', () => {
+    expect(run({ drepYesPct: null, drepYesPctNote: 'later-tally' })).toEqual([expect.objectContaining({ message: expect.stringContaining('is not the pack tally') })]);
+  });
+  it('rejects a reason outside the two the schema names', () => {
+    expect(actionRowSchema.safeParse({ id, title: 'T', aliases: [], type: 'InfoAction', outcome: 'open', epoch: 655, drepYesPct: null, drepYesPctNote: 'because' }).success).toBe(false);
+  });
+});
+
+describe('a fact read outside the frozen pack', () => {
+  const pack = { actions: { events: [], closingAtBoundary: [], open: [], comparisons: [] } };
+  const run = (external: unknown[], body: string) =>
+    factCheckEdition({
+      frontmatter: { ...emptyFrontmatter, external } as never,
+      body,
+      pack,
+    });
+  const declared = [
+    {
+      claim: 'The spending period originally ran to the end of epoch 604, and a later action extended it by eight epochs.',
+      source: 'https://www.intersectmbo.org/news/recent-cardano-governance-actions',
+      sourceTitle: 'Intersect on the spending period',
+      numbers: [604],
+      names: ['Amaru'],
+    },
+  ];
+
+  // The bare fixture frontmatter has findings of its own, so each case reads the
+  // one rule it is about.
+  const of = (rule: string, external: unknown[], body: string) =>
+    run(external, body)
+      .filter((f) => f.rule === rule && !/\((title|standfirst)\)$/.test(f.message))
+      .map((f) => f.message);
+
+  it('licenses a declared number', () => {
+    expect(of('number-not-in-pack', declared, 'The period ran to the end of epoch 604.')).toEqual([]);
+  });
+  it('licenses a declared name', () => {
+    expect(of('name-not-in-pack', declared, 'Amaru asked for the extension.')).toEqual([]);
+  });
+  it('prints nothing for a body the declaration covers', () => {
+    expect(of('forbidden-phrasing', declared, 'Amaru asked for the extension.')).toEqual([]);
+  });
+  it('still flags a number nobody declared', () => {
+    expect(of('number-not-in-pack', declared, 'The period ran to the end of epoch 604, and 4,321 DReps agreed.')).toEqual([
+      expect.stringContaining('4,321'),
+    ]);
+  });
+  it('still flags a name nobody declared', () => {
+    expect(of('name-not-in-pack', declared, 'Fantasia asked for the extension.')).toEqual([expect.stringContaining('Fantasia')]);
+  });
+  it('holds the declared claim itself to the phrasing rules', () => {
+    const bad = [{ ...declared[0], claim: 'The period ran to 604 to a later action extended it, 4,321 times over.' }];
+    expect(of('number-not-in-pack', bad, 'Nothing to see.')).toEqual([expect.stringContaining('4,321')]);
+  });
+});
+
 describe('an action ratified in the window and enacted after it', () => {
   const base = { id: `${'b'.repeat(64)}#0`, title: 'T', aliases: [], type: 'TreasuryWithdrawals', drepYesPct: null };
   const pack = {
@@ -129,8 +204,86 @@ describe('an action ratified in the window and enacted after it', () => {
     }).filter((f) => f.rule === 'action-row-mismatch');
 
   it('accepts the ratification as the row outcome', () => expect(check('ratified', 649)).toEqual([]));
+  it('accepts an open row for an action whose voting ran past the window', () => {
+    const pack2 = {
+      actions: {
+        events: [{ id: base.id, title: 'T', status: 'closed', expiryEpoch: 655, eventsInWindow: [{ kind: 'submitted', epoch: 648 }] }],
+        closingAtBoundary: [],
+        open: [],
+        comparisons: [],
+      },
+    };
+    const findings = factCheckEdition({
+      frontmatter: { ...emptyFrontmatter, openActions: [{ ...base, outcome: 'open', epoch: 655 }] } as never,
+      body: '## X\n\nNothing to see.',
+      pack: pack2,
+    }).filter((f) => f.rule === 'action-row-mismatch');
+    expect(findings).toEqual([]);
+  });
   it('still accepts the pack status itself', () => expect(check('enacted', 649)).toEqual([]));
   it('rejects an outcome the window never saw', () => expect(check('expired', 649).length).toBe(1));
+});
+
+describe('a record the prose claims', () => {
+  const pack = {
+    actions: { events: [], closingAtBoundary: [], open: [], comparisons: [] },
+    records: [
+      { metric: 'gini', unit: 'ratio', max: { epoch: 638, value: 0.94 }, min: { epoch: 508, value: 0.85 } },
+      { metric: 'top10SharePct', unit: 'pct', max: { epoch: 510, value: 54.24 }, min: { epoch: 549, value: 41.18 } },
+    ],
+  };
+  const run = (claims: Array<{ metric: string; kind: 'max' | 'min' }>) =>
+    factCheckEdition({
+      frontmatter: { ...emptyFrontmatter, epochFrom: 636, epochTo: 638, recordClaims: claims } as never,
+      body: '## X\n\nNothing to see.',
+      pack,
+    }).filter((f) => f.rule === 'record-claim');
+
+  it('passes when the extreme falls inside the window', () => expect(run([{ metric: 'gini', kind: 'max' }])).toEqual([]));
+  it('flags a record the pack places in another epoch', () => {
+    const m = run([{ metric: 'top10SharePct', kind: 'max' }]);
+    expect(m.length).toBe(1);
+    expect(m[0].message).toContain('epoch 510');
+  });
+  it('flags a metric the records block does not carry', () => expect(run([{ metric: 'votesCast', kind: 'max' }]).length).toBe(1));
+});
+
+describe('an on-chain title that carries a typographic dash', () => {
+  const id = `${'d'.repeat(64)}#0`;
+  const packTitle = 'Tweag Core Cardano Infrastructure: Treasury Withdrawal 2026–2028';
+  const pack = {
+    actions: {
+      events: [{ id, title: packTitle, status: 'expired', expiryEpoch: 635, eventsInWindow: [{ kind: 'expired', epoch: 635 }] }],
+      closingAtBoundary: [],
+      open: [],
+      comparisons: [],
+    },
+  };
+  const run = (title: string) =>
+    factCheckEdition({
+      frontmatter: {
+        ...emptyFrontmatter,
+        alsoDecided: [{ id, title, aliases: [], type: 'TreasuryWithdrawals', outcome: 'expired', epoch: 635, drepYesPct: null }],
+      } as never,
+      body: '## X\n\nNothing to see.',
+      pack,
+    }).filter((f) => f.rule === 'action-row-mismatch');
+
+  it('accepts the dash spelled out, so the page never renders one', () => expect(run('Tweag Core Cardano Infrastructure: Treasury Withdrawal 2026 to 2028')).toEqual([]));
+  it('still accepts the title exactly as the record holds it', () => expect(run(packTitle)).toEqual([]));
+  it('rejects any other rewording', () => expect(run('Tweag Core Cardano Infrastructure: Treasury Withdrawal').length).toBe(1));
+  it('takes the dash-free title as a verified link text, so its words are not scanned', () => {
+    const findings = factCheckEdition({
+      frontmatter: {
+        ...emptyFrontmatter,
+        alsoDecided: [{ id, title: 'Tweag Core Cardano Infrastructure: Treasury Withdrawal 2026 to 2028', aliases: [], type: 'TreasuryWithdrawals', outcome: 'expired', epoch: 635, drepYesPct: null }],
+      } as never,
+      body: `## X\n\n[Tweag Core Cardano Infrastructure: Treasury Withdrawal 2026 to 2028](/ga/${'d'.repeat(64)}00/) expired.`,
+      pack,
+    });
+    expect(findings.filter((f) => f.rule === 'link-not-in-pack')).toEqual([]);
+    expect(findings.filter((f) => f.message.includes('2026'))).toEqual([]);
+  });
 });
 
 describe('an action the record has no title for', () => {

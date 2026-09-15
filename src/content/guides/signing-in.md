@@ -69,7 +69,7 @@ credentials are not supported yet.
 ## Delegators
 
 Pick the **Delegator** role and connect the wallet that holds your delegated ada. Any
-CIP-30 wallet works; no governance features are required. You sign with your wallet's
+CIP-30 wallet works. No governance features are required. You sign with your wallet's
 **reward (stake) address**, and DRepTalk reads your delegation from the chain. A
 delegator sign-in is **read-only**: you can follow your DRep's votes on your start
 page and get notified, but posting and voting stay reserved for the writer roles

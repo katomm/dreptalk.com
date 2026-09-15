@@ -1,5 +1,5 @@
 ---
-// One edition in a list. Never the article's own opening: a short title, two
+// One edition in a list. Never the article's own opening: the title, two
 // sentences and a way in. The lead variant is the newest edition on the review
 // index, the plain one every edition under it and the homepage teaser.
 import { cardTeaser, cardTitle, editionSlug, formatWindowDates, type Edition } from '@/lib/review/editions.js';
@@ -17,6 +17,8 @@ const href = `/governance-review/${editionSlug(edition)}/`;
 
 <article class:list={['rv-card', lead && 'rv-card--lead']}>
   <p class="rv-card__kicker">
+    <span>No. {d.edition}</span>
+    <span aria-hidden="true">·</span>
     <span>Epochs {d.epochFrom} to {d.epochTo}</span>
     <span aria-hidden="true">·</span>
     <span>{formatWindowDates(d.epochFrom, d.epochTo, cfg)}</span>

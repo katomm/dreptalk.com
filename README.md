@@ -14,13 +14,22 @@
 
 The public deliberation layer for Cardano governance, wallet-authenticated, running at [dreptalk.com](https://dreptalk.com).
 
-Incoming on-chain Governance Actions automatically open a thread, and DReps, SPOs, CC members, and proposers discuss them next to the live on-chain vote data. Reading is public; writing is gated to those on-chain roles, each proven by a wallet signature (no custody of keys, signature-based login). Delegators can sign in too, to follow their DRep and receive notifications, but they cannot post.
+Incoming on-chain Governance Actions automatically open a thread, and DReps, SPOs, CC members, and proposers discuss them next to the live on-chain vote data. Reading is public. Writing is gated to those on-chain roles, each proven by a wallet signature (no custody of keys, signature-based login). Delegators can sign in too, to follow their DRep and receive notifications, but they cannot post.
 
 The aim is a place where Cardano governance is discussed, voted, and explained, next to the on-chain data it is about.
 
+## What is on the site
+
+- **Governance actions.** A thread per on-chain action with the DRep, SPO and committee tallies, the vote rationales behind them, and a voting flow for DReps signing in their own wallet.
+- **CIP-179 surveys.** Surveys published on chain under metadata label 17 are mirrored from [Tessera](https://github.com/mpizenberg/cardano-tessera) when a governance action links one, and a DRep can answer from the thread with the wallet they signed in with. An answer is survey metadata and not a vote, so the card shows an informational tally under a stated counting rule, never a result.
+- **Analytics.** A public dashboard at `/analytics` on vote concentration, committee and SPO participation, throughput and timing, the weight parked on the two default delegation options, and a report card per DRep.
+- **Governance Review.** A written edition per epoch window at `/governance-review`: what was decided, what moved, what is still open. Mainnet only.
+- **Treasury.** Enacted withdrawals tracked against the Net Change Limit of each budget period at `/treasury`.
+- **For delegators.** A delegation dashboard at `/my-drep` reading the DRep's record since the day you delegated, a matching quiz at `/match`, and notifications by browser push or Telegram.
+
 ## Quickstart
 
-Requires Node 20+. Local and preview run against the Cardano preprod testnet; set `CARDANO_NETWORK=preprod` in `.dev.vars`.
+Requires Node 20+. Local and preview run against the Cardano preprod testnet, set `CARDANO_NETWORK=preprod` in `.dev.vars`.
 
 ```sh
 npm install
@@ -41,14 +50,14 @@ Found a vulnerability? Please report it privately, not in a public issue. See [S
 
 ## Stack
 
-Astro (SSR) on Cloudflare Workers, with D1, KV, R2 and Cloudflare Images for self-hosted DRep avatars, and a Durable Object for atomic rate limiting. A standalone cron worker ingests governance actions and dispatches notifications (browser push and Telegram). Chain data via Koios, used anonymously by default; set `KOIOS_API_KEY` for higher rate limits. A free [koios.rest](https://koios.rest) account is enough to run everything, though a Pro key is recommended for production to keep the heavy first DRep sync comfortably inside the rate limit. Defaults to mainnet; set `CARDANO_NETWORK=preprod` for local and preview.
+Astro (SSR) on Cloudflare Workers, with D1, KV, R2 and Cloudflare Images for self-hosted DRep avatars, and a Durable Object for atomic rate limiting. A standalone cron worker ingests governance actions, mirrors CIP-179 surveys, and dispatches notifications (browser push and Telegram). Chain data via Koios, used anonymously by default, set `KOIOS_API_KEY` for higher rate limits. Survey data via a Tessera backend, one per network, switched on by `TESSERA_BACKEND_URL`. A free [koios.rest](https://koios.rest) account is enough to run everything, though a Pro key is recommended for production to keep the heavy first DRep sync comfortably inside the rate limit. Defaults to mainnet, set `CARDANO_NETWORK=preprod` for local and preview.
 
-The chain is never read live on a page request. The cron worker pulls from Koios on a schedule and writes the result to shared storage; the app worker only ever reads that cache, so every on-chain value is shown with an "as of" time.
+The chain is never read live on a page request. The cron worker pulls from Koios on a schedule and writes the result to shared storage. The app worker only ever reads that cache, so every on-chain value is shown with an "as of" time.
 
 ```mermaid
 flowchart TB
     chain[("Cardano chain · Koios")]
-    cron["gov-sync cron worker<br/>~5 min: discover actions + notifications<br/>~15 min: active tallies<br/>~20 min: per-post vote badges<br/>~6 h: DRep profiles + avatars"]
+    cron["gov-sync cron worker<br/>~5 min: discover actions + surveys + notifications<br/>~15 min: active tallies<br/>~20 min: per-post vote badges<br/>~6 h: DRep profiles + avatars"]
     store[("Shared storage<br/>D1 (forum + cached chain) · R2 (avatars)")]
     app["App worker · Astro SSR"]
     do["Durable Object<br/>rate limiting"]
@@ -66,11 +75,11 @@ flowchart TB
     app <--> kv
 ```
 
-Moderation is community-first: any on-chain writer (DRep, SPO, CC member, or proposer) can flag a post, and a post is hidden behind a placeholder once three distinct writers have flagged it. Every writer is a wallet-verified governance participant, and registering as a DRep locks a refundable 500 ada deposit, so coordinated abuse is expensive and this lightweight check is expected to be enough in early operation; the post author and moderators can still read a hidden post. Moderators and admins can be granted by stake address through the `MODERATORS` env value (comma-separated `stakeAddress` or `stakeAddress:role`, role `admin` or `moderator`), empty by default: they sign in with the normal stake-key wallet flow, and the allowlist only adds the moderation role.
+Moderation is community-first: any on-chain writer (DRep, SPO, CC member, or proposer) can flag a post, and a post is hidden behind a placeholder once three distinct writers have flagged it. Every writer is a wallet-verified governance participant, and registering as a DRep locks a refundable 500 ada deposit, so coordinated abuse is expensive and this lightweight check is expected to be enough in early operation. The post author and moderators can still read a hidden post. Moderators and admins can be granted by stake address through the `MODERATORS` env value (comma-separated `stakeAddress` or `stakeAddress:role`, role `admin` or `moderator`), empty by default: they sign in with the normal stake-key wallet flow, and the allowlist only adds the moderation role.
 
-On-chain values (governance tallies and status, DRep profiles, per-post vote badges) are synced on crons and are cached, not live; every place they appear shows an "as of" time. The exact cadences live in one place, `src/lib/freshness.ts`, and are published at `/help/data-freshness`.
+On-chain values (governance tallies and status, DRep profiles, per-post vote badges) are synced on crons and are cached, not live, and every place they appear shows an "as of" time. The exact cadences live in one place, `src/lib/freshness.ts`, and are published at `/help/data-freshness`.
 
-DRepTalk ships an imprint and privacy page (`/imprint`, `/privacy`), the operator disclosure that German and EU law require for a public site. The policy text is public and lives in the repo; the operator's own details are injected from `LEGAL_*` env vars so they stay out of the repository. The exact variables are documented in [`src/lib/legal.ts`](src/lib/legal.ts); set them in `.dev.vars` locally and as Worker vars in production. If you run DRepTalk outside Germany or the EU, adapt these pages to your own jurisdiction.
+DRepTalk ships an imprint and privacy page (`/imprint`, `/privacy`), the operator disclosure that German and EU law require for a public site. The policy text is public and lives in the repo, and the operator's own details are injected from `LEGAL_*` env vars so they stay out of the repository. The exact variables are documented in [`src/lib/legal.ts`](src/lib/legal.ts). Set them in `.dev.vars` locally and as Worker vars in production. If you run DRepTalk outside Germany or the EU, adapt these pages to your own jurisdiction.
 
 ## Status
 

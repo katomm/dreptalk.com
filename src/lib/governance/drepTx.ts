@@ -506,6 +506,7 @@ export async function castSurveyResponse(
 ): Promise<{ txHash: string }> {
   const client = makeClient(opts.network, opts.origin, opts.walletApi);
   const availableUtxos = await collectWalletUtxos(opts.network, opts.origin, opts.walletApi);
+  // No deposit here, so the inputs only need to cover the fee.
   const inputs = pickInputsToCover(availableUtxos, FUNDING_HEADROOM_LOVELACE);
 
   const built = await queueSurveyResponseOps(client.newTx(), {
@@ -578,3 +579,7 @@ export async function delegateVotesToDRep(opts: DelegateVotesOpts): Promise<{ tx
 
   return signAndSubmit(built, opts.walletApi);
 }
+
+// Exported for the sibling client-side tx builders (infoActionTx), which reuse
+// the same client construction and the same sign/splice/submit tail.
+export { makeClient, signAndSubmit };

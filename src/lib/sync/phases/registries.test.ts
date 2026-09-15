@@ -22,13 +22,18 @@ const core: CoreSyncContext = {
   now: 0,
 };
 
-function govCtx(heavy: boolean, opts: { tessera?: boolean } = {}): GovernanceSyncContext {
+function govCtx(
+  heavy: boolean,
+  opts: { tessera?: boolean; pinGc?: boolean } = {},
+): GovernanceSyncContext {
   return {
     ...core,
     heavy,
     vapid: null,
     telegramBotToken: null,
     tessera: opts.tessera ? ({} as GovernanceSyncContext['tessera']) : null,
+    state: { mirrorHealthy: false },
+    pinGc: opts.pinGc ? { groupId: 'grp', jwt: 'jwt' } : null,
   };
 }
 
@@ -82,6 +87,18 @@ describe('governancePhases', () => {
     ]);
   });
 
+  it('runs the pin collector only on a heavy tick with a group and token configured', () => {
+    // Unconfigured is the default everywhere today, so the phase must be absent
+    // from the ordinary heavy tick rather than present and self-skipping.
+    expect(activePhaseNames(governancePhases, govCtx(true))).not.toContain('pin-gc');
+    expect(activePhaseNames(governancePhases, govCtx(false, { pinGc: true }))).not.toContain('pin-gc');
+    expect(activePhaseNames(governancePhases, govCtx(true, { pinGc: true }))).toEqual([
+      'discovery', 'tallies', 'gov-status-times', 'voted-power',
+      'threshold-backfill', 'metadata', 'gov-titles', 'pin-gc', 'post-dates', 'trending', 'params',
+      'delegation-fanout', 'webpush', 'telegram', 'delegation-refresh', 'post-erasure', 'cip100',
+    ]);
+  });
+
   it('marks exactly discovery as primary and keeps names unique', () => {
     expectSinglePrimaryFirst(governancePhases);
     expectUniqueNames(governancePhases);
@@ -110,7 +127,7 @@ describe('votePhases', () => {
 describe('drepPhases', () => {
   it('runs the profile pipeline in order, avatar phases only with the R2 binding', () => {
     expect(activePhaseNames(drepPhases, drepCtx())).toEqual([
-      'dreps', 'voting-power-history', 'drep-stats-digest', 'drep-report-card', 'vote-history-sweep',
+      'dreps', 'voting-power-history', 'drep-stats-digest', 'drep-report-card', 'voting-timing-snapshot', 'vote-history-sweep',
       'epoch-stats', 'epoch-stats-backfill',
       'registered-epochs', 'slugs', 'pool-slugs', 'pools', 'avatars', 'avatar-refit',
     ]);

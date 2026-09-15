@@ -31,7 +31,7 @@ const WITHOUT_SURVEYS: readonly Category[] = SORTED_CATEGORIES.filter((c) => c.k
 /**
  * Which optional category kinds this deployment switches on. The survey kind
  * is fed by the Tessera mirror, which runs only where TESSERA_BACKEND_URL is
- * set (preprod today). Where it is off the category does not exist: it is
+ * set. Where it is off the category does not exist: it is
  * absent from the sidebar, the home page and the sitemap, and /c/surveys/ is
  * a 404, never an empty "Surveys 0" that mainnet could not fill. Topics the
  * mirror created before a switch-off keep their pages (they are forum threads

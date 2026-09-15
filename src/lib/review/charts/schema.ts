@@ -73,7 +73,44 @@ export const seatsSpec = z.object({
   groups: z.array(z.object({ label: z.string().min(1), count: z.number().int().min(0), tone: z.enum(['ending', 'staying']) })).min(1),
 });
 
-export const chartSpecSchema = z.discriminatedUnion('type', [lineSpec, linesSpec, stackedSpec, barsSpec, hbarsSpec, seatsSpec]);
+// One point per withdrawal: how much it asked for against the share that
+// answered. Two axes in different units, so `format` covers the share and
+// `xFormat` the amount, and `sources` names two paths per point, the amount
+// first and the share second. `tone` is the status AT THE EDITION'S CUTOFF:
+// an action ratified but not yet paid is not the same as a paid one.
+export const scatterSpec = z.object({
+  ...base,
+  type: z.literal('scatter'),
+  xLabel: z.string().min(1),
+  xFormat: formatSchema,
+  threshold: z.number().optional(),
+  points: z.array(z.object({
+    label: z.string().min(1),
+    x: z.number(),
+    y: z.number(),
+    tone: z.enum(['yes', 'no', 'abstain']).default('yes'),
+  })).min(2),
+});
+
+// Voting power per proposal, in ada rather than ballots: what actually voted
+// yes, what voted no, and what abstained, on one scale across the rows. The
+// reported share cannot be read off the bar, because abstaining power is
+// excluded from it, so every row carries that share as its own figure.
+// `sources` names four paths per row: yes, no, abstain, share.
+export const powerSpec = z.object({
+  ...base,
+  type: z.literal('power'),
+  rows: z.array(z.object({
+    label: z.string().min(1),
+    yes: z.number().min(0),
+    no: z.number().min(0),
+    abstain: z.number().min(0),
+    share: z.number(),
+  })).min(1),
+  threshold: z.number().optional(),
+});
+
+export const chartSpecSchema = z.discriminatedUnion('type', [lineSpec, linesSpec, stackedSpec, barsSpec, hbarsSpec, seatsSpec, scatterSpec, powerSpec]);
 // The renderers accept a spec as written (before defaults are filled in), not
 // the parsed output, so callers don't have to spell out every field that has
 // a schema default. z.input keeps those fields optional in the type, matching
@@ -85,3 +122,5 @@ export type StackedSpec = z.input<typeof stackedSpec>;
 export type BarsSpec = z.input<typeof barsSpec>;
 export type HbarsSpec = z.input<typeof hbarsSpec>;
 export type SeatsSpec = z.input<typeof seatsSpec>;
+export type ScatterSpec = z.input<typeof scatterSpec>;
+export type PowerSpec = z.input<typeof powerSpec>;

@@ -77,6 +77,18 @@ export function utxoLovelace(utxo: UTxO.UTxO): bigint {
 }
 
 /**
+ * Total lovelace across a UTxO set. For a funding PRE-check: pickInputsToCover
+ * deliberately returns everything on an underfunded wallet and lets the builder
+ * report the shortfall, which is right where the SDK's own balance error is the
+ * best message available. A flow that can say something more useful than that
+ * (naming the deposit, or telling a Preview wallet apart from an empty one)
+ * compares this against its requirement first.
+ */
+export function totalLovelace(utxos: UTxO.UTxO[]): bigint {
+  return utxos.reduce((sum, utxo) => sum + utxoLovelace(utxo), 0n);
+}
+
+/**
  * Picks the fewest wallet UTxOs (largest first) whose combined lovelace covers
  * `minLovelace`, falling back to all UTxOs if the wallet cannot reach it. The
  * caller sizes `minLovelace` to its own funding need (a deposit plus the

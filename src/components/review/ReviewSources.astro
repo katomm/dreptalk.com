@@ -1,0 +1,47 @@
+---
+// Facts the frozen pack does not carry, each with the source it was read from.
+// The snapshot next to the article is the floor of the research, not its
+// ceiling: an edition may explain what a proposal asked for or which rules
+// applied at the time. Printing those claims here keeps the two kinds of fact
+// apart, so a reader always knows which figures trace to the snapshot and which
+// were read somewhere else.
+import type { ReviewFrontmatter } from '@/lib/review/schema.js';
+
+interface Props {
+  external: ReviewFrontmatter['external'];
+}
+const { external } = Astro.props;
+---
+
+{
+  external.length > 0 && (
+    <section class="rv-sources">
+      <h2>Sources and further reading</h2>
+      <details>
+        <summary>{external.length} {external.length === 1 ? 'source' : 'sources'}, open the list</summary>
+        <ul>
+          {external.map((x) => (
+            <li>
+              {x.claim}{' '}
+              <a href={x.source} rel="noopener nofollow">
+                {x.sourceTitle}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </details>
+    </section>
+  )
+}
+
+<style>
+  .rv-sources { margin: 2.5rem 0 0; }
+  .rv-sources h2 { font-size: 1.25rem; margin: 0 0 0.25rem; }
+  /* The list repeats much of the article in source form, so it stays folded
+     until a reader wants to check where a claim came from. Same disclosure as
+     the full list under the decided table. */
+  summary { cursor: pointer; font-size: 0.9rem; color: var(--accent); padding: 0.35rem 0; }
+  details[open] summary { margin-bottom: 0.35rem; }
+  ul { margin: 0; padding-left: 1.1rem; font-size: 0.88rem; line-height: 1.55; color: var(--muted); }
+  li + li { margin-top: 0.5rem; }
+</style>

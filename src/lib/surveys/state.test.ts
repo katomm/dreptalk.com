@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { EPOCH_LENGTH_SECONDS, resolveNetwork } from '../config/network.js';
 import { formatEpochDate } from '../governance/view.js';
 import {
+  deadlineFact,
   deadlineLabel,
   lifecycleLabel,
   participationLabel,
@@ -50,6 +51,32 @@ describe('surveyState lifecycle', () => {
     );
     expect(deadlineLabel('closed', 300, cfg)).toBe('through epoch 300');
     expect(deadlineLabel('cancelled', 300, cfg)).toBe('through epoch 300');
+  });
+
+  it('lets the deadline term follow the lifecycle, so no wording outlives its state', () => {
+    // The sidebar card puts `term` in a dt. Reusing one term for every lifecycle
+    // is what made "Closes: through epoch 300" render over a closed survey.
+    expect(deadlineFact('open', 300, cfg)).toEqual({
+      term: 'Closes',
+      detail: formatEpochDate(startOf(301) / 1000),
+      note: 'through epoch 300',
+    });
+    expect(deadlineFact('closed', 300, cfg)).toEqual({
+      term: 'Closed',
+      detail: 'after epoch 300',
+      note: null,
+    });
+  });
+
+  it('describes a cancelled or invalid survey as a window that was, never as one that closes', () => {
+    // Neither ever closed by the clock, so a future-tense term would be false.
+    for (const lifecycle of ['cancelled', 'untalliable'] as const) {
+      const fact = deadlineFact(lifecycle, 300, cfg);
+      expect(fact.term, lifecycle).toBe('Response window');
+      expect(fact.detail, lifecycle).toBe('through epoch 300');
+      expect(fact.note, lifecycle).toBeNull();
+      expect(fact.term, lifecycle).not.toMatch(/Closes/);
+    }
   });
 
   it('names each lifecycle once', () => {

@@ -20,8 +20,8 @@ faqs:
 
 DRepTalk can submit the three on-chain DRep lifecycle actions for you:
 registering, changing your metadata, and deregistering (which returns your
-deposit). All of them are **non-custodial**: dreptalk.com never sees your keys;
-your wallet signs and submits each transaction, so you always confirm the exact
+deposit). All of them are **non-custodial**: dreptalk.com never sees your keys.
+Your wallet signs and submits each transaction, so you always confirm the exact
 certificate and cost in your wallet. You need a CIP-95 capable wallet (for
 example Lace, Eternl, or Typhon).
 
@@ -33,7 +33,7 @@ or PNG, up to 256 KB). Behind **Show advanced fields** you can also add
 motivations, qualifications, a payment address, and the CIP-119 "do not list"
 flag (kept in your metadata, DRepTalk still shows you). DRepTalk hosts this as a CIP-119 metadata document and your
 wallet submits the registration certificate pointing at it. Registration locks a
-**refundable 500 ada deposit** plus a small network fee; the deposit comes back
+**refundable 500 ada deposit** plus a small network fee. The deposit comes back
 in full when you later deregister.
 
 ## How do I set up or change my DRep metadata?
@@ -56,7 +56,7 @@ The 500 ada you locked when you registered is refunded automatically when you
 **deregister** (retire) your DRep. Sign in as a DRep, open [Settings](/settings/),
 and use **Retire DRep** in the danger zone. Your wallet submits a deregistration
 certificate, and the full deposit is returned to your wallet once the transaction
-confirms. There is no separate withdrawal step and no extra deposit; you pay only
+confirms. There is no separate withdrawal step and no extra deposit. You pay only
 the small network fee for the transaction.
 
 ## How do I retire (deregister) my DRep?
@@ -73,7 +73,7 @@ account, your posts, or your profile page.
 
 None of them move your funds beyond the shown deposit and fee, and none ask for a
 seed phrase or private key. Your wallet shows you the certificate and the exact
-cost before anything is submitted; if something looks different, reject it.
+cost before anything is submitted. If something looks different, reject it.
 
 ## Related
 

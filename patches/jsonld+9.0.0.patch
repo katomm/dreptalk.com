@@ -1,0 +1,27 @@
+diff --git a/node_modules/jsonld/lib/documentLoaders/node.js b/node_modules/jsonld/lib/documentLoaders/node.js
+index 61ad6b3..a56e9e9 100644
+--- a/node_modules/jsonld/lib/documentLoaders/node.js
++++ b/node_modules/jsonld/lib/documentLoaders/node.js
+@@ -9,7 +9,13 @@ const {LINK_HEADER_CONTEXT} = require('../constants');
+ const JsonLdError = require('../JsonLdError');
+ const RequestQueue = require('../RequestQueue');
+ const {prependBase} = require('../url');
+-const {httpClient} = require('@digitalbazaar/http-client');
++// `@digitalbazaar/http-client` pulls in `undici`'s `Agent` export at module
++// scope, which is not implemented by workerd's nodejs_compat undici shim and
++// throws at import time. Requiring it lazily, only when this Node document
++// loader is actually invoked, keeps `jsonld` importable on workerd, where
++// callers always supply their own `documentLoader` (see cip108Canonical.ts)
++// and this built-in loader is never used.
++let httpClient;
+ 
+ /**
+  * Creates a built-in node document loader.
+@@ -168,6 +174,7 @@ module.exports = ({
+ 
+ async function _fetch({url, headers, strictSSL, httpAgent, httpsAgent}) {
+   try {
++    ({httpClient} = require('@digitalbazaar/http-client'));
+     const options = {
+       headers,
+       redirect: 'manual',

@@ -18,6 +18,9 @@ import {
   replaceReportCards,
 } from '../../db/drepReportCard.js';
 import { computeReportCards } from '../../analytics/reportCardView.js';
+import { writeVotingTimingSnapshot } from '../../db/votingTimingSnapshot.js';
+import { loadVotingTimingSnapshot } from '../../analytics/votingTimingSnapshot.js';
+import { epochFromUnix } from '../../config/network.js';
 import {
   storeDrepAvatars,
   gcDrepAvatars,
@@ -187,6 +190,32 @@ export const drepPhases: readonly SyncPhaseDef<DrepSyncContext>[] = [
       await replaceReportCards(ctx.db, rows);
       console.log(`[drep-report-card] cohort=${rows.length} candidates=${candidates.length}`);
       return { items: rows.length };
+    },
+  },
+  {
+    // Network-wide vote-timing aggregates for the analytics hub and the
+    // governance record page, precomputed into a single row so those pages do
+    // not run four window-function queries per render.
+    //
+    // It deliberately depends on no other phase. The gov-sync worker dispatches
+    // exclusively by cron kind, so dreps, votes and governance run in separate
+    // invocations with separate phase lists: a position next to drep-report-card
+    // establishes no ordering against the vote or tally phases, and runRecorder
+    // isolates failures anyway. The phase therefore computes from whatever is
+    // currently persisted, which is what the accepted refresh delay allows.
+    //
+    // On failure the previous snapshot stays and keeps being served. A page only
+    // falls back to computing live when there is no usable row at all, so a
+    // failing run here does not push load back onto the request path.
+    name: 'voting-timing-snapshot',
+    run: async (ctx) => {
+      const computedAt = Date.now();
+      const payload = await loadVotingTimingSnapshot(ctx.db, ctx.cfg);
+      await writeVotingTimingSnapshot(ctx.db, payload, computedAt, epochFromUnix(computedAt / 1000, ctx.cfg));
+      console.log(
+        `[voting-timing-snapshot] drepTypes=${payload.drepByType.length} spoTypes=${payload.spoByType.length} halfBasis=${payload.half.basis}`,
+      );
+      return { items: 1 };
     },
   },
   {

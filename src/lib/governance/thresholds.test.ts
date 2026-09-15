@@ -4,6 +4,7 @@ import {
   serializeThresholdSnapshot,
   readThresholdSnapshot,
   committeeBelowMinSize,
+  tallyContradictsOutcome,
   THRESHOLD_SNAPSHOT_VERSION,
 } from './thresholds.js';
 import type { BodyResult } from './thresholds.js';
@@ -106,8 +107,19 @@ describe('threshold snapshot', () => {
       spo: null,
       cc: 66.67,
       ccBelowMinSize: false,
+      ccGate: null,
+      tallyContradictsOutcome: null,
       v: THRESHOLD_SNAPSHOT_VERSION,
     });
+  });
+
+  it('carries the gate provenance and the outcome check through the round-trip', () => {
+    const gate = { boundaryEpoch: 597, sizeAtBoundary: 7, minSize: 7, minSizeSource: 'epoch-params' as const };
+    const json = serializeThresholdSnapshot([{ body: 'CC', thresholdPct: 66.67, yesPct: 100, met: true }], false, { ccGate: gate, tallyContradictsOutcome: false });
+    const snap = readThresholdSnapshot(json);
+    expect(snap?.ccGate).toEqual(gate);
+    expect(snap?.tallyContradictsOutcome).toBe(false);
+    expect(snap?.v).toBe(3);
   });
 
   it('carries a true cc quorum gate through the round-trip', () => {
@@ -123,6 +135,8 @@ describe('threshold snapshot', () => {
       spo: null,
       cc: 66.67,
       ccBelowMinSize: null,
+      ccGate: null,
+      tallyContradictsOutcome: null,
       v: 0,
     });
   });
@@ -130,6 +144,50 @@ describe('threshold snapshot', () => {
   it('returns null for absent or malformed json', () => {
     expect(readThresholdSnapshot(null)).toBeNull();
     expect(readThresholdSnapshot('not json')).toBeNull();
+  });
+});
+
+describe('tallyContradictsOutcome', () => {
+  const met: BodyResult = { body: 'DRep', thresholdPct: 67, yesPct: 79.38, met: true };
+  const short: BodyResult = { body: 'SPO', thresholdPct: 51, yesPct: 49.45, met: false };
+
+  it('flags a ratified or enacted action whose stored tally reads below a bar', () => {
+    expect(tallyContradictsOutcome([met, short], 'enacted', false)).toBe(true);
+    expect(tallyContradictsOutcome([met, short], 'ratified', false)).toBe(true);
+    expect(tallyContradictsOutcome([met, { body: 'CC', thresholdPct: 66.67, yesPct: 100, met: true }], 'enacted', true)).toBe(true);
+  });
+
+  it('is false when every judged body met its bar', () => {
+    expect(tallyContradictsOutcome([met], 'enacted', false)).toBe(false);
+  });
+
+  it('judges the shares, not the live committee gate folded into met', () => {
+    // Evaluated against today's params with a committee below minimum: met is
+    // false although the share clears the bar. The frozen gate says the boundary
+    // committee was fine, so nothing contradicts the outcome.
+    const ccToday: BodyResult = { body: 'CC', thresholdPct: 66.67, yesPct: 100, met: false };
+    expect(tallyContradictsOutcome([met, ccToday], 'enacted', false)).toBe(false);
+  });
+
+  it('does not judge a body that cast no ballot at all (a bootstrap-era decision)', () => {
+    const drepZero: BodyResult = { body: 'DRep', thresholdPct: 60, yesPct: 0, met: false };
+    const cc: BodyResult = { body: 'CC', thresholdPct: 66.67, yesPct: 100, met: true };
+    expect(tallyContradictsOutcome([drepZero, cc], 'enacted', false, { DRep: 0, CC: 7 })).toBe(false);
+    expect(tallyContradictsOutcome([drepZero, cc], 'enacted', false, { DRep: 3, CC: 7 })).toBe(true);
+    expect(tallyContradictsOutcome([drepZero], 'enacted', false, { DRep: 0 })).toBeNull();
+  });
+
+  it('applies the frozen committee gate only where the committee votes on the type', () => {
+    // NewCommittee: DReps and pools only, so a below-minimum committee is no contradiction.
+    expect(tallyContradictsOutcome([met, { body: 'SPO', thresholdPct: 51, yesPct: 60, met: true }], 'enacted', true)).toBe(false);
+    expect(tallyContradictsOutcome([met, { body: 'CC', thresholdPct: 66.67, yesPct: 100, met: true }], 'enacted', true)).toBe(true);
+  });
+
+  it('is null for an outcome the tallies cannot contradict, or without tallies to judge', () => {
+    expect(tallyContradictsOutcome([met, short], 'expired', false)).toBeNull();
+    expect(tallyContradictsOutcome([met, short], 'active', false)).toBeNull();
+    expect(tallyContradictsOutcome([], 'enacted', false)).toBeNull();
+    expect(tallyContradictsOutcome([{ body: 'SPO', thresholdPct: 51, yesPct: null, met: false }], 'enacted', false)).toBeNull();
   });
 });
 

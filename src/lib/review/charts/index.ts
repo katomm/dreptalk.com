@@ -8,6 +8,8 @@ import { renderStacked } from './stacked.js';
 import { renderBars } from './bars.js';
 import { renderHbars } from './hbars.js';
 import { renderSeats } from './seats.js';
+import { renderScatter } from './scatter.js';
+import { renderPower } from './power.js';
 
 export { chartSpecSchema, type ChartSpec };
 
@@ -19,6 +21,8 @@ export function renderChart(spec: ChartSpec): string {
     case 'bars': return renderBars(spec);
     case 'hbars': return renderHbars(spec);
     case 'seats': return renderSeats(spec);
+    case 'scatter': return renderScatter(spec);
+    case 'power': return renderPower(spec);
   }
 }
 
@@ -27,6 +31,8 @@ function legendFor(spec: ChartSpec): string {
     spec.type === 'lines' ? spec.series.map((s, i) => [s.name, i === 0 ? 's1' : 's2'])
     : spec.type === 'stacked' ? [['Yes', 's1'], ['No', 's2'], ['Abstain', 's3']]
     : spec.type === 'seats' ? spec.groups.map((g) => [g.label, g.tone])
+    : spec.type === 'power' ? [['Yes', 's1'], ['No', 's2'], ['Abstain', 's3']]
+    : spec.type === 'scatter' ? [...new Map(spec.points.map((p) => [p.tone ?? 'yes', p.tone ?? 'yes'])).keys()].map((t) => [t === 'yes' ? 'Paid or ratified' : t === 'no' ? 'Ran out' : 'Still open', t === 'yes' ? 's1' : t === 'no' ? 's2' : 's3'] as [string, string])
     : [];
   if (items.length < 2) return '';
   return `<div class="rv-legend">${items.map(([n, t]) => `<span><i class="rv-${t}"></i>${esc(n)}</span>`).join('')}</div>`;
