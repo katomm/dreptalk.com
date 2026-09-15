@@ -300,8 +300,7 @@ describe('questionView, perOption kind', () => {
       type: 'pointsAllocation',
       prompt: 'Spend',
       options: { type: 'options', labels: ['X', 'Y'] },
-      // cip-179 names this `budget`, and it is a number, not a bigint.
-      budget: 10,
+      budget: 10n,
     };
     const v = questionView(q, {
       kind: 'perOption',

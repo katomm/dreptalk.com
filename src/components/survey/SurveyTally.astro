@@ -454,7 +454,7 @@ function buildQuestion(
       ...empty,
       answeredLine: `${plural(hq?.answeredCount ?? 0, 'response', 'responses')} in the counted set at close answered this question.`,
       weightingNote:
-        "This survey was sealed, so its answers were only ever readable through the published tally artifact, and that artifact carries no weight for this question. A rating or points question commits the weighted sum of its answers rather than the answers, so no head count of it can be formed here either, and no figure is drawn.",
+        "This survey was sealed and this site does not decrypt its answers, so its figures come only from the published tally artifact, and that artifact carries no weight for this question. A rating or points question commits the weighted sum of its answers rather than the answers, so no head count of it can be formed here either, and no figure is drawn.",
     };
   }
   const mode: Mode = hview === null ? 'weighted' : noWeighting ? 'headcount' : 'weighted';
