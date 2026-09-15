@@ -14,6 +14,7 @@
 // tally, since the per-vote rows sync separately and can lag behind it.
 import type { DecidedActionRepresentation } from '../db/effectiveRepresentation.js';
 import { buildVoteConcentration } from './voteConcentration.js';
+import { median } from './median.js';
 
 export interface EffRepRow {
   id: string;
@@ -36,13 +37,6 @@ export interface EffRepView {
 
 function clampPct(n: number): number {
   return Math.min(100, Math.max(0, n));
-}
-
-function median(values: number[]): number | null {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((x, y) => x - y);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
 }
 
 export function buildEffRep(

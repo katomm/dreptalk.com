@@ -5,7 +5,7 @@
 // certificates we need (reg_drep / unreg_drep) with no network, so it isolates
 // "the SDK runs on workerd" from "Koios is reachable".
 import { describe, it, expect } from 'vitest';
-import { Certificate, Credential } from '@evolution-sdk/evolution';
+import { Certificate, Credential, GovernanceAction, RewardAccount } from '@evolution-sdk/evolution';
 
 describe('EvolutionSDK governance certs on workerd (smoke)', () => {
   it('builds and serializes a reg_drep certificate, round-trips it', () => {
@@ -33,5 +33,14 @@ describe('EvolutionSDK governance certs on workerd (smoke)', () => {
     const hex = Certificate.toCBORHex(unregCert);
     expect(hex).toMatch(/^[0-9a-f]+$/);
     expect(Certificate.fromCBORHex(hex)._tag).toBe('UnregDrepCert');
+  });
+
+  // Guards the InfoAction propose-tx builder (infoActionTx.ts): confirms the
+  // barrel still exports GovernanceAction.InfoAction and RewardAccount.fromHex
+  // on workerd, so an SDK bump that renames or drops either fails loudly here
+  // instead of silently in the client build.
+  it('constructs an InfoAction and a RewardAccount from hex', () => {
+    expect(new GovernanceAction.InfoAction({})._tag).toBe('InfoAction');
+    expect(RewardAccount.fromHex(`e0${'00'.repeat(28)}`)._tag).toBe('RewardAccount');
   });
 });

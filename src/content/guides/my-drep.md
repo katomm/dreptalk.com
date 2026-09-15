@@ -4,6 +4,7 @@ description: "What the private My DRep page shows delegators: the actions, ratio
 cardLabel: "My DRep"
 category: "Start here"
 order: 7
+updated: 2026-09-02
 faqs:
   - q: "Why does my page say the delegation start is still being looked up?"
     a: "The start comes from your latest delegation certificate on chain, which DRepTalk reads once per tracked account. A fresh link, or a delegation you just changed, is normally on record within a day. Until it is, the page shows no figures and no actions rather than counting from a date it cannot prove."

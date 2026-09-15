@@ -1,10 +1,12 @@
 ---
 // Sidebar column for the governance-action detail page: stacks status, voting
-// info, proposer, more-from-this-proposer, and top DRep participants cards.
+// info, proposer, authors, the document's own references, more-from-this-proposer,
+// and top DRep participants cards.
 import ActionStatusCard from './ActionStatusCard.astro';
 import VotingInfoCard from './VotingInfoCard.astro';
 import ProposerCard from './ProposerCard.astro';
 import AuthorsCard from './AuthorsCard.astro';
+import ReferencesCard from './ReferencesCard.astro';
 import TopParticipantsCard from './TopParticipantsCard.astro';
 import RelatedActionsCard from './RelatedActionsCard.astro';
 import type { GovernanceAction, RelatedActionRow } from '@/lib/db/governance.js';
@@ -63,6 +65,7 @@ const {
   <VotingInfoCard action={action} params={params} drepStakeTotal={drepStakeTotal} now={now} miniChart={miniChart} trendHref={trendHref} />
   <ProposerCard returnAddress={action.returnAddress} />
   <AuthorsCard authors={action.authors} />
+  <ReferencesCard references={action.references} />
   <RelatedActionsCard actions={related} />
   {/* Always-on cross-link to the governance analytics hub, not tied to this
       action's data, so it renders unconditionally regardless of related
@@ -82,8 +85,8 @@ const {
   }
 
   /* Matches the .sidebar-card/.sidebar-card__title convention the sibling
-     cards (RelatedActionsCard, ProposerCard, AuthorsCard, TopParticipantsCard)
-     each redeclare in their own scoped styles. */
+     cards (RelatedActionsCard, ProposerCard, AuthorsCard, ReferencesCard,
+     TopParticipantsCard) each redeclare in their own scoped styles. */
   .sidebar-card {
     border: 1px solid var(--border);
     border-radius: 0.5rem;

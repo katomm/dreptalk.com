@@ -1,6 +1,6 @@
 ---
 term: "Delegation"
-description: "Delegation in Cardano governance is handing your ada's voting power to a DRep who votes on governance actions on your behalf; it is separate from staking to a pool."
+description: "Delegation in Cardano governance is handing your ada's voting power to a DRep who votes on governance actions on your behalf. It is separate from staking to a pool."
 group: "Voting and delegation"
 order: 1
 updated: 2026-07-14

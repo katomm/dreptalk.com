@@ -1,0 +1,42 @@
+---
+// Submit an InfoAction: unlinked, experimental, preprod-only internal tool.
+// Not in NAV_LINKS on purpose; reachable only by typing the URL. Gated twice:
+// mainnet returns a bare 404 (reveals nothing), then a signed-out visitor is
+// redirected to /login/ like the other session-gated pages. The API routes
+// this island calls gate independently too, so this page gate is a UX
+// convenience, not the security boundary.
+export const prerender = false;
+
+import Layout from '@/layouts/Layout.astro';
+import SubmitInfoAction from '@/components/SubmitInfoAction.tsx';
+import { currentNetwork } from '@/lib/api/response';
+
+const net = currentNetwork();
+if (net.network !== 'preprod') {
+  return new Response('Not found', { status: 404 });
+}
+
+const user = Astro.locals.user;
+if (!user) {
+  return Astro.redirect('/login/');
+}
+
+const network = net.network;
+---
+<Layout title="Submit Info Action (experimental) - DRepTalk" description="Experimental preprod tool for submitting a governance InfoAction." noindex={true}>
+  <div class="callout callout--warning" role="status">
+    <div class="callout__body">
+      Experimental, preprod only, not linked anywhere on the site. Submitting
+      costs the on-chain governance action deposit, refunded when the action
+      is finalized.
+    </div>
+  </div>
+
+  <h1 style="margin:1.5rem 0 0.5rem;">Submit an Info Action</h1>
+  <p style="margin:0 0 1.5rem;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
+    Draft and submit a Cardano governance InfoAction with your wallet.
+    Everything is signed locally; dreptalk.com never handles your private keys.
+  </p>
+
+  <SubmitInfoAction network={network} client:load />
+</Layout>

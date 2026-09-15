@@ -5,7 +5,7 @@ cardLabel: "DRepTalk as an app"
 category: "About DRepTalk"
 order: 8
 featured: true
-updated: 2026-08-02
+updated: 2026-08-16
 ---
 
 You can install DRepTalk as an app on your home screen: it opens in its own
@@ -37,7 +37,7 @@ keep separate storage afterwards, so a later sign-in in one does not carry to th
 other.
 
 Once signed in, go to [Notifications](/notifications/) and enable push under
-**Push notifications**. iOS asks for notification permission once; after
+**Push notifications**. iOS asks for notification permission once. After
 allowing it, DRepTalk notifications appear like any other app's, including on
 the lock screen.
 

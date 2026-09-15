@@ -1,6 +1,6 @@
 ---
 term: "Hard fork initiation"
-description: "A hard fork initiation is the Cardano governance action that moves the network to a new protocol major version; DReps, SPOs, and the Constitutional Committee must all approve it."
+description: "A hard fork initiation is the Cardano governance action that moves the network to a new protocol major version. DReps, SPOs, and the Constitutional Committee must all approve it."
 group: "Governance action types"
 order: 5
 updated: 2026-09-02

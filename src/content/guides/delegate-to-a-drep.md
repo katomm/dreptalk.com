@@ -58,7 +58,7 @@ delegation at any time.
 You can delegate directly on DRepTalk, or from inside your wallet. Both
 paths end the same way: your wallet signs and submits a delegation
 certificate, and once it confirms on-chain your voting power is delegated.
-There is no deposit; you pay only a small network fee, similar to a
+There is no deposit. You pay only a small network fee, similar to a
 standard Cardano transaction.
 
 **On DRepTalk:**
@@ -68,7 +68,7 @@ standard Cardano transaction.
 2. Click **Delegate** and connect your wallet. Retired DReps have no
    Delegate button, since they can no longer vote.
 3. Review the delegation in your wallet and confirm. The wallet shows the
-   exact cost before anything is sent; DRepTalk never sees your keys.
+   exact cost before anything is sent. DRepTalk never sees your keys.
 
 **In your wallet:**
 
@@ -102,7 +102,7 @@ place of a specific DRep.
 
 You can re-delegate at any time. Submit a new delegation transaction to a
 different DRep (or to Abstain, or No Confidence), and the latest delegation
-wins. There is nothing to withdraw or cancel first; the new transaction simply
+wins. There is nothing to withdraw or cancel first. The new transaction simply
 replaces the old one.
 
 The only cost is the small network fee for each delegation transaction.

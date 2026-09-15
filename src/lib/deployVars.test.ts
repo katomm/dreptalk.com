@@ -9,12 +9,13 @@ import { describe, expect, it } from 'vitest';
 // one side only is a live defect, not a config nit: TESSERA_BACKEND_URL on the
 // app alone offers answers on surveys the site can no longer refresh, on
 // gov-sync alone mirrors surveys nobody can see; a VAPID key mismatch sends
-// pushes the subscription cannot verify. Absent on both sides is a legitimate
+// pushes the subscription cannot verify; a PINATA_GOV_GROUP_ID mismatch makes
+// the pin collector refuse every file it is meant to collect. Absent on both sides is a legitimate
 // state (the surveys switch is deliberately off on mainnet), so the assertion
 // is equality, with the always-present VAPID key proving the parsers actually
 // match something.
 
-const KEYS = ['CARDANO_NETWORK', 'VAPID_PUBLIC_KEY', 'TESSERA_BACKEND_URL'] as const;
+const KEYS = ['CARDANO_NETWORK', 'VAPID_PUBLIC_KEY', 'TESSERA_BACKEND_URL', 'PINATA_GOV_GROUP_ID'] as const;
 
 function read(path: string): string {
   return readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
@@ -62,4 +63,23 @@ describe('deploy vars lockstep', () => {
       preprodAppVar(key),
     );
   });
+
+  // The preprod app config is derived by spreading the mainnet [vars], so a
+  // network-bound value that nobody overrides silently carries mainnet's into
+  // preprod. TESSERA_APP_URL is the one such var the lockstep check above
+  // cannot see, gov-sync having no copy of it: a carried-over value would
+  // deep-link preprod survey cards into the mainnet Tessera app, which looks
+  // like a working link and answers on the wrong chain. "Different from
+  // mainnet" alone would not catch it, since a deleted override also reads as
+  // different (null): the override has to be present as well.
+  it.each(['TESSERA_BACKEND_URL', 'TESSERA_APP_URL'] as const)(
+    'preprod overrides the mainnet %s rather than inheriting it',
+    key => {
+      const mainnet = tomlVar('wrangler.toml', 'vars', key);
+      const preprod = preprodAppVar(key);
+      expect(mainnet).not.toBeNull();
+      expect(preprod).not.toBeNull();
+      expect(preprod).not.toBe(mainnet);
+    },
+  );
 });

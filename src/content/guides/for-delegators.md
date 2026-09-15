@@ -32,9 +32,9 @@ DRep](/help/delegate-to-a-drep/).
    sign a message works (for example Lace, Eternl, or Typhon).
 3. Approve the signature request in your wallet.
 
-<img class="shot" src="/help/shots/signin-delegator.webp" alt="The sign-in screen with the Delegator role selected: connect a wallet and sign a one-time message; delegators cannot post or vote" width="650" height="410" loading="lazy" />
+<img class="shot" src="/help/shots/signin-delegator.webp" alt="The sign-in screen with the Delegator role selected: connect a wallet and sign a one-time message. Delegators cannot post or vote" width="650" height="410" loading="lazy" />
 
-That signature only proves you control the wallet's stake key; it is not a
+That signature only proves you control the wallet's stake key. It is not a
 transaction and costs nothing. DRepTalk reads your delegation from the chain
 and links your sign-in to it. A delegator account is read-only: you can
 browse everything, but posting and voting stay reserved for on-chain
@@ -76,7 +76,7 @@ delegator you receive a notification when:
 Notifications arrive in your on-site inbox, and optionally as browser push
 notifications or Telegram messages. You choose the channels and event types
 in your [notification settings](/notifications/). On a phone, [pair the
-device](/help/pair-a-device/) first; on iPhone and iPad, also [add DRepTalk
+device](/help/pair-a-device/) first. On iPhone and iPad, also [add DRepTalk
 to your home screen](/help/add-to-home-screen/) to enable push.
 
 ## Using what you learn

@@ -4,6 +4,7 @@ description: "What each Cardano governance action status label means: active, ra
 cardLabel: "Governance action statuses"
 category: "Understanding governance"
 order: 3
+updated: 2026-08-02
 ---
 
 Each governance action carries a status label derived from its on-chain lifecycle.
@@ -21,9 +22,9 @@ Our own sync state, not on-chain.
 
 Treasury withdrawals, parameter changes, new constitution, new committee, hard-fork initiation.
 
-**Active:** Voting is open; the action has not been decided yet.
+**Active:** Voting is open. The action has not been decided yet.
 
-**Ratified:** Reached the required approval thresholds and is queued for enactment. Brief; you will usually see Enacted instead.
+**Ratified:** Reached the required approval thresholds and is queued for enactment. Brief, so you will usually see Enacted instead.
 
 **Enacted:** Ratified and applied on-chain. The successful end state.
 

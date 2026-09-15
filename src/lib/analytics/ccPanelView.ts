@@ -8,12 +8,13 @@
 // (epochs 507 to 580) and its elected-committee credential (since 581) are
 // two cold keys with their own eligibility windows, so merging them by name
 // would misstate eligibility.
-import { activeCommitteeMembersAt, type CommitteeMemberTerm } from '../koios/committeeTimeline.js';
+import { activeCommitteeMembersAtBoundary, committeeBoundaryForAction, type CommitteeMemberTerm } from '../koios/committeeTimeline.js';
 import { finalCcVoteByMember } from '../koios/corrections.js';
-import { committeeEpochForAction, type CcVoteRow, type DecidedCcAction } from '../db/committee.js';
+import type { CcVoteRow, DecidedCcAction } from '../db/committee.js';
 import type { CcNameIndex } from '../governance/ccNames.js';
 import { readThresholdSnapshot } from '../governance/thresholds.js';
 import { isCcEligible } from '../governance/view.js';
+import { median } from './median.js';
 
 export interface CcMemberRow {
   coldKeyHex: string;
@@ -121,13 +122,6 @@ function computeTenure(terms: CommitteeMemberTerm[], currentEpoch: number | null
   return { from, to };
 }
 
-function median(values: number[]): number | null {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((x, y) => x - y);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
-}
-
 export function buildCcPanel(input: {
   actions: DecidedCcAction[];
   votesByAction: Map<string, CcVoteRow[]>;
@@ -163,12 +157,12 @@ export function buildCcPanel(input: {
     .sort((x, y) => x.decidedEpoch - y.decidedEpoch || x.gaId.localeCompare(y.gaId));
 
   for (const a of eligibleActions) {
-    const epoch = committeeEpochForAction(a.decidedEpoch, currentEpoch);
-    if (epoch == null) {
+    const boundary = committeeBoundaryForAction(a, currentEpoch);
+    if (boundary == null) {
       skipped += 1;
       continue;
     }
-    const active = activeCommitteeMembersAt(members, epoch);
+    const active = activeCommitteeMembersAtBoundary(members, boundary);
     if (active.size === 0) {
       skipped += 1;
       continue;
@@ -176,7 +170,7 @@ export function buildCcPanel(input: {
     considered += 1;
     const index = actionEpochs.length;
     actionEpochs.push(a.decidedEpoch);
-    const finalByCold = finalCcVoteByMember(votesByAction.get(a.gaId) ?? [], members, hotToCold, epoch);
+    const finalByCold = finalCcVoteByMember(votesByAction.get(a.gaId) ?? [], members, hotToCold, boundary);
     turnouts.push((finalByCold.size / active.size) * 100);
 
     let hasYes = false;
