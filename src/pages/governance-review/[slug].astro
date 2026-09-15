@@ -173,6 +173,11 @@ Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
   .rv-svg .rv-sym.rv-none { fill: var(--rv-ink-2); }
   .rv-legend i.rv-none { background: var(--rv-card); border: 1px solid var(--rv-grid); }
   .rv-svg .rv-link { stroke: var(--rv-ink-2); stroke-width: 3; opacity: 0.5; }
+  /* Spending limit bar: paid, approved and free segments inside one frame. */
+  .rv-svg .rv-seg.rv-s2 { fill: var(--rv-s2); opacity: 0.75; }
+  .rv-svg .rv-seg.rv-s1 { fill: var(--rv-s1); opacity: 0.75; }
+  .rv-svg .rv-seg.rv-none { fill: var(--rv-card); }
+  .rv-svg .rv-frame { fill: none; stroke: var(--rv-ink-2); }
 </style>
 
 <style>
