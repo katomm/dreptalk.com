@@ -17,8 +17,8 @@ const { external } = Astro.props;
   external.length > 0 && (
     <section class="rv-sources">
       <details>
-        <summary>
-          <h2>Sources and further reading</h2>
+        <summary class="rv-sources__summary">
+          <h2 class="rv-sources__title">Sources and further reading</h2>
           <span class="rv-sources__count">{external.length} {external.length === 1 ? 'source' : 'sources'}</span>
         </summary>
         <ul>
@@ -38,13 +38,15 @@ const { external } = Astro.props;
 
 <style>
   .rv-sources { margin: 2.5rem 0 0; }
-  .rv-sources h2 { font-size: 1.25rem; margin: 0; display: inline; }
   /* The list repeats much of the article in source form, so it stays folded
-     until a reader wants to check where a claim came from. */
-  summary { cursor: pointer; display: flex; align-items: baseline; gap: 0.6rem; list-style: none; }
-  summary::-webkit-details-marker { display: none; }
-  summary::before { content: '▸'; font-size: 0.9rem; color: var(--muted); }
-  details[open] summary::before { content: '▾'; }
+     until a reader wants to check where a claim came from. The summary is
+     styled through classes so the heading and the marker share one row
+     whatever the site sets on bare summary and h2. */
+  .rv-sources__summary { display: flex; align-items: baseline; gap: 0.6rem; cursor: pointer; list-style: none; }
+  .rv-sources__summary::-webkit-details-marker { display: none; }
+  .rv-sources__summary::before { content: '▸'; font-size: 0.9rem; color: var(--muted); flex: none; }
+  details[open] > .rv-sources__summary::before { content: '▾'; }
+  .rv-sources__title { font-size: 1.25rem; margin: 0; display: inline; }
   .rv-sources__count { font-size: 0.85rem; color: var(--muted); }
   ul { margin: 0.75rem 0 0; padding-left: 1.1rem; font-size: 0.88rem; line-height: 1.55; color: var(--muted); }
   li + li { margin-top: 0.5rem; }
