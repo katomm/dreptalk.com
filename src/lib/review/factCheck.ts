@@ -338,11 +338,12 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
   }
 
   // Body paragraphs, headings included. A verified link span is removed whole
-  // (a year inside a verified title is not a claim), every other link keeps its
-  // text. Numbering is over the paragraphs of the body, charts already removed.
+  // (a year inside a verified title is not a claim), and so is a link to another
+  // edition, whose epochs name the pointer and not a figure. Every other link
+  // keeps its text. Numbering is over the paragraphs of the body, charts already removed.
   const paragraphs = prose.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
   paragraphs.forEach((p, i) => {
-    segments.push({ label: `paragraph ${i + 1}`, text: p.replace(/\[([^\]]+)\]\([^)]*\)/g, (_, text: string) => (verifiedLinkTexts.has(text) ? '' : text)) });
+    segments.push({ label: `paragraph ${i + 1}`, text: p.replace(/\[([^\]]+)\]\(([^)]*)\)/g, (_, text: string, href: string) => (verifiedLinkTexts.has(text) || href.startsWith('/governance-review/') ? '' : text)) });
   });
 
   // 2. numbers, in every scanned segment
