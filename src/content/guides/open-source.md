@@ -4,6 +4,7 @@ description: "DRepTalk is open source under the Apache 2.0 license. The full cod
 cardLabel: "Open source"
 category: "About DRepTalk"
 order: 2
+updated: 2026-08-10
 ---
 
 DRepTalk is open source, released under the **Apache 2.0** license.

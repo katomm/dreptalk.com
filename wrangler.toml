@@ -48,6 +48,22 @@ VAPID_PUBLIC_KEY = "BNDdHbTHnKPFLX9oqH-EeZfQJvzppkj1SRK1-dqnRGOGJWkiazQcjw2_AeKz
 # token is a secret (TELEGRAM_BOT_TOKEN), never stored in this file; the
 # webhook secret is TELEGRAM_WEBHOOK_SECRET, also a secret.
 TELEGRAM_BOT_USERNAME = "DRepTalkBot"
+# The public Telegram group the bot moderates (anti-spam for newly joined
+# accounts). Only the mainnet bot sits in a group; scripts/preprod-config.mjs
+# blanks this for preprod, which switches the guard off. The thresholds live
+# in the TELEGRAM_GROUP_GUARD secret (JSON, see
+# src/lib/notifications/telegramGroupGuard.ts), not here.
+TELEGRAM_GROUP_CHAT_ID = "-1004408916643"
+
+# CIP-179 surveys. TESSERA_BACKEND_URL is the feature switch: the app checks
+# only its presence (without it the surveys category does not exist and
+# /c/surveys/ is a 404), gov-sync is the one caller of the URL. The client
+# refuses a backend whose /health reports a different network, so this URL and
+# the deployment's network cannot silently disagree. Held equal to gov-sync's
+# copy by src/lib/deployVars.test.ts. TESSERA_APP_URL is the display-only
+# "open in Tessera" deep link on survey cards.
+TESSERA_BACKEND_URL = "https://tessera-backend-mainnet.matthieu-pizenberg.workers.dev"
+TESSERA_APP_URL = "https://tessera-mainnet.matthieu-pizenberg.workers.dev"
 
 # D1 database for application data.
 [[d1_databases]]

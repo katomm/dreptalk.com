@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { linkDisplayLabel, dedupeLinks } from './linkLabel.js';
+import { linkDisplayLabel, dedupeLinks } from './documentLinks.js';
 
 describe('linkDisplayLabel', () => {
   it('uses the label when present', () => {

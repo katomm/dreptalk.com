@@ -80,7 +80,7 @@ normal proposer sign-in with their own wallet.
 
 **Revoking.** The proposer sees all pending invites and active co-proposers in
 the same settings section and can withdraw or revoke them at any time.
-Revoking ends the co-proposer's access immediately; posts written under the
+Revoking ends the co-proposer's access immediately. Posts written under the
 mandate keep their badge, since it records who wrote on whose behalf at the
 time.
 

@@ -26,7 +26,7 @@ import { resolveCronKind } from '../../../src/lib/freshness.js';
 import { recordSyncRun, type PhaseFn } from '../../../src/lib/sync/runRecorder.js';
 import { runPhases } from '../../../src/lib/sync/phases/registry.js';
 import type { CoreSyncContext } from '../../../src/lib/sync/phases/context.js';
-import { governancePhases } from '../../../src/lib/sync/phases/governance.js';
+import { governancePhases, initialGovernanceSyncState } from '../../../src/lib/sync/phases/governance.js';
 import { votePhases } from '../../../src/lib/sync/phases/votes.js';
 import { drepPhases, initialDrepSyncState } from '../../../src/lib/sync/phases/dreps.js';
 import { imagesDownscaler } from '../../../src/lib/dreps/avatarStore.js';
@@ -125,7 +125,7 @@ export default {
               vapid: buildVapid(env, core.cfg.siteOrigin),
               telegramBotToken: env.TELEGRAM_BOT_TOKEN ?? null,
               // Non-empty TESSERA_BACKEND_URL switches the surveys phase on
-              // (preprod only today). The client itself refuses a backend whose
+              // (set on both networks). The client itself refuses a backend whose
               // /health network differs from this deployment's, or whose
               // contract major is not the one it was written against. Ten
               // seconds per request, body included: a stalled body with nothing
@@ -137,6 +137,15 @@ export default {
                     timeoutMs: 10_000,
                   })
                 : null,
+              // Both halves required. The group is what proves a file is ours
+              // to delete on an account shared with another project; the token
+              // is the same PINATA_JWT the app uploads with, since Pinata has no
+              // permission tier that can create a file but not delete one.
+              pinGc:
+                env.PINATA_GOV_GROUP_ID && env.PINATA_JWT
+                  ? { groupId: env.PINATA_GOV_GROUP_ID, jwt: env.PINATA_JWT }
+                  : null,
+              state: initialGovernanceSyncState(),
             };
             return runPhases(governancePhases, ctx, phase);
           }

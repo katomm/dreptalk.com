@@ -1,22 +1,32 @@
 /// <reference types="@cloudflare/workers-types" />
-// Handles one Telegram webhook update. Only private text messages matter:
+// Handles one Telegram webhook update. Private text messages drive linking:
 // "/start <code>" links the chat to the code's user, "/stop" disconnects the
-// chat, anything else gets a short help reply. The reply sender is injected so
-// the logic tests without Telegram traffic; the API route binds it to
-// sendTelegramMessage with the bot token. A /start also captures a
-// human-readable label (the chat's @username, or its first name as a
-// fallback) that is stored on the channel row for display in settings.
+// chat, anything else gets a short help reply. Updates from the one public
+// group the bot moderates (when configured) go to the anti-spam guard instead
+// and are never replied to. The Telegram calls are injected so the logic tests
+// without traffic; the API route binds them to the bot token. A /start also
+// captures a human-readable label (the chat's @username, or its first name as
+// a fallback) that is stored on the channel row for display in settings.
 
 import { consumeLinkCode } from './telegramLink.js';
 import { addChannel, deleteChannelsByEndpoint } from '../db/notificationChannels.js';
+import { handleGroupUpdate, type GroupGuardDeps, type GroupGuardOutcome, type GroupGuardTarget } from './telegramGroupGuard.js';
 
-export type TelegramWebhookOutcome = 'linked' | 'link_invalid' | 'stopped' | 'help' | 'ignored';
+export type TelegramWebhookOutcome =
+  | 'linked'
+  | 'link_invalid'
+  | 'stopped'
+  | 'help'
+  | 'ignored'
+  | `group:${Exclude<GroupGuardOutcome, 'ignored'>}`;
 
 export interface TelegramWebhookDeps {
   reply: (chatId: string, text: string) => Promise<unknown>;
   /** Site origin for links in replies, e.g. https://dreptalk.com */
   origin: string;
   now: number;
+  /** The moderated group, absent when no group is configured for this deployment. */
+  group?: { target: GroupGuardTarget; deps: GroupGuardDeps };
 }
 
 /**
@@ -55,6 +65,12 @@ export async function handleTelegramUpdate(
   update: unknown,
   deps: TelegramWebhookDeps,
 ): Promise<TelegramWebhookOutcome> {
+  // The guard decides itself whether an update is in its group; anything it
+  // ignores falls through to the private-chat logic, which drops group chats.
+  if (deps.group) {
+    const outcome = await handleGroupUpdate(db, update, deps.group.target, deps.group.deps, deps.now);
+    if (outcome !== 'ignored') return `group:${outcome}`;
+  }
   const msg = readMessage(update);
   if (!msg) return 'ignored';
   const endpoint = `telegram:${msg.chatId}`;

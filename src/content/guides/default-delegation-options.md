@@ -4,6 +4,7 @@ description: "Always abstain and always no confidence explained: what each optio
 cardLabel: "Default options"
 category: "Understanding governance"
 order: 91
+updated: 2026-09-02
 faqs:
   - q: "Is always abstain the same as not delegating at all?"
     a: "No. Undelegated stake simply does not participate. Always abstain is an active choice that removes your stake from the yes and no calculation while still being counted as delegated, and choosing it also satisfies the vote-delegation requirement for withdrawing staking rewards."

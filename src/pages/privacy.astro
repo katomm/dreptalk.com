@@ -90,6 +90,15 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
       Telegram at any time in your notification settings, which deletes the stored
       chat ID. Legal basis: Art. 6(1)(a) GDPR (consent).
     </p>
+    <p>
+      The bot also moderates the public DRepTalk Telegram group against spam. For
+      accounts that have just joined, it keeps the Telegram user ID together with a
+      count of messages for up to 24 hours, then deletes it. Messages from such an
+      account that contain links, mentions or forwards are removed, and an account
+      that repeats this is removed from the group. Message contents are not stored.
+      Legal basis: Art. 6(1)(f) GDPR (legitimate interest in keeping the group free
+      of scam and spam).
+    </p>
 
     <h3>Server logs and security</h3>
     <p>

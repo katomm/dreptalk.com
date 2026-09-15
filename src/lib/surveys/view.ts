@@ -6,6 +6,7 @@
 // sanitizer and caps as a governance action's anchor text.
 
 import { Role, type SurveyDefinition } from 'cip-179';
+import { formatRelativeTime } from '../forum/view.js';
 import { decodeSurveyRecord } from 'cip-179/tally';
 import {
   MAX_EXTERNAL_PROSE_LEN,
@@ -13,6 +14,24 @@ import {
   sanitizeExternalMultiline,
   sanitizeExternalText,
 } from '../validation/input.js';
+
+/**
+ * One wording for the freshness line, so the category list and the two cards
+ * cannot describe the same snapshot differently. Callers decide whether there
+ * is a line at all: an undated mirror has nothing honest to say about itself.
+ *
+ * `incomplete` is the source's own report that the scan behind the snapshot
+ * read only part of the matching records. It is a separate fact from the age:
+ * a snapshot can be minutes old and still short, and a count taken from it is
+ * then a floor, not a total. Saying only how fresh it is would present the
+ * undercount as whole.
+ */
+export function freshnessLine(asOfSeconds: number, incomplete: boolean, nowMs: number): string {
+  const age = `Survey data as of ${formatRelativeTime(asOfSeconds * 1000, nowMs)}. Cached, not live.`;
+  return incomplete
+    ? `${age} The source read only part of the records for this snapshot, so counts may be low.`
+    : age;
+}
 
 export const ROLE_LABELS: Record<number, string> = {
   [Role.DRep]: 'DReps',

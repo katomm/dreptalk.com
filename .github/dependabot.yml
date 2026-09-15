@@ -13,6 +13,36 @@ updates:
         update-types:
           - minor
           - patch
+    ignore:
+      # astro 7.3 and @astrojs/cloudflare 14.3 only work as a pair, and that pair
+      # cannot build this app. Adapter 14.3 prerenders through workerd, and the
+      # prerender worker inherits the wrangler bindings including RATE_LIMITER
+      # while being the adapter's own entrypoint rather than src/worker.ts, so
+      # the RateLimiter class is never exported and workerd aborts with
+      # "Class extends value undefined". The documented escape hatch
+      # prerenderEnvironment: 'node' is broken in a build too: the plugin that
+      # stubs `cloudflare:` imports is only registered for `astro dev`, so
+      # prerendered routes die on the middleware's cloudflare:workers import.
+      # @astrojs/markdown-remark 7.3 belongs to the same astro release train.
+      # Drop these three once the adapter can prerender with a custom entrypoint.
+      - dependency-name: "astro"
+        versions: [">=7.3.0"]
+      - dependency-name: "@astrojs/cloudflare"
+        versions: [">=14.3.0"]
+      - dependency-name: "@astrojs/markdown-remark"
+        versions: [">=7.3.0"]
+      # typescript 7 cannot install: @astrojs/check caps its peer range at
+      # ^5 || ^6 up to and including 0.9.10, its current release. Drop this once
+      # @astrojs/check widens the range.
+      - dependency-name: "typescript"
+        update-types:
+          - version-update:semver-major
+      # satori is a devDependency for a single OG test (src/lib/og/fallbackFonts.test.ts).
+      # Production renders through workers-og, which resolves its own nested
+      # satori ^0.15.2, so bumping this one would leave the test covering a
+      # version that never ships. Keep it in step with workers-og instead.
+      - dependency-name: "satori"
+        versions: [">=0.16.0"]
   # GitHub Actions used by the CI workflow.
   - package-ecosystem: github-actions
     directory: "/"

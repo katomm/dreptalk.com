@@ -13,7 +13,7 @@ faqs:
   - q: "Why is a vote marked as not counted?"
     a: "Votes can still be cast after an action is ratified, but the tally that ratified the action was already frozen at that point. DRepTalk shows these late votes for completeness and marks them as not counted in the outcome."
   - q: "Are the vote numbers on the page live?"
-    a: "They are synced from the chain on a schedule, usually within minutes. Each page shows an as-of time; see the data freshness guide for details."
+    a: "They are synced from the chain on a schedule, usually within minutes. Each page shows an as-of time. See the data freshness guide for details."
 ---
 
 Every Cardano governance action has its own page on DRepTalk, whether or not
@@ -24,7 +24,7 @@ part of the page.
 
 You can reach an action from the [governance actions list](/c/governance-actions/),
 from a DRep's voting record, or by pasting its id into the search box. The
-list offers several sort orders; [Sorting governance
+list offers several sort orders. [Sorting governance
 actions](/help/sorting/) explains what each one means.
 
 ## The tab bar
@@ -125,7 +125,7 @@ including the earlier vote it replaced.
 
 Every vote row has a copy-link button, so you can share a link that opens
 the page with exactly that vote expanded and highlighted. Votes with a
-rationale also have their own shareable page; see [Linking to DReps,
+rationale also have their own shareable page. See [Linking to DReps,
 governance actions, and votes](/help/linking/).
 
 ## On-chain Data

@@ -1,45 +1,77 @@
 ---
 // The survey thread's header card, from what the page loaded out of D1, the
-// "as of" line owns the staleness. Deliberately no tally figure of any kind:
-// CIP-179 mandates no counting policy, so the card shows participation, never
-// "the result".
+// "as of" line owns the staleness.
+//
+// It does show a tally, in SurveyTally below, and what makes that honest is how
+// it is presented: a named reading rather than a claimed result. CIP-179 still
+// mandates no counting policy, so the card says which rules the reading counts
+// under, names the denominator under every share, and keeps the head count
+// visible next to the weighted figures so a counted DRep whose voting power
+// could not be resolved never disappears from its own answer. Where a
+// denominator is empty or the stored reading is not current, the card says which
+// of those it is instead of drawing a figure.
 import type { SurveyDefinition } from 'cip-179';
 import SurveyBadges from '@/components/survey/SurveyBadges.astro';
+import SurveyTally from '@/components/survey/SurveyTally.astro';
 import type { NetworkConfig } from '@/lib/config/network.js';
-import type { SurveyGovLinkView, SurveyRow } from '@/lib/db/surveys.js';
+import type { SurveyTallyRow } from '@/lib/db/surveyTally.js';
+import type { SurveyRow } from '@/lib/db/surveys.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
-import { deadlineLabel, participationLabel, surveyState } from '@/lib/surveys/state.js';
-import {
-  questionViews,
-  roleLabels,
-  surveyDescription,
-  tesseraSurveyUrl,
-} from '@/lib/surveys/view.js';
+import { participationLabel, surveyState } from '@/lib/surveys/state.js';
+import { tallyRefusal } from '@/lib/surveys/tallyRefusal.js';
+import { questionViews, surveyDescription } from '@/lib/surveys/view.js';
 
 interface Props {
   survey: SurveyRow;
   /** The decoded definition, or null when the stored form could not be
    * read, the card then shows the row's facts and says so. */
   definition: SurveyDefinition | null;
-  /** The governance actions advertising this survey (may name actions this
-   * site has not imported, those render unlinked). */
-  links: SurveyGovLinkView[];
   cfg: NetworkConfig;
   now: number;
-  appUrl: string | undefined;
-  /** Snapshot time (unix s) of the last Tessera answer the mirror applied to
-   * its end, one value for every survey, since the delta names every row
-   * that moved, so no row is fresher than the mirror. Null until a run has
-   * applied one. */
-  asOf: number | null;
+  /** The precomputed informational tally, or null when there is none to show.
+   * A row computed from an artifact the survey no longer names arrives as null
+   * with `tallyStale` set, never as figures. */
+  tally: SurveyTallyRow | null;
+  tallyStale: boolean;
+  /** Newest epoch the local power history holds, null when it holds nothing.
+   * Tells an uncomputed reading apart from an uncomputable one. */
+  powerEpoch: number | null;
 }
 
-const { survey, definition, links, cfg, now, appUrl, asOf } = Astro.props;
+const { survey, definition, cfg, now, tally, tallyStale, powerEpoch } = Astro.props;
 
 const { lifecycle, participation } = surveyState(survey, now, cfg);
 const questions = definition ? questionViews(definition) : [];
 const description = definition ? surveyDescription(definition) : '';
-const deepLink = tesseraSurveyUrl(appUrl, survey.ref);
+
+// The tally owns the counted figure whenever one is on the page: it names the
+// rules it counted under, its denominators and its own age, none of which a bare
+// participation line carries, and two counts with different bases and no stated
+// relationship read as a contradiction. Where no tally can exist the line is the
+// only figure there is, so it stays.
+const showParticipation = tally === null;
+
+// Wherever the tally draws, it renders every question in full: the prompt, the
+// kind, and every option as a bar, the ones nobody picked included. A second
+// list above it would repeat the whole survey, so the card's own list is the one
+// that gives way, being the one that carries no figures. Where the tally refuses
+// it draws no options at all, and then this list is the only place the survey's
+// questions are readable. The refusal is decided in one place, tallyRefusal, so
+// the two cannot drift into showing both lists or neither.
+const showQuestions =
+  tallyRefusal({
+    unavailable: survey.unavailable,
+    externalContent: survey.externalContent,
+    sealed: survey.sealed,
+    finalState: survey.finalState,
+    artifactHash: survey.artifactHash,
+    eligibleRoles: survey.eligibleRoles,
+    lifecycle,
+    definitionReadable: definition !== null,
+    tallyStale,
+    hasTally: tally !== null,
+    powerEpoch,
+  }) !== null;
 ---
 
 <section class="svy-card">
@@ -67,67 +99,37 @@ const deepLink = tesseraSurveyUrl(appUrl, survey.ref);
     description && <p class="svy-card__desc">{description}</p>
   )}
 
-  <ol class="svy-card__questions">
-    {questions.map((q) => (
-      <li>
-        <p class="svy-q__prompt">{q.prompt}{q.required && <span class="svy-q__req" title="An answer must include this question"> *</span>}</p>
-        <p class="svy-q__kind">{q.kindLabel}</p>
-        {q.options && (
-          <ul class="svy-q__options">
-            {q.options.map((o) => <li>{o}</li>)}
-          </ul>
-        )}
-        {q.optionNote && <p class="svy-q__kind">{q.optionNote}</p>}
-      </li>
-    ))}
-  </ol>
+  {showQuestions && (
+    <ol class="svy-card__questions">
+      {questions.map((q, index) => (
+        <li class="svy-q">
+          <span class="svy-q__number">Question {index + 1}</span>
+          <p class="svy-q__prompt">{q.prompt}{q.required && <span class="svy-q__req" title="An answer must include this question"> *</span>}</p>
+          <p class="svy-q__kind">{q.kindLabel}</p>
+          {q.options && (
+            <ul class="svy-q__options">
+              {q.options.map((o) => <li>{o}</li>)}
+            </ul>
+          )}
+          {q.optionNote && <p class="svy-q__kind">{q.optionNote}</p>}
+        </li>
+      ))}
+    </ol>
+  )}
 
-  <dl class="svy-card__facts">
-    <div>
-      <dt>Eligible to respond</dt>
-      <dd>{roleLabels(survey.eligibleRoles)}</dd>
-    </div>
-    <div>
-      <dt>Responses accepted</dt>
-      <dd>{deadlineLabel(lifecycle, survey.endEpoch, cfg)}</dd>
-    </div>
-    <div>
-      <dt>Participation</dt>
-      <dd>{participationLabel(participation)}</dd>
-    </div>
-    {links.length > 0 && (
-      <div>
-        <dt>Linked by {links.length} governance {links.length === 1 ? 'action' : 'actions'}</dt>
-        {links.map((l) => (
-          <dd>
-            {l.topicSlug ? (
-              <a class="svy-card__actionlink" href={`/t/${l.topicSlug}/`}>
-                {l.actionTitle ?? l.title ?? l.actionId}
-              </a>
-            ) : (
-              <>
-                {l.title ?? l.actionId}
-                <span class="svy-card__linknote"> (action not indexed here)</span>
-              </>
-            )}
-          </dd>
-        ))}
-      </div>
-    )}
-  </dl>
+  <SurveyTally
+    tally={tally}
+    tallyStale={tallyStale}
+    powerEpoch={powerEpoch}
+    survey={survey}
+    definition={definition}
+    lifecycle={lifecycle}
+    now={now}
+  />
 
-  <div class="svy-card__foot">
-    {deepLink && (
-      <a class="svy-card__link" href={deepLink} target="_blank" rel="noopener noreferrer">
-        View on Tessera
-      </a>
-    )}
-    {asOf != null && (
-      <span class="svy-card__asof">
-        Survey data as of {formatRelativeTime(asOf * 1000, now)}. Cached, not live.
-      </span>
-    )}
-  </div>
+  {showParticipation && (
+    <p class="svy-card__participation">{participationLabel(participation)}</p>
+  )}
 </section>
 
 <style>
@@ -135,14 +137,15 @@ const deepLink = tesseraSurveyUrl(appUrl, survey.ref);
     border: 1px solid var(--border);
     border-radius: 12px;
     background: var(--surface);
-    padding: 1.25rem 1.25rem 1rem;
+    padding: clamp(1.1rem, 3vw, 1.75rem);
     margin-bottom: 1.5rem;
   }
   .svy-card__head {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: 0.5rem;
-    margin-bottom: 0.75rem;
+    margin-bottom: 1.25rem;
   }
   .svy-card__kind {
     font-size: 0.8125rem;
@@ -163,90 +166,66 @@ const deepLink = tesseraSurveyUrl(appUrl, survey.ref);
   .svy-card__note {
     font-size: 0.9375rem;
     margin: 0 0 1rem;
+    /* The description is external text from the chain, so one unbroken string
+       must wrap instead of widening the column. */
+    overflow-wrap: anywhere;
   }
   .svy-card__note {
     color: var(--muted);
     font-style: italic;
   }
   .svy-card__questions {
-    margin: 0 0 1rem;
-    padding-left: 1.25rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 1.75rem;
+  }
+  .svy-q__number {
+    display: block;
+    margin-bottom: 0.35rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--muted);
   }
   .svy-q__prompt {
     margin: 0;
-    font-size: 0.9375rem;
+    /* The prompt is the survey's content, so it carries the weight the facts
+       used to take here before they moved to the sidebar. */
+    font-size: 1.25rem;
+    line-height: 1.4;
     font-weight: 600;
+    overflow-wrap: anywhere;
   }
   .svy-q__req {
     color: var(--danger);
   }
   .svy-q__kind {
-    margin: 0.1rem 0 0;
+    margin: 0.2rem 0 0;
     font-size: 0.8125rem;
     color: var(--muted);
   }
+  /* A plain list, deliberately not option cards. Nothing here is answerable,
+     the answer widget is further down the page, so border-and-background chrome
+     would read as a button that does nothing. */
   .svy-q__options {
-    margin: 0.35rem 0 0;
+    margin: 0.6rem 0 0;
     padding-left: 1.1rem;
-    font-size: 0.875rem;
+    font-size: 0.9375rem;
     display: flex;
     flex-direction: column;
-    gap: 0.15rem;
+    gap: 0.25rem;
   }
-  .svy-card__facts {
-    margin: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
+  .svy-q__options li {
+    overflow-wrap: anywhere;
+  }
+  /* Only rendered where no tally can exist, so it is the page's single counted
+     figure whenever it appears at all. */
+  .svy-card__participation {
+    margin: 1.5rem 0 0;
+    padding-top: 1rem;
     border-top: 1px solid var(--border);
-    padding-top: 0.9rem;
-  }
-  .svy-card__facts dt {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-  .svy-card__facts dd {
-    margin: 0.1rem 0 0;
     font-size: 0.9rem;
-  }
-  .svy-card__actionlink {
-    color: var(--accent);
-    text-decoration: none;
-  }
-  .svy-card__actionlink:hover {
-    text-decoration: underline;
-  }
-  .svy-card__linknote {
-    color: var(--muted);
-    font-size: 0.8125rem;
-  }
-  .svy-card__foot {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 0.75rem;
-    justify-content: space-between;
-    margin-top: 1rem;
-    border-top: 1px solid var(--border);
-    padding-top: 0.75rem;
-  }
-  .svy-card__link {
-    font-size: 0.875rem;
-    font-weight: 600;
-    color: var(--accent);
-    text-decoration: none;
-  }
-  .svy-card__link:hover {
-    text-decoration: underline;
-  }
-  .svy-card__asof {
-    font-size: 0.78rem;
     color: var(--muted);
   }
 </style>

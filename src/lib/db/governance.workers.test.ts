@@ -149,6 +149,7 @@ async function insertAction(over: Partial<NewGovernanceAction> = {}): Promise<Ne
     abstract: 'abstract',
     rationaleHtml: '<p>why</p>',
     authors: null,
+    references: null,
     anchorUrl: 'https://example.com/a.json',
     anchorHash: 'hash',
     anchorStatus: 'ok',
@@ -691,6 +692,7 @@ describe('updateActionMetadata', () => {
       abstract: 'New abstract with newlines.',
       rationaleHtml: '<p>Rationale paragraph.</p>',
       authors: null,
+      references: null,
       metaVersion: 1,
     });
 
@@ -710,7 +712,7 @@ describe('updateActionMetadata', () => {
     // anchor_status != 'ok' retry predicate would re-fetch it on every run forever.
     const a = await insertAction({ anchorStatus: 'fetch-failed', metaVersion: 0, title: null });
     await updateActionMetadata(db(), a.id, {
-      title: 'Recovered', abstract: 'abs', rationaleHtml: '<p>r</p>', authors: null, metaVersion: 1,
+      title: 'Recovered', abstract: 'abs', rationaleHtml: '<p>r</p>', authors: null, references: null, metaVersion: 1,
     });
     const got = await getGovernanceActionByTopicId(db(), a.topicId);
     expect(got!.anchorStatus).toBe('ok');
@@ -724,6 +726,7 @@ describe('updateActionMetadata', () => {
       abstract: null,
       rationaleHtml: null,
       authors: null,
+      references: null,
       metaVersion: 1,
     });
     const got = await getGovernanceActionByTopicId(db(), a.topicId);
@@ -740,6 +743,7 @@ describe('updateActionMetadata', () => {
       abstract: 'A',
       rationaleHtml: null,
       authors: ['Mike Hornan', 'HOSKY'],
+      references: null,
       metaVersion: 4,
     });
     const got = await getGovernanceActionByTopicId(db(), a.topicId);
@@ -753,6 +757,7 @@ describe('updateActionMetadata', () => {
       abstract: null,
       rationaleHtml: null,
       authors: null,
+      references: null,
       metaVersion: 4,
     });
     const got = await getGovernanceActionByTopicId(db(), a.topicId);
@@ -777,6 +782,50 @@ describe('updateActionMetadata', () => {
     const a = await insertAction({ authors: ['', 'Real Name'] });
     const got = await getGovernanceActionByTopicId(db(), a.topicId);
     expect(got!.authors).toEqual(['Real Name']);
+  });
+
+  it('round-trips references through the update path', async () => {
+    const a = await insertAction({ references: null });
+    const refs = [
+      { label: 'The forum thread', uri: 'https://forum.cardano.org/t/1' },
+      { label: '', uri: 'ipfs://QmDraftCid' },
+    ];
+    await updateActionMetadata(db(), a.id, {
+      title: 'T',
+      abstract: null,
+      rationaleHtml: null,
+      authors: null,
+      references: refs,
+      metaVersion: 5,
+    });
+    const got = await getGovernanceActionByTopicId(db(), a.topicId);
+    expect(got!.references).toEqual(refs);
+  });
+
+  it('reads references written by the insert path, and null when there are none', async () => {
+    const withRefs = await insertAction({ references: [{ label: 'Paper', uri: 'https://example.org/p.pdf' }] });
+    expect((await getGovernanceActionByTopicId(db(), withRefs.topicId))!.references).toEqual([
+      { label: 'Paper', uri: 'https://example.org/p.pdf' },
+    ]);
+    const without = await insertAction({ references: null });
+    expect((await getGovernanceActionByTopicId(db(), without.topicId))!.references).toBeNull();
+  });
+
+  it('degrades a malformed stored references value to null instead of throwing', async () => {
+    const a = await insertAction();
+    await db()
+      .prepare('UPDATE governance_actions SET references_json = ? WHERE id = ?')
+      .bind('{not json', a.id)
+      .run();
+    expect((await getGovernanceActionByTopicId(db(), a.topicId))!.references).toBeNull();
+  });
+
+  it('clamps a stored references array to 20 on read and drops entries without a uri', async () => {
+    const many = Array.from({ length: 25 }, (_, i) => ({ label: `Ref ${i}`, uri: `https://example.org/${i}` }));
+    const a = await insertAction({ references: [{ label: 'no uri' } as never, ...many] });
+    const got = await getGovernanceActionByTopicId(db(), a.topicId);
+    expect(got!.references).toHaveLength(20);
+    expect(got!.references?.[0]).toEqual({ label: 'Ref 0', uri: 'https://example.org/0' });
   });
 });
 

@@ -1,7 +1,13 @@
 // Unit tests for the Telegram Bot API sender: fetch is injected, so no real
 // network traffic; the workers pool is not needed here.
 import { describe, it, expect } from 'vitest';
-import { sendTelegramMessage, isTelegramChatDead, type TelegramSendResult } from './telegram.js';
+import {
+  sendTelegramMessage,
+  deleteTelegramMessage,
+  banTelegramChatMember,
+  isTelegramChatDead,
+  type TelegramSendResult,
+} from './telegram.js';
 
 function fakeFetch(status: number, body: unknown) {
   const calls: Array<{ url: string; init: RequestInit }> = [];
@@ -55,4 +61,28 @@ describe('isTelegramChatDead', () => {
     expect(isTelegramChatDead(r(500))).toBe(false);
   });
   it('a successful send is never dead', () => expect(isTelegramChatDead({ ok: true, status: 200, description: '' })).toBe(false));
+});
+
+describe('deleteTelegramMessage / banTelegramChatMember', () => {
+  it('POSTs deleteMessage with chat_id and message_id', async () => {
+    const { impl, calls } = fakeFetch(200, { ok: true });
+    const result = await deleteTelegramMessage('TOKEN', '-100123', 42, impl);
+    expect(result.ok).toBe(true);
+    expect(calls[0].url).toBe('https://api.telegram.org/botTOKEN/deleteMessage');
+    expect(JSON.parse(String(calls[0].init.body))).toEqual({ chat_id: '-100123', message_id: 42 });
+  });
+
+  it('POSTs banChatMember with chat_id and user_id', async () => {
+    const { impl, calls } = fakeFetch(200, { ok: true });
+    const result = await banTelegramChatMember('TOKEN', '-100123', 987, impl);
+    expect(result.ok).toBe(true);
+    expect(calls[0].url).toBe('https://api.telegram.org/botTOKEN/banChatMember');
+    expect(JSON.parse(String(calls[0].init.body))).toEqual({ chat_id: '-100123', user_id: 987 });
+  });
+
+  it('reports a missing-rights failure without throwing', async () => {
+    const { impl } = fakeFetch(400, { ok: false, description: 'Bad Request: not enough rights' });
+    const result = await deleteTelegramMessage('TOKEN', '-1', 1, impl);
+    expect(result).toEqual({ ok: false, status: 400, description: 'Bad Request: not enough rights' });
+  });
 });

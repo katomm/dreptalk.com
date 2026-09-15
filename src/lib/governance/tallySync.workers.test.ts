@@ -79,6 +79,9 @@ function fakeTallyKoios(lifecycle: ProposalListRow[], s: VotingSummary | null = 
     async proposalVotingSummary(): Promise<VotingSummary | null> {
       return s;
     },
+    async epochParams(): Promise<EpochParamsRow | null> {
+      return null;
+    },
   };
 }
 
@@ -1275,12 +1278,14 @@ describe('backfillThresholdSnapshots', () => {
     }
   }
 
-  // Freezes an inserted action to a terminal status with a decided epoch and a cc yes pct.
-  async function terminal(decidedEpoch: number | null, expiryEpoch: number | null) {
+  // Freezes an inserted action to enacted, ratified at `ratifiedEpoch` and enacted one
+  // epoch later, with a cc yes pct. The boundary the gate is measured at is the
+  // ratified epoch, never the enactment epoch.
+  async function terminal(ratifiedEpoch: number | null, expiryEpoch: number | null) {
     const ga = await insertActive(expiryEpoch);
     await db()
-      .prepare(`UPDATE governance_actions SET status = 'enacted', decided_epoch = ?, expiry_epoch = ?, cc_yes_pct = 80, drep_yes_pct = 90, thresholds_json = NULL WHERE id = ?`)
-      .bind(decidedEpoch, expiryEpoch, ga.id)
+      .prepare(`UPDATE governance_actions SET status = 'enacted', ratified_epoch = ?, decided_epoch = ?, expiry_epoch = ?, cc_yes_pct = 80, drep_yes_pct = 90, thresholds_json = NULL WHERE id = ?`)
+      .bind(ratifiedEpoch, ratifiedEpoch == null ? null : ratifiedEpoch + 1, expiryEpoch, ga.id)
       .run();
     return ga;
   }
@@ -1301,11 +1306,11 @@ describe('backfillThresholdSnapshots', () => {
     return readThresholdSnapshot(row?.thresholds_json ?? null);
   }
 
-  it('freezes the cc quorum gate from the decision-epoch min size and the committee timeline', async () => {
+  it('freezes the cc quorum gate from the boundary min size and the committee timeline, with provenance', async () => {
     await upsertProtocolParams(db(), params);
     await seedCommittee(6); // 6 active members
-    const a1 = await terminal(600, 605); // min size 7 at epoch 600 -> 6 < 7 -> below min
-    const a2 = await terminal(600, 606); // same epoch -> epoch_params cached
+    const a1 = await terminal(600, 605); // ratified at the boundary to 600, min size 7 there -> 6 < 7 -> below min
+    const a2 = await terminal(600, 606); // same boundary -> epoch_params cached
 
     const koios = fakeKoios();
     const res = await backfillThresholdSnapshots({ koios, db: db(), limit: 10 });
@@ -1314,8 +1319,11 @@ describe('backfillThresholdSnapshots', () => {
 
     const s1 = await snapOf(a1.topicId);
     expect(s1?.ccBelowMinSize).toBe(true);
-    expect(s1?.v).toBe(2);
+    expect(s1?.v).toBe(3);
     expect(s1?.cc).toBeCloseTo(66.7, 0); // ccThreshold 0.667 -> ~66.7%
+    expect(s1?.ccGate).toEqual({ boundaryEpoch: 600, sizeAtBoundary: 6, minSize: 7, minSizeSource: 'epoch-params' });
+    // Enacted with a tally below the bar: reported, not reconciled.
+    expect(s1?.tallyContradictsOutcome).toBe(true);
     expect((await snapOf(a2.topicId))?.ccBelowMinSize).toBe(true);
 
     // epoch_params fetched once for the shared epoch 600 (cached across both actions).
@@ -1334,7 +1342,32 @@ describe('backfillThresholdSnapshots', () => {
     expect(res.actions).toBe(1);
     const s = await snapOf(a.topicId);
     expect(s?.ccBelowMinSize).toBeNull();
-    expect(s?.v).toBe(2);
+    expect(s?.ccGate).toEqual({ boundaryEpoch: null, sizeAtBoundary: null, minSize: null, minSizeSource: null });
+    expect(s?.v).toBe(3);
+  });
+
+  it('defers an action whose boundary epoch has no committee minimum yet, and freezes it once Koios answers', async () => {
+    await upsertProtocolParams(db(), params);
+    await seedCommittee(6);
+    const a = await terminal(650, 655);
+    let answer = false;
+    const koios = {
+      async epochParams(epochNo?: number): Promise<EpochParamsRow | null> {
+        return answer ? { epoch_no: epochNo ?? null, committee_min_size: 5 } : null;
+      },
+    };
+    const first = await backfillThresholdSnapshots({ koios, db: db(), limit: 10 });
+    expect(first.actions).toBe(0);
+    expect(first.failed).toBe(0);
+    expect(await snapOf(a.topicId)).toBeNull(); // left for a later run, not frozen on a gap
+
+    answer = true;
+    const second = await backfillThresholdSnapshots({ koios, db: db(), limit: 10 });
+    expect(second.actions).toBe(1);
+    const s = await snapOf(a.topicId);
+    expect(s?.ccGate).toEqual({ boundaryEpoch: 650, sizeAtBoundary: 6, minSize: 5, minSizeSource: 'epoch-params' });
+    expect(s?.ccBelowMinSize).toBe(false);
+    expect(s?.tallyContradictsOutcome).toBe(false);
   });
 
   it('skips the run (drains nothing) when protocol params are not synced', async () => {

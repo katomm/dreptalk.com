@@ -24,7 +24,6 @@ import {
   listUnvotedEligibleActions,
   listUnrationaledVotes,
   listCohortValues,
-  getNetworkTimingByType,
   listOwnVoteTimings,
   type UnvotedAction,
   type UnrationaledVote,
@@ -33,6 +32,7 @@ import {
   type OwnVoteTiming,
 } from '@/lib/db/recordDiagnostics';
 import { buildHistogram, buildTimingDetail, type HistogramBucket } from '@/lib/analytics/recordDiagnosticsView';
+import { resolveNetworkTypeTiming } from '@/lib/analytics/votingTimingResolve.js';
 import { participationAheadLabel, rationaleAheadLabel } from '@/lib/analytics/reportCardView';
 import { participationStat, rationaleStat, voteTimingStat, type ParticipationStat } from '@/lib/dreps/voteStatsView';
 import { readableType, shortGovActionId } from '@/lib/governance/view';
@@ -70,7 +70,7 @@ const [reportCard, participation, rationaleStats, unvoted, unrationaled, cohortV
     : Promise.resolve({ rows: [] as UnvotedAction[], total: 0 }),
   drep && db ? listUnrationaledVotes(db, drep.drepId) : Promise.resolve({ rows: [] as UnrationaledVote[], total: 0 }),
   drep && db ? listCohortValues(db) : Promise.resolve([] as CohortValues[]),
-  drep && db ? getNetworkTimingByType(db) : Promise.resolve([] as NetworkTypeTiming[]),
+  drep && db ? resolveNetworkTypeTiming(db) : Promise.resolve([] as NetworkTypeTiming[]),
   drep && db ? listOwnVoteTimings(db, drep.drepId) : Promise.resolve([] as OwnVoteTiming[]),
   drep && db ? listDrepVoteTimings(db, drep.drepId) : Promise.resolve([] as DrepVoteTimingRow[]),
 ]);

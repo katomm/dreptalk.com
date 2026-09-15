@@ -85,6 +85,49 @@ export function deadlineLabel(
     : through;
 }
 
+/**
+ * The deadline as a sidebar card renders it: a term for the dt, a value for the
+ * dd, and an optional smaller note under it.
+ *
+ * Separate from `deadlineLabel` because that one answers "what is the cutoff"
+ * for an inline fact line, where the surrounding text supplies the tense. A
+ * standalone card has to supply its own, and a single term cannot: "Closes"
+ * over a survey that shut months ago is false, and so is any future tense over
+ * one that was cancelled and never reached its epoch at all.
+ */
+export interface DeadlineFact {
+  /** The dt wording. Follows the lifecycle, never fixed. */
+  term: string;
+  detail: string;
+  /** A quieter second line, or null when the detail says it all. */
+  note: string | null;
+}
+
+export function deadlineFact(
+  lifecycle: SurveyLifecycle,
+  endEpoch: number,
+  cfg: NetworkConfig,
+): DeadlineFact {
+  const through = `through epoch ${endEpoch}`;
+  switch (lifecycle) {
+    case 'open':
+      // Responses are accepted through end_epoch inclusive (CIP-179), so the
+      // date a reader cares about is the start of the epoch after it.
+      return {
+        term: 'Closes',
+        detail: formatEpochDate(epochStartUnix(endEpoch + 1, cfg)),
+        note: through,
+      };
+    case 'closed':
+      return { term: 'Closed', detail: `after epoch ${endEpoch}`, note: null };
+    case 'cancelled':
+    case 'untalliable':
+      // Neither ended by the clock, so the window is described as one that was.
+      // The badge beside it already says which of the two happened.
+      return { term: 'Response window', detail: through, note: null };
+  }
+}
+
 /** The columns the state derives from: a `SurveyRow`, or any row-shaped
  * object carrying them. */
 export interface SurveyStateInput {
