@@ -47,10 +47,10 @@ export function roleLabels(roles: readonly number[]): string {
 
 /**
  * Decode a stored wire-form record back to its definition, or null when the
- * stored form cannot be read. The form is frozen at admission and decoded on
- * every page view, so a shape this code cannot read, a corrupted row, a
- * cip-179 wire change the mirror predates, must cost the card its text and
- * the page its answer panel, not the whole thread a 500.
+ * stored form cannot be read. The form is rewritten on every delivery and
+ * decoded on every page view, so a shape this code cannot read, a corrupted
+ * row, a cip-179 wire change no delivery has carried since, must cost the card
+ * its text and the page its answer panel, not the whole thread a 500.
  */
 export function parseSurveyDefinition(definitionJson: string): SurveyDefinition | null {
   try {

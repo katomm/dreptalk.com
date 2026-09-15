@@ -28,6 +28,7 @@ import {
 import {
   getPublishableSurveys,
   getLinkedSurveyForAction,
+  getSurveyByRef,
   getSurveyByTopicId,
   getSurveyGovLinks,
   getSurveySyncState,
@@ -43,6 +44,7 @@ import {
   type SurveysTessera,
   syncSurveys,
 } from './sync.js';
+import { parseSurveyDefinition } from './view.js';
 
 const TX_LINKED = 'a'.repeat(64);
 const TX_SECOND = 'b'.repeat(64);
@@ -733,6 +735,42 @@ describe('syncSurveys', () => {
     ).toBe(1);
     expect((await surveyRows())[0]).toMatchObject({ counted_dreps: 3, synced_at: again });
     expect((await linksOf(KEY_LINKED)).map(l => l.action_id)).toEqual([ACTION_ID, ACTION_SECOND]);
+  });
+
+  it('rewrites the stored definition on delivery, so a form an older codec wrote decodes again', async () => {
+    await importLinkingAction();
+    const points = definition({
+      questions: [
+        {
+          type: 'pointsAllocation',
+          prompt: 'Spend',
+          options: { type: 'options', labels: ['A', 'B'] },
+          budget: 10n,
+        },
+      ],
+    });
+    const body = deltaOf(
+      setOf([surveyRecord(TX_LINKED, points)], LINKED_LINKS, { [KEY_LINKED]: 3 }),
+    );
+    const delivery = fakeTessera({
+      changesSince: async () => ({ ready: true, body }),
+      changes: async () => ({ ready: true, body }),
+    });
+    await syncSurveys(deps(delivery));
+    const stored = async () => (await getSurveyByRef(env.DB, KEY_LINKED))?.definitionJson ?? '';
+    expect(await stored()).toContain('"budget":{"$bigint":"10"}');
+
+    // The row as cip-179 0.4.0 wrote it, a points budget as a plain number,
+    // which the 0.5.0 decoder refuses.
+    await env.DB.prepare('UPDATE survey SET definition = ? WHERE ref = ?')
+      .bind((await stored()).replace('{"$bigint":"10"}', '10'), KEY_LINKED)
+      .run();
+    expect(parseSurveyDefinition(await stored())).toBeNull();
+
+    // Tessera re-stamps the survey: the delivery carries the current form, and
+    // the row takes it.
+    expect((await syncSurveys(deps(delivery))).written).toBe(1);
+    expect(parseSurveyDefinition(await stored())?.questions[0]).toMatchObject({ budget: 10n });
   });
 
   it('bootstraps from instant zero once, then asks only for what changed from its cursor', async () => {

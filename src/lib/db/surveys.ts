@@ -27,11 +27,18 @@ export interface NewSurvey {
 }
 
 /** Writes down one survey the mirror was given: an insert the first time, and
- * an update of what Tessera can move on every later delivery. The record's own
- * columns are deliberately not in the update list, a CIP-179 record is
- * immutable under its ref, and the stored wire form is what the widget
- * re-decodes, so re-deriving them per delivery could only introduce drift.
- * `final_counted_dreps` is the artifact pass's alone, except that a delivery
+ * an update of what Tessera can move on every later delivery. The facts read
+ * off the record (`end_epoch`, `eligible_roles`, `sealed`, `external_content`,
+ * `submitted_at`) are deliberately not in the update list: a CIP-179 record is
+ * immutable under its ref, so re-deriving them per delivery could only
+ * introduce drift. `definition` is the exception, and it is rewritten every
+ * time: the record is fixed but its wire form is cip-179's, versioned with
+ * the package, and every reader decodes it with the version this build
+ * ships. A form frozen at first admission would stop decoding at the first
+ * codec change (0.5.0 turned points values from numbers into tagged bigints),
+ * costing the card its text, the page its answer panel and the survey its
+ * tally, while the delivery in hand is already encoded by the reader's own
+ * version. `final_counted_dreps` is the artifact pass's alone, except that a delivery
  * moving `artifact_hash` resets it: the count must describe the artifact
  * named beside it, so the pass reads the new one. Reappearing clears
  * `unavailable` unconditionally: being in an answer at all is the proof. */
@@ -43,6 +50,7 @@ export function buildUpsertSurvey(db: D1Database, s: NewSurvey): D1PreparedState
           definition, counted_dreps, final_state, artifact_hash, submitted_at, synced_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(ref) DO UPDATE SET
+         definition = excluded.definition,
          counted_dreps = excluded.counted_dreps,
          cancelled = excluded.cancelled,
          final_state = excluded.final_state,
