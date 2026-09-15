@@ -163,6 +163,16 @@ Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
   .rv-svg .rv-seat { stroke-width: 2; fill: var(--rv-card); }
   .rv-svg .rv-seat.rv-ending, .rv-legend i.rv-ending { stroke: var(--rv-s2); background: var(--rv-s2); }
   .rv-svg .rv-seat.rv-staying, .rv-legend i.rv-staying { stroke: var(--rv-s1); background: var(--rv-s1); }
+  /* Ballot matrix: a tinted cell per decision with a symbol on top, and a
+     before/after row whose two dots are joined by a line. */
+  .rv-svg .rv-cell { fill: var(--rv-card); stroke: var(--rv-grid); }
+  .rv-svg .rv-cell.rv-s1 { fill: var(--rv-s1); opacity: 0.22; }
+  .rv-svg .rv-cell.rv-s2 { fill: var(--rv-s2); opacity: 0.22; }
+  .rv-svg .rv-cell.rv-s3 { fill: var(--rv-s3); opacity: 0.22; }
+  .rv-svg .rv-sym { font-size: 14px; font-weight: 700; fill: var(--rv-ink); }
+  .rv-svg .rv-sym.rv-none { fill: var(--rv-ink-2); }
+  .rv-legend i.rv-none { background: var(--rv-card); border: 1px solid var(--rv-grid); }
+  .rv-svg .rv-link { stroke: var(--rv-ink-2); stroke-width: 3; opacity: 0.5; }
 </style>
 
 <style>

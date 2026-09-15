@@ -104,7 +104,7 @@ function collectStrings(v: unknown, keys: RegExp, out: Set<string>): void {
 }
 
 /** Capitalized only because they open a sentence. Any other word at a sentence start is checked like the rest. */
-const SENTENCE_STARTERS = new Set(['The', 'A', 'An', 'In', 'By', 'On', 'At', 'As', 'Of', 'And', 'For', 'With', 'That', 'This', 'These', 'Those', 'It', 'Its', 'He', 'She', 'They', 'We', 'But', 'So', 'If', 'When', 'While', 'After', 'Before', 'Since', 'Until', 'Both', 'Neither', 'Every', 'Each', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Half', 'Most', 'Some', 'None', 'Not', 'No', 'Yes', 'What', 'Where', 'Why', 'How', 'Whatever', 'Part', 'Compared', 'Read', 'Only', 'Also', 'Still', 'Then', 'There', 'Here', 'Nothing', 'Everything', 'Nobody', 'Whether', 'Unless', 'Without', 'Behind', 'Between', 'Under', 'Over', 'Across', 'Against', 'Steps', 'Rewards', 'More', 'Together', 'Share', 'Underneath', 'Concentration', 'Voting', 'Ratification', 'Repricing', 'Power', 'Participation', 'Almost', 'Abstaining', 'Taken', 'All', 'Paying', 'Same', 'Constitutional', 'Amount', 'Size', 'Count', 'Fewer', 'Neither', 'Twelve', 'Nine', 'Six', 'Nineteen', 'Forty', 'Delegation', 'Missed', 'Among', 'Bars', 'Follow', 'Their', 'Smaller', 'Ranked', 'Around', 'Stake', 'Final', 'According', 'Eleven', 'Dropped', 'Metadata', 'Opposing', 'Revised', 'Should', 'Dividing', 'Raising', 'Participation', 'Pools', 'Delegated', 'Voting', 'Deciding', 'From', 'Until', 'Ratification', 'Weight', 'Governance', 'Which', 'Who', 'Its', 'Within', 'Inside', 'Nothing', 'Below', 'Thirty', 'Approving', 'Better', 'Neither', 'Both', 'Calling', 'Endorsing', 'Across', 'Ballots', 'Payments', 'Support', 'Weight', 'Pools', 'Instead', 'Rather', 'Getting', 'Read', 'Whichever', 'Carrying', 'Unpaid', 'Doing', 'Being', 'Losing', 'During', 'Anything', 'Ninety', 'Adding', 'Provisions', 'Definitions', 'Payments', 'Reach', 'Hit', 'Proposing', 'Any', 'To', 'Reading', 'Counting', 'Users', 'Another', 'Pool', 'Losing']);
+const SENTENCE_STARTERS = new Set(['The', 'A', 'An', 'In', 'By', 'On', 'At', 'As', 'Of', 'And', 'For', 'With', 'That', 'This', 'These', 'Those', 'It', 'Its', 'He', 'She', 'They', 'We', 'But', 'So', 'If', 'When', 'While', 'After', 'Before', 'Since', 'Until', 'Both', 'Neither', 'Every', 'Each', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Half', 'Most', 'Some', 'None', 'Not', 'No', 'Yes', 'What', 'Where', 'Why', 'How', 'Whatever', 'Part', 'Compared', 'Read', 'Only', 'Also', 'Still', 'Then', 'There', 'Here', 'Nothing', 'Everything', 'Nobody', 'Whether', 'Unless', 'Without', 'Behind', 'Between', 'Under', 'Over', 'Across', 'Against', 'Steps', 'Rewards', 'More', 'Together', 'Share', 'Underneath', 'Concentration', 'Voting', 'Ratification', 'Repricing', 'Power', 'Participation', 'Almost', 'Abstaining', 'Taken', 'All', 'Paying', 'Same', 'Constitutional', 'Amount', 'Size', 'Count', 'Fewer', 'Neither', 'Twelve', 'Nine', 'Six', 'Nineteen', 'Forty', 'Delegation', 'Missed', 'Among', 'Bars', 'Follow', 'Their', 'Smaller', 'Ranked', 'Around', 'Stake', 'Final', 'According', 'Eleven', 'Dropped', 'Metadata', 'Opposing', 'Revised', 'Should', 'Dividing', 'Raising', 'Participation', 'Pools', 'Delegated', 'Voting', 'Deciding', 'From', 'Until', 'Ratification', 'Weight', 'Governance', 'Which', 'Who', 'Its', 'Within', 'Inside', 'Nothing', 'Below', 'Thirty', 'Approving', 'Better', 'Neither', 'Both', 'Calling', 'Endorsing', 'Across', 'Ballots', 'Payments', 'Support', 'Weight', 'Pools', 'Instead', 'Rather', 'Getting', 'Read', 'Whichever', 'Carrying', 'Unpaid', 'Doing', 'Being', 'Losing', 'During', 'Anything', 'Ninety', 'Adding', 'Provisions', 'Definitions', 'Payments', 'Reach', 'Hit', 'Proposing', 'Any', 'To', 'Reading', 'Counting', 'Users', 'Another', 'Pool', 'Losing', 'First', 'Second', 'Third', 'Sum', 'Seventeen', 'Equal', 'Fewer']);
 
 const GOVERNANCE_TERMS = new Set([
   'Cardano', 'DRep', 'DReps', 'SPO', 'SPOs', 'Constitutional Committee', 'Constitution', 'Governance Review', 'DRepTalk',
@@ -165,7 +165,9 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
     return { value: d.value };
   });
   // Source paths resolve against the pack plus the verified derived values under the reserved key "derived".
-  const scope = { ...(pack as Record<string, unknown>), derived: verifiedDerived };
+  // An external entry's declared numbers are addressable as external[i].numbers[j],
+  // so a chart can draw a figure the pack never held next to one it did.
+  const scope = { ...(pack as Record<string, unknown>), derived: verifiedDerived, external: fm.external ?? [] };
 
   // Candidate numbers: every number and array length in the pack, the verified
   // derived values, epochs around the window, and the numbers the external
@@ -229,6 +231,17 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
     if (spec.type === 'scatter') { segments.push({ label: `chart ${n} x label`, text: spec.xLabel }); for (const [i, p] of spec.points.entries()) segments.push({ label: `chart ${n} point ${i + 1} label`, text: p.label }); }
     if (spec.type === 'power') for (const [i, r] of spec.rows.entries()) segments.push({ label: `chart ${n} row ${i + 1} label`, text: r.label });
     if (spec.type === 'lines') for (const [i, s] of spec.series.entries()) segments.push({ label: `chart ${n} series ${i + 1} name`, text: s.name });
+    if (spec.type === 'matrix') {
+      for (const [i, c] of spec.columns.entries()) segments.push({ label: `chart ${n} column ${i + 1}`, text: c });
+      for (const [i, r] of spec.rows.entries()) segments.push({ label: `chart ${n} row ${i + 1} label`, text: r.label });
+      // Cells are strings, checked one to one against the pack's ballot strings.
+      const cells = spec.rows.flatMap((r) => r.cells);
+      if (cells.length !== spec.sources.length) out.push({ rule: 'chart-source-mismatch', message: `chart ${n}: ${cells.length} cells but ${spec.sources.length} sources` });
+      else cells.forEach((c, k) => { const src = resolvePath(scope, spec.sources[k]); if (src !== c) out.push({ rule: 'chart-source-mismatch', message: `chart ${n} cell ${k + 1} (${c}) is not ${spec.sources[k]} (${String(src)})` }); });
+      continue;
+    }
+    if (spec.type === 'beforeAfter') for (const [i, p] of spec.panels.entries()) { segments.push({ label: `chart ${n} panel ${i + 1} label`, text: p.label }); segments.push({ label: `chart ${n} panel ${i + 1} before`, text: p.before.label }); segments.push({ label: `chart ${n} panel ${i + 1} after`, text: p.after.label }); }
+    if (spec.type === 'timeline') for (const [i, it] of spec.items.entries()) segments.push({ label: `chart ${n} item ${i + 1} label`, text: it.label });
     // epoch-indexed charts: the epoch source must yield exactly the epochs the chart shows
     if (spec.type === 'line' || spec.type === 'bars' || spec.type === 'stacked') {
       const shownEpochs = spec.type === 'line' ? spec.values.map((_, i) => spec.epochFrom + i) : spec.epochs;
@@ -251,6 +264,8 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
       : spec.type === 'hbars' ? spec.rows.map((r) => one([r.value]))
       : spec.type === 'scatter' ? spec.points.flatMap((p) => [one([p.x], spec.xFormat), one([p.y])])
       : spec.type === 'power' ? spec.rows.flatMap((r) => [one([r.yes]), one([r.no]), one([r.abstain]), one([r.share], '%')])
+      : spec.type === 'beforeAfter' ? spec.panels.flatMap((p) => [one([p.before.value], p.format), one([p.after.value], p.format)])
+      : spec.type === 'timeline' ? spec.items.map((it) => one([it.epoch], 'int'))
       : spec.groups.map((g) => one([g.count]));
     if (series.length !== spec.sources.length) {
       out.push({ rule: 'chart-source-mismatch', message: `chart ${chartIndex}: ${series.length} series but ${spec.sources.length} sources` });

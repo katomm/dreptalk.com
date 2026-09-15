@@ -10,6 +10,9 @@ import { renderHbars } from './hbars.js';
 import { renderSeats } from './seats.js';
 import { renderScatter } from './scatter.js';
 import { renderPower } from './power.js';
+import { renderMatrix } from './matrix.js';
+import { renderBeforeAfter } from './beforeAfter.js';
+import { renderTimeline } from './timeline.js';
 
 export { chartSpecSchema, type ChartSpec };
 
@@ -23,6 +26,9 @@ export function renderChart(spec: ChartSpec): string {
     case 'seats': return renderSeats(spec);
     case 'scatter': return renderScatter(spec);
     case 'power': return renderPower(spec);
+    case 'matrix': return renderMatrix(spec);
+    case 'beforeAfter': return renderBeforeAfter(spec);
+    case 'timeline': return renderTimeline(spec);
   }
 }
 
@@ -32,6 +38,8 @@ function legendFor(spec: ChartSpec): string {
     : spec.type === 'stacked' ? [['Yes', 's1'], ['No', 's2'], ['Abstain', 's3']]
     : spec.type === 'seats' ? spec.groups.map((g) => [g.label, g.tone])
     : spec.type === 'power' ? [['Yes', 's1'], ['No', 's2'], ['Abstain', 's3']]
+    : spec.type === 'matrix' ? [['Yes', 's1'], ['No', 's2'], ['Abstain', 's3'], ['No ballot', 'none']]
+    : spec.type === 'beforeAfter' ? [[spec.panels[0].before.label, 's3'], [spec.panels[0].after.label, 's1']]
     : spec.type === 'scatter' ? [...new Map(spec.points.map((p) => [p.tone ?? 'yes', p.tone ?? 'yes'])).keys()].map((t) => [t === 'yes' ? 'Paid or ratified' : t === 'no' ? 'Ran out' : 'Still open', t === 'yes' ? 's1' : t === 'no' ? 's2' : 's3'] as [string, string])
     : [];
   if (items.length < 2) return '';

@@ -161,3 +161,61 @@ describe('power', () => {
     expect(fig).toContain('Abstain');
   });
 });
+
+describe('matrix, before/after and timeline', () => {
+  const matrix = {
+    type: 'matrix' as const,
+    title: 'Five DReps on nine requests',
+    columns: ['Yoroi', 'YUTA'],
+    sources: ['a', 'b', 'c', 'd'],
+    rows: [
+      { label: 'Consensus', cells: ['Yes', 'Yes'] as const },
+      { label: 'Blockfrost', cells: ['Abstain', 'did not vote'] as const },
+    ],
+  };
+  const beforeAfter = {
+    type: 'beforeAfter' as const,
+    title: 'Tweag, first and second request',
+    sources: ['a', 'b', 'c', 'd'],
+    panels: [
+      { label: 'Sum asked', format: 'M' as const, before: { label: 'First request', value: 39.8 }, after: { label: 'Second request', value: 18.3 } },
+      { label: 'DRep support', format: '%' as const, before: { label: 'First request', value: 6.11 }, after: { label: 'Second request', value: 70.13 }, threshold: 67 },
+    ],
+  };
+  const timeline = {
+    type: 'timeline' as const,
+    title: 'Eternl, two requests',
+    sources: ['a', 'b', 'c'],
+    items: [
+      { epoch: 631, label: 'First request filed' },
+      { epoch: 637, label: 'Second request filed' },
+      { epoch: 638, label: 'First request expires', tone: 'no' as const },
+    ],
+  };
+  it('parses and rejects a ragged matrix', () => {
+    expect(chartSpecSchema.safeParse(matrix).success).toBe(true);
+    expect(chartSpecSchema.safeParse({ ...matrix, rows: [{ label: 'x', cells: ['Yes'] }] }).success).toBe(false);
+    expect(chartSpecSchema.safeParse(beforeAfter).success).toBe(true);
+    expect(chartSpecSchema.safeParse(timeline).success).toBe(true);
+  });
+  it('renders one cell per ballot with a symbol and a tone', () => {
+    const svg = renderChart(matrix);
+    expect(svg.match(/class="rv-cell/g)?.length).toBe(4);
+    expect(svg).toContain('rv-cell rv-none');
+    expect(svg).toContain('✓');
+    expect(renderFigure(matrix)).toContain('No ballot');
+  });
+  it('renders a before and an after dot per panel and the threshold', () => {
+    const svg = renderChart(beforeAfter);
+    expect(svg.match(/class="rv-dot rv-s3"/g)?.length).toBe(2);
+    expect(svg.match(/class="rv-dot rv-s1"/g)?.length).toBe(2);
+    expect(svg).toContain('67.0% bar');
+    expect(svg).toContain('39.8M');
+  });
+  it('renders every event on the epoch axis', () => {
+    const svg = renderChart(timeline);
+    expect(svg.match(/class="rv-dot/g)?.length).toBe(3);
+    expect(svg).toContain('First request expires');
+    expect(svg).toContain('>630<');
+  });
+});
