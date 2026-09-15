@@ -118,6 +118,34 @@ export async function readVotesForActions(db: D1Database, ids: string[], endUnix
   return out;
 }
 
+export interface RationaleRow {
+  ga_id: string;
+  voter_role: string;
+  voter_id: string;
+  voter_hex: string | null;
+  vote: string;
+  body_text: string;
+  source: string;
+}
+
+/** Every readable vote rationale on the given actions, any role, joined to the ballot it explains. */
+export async function readRationalesForActions(db: D1Database, ids: string[]): Promise<RationaleRow[]> {
+  const out: RationaleRow[] = [];
+  for (const batch of chunked(ids, ID_CHUNK)) {
+    const res = await db
+      .prepare(
+        `SELECT r.ga_id, v.voter_role, r.voter_id, v.voter_hex, v.vote, r.body_text, r.source
+           FROM action_rationale r
+           JOIN drep_votes v ON v.ga_id = r.ga_id AND v.voter_id = r.voter_id
+          WHERE r.ga_id IN (${sqlPlaceholders(batch)}) AND r.body_html IS NOT NULL AND r.body_text <> ''`,
+      )
+      .bind(...batch)
+      .all<RationaleRow>();
+    out.push(...(res.results ?? []));
+  }
+  return out;
+}
+
 /** Superseded votes on the given actions cast at or before the window's end, so a timeline shows the re-vote too. */
 export async function readVoteHistoryForActions(db: D1Database, ids: string[], endUnix: number): Promise<VoteRow[]> {
   const out: VoteRow[] = [];

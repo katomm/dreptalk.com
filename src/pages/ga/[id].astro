@@ -19,5 +19,7 @@ const hit = db && ident ? await resolveIdentifier(db, ident) : null;
 // hit is read only in the return below; astro check misreports that as unused
 // (ts6133) for any top-level return in .astro frontmatter, as on other redirect
 // pages. It is a hint, not an error, and biome (the CI lint gate) skips .astro.
-return Astro.redirect(hit?.href ?? `/search/?q=${encodeURIComponent(id)}`, 302);
+// A query on the id link (the Positions tab, a voter's row) survives the hop,
+// so a rationale can be cited by its /ga/ address. The browser carries the hash.
+return Astro.redirect(hit?.href ? `${hit.href}${Astro.url.search}` : `/search/?q=${encodeURIComponent(id)}`, 302);
 ---

@@ -122,6 +122,37 @@ describe('buildWindowPack', () => {
     expect(below.topDreps).toEqual([]);
   });
 
+  it('carries the rationales of the largest voters, every committee member and a few pools', async () => {
+    await seedAction(ids.closing, 'NewCommittee', 'active', { submitted: 646, expiry: 653 });
+    await env.DB.prepare(
+      `INSERT INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, synced_at, block_time) VALUES
+        (?, 'DRep', 'drepA', NULL, 'Yes', 0, ?), (?, 'DRep', 'drepB', NULL, 'No', 0, ?),
+        (?, 'ConstitutionalCommittee', 'ccHot1', 'ABCD', 'Yes', 0, ?), (?, 'SPO', 'poolA', NULL, 'Abstain', 0, ?)`,
+    ).bind(ids.closing, t(651), ids.closing, t(650), ids.closing, t(651), ids.closing, t(651)).run();
+    await env.DB.prepare(`INSERT INTO cc_member_name (hot_key_hex, name, source_block_time, updated_at) VALUES ('abcd', 'Member One', 0, 0)`).run();
+    const long = 'word '.repeat(200).trim();
+    await env.DB.prepare(
+      `INSERT INTO action_rationale (ga_id, voter_id, body_html, body_text, source, anchor_url, status, created_at, fetched_at) VALUES
+        (?, 'drepA', '<p>Yes because</p>', 'Yes because', 'onchain', NULL, 'ok', 0, 0),
+        (?, 'drepB', '<p>x</p>', ?, 'onchain', NULL, 'ok', 0, 0),
+        (?, 'ccHot1', '<p>Constitutional</p>', 'Constitutional', 'onchain', NULL, 'ok', 0, 0),
+        (?, 'poolA', '<p>Pool view</p>', 'Pool view', 'onchain', NULL, 'ok', 0, 0),
+        (?, 'drepEmpty', NULL, '', 'onchain', NULL, 'empty', 0, 0)`,
+    ).bind(ids.closing, ids.closing, long, ids.closing, ids.closing, ids.closing).run();
+    const pack = await buildWindowPack(env.DB, cfg, 650, 652);
+    const rows = pack.rationales[ids.closing];
+    expect(rows.map((r) => [r.voterId, r.role, r.vote, r.name])).toEqual([
+      ['drepA', 'DRep', 'Yes', null],
+      ['drepB', 'DRep', 'No', null],
+      ['ccHot1', 'CC', 'Yes', 'Member One'],
+      ['poolA', 'SPO', 'Abstain', null],
+    ]);
+    expect(rows[0]).toMatchObject({ excerpt: 'Yes because', url: `/ga/${W}200/?tab=positions&voter=drepA#voter-drepA` });
+    expect(rows[1].excerpt.length).toBeLessThan(long.length);
+    expect(rows[1].excerpt.endsWith('…')).toBe(true);
+    expect(rows[2].url).toBe(`/ga/${W}200/?tab=positions&role=cc#voter-ccHot1`);
+  });
+
   it('counts votes cast with superseded votes and final voters once per range', async () => {
     await seedAction(ids.closing, 'NewCommittee', 'active', { submitted: 646, expiry: 653 });
     await env.DB.prepare(`INSERT INTO drep_votes (ga_id, voter_role, voter_id, vote, synced_at, block_time) VALUES (?, 'DRep', 'drepA', 'Yes', 0, ?), (?, 'DRep', 'drepB', 'No', 0, ?)`)

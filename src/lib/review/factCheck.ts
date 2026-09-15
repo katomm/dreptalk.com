@@ -306,6 +306,8 @@ export function factCheckEdition(input: { frontmatter: ReviewFrontmatter; body: 
   const drepNames = new Map<string, string>();
   for (const d of (resolvePath(pack, 'topDreps') as Array<{ drepId: string; name: string | null }> | undefined) ?? []) if (d.name) drepNames.set(d.drepId, d.name);
   for (const list of Object.values((resolvePath(pack, 'topVoters') as Record<string, Array<{ drepId: string; name: string | null }>> | undefined) ?? {})) for (const v of list) if (v.name) drepNames.set(v.drepId, v.name);
+  // A quoted voter is linked like any other DRep, so the rationale rows license ids too (pack version 2).
+  for (const list of Object.values((resolvePath(pack, 'rationales') as Record<string, Array<{ voterId: string; role: string; name: string | null }>> | undefined) ?? {})) for (const v of list) if (v.role === 'DRep' && v.name) drepNames.set(v.voterId, v.name);
   // Only a link text that IS the pack title or the pack name earns the two
   // exemptions below (dropped from the number scan, added to the name
   // whitelist). An alias is the author's own wording: the link itself is
