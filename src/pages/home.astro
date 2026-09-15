@@ -25,6 +25,8 @@ import { getMostRepliedRecentTopic } from '@/lib/db/forum';
 import { countActiveByRole } from '@/lib/db/activeParticipants.js';
 import { loadActiveFaces } from '@/lib/forum/activeFaces.js';
 import ActiveFaces from '@/components/ActiveFaces.astro';
+import ReviewCard from '@/components/review/ReviewCard.astro';
+import { loadEditions } from '@/lib/review/editions.js';
 import { authorProfileHref } from '@/lib/forum/author';
 import { activeLabel, ACTIVE_WINDOW_MS, HOME_FACE_LIMIT } from '@/lib/forum/view';
 import { PENCIL_PATH, PROFILE_PATH, SETTINGS_PATH, TARGET_PATH, VOTE_PATH } from '@/lib/forum/icons';
@@ -40,6 +42,11 @@ const db = env.DB as D1Database | undefined;
 // Resolved once for the delegation dashboard's open-actions countdown, same
 // pattern /vote/ uses.
 const network = resolveNetwork(currentNetwork().network);
+// Newest Governance Review edition, closing the page for every role. Mainnet
+// only, like the editions themselves: the card dates come from mainnet epoch
+// boundaries whatever network this worker runs on.
+const latestReview = (await loadEditions())[0] ?? null;
+const reviewCfg = resolveNetwork('mainnet');
 
 // The DRep-only cards (voting dashboard, on-chain metadata status) key off a
 // synced drep_id; getSelfDrepId itself returns null for non-DRep sessions.
@@ -323,6 +330,13 @@ const cards: HomeCard[] = [
       <DrepVotingStats breakdown={voteBreakdown} rationale={rationaleStats} participation={participation} />
     </section>
   )}
+
+  {latestReview && (
+    <section class="home-review" aria-labelledby="home-review-label">
+      <p id="home-review-label" class="home-review__label">Latest Governance Review</p>
+      <ReviewCard edition={latestReview} cfg={reviewCfg} />
+    </section>
+  )}
 </Layout>
 
 <style>
@@ -440,6 +454,17 @@ const cards: HomeCard[] = [
   }
   .home-stats {
     margin-top: 1.75rem;
+  }
+  /* Same label treatment as the homepage's review teaser. */
+  .home-review {
+    margin-top: 2rem;
+  }
+  .home-review__label {
+    font-size: 0.78rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 0.5rem;
   }
 
   .home-grid {
