@@ -23,6 +23,13 @@ export const CC_KNOWN_NAMES: Readonly<Record<string, { name: string; source: str
     name: 'Phil_uplc',
     source: '2025 Constitutional Committee election result',
   },
+  // Elected in the 2026 Constitutional Committee election, seated by
+  // gov_action1w2w64uhelz0cg2np7m37hal905tdd7jpzm3fcyc3g7qvkwgfppgqqfsggt5.
+  // Its first vote anchor is plain text, not a CIP-100 document.
+  '7c34e0240b84029e0932f5e8d81af42a63f55de6da31f16e19b1f5b4': {
+    name: 'Leandros BSP',
+    source: '2026 Constitutional Committee election result',
+  },
 };
 
 /** The curated name for a cold key, null when the table has no entry for it. */
