@@ -65,19 +65,22 @@ describe('seeded committee history', () => {
   it('resolves the ledger-active size across versions and the epoch-597 resignation', async () => {
     // Reads the historical seed migration directly (no cleanup).
     const { members, hotToCold } = await getCommitteeTimeline(db());
-    expect(members).toHaveLength(22);
-    expect(hotToCold.size).toBe(14);
+    expect(members).toHaveLength(29); // 0048 plus the epoch 654 version from 0105
+    expect(hotToCold.size).toBe(16);
     expect(activeCommitteeSizeAtBoundary(members, 550)).toBe(7); // bootstrap
     expect(activeCommitteeSizeAtBoundary(members, 597)).toBe(7); // v2, the resignation inside 597 is after this boundary
     expect(activeCommitteeSizeAtBoundary(members, 598)).toBe(6); // v2, resignation has taken effect
     expect(activeCommitteeSizeAtBoundary(members, 633)).toBe(7); // v3 (8 listed, resigner not authorized)
+    expect(activeCommitteeSizeAtBoundary(members, 653)).toBe(7); // v3 closed at 653, re-elected seats keep their 653 term
+    expect(activeCommitteeSizeAtBoundary(members, 654)).toBe(6); // v4, the hot key authorized inside 654 does not count yet
+    expect(activeCommitteeSizeAtBoundary(members, 655)).toBe(7); // v4, all seven seats
   });
 
   it('live-syncs the current version: rotates hot keys, extends terms, protects the seed', async () => {
     const koios = [
-      // existing v3 member with a newly rotated hot key and an extended term
+      // existing current-version member with a newly rotated hot key and an extended term
       { status: 'authorized', cc_cold_hex: '13493790d9b03483a1e1e684ea4faf1ee48a58f402574e7f2246f4d4', cc_hot_hex: 'newhot13', expiration_epoch: 800 },
-      // the seeded resigner, still shown resigned: its epoch-597 resignation must survive
+      // the seeded resigner of the closed v3, still shown resigned: its epoch-597 resignation must survive
       { status: 'resigned', cc_cold_hex: '349e55f83e9af24813e6cb368df6a80d38951b2a334dfcdf26815558', cc_hot_hex: null, expiration_epoch: 653 },
       // a member Koios reports that the seed does not know: signals a committee change
       { status: 'authorized', cc_cold_hex: 'ffffnew', cc_hot_hex: 'ffffhot', expiration_epoch: 900 },
@@ -85,12 +88,14 @@ describe('seeded committee history', () => {
 
     const res = await syncCurrentCommitteeMembership(db(), koios, 641);
     expect(res.hotKeys).toBe(2); // newhot13 + ffffhot (the resigner has no hot key)
-    expect(res.unknown).toBe(1); // ffffnew is not part of the current version
+    expect(res.unknown).toBe(2); // ffffnew and the v3 resigner are not part of the current version
 
     const { members, hotToCold } = await getCommitteeTimeline(db());
     expect(hotToCold.get('newhot13')).toBe('13493790d9b03483a1e1e684ea4faf1ee48a58f402574e7f2246f4d4');
-    const m13 = members.find((m) => m.coldKeyHex.startsWith('13493790') && m.versionFrom === 602);
+    const m13 = members.find((m) => m.coldKeyHex.startsWith('13493790') && m.versionFrom === 654);
     expect(m13?.termExpiration).toBe(800); // term extended by the live sync
+    const m13v3 = members.find((m) => m.coldKeyHex.startsWith('13493790') && m.versionFrom === 602);
+    expect(m13v3?.termExpiration).toBe(653); // a closed version is never touched
     const resigner = members.find((m) => m.coldKeyHex.startsWith('349e55f8') && m.versionFrom === 602);
     expect(resigner?.resignedAt).toBe(597); // seed protected, not overwritten with 641
   });

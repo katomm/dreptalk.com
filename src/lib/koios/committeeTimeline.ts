@@ -71,6 +71,36 @@ export function activeCommitteeSizeAtBoundary(members: CommitteeMemberTerm[], ep
   return activeCommitteeMembersAtBoundary(members, epoch).size;
 }
 
+/**
+ * The members the timeline seats DURING `epoch`, counted the way Koios'
+ * committee_info does (authorized, not resigned, term not expired). Unlike the
+ * boundary rule, a hot key registered inside `epoch` already counts and a term
+ * still counts in its expiration epoch, so this compares like for like with the
+ * live committee size.
+ */
+function seatedCommitteeSizeDuring(members: CommitteeMemberTerm[], epoch: number): number {
+  return members.filter(
+    (m) => versionCovers(m, epoch) && m.termExpiration >= epoch && m.authorizedFrom <= epoch && m.resignedAt == null,
+  ).length;
+}
+
+/**
+ * Compares the seeded timeline with the live committee size for the current
+ * epoch. The live sync only updates members it already knows, so a newly
+ * enacted committee shows up here as a size mismatch until a migration seeds
+ * it. Returns both sizes on a mismatch, null when they agree or either side is
+ * unknown.
+ */
+export function committeeTimelineDrift(
+  members: CommitteeMemberTerm[],
+  liveSize: number | null,
+  epoch: number | null,
+): { liveSize: number; timelineSize: number } | null {
+  if (liveSize == null || epoch == null || members.length === 0) return null;
+  const timelineSize = seatedCommitteeSizeDuring(members, epoch);
+  return timelineSize === liveSize ? null : { liveSize, timelineSize };
+}
+
 /** The lifecycle fields the decision boundary of an action is derived from. */
 export interface DecisionBoundaryInput {
   status: string;
