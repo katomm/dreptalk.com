@@ -1,8 +1,8 @@
 ---
-// The actions of the window that the article does not walk through itself. The
-// featured ones are covered in the body, so they are left out of the decided
-// table. The open table keeps all of its rows: an action that was still being
-// voted on has no outcome anywhere else on the page, featured or not.
+// Every action decided in the window, the featured ones included: the table is
+// the complete list of outcomes, and a reader scanning it should not have to
+// know which actions the body walks through. The open table likewise keeps all
+// of its rows.
 // The decided table says "Decided in this window" rather than "Also decided":
 // an edition that features nothing lists its main story here too, and "also"
 // would then promise a second set of actions that does not exist.
@@ -16,7 +16,7 @@ interface Props {
   epochTo: number;
 }
 const { rows, open, featured, epochTo } = Astro.props;
-const shown = rows.filter((r) => !featured.includes(r.id));
+const shown = rows;
 
 // A window that decided thirty payment requests has a list nobody reads in
 // place, so past this many rows the table is collapsed behind its own count.
