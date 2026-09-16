@@ -1270,6 +1270,30 @@ describe('deferred governance topics', () => {
     expect(topics!.n).toBe(0);
   });
 
+  // A document that arrived but does not match its on-chain hash is a verdict on
+  // the document, not a transport miss: no gateway can serve a different answer.
+  const fetchWrongDoc: typeof fetch = async () =>
+    new Response(JSON.stringify({ body: { title: 'Not the anchored document' } }), {
+      headers: { 'content-type': 'application/json' },
+    });
+
+  it('opens the thread immediately when the anchor document fails its hash check', async () => {
+    let n = 940;
+    await syncGovernanceActions({
+      koios: fakeKoios([deferrable]),
+      db: env.DB,
+      network: 'preprod',
+      now: 1_700_000_940_000,
+      rand: () => `rm${n++}`,
+      fetchImpl: fetchWrongDoc,
+    });
+    const row = await env.DB.prepare('SELECT topic_id, anchor_status FROM governance_actions WHERE id = ?')
+      .bind(actionId)
+      .first<{ topic_id: string | null; anchor_status: string }>();
+    expect(row!.anchor_status).toBe('hash-mismatch');
+    expect(row!.topic_id).toBeTruthy();
+  });
+
   it('opens the thread immediately when the anchor reads but carries no title', async () => {
     // A readable but titleless document will never yield a better title, so
     // deferring it would only delay the thread.
@@ -1326,6 +1350,29 @@ describe('deferred governance topics', () => {
       .bind(row!.topic_id)
       .first<{ n: number }>();
     expect(ev!.n).toBe(1);
+  });
+
+  it('stops waiting as soon as a reread returns a verdict on the document', async () => {
+    await discoverWithFailedAnchor();
+
+    let n = 965;
+    const r = await createDeferredGovTopics({
+      db: env.DB,
+      network: 'preprod',
+      now: 1_700_001_050_000,
+      rand: () => `rv${n++}`,
+      fetchImpl: fetchWrongDoc,
+      limit: 10,
+    });
+    expect(r).toMatchObject({ scanned: 1, created: 1, deferred: 0 });
+
+    const row = await env.DB.prepare('SELECT topic_id FROM governance_actions WHERE id = ?')
+      .bind(actionId)
+      .first<{ topic_id: string }>();
+    const topic = await env.DB.prepare('SELECT title FROM topics WHERE id = ?')
+      .bind(row!.topic_id)
+      .first<{ title: string }>();
+    expect(topic!.title).toBe('Info Action (1a1a1a1a#0)');
   });
 
   it('leaves the action pending and counts the attempt while the anchor stays unreadable', async () => {

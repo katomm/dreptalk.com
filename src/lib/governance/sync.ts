@@ -16,7 +16,7 @@ import {
   fetchAnchorMetadata,
   META_EXTRACT_VERSION,
   META_REEXTRACT_MAX_ATTEMPTS,
-  type AnchorMetadata,
+  type AnchorResult,
 } from './metadata.js';
 import { renderMarkdown } from '../markdown.js';
 import { createTopic, buildTopicPostedAtStatements, setGovTopicTitleAndBody, getAllTopicsByCategory } from '../db/forum.js';
@@ -125,26 +125,34 @@ function composeFirstPostMd(p: FirstPostFields, abstract: string | null, network
 }
 
 /**
+ * Whether a failed anchor read was a transport miss that a later attempt may get
+ * past. Anything else is a verdict on the document itself (it arrived but failed
+ * its hash check, was not JSON, was too large, or the URL is not fetchable), and
+ * asking again, through any gateway, cannot turn it into a readable title.
+ */
+function anchorMayStillAnswer(status: string): boolean {
+  return status === 'fetch-failed' || status === 'bad-content-type';
+}
+
+/**
  * Re-reads one stored action's anchor document and, on success, stores what it
  * extracted (which also stamps the current extractor version and clears the
- * attempt counter). Returns null when the anchor did not answer or failed its
- * integrity check: that counts one attempt against the give-up budget and leaves
- * the row for a later run. A successful read that simply contains no rationale or
- * abstract is still a success, the row is current, just empty.
+ * attempt counter). A failed read counts one attempt against the give-up budget
+ * and leaves the row for a later run. A successful read that simply contains no
+ * rationale or abstract is still a success, the row is current, just empty.
  */
 async function rereadActionAnchor(
   db: D1Database,
   ga: GovernanceAction,
   fetchImpl?: typeof fetch,
-): Promise<AnchorMetadata | null> {
-  if (!ga.anchorUrl || !ga.anchorHash) {
-    await incrementActionMetaAttempts(db, ga.id);
-    return null;
-  }
-  const result = await fetchAnchorMetadata(ga.anchorUrl, ga.anchorHash, { fetchImpl, db });
+): Promise<AnchorResult> {
+  const result: AnchorResult =
+    ga.anchorUrl && ga.anchorHash
+      ? await fetchAnchorMetadata(ga.anchorUrl, ga.anchorHash, { fetchImpl, db })
+      : { status: 'unsupported-url', metadata: null };
   if (result.status !== 'ok') {
     await incrementActionMetaAttempts(db, ga.id);
-    return null;
+    return result;
   }
   await updateActionMetadata(db, ga.id, {
     title: result.metadata.title,
@@ -154,7 +162,7 @@ async function rereadActionAnchor(
     references: result.metadata.references,
     metaVersion: META_EXTRACT_VERSION,
   });
-  return result.metadata;
+  return result;
 }
 
 /** The stored-action shape of FirstPostFields, shared by every re-render path. */
@@ -306,12 +314,12 @@ export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResu
           now,
         });
 
-      // No readable anchor means no real title, and the slug built from the fallback
-      // would be permanent (see DEFERRED_TOPIC_MAX_ATTEMPTS). Store the action alone
-      // and let createDeferredGovTopics open the thread once the anchor answers. An
-      // anchor that read fine but carries no title is NOT deferred: retrying it would
-      // never produce a better one.
-      if (!meta?.title && !anchorRead) {
+      // An anchor that did not answer means no real title yet, and the slug built from
+      // the fallback would be permanent (see DEFERRED_TOPIC_MAX_ATTEMPTS). Store the
+      // action alone and let createDeferredGovTopics open the thread once the anchor
+      // answers. A document that did arrive (titleless, or failing its checks) is NOT
+      // deferred: retrying it would never produce a better title.
+      if (!meta?.title && anchorMayStillAnswer(anchor.status)) {
         await insertAction(null).run();
         deferred++;
         continue;
@@ -406,8 +414,9 @@ export interface DeferredTopicDeps {
  * Opens the threads discovery held back because the action's anchor was unreadable
  * (see DEFERRED_TOPIC_MAX_ATTEMPTS for why waiting is worth it). Re-reads the anchor
  * for each waiting action: on success the recovered metadata is stored and the thread
- * opens under the real title. A still-failing anchor counts one attempt and the action
- * waits for the next run, until the budget is spent and the fallback title has to do.
+ * opens under the real title. An anchor that still does not answer counts one attempt
+ * and the action waits for the next run, until the budget is spent. A document that
+ * arrives but is unusable ends the wait at once. Both open on the fallback title.
  *
  * Self-limiting: once every action has a thread the candidate set is empty and the
  * phase writes nothing, so it is safe to call every tick.
@@ -426,16 +435,18 @@ export async function createDeferredGovTopics(deps: DeferredTopicDeps): Promise<
       let abstract = ga.abstract;
 
       if (!title && ga.anchorUrl && ga.anchorHash && ga.metaAttempts < DEFERRED_TOPIC_MAX_ATTEMPTS) {
-        const meta = await rereadActionAnchor(db, ga, fetchImpl);
-        if (!meta) {
+        const result = await rereadActionAnchor(db, ga, fetchImpl);
+        if (result.status === 'ok') {
+          title = result.metadata.title;
+          abstract = result.metadata.abstract;
+        } else if (anchorMayStillAnswer(result.status)) {
           deferred++;
           continue;
         }
-        title = meta.title;
-        abstract = meta.abstract;
       }
 
-      // Either a real title, or the budget is spent and the fallback has to do.
+      // A real title, or the fallback because the budget is spent or the document
+      // itself is unusable.
       await openGovActionTopic(db, {
         type: ga.type,
         title: title || fallbackActionTitle(ga.type, ga.id),
@@ -497,7 +508,7 @@ export async function backfillActionMetadata(deps: MetaBackfillDeps): Promise<Me
       // keeps its old version, so it stays a candidate until it exhausts its
       // attempt budget. The topic title and opening post are reconciled
       // separately by backfillGovTopicTitles, so this stays on the action row.
-      if (await rereadActionAnchor(db, ga, fetchImpl)) updated++;
+      if ((await rereadActionAnchor(db, ga, fetchImpl)).status === 'ok') updated++;
       else failed++;
     } catch {
       failed++;
