@@ -19,7 +19,7 @@ import {
   updateGovernanceActionStatus,
   backfillRatifiedEpochs,
   getActionsNeedingVotedPower,
-  markVotedPowerAttempt,
+  markBackfillAttempt,
   updateVotedPower,
   getActionsNeedingVoteBackfill,
   getActionsNeedingThresholdSnapshot,
@@ -541,26 +541,29 @@ export interface VotedPowerBackfillDeps {
   now: number;
 }
 
-/** A week: an action whose summary Koios cannot serve costs one request a week, not four an hour. */
-export const VOTED_POWER_RETRY_MS = 7 * 24 * 60 * 60 * 1000;
+/**
+ * A week, the retry window of every rotating backfill: an action Koios cannot
+ * serve costs one attempt a week, not one per tick.
+ */
+export const BACKFILL_RETRY_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * One-time, self-limiting backfill: fills drep_voted_power for terminal actions
  * that predate the column, by re-reading only the Koios voting summary (no status
  * change). Once an action is filled it drops out of the candidate set. Each
  * attempt is stamped before the request, so an action that fails, times out the
- * whole invocation, or comes back incomplete rests for VOTED_POWER_RETRY_MS
+ * whole invocation, or comes back incomplete rests for BACKFILL_RETRY_MS
  * instead of being requested again on every tick.
  */
 export async function backfillVotedPower(deps: VotedPowerBackfillDeps): Promise<VotedPowerBackfillResult> {
   const { koios, db, limit, now } = deps;
-  const candidates = await getActionsNeedingVotedPower(db, limit, now - VOTED_POWER_RETRY_MS);
+  const candidates = await getActionsNeedingVotedPower(db, limit, now - BACKFILL_RETRY_MS);
   let updated = 0;
   let failed = 0;
   for (const ga of candidates) {
     if (!ga.proposalId) continue;
     try {
-      await markVotedPowerAttempt(db, ga.id, now);
+      await markBackfillAttempt(db, 'votedPower', ga.id, now);
       const summary = await koios.proposalVotingSummary(ga.proposalId);
       if (!summary) continue;
       const vp = votedPower(summary);
@@ -587,6 +590,8 @@ export interface ThresholdBackfillResult {
 export interface ThresholdBackfillDeps {
   koios: { epochParams(epochNo?: number): Promise<EpochParamsRow | null> };
   db: D1Database;
+  /** Unix ms, the attempt clock of the retry window. */
+  now: number;
   limit?: number;
   paceMs?: number;
 }
@@ -645,10 +650,13 @@ async function ccGateFor(
  * historically volatile, so the gate must be reconstructed per action rather than
  * read from today's params. Threshold percentages are stable since Conway, so they
  * come from the current params. Bounded by `limit`; drains over several runs.
+ * Each attempt is stamped before the Koios read, so an action that fails, is
+ * deferred for a missing committee minimum, or times out the whole invocation
+ * rests for BACKFILL_RETRY_MS instead of heading the candidate set every tick.
  */
 export async function backfillThresholdSnapshots(deps: ThresholdBackfillDeps): Promise<ThresholdBackfillResult> {
-  const { koios, db, limit = DEFAULT_TALLY_LIMIT, paceMs = 0 } = deps;
-  const candidates = await getActionsNeedingThresholdSnapshot(db, THRESHOLD_SNAPSHOT_VERSION, limit);
+  const { koios, db, now, limit = DEFAULT_TALLY_LIMIT, paceMs = 0 } = deps;
+  const candidates = await getActionsNeedingThresholdSnapshot(db, THRESHOLD_SNAPSHOT_VERSION, limit, now - BACKFILL_RETRY_MS);
   if (candidates.length === 0) return { actions: 0, failed: 0 };
 
   // Without current params we cannot evaluate thresholds; skip the run rather than
@@ -665,6 +673,7 @@ export async function backfillThresholdSnapshots(deps: ThresholdBackfillDeps): P
   for (const [i, ga] of candidates.entries()) {
     if (paceMs > 0 && i > 0) await new Promise((resolve) => setTimeout(resolve, paceMs));
     try {
+      await markBackfillAttempt(db, 'thresholds', ga.id, now);
       // Terminal rows only (the candidate query), so this is a boundary or,
       // without any lifecycle epoch, nothing to measure against (live is null).
       const boundary = decisionBoundaryEpoch(ga);
@@ -763,11 +772,14 @@ export interface VoteBackfillResult { actions: number; votes: number; failed: nu
  * One-time, self-limiting backfill of per-voter vote lists for finalised actions
  * that predate our vote sync (votes_synced_at IS NULL). Pulls proposal_votes once
  * per action (the lists are immutable after finalisation), upserts, and marks the
- * action synced so it drops out of the candidate set. Bounded by `limit`.
+ * action synced so it drops out of the candidate set. Bounded by `limit`. Each
+ * attempt is stamped before the first Koios page, so an action whose vote list
+ * fails or times out the whole invocation rests for BACKFILL_RETRY_MS instead of
+ * being paged again on every tick.
  */
 export async function backfillFinalizedVotes(deps: VoteSyncDeps): Promise<VoteBackfillResult> {
   const { koios, db, now, limit = DEFAULT_VOTE_LIMIT, paceMs = 0, maxPages = MAX_VOTE_PAGES, pageSize = VOTES_PAGE } = deps;
-  const candidates = await getActionsNeedingVoteBackfill(db, limit);
+  const candidates = await getActionsNeedingVoteBackfill(db, limit, now - BACKFILL_RETRY_MS);
   let votes = 0;
   let failed = 0;
   let actions = 0;
@@ -776,6 +788,7 @@ export async function backfillFinalizedVotes(deps: VoteSyncDeps): Promise<VoteBa
     if (paceMs > 0 && i > 0) await new Promise((resolve) => setTimeout(resolve, paceMs));
     actions++;
     try {
+      await markBackfillAttempt(db, 'finalizedVotes', ga.id, now);
       const { votes: collected, capped } = await collectProposalVotes(koios, ga.proposalId, maxPages, pageSize);
       await enrichVotedPower({ db, koios }, collected);
       // Deliberately NO opts here (no followedDrepIds), even though deps carries

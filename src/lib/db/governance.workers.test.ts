@@ -23,6 +23,7 @@ import {
   updateActionMetadata,
   getGovActionsWithStaleTopicTitle,
   getActionsNeedingVoteBackfill,
+  markBackfillAttempt,
   markVotesSynced,
   getActionIdsMissingOnchainPayload,
   updateActionOnchainPayload,
@@ -1064,11 +1065,11 @@ describe('getActionsNeedingVoteBackfill + markVotesSynced', () => {
     await insertAction('act1', 'active', 'prop2');     // excluded: not finalised
     await insertAction('fin2', 'expired', null);       // excluded: no proposal id
 
-    let c = await getActionsNeedingVoteBackfill(env.DB, 10);
+    let c = await getActionsNeedingVoteBackfill(env.DB, 10, NOW);
     expect(c.map((a) => a.id)).toEqual(['fin1']);
 
     await markVotesSynced(env.DB, 'fin1', 12345);
-    c = await getActionsNeedingVoteBackfill(env.DB, 10);
+    c = await getActionsNeedingVoteBackfill(env.DB, 10, NOW);
     expect(c).toEqual([]);
   });
 });
@@ -1178,7 +1179,7 @@ describe('threshold snapshot backfill queries', () => {
     await ins('tsq-active', 'TreasuryWithdrawals', 'active', null);
     await ins('tsq-info', 'InfoAction', 'closed', null);
 
-    const ids = (await getActionsNeedingThresholdSnapshot(env.DB, THRESHOLD_SNAPSHOT_VERSION, 50)).map((r) => r.id);
+    const ids = (await getActionsNeedingThresholdSnapshot(env.DB, THRESHOLD_SNAPSHOT_VERSION, 50, NOW)).map((r) => r.id);
     expect(ids).toContain('tsq-null');
     expect(ids).toContain('tsq-v1');
     expect(ids).not.toContain('tsq-v2');
@@ -1198,8 +1199,36 @@ describe('threshold snapshot backfill queries', () => {
       .first<{ thresholds_json: string; thresholds_epoch: number }>();
     expect(JSON.parse(row!.thresholds_json).ccBelowMinSize).toBe(true);
     expect(row!.thresholds_epoch).toBe(555);
-    const ids = (await getActionsNeedingThresholdSnapshot(env.DB, THRESHOLD_SNAPSHOT_VERSION, 50)).map((r) => r.id);
+    const ids = (await getActionsNeedingThresholdSnapshot(env.DB, THRESHOLD_SNAPSHOT_VERSION, 50, NOW)).map((r) => r.id);
     expect(ids).not.toContain('tsq-upd');
+  });
+});
+
+describe('backfill candidate rotation', () => {
+  // Terminal, with a proposal id and no threshold snapshot, so every rotating query selects it.
+  async function insertCandidate(id: string) {
+    await env.DB.prepare(
+      `INSERT INTO governance_actions (id, type, status, proposal_id, topic_id, created_at, last_synced_at)
+       VALUES (?, 'TreasuryWithdrawals', 'enacted', ?, NULL, 0, 0)`,
+    ).bind(id, `prop-${id}`).run();
+  }
+
+  it.each([
+    ['finalizedVotes', (retryBefore: number) => getActionsNeedingVoteBackfill(env.DB, 50, retryBefore)],
+    ['thresholds', (retryBefore: number) => getActionsNeedingThresholdSnapshot(env.DB, THRESHOLD_SNAPSHOT_VERSION, 50, retryBefore)],
+  ] as const)('%s leaves out actions attempted inside the window and orders never-attempted ones first', async (backfill, query) => {
+    await insertCandidate('rot-recent');
+    await insertCandidate('rot-old');
+    await insertCandidate('rot-fresh');
+    await markBackfillAttempt(env.DB, backfill, 'rot-recent', NOW);
+    await markBackfillAttempt(env.DB, backfill, 'rot-old', NOW - 10);
+    // An attempt clock of another backfill does not rest the action here.
+    await markBackfillAttempt(env.DB, backfill === 'thresholds' ? 'finalizedVotes' : 'thresholds', 'rot-fresh', NOW);
+
+    const ids = (await query(NOW - 1)).map((a) => a.id);
+    expect(ids).not.toContain('rot-recent');
+    expect(ids.indexOf('rot-fresh')).toBeGreaterThanOrEqual(0);
+    expect(ids.indexOf('rot-fresh')).toBeLessThan(ids.indexOf('rot-old'));
   });
 });
 

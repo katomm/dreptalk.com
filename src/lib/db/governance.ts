@@ -741,6 +741,47 @@ export async function batchUpdateTrendingScores(
 }
 
 /**
+ * Attempt-clock column per governance_actions backfill that rotates its
+ * candidates. Each backfill has its own clock, so a failure in one pass never
+ * rests an action for another.
+ */
+const BACKFILL_ATTEMPT_COLUMNS = {
+  votedPower: 'voted_power_attempted_at',
+  thresholds: 'thresholds_attempted_at',
+  finalizedVotes: 'votes_backfill_attempted_at',
+} as const;
+
+export type GovernanceBackfill = keyof typeof BACKFILL_ATTEMPT_COLUMNS;
+
+/**
+ * The candidate filter and ordering shared by the rotating backfills: an action
+ * attempted after the bound retry-before timestamp (unix ms) is left out, and
+ * never-attempted actions come first, so one Koios cannot answer for is retried
+ * once per window instead of on every tick, and a pile of those can never fill
+ * the whole limit ahead of actions that would succeed. Binds one parameter.
+ */
+function backfillRotation(backfill: GovernanceBackfill): { where: string; orderBy: string } {
+  const column = BACKFILL_ATTEMPT_COLUMNS[backfill];
+  return {
+    where: `(${column} IS NULL OR ${column} <= ?)`,
+    orderBy: `ORDER BY ${column} ASC NULLS FIRST, id`,
+  };
+}
+
+/** Stamps a backfill attempt at an action, the clock its candidate query's retry window runs on. */
+export async function markBackfillAttempt(
+  db: D1Database,
+  backfill: GovernanceBackfill,
+  id: string,
+  attemptedAt: number,
+): Promise<void> {
+  await db
+    .prepare(`UPDATE governance_actions SET ${BACKFILL_ATTEMPT_COLUMNS[backfill]} = ? WHERE id = ?`)
+    .bind(attemptedAt, id)
+    .run();
+}
+
+/**
  * Terminal actions still missing power data: the turnout sum (drep_voted_power),
  * the per-option power buckets (drep_yes_power), the eligible SPO stake
  * (spo_eligible_power), or the default-option power buckets
@@ -751,18 +792,15 @@ export async function batchUpdateTrendingScores(
  * always-no-confidence double count was removed from that sum. The last two
  * clauses each re-queue every terminal action exactly once when their column is
  * first introduced (draining at the backfill's existing per-run budget). Bounded
- * by `limit` so a cron tick stays within Koios/subrequest budgets.
- *
- * An action the backfill attempted after `retryBefore` (unix ms) is left
- * out, and never-attempted actions come first, so one Koios cannot answer for
- * is retried once per window instead of on every tick, and a pile of those can
- * never fill the whole `limit` ahead of actions that would succeed.
+ * by `limit` so a cron tick stays within Koios/subrequest budgets, and rotated
+ * by `retryBefore` (unix ms) as described at backfillRotation.
  */
 export async function getActionsNeedingVotedPower(
   db: D1Database,
   limit: number,
   retryBefore: number,
 ): Promise<GovernanceAction[]> {
+  const rotation = backfillRotation('votedPower');
   const rows = (
     await db
       .prepare(
@@ -771,8 +809,8 @@ export async function getActionsNeedingVotedPower(
            AND (drep_voted_power IS NULL OR drep_yes_power IS NULL OR spo_eligible_power IS NULL
                 OR drep_always_abstain_power IS NULL OR drep_no_side_power IS NULL)
            AND status NOT IN ('active', 'pending')
-           AND (voted_power_attempted_at IS NULL OR voted_power_attempted_at <= ?)
-         ORDER BY voted_power_attempted_at ASC NULLS FIRST, id
+           AND ${rotation.where}
+         ${rotation.orderBy}
          LIMIT ?`,
       )
       .bind(retryBefore, limit)
@@ -905,14 +943,6 @@ export async function updateVotedPower(db: D1Database, id: string, p: VotePowerF
     .run();
 }
 
-/** Stamps a voted-power backfill attempt, the clock getActionsNeedingVotedPower's retry window runs on. */
-export async function markVotedPowerAttempt(db: D1Database, id: string, attemptedAt: number): Promise<void> {
-  await db
-    .prepare('UPDATE governance_actions SET voted_power_attempted_at = ? WHERE id = ?')
-    .bind(attemptedAt, id)
-    .run();
-}
-
 /**
  * Actions the metadata backfill should (re-)read an anchor for: either their
  * stored metadata predates the current extractor (meta_version < current), OR
@@ -975,18 +1005,26 @@ export async function countGivenUpMetaActions(
  * Finalised actions whose full per-voter vote list has never been synced
  * (votes_synced_at IS NULL) and that have a proposal id to query. Active/pending
  * actions are covered by the live vote sync, so they are excluded here. Bounded
- * by `limit` so a cron tick stays within Koios/subrequest budgets.
+ * by `limit` so a cron tick stays within Koios/subrequest budgets, and rotated by
+ * `retryBefore` (unix ms) as described at backfillRotation.
  */
-export async function getActionsNeedingVoteBackfill(db: D1Database, limit: number): Promise<GovernanceAction[]> {
+export async function getActionsNeedingVoteBackfill(
+  db: D1Database,
+  limit: number,
+  retryBefore: number,
+): Promise<GovernanceAction[]> {
+  const rotation = backfillRotation('finalizedVotes');
   const rows = (
     await db
       .prepare(
         `SELECT * FROM governance_actions
          WHERE status NOT IN ('active', 'pending')
            AND proposal_id IS NOT NULL AND votes_synced_at IS NULL
+           AND ${rotation.where}
+         ${rotation.orderBy}
          LIMIT ?`,
       )
-      .bind(limit)
+      .bind(retryBefore, limit)
       .all<GovernanceActionRow>()
   ).results ?? [];
   return rows.map(rowToGovernanceAction);
@@ -1000,13 +1038,16 @@ export async function markVotesSynced(db: D1Database, id: string, now: number): 
 /**
  * Terminal actions (Info actions excluded, they have no on-chain threshold) whose
  * frozen threshold snapshot is missing or predates `version`. Drives the one-time
- * backfill that fills the CC quorum gate for pre-existing actions. Bounded by `limit`.
+ * backfill that fills the CC quorum gate for pre-existing actions. Bounded by `limit`
+ * and rotated by `retryBefore` (unix ms) as described at backfillRotation.
  */
 export async function getActionsNeedingThresholdSnapshot(
   db: D1Database,
   version: number,
   limit: number,
+  retryBefore: number,
 ): Promise<GovernanceAction[]> {
+  const rotation = backfillRotation('thresholds');
   const rows = (
     await db
       .prepare(
@@ -1016,9 +1057,11 @@ export async function getActionsNeedingThresholdSnapshot(
            AND (thresholds_json IS NULL
                 OR json_extract(thresholds_json, '$.v') IS NULL
                 OR json_extract(thresholds_json, '$.v') < ?)
+           AND ${rotation.where}
+         ${rotation.orderBy}
          LIMIT ?`,
       )
-      .bind(version, limit)
+      .bind(version, retryBefore, limit)
       .all<GovernanceActionRow>()
   ).results ?? [];
   return rows.map(rowToGovernanceAction);
