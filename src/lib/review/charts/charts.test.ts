@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { renderChart, renderFigure } from './index.js';
-import { chartSpecSchema } from './schema.js';
+import { chartSpecSchema, type MatrixSpec } from './schema.js';
 
 const line = {
   type: 'line' as const,
@@ -163,14 +163,14 @@ describe('power', () => {
 });
 
 describe('matrix, before/after and timeline', () => {
-  const matrix = {
-    type: 'matrix' as const,
+  const matrix: MatrixSpec = {
+    type: 'matrix',
     title: 'Five DReps on nine requests',
     columns: ['Yoroi', 'YUTA'],
     sources: ['a', 'b', 'c', 'd'],
     rows: [
-      { label: 'Consensus', cells: ['Yes', 'Yes'] as const },
-      { label: 'Blockfrost', cells: ['Abstain', 'did not vote'] as const },
+      { label: 'Consensus', cells: ['Yes', 'Yes'] },
+      { label: 'Blockfrost', cells: ['Abstain', 'did not vote'] },
     ],
   };
   const beforeAfter = {
