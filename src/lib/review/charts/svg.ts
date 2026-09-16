@@ -9,7 +9,9 @@ export type Format = 'M' | 'B' | '%' | 'int';
 
 export function fmt(v: number, f: Format): string {
   if (f === '%') return `${v.toFixed(1)}%`;
-  if (f === 'M') return `${Math.round(v).toLocaleString('en-US')}M`;
+  // Below 100M a decimal carries the story (4.6M against 5M), above it the
+  // rounded figure with separators reads better (1,633M).
+  if (f === 'M') return Math.abs(v) < 100 && !Number.isInteger(v) ? `${v.toFixed(1)}M` : `${Math.round(v).toLocaleString('en-US')}M`;
   if (f === 'B') return `${v.toFixed(v >= 10 ? 1 : 2)}B`;
   return Math.round(v).toLocaleString('en-US');
 }
