@@ -21,3 +21,4 @@ src/assets/images/artwork/
 
 # Local design review screenshots; not project files
 .screenshots/
+node_modules
