@@ -32,7 +32,11 @@ const d = entry.data;
 // into every deployment, so the window dates read mainnet regardless of the
 // network this worker runs on.
 const cfg = resolveNetwork('mainnet');
-const { Content } = await render(entry);
+const { Content, headings } = await render(entry);
+// The outline lists the chapter headings of the edition body. Astro's markdown
+// pipeline already gives every heading an id from its text, and `headings`
+// carries those same slugs, so the links match the rendered H2 elements.
+const outline = headings.filter((h) => h.depth === 2);
 const editions = await loadEditions();
 const i = editions.findIndex((e) => editionSlug(e) === slug);
 const newer = i > 0 ? editions[i - 1] : null;
@@ -79,9 +83,10 @@ const ogImage = `/og/governance-review/${slug}.png?v=${ogCardVersion([d.title, d
 Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
 ---
 
-<Layout title={`${d.title} - Governance Review - DRepTalk`} description={d.standfirst} readingWidth ogImage={ogImage}>
+<Layout title={`${d.title} - Governance Review - DRepTalk`} description={d.standfirst} ogImage={ogImage}>
   <JsonLd data={articleLd} />
   <JsonLd data={crumbs} />
+  <div class="rv-layout">
   <article class="rv">
     <p class="rv-kicker">
       <a href="/governance-review/">Governance Review</a><span>No. {d.edition}</span><span>Epochs {d.epochFrom} to {d.epochTo}</span><span
@@ -107,6 +112,26 @@ Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
     <ReviewAlsoDecided rows={d.alsoDecided} open={d.openActions} featured={d.featuredActions} epochTo={d.epochTo} />
     <ReviewNumbers numbers={d.numbers} from={d.epochFrom} to={d.epochTo} />
     <ReviewSources external={d.external} />
+  </article>
+  {/* On a wide screen this is the sticky column next to the article: the
+      outline, the data note and the edition links. Below the breakpoint the
+      outline is hidden and the other two follow the article, in the same place
+      and order they had before the sidebar existed. Rendered once, placed by CSS. */}
+  <aside class="rv-side">
+    {
+      outline.length > 0 && (
+        <nav class="rv-toc" aria-label="On this page">
+          <p class="rv-side__title">On this page</p>
+          <ol class="rv-toc__list">
+            {outline.map((h) => (
+              <li>
+                <a href={`#${h.slug}`}>{h.text}</a>
+              </li>
+            ))}
+          </ol>
+        </nav>
+      )
+    }
     <p class="rv-data">
       Data behind this edition: a snapshot of the site's governance data taken {dataAsOf}, frozen as{' '}
       <a href={packUrl} rel="noopener">{slug}.pack.json</a> next to the article. Every on-chain figure above traces to a field in that file, and what was read from proposal documents and published rationales is listed above with its source. Its git blob hash{' '}
@@ -124,8 +149,48 @@ Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
         </nav>
       )
     }
-  </article>
+  </aside>
+  </div>
 </Layout>
+
+<script>
+  // Marks the outline link of the section the reader is in. The observer
+  // watches the chapter headings: a heading entering the top band of the
+  // viewport becomes current, and one leaving it upwards hands back to the
+  // heading before it. Bundled script, no inline handler, so the strict CSP
+  // needs no hash for it.
+  const toc = document.querySelector<HTMLElement>('.rv-toc');
+  const links = toc ? Array.from(toc.querySelectorAll<HTMLAnchorElement>('a[href^="#"]')) : [];
+  const targets = links.map((a) => document.getElementById(decodeURIComponent(a.hash.slice(1)))).filter((el): el is HTMLElement => el !== null);
+  if (toc && targets.length > 0 && 'IntersectionObserver' in window) {
+    const setCurrent = (el: HTMLElement | null) => {
+      for (const a of links) {
+        const on = el !== null && a.hash === `#${el.id}`;
+        a.classList.toggle('is-current', on);
+        if (on) a.setAttribute('aria-current', 'location');
+        else a.removeAttribute('aria-current');
+      }
+    };
+    let current: HTMLElement | null = null;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const el = entry.target as HTMLElement;
+          if (entry.isIntersecting) {
+            current = el;
+          } else if (el === current && entry.boundingClientRect.top > 0) {
+            // Scrolled back above this heading: the chapter before it is current again.
+            const i = targets.indexOf(el);
+            current = i > 0 ? targets[i - 1] : null;
+          }
+        }
+        setCurrent(current);
+      },
+      { rootMargin: '0px 0px -75% 0px' }
+    );
+    for (const t of targets) observer.observe(t);
+  }
+</script>
 
 <style is:global>
   /* Chart figures come from the markdown transform as raw HTML, so their styles
@@ -181,6 +246,29 @@ Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
 </style>
 
 <style>
+  /* Two columns inside the normal wrap: the article keeps its reading width,
+     the sidebar takes the rest. Below the breakpoint the whole thing is the
+     single reading column the page had before, with the sidebar's remaining
+     parts following the article. Same shape as the /ga/ action pages. */
+  .rv-layout { max-width: 46rem; margin: 0 auto; }
+  .rv, .rv-side { min-width: 0; }
+  .rv-toc { display: none; }
+  @media (min-width: 1080px) {
+    .rv-layout { max-width: none; display: grid; grid-template-columns: minmax(0, 46rem) minmax(0, 1fr); gap: 2.5rem; align-items: start; }
+    .rv-side { position: sticky; top: 1.5rem; max-height: calc(100vh - 3rem); overflow-y: auto; padding-top: 1rem; }
+    .rv-toc { display: block; }
+    .rv-side .rv-data { margin-top: 1.75rem; font-size: 0.78rem; }
+    .rv-side .rv-pager { flex-direction: column; gap: 0.5rem; margin-top: 1.5rem; }
+    .rv-side .rv-pager__newer { margin-left: 0; }
+  }
+  .rv-side__title { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 0 0 0.5rem; }
+  .rv-toc__list { list-style: none; margin: 0; padding: 0; border-left: 1px solid var(--border); font-size: 0.85rem; line-height: 1.35; }
+  .rv-toc__list a { display: block; padding: 0.3rem 0 0.3rem 0.75rem; margin-left: -1px; border-left: 2px solid transparent; color: var(--muted); text-decoration: none; }
+  .rv-toc__list a:hover { color: var(--fg); }
+  .rv-toc__list a.is-current { color: var(--fg); border-left-color: var(--accent); }
+  .rv-toc__list a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+  /* A chapter jumped to from the outline sits a little below the viewport edge. */
+  .rv-body :global(h2) { scroll-margin-top: 1rem; }
   .rv-kicker { display: flex; gap: 1rem; flex-wrap: wrap; font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin: 1rem 0 0; }
   .rv-kicker a { color: var(--accent); text-decoration: none; }
   .rv-title { font-size: clamp(1.9rem, 4.5vw, 2.7rem); line-height: 1.08; letter-spacing: -0.02em; margin: 0.75rem 0 1rem; text-wrap: balance; }
