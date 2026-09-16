@@ -2,9 +2,9 @@
 // Tally/vote sync tests, run in real workerd via vitest-pool-workers.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { buildInsertGovernanceAction, getGovernanceActionByTopicId, getActionsNeedingVotedPower, markVotesSynced } from '../db/governance.js';
+import { buildInsertGovernanceAction, getGovernanceActionByTopicId, getActionsNeedingVotedPower, markVotedPowerAttempt, markVotesSynced } from '../db/governance.js';
 import { getVotesByGaId, recordLocalVote, getViewerVote, upsertVotes } from '../db/drepVotes.js';
-import { syncGovernanceTallies, syncGovernanceVotes, deriveStatus, backfillVotedPower, backfillFinalizedVotes, backfillGovStatusTimes, reconcilePendingVotes, backfillVoteMetaHashes, backfillThresholdSnapshots } from './tallySync.js';
+import { syncGovernanceTallies, syncGovernanceVotes, deriveStatus, backfillVotedPower, VOTED_POWER_RETRY_MS, backfillFinalizedVotes, backfillGovStatusTimes, reconcilePendingVotes, backfillVoteMetaHashes, backfillThresholdSnapshots } from './tallySync.js';
 import { activityInsert } from '../db/activity.js';
 import { getActionsNeedingVoteBackfill } from '../db/governance.js';
 import { getDrepVotingHistory, getVotesNeedingMetaHash } from '../db/drepVotes.js';
@@ -686,7 +686,7 @@ describe('backfillVotedPower', () => {
       },
     };
 
-    const result = await backfillVotedPower({ koios, db: db(), limit: 10 });
+    const result = await backfillVotedPower({ koios, db: db(), limit: 10, now: NOW });
     expect(result.scanned).toBe(2);
     expect(result.updated).toBe(2);
     expect(result.failed).toBe(0);
@@ -715,7 +715,7 @@ describe('backfillVotedPower', () => {
       },
     };
 
-    const result = await backfillVotedPower({ koios, db: db(), limit: 1 });
+    const result = await backfillVotedPower({ koios, db: db(), limit: 1, now: NOW });
     expect(result.scanned).toBe(1);
     expect(result.updated).toBe(1);
   });
@@ -739,8 +739,8 @@ describe('backfillVotedPower', () => {
       },
     };
 
-    await backfillVotedPower({ koios, db: db(), limit: 10 });
-    const second = await backfillVotedPower({ koios, db: db(), limit: 10 });
+    await backfillVotedPower({ koios, db: db(), limit: 10, now: NOW });
+    const second = await backfillVotedPower({ koios, db: db(), limit: 10, now: NOW });
 
     // The terminal from this test is now filled; it falls out of the candidate set.
     const got = await getGovernanceActionByTopicId(db(), t.topicId);
@@ -764,7 +764,7 @@ describe('backfillVotedPower', () => {
       .bind(SUMMED_VOTED_POWER, 29497454745, 3536695673892, 0, 0, 0, 0, 0, ga.id)
       .run();
 
-    const needing = await getActionsNeedingVotedPower(db(), 10);
+    const needing = await getActionsNeedingVotedPower(db(), 10, NOW);
     expect(needing.map((g) => g.id)).toContain(ga.id);
 
     const withDefaults: VotingSummary = {
@@ -781,7 +781,7 @@ describe('backfillVotedPower', () => {
       },
     };
 
-    const result = await backfillVotedPower({ koios, db: db(), limit: 10 });
+    const result = await backfillVotedPower({ koios, db: db(), limit: 10, now: NOW });
     expect(result.updated).toBe(1);
 
     const got = await getGovernanceActionByTopicId(db(), ga.topicId);
@@ -801,7 +801,7 @@ describe('backfillVotedPower', () => {
       },
     };
 
-    const result = await backfillVotedPower({ koios, db: db(), limit: 10 });
+    const result = await backfillVotedPower({ koios, db: db(), limit: 10, now: NOW });
     // Scanned includes the candidate; failed counts the error; updated stays 0.
     expect(result.scanned).toBeGreaterThanOrEqual(1);
     expect(result.failed).toBeGreaterThanOrEqual(1);
@@ -809,6 +809,51 @@ describe('backfillVotedPower', () => {
     // The action remains unfilled.
     const got = await getGovernanceActionByTopicId(db(), t.topicId);
     expect(got!.drepVotedPower).toBeNull();
+  });
+
+  // These compare the ids a run asked Koios for rather than the run totals, so
+  // they hold whatever else sits in the candidate set.
+  function recordingKoios(answer: (pid: string) => VotingSummary | null) {
+    const asked: string[] = [];
+    return {
+      asked,
+      async proposalVotingSummary(pid: string): Promise<VotingSummary | null> {
+        asked.push(pid);
+        return answer(pid);
+      },
+    };
+  }
+
+  // The base summary carries no default-option or No-side fields, so a row it
+  // fills keeps drep_always_abstain_power NULL and stays a candidate.
+  it.each([
+    ['fails', () => { throw new Error('timeout'); }],
+    ['has no summary', () => null],
+    ['leaves a power column empty', () => summary],
+  ] as const)('rests an action whose Koios request %s for the retry window, then asks again', async (_case, answer) => {
+    const t = await insertTerminal('expired');
+    const first = recordingKoios((pid) => (pid === t.proposalId ? answer() : summary));
+    await backfillVotedPower({ koios: first, db: db(), limit: 1000, now: NOW });
+    expect(first.asked).toContain(t.proposalId);
+
+    const inside = recordingKoios(() => summary);
+    await backfillVotedPower({ koios: inside, db: db(), limit: 1000, now: NOW + VOTED_POWER_RETRY_MS - 1 });
+    expect(inside.asked).not.toContain(t.proposalId);
+
+    const after = recordingKoios(() => summary);
+    await backfillVotedPower({ koios: after, db: db(), limit: 1000, now: NOW + VOTED_POWER_RETRY_MS });
+    expect(after.asked).toContain(t.proposalId);
+  });
+
+  it('puts never-attempted actions ahead of attempted ones, so failures cannot fill the limit', async () => {
+    const stuck = await insertTerminal('expired');
+    await markVotedPowerAttempt(db(), stuck.id, NOW - 10_000);
+    const fresh = await insertTerminal('expired');
+
+    const needing = await getActionsNeedingVotedPower(db(), 1000, NOW);
+    const ids = needing.map((g) => g.id);
+    expect(ids).toContain(stuck.id);
+    expect(ids.indexOf(fresh.id)).toBeLessThan(ids.indexOf(stuck.id));
   });
 });
 

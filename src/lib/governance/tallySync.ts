@@ -19,6 +19,7 @@ import {
   updateGovernanceActionStatus,
   backfillRatifiedEpochs,
   getActionsNeedingVotedPower,
+  markVotedPowerAttempt,
   updateVotedPower,
   getActionsNeedingVoteBackfill,
   getActionsNeedingThresholdSnapshot,
@@ -537,21 +538,29 @@ export interface VotedPowerBackfillDeps {
   db: D1Database;
   /** Max actions to backfill this run (bounds Koios calls per cron tick). */
   limit: number;
+  now: number;
 }
+
+/** A week: an action whose summary Koios cannot serve costs one request a week, not four an hour. */
+export const VOTED_POWER_RETRY_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * One-time, self-limiting backfill: fills drep_voted_power for terminal actions
  * that predate the column, by re-reading only the Koios voting summary (no status
- * change). Once an action is filled it drops out of the candidate set.
+ * change). Once an action is filled it drops out of the candidate set. Each
+ * attempt is stamped before the request, so an action that fails, times out the
+ * whole invocation, or comes back incomplete rests for VOTED_POWER_RETRY_MS
+ * instead of being requested again on every tick.
  */
 export async function backfillVotedPower(deps: VotedPowerBackfillDeps): Promise<VotedPowerBackfillResult> {
-  const { koios, db, limit } = deps;
-  const candidates = await getActionsNeedingVotedPower(db, limit);
+  const { koios, db, limit, now } = deps;
+  const candidates = await getActionsNeedingVotedPower(db, limit, now - VOTED_POWER_RETRY_MS);
   let updated = 0;
   let failed = 0;
   for (const ga of candidates) {
     if (!ga.proposalId) continue;
     try {
+      await markVotedPowerAttempt(db, ga.id, now);
       const summary = await koios.proposalVotingSummary(ga.proposalId);
       if (!summary) continue;
       const vp = votedPower(summary);

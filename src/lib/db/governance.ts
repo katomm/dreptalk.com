@@ -752,8 +752,17 @@ export async function batchUpdateTrendingScores(
  * clauses each re-queue every terminal action exactly once when their column is
  * first introduced (draining at the backfill's existing per-run budget). Bounded
  * by `limit` so a cron tick stays within Koios/subrequest budgets.
+ *
+ * An action the backfill attempted after `retryBefore` (unix ms) is left
+ * out, and never-attempted actions come first, so one Koios cannot answer for
+ * is retried once per window instead of on every tick, and a pile of those can
+ * never fill the whole `limit` ahead of actions that would succeed.
  */
-export async function getActionsNeedingVotedPower(db: D1Database, limit: number): Promise<GovernanceAction[]> {
+export async function getActionsNeedingVotedPower(
+  db: D1Database,
+  limit: number,
+  retryBefore: number,
+): Promise<GovernanceAction[]> {
   const rows = (
     await db
       .prepare(
@@ -762,9 +771,11 @@ export async function getActionsNeedingVotedPower(db: D1Database, limit: number)
            AND (drep_voted_power IS NULL OR drep_yes_power IS NULL OR spo_eligible_power IS NULL
                 OR drep_always_abstain_power IS NULL OR drep_no_side_power IS NULL)
            AND status NOT IN ('active', 'pending')
+           AND (voted_power_attempted_at IS NULL OR voted_power_attempted_at <= ?)
+         ORDER BY voted_power_attempted_at ASC NULLS FIRST, id
          LIMIT ?`,
       )
-      .bind(limit)
+      .bind(retryBefore, limit)
       .all<GovernanceActionRow>()
   ).results ?? [];
   return rows.map(rowToGovernanceAction);
@@ -891,6 +902,14 @@ export async function updateVotedPower(db: D1Database, id: string, p: VotePowerF
       p.spoNoSidePower ?? null,
       id,
     )
+    .run();
+}
+
+/** Stamps a voted-power backfill attempt, the clock getActionsNeedingVotedPower's retry window runs on. */
+export async function markVotedPowerAttempt(db: D1Database, id: string, attemptedAt: number): Promise<void> {
+  await db
+    .prepare('UPDATE governance_actions SET voted_power_attempted_at = ? WHERE id = ?')
+    .bind(attemptedAt, id)
     .run();
 }
 

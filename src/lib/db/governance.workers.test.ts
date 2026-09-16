@@ -463,7 +463,7 @@ describe('getActionsNeedingVotedPower', () => {
       thresholdsJson: null, thresholdsEpoch: null,
     });
 
-    const candidates = await getActionsNeedingVotedPower(db(), 10);
+    const candidates = await getActionsNeedingVotedPower(db(), 10, NOW);
     const ids = candidates.map((c) => c.id);
     expect(ids).toContain(terminal.id);
     expect(ids).toContain(needsEligible.id);
@@ -489,7 +489,7 @@ describe('getActionsNeedingVotedPower', () => {
         thresholdsJson: null, thresholdsEpoch: null,
       });
     }
-    const one = await getActionsNeedingVotedPower(db(), 1);
+    const one = await getActionsNeedingVotedPower(db(), 1, NOW);
     expect(one.length).toBe(1);
   });
 
@@ -507,7 +507,7 @@ describe('getActionsNeedingVotedPower', () => {
       tallyEpoch: 296, decidedEpoch: 296, ratifiedEpoch: null, tallySyncedAt: NOW, now: NOW,
       thresholdsJson: null, thresholdsEpoch: null,
     });
-    const candidates = await getActionsNeedingVotedPower(db(), 10);
+    const candidates = await getActionsNeedingVotedPower(db(), 10, NOW);
     expect(candidates.map((c) => c.id)).not.toContain(noPid.id);
   });
 });

@@ -155,7 +155,7 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
     name: 'voted-power',
     when: heavyOnly,
     run: async (ctx) => {
-      const backfill = await backfillVotedPower({ koios: ctx.koios, db: ctx.db, limit: 25 });
+      const backfill = await backfillVotedPower({ koios: ctx.koios, db: ctx.db, limit: 25, now: ctx.now });
       console.log(`[gov-backfill] scanned=${backfill.scanned} updated=${backfill.updated} failed=${backfill.failed}`);
       return { items: backfill.updated, failed: backfill.failed };
     },
