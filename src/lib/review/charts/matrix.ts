@@ -6,7 +6,7 @@ import type { MatrixSpec } from './schema.js';
  * show decisions, not voting weights, which the caption has to say. Every
  * state carries a symbol as well as a colour, so the grid reads without colour.
  */
-const CELL = { Yes: ['s1', '✓'], No: ['s2', '✕'], Abstain: ['s3', '–'], 'did not vote': ['none', '·'] } as const;
+const CELL = { Yes: ['s1', '✓'], No: ['s2', '✕'], Abstain: ['s3', '−'], 'did not vote': ['none', '·'] } as const;
 
 export function renderMatrix(s: MatrixSpec): string {
   const W = 700, LABELS = 250, rowH = 30, headH = 34, top = 6;

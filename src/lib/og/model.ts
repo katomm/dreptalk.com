@@ -250,6 +250,34 @@ export function reviewCardModel(d: {
   };
 }
 
+export interface ReviewIndexCardModel {
+  eyebrow: string;
+  /** Headline of the newest edition, the freshest thing the hub has to show. */
+  title: string;
+  stats: { value: string; label: string }[];
+  accent: string;
+}
+
+// The Governance Review hub card. It leads with the newest edition's headline
+// rather than the section name (the pill already carries that) and closes on
+// two counters, so a share preview shows what the hub currently holds.
+export function reviewIndexCardModel(d: {
+  latestTitle: string;
+  editionCount: number;
+  epochFrom: number;
+  epochTo: number;
+}): ReviewIndexCardModel {
+  return {
+    eyebrow: 'Governance Review',
+    title: clamp(d.latestTitle, 96),
+    stats: [
+      { value: String(d.editionCount), label: d.editionCount === 1 ? 'edition published' : 'editions published' },
+      { value: `${d.epochFrom} to ${d.epochTo}`, label: 'epochs covered' },
+    ],
+    accent: BRAND_ACCENT,
+  };
+}
+
 export interface HelpCardInput {
   title: string;
   description: string;

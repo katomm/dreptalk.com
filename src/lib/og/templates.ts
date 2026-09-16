@@ -7,7 +7,7 @@
 
 import { BRAND_ACCENT, CARD_BG, INK, MUTED, OG_HEIGHT, SUBTLE, TALLY, TRACK, tint, HAIRLINE } from './theme.js';
 import { fmtPctFine } from '../governance/view.js';
-import type { AnalyticsCardChart, AnalyticsCardModel, CommitteeCardModel, DiscussionCardModel, DrepCardModel, DrepStat, GovCardModel, MoverRow, MoversCardModel, ReviewCardModel, TreasuryCardModel, VoteCardModel } from './model.js';
+import type { AnalyticsCardChart, AnalyticsCardModel, CommitteeCardModel, DiscussionCardModel, DrepCardModel, DrepStat, GovCardModel, MoverRow, MoversCardModel, ReviewCardModel, ReviewIndexCardModel, TreasuryCardModel, VoteCardModel } from './model.js';
 import { ANALYTICS_CHART_HEIGHT, ANALYTICS_CHART_INSET, ANALYTICS_CHART_WIDTH } from './model.js';
 
 // satori-html renders text nodes verbatim (it does not decode HTML entities), so
@@ -256,6 +256,27 @@ export function reviewCardHtml(m: ReviewCardModel): string {
       <span style="display:flex;font-size:84px;font-weight:700;letter-spacing:-2px;color:${INK};line-height:1;">${esc(m.figureValue)}</span>
       <span style="display:flex;font-size:26px;font-weight:500;color:${MUTED};margin-left:22px;margin-bottom:10px;max-width:520px;line-height:1.3;">${esc(m.figureLabel)}</span>
     </div>
+  </div>`;
+  return cardShell(m.accent, m.eyebrow, body);
+}
+
+// Governance Review hub card: the newest edition's headline over two counters,
+// so the hub preview shows current content and not just the section name. The
+// counters reuse the analytics stat idiom (value over label, hairline divider).
+export function reviewIndexCardHtml(m: ReviewIndexCardModel): string {
+  const stats = m.stats
+    .map(
+      (st, i) => `<div style="display:flex;flex-direction:column;${i > 0 ? `margin-left:40px;padding-left:40px;border-left:2px solid ${HAIRLINE};` : ''}">
+      <span style="display:flex;font-size:48px;font-weight:800;color:${INK};letter-spacing:-1px;">${esc(st.value)}</span>
+      <span style="display:flex;font-size:24px;font-weight:500;color:${MUTED};margin-top:6px;">${esc(st.label)}</span>
+    </div>`,
+    )
+    .join('');
+  const body = `<div style="display:flex;flex-direction:column;justify-content:space-between;flex:1;">
+    <div style="display:flex;flex-direction:column;justify-content:center;flex:1;">
+      ${title(m.title)}
+    </div>
+    <div style="display:flex;">${stats}</div>
   </div>`;
   return cardShell(m.accent, m.eyebrow, body);
 }

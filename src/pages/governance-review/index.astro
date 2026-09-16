@@ -5,17 +5,25 @@ import ReviewCard from '@/components/review/ReviewCard.astro';
 import { loadEditions } from '@/lib/review/editions.js';
 import { resolveNetwork } from '@/lib/config/network';
 import { cacheControlFor } from '@/lib/forum/view.js';
+import { ogCardVersion } from '@/lib/og/version.js';
 
 const editions = await loadEditions();
 // Mainnet only, like the editions themselves: the card dates come from mainnet
 // epoch boundaries whatever network this worker runs on.
 const cfg = resolveNetwork('mainnet');
 Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
+// Share token over exactly what the card shows, so a scraper refetches when a
+// new edition lands and not on every unrelated deploy.
+const latest = editions[0];
+const ogImage = latest
+  ? `/og/governance-review.png?v=${ogCardVersion([latest.data.title, editions.length, Math.min(...editions.map((e) => e.data.epochFrom)), latest.data.epochTo])}`
+  : undefined;
 ---
 
 <Layout
   title="Cardano Governance Review - DRepTalk"
   description="Dated reviews of Cardano governance, a few epochs at a time: what was decided, who moved it, and what the numbers say."
+  ogImage={ogImage}
   readingWidth
 >
   <nav class="rv-crumbs" aria-label="Breadcrumb">
