@@ -169,8 +169,8 @@ describe('matrix, before/after and timeline', () => {
     columns: ['Yoroi', 'YUTA'],
     sources: ['a', 'b', 'c', 'd'],
     rows: [
-      { label: 'Consensus', cells: ['Yes', 'Yes'] as const },
-      { label: 'Blockfrost', cells: ['Abstain', 'did not vote'] as const },
+      { label: 'Consensus', cells: ['Yes', 'Yes'] as ('Yes' | 'No' | 'Abstain' | 'did not vote')[] },
+      { label: 'Blockfrost', cells: ['Abstain', 'did not vote'] as ('Yes' | 'No' | 'Abstain' | 'did not vote')[] },
     ],
   };
   const beforeAfter = {
