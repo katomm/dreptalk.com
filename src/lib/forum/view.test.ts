@@ -161,11 +161,11 @@ describe('cacheControlFor', () => {
   });
 
   it('returns public s-maxage when user is null', () => {
-    expect(cacheControlFor(null)).toBe('public, s-maxage=30');
+    expect(cacheControlFor(null)).toBe('public, s-maxage=60, stale-while-revalidate=600');
   });
 
   it('returns public s-maxage when user is undefined', () => {
-    expect(cacheControlFor(undefined)).toBe('public, s-maxage=30');
+    expect(cacheControlFor(undefined)).toBe('public, s-maxage=60, stale-while-revalidate=600');
   });
 });
 

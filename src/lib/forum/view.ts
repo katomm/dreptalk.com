@@ -28,10 +28,14 @@ export function pageToOffset(page: number, pageSize: number): number {
 /**
  * Returns appropriate Cache-Control header value based on authentication state.
  * Authenticated users get private/no-store to prevent shared-cache poisoning.
- * Anonymous users get a short public cache for edge performance.
+ * Anonymous users get a short public cache for edge performance: a copy counts
+ * as fresh for a minute, and for ten minutes after that it is still served at
+ * once while a re-render runs behind it (see lib/http/pageCache). So a page is
+ * rendered at most once a minute per colo however often it is requested, and no
+ * visitor waits on a render.
  */
 export function cacheControlFor(user: unknown | null): string {
-  return user ? 'private, no-store' : 'public, s-maxage=30';
+  return user ? 'private, no-store' : 'public, s-maxage=60, stale-while-revalidate=600';
 }
 
 /**
