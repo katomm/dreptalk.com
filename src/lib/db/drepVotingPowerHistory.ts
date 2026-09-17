@@ -112,7 +112,11 @@ export async function pruneVotingPowerHistoryBefore(db: D1Database, minEpoch: nu
   return res.meta.changes ?? 0;
 }
 
-/** One DRep's snapshots, oldest epoch first, for the profile sparkline. */
+// Epochs the profile trend card plots (~80 days). The history table keeps the full
+// Conway record for the analytics, so the card read has to cap its own window.
+export const PROFILE_TREND_EPOCHS = 16;
+
+/** One DRep's latest snapshots (up to PROFILE_TREND_EPOCHS), oldest epoch first, for the profile sparkline. */
 export async function getDrepVotingPowerSeries(
   db: D1Database,
   drepId: string,
@@ -121,12 +125,12 @@ export async function getDrepVotingPowerSeries(
     await db
       .prepare(
         `SELECT epoch, amount, delegator_count FROM drep_voting_power_history
-          WHERE drep_id = ? ORDER BY epoch ASC`,
+          WHERE drep_id = ? ORDER BY epoch DESC LIMIT ?`,
       )
-      .bind(drepId)
+      .bind(drepId, PROFILE_TREND_EPOCHS)
       .all<{ epoch: number; amount: string; delegator_count: number | null }>()
   ).results ?? [];
-  return rows.map((r) => ({
+  return rows.reverse().map((r) => ({
     epoch: r.epoch,
     amount: r.amount,
     delegatorCount: r.delegator_count,

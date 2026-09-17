@@ -6,6 +6,7 @@ import {
   insertVotingPowerHistory,
   pruneVotingPowerHistoryBefore,
   getDrepVotingPowerSeries,
+  PROFILE_TREND_EPOCHS,
   denormalizeDrepVotingPower,
   stampDelegatorCounts,
 } from './drepVotingPowerHistory.js';
@@ -71,6 +72,20 @@ describe('drep voting power history store', () => {
       { epoch: 539, amount: '100', delegatorCount: null },
       { epoch: 540, amount: '150', delegatorCount: null },
     ]);
+  });
+
+  // The table keeps the full Conway history, the profile card only the latest window.
+  it('caps the series at the latest profile trend epochs', async () => {
+    const total = PROFILE_TREND_EPOCHS + 5;
+    await insertVotingPowerHistory(
+      env.DB,
+      Array.from({ length: total }, (_, i) => ({ drepId: 'drepA', epoch: 500 + i, amount: String(i) })),
+    );
+
+    const series = await getDrepVotingPowerSeries(env.DB, 'drepA');
+    expect(series).toHaveLength(PROFILE_TREND_EPOCHS);
+    expect(series[0].epoch).toBe(500 + total - PROFILE_TREND_EPOCHS);
+    expect(series[series.length - 1].epoch).toBe(500 + total - 1);
   });
 
   // The profile chart draws the headcount as a second line, so the series read has
