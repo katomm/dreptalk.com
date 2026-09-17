@@ -110,11 +110,17 @@ const db = env.DB as D1Database | undefined;
 // no '#'). Real topic slugs always carry a hyphen, so they never collide with
 // the hyphen-free identifier forms. Detection and resolution are the same
 // helpers the search uses, so both stay one source of truth.
+// An id that does not resolve is most often a governance action submitted
+// minutes ago (explorer.cardano.org deep-links here as soon as the transaction
+// is on chain): discovery runs every five minutes and the thread waits for a
+// readable anchor, so the not-found page says so instead of "off by a character".
+let freshActionId = false;
 if (slug && db) {
   const ident = detectIdentifier(slug);
   if (ident?.kind === 'gov-action' && (ident.by === 'proposal_id' || ident.by === 'id')) {
     const hit = await resolveIdentifier(db, ident);
     if (hit) return Astro.redirect(hit.href, 301);
+    freshActionId = true;
   }
 }
 
@@ -699,7 +705,14 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
 ---
 
 {notFound ? (
-  <NotFound noun="Topic" />
+  freshActionId ? (
+    <NotFound
+      noun="Governance action"
+      lead="This looks like a governance action id that DRepTalk has not indexed yet. A new action is picked up a few minutes after it is on chain, and its discussion opens once the proposal document can be read. Please check back shortly."
+    />
+  ) : (
+    <NotFound noun="Topic" />
+  )
 ) : (
   <Layout
     title={`${topic.title} - DRepTalk`}

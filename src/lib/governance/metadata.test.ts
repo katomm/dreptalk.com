@@ -5,6 +5,7 @@ import {
   MAX_ANCHOR_BYTES,
   readReferenceList,
   resolveAnchorUrl,
+  resolveAnchorUrls,
   type ReferenceListPolicy,
 } from './metadata.js';
 import { blake2b256 } from '../crypto/blake.js';
@@ -228,6 +229,41 @@ describe('fetchAnchorMetadata', () => {
     // asking another gateway for the same CID cannot change it.
     expect(calls).toBe(1);
     expect(res.status).toBe('hash-mismatch');
+  });
+
+  it('retries an https anchor that names a public ipfs gateway against the other gateways', async () => {
+    // The on-chain URL is https://gateway.pinata.cloud/ipfs/<cid>: one slow or
+    // rate-limited source for a document every gateway can serve. The anchor hash
+    // still guards the bytes, so the CID may be asked from anywhere.
+    const json = jsonOf(doc);
+    const tried: string[] = [];
+    const res = await fetchAnchorMetadata(`${IPFS_GATEWAYS[0]}QmCid/meta.json`, hashOf(json), {
+      fetchImpl: async (url) => {
+        tried.push(String(url));
+        if (tried.length === 1) return resp('rate limited', { status: 429, contentType: 'text/plain' });
+        return resp(json);
+      },
+    });
+    expect(tried).toEqual([`${IPFS_GATEWAYS[0]}QmCid/meta.json`, `${IPFS_GATEWAYS[1]}QmCid/meta.json`]);
+    expect(res.status).toBe('ok');
+  });
+
+  it('tries the anchor\'s own gateway first when it is not in the fallback list', async () => {
+    const json = jsonOf(doc);
+    const tried: string[] = [];
+    const res = await fetchAnchorMetadata('https://my-org.mypinata.cloud/ipfs/QmCid', hashOf(json), {
+      fetchImpl: async (url) => {
+        tried.push(String(url));
+        if (tried.length < 3) return resp('nope', { status: 504, contentType: 'text/plain' });
+        return resp(json);
+      },
+    });
+    expect(tried).toEqual([
+      'https://my-org.mypinata.cloud/ipfs/QmCid',
+      `${IPFS_GATEWAYS[0]}QmCid`,
+      `${IPFS_GATEWAYS[1]}QmCid`,
+    ]);
+    expect(res.status).toBe('ok');
   });
 
   it('does not retry an http(s) anchor against ipfs gateways', async () => {
@@ -691,6 +727,24 @@ describe('resolveAnchorUrl', () => {
   it('passes http(s) through unchanged and rejects other schemes', () => {
     expect(resolveAnchorUrl('https://example.com/m.json')).toBe('https://example.com/m.json');
     expect(resolveAnchorUrl('ftp://example.com/m.json')).toBeNull();
+  });
+
+  it('keeps a gateway https anchor as the reader-facing link', () => {
+    // Display never rewrites the on-chain URL, only the fetch path fans out.
+    expect(resolveAnchorUrl('https://my-org.mypinata.cloud/ipfs/QmCid/m.json')).toBe(
+      'https://my-org.mypinata.cloud/ipfs/QmCid/m.json',
+    );
+  });
+
+  it('fans a gateway https anchor out to the fallback gateways without repeating it', () => {
+    expect(resolveAnchorUrls(`${IPFS_GATEWAYS[1]}QmCid/m.json`)).toEqual([
+      `${IPFS_GATEWAYS[1]}QmCid/m.json`,
+      ...IPFS_GATEWAYS.filter((gw) => gw !== IPFS_GATEWAYS[1]).map((gw) => `${gw}QmCid/m.json`),
+    ]);
+    expect(resolveAnchorUrls('https://example.com/ipfs/')).toEqual(['https://example.com/ipfs/']);
+    expect(resolveAnchorUrls('https://example.com/docs/ipfs/notes.json')).toEqual([
+      'https://example.com/docs/ipfs/notes.json',
+    ]);
   });
 
   it('only lists gateways that serve plain https fetches', () => {
