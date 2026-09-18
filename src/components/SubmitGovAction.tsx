@@ -1,14 +1,13 @@
-// React island: client-side, non-custodial InfoAction governance-action
-// submission flow. preprod-only, experimental internal tool (unlinked page).
+// React island: client-side, non-custodial governance-action submission
+// flow. preprod-only, Beta internal tool.
 //
-// Non-custodial: the wallet signs and submits; the server never sees a
+// Non-custodial: the wallet signs and submits, the server never sees a
 // private key. The flow: (1) fetch the current gov action deposit so the user
-// knows what they are committing, (2) connect a plain CIP-30 wallet (no CIP-95;
-// a proposal needs no DRep key), (3) collect the CIP-108 fields with an
-// optional author signature, (4) host the metadata via the /api/gov-action
-// routes, (5) build/sign/submit the propose tx via submitGovAction, passing
-// { type: 'InfoAction' } as the action. Mirrors DRepService/VotePanel for
-// wallet selection, connect, and phase handling.
+// knows what they are committing, (2) connect a plain CIP-30 wallet (no
+// CIP-95, a proposal needs no DRep key), (3) collect the CIP-108 fields with
+// an optional author signature, (4) host the metadata via the /api/gov-action
+// routes, (5) build/sign/submit the propose tx via submitGovAction. Mirrors
+// DRepService/VotePanel for wallet selection, connect, and phase handling.
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
@@ -101,7 +100,7 @@ type Phase =
   // again) from a submit-step error (keep the filled form on screen).
   | { status: 'error'; message: string; connected: boolean };
 
-export interface SubmitInfoActionProps {
+export interface SubmitGovActionProps {
   network: CardanoNetwork;
 }
 
@@ -221,7 +220,7 @@ function DepositInfo({ deposit }: { deposit: DepositState }) {
 // React component
 // ---------------------------------------------------------------------------
 
-export default function SubmitInfoAction({ network }: SubmitInfoActionProps) {
+export default function SubmitGovAction({ network }: SubmitGovActionProps) {
   const { wallets, selected, setSelected } = useCardanoWallets();
   const [phase, setPhase] = useState<Phase>({ status: 'idle' });
   const [deposit, setDeposit] = useState<DepositState>({ status: 'loading' });

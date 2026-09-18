@@ -1,5 +1,5 @@
 // Draft persistence for the "/ga/new" governance-action submission form
-// (SubmitInfoAction.tsx), so a long title/motivation/rationale is not lost to
+// (SubmitGovAction.tsx), so a long title/motivation/rationale is not lost to
 // a wallet error, laptop sleep, or an accidental tab close. Mirrors the
 // draft-storage conventions from voteFlowClient.ts (dreptalk:*-draft: key
 // prefix, try/catch-wrapped storage calls that are best-effort and never

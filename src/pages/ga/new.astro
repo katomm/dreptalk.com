@@ -8,7 +8,7 @@
 export const prerender = false;
 
 import Layout from '@/layouts/Layout.astro';
-import SubmitInfoAction from '@/components/SubmitInfoAction.tsx';
+import SubmitGovAction from '@/components/SubmitGovAction.tsx';
 import { currentNetwork } from '@/lib/api/response';
 import { govActionSubmissionAvailable } from '@/lib/governance/submissionGate';
 
@@ -38,5 +38,5 @@ const network = net.network;
     Everything is signed locally; dreptalk.com never handles your private keys.
   </p>
 
-  <SubmitInfoAction network={network} client:load />
+  <SubmitGovAction network={network} client:load />
 </Layout>
