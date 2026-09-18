@@ -1,0 +1,26 @@
+---
+// Shared Beta marker for the governance action submit page's entry points
+// (account menu row, home card). Same shape as the home card's "New" pill but
+// outlined and muted, so a permanent label reads differently from a
+// self-retiring one at a glance. The text is visible, so no aria-label.
+---
+<span class="beta-pill">Beta</span>
+
+<style>
+  .beta-pill {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 0.45rem;
+    padding: 0.1rem 0.4rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    line-height: 1.4;
+    background: transparent;
+    color: var(--muted);
+    vertical-align: text-bottom;
+  }
+</style>

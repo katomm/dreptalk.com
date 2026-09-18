@@ -12,6 +12,7 @@ import type { NetworkConfig } from '@/lib/config/network';
 import { isSameOriginRequest } from '@/lib/http/origin';
 import { checkRate } from '@/lib/rate';
 import { handleInfoActionMetadata } from '@/lib/governance/infoActionMetadataHandler';
+import { govActionSubmissionAvailable } from '@/lib/governance/submissionGate';
 
 export const prerender = false;
 
@@ -32,7 +33,7 @@ export async function gateInfoActionRequest(
   deps?: { network?: NetworkConfig; env?: Cloudflare.Env },
 ): Promise<Response | { db: D1Database; jwt: string; groupId: string | undefined; networkId: number }> {
   const net = deps?.network ?? currentNetwork();
-  if (net.network !== 'preprod') return new Response('Not found', { status: 404 });
+  if (!govActionSubmissionAvailable(net.network)) return new Response('Not found', { status: 404 });
 
   if (!isSameOriginRequest(ctx.request)) return jsonResponse({ error: 'forbidden' }, 403);
 

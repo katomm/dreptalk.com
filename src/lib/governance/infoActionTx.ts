@@ -15,6 +15,7 @@ import {
 import { dreptalkCip20Metadatum, DREPTALK_CIP20_LABEL } from '../cardano/tx.js';
 import { hexToBytes } from '../crypto/hex.js';
 import type { CardanoNetwork } from '../config/network.js';
+import { govActionSubmissionAvailable } from './submissionGate.js';
 
 export interface SubmitInfoActionOpts {
   /** CIP-30 wallet API obtained from cardano[walletId].enable(). */
@@ -65,7 +66,7 @@ export function buildInfoActionProposeParts(opts: {
  * Koios provider; not unit-testable offline beyond the mainnet guard.
  */
 export async function submitInfoAction(opts: SubmitInfoActionOpts): Promise<{ txHash: string }> {
-  if (opts.network !== 'preprod') {
+  if (!govActionSubmissionAvailable(opts.network)) {
     throw new Error('Info action submission is preprod only.');
   }
 

@@ -14,6 +14,7 @@ import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { CopyButton } from '@/components/CopyButton.js';
 import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
 import { submitInfoAction } from '@/lib/governance/infoActionTx.js';
+import { govActionSubmissionAvailable } from '@/lib/governance/submissionGate.js';
 import type { WalletApi } from '@/lib/governance/walletUtxos.js';
 import {
   INFO_TITLE_MAX,
@@ -502,7 +503,7 @@ export default function SubmitInfoAction({ network }: SubmitInfoActionProps) {
   // Mirrors submitInfoAction's own guard: this flow only ever works on
   // preprod, so fail visibly rather than let the user fill out the form and
   // hit the guard only after connecting a wallet.
-  if (network !== 'preprod') {
+  if (!govActionSubmissionAvailable(network)) {
     return (
       <div className="callout callout--info" role="status" style={{ maxWidth: '32rem' }}>
         <InfoIcon />
