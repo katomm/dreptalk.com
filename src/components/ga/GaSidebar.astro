@@ -9,6 +9,7 @@ import AuthorsCard from './AuthorsCard.astro';
 import ReferencesCard from './ReferencesCard.astro';
 import TopParticipantsCard from './TopParticipantsCard.astro';
 import RelatedActionsCard from './RelatedActionsCard.astro';
+import DraftOriginCard from './DraftOriginCard.astro';
 import type { GovernanceAction, RelatedActionRow } from '@/lib/db/governance.js';
 import type { ProtocolParams } from '@/lib/db/protocolParams.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
@@ -34,6 +35,9 @@ interface Props {
   miniChart: TrendChart | null;
   // Href of the History tab, for the teaser link.
   trendHref: string;
+  // The Proposal Drafts thread this action grew from, if any. Null when the
+  // action has no draft origin or that draft thread was deleted.
+  draftOrigin?: { slug: string; title: string } | null;
 }
 
 const {
@@ -50,6 +54,7 @@ const {
   now,
   miniChart,
   trendHref,
+  draftOrigin,
 } = Astro.props;
 ---
 
@@ -65,6 +70,7 @@ const {
   <VotingInfoCard action={action} params={params} drepStakeTotal={drepStakeTotal} now={now} miniChart={miniChart} trendHref={trendHref} />
   <ProposerCard returnAddress={action.returnAddress} />
   <AuthorsCard authors={action.authors} />
+  <DraftOriginCard draft={draftOrigin ?? null} />
   <ReferencesCard references={action.references} />
   <RelatedActionsCard actions={related} />
   {/* Always-on cross-link to the governance analytics hub, not tied to this

@@ -79,11 +79,13 @@ import { parseDrepId } from '@/lib/cardano/identity.js';
 import { loadAuthorIdentities, systemAuthor, authorProfileHref, type AuthorDescriptor } from '@/lib/forum/author.js';
 import { loadMandates } from '@/lib/forum/mandate.js';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
-import { isWriter } from '@/lib/auth/roles.js';
+import { isWriter, isModerator } from '@/lib/auth/roles.js';
 import { currentNetwork } from '@/lib/api/response.js';
 import { listPostIdsWithDocs } from '@/lib/db/cip100.js';
 import { originForNetwork, threadManifestUrl } from '@/lib/cip100/origin.js';
-import { getCategory } from '../../../config/categories.js';
+import { getCategory, PROPOSAL_DRAFTS_CATEGORY_SLUG } from '../../../config/categories.js';
+import { getDraftLinkedActions, getDraftTopicRef } from '@/lib/db/draftLinks.js';
+import DraftStatus from '@/components/DraftStatus.astro';
 import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, truncateId, excerptFromHtml, SITE_ORIGIN } from '@/lib/forum/view.js';
 import { parseGaTab } from '@/lib/governance/tab.js';
 import { ogCardVersion } from '@/lib/og/version.js';
@@ -226,6 +228,16 @@ const canEditTitle =
   !!user && viewerIsWriter && !!topic && topic.source === 'user' &&
   topic.author_id === user.id && !topic.locked;
 
+// Proposal Drafts: the linked on-chain actions for a draft thread, and for a
+// governance thread the draft it grew from. One indexed query each, only on the
+// topics that can have them.
+const isDraftTopic = topic?.category_slug === PROPOSAL_DRAFTS_CATEGORY_SLUG;
+const draftLinked = db && topic && isDraftTopic ? await getDraftLinkedActions(db, topic.id) : [];
+const viewerIsDraftAuthor =
+  !!user && !!topic && isDraftTopic && topic.author_id === user.id &&
+  (topic.proposer_grant_id ?? null) === (user.grantId ?? null);
+const viewerCanUnlink = viewerIsDraftAuthor || (!!user && isModerator(user.roles));
+
 // Governance-action enrichment (header values) and the viewer's own post state
 // (flags + reactions, one batched round-trip) are independent, so load them
 // together. The per-author votes then need govAction.id, so that one follows.
@@ -240,6 +252,8 @@ const [govAction, viewerPostState, surveyRow] = await Promise.all([
   isSurveyTopic && db && topic ? getSurveyByTopicId(db, topic.id) : Promise.resolve(null),
 ]);
 const { flaggedPostIds, reactions: viewerReactions } = viewerPostState;
+
+const draftOrigin = db && govAction?.draftTopicId ? await getDraftTopicRef(db, govAction.draftTopicId) : null;
 
 const reviewSlug = govAction ? (await loadEditionIndex()).byActionId.get(govAction.id) ?? null : null;
 const reviewWindow = reviewSlug ? parseSlug(reviewSlug) : null;
@@ -901,6 +915,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
               now={now}
               miniChart={miniChart}
               trendHref={trendHref}
+              draftOrigin={draftOrigin}
             >
               {nclMiniCardProps && (
                 <NclMiniCard slot="after-status" {...nclMiniCardProps} />
@@ -941,6 +956,15 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
             network={network}
             epoch={epochFromUnix(now / 1000, netCfg)}
             drepId={viewerDrepId}
+          />
+        )}
+        {isDraftTopic && (
+          <DraftStatus
+            topicId={topic.id}
+            canonicalUrl={`${netCfg.siteOrigin}/t/${topic.slug}/`}
+            linked={draftLinked}
+            viewerIsAuthor={viewerIsDraftAuthor}
+            viewerCanUnlink={viewerCanUnlink}
           />
         )}
         <ThreadPosts

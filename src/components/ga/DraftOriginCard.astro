@@ -1,0 +1,16 @@
+---
+// Sidebar card on a governance thread whose action was discussed as a Proposal
+// Drafts thread before submission. Hidden when the action has no draft or the
+// draft was deleted.
+interface Props {
+  draft: { slug: string; title: string } | null;
+}
+const { draft } = Astro.props;
+---
+
+{draft && (
+  <a class="sidebar-card sidebar-card--link" href={`/t/${draft.slug}/`}>
+    <span class="sidebar-card__title">Discussed as a draft</span>
+    <span class="sidebar-card__desc">{draft.title}</span>
+  </a>
+)}

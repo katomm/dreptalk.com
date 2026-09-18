@@ -1,0 +1,98 @@
+---
+// Proposal Drafts status above the opening post. Unlinked: the author alone sees
+// how to connect the draft (paste this thread's link into the action's CIP-108
+// references). Linked: everyone sees the on-chain action(s), and the author or a
+// moderator can detach an action that is not theirs. Bundled <script>, not
+// is:inline, so the strict CSP needs no hash.
+import type { DraftLinkedAction } from '@/lib/db/draftLinks.js';
+import CopyButton from '@/components/CopyButton.astro';
+
+interface Props {
+  topicId: string;
+  canonicalUrl: string;
+  linked: DraftLinkedAction[];
+  viewerIsAuthor: boolean;
+  viewerCanUnlink: boolean;
+}
+const { topicId, canonicalUrl, linked, viewerIsAuthor, viewerCanUnlink } = Astro.props;
+---
+
+{linked.length > 0 ? (
+  <section class="draft-status draft-status--linked" aria-label="On-chain status" data-draft-status data-topic-id={topicId}>
+    <p class="draft-status__title">Now on-chain</p>
+    <ul class="draft-status__list">
+      {linked.map((a) => (
+        <li class="draft-status__item">
+          {a.topicSlug
+            ? <a href={`/t/${a.topicSlug}/`}>{a.title ?? 'Untitled governance action'}</a>
+            : <span>{a.title ?? 'Untitled governance action'}</span>}
+          {viewerCanUnlink && (
+            <button type="button" class="draft-status__unlink" data-unlink={a.id}>Not your action? Unlink</button>
+          )}
+        </li>
+      ))}
+    </ul>
+    <p class="draft-status__note">This draft is closed. The discussion continues on the governance action.</p>
+    <p class="draft-status__error" data-error role="alert" hidden></p>
+  </section>
+) : viewerIsAuthor ? (
+  <section class="draft-status" aria-label="Connect this draft">
+    <p class="draft-status__note">
+      When you submit this as a governance action, add this thread's link to its references. The thread then connects to the on-chain action and closes.
+    </p>
+    <p class="draft-status__urlrow">
+      <code class="draft-status__url">{canonicalUrl}</code>
+      <CopyButton value={canonicalUrl} label="Copy thread link" />
+    </p>
+  </section>
+) : null}
+
+<style>
+  .draft-status { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.9rem 1rem; margin-bottom: 1rem; }
+  .draft-status--linked { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+  .draft-status__title { font-weight: 600; margin: 0 0 0.5rem; }
+  .draft-status__list { list-style: none; margin: 0 0 0.5rem; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+  .draft-status__item { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.6rem; }
+  .draft-status__unlink { background: none; border: none; padding: 0; color: var(--muted); font: inherit; font-size: 0.8125rem; cursor: pointer; text-decoration: underline; }
+  .draft-status__unlink:hover { color: var(--accent); }
+  .draft-status__note { font-size: 0.875rem; color: var(--muted); margin: 0; }
+  .draft-status__urlrow { display: flex; align-items: center; gap: 0.4rem; margin: 0.5rem 0 0; }
+  .draft-status__url { font-size: 0.8125rem; overflow-wrap: anywhere; user-select: all; }
+  .draft-status__error { color: var(--danger, #dc2626); font-size: 0.8125rem; margin: 0.5rem 0 0; }
+</style>
+
+<script>
+  document.querySelectorAll('[data-draft-status]').forEach((root) => {
+    const topicId = root.getAttribute('data-topic-id') ?? '';
+    const errorEl = root.querySelector('[data-error]') as HTMLParagraphElement | null;
+    root.querySelectorAll<HTMLButtonElement>('[data-unlink]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const ok = window.confirm('Unlink this action from your draft? It will not connect to the draft again. The draft reopens once no linked action remains.');
+        if (!ok) return;
+        btn.disabled = true;
+        try {
+          const res = await fetch(`/api/topics/${topicId}/draft-unlink`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ actionId: btn.getAttribute('data-unlink') }),
+          });
+          if (res.ok) {
+            window.location.reload();
+            return;
+          }
+          const data = (await res.json().catch(() => null)) as { error?: string } | null;
+          if (errorEl) {
+            errorEl.textContent = data?.error ?? 'Could not unlink the action.';
+            errorEl.hidden = false;
+          }
+        } catch {
+          if (errorEl) {
+            errorEl.textContent = 'Network error.';
+            errorEl.hidden = false;
+          }
+        }
+        btn.disabled = false;
+      });
+    });
+  });
+</script>
