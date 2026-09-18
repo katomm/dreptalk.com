@@ -570,6 +570,32 @@ describe('createKoiosClient.committeeQuorum', () => {
   });
 });
 
+describe('createKoiosClient.committeeContext', () => {
+  it('derives both members and quorum from a single /committee_info fetch', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(committeeResponseFixture));
+    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
+
+    const out = await client.committeeContext();
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://api.koios.rest/api/v1/committee_info',
+      expect.objectContaining({ method: 'GET' }),
+    );
+    expect(out.quorum).toEqual({ numerator: 2, denominator: 3 });
+    expect(out.members).toHaveLength(2);
+    expect(out.members[0].cc_hot_hex).toBe('be4b5ca31023088940eb952d01bd365af0c32d13e99e3c06929ef89c');
+  });
+
+  it('returns empty members and a null quorum when there is no committee row', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([]));
+    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
+
+    expect(await client.committeeContext()).toEqual({ members: [], quorum: null });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});
+
 // --- scriptInfo ---
 
 describe('createKoiosClient.scriptInfo', () => {

@@ -62,6 +62,35 @@ describe('handleActionContext', () => {
     expect(res.status).toBe(400);
   });
 
+  it('answers 503 JSON with no-store when a Koios call rejects', async () => {
+    const res = await handleActionContext(ctx('InfoAction'), {
+      koios: mockKoios({
+        tip: async () => {
+          throw new Error('koios request failed: 502');
+        },
+      }),
+      network: preprod,
+      env: testEnv,
+    });
+    expect(res.status).toBe(503);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(await res.json()).toEqual({ error: 'service unavailable' });
+  });
+
+  it('answers 503 when a chain-specific Koios call rejects after tip succeeds', async () => {
+    const res = await handleActionContext(ctx('NoConfidence'), {
+      koios: mockKoios({
+        lastRatifiedProposal: async () => {
+          throw new Error('koios request failed: 500');
+        },
+      }),
+      network: preprod,
+      env: testEnv,
+    });
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: 'service unavailable' });
+  });
+
   it('returns only the epoch for InfoAction, with cache-control: no-store', async () => {
     const res = await handleActionContext(ctx('InfoAction'), {
       koios: mockKoios({ tip: async () => ({ epoch_no: 601 }) }),

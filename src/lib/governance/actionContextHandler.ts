@@ -129,8 +129,11 @@ async function buildPrevContext(
 
 /**
  * Handles GET /api/gov-action/context: the single gate call site for the
- * context policy (no JWT, 30/min). Never throws on a well-formed request;
- * an unrecognized `type` query param is the only 400.
+ * context policy (no JWT, 30/min). An unrecognized `type` query param is a
+ * 400. Every Koios read below can reject (upstream 5xx, timeout, network
+ * failure), which is guarded with a try/catch so a Koios outage answers a
+ * controlled 503 instead of throwing past the route into Astro's HTML error
+ * page.
  */
 export async function handleActionContext(
   ctx: { request: Request; locals: App.Locals },
@@ -149,45 +152,53 @@ export async function handleActionContext(
   if (!isGovActionFormType(typeParam)) return jsonResponse({ error: 'invalid type' }, 400);
   const type = typeParam;
 
-  const tip = await deps.koios.tip();
-  const response: ActionContextResponse = { epoch: tip.epoch_no };
+  try {
+    const tip = await deps.koios.tip();
+    const response: ActionContextResponse = { epoch: tip.epoch_no };
 
-  const chain = chainForType(type);
-  let prevResult: PrevContextResult | null = null;
-  if (chain) {
-    prevResult = await buildPrevContext(deps.koios, db, chain);
-    response.prev = prevResult.context;
-  }
-
-  if (type === 'HardForkInitiation') {
-    const params = await deps.koios.epochParams();
-    if (params?.protocol_major != null) {
-      response.protocolVersion = { major: params.protocol_major, minor: params.protocol_minor ?? 0 };
+    const chain = chainForType(type);
+    let prevResult: PrevContextResult | null = null;
+    if (chain) {
+      prevResult = await buildPrevContext(deps.koios, db, chain);
+      response.prev = prevResult.context;
     }
-  }
 
-  if (type === 'NoConfidence' || type === 'UpdateCommittee') {
-    const [committeeCtx, params] = await Promise.all([deps.koios.committeeContext(), deps.koios.epochParams()]);
-    response.committee = {
-      members: committeeCtx.members.map((m) => ({
-        coldHex: m.cc_cold_hex,
-        hasScript: m.cc_cold_has_script === true,
-        expirationEpoch: m.expiration_epoch,
-      })),
-      quorum: committeeCtx.quorum,
-      maxTermLength: params?.committee_max_term_length ?? null,
-    };
-  }
-
-  if (type === 'NewConstitution') {
-    let scriptHash: string | null = null;
-    const raw = prevResult?.lastEnactedRow;
-    if (raw?.proposal_description != null) {
-      const changes = decodeOnchainChanges(JSON.stringify(raw.proposal_description), null, net.network);
-      if (changes?.kind === 'constitution') scriptHash = changes.scriptHash;
+    if (type === 'HardForkInitiation') {
+      const params = await deps.koios.epochParams();
+      if (params?.protocol_major != null) {
+        response.protocolVersion = { major: params.protocol_major, minor: params.protocol_minor ?? 0 };
+      }
     }
-    response.constitution = { scriptHash };
-  }
 
-  return jsonResponse(response, 200, { 'cache-control': 'no-store' });
+    if (type === 'NoConfidence' || type === 'UpdateCommittee') {
+      const [committeeCtx, params] = await Promise.all([deps.koios.committeeContext(), deps.koios.epochParams()]);
+      response.committee = {
+        members: committeeCtx.members.map((m) => ({
+          coldHex: m.cc_cold_hex,
+          hasScript: m.cc_cold_has_script === true,
+          expirationEpoch: m.expiration_epoch,
+        })),
+        quorum: committeeCtx.quorum,
+        maxTermLength: params?.committee_max_term_length ?? null,
+      };
+    }
+
+    if (type === 'NewConstitution') {
+      let scriptHash: string | null = null;
+      const raw = prevResult?.lastEnactedRow;
+      if (raw?.proposal_description != null) {
+        const changes = decodeOnchainChanges(JSON.stringify(raw.proposal_description), null, net.network);
+        if (changes?.kind === 'constitution') scriptHash = changes.scriptHash;
+      }
+      response.constitution = { scriptHash };
+    }
+
+    return jsonResponse(response, 200, { 'cache-control': 'no-store' });
+  } catch (err: unknown) {
+    // Koios is a third-party upstream: a 5xx, a timeout, or a dropped
+    // connection is routine, not a bug in this handler. Log it and answer
+    // with the honest status instead of letting it surface as a 500.
+    console.error('[gov-action] context: koios read failed', err);
+    return jsonResponse({ error: 'service unavailable' }, 503, { 'cache-control': 'no-store' });
+  }
 }
