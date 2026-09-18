@@ -102,7 +102,7 @@ reference the same draft. Both actions appear on it.
 The references are free text, so anyone can put your draft's link into their
 own action. As the draft's author you see **Not your action? Unlink** next to
 each connected action. Unlinking detaches that action permanently, and the
-draft reopens once no connected action remains. Moderators can do the same.
+draft reopens once no connected action remains.
 
 ## Frequently asked questions
 
