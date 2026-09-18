@@ -85,7 +85,7 @@ import { listPostIdsWithDocs } from '@/lib/db/cip100.js';
 import { originForNetwork, threadManifestUrl } from '@/lib/cip100/origin.js';
 import { getCategory, PROPOSAL_DRAFTS_CATEGORY_SLUG } from '../../../config/categories.js';
 import { getDraftLinkedActions, getDraftTopicRef, isDraftAuthor } from '@/lib/db/draftLinks.js';
-import DraftStatus from '@/components/DraftStatus.astro';
+import DraftSidebar from '@/components/DraftSidebar.astro';
 import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, truncateId, excerptFromHtml, SITE_ORIGIN } from '@/lib/forum/view.js';
 import { parseGaTab } from '@/lib/governance/tab.js';
 import { ogCardVersion } from '@/lib/og/version.js';
@@ -731,7 +731,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
     description={metaDescription}
     ogImage={ogImage}
     wide={isGovernanceTopic || isSurveyTopic}
-    readingWidth={!isGovernanceTopic && !isSurveyTopic}
+    readingWidth={!isGovernanceTopic && !isSurveyTopic && !isDraftTopic}
   >
     {cip100ManifestUrl && (
       <link rel="alternate" type="application/ld+json" href={cip100ManifestUrl} slot="head" />
@@ -934,8 +934,9 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
       </>
     ) : (
       // Non-governance topics: a single focused reading column. A survey topic
-      // leads with its mirrored survey card.
-      <div class:list={['thread-layout', { 'thread-layout--sidebar': !!surveyRow }]}>
+      // leads with its mirrored survey card. Survey and draft topics add a
+      // sidebar column for the facts about them.
+      <div class:list={['thread-layout', { 'thread-layout--sidebar': !!surveyRow || isDraftTopic, 'thread-layout--draft': isDraftTopic }]}>
       <div class="thread-single">
         {surveyRow && (
           <SurveyCard
@@ -956,15 +957,6 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
             drepId={viewerDrepId}
           />
         )}
-        {isDraftTopic && (
-          <DraftStatus
-            topicId={topic.id}
-            canonicalUrl={`${netCfg.siteOrigin}/t/${topic.slug}/`}
-            linked={draftLinked}
-            viewerIsAuthor={viewerIsDraftAuthor}
-            viewerCanUnlink={viewerCanUnlink}
-          />
-        )}
         <ThreadPosts
           topic={topic}
           thread={thread}
@@ -982,7 +974,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
           mandates={mandates}
           citablePostIds={citablePostIds}
         />
-        {relatedTopics.length > 0 && (
+        {relatedTopics.length > 0 && !isDraftTopic && (
           <section class="thread-related">
             <h2 class="thread-related__title">Related topics</h2>
             {relatedTopics.map((r) => (
@@ -995,6 +987,21 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
           </section>
         )}
       </div>
+      {isDraftTopic && (
+        <div class="thread-layout__sidebar">
+          <DraftSidebar
+            topicId={topic.id}
+            canonicalUrl={`${netCfg.siteOrigin}/t/${topic.slug}/`}
+            linked={draftLinked}
+            viewerIsAuthor={viewerIsDraftAuthor}
+            viewerCanUnlink={viewerCanUnlink}
+            createdAt={topic.created_at}
+            related={relatedTopics}
+            categorySlug={topic.category_slug}
+            now={now}
+          />
+        </div>
+      )}
       {surveyRow && (
         <div class="thread-layout__sidebar">
           <SurveySidebar
@@ -1053,6 +1060,16 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
        stack after them. No source reordering, unlike the governance overview. */
     .thread-layout__sidebar {
       position: static;
+    }
+    /* A draft's status card is the exception: whether the draft is already
+       on-chain belongs above the posts, not below the last one. Dissolving the
+       sidebar wrappers makes its cards grid items that order can place. */
+    .thread-layout--draft .thread-layout__sidebar,
+    .thread-layout--draft :global(.draft-sidebar) {
+      display: contents;
+    }
+    .thread-layout--draft :global(.draft-card--status) {
+      order: -1;
     }
   }
   .thread-related {

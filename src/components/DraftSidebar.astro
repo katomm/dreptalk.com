@@ -1,0 +1,171 @@
+---
+// Sidebar column for a Proposal Drafts thread, the same two-column shape as the
+// governance and survey threads, so the main column holds only the discussion.
+//
+// The status card leads. Open: the draft's facts while it collects feedback.
+// Linked: the on-chain action(s) it became, with an unlink button for the author
+// or a moderator. On a phone the page lifts that card above the posts (see the
+// .thread-layout--draft rules in pages/t/[slug].astro), so a linked draft says so
+// before the first post, not after the last one.
+//
+// Only the author sees how to connect the draft (this thread's link for the
+// action's CIP-108 references). Bundled <script>, not is:inline, so the strict
+// CSP needs no hash.
+import type { DraftLinkedAction } from '@/lib/db/draftLinks.js';
+import CopyButton from '@/components/CopyButton.astro';
+import { formatRelativeTime } from '@/lib/forum/view.js';
+
+interface Props {
+  topicId: string;
+  canonicalUrl: string;
+  linked: DraftLinkedAction[];
+  viewerIsAuthor: boolean;
+  viewerCanUnlink: boolean;
+  createdAt: number;
+  related: { title: string; slug: string; replies: number; lastPostAt: number }[];
+  categorySlug: string;
+  now: number;
+}
+const {
+  topicId,
+  canonicalUrl,
+  linked,
+  viewerIsAuthor,
+  viewerCanUnlink,
+  createdAt,
+  related,
+  categorySlug,
+  now,
+} = Astro.props;
+const isLinked = linked.length > 0;
+---
+
+<aside class="draft-sidebar">
+  {isLinked ? (
+    <section class="sidebar-card draft-card draft-card--status draft-card--linked" aria-label="On-chain status" data-draft-status data-topic-id={topicId}>
+      <p class="sidebar-card__title">Now on-chain</p>
+      <ul class="draft-card__list">
+        {linked.map((a) => (
+          <li class="draft-card__item">
+            {a.topicSlug
+              ? <a href={`/t/${a.topicSlug}/`}>{a.title ?? 'Untitled governance action'}</a>
+              : <span>{a.title ?? 'Untitled governance action'}</span>}
+            {viewerCanUnlink && (
+              <button type="button" class="draft-card__unlink" data-unlink={a.id}>{viewerIsAuthor ? 'Not your action? Unlink' : 'Unlink'}</button>
+            )}
+          </li>
+        ))}
+      </ul>
+      <p class="draft-card__note">This draft is closed. The discussion continues on the governance action.</p>
+      <p class="draft-card__error" data-error role="alert" hidden></p>
+    </section>
+  ) : (
+    <section class="sidebar-card draft-card draft-card--status" aria-label="Draft status">
+      <p class="sidebar-card__title">Open for feedback</p>
+      {/* Replies and participants sit in the thread's own stats bar right next
+          to this card, so the card only adds what that bar does not show. */}
+      <dl class="draft-card__facts">
+        <div><dt>Opened</dt><dd>{formatRelativeTime(createdAt, now)}</dd></div>
+      </dl>
+      <p class="draft-card__note">Replies here shape the proposal before it is submitted on-chain.</p>
+    </section>
+  )}
+
+  {!isLinked && viewerIsAuthor && (
+    <section class="sidebar-card draft-card" aria-label="Connect to your action">
+      <p class="sidebar-card__title">Connect to your action</p>
+      <p class="draft-card__note">
+        When you submit this as a governance action, add this link to its references. The thread then connects to the on-chain action and closes.
+      </p>
+      <p class="draft-card__urlrow">
+        <code class="draft-card__url">{canonicalUrl}</code>
+        <CopyButton value={canonicalUrl} label="Copy thread link" />
+      </p>
+    </section>
+  )}
+
+  <a class="sidebar-card sidebar-card--link draft-card" href="/help/get-feedback-on-a-proposal/">
+    <span class="sidebar-card__title">How drafts work</span>
+    <span class="sidebar-card__desc">Collecting feedback and connecting a draft to its governance action.</span>
+  </a>
+
+  {related.length > 0 && (
+    <section class="sidebar-card draft-card" aria-label="Related drafts">
+      <p class="sidebar-card__title">Related drafts</p>
+      <ul class="draft-card__related">
+        {related.map((r) => (
+          <li>
+            <a href={`/t/${r.slug}/`}>{r.title}</a>
+            <span class="draft-card__meta">{r.replies} {r.replies === 1 ? 'reply' : 'replies'} &middot; {formatRelativeTime(r.lastPostAt, now)}</span>
+          </li>
+        ))}
+      </ul>
+      <a class="draft-card__all" href={`/c/${categorySlug}/`}>View all drafts</a>
+    </section>
+  )}
+</aside>
+
+<style>
+  .draft-sidebar { display: flex; flex-direction: column; gap: 1rem; }
+  /* Same card shell as the governance sidebar cards, redeclared here because
+     scoped styles do not cross component boundaries. */
+  .sidebar-card { border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.875rem 1rem; background: var(--surface); }
+  .sidebar-card__title { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 0 0 0.625rem; }
+  .sidebar-card--link { display: flex; flex-direction: column; text-decoration: none; transition: border-color 0.15s ease; }
+  .sidebar-card--link:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+  .sidebar-card--link:hover .sidebar-card__title { color: var(--accent); }
+  .sidebar-card__desc { font-size: 0.8125rem; line-height: 1.4; color: var(--fg); }
+  .draft-card--linked { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+  .draft-card--linked .sidebar-card__title { color: var(--accent); }
+  .draft-card__list, .draft-card__related { list-style: none; margin: 0 0 0.5rem; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+  .draft-card__item { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.875rem; }
+  .draft-card__unlink { align-self: flex-start; background: none; border: none; padding: 0; color: var(--muted); font: inherit; font-size: 0.75rem; cursor: pointer; text-decoration: underline; }
+  .draft-card__unlink:hover { color: var(--accent); }
+  .draft-card__note { font-size: 0.8125rem; line-height: 1.45; color: var(--muted); margin: 0; }
+  .draft-card__facts { display: flex; flex-direction: column; gap: 0.35rem; margin: 0 0 0.5rem; font-size: 0.8125rem; }
+  .draft-card__facts div { display: flex; justify-content: space-between; gap: 0.5rem; }
+  .draft-card__facts dt { color: var(--muted); }
+  .draft-card__facts dd { margin: 0; color: var(--fg); font-weight: 600; }
+  .draft-card__urlrow { display: flex; align-items: center; gap: 0.4rem; margin: 0.6rem 0 0; }
+  .draft-card__url { font-size: 0.75rem; overflow-wrap: anywhere; user-select: all; }
+  .draft-card__related li { display: flex; flex-direction: column; gap: 0.1rem; font-size: 0.8125rem; }
+  .draft-card__meta { font-size: 0.72rem; color: var(--muted); }
+  .draft-card__all { font-size: 0.75rem; }
+  .draft-card__error { color: var(--danger, #dc2626); font-size: 0.8125rem; margin: 0.5rem 0 0; }
+</style>
+
+<script>
+  document.querySelectorAll('[data-draft-status]').forEach((root) => {
+    const topicId = root.getAttribute('data-topic-id') ?? '';
+    const errorEl = root.querySelector('[data-error]') as HTMLParagraphElement | null;
+    root.querySelectorAll<HTMLButtonElement>('[data-unlink]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const ok = window.confirm('Unlink this action from your draft? It will not connect to the draft again. The draft reopens once no linked action remains.');
+        if (!ok) return;
+        btn.disabled = true;
+        try {
+          const res = await fetch(`/api/topics/${topicId}/draft-unlink`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ actionId: btn.getAttribute('data-unlink') }),
+          });
+          if (res.ok) {
+            window.location.reload();
+            return;
+          }
+          const data = (await res.json().catch(() => null)) as { error?: string } | null;
+          if (errorEl) {
+            errorEl.textContent = data?.error ?? 'Could not unlink the action.';
+            errorEl.hidden = false;
+          }
+        } catch {
+          if (errorEl) {
+            errorEl.textContent = 'Network error.';
+            errorEl.hidden = false;
+          }
+        }
+        btn.disabled = false;
+      });
+    });
+  });
+</script>
