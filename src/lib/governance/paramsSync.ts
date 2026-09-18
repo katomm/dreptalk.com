@@ -8,6 +8,7 @@
 import type { CommitteeMember, EpochParamsRow } from '../koios/client.js';
 import { activeCommitteeSize } from '../koios/committee.js';
 import { getProtocolParams, upsertProtocolParams } from '../db/protocolParams.js';
+import { protocolParamsFromEpochParams } from '../koios/protocolParamsAdapter.js';
 import { syncCurrentCommitteeMembership } from '../db/committee.js';
 
 /** The three Koios reads this sync needs; structural so tests can stub them. */
@@ -44,24 +45,10 @@ export async function syncProtocolParams(deps: {
     console.error('[gov-params] totals fetch failed, keeping stored treasury values', err);
   }
   const next = {
-    epoch: ep.epoch_no ?? null,
-    dvtMotionNoConfidence: ep.dvt_motion_no_confidence ?? null,
-    dvtCommitteeNormal: ep.dvt_committee_normal ?? null,
-    dvtCommitteeNoConfidence: ep.dvt_committee_no_confidence ?? null,
-    dvtUpdateConstitution: ep.dvt_update_to_constitution ?? null,
-    dvtHardFork: ep.dvt_hard_fork_initiation ?? null,
-    dvtPpNetwork: ep.dvt_p_p_network_group ?? null,
-    dvtPpEconomic: ep.dvt_p_p_economic_group ?? null,
-    dvtPpTechnical: ep.dvt_p_p_technical_group ?? null,
-    dvtPpGov: ep.dvt_p_p_gov_group ?? null,
-    dvtTreasuryWithdrawal: ep.dvt_treasury_withdrawal ?? null,
-    pvtMotionNoConfidence: ep.pvt_motion_no_confidence ?? null,
-    pvtCommitteeNormal: ep.pvt_committee_normal ?? null,
-    pvtCommitteeNoConfidence: ep.pvt_committee_no_confidence ?? null,
-    pvtHardFork: ep.pvt_hard_fork_initiation ?? null,
-    pvtSecurityGroup: ep.pvtpp_security_group ?? null,
+    // The Koios-to-app field mapping lives in one place, shared with the
+    // /ga/new type selector, which reads the same response in the browser.
+    ...protocolParamsFromEpochParams(ep),
     ccThreshold: cc.quorum,
-    committeeMinSize: ep.committee_min_size ?? null,
     // Real committee size for the CIP-1694 min-size rule (null when Koios has
     // no committee row), from the same /committee_info call as the quorum.
     committeeSize:

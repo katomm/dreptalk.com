@@ -2,13 +2,18 @@
 // flow. preprod-only, Beta internal tool.
 //
 // Non-custodial: the wallet signs and submits, the server never sees a
-// private key. The flow: (1) fetch the current gov action deposit so the user
-// knows what they are committing, (2) connect a plain CIP-30 wallet (no
-// CIP-95, a proposal needs no DRep key), (3) collect the CIP-108 fields with
-// an optional author signature, (4) host the metadata via the /api/gov-action
-// routes, (5) build/sign/submit the propose tx via submitGovAction. Mirrors
-// DRepService/VotePanel for wallet selection, connect, and phase handling.
-import { useEffect, useRef, useState } from 'react';
+// private key. The flow: (1) fetch the current gov action deposit and voting
+// thresholds so the user knows what they are committing, (2) connect a plain
+// CIP-30 wallet (no CIP-95, a proposal needs no DRep key), (3) pick the
+// action type and fill its panel plus the shared CIP-108 fields, (4) host the
+// metadata via the /api/gov-action routes, (5) build/sign/submit the propose
+// tx via submitGovAction. Mirrors DRepService/VotePanel for wallet selection,
+// connect, and phase handling.
+//
+// Everything that is not wallet state lives in the govActionFormState
+// reducer, so the type switch, the per-type panels and the out-of-order
+// context guard are unit-tested without a DOM.
+import { useEffect, useReducer, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { CopyButton } from '@/components/CopyButton.js';
@@ -31,8 +36,23 @@ import {
   loadGovActionDraft,
   saveGovActionDraft,
   clearGovActionDraft,
-  type GovActionDraft,
 } from '@/lib/governance/govActionDraft.js';
+import {
+  govActionFormReducer,
+  initialGovActionFormState,
+  effectivePrev,
+  draftFromState,
+  isFormBlank,
+} from '@/lib/governance/govActionFormState.js';
+import { chainForType, refStillPresent } from '@/lib/governance/prevAction.js';
+import type { PrevActionRef } from '@/lib/governance/prevAction.js';
+import type { GovActionSpec } from '@/lib/governance/govActionParts.js';
+import type { ActionContextResponse } from '@/lib/governance/actionContextHandler.js';
+import { protocolParamsFromEpochParams } from '@/lib/koios/protocolParamsAdapter.js';
+import type { EpochParamsRow } from '@/lib/koios/client.js';
+import type { ProtocolParams } from '@/lib/db/protocolParams.js';
+import TypeSelector from '@/components/govAction/TypeSelector.js';
+import PrevActionField from '@/components/govAction/PrevActionField.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import { txExplorerUrl } from '@/lib/config/network.js';
 import { readableError } from '@/lib/wallet/walletError.js';
@@ -44,6 +64,8 @@ import WalletConnection from '@/components/WalletConnection.js';
 // in sync manually since that constant is server-internal.
 const AUTHOR_NAME_MAX = 120;
 
+/** Shown when the chosen previous action is gone from the fresh submit-time context. */
+const PREV_ACTION_CHANGED = 'The previous action changed, review the selection.';
 
 // The real CIP-30 DataSignature shape (COSE_Sign1 signature + COSE_Key), which
 // is what every wallet actually returns and what the author witness reads.
@@ -74,15 +96,6 @@ interface InfoActionFields {
   abstract: string;
   motivation: string;
   rationale: string;
-}
-
-// A row in the References editor below. Kept as a local, unadorned shape
-// (not the server's Cip108Reference) so this island never imports
-// cip108Canonical.ts, which would drag the jsonld/URDNA2015 engine into the
-// client bundle; the server adds the fixed '@type': 'Other' field.
-interface ReferenceRow {
-  label: string;
-  uri: string;
 }
 
 type DepositState =
@@ -135,10 +148,15 @@ const INSUFFICIENT_FUNDS_RE = /^Insufficient tADA for the deposit: need (\d+) lo
  * the zero-UTxO case earns its own wording. A wallet that cleared the guard and
  * then shows no preprod UTxOs at all is far more often on Preview than
  * genuinely empty, and telling the user to fund an already-funded wallet would
- * send them the wrong way. Anything else (including a wallet-rejected signTx)
- * falls back to the shared CIP-30 error reader.
+ * send them the wrong way.
+ *
+ * A node-side rejection that names the chosen previous action is the same
+ * problem the submit-time freshness check guards against, one step later: the
+ * chain moved between the refetch and the block. It gets the same hint.
+ * Anything else (including a wallet-rejected signTx) falls back to the shared
+ * CIP-30 error reader.
  */
-function mapSubmitError(err: unknown): string {
+function mapSubmitError(err: unknown, prev: PrevActionRef | null): string {
   const raw = err instanceof Error ? err.message : String(err);
   const m = INSUFFICIENT_FUNDS_RE.exec(raw);
   if (m) {
@@ -148,7 +166,11 @@ function mapSubmitError(err: unknown): string {
     }
     return `Insufficient tADA: this proposal needs about ${formatAda(requiredLovelace)} tADA (deposit plus fee headroom), but your wallet only has ${formatAda(availableLovelace)} tADA.`;
   }
-  return readableError(err);
+  const readable = readableError(err);
+  if (prev && raw.toLowerCase().includes(prev.txHashHex.toLowerCase())) {
+    return `${readable} ${PREV_ACTION_CHANGED}`;
+  }
+  return readable;
 }
 
 // ---------------------------------------------------------------------------
@@ -224,81 +246,59 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
   const { wallets, selected, setSelected } = useCardanoWallets();
   const [phase, setPhase] = useState<Phase>({ status: 'idle' });
   const [deposit, setDeposit] = useState<DepositState>({ status: 'loading' });
+  const [params, setParams] = useState<ProtocolParams | null>(null);
+  const [state, dispatch] = useReducer(govActionFormReducer, undefined, initialGovActionFormState);
+  // Bumped by the retry button so the context effect runs again for the same type.
+  const [contextAttempt, setContextAttempt] = useState(0);
 
   // Cached CIP-30 api: avoids a second enable() IPC round trip on submit,
   // mirroring DRepService/VotePanel's enabledApiRef pattern.
   const enabledApiRef = useRef<Cip30Api | null>(null);
+  // Monotonic id for every context fetch, including the submit-time refetch.
+  const contextRequestIdRef = useRef(0);
 
-  // CIP-108 form fields.
-  const [title, setTitle] = useState('');
-  const [abstract, setAbstract] = useState('');
-  const [motivation, setMotivation] = useState('');
-  const [rationale, setRationale] = useState('');
-  const [signAsAuthor, setSignAsAuthor] = useState(false);
-  const [authorName, setAuthorName] = useState('');
-  const [references, setReferences] = useState<ReferenceRow[]>([]);
-  const [surveyRef, setSurveyRef] = useState('');
+  const metadata = state.metadata;
+  const chained = chainForType(state.type) !== null;
 
   // Draft persistence: restore runs once after mount (no localStorage during
   // SSR); the persist effect stays quiet until then so it can never clobber a
   // stored draft with the pre-restore empty state. Mirrors VotePanel's
   // draftRestoredRef pattern. Never persists wallet data, addresses,
-  // signatures, the deposit, or the tx result: only the plain form fields.
+  // signatures, the deposit, or the tx result: only the plain form fields and
+  // the per-type panel state.
   const draftKey = govActionDraftKey(network);
   const draftRestoredRef = useRef(false);
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const draft = loadGovActionDraft(window.localStorage, draftKey);
-    if (draft) {
-      setTitle(draft.title);
-      setAbstract(draft.abstract);
-      setMotivation(draft.motivation);
-      setRationale(draft.rationale);
-      setSignAsAuthor(draft.signAsAuthor);
-      setAuthorName(draft.authorName);
-      setReferences(draft.references);
-      setSurveyRef(draft.surveyRef);
-    }
+    if (draft) dispatch({ kind: 'restoreDraft', draft });
     draftRestoredRef.current = true;
   }, [draftKey]);
   useEffect(() => {
     if (typeof window === 'undefined' || !draftRestoredRef.current) return;
-    // Interim shape: this island still only builds the InfoAction panel, so
-    // type and panels are fixed here. Task 8 adds the type selector and
-    // per-type panels, and the blank check below becomes type/panel aware.
-    const draft: GovActionDraft = {
-      v: 2,
-      type: 'InfoAction',
-      title,
-      abstract,
-      motivation,
-      rationale,
-      signAsAuthor,
-      authorName,
-      references,
-      surveyRef,
-      panels: {},
-    };
-    // A draft is only worth keeping while it carries some text; an all-blank
-    // draft (e.g. right after a clear) should not leave a stale empty entry.
-    const isBlank =
-      !title.trim() && !abstract.trim() && !motivation.trim() && !rationale.trim() && !authorName.trim() && references.length === 0 && !surveyRef.trim();
-    if (isBlank) clearGovActionDraft(window.localStorage, draftKey);
-    else saveGovActionDraft(window.localStorage, draftKey, draft);
-  }, [draftKey, title, abstract, motivation, rationale, signAsAuthor, authorName, references, surveyRef]);
+    // A draft is only worth keeping while it carries something: metadata text,
+    // a non-default type, or a filled panel. A committee panel with no
+    // metadata yet is kept, which is why the check is not metadata-only.
+    if (isFormBlank(state)) clearGovActionDraft(window.localStorage, draftKey);
+    else saveGovActionDraft(window.localStorage, draftKey, draftFromState(state));
+  }, [draftKey, state]);
 
-  // Deposit is informational chain data, independent of wallet connection;
-  // load it once on mount so it is ready before the user reaches the form.
+  // Deposit and voting thresholds are informational chain data, independent of
+  // the wallet connection; one /epoch_params read serves both.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const res = await fetchWithTimeout(`${window.location.origin}/api/koios/epoch_params?limit=1`);
         if (!res.ok) throw new Error(`epoch_params request failed (${res.status})`);
-        const rows = (await res.json()) as Array<{ gov_action_deposit?: unknown }>;
-        const lovelace = parseDepositLovelace(rows[0]?.gov_action_deposit);
+        const rows = (await res.json()) as Array<Record<string, unknown>>;
+        const row = rows[0];
+        const lovelace = parseDepositLovelace(row?.gov_action_deposit);
         if (lovelace === null) throw new Error('gov_action_deposit missing from response');
-        if (!cancelled) setDeposit({ status: 'ready', lovelace });
+        if (!cancelled) {
+          setDeposit({ status: 'ready', lovelace });
+          setParams(protocolParamsFromEpochParams(row as EpochParamsRow));
+        }
       } catch {
         if (!cancelled) {
           setDeposit({
@@ -313,22 +313,75 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
     };
   }, []);
 
+  // Live ledger context for the chosen type: the purpose chain's root and open
+  // rows, plus whatever the type's panel needs. InfoAction is unchained and
+  // needs none, so it costs no request.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: contextAttempt is the retry nonce, it exists to re-run this effect for the same type
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (chainForType(state.type) === null) return;
+    let cancelled = false;
+    contextRequestIdRef.current += 1;
+    const requestId = contextRequestIdRef.current;
+    dispatch({ kind: 'contextRequested', requestId });
+    (async () => {
+      try {
+        const res = await fetchWithTimeout(
+          `${window.location.origin}/api/gov-action/context?type=${encodeURIComponent(state.type)}`,
+        );
+        if (!res.ok) throw new Error(`context request failed (${res.status})`);
+        const data = (await res.json()) as ActionContextResponse;
+        if (!cancelled) dispatch({ kind: 'contextLoaded', requestId, data });
+      } catch {
+        if (!cancelled) dispatch({ kind: 'contextFailed', requestId });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [state.type, contextAttempt]);
+
   const busy = phase.status === 'connecting' || phase.status === 'submitting';
   // Same parser the server uses, so the form can never accept a ref the
   // server would reject (or the other way round).
-  const surveyRefState = surveyRef.trim() ? parseSurveyRefInput(surveyRef) : null;
+  const surveyRefState = metadata.surveyRef.trim() ? parseSurveyRefInput(metadata.surveyRef) : null;
+  const contextReady = state.context.status === 'ready' && state.context.data !== null;
+  const contextData = state.context.data;
 
   // ------------------------------------------------------------------
   // References row editor (optional, like GovTool's reference links).
   // ------------------------------------------------------------------
-  function updateReference(i: number, patch: Partial<ReferenceRow>) {
-    setReferences((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  function setMetadata(patch: Partial<typeof metadata>) {
+    dispatch({ kind: 'setMetadata', patch });
+  }
+  function updateReference(i: number, patch: { label?: string; uri?: string }) {
+    setMetadata({ references: metadata.references.map((r, idx) => (idx === i ? { ...r, ...patch } : r)) });
   }
   function removeReference(i: number) {
-    setReferences((rows) => rows.filter((_, idx) => idx !== i));
+    setMetadata({ references: metadata.references.filter((_, idx) => idx !== i) });
   }
   function addReference() {
-    setReferences((rows) => (rows.length < REFERENCES_MAX ? [...rows, { label: '', uri: '' }] : rows));
+    if (metadata.references.length >= REFERENCES_MAX) return;
+    setMetadata({ references: [...metadata.references, { label: '', uri: '' }] });
+  }
+
+  /**
+   * Builds the typed action for the chosen type from the panel state and the
+   * context that was displayed. Returns an error string instead of throwing so
+   * the submit handler can surface it like any other validation failure.
+   */
+  function buildActionSpec(ctx: ActionContextResponse | null): { ok: true; spec: GovActionSpec; prev: PrevActionRef | null } | { ok: false; error: string } {
+    switch (state.type) {
+      case 'InfoAction':
+        return { ok: true, spec: { type: 'InfoAction' }, prev: null };
+      case 'NoConfidence': {
+        const prev = effectivePrev(state.panels.NoConfidence.prev, ctx);
+        return { ok: true, spec: { type: 'NoConfidence', prev }, prev };
+      }
+      default:
+        // The remaining panels land in the following commits of this branch.
+        return { ok: false, error: 'This action type is not available yet.' };
+    }
   }
 
   // ------------------------------------------------------------------
@@ -363,6 +416,30 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
     setPhase({ status: 'form' });
   }
 
+  /**
+   * Refetches the context (the route answers no-store, so this cannot come
+   * from the browser cache) and checks the chosen previous action is still
+   * there. The fresh response replaces the stored one either way, so the
+   * panel immediately shows what the chain looks like now.
+   */
+  async function refreshContext(): Promise<ActionContextResponse | null> {
+    contextRequestIdRef.current += 1;
+    const requestId = contextRequestIdRef.current;
+    dispatch({ kind: 'contextRequested', requestId });
+    try {
+      const res = await fetchWithTimeout(
+        `${window.location.origin}/api/gov-action/context?type=${encodeURIComponent(state.type)}`,
+      );
+      if (!res.ok) throw new Error(`context request failed (${res.status})`);
+      const data = (await res.json()) as ActionContextResponse;
+      dispatch({ kind: 'contextLoaded', requestId, data });
+      return data;
+    } catch {
+      dispatch({ kind: 'contextFailed', requestId });
+      return null;
+    }
+  }
+
   // ------------------------------------------------------------------
   // Step 2: submit. Prepare + sign the author witness (if toggled), host the
   // metadata, then build/sign/submit the propose tx.
@@ -381,38 +458,74 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
       });
       return;
     }
+    if (chained && !contextReady) {
+      setPhase({
+        status: 'error',
+        message: 'The current chain state has not finished loading. Please wait a moment and try again.',
+        connected: true,
+      });
+      return;
+    }
 
     const fields: InfoActionFields = {
-      title: title.trim(),
-      abstract: abstract.trim(),
-      motivation: motivation.trim(),
-      rationale: rationale.trim(),
+      title: metadata.title.trim(),
+      abstract: metadata.abstract.trim(),
+      motivation: metadata.motivation.trim(),
+      rationale: metadata.rationale.trim(),
     };
     if (!fields.title || !fields.abstract || !fields.motivation || !fields.rationale) {
       setPhase({ status: 'error', message: 'Please fill in every field.', connected: true });
       return;
     }
-    const trimmedAuthorName = authorName.trim();
-    if (signAsAuthor && !trimmedAuthorName) {
+    const trimmedAuthorName = metadata.authorName.trim();
+    if (metadata.signAsAuthor && !trimmedAuthorName) {
       setPhase({ status: 'error', message: 'Enter a name to sign as the author, or turn off "Sign as author".', connected: true });
+      return;
+    }
+
+    // The action is built against the context the user actually saw, so the
+    // freshness check below compares like for like.
+    const built = buildActionSpec(contextData);
+    if (!built.ok) {
+      setPhase({ status: 'error', message: built.error, connected: true });
       return;
     }
 
     // Trimmed, non-empty rows only. Sent identically to both the prepare and
     // finalize calls below so the hash the wallet signs matches what is
     // finally anchored.
-    const referencePayload = references
+    const referencePayload = metadata.references
       .map((r) => ({ label: r.label.trim(), uri: r.uri.trim() }))
       .filter((r) => r.label && r.uri);
     // Only include the references key when there is at least one, so the served
     // doc stays byte-identical to the no-references case (the builder omits it too).
     const referencesField = referencePayload.length > 0 ? { references: referencePayload } : {};
     // Sent raw: the server re-parses with the same rules and is authoritative.
-    const surveyField = surveyRef.trim() ? { surveyRef: surveyRef.trim() } : {};
+    const surveyField = metadata.surveyRef.trim() ? { surveyRef: metadata.surveyRef.trim() } : {};
 
     setPhase({ status: 'submitting' });
 
     try {
+      // The chain can move between filling the form and pressing submit, and a
+      // proposal chained onto a vanished previous action is rejected by the
+      // node after the deposit prompt. Check first, before anything is
+      // published or signed.
+      if (chained) {
+        const fresh = await refreshContext();
+        if (!fresh?.prev) {
+          setPhase({
+            status: 'error',
+            message: 'Could not re-check the current chain state. Please try again.',
+            connected: true,
+          });
+          return;
+        }
+        if (!refStillPresent(built.prev, fresh.prev)) {
+          setPhase({ status: 'error', message: PREV_ACTION_CHANGED, connected: true });
+          return;
+        }
+      }
+
       // The reward address is required regardless of author signing: it is
       // where the deposit refund lands, and (when signing) the address the
       // CIP-108 witness proves ownership of.
@@ -428,7 +541,7 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
       }
 
       let author: { name: string; keyHex: string; signatureHex: string } | undefined;
-      if (signAsAuthor) {
+      if (metadata.signAsAuthor) {
         const prepareRes = await fetchWithTimeout(`${window.location.origin}/api/gov-action/metadata/prepare`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
@@ -495,15 +608,15 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
         anchorUrl,
         anchorHashHex: anchorHash,
         govActionDepositLovelace: deposit.lovelace,
-        action: { type: 'InfoAction' },
+        action: built.spec,
       });
 
       // The proposal is on chain: drop the draft eagerly so a crash right
       // after success cannot resurrect the already-submitted form text.
       if (typeof window !== 'undefined') clearGovActionDraft(window.localStorage, draftKey);
-      setPhase({ status: 'success', txHash, authored: signAsAuthor });
+      setPhase({ status: 'success', txHash, authored: metadata.signAsAuthor });
     } catch (err) {
-      setPhase({ status: 'error', message: mapSubmitError(err), connected: true });
+      setPhase({ status: 'error', message: mapSubmitError(err, built.prev), connected: true });
     }
   }
 
@@ -515,6 +628,45 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
   // ------------------------------------------------------------------
   // Render
   // ------------------------------------------------------------------
+
+  /** The type panel, plus the context's own loading and error rows. */
+  function renderPanel() {
+    if (!chained) return null;
+    if (state.context.status === 'error') {
+      return (
+        <div className="callout callout--error" role="alert">
+          <ErrorIcon />
+          <div className="callout__body">
+            Could not load the current chain state for this action type.{' '}
+            <button
+              type="button"
+              onClick={() => setContextAttempt((n) => n + 1)}
+              style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', padding: 0, font: 'inherit', textDecoration: 'underline' }}
+            >
+              Try again
+            </button>
+          </div>
+        </div>
+      );
+    }
+    if (!contextData) {
+      return <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>Loading the current chain state...</p>;
+    }
+    const prevContext = contextData.prev ?? { lastEnacted: null, open: [] };
+    switch (state.type) {
+      case 'NoConfidence':
+        return (
+          <PrevActionField
+            context={prevContext}
+            value={state.panels.NoConfidence.prev}
+            onChange={(prev) => dispatch({ kind: 'setPanel', type: 'NoConfidence', state: { prev } })}
+            disabled={busy}
+          />
+        );
+      default:
+        return null;
+    }
+  }
 
   // Mirrors submitGovAction's own guard: this flow only ever works on
   // preprod, so fail visibly rather than let the user fill out the form and
@@ -616,12 +768,21 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
               }}
               style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}
             >
-              <CountedField id="ia-title" label="Title" count={title.length} max={INFO_TITLE_MAX} help="Short, descriptive title for the proposal.">
+              <TypeSelector
+                value={state.type}
+                onChange={(type) => dispatch({ kind: 'setType', type })}
+                params={params}
+                disabled={busy}
+              />
+
+              {renderPanel()}
+
+              <CountedField id="ia-title" label="Title" count={metadata.title.length} max={INFO_TITLE_MAX} help="Short, descriptive title for the proposal.">
                 <input
                   id="ia-title"
                   type="text"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
+                  value={metadata.title}
+                  onChange={(e) => setMetadata({ title: e.target.value })}
                   maxLength={INFO_TITLE_MAX}
                   required
                   disabled={busy}
@@ -630,11 +791,11 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
                 />
               </CountedField>
 
-              <CountedField id="ia-abstract" label="Abstract" count={abstract.length} max={INFO_ABSTRACT_MAX} help="Brief summary of what this proposal is about.">
+              <CountedField id="ia-abstract" label="Abstract" count={metadata.abstract.length} max={INFO_ABSTRACT_MAX} help="Brief summary of what this proposal is about.">
                 <textarea
                   id="ia-abstract"
-                  value={abstract}
-                  onChange={(e) => setAbstract(e.target.value)}
+                  value={metadata.abstract}
+                  onChange={(e) => setMetadata({ abstract: e.target.value })}
                   maxLength={INFO_ABSTRACT_MAX}
                   rows={4}
                   required
@@ -644,11 +805,11 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
                 />
               </CountedField>
 
-              <CountedField id="ia-motivation" label="Motivation" count={motivation.length} max={INFO_MOTIVATION_MAX} help="Why this proposal is needed.">
+              <CountedField id="ia-motivation" label="Motivation" count={metadata.motivation.length} max={INFO_MOTIVATION_MAX} help="Why this proposal is needed.">
                 <textarea
                   id="ia-motivation"
-                  value={motivation}
-                  onChange={(e) => setMotivation(e.target.value)}
+                  value={metadata.motivation}
+                  onChange={(e) => setMetadata({ motivation: e.target.value })}
                   maxLength={INFO_MOTIVATION_MAX}
                   rows={8}
                   required
@@ -658,11 +819,11 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
                 />
               </CountedField>
 
-              <CountedField id="ia-rationale" label="Rationale" count={rationale.length} max={INFO_RATIONALE_MAX} help="Detailed reasoning behind the proposal.">
+              <CountedField id="ia-rationale" label="Rationale" count={metadata.rationale.length} max={INFO_RATIONALE_MAX} help="Detailed reasoning behind the proposal.">
                 <textarea
                   id="ia-rationale"
-                  value={rationale}
-                  onChange={(e) => setRationale(e.target.value)}
+                  value={metadata.rationale}
+                  onChange={(e) => setMetadata({ rationale: e.target.value })}
                   maxLength={INFO_RATIONALE_MAX}
                   rows={10}
                   required
@@ -675,7 +836,7 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                 <span style={labelStyle}>References (optional)</span>
                 <span style={helpStyle}>Link to supporting documents or discussions, like GovTool&apos;s reference links.</span>
-                {references.map((ref, i) => (
+                {metadata.references.map((ref, i) => (
                   // biome-ignore lint/suspicious/noArrayIndexKey: rows are positional inputs owned by index; there is no stable id
                   <div key={i} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                     <input
@@ -709,7 +870,7 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
                     </button>
                   </div>
                 ))}
-                {references.length < REFERENCES_MAX && (
+                {metadata.references.length < REFERENCES_MAX && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
                     <button
                       type="button"
@@ -733,8 +894,8 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
                 <input
                   id="ga-survey-ref"
                   type="text"
-                  value={surveyRef}
-                  onChange={(e) => setSurveyRef(e.target.value)}
+                  value={metadata.surveyRef}
+                  onChange={(e) => setMetadata({ surveyRef: e.target.value })}
                   disabled={busy}
                   placeholder="<transaction id>:<index>"
                   maxLength={2048}
@@ -758,8 +919,8 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
               <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', fontSize: '0.875rem' }}>
                 <input
                   type="checkbox"
-                  checked={signAsAuthor}
-                  onChange={(e) => setSignAsAuthor(e.target.checked)}
+                  checked={metadata.signAsAuthor}
+                  onChange={(e) => setMetadata({ signAsAuthor: e.target.checked })}
                   disabled={busy}
                   style={{ marginTop: '0.15rem' }}
                 />
@@ -772,13 +933,13 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
                 </span>
               </label>
 
-              {signAsAuthor && (
-                <CountedField id="ia-author-name" label="Author name" count={authorName.length} max={AUTHOR_NAME_MAX} help="Shown alongside the wallet-key signature.">
+              {metadata.signAsAuthor && (
+                <CountedField id="ia-author-name" label="Author name" count={metadata.authorName.length} max={AUTHOR_NAME_MAX} help="Shown alongside the wallet-key signature.">
                   <input
                     id="ia-author-name"
                     type="text"
-                    value={authorName}
-                    onChange={(e) => setAuthorName(e.target.value)}
+                    value={metadata.authorName}
+                    onChange={(e) => setMetadata({ authorName: e.target.value })}
                     maxLength={AUTHOR_NAME_MAX}
                     disabled={busy}
                     style={inputStyle}
@@ -816,7 +977,7 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
                     <strong>What happens when you submit</strong>
                   </p>
                   <ol style={{ margin: '0.4rem 0 0', paddingLeft: '1.15rem', fontSize: '0.875rem', lineHeight: 1.5 }}>
-                    {signAsAuthor && (
+                    {metadata.signAsAuthor && (
                       <li>Your wallet asks you to sign the metadata. This is the author signature, not a payment.</li>
                     )}
                     <li>
@@ -830,21 +991,21 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
                     </li>
                   </ol>
                   <p style={{ margin: '0.4rem 0 0', fontSize: '0.875rem' }}>
-                    So {signAsAuthor ? 'there are two wallet prompts, and nothing costs' : 'nothing costs'} ada until
+                    So {metadata.signAsAuthor ? 'there are two wallet prompts, and nothing costs' : 'nothing costs'} ada until
                     the last one. Stopping before it leaves the text published with no proposal pointing at it.
                   </p>
                 </div>
               </div>
 
               <div>
-                <button type="submit" className="btn btn-primary" disabled={busy || deposit.status !== 'ready'}>
+                <button type="submit" className="btn btn-primary" disabled={busy || deposit.status !== 'ready' || (chained && !contextReady)}>
                   {phase.status === 'submitting' ? 'Awaiting wallet...' : 'Submit proposal'}
                 </button>
               </div>
 
               {phase.status === 'submitting' && (
                 <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
-                  {signAsAuthor
+                  {metadata.signAsAuthor
                     ? 'Please approve each wallet prompt. The first signs the metadata, the second sends the transaction.'
                     : 'Please review and approve the transaction in your wallet.'}
                 </p>

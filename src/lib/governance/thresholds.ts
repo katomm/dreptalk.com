@@ -80,6 +80,53 @@ function plan(input: ThresholdInput, p: ProtocolParams): { drep: number | null; 
   }
 }
 
+// The submit form's own type names differ from Koios's in one place: the form
+// calls it UpdateCommittee, Koios (and therefore the threshold table above)
+// calls it NewCommittee. Mapped here so there is exactly one threshold table.
+const FORM_TYPE_TO_KOIOS_TYPE: Record<string, string> = { UpdateCommittee: 'NewCommittee' };
+
+// The action types SPOs vote on at all (CIP-1694). ParameterChange is absent
+// because there it depends on the changed parameters, and this sentence is
+// only used for the five types the submit form offers.
+const SPO_VOTING_TYPES = new Set(['NoConfidence', 'NewCommittee', 'HardForkInitiation']);
+
+/** A threshold fraction as a percentage string, trailing zeros trimmed. */
+function thresholdPctLabel(fraction: number | null): string {
+  if (fraction == null) return 'unknown';
+  const pct = Math.round(fraction * 1000) / 10;
+  return `${pct}%`;
+}
+
+/**
+ * One sentence naming the DRep and SPO thresholds an action type needs and
+ * whether the constitutional committee votes on it, for the /ga/new type
+ * selector cards. The committee's own quorum is deliberately absent: it does
+ * not come from epoch_params, so the card would be stating a figure it has
+ * not read.
+ *
+ * The committee-chain types (NoConfidence and UpdateCommittee) carry a
+ * closing clause, because the figures describe the normal state only: once a
+ * no-confidence motion has passed, the ledger switches to the
+ * *_committee_no_confidence thresholds, a state this form does not model.
+ */
+export function thresholdSentence(type: string, p: ProtocolParams): string {
+  const koiosType = FORM_TYPE_TO_KOIOS_TYPE[type] ?? type;
+  const pl = plan({ type: koiosType, drepYesPct: null, spoYesPct: null, ccYesPct: null }, p);
+  if (!pl) return 'No ratification thresholds, an InfoAction is advisory and never enacts.';
+
+  // Whether SPOs vote at all is a property of the action type, not of the
+  // stored figure: an unsynced pvt_* parameter leaves plan().spo null for a
+  // type SPOs do vote on, and the card must then say unknown, not go silent.
+  const parts = [`DReps ${thresholdPctLabel(pl.drep)}`];
+  if (SPO_VOTING_TYPES.has(koiosType)) parts.push(`SPOs ${thresholdPctLabel(pl.spo)}`);
+  parts.push(pl.cc ? 'the committee votes' : 'the committee does not vote');
+  const suffix =
+    koiosType === 'NoConfidence' || koiosType === 'NewCommittee'
+      ? ' (normal state, after a no-confidence vote different committee thresholds apply)'
+      : '';
+  return `${parts.join(', ')}${suffix}.`;
+}
+
 /**
  * Whether an action type carries an on-chain ratification threshold. Only
  * InfoAction is advisory and has none; every other governance action type carries
