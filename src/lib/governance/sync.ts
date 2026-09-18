@@ -147,10 +147,10 @@ function anchorMayStillAnswer(status: string): boolean {
 async function rereadActionAnchor(
   db: D1Database,
   ga: GovernanceAction,
+  /** This network's origin, for recognizing Proposal Drafts thread links in the
+   * references. A link is only written when the action already has its topic. */
+  siteOrigin: string,
   fetchImpl?: typeof fetch,
-  /** Set only by callers where the action already has its governance topic, so a
-   * reference naming a Proposal Drafts thread can be linked in the same batch. */
-  siteOrigin?: string,
 ): Promise<AnchorResult> {
   const result: AnchorResult =
     ga.anchorUrl && ga.anchorHash
@@ -161,7 +161,7 @@ async function rereadActionAnchor(
     return result;
   }
   const draftTopicId =
-    siteOrigin && ga.topicId ? await draftTopicFor(db, result.metadata.references, siteOrigin) : null;
+    ga.topicId ? await draftTopicFor(db, result.metadata.references, siteOrigin) : null;
   await updateActionMetadata(
     db,
     ga.id,
@@ -469,7 +469,7 @@ export async function createDeferredGovTopics(deps: DeferredTopicDeps): Promise<
       let references = ga.references;
 
       if (!title && ga.anchorUrl && ga.anchorHash && ga.metaAttempts < DEFERRED_TOPIC_MAX_ATTEMPTS) {
-        const result = await rereadActionAnchor(db, ga, fetchImpl);
+        const result = await rereadActionAnchor(db, ga, cfg.siteOrigin, fetchImpl);
         if (result.status === 'ok') {
           title = result.metadata.title;
           abstract = result.metadata.abstract;
@@ -536,6 +536,7 @@ export interface MetaBackfillDeps {
  */
 export async function backfillActionMetadata(deps: MetaBackfillDeps): Promise<MetaBackfillResult> {
   const { db, network, fetchImpl, limit } = deps;
+  const { siteOrigin } = resolveNetwork(network);
   const candidates = await getActionsNeedingMetaReextract(db, META_EXTRACT_VERSION, limit, META_REEXTRACT_MAX_ATTEMPTS);
   let updated = 0;
   let failed = 0;
@@ -546,7 +547,7 @@ export async function backfillActionMetadata(deps: MetaBackfillDeps): Promise<Me
       // keeps its old version, so it stays a candidate until it exhausts its
       // attempt budget. The topic title and opening post are reconciled
       // separately by backfillGovTopicTitles, so this stays on the action row.
-      if ((await rereadActionAnchor(db, ga, fetchImpl, resolveNetwork(network).siteOrigin)).status === 'ok') updated++;
+      if ((await rereadActionAnchor(db, ga, siteOrigin, fetchImpl)).status === 'ok') updated++;
       else failed++;
     } catch {
       failed++;

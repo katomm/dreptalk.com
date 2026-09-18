@@ -9,7 +9,6 @@ import AuthorsCard from './AuthorsCard.astro';
 import ReferencesCard from './ReferencesCard.astro';
 import TopParticipantsCard from './TopParticipantsCard.astro';
 import RelatedActionsCard from './RelatedActionsCard.astro';
-import DraftOriginCard from './DraftOriginCard.astro';
 import type { GovernanceAction, RelatedActionRow } from '@/lib/db/governance.js';
 import type { ProtocolParams } from '@/lib/db/protocolParams.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
@@ -70,7 +69,15 @@ const {
   <VotingInfoCard action={action} params={params} drepStakeTotal={drepStakeTotal} now={now} miniChart={miniChart} trendHref={trendHref} />
   <ProposerCard returnAddress={action.returnAddress} />
   <AuthorsCard authors={action.authors} />
-  <DraftOriginCard draft={draftOrigin ?? null} />
+  {/* The Proposal Drafts thread this action was discussed in before submission.
+      Rendered here rather than as its own component so the scoped
+      .sidebar-card--link styles below apply, like the analytics link card. */}
+  {draftOrigin && (
+    <a class="sidebar-card sidebar-card--link" href={`/t/${draftOrigin.slug}/`}>
+      <span class="sidebar-card__title">Discussed as a draft</span>
+      <span class="sidebar-card__desc">{draftOrigin.title}</span>
+    </a>
+  )}
   <ReferencesCard references={action.references} />
   <RelatedActionsCard actions={related} />
   {/* Always-on cross-link to the governance analytics hub, not tied to this

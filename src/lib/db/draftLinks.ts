@@ -12,6 +12,18 @@ export interface DraftLinkedAction {
   topicSlug: string | null;
 }
 
+/**
+ * The session wrote this draft: same user, under the same mandate the draft was
+ * opened with (a co-proposer's grant, or none). The one rule for who may unlink
+ * as the author, shared by the unlink endpoint and the page that shows the button.
+ */
+export function isDraftAuthor(
+  topic: { author_id: string; proposer_grant_id: string | null },
+  user: { id: string; grantId?: string | null },
+): boolean {
+  return topic.author_id === user.id && (topic.proposer_grant_id ?? null) === (user.grantId ?? null);
+}
+
 /** The first slug that is a live Proposal Drafts thread, as its topic id. */
 export async function resolveDraftTopic(db: D1Database, slugs: readonly string[]): Promise<string | null> {
   if (slugs.length === 0) return null;

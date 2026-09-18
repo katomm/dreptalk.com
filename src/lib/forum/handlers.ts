@@ -11,7 +11,7 @@ import { checkRate } from '../rate.js';
 import type { RateLimiter } from '../rateLimiterDO.js';
 import { isWriter, isModerator, WRITER_ROLES } from '../auth/roles.js';
 import { isGrantActiveForUser } from '../db/proposerGrants.js';
-import { unlinkDraftAction } from '../db/draftLinks.js';
+import { isDraftAuthor, unlinkDraftAction } from '../db/draftLinks.js';
 import { isSystemAuthor } from './author.js';
 import { toBase64Url } from '../crypto/base64url.js';
 import { notifyReply, notifyMentions } from '../notifications/notify.js';
@@ -664,9 +664,7 @@ export async function handleDraftUnlink(input: DraftUnlinkInput): Promise<Handle
       return { status: 404, json: { ok: false, error: 'not found' } };
     }
 
-    const isOwner =
-      topic.author_id === user.id && (topic.proposer_grant_id ?? null) === (user.grantId ?? null);
-    if (!isOwner && !isModerator(user.roles)) {
+    if (!isDraftAuthor(topic, user) && !isModerator(user.roles)) {
       return { status: 403, json: { ok: false, error: 'forbidden' } };
     }
     // No writer role or DRep activity check (an author whose role lapsed must

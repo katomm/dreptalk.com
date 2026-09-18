@@ -84,7 +84,7 @@ import { currentNetwork } from '@/lib/api/response.js';
 import { listPostIdsWithDocs } from '@/lib/db/cip100.js';
 import { originForNetwork, threadManifestUrl } from '@/lib/cip100/origin.js';
 import { getCategory, PROPOSAL_DRAFTS_CATEGORY_SLUG } from '../../../config/categories.js';
-import { getDraftLinkedActions, getDraftTopicRef } from '@/lib/db/draftLinks.js';
+import { getDraftLinkedActions, getDraftTopicRef, isDraftAuthor } from '@/lib/db/draftLinks.js';
 import DraftStatus from '@/components/DraftStatus.astro';
 import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, truncateId, excerptFromHtml, SITE_ORIGIN } from '@/lib/forum/view.js';
 import { parseGaTab } from '@/lib/governance/tab.js';
@@ -232,17 +232,14 @@ const canEditTitle =
 // governance thread the draft it grew from. One indexed query each, only on the
 // topics that can have them.
 const isDraftTopic = topic?.category_slug === PROPOSAL_DRAFTS_CATEGORY_SLUG;
-const draftLinked = db && topic && isDraftTopic ? await getDraftLinkedActions(db, topic.id) : [];
-const viewerIsDraftAuthor =
-  !!user && !!topic && isDraftTopic && topic.author_id === user.id &&
-  (topic.proposer_grant_id ?? null) === (user.grantId ?? null);
+const viewerIsDraftAuthor = !!user && !!topic && isDraftTopic && isDraftAuthor(topic, user);
 const viewerCanUnlink = viewerIsDraftAuthor || (!!user && isModerator(user.roles));
 
 // Governance-action enrichment (header values) and the viewer's own post state
 // (flags + reactions, one batched round-trip) are independent, so load them
 // together. The per-author votes then need govAction.id, so that one follows.
 // All read from D1 ("as of").
-const [govAction, viewerPostState, surveyRow] = await Promise.all([
+const [govAction, viewerPostState, surveyRow, draftLinked] = await Promise.all([
   isGovernanceTopic && db && topic
     ? getGovernanceActionByTopicId(db, topic.id)
     : Promise.resolve(null),
@@ -250,6 +247,7 @@ const [govAction, viewerPostState, surveyRow] = await Promise.all([
     ? loadViewerPostState(db, user.id, pagePosts.map((p) => p.id))
     : Promise.resolve(emptyViewerPostState()),
   isSurveyTopic && db && topic ? getSurveyByTopicId(db, topic.id) : Promise.resolve(null),
+  isDraftTopic && db && topic ? getDraftLinkedActions(db, topic.id) : Promise.resolve([]),
 ]);
 const { flaggedPostIds, reactions: viewerReactions } = viewerPostState;
 
