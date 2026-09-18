@@ -6,14 +6,15 @@
 // knows what they are committing, (2) connect a plain CIP-30 wallet (no CIP-95;
 // a proposal needs no DRep key), (3) collect the CIP-108 fields with an
 // optional author signature, (4) host the metadata via the /api/gov-action
-// routes, (5) build/sign/submit the propose tx via submitInfoAction. Mirrors
-// DRepService/VotePanel for wallet selection, connect, and phase handling.
+// routes, (5) build/sign/submit the propose tx via submitGovAction, passing
+// { type: 'InfoAction' } as the action. Mirrors DRepService/VotePanel for
+// wallet selection, connect, and phase handling.
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { CopyButton } from '@/components/CopyButton.js';
 import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
-import { submitInfoAction } from '@/lib/governance/infoActionTx.js';
+import { submitGovAction } from '@/lib/governance/govActionTx.js';
 import { govActionSubmissionAvailable } from '@/lib/governance/submissionGate.js';
 import type { WalletApi } from '@/lib/governance/walletUtxos.js';
 import {
@@ -121,13 +122,13 @@ function formatAda(lovelace: bigint | string): string {
   return (Number(value) / 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
-// Matches the exact message thrown by submitInfoAction's funding-shortfall
-// guard (see infoActionTx.ts), so the required/available numbers can be
+// Matches the exact message thrown by submitGovAction's funding-shortfall
+// guard (see govActionTx.ts), so the required/available numbers can be
 // reformatted in ADA and the "no UTxOs at all" case can get its own wording.
 const INSUFFICIENT_FUNDS_RE = /^Insufficient tADA for the deposit: need (\d+) lovelace, wallet has (\d+)\.$/;
 
 /**
- * Maps a submitInfoAction failure to a readable message.
+ * Maps a submitGovAction failure to a readable message.
  *
  * The network guard ran at connect time, but it proves less than it looks:
  * CIP-30 getNetworkId() answers 0 for EVERY testnet, so a wallet on Preview
@@ -472,7 +473,7 @@ export default function SubmitInfoAction({ network }: SubmitInfoActionProps) {
       // matches. It is safe because nothing in the submit path calls signData,
       // so the field the SDK invents is never read. Drop the cast if the SDK
       // ever corrects that type.
-      const { txHash } = await submitInfoAction({
+      const { txHash } = await submitGovAction({
         walletApi: api as unknown as WalletApi,
         network,
         origin: window.location.origin,
@@ -480,6 +481,7 @@ export default function SubmitInfoAction({ network }: SubmitInfoActionProps) {
         anchorUrl,
         anchorHashHex: anchorHash,
         govActionDepositLovelace: deposit.lovelace,
+        action: { type: 'InfoAction' },
       });
 
       // The proposal is on chain: drop the draft eagerly so a crash right
@@ -500,7 +502,7 @@ export default function SubmitInfoAction({ network }: SubmitInfoActionProps) {
   // Render
   // ------------------------------------------------------------------
 
-  // Mirrors submitInfoAction's own guard: this flow only ever works on
+  // Mirrors submitGovAction's own guard: this flow only ever works on
   // preprod, so fail visibly rather than let the user fill out the form and
   // hit the guard only after connecting a wallet.
   if (!govActionSubmissionAvailable(network)) {
