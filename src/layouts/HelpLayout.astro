@@ -67,7 +67,8 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
 <style>
   /* Desktop: the illustration hangs absolutely in the top right so it does
      not stretch the header row and push the body text down. The heading
-     reserves its width; the prose column (64ch) stays clear of it anyway. */
+     reserves its width. The prose column (64ch) stays clear of it only while
+     the container is wide enough, see the breakpoint below. */
   .help-head {
     position: relative;
   }
@@ -88,8 +89,10 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
     filter: invert(0.84) hue-rotate(180deg) saturate(1.5);
   }
   /* Below this width the 64ch prose column would run under the absolutely
-     positioned illustration, so switch to the stacked, centered header. */
-  @media (max-width: 900px) {
+     positioned illustration, so switch to the stacked, centered header. The
+     side by side header needs 64ch (750px) + 180px illustration + 48px
+     container padding = 978px, plus a small gap. */
+  @media (max-width: 1000px) {
     .help-head {
       display: flex;
       flex-direction: column-reverse;
