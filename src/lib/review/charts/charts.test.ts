@@ -198,12 +198,12 @@ describe('matrix, before/after and timeline', () => {
     expect(chartSpecSchema.safeParse(beforeAfter).success).toBe(true);
     expect(chartSpecSchema.safeParse(timeline).success).toBe(true);
   });
-  it('renders one cell per ballot with a symbol and a tone', () => {
+  it('renders one cell per vote with a symbol and a tone', () => {
     const svg = renderChart(matrix);
     expect(svg.match(/class="rv-cell/g)?.length).toBe(4);
     expect(svg).toContain('rv-cell rv-none');
     expect(svg).toContain('✓');
-    expect(renderFigure(matrix)).toContain('No ballot');
+    expect(renderFigure(matrix)).toContain('Did not vote');
   });
   it('renders a before and an after dot per panel and the threshold', () => {
     const svg = renderChart(beforeAfter);

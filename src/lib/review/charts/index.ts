@@ -43,9 +43,9 @@ function legendFor(spec: ChartSpec): string {
     : spec.type === 'seats' ? spec.groups.map((g) => [g.label, g.tone])
     : spec.type === 'power' ? [['Yes', 's1'], ['No', 's2'], ['Abstain', 's3']]
     : spec.type === 'budget' ? spec.segments.map((g) => [g.label, g.tone === 'paid' ? 's2' : g.tone === 'approved' ? 's1' : 'none'] as [string, string])
-    : spec.type === 'matrix' ? [['Yes', 's1'], ['No', 's2'], ['Abstain', 's3'], ['No ballot', 'none']]
+    : spec.type === 'matrix' ? [['Yes', 's1'], ['No', 's2'], ['Abstain', 's3'], ['Did not vote', 'none']]
     : spec.type === 'beforeAfter' ? [[spec.panels[0].before.label, 's3'], [spec.panels[0].after.label, 's1']]
-    : spec.type === 'scatter' ? [...new Map(spec.points.map((p) => [p.tone ?? 'yes', p.tone ?? 'yes'])).keys()].map((t) => [t === 'yes' ? 'Paid or ratified' : t === 'no' ? 'Ran out' : 'Still open', t === 'yes' ? 's1' : t === 'no' ? 's2' : 's3'] as [string, string])
+    : spec.type === 'scatter' ? [...new Map(spec.points.map((p) => [p.tone ?? 'yes', p.tone ?? 'yes'])).keys()].map((t) => [t === 'yes' ? 'Paid or ratified' : t === 'no' ? 'Expired' : 'Still open', t === 'yes' ? 's1' : t === 'no' ? 's2' : 's3'] as [string, string])
     : [];
   if (items.length < 2) return '';
   return `<div class="rv-legend">${items.map(([n, t]) => `<span><i class="rv-${t}"></i>${esc(n)}</span>`).join('')}</div>`;
