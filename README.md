@@ -29,7 +29,7 @@ The aim is a place where Cardano governance is discussed, voted, and explained, 
 
 ## Submitting a governance action
 
-A submit page at `/ga/new` builds and submits new governance actions: an information action, a motion of no confidence, a hard fork initiation, a new constitution, and a committee update. It walks through the CIP-108 metadata, pins it to IPFS, and hands back an unwitnessed transaction for the connected wallet to sign. Submission is preprod-only for now.
+A submit page at `/ga/new` builds and submits new governance actions: an information action, a motion of no confidence, a hard fork initiation, a new constitution, and a committee update. It builds the CIP-108 metadata, pins it to IPFS, and the connected wallet builds, signs and submits the proposal transaction in the browser. dreptalk.com never handles keys. Submission is preprod-only for now.
 
 ## Quickstart
 
