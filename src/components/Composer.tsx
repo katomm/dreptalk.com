@@ -4,6 +4,7 @@ import { REPLY_EVENT, type ReplyEventDetail } from '@/lib/forum/replyEvent.js';
 import { EDIT_EVENT, type EditEventDetail } from '@/lib/forum/editEvent.js';
 import { QUOTE_EVENT, type QuoteEventDetail } from '@/lib/forum/quoteEvent.js';
 import { buildQuoteBlock, appendQuote } from '@/lib/forum/quoteFormat.js';
+import { initialDraftBody } from '@/lib/forum/draftTemplate.js';
 import MarkdownEditor, { type MarkdownEditorHandle } from '@/components/MarkdownEditor.js';
 
 interface ComposerProps {
@@ -14,7 +15,7 @@ interface ComposerProps {
 
 export default function Composer({ mode, categorySlug, topicId }: ComposerProps) {
   const [title, setTitle] = useState('');
-  const [bodyMd, setBodyMd] = useState('');
+  const [bodyMd, setBodyMd] = useState(() => initialDraftBody(mode, categorySlug));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Reply target set by a post's Reply button (one-level threading).
