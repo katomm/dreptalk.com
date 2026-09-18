@@ -22,6 +22,25 @@ const opts = (now: number, limit = 200) => ({
 const claim = (hash: string, now = NOW) => markPinDeleting(env.DB, hash, now, now - HOUR);
 const pins = async (now = NOW, limit = 200) => (await getCollectablePins(env.DB, opts(now, limit))).pins;
 
+// Confirmed shape against mainnet Koios (gov_action1jxne7hynfd7frcczwumd2eggps4kvy0msjztz9t0mutpy870ksgqqp6vp3p,
+// ratified epoch 608): proposal_description for a NewConstitution action, exactly
+// as stored via JSON.stringify(p.proposal_description) in sync.ts. The
+// constitution hash sits at contents[1].anchor.dataHash, lowercase hex, and it
+// is a different value from the action's own meta_hash (the CIP-108 anchor_hash
+// of the proposal's own metadata document, unrelated to the constitution text).
+function newConstitutionPayload(dataHash: string): string {
+  return JSON.stringify({
+    tag: 'NewConstitution',
+    contents: [
+      { txId: '8c653ee5c9800e6d31e79b5a7f7d4400c81d44717ad4db633dc18d4c07e4a4fd', govActionIx: 0 },
+      {
+        anchor: { url: 'ipfs://bafkreieyuknozbtewyurfqoagvplvykadn6a4u6wglupavdz46bbsnnl6e', dataHash },
+        script: 'fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64',
+      },
+    ],
+  });
+}
+
 /** A row old enough to be collectable, unless something holds it back. */
 async function insertOld(hash: string, over: { fileId?: string | null; servedAt?: number } = {}) {
   await putGovActionMetadata(env.DB, {
@@ -86,7 +105,7 @@ describe('govActionMetadata', () => {
   });
 
   it('never offers a constitution row referenced by a NewConstitution payload', async () => {
-    const hash = 'm'.repeat(64);
+    const hash = 'b368bdad83c727bbfe86425575233fb914eb76d05d89497f7790cf007fd95f52';
     await putGovActionMetadata(env.DB, {
       hash,
       cid: 'bafym',
@@ -103,7 +122,7 @@ describe('govActionMetadata', () => {
       `INSERT INTO governance_actions (id, type, onchain_payload, status, meta_version, topic_id, created_at, last_synced_at)
        VALUES (?, 'NewConstitution', ?, 'active', 5, 'topic-m', 1, 1)`,
     )
-      .bind('tx-m#0', JSON.stringify({ constitution: { anchor: { dataHash: hash } } }))
+      .bind('gov_action1jxne7hynfd7frcczwumd2eggps4kvy0msjztz9t0mutpy870ksgqqp6vp3p', newConstitutionPayload(hash))
       .run();
     expect(await pins()).toHaveLength(0);
   });
@@ -113,6 +132,32 @@ describe('govActionMetadata', () => {
     await insertOld(hash);
     await env.DB.prepare(`UPDATE gov_action_metadata SET kind = 'constitution' WHERE hash = ?`).bind(hash).run();
     expect(await pins()).toHaveLength(1);
+  });
+
+  it('collects a constitution row when the NewConstitution payload carries a different dataHash', async () => {
+    const hash = 'b368bdad83c727bbfe86425575233fb914eb76d05d89497f7790cf007fd95f52';
+    const otherHash = 'c479cebe94d838cc0e97536686344dc025fc87e16e9a598e888dc11806f63001';
+    await putGovActionMetadata(env.DB, {
+      hash,
+      cid: 'bafyo',
+      body: 'text',
+      createdAt: NOW - GRACE - DAY,
+      kind: 'constitution',
+    });
+    await env.DB.prepare(
+      `UPDATE gov_action_metadata SET pinata_file_id = ?, last_served_at = ? WHERE hash = ?`,
+    )
+      .bind('file-o', NOW - GRACE - DAY, hash)
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO governance_actions (id, type, onchain_payload, status, meta_version, topic_id, created_at, last_synced_at)
+       VALUES (?, 'NewConstitution', ?, 'active', 5, 'topic-o', 1, 1)`,
+    )
+      .bind('gov_action1other', newConstitutionPayload(otherHash))
+      .run();
+    // The stored payload references a different constitution entirely, so this
+    // row must not be protected by it.
+    expect((await pins()).map((p) => p.hash)).toContain(hash);
   });
 
   // A claim is a lease, not a lock. A run killed between claiming and finishing

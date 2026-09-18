@@ -81,6 +81,16 @@ export async function putGovActionMetadata(
 // The NewConstitution check uses instr(), never LIKE: a hash is a 64-char
 // substring of onchain_payload, and D1 rejects LIKE patterns that long at
 // runtime. instr() has no such limit and is an exact substring test either way.
+//
+// Confirmed against mainnet Koios (gov_action1jxne7hynfd7frcczwumd2eggps4kvy0msjztz9t0mutpy870ksgqqp6vp3p,
+// ratified epoch 608): onchain_payload for a NewConstitution action is
+// JSON.stringify(p.proposal_description), shaped like
+// {"tag":"NewConstitution","contents":[{"txId":...,"govActionIx":...},
+// {"anchor":{"url":...,"dataHash":"<lowercase hex>"},"script":...}]}. The
+// constitution hash sits at contents[1].anchor.dataHash, a plain substring of
+// that JSON, and differs from the action's own meta_hash (the CIP-108
+// anchor_hash of the proposal's metadata document, unrelated to the
+// constitution text itself).
 const COLLECTABLE_WHERE = `
         WHERE pinata_file_id IS NOT NULL
           AND (deleting_at IS NULL OR deleting_at < ?)
