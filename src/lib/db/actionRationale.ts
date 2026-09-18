@@ -157,9 +157,18 @@ export async function countActionRationales(db: D1Database, gaId: string): Promi
   return row?.n ?? 0;
 }
 
-// Retry a failed fetch at most this many times, and not within this window.
-const MAX_ATTEMPTS = 4;
-const RETRY_AFTER_MS = 24 * 60 * 60 * 1000;
+// Fetch a rationale at most this many times in total. A failed fetch waits
+// longer after every attempt: a vote is picked up within minutes of landing
+// on-chain, often before its freshly pinned document has spread to the public
+// IPFS gateways, so the first retry comes quickly. Later ones back off to a day
+// so a dead anchor host is not hammered.
+const MAX_ATTEMPTS = 5;
+const RETRY_AFTER_1_MS = 30 * 60 * 1000;
+const RETRY_AFTER_2_MS = 3 * 60 * 60 * 1000;
+const RETRY_AFTER_LATER_MS = 24 * 60 * 60 * 1000;
+
+// fetched_at plus the wait that applies after this many attempts.
+const RETRY_DUE_SQL = `r.fetched_at + CASE r.attempts WHEN 1 THEN ?4 WHEN 2 THEN ?5 ELSE ?6 END`;
 
 /**
  * Above-threshold DRep and SPO votes that have an anchor (url + hash) and no
@@ -196,12 +205,12 @@ export async function getRationaleFetchQueue(
           )
           AND (
             r.ga_id IS NULL
-            OR (r.status = 'failed' AND r.attempts < ?2 AND r.fetched_at < ?3)
+            OR (r.status = 'failed' AND r.attempts < ?2 AND ${RETRY_DUE_SQL} < ?3)
             OR IFNULL(r.anchor_url, '') <> v.meta_url
           )
         LIMIT 1`,
     )
-    .bind(opts.minPower, MAX_ATTEMPTS, now - RETRY_AFTER_MS)
+    .bind(opts.minPower, MAX_ATTEMPTS, now, RETRY_AFTER_1_MS, RETRY_AFTER_2_MS, RETRY_AFTER_LATER_MS)
     .first<{ hit: number }>();
   if (!probe) return [];
   const rows = (
@@ -220,13 +229,13 @@ export async function getRationaleFetchQueue(
            )
            AND (
              r.ga_id IS NULL
-             OR (r.status = 'failed' AND r.attempts < ?2 AND r.fetched_at < ?3)
+             OR (r.status = 'failed' AND r.attempts < ?2 AND ${RETRY_DUE_SQL} < ?3)
              OR IFNULL(r.anchor_url, '') <> v.meta_url
            )
          ORDER BY CASE v.voter_role WHEN 'DRep' THEN CAST(d.voting_power AS INTEGER) ELSE v.voted_power END DESC, v.voter_id
-         LIMIT ?4`,
+         LIMIT ?7`,
       )
-      .bind(opts.minPower, MAX_ATTEMPTS, now - RETRY_AFTER_MS, opts.limit)
+      .bind(opts.minPower, MAX_ATTEMPTS, now, RETRY_AFTER_1_MS, RETRY_AFTER_2_MS, RETRY_AFTER_LATER_MS, opts.limit)
       .all<RationaleJob>()
   ).results ?? [];
   return rows;
