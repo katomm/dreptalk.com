@@ -178,9 +178,12 @@ const RETRY_DUE_SQL = `r.fetched_at + CASE r.attempts WHEN 1 THEN ?4 WHEN 2 THEN
  * (see archiveSupersededVotes), so this branch is a self-healing net for rows
  * that went stale some other way. A failed re-fetch updates anchor_url, so it
  * then falls under the bounded failed-retry branch instead of looping. Ordered
- * by power desc so the most significant voters render first. `minPower` is
- * lovelace; DReps gate on their registered voting power, SPOs on the stake the
- * vote itself carried (voted_power), since pools have no dreps row.
+ * by attempts so far (a new or changed anchor counts as none), then by power
+ * desc: a backlog of long-failing anchors cannot hold a fresh vote back for
+ * several runs, and within each tier the most significant voters render
+ * first. `minPower` is lovelace; DReps gate on their registered voting power,
+ * SPOs on the stake the vote itself carried (voted_power), since pools have no
+ * dreps row.
  */
 export async function getRationaleFetchQueue(
   db: D1Database,
@@ -232,7 +235,8 @@ export async function getRationaleFetchQueue(
              OR (r.status = 'failed' AND r.attempts < ?2 AND ${RETRY_DUE_SQL} < ?3)
              OR IFNULL(r.anchor_url, '') <> v.meta_url
            )
-         ORDER BY CASE v.voter_role WHEN 'DRep' THEN CAST(d.voting_power AS INTEGER) ELSE v.voted_power END DESC, v.voter_id
+         ORDER BY CASE WHEN r.ga_id IS NULL OR IFNULL(r.anchor_url, '') <> v.meta_url THEN 0 ELSE r.attempts END,
+                  CASE v.voter_role WHEN 'DRep' THEN CAST(d.voting_power AS INTEGER) ELSE v.voted_power END DESC, v.voter_id
          LIMIT ?7`,
       )
       .bind(opts.minPower, MAX_ATTEMPTS, now, RETRY_AFTER_1_MS, RETRY_AFTER_2_MS, RETRY_AFTER_LATER_MS, opts.limit)
