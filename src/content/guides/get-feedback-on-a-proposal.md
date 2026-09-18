@@ -107,9 +107,9 @@ draft reopens once no connected action remains. Moderators can do the same.
 ## Frequently asked questions
 
 **Can I get feedback on a Cardano governance action before I submit it?**
-Yes. Open a thread in Proposal Drafts and describe what you plan to submit.
-DReps, SPOs and Constitutional Committee members can reply before anything is
-on-chain.
+Yes. Open a thread in Proposal Drafts on DRepTalk and describe what you plan to
+submit. DReps, SPOs and Constitutional Committee members can reply before
+anything is on-chain.
 
 **Who can open a proposal draft?**
 Anyone signed in with an on-chain governance role: a DRep, an SPO, a
@@ -123,8 +123,9 @@ the action's metadata document, early in the list. Once the action is on-chain
 and its metadata document can be read, DRepTalk connects both threads.
 
 **What happens to the draft once it is connected?**
-The draft closes and points to the governance action's thread, where the
-discussion and the vote continue. The draft stays readable as it was.
+Once DRepTalk connects the action to your draft, the draft closes and points
+to the governance action's thread, where the discussion and the vote continue.
+The draft stays readable as it was.
 
 **What if someone else links my draft?**
 As the draft's author you see an Unlink button next to each connected action.
