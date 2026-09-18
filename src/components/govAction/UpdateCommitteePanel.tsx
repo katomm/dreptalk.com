@@ -7,7 +7,7 @@
 // enacted root it is today's committee, so removals are ticked off a list,
 // while chained onto a proposal that is still open the committee at enactment
 // is unknown, so removals become free credential rows.
-import { useEffect, useMemo, useRef } from 'react';
+import { useMemo } from 'react';
 import type { CSSProperties } from 'react';
 import PrevActionField from './PrevActionField.js';
 import { validateCommitteePanel } from '@/lib/governance/govActionFormState.js';
@@ -76,29 +76,19 @@ export default function UpdateCommitteePanel({ context, value, onChange, disable
   const maxTermLength = committee?.maxTermLength ?? null;
   const defaultExpiry = maxTermLength == null ? '' : String(context.epoch + maxTermLength);
 
-  // Prefill the quorum from the committee in force, once, so a user who
-  // cleared a field is not fought by the effect on the next render.
-  const prefilledRef = useRef(false);
   const contextQuorum = committee?.quorum ?? null;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: a one-shot prefill on the context value, not a sync of the fields
-  useEffect(() => {
-    if (prefilledRef.current || !contextQuorum) return;
-    prefilledRef.current = true;
-    if (value.quorum === null) {
-      onChange({
-        ...value,
-        quorum: { numerator: String(contextQuorum.numerator), denominator: String(contextQuorum.denominator) },
-      });
-    }
-  }, [contextQuorum]);
 
   const result = useMemo(() => validateCommitteePanel(value, context), [value, context]);
   const open = result.mode === 'open';
   const errorFor = (field: string) => result.errors.find(e => e.field === field)?.message;
   const warningFor = (field: string) => result.warnings.find(w => w.field === field)?.message;
 
-  const quorumNumerator = value.quorum?.numerator ?? '';
-  const quorumDenominator = value.quorum?.denominator ?? '';
+  // The quorum in force is shown as the default rather than written into the
+  // state by an effect: any other edit in the same tick would be built on a
+  // state without it and would silently drop it again. validateCommitteePanel
+  // applies the same fallback, so the fields and the action agree.
+  const quorumNumerator = value.quorum?.numerator ?? (contextQuorum ? String(contextQuorum.numerator) : '');
+  const quorumDenominator = value.quorum?.denominator ?? (contextQuorum ? String(contextQuorum.denominator) : '');
   const quorumPct =
     result.value && result.value.quorum.denominator > 0
       ? `${Math.round((result.value.quorum.numerator / result.value.quorum.denominator) * 1000) / 10}%`

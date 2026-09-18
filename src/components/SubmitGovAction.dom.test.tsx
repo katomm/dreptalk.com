@@ -12,6 +12,12 @@
 // projects keep their own environments.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
+
+// The submit path awaits several mocked round trips while the wallet hook
+// keeps re-scanning on its own interval, so the default one second can be
+// tight on a loaded machine. Generous, not slow: it resolves as soon as the
+// condition holds.
+const SLOW = { timeout: 5000 };
 import SubmitGovAction from './SubmitGovAction.js';
 import { loadGovActionDraft, govActionDraftKey } from '@/lib/governance/govActionDraft.js';
 
@@ -157,7 +163,7 @@ describe('SubmitGovAction', () => {
     await connect();
     fillMetadata();
     await fillCommitteePanel();
-    await waitFor(() => expect(loadGovActionDraft(window.localStorage, DRAFT_KEY)?.type).toBe('UpdateCommittee'));
+    await waitFor(() => expect(loadGovActionDraft(window.localStorage, DRAFT_KEY)?.type).toBe('UpdateCommittee'), SLOW);
     first.unmount();
 
     render(<SubmitGovAction network="preprod" />);
@@ -176,9 +182,13 @@ describe('SubmitGovAction', () => {
     fillMetadata();
     await fillCommitteePanel();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Submit proposal' }));
+    // The button stays disabled until the quorum prefill effect has run and
+    // the panel validates, so waiting on it is what makes the click land.
+    const submit = screen.getByRole('button', { name: 'Submit proposal' }) as HTMLButtonElement;
+    await waitFor(() => expect(submit.disabled).toBe(false), SLOW);
+    fireEvent.click(submit);
 
-    await waitFor(() => expect(submitGovActionMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(submitGovActionMock).toHaveBeenCalledTimes(1), SLOW);
     const opts = submitGovActionMock.mock.calls[0][0] as { action: unknown; rewardAddressHex: string };
     expect(opts.rewardAddressHex).toBe(REWARD_ADDRESS);
     expect(opts.action).toEqual({

@@ -61,8 +61,14 @@ export interface NewConstitutionPanelState {
   prev: PrevActionRef | null;
   /** The Markdown constitution body, exactly as typed. */
   text: string;
-  /** Optional guardrails script hash, 56 hex chars. Empty means no script. */
-  scriptHashHex: string;
+  /**
+   * Optional guardrails script hash, 56 hex chars. null means the field was
+   * never touched, so the hash of the constitution in force is used, and an
+   * empty string means the user deliberately cleared it to propose a
+   * constitution with no guardrails script. Derived rather than prefilled
+   * into the state, so an edit to another field cannot overwrite the default.
+   */
+  scriptHashHex: string | null;
 }
 
 /** A credential input row: the raw text plus the key/script choice hex input needs. */
@@ -83,7 +89,12 @@ export interface UpdateCommitteePanelState {
   /** Free credential rows for removal, used when chaining onto an open proposal. */
   removeFree: CommitteeCredentialRow[];
   add: CommitteeAddRow[];
-  /** Kept as typed text so the fields can be empty, null until prefilled or typed. */
+  /**
+   * Kept as typed text so the fields can be empty. null means untouched, in
+   * which case the quorum of the committee in force is used. Derived rather
+   * than prefilled into the state, so an edit to another field cannot
+   * overwrite the default.
+   */
   quorum: { numerator: string; denominator: string } | null;
 }
 
@@ -139,7 +150,7 @@ export function emptyPanelStates(): PanelStates {
   return {
     NoConfidence: { prev: null },
     HardForkInitiation: { prev: null, version: null },
-    NewConstitution: { prev: null, text: '', scriptHashHex: '' },
+    NewConstitution: { prev: null, text: '', scriptHashHex: null },
     UpdateCommittee: { prev: null, removeHex: [], removeFree: [], add: [], quorum: null },
   };
 }
@@ -195,8 +206,12 @@ function coerceHardForkPanel(raw: unknown): HardForkPanelState {
 }
 
 function coerceNewConstitutionPanel(raw: unknown): NewConstitutionPanelState {
-  if (!isPlainObject(raw)) return { prev: null, text: '', scriptHashHex: '' };
-  return { prev: coercePrev(raw.prev), text: str(raw.text), scriptHashHex: str(raw.scriptHashHex) };
+  if (!isPlainObject(raw)) return { prev: null, text: '', scriptHashHex: null };
+  return {
+    prev: coercePrev(raw.prev),
+    text: str(raw.text),
+    scriptHashHex: typeof raw.scriptHashHex === 'string' ? raw.scriptHashHex : null,
+  };
 }
 
 function coerceUpdateCommitteePanel(raw: unknown): UpdateCommitteePanelState {
@@ -238,6 +253,41 @@ export function panelStatesFromDraft(draft: GovActionDraft): PanelStates {
   };
 }
 
+/**
+ * Carries the ticked removals across a switch into open mode.
+ *
+ * The two removal lists are different shapes: enacted mode ticks sitting
+ * members into `removeHex`, open mode takes free credential rows, and only the
+ * list belonging to the current mode is read when the action is built. Without
+ * this, chaining onto an open proposal after ticking members would silently
+ * drop every removal and submit a proposal that removes nobody. The ticked
+ * entries are valid credentials with a known key/script kind, so they are
+ * seeded as free rows. `removeHex` is left untouched, so switching back to the
+ * enacted default restores the checkboxes as they were.
+ */
+function carryCommitteeRemovals(
+  before: UpdateCommitteePanelState,
+  next: UpdateCommitteePanelState,
+  context: ActionContextResponse | null,
+): UpdateCommitteePanelState {
+  if (committeeMode(before.prev, context) !== 'enacted') return next;
+  if (committeeMode(next.prev, context) !== 'open') return next;
+  if (next.removeHex.length === 0) return next;
+
+  const members = context?.committee?.members ?? [];
+  const alreadyThere = new Set(next.removeFree.map(r => r.input.trim().toLowerCase()));
+  const seeded: CommitteeCredentialRow[] = [];
+  for (const hex of next.removeHex) {
+    const key = hex.toLowerCase();
+    if (alreadyThere.has(key)) continue;
+    alreadyThere.add(key);
+    const member = members.find(m => m.coldHex?.toLowerCase() === key);
+    seeded.push({ input: hex, hexKind: member?.hasScript ? 'script' : 'key' });
+  }
+  if (seeded.length === 0) return next;
+  return { ...next, removeFree: [...next.removeFree, ...seeded] };
+}
+
 // ---------------------------------------------------------------------------
 // Reducer
 // ---------------------------------------------------------------------------
@@ -261,8 +311,13 @@ export function govActionFormReducer(
     case 'setMetadata':
       return { ...state, metadata: { ...state.metadata, ...action.patch } };
 
-    case 'setPanel':
-      return { ...state, panels: { ...state.panels, [action.type]: action.state } };
+    case 'setPanel': {
+      const next =
+        action.type === 'UpdateCommittee'
+          ? carryCommitteeRemovals(state.panels.UpdateCommittee, action.state, state.context.data)
+          : action.state;
+      return { ...state, panels: { ...state.panels, [action.type]: next } };
+    }
 
     case 'contextRequested':
       return {
@@ -341,7 +396,7 @@ function panelsAreEmpty(panels: PanelStates): boolean {
     panels.HardForkInitiation.version === null &&
     panels.NewConstitution.prev === null &&
     panels.NewConstitution.text === empty.NewConstitution.text &&
-    panels.NewConstitution.scriptHashHex === empty.NewConstitution.scriptHashHex &&
+    panels.NewConstitution.scriptHashHex === null &&
     panels.UpdateCommittee.prev === null &&
     panels.UpdateCommittee.removeHex.length === 0 &&
     panels.UpdateCommittee.removeFree.length === 0 &&
@@ -451,7 +506,9 @@ export function validateCommitteePanel(
     add.push({ credential: parsed, expiryEpoch: expiry });
   });
 
-  let quorum: Quorum | null = null;
+  // An untouched quorum falls back to the one in force: the field shows that
+  // value, so validating anything else would contradict what is on screen.
+  let quorum: Quorum | null = panel.quorum === null ? (committee?.quorum ?? null) : null;
   if (panel.quorum) {
     const numerator = parseIntegerField(panel.quorum.numerator);
     const denominator = parseIntegerField(panel.quorum.denominator);

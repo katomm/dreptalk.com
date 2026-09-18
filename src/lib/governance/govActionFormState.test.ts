@@ -53,7 +53,10 @@ describe('setType', () => {
     s = govActionFormReducer(s, {
       kind: 'setPanel',
       type: 'UpdateCommittee',
-      state: { ...s.panels.UpdateCommittee, add: [{ input: 'ab', hexKind: 'key', expiryEpoch: '410' }] },
+      state: {
+        ...s.panels.UpdateCommittee,
+        add: [{ input: 'ab', hexKind: 'key', expiryEpoch: '410' }],
+      },
     });
     s = govActionFormReducer(s, {
       kind: 'setPanel',
@@ -84,13 +87,19 @@ describe('setType', () => {
 
 describe('context lifecycle', () => {
   it('contextRequested marks loading and records the request id', () => {
-    const s = govActionFormReducer(initialGovActionFormState(), { kind: 'contextRequested', requestId: 7 });
+    const s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'contextRequested',
+      requestId: 7,
+    });
     expect(s.context.status).toBe('loading');
     expect(s.context.requestId).toBe(7);
   });
 
   it('contextLoaded stores the data when the id is the latest', () => {
-    let s = govActionFormReducer(initialGovActionFormState(), { kind: 'contextRequested', requestId: 3 });
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'contextRequested',
+      requestId: 3,
+    });
     s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 3, data: ctx(501) });
     expect(s.context.status).toBe('ready');
     expect(s.context.data?.epoch).toBe(501);
@@ -119,14 +128,20 @@ describe('context lifecycle', () => {
   });
 
   it('contextFailed marks the error for the latest request', () => {
-    let s = govActionFormReducer(initialGovActionFormState(), { kind: 'contextRequested', requestId: 9 });
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'contextRequested',
+      requestId: 9,
+    });
     s = govActionFormReducer(s, { kind: 'contextFailed', requestId: 9 });
     expect(s.context.status).toBe('error');
     expect(s.context.data).toBeNull();
   });
 
   it('keeps the previous data visible while a refetch is in flight', () => {
-    let s = govActionFormReducer(initialGovActionFormState(), { kind: 'contextRequested', requestId: 1 });
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'contextRequested',
+      requestId: 1,
+    });
     s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 1, data: ctx(500) });
     s = govActionFormReducer(s, { kind: 'contextRequested', requestId: 2 });
     expect(s.context.status).toBe('loading');
@@ -134,10 +149,21 @@ describe('context lifecycle', () => {
   });
 
   it('replaces the context with the fresh submit-time response', () => {
-    let s = govActionFormReducer(initialGovActionFormState(), { kind: 'contextRequested', requestId: 1 });
-    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 1, data: ctx(500, 'a'.repeat(64)) });
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'contextRequested',
+      requestId: 1,
+    });
+    s = govActionFormReducer(s, {
+      kind: 'contextLoaded',
+      requestId: 1,
+      data: ctx(500, 'a'.repeat(64)),
+    });
     s = govActionFormReducer(s, { kind: 'contextRequested', requestId: 2 });
-    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 2, data: ctx(501, 'b'.repeat(64)) });
+    s = govActionFormReducer(s, {
+      kind: 'contextLoaded',
+      requestId: 2,
+      data: ctx(501, 'b'.repeat(64)),
+    });
     expect(s.context.status).toBe('ready');
     expect(s.context.data?.epoch).toBe(501);
     expect(s.context.data?.prev?.lastEnacted?.txHash).toBe('b'.repeat(64));
@@ -174,7 +200,9 @@ describe('restoreDraft', () => {
     expect(s.metadata.references).toEqual([{ label: 'L', uri: 'https://example.org' }]);
     expect(s.panels.UpdateCommittee.prev).toEqual(REF_B);
     expect(s.panels.UpdateCommittee.removeHex).toEqual(['d'.repeat(56)]);
-    expect(s.panels.UpdateCommittee.add).toEqual([{ input: 'cc_cold1xyz', hexKind: 'key', expiryEpoch: '520' }]);
+    expect(s.panels.UpdateCommittee.add).toEqual([
+      { input: 'cc_cold1xyz', hexKind: 'key', expiryEpoch: '520' },
+    ]);
     expect(s.panels.UpdateCommittee.quorum).toEqual({ numerator: '2', denominator: '3' });
     // Panels the draft does not carry stay at their empty defaults.
     expect(s.panels.HardForkInitiation).toEqual({ prev: null, version: null });
@@ -205,7 +233,10 @@ describe('restoreDraft', () => {
 
 describe('effectivePrev', () => {
   it('falls back to the chain root when nothing was chosen', () => {
-    expect(effectivePrev(null, ctx(500, 'a'.repeat(64)))).toEqual({ txHashHex: 'a'.repeat(64), index: 0 });
+    expect(effectivePrev(null, ctx(500, 'a'.repeat(64)))).toEqual({
+      txHashHex: 'a'.repeat(64),
+      index: 0,
+    });
   });
 
   it('is null for an empty chain with no choice', () => {
@@ -230,7 +261,11 @@ describe('draftFromState and isFormBlank', () => {
     const draft = draftFromState(s);
     expect(draft.v).toBe(2);
     expect(draft.type).toBe('NewConstitution');
-    expect(draft.panels.NewConstitution).toEqual({ prev: null, text: '# Constitution', scriptHashHex: '' });
+    expect(draft.panels.NewConstitution).toEqual({
+      prev: null,
+      text: '# Constitution',
+      scriptHashHex: '',
+    });
   });
 
   it('treats the untouched form as blank', () => {
@@ -243,54 +278,63 @@ describe('draftFromState and isFormBlank', () => {
     s = govActionFormReducer(s, {
       kind: 'setPanel',
       type: 'UpdateCommittee',
-      state: { ...s.panels.UpdateCommittee, add: [{ input: 'ab', hexKind: 'key', expiryEpoch: '410' }] },
+      state: {
+        ...s.panels.UpdateCommittee,
+        add: [{ input: 'ab', hexKind: 'key', expiryEpoch: '410' }],
+      },
     });
     expect(isFormBlank(s)).toBe(false);
   });
 
   it('is not blank once the type alone moved away from InfoAction', () => {
-    const s = govActionFormReducer(initialGovActionFormState(), { kind: 'setType', type: 'NoConfidence' });
+    const s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'setType',
+      type: 'NoConfidence',
+    });
     expect(isFormBlank(s)).toBe(false);
   });
 
   it('is not blank once any metadata text is typed', () => {
-    const s = govActionFormReducer(initialGovActionFormState(), { kind: 'setMetadata', patch: { abstract: 'x' } });
+    const s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'setMetadata',
+      patch: { abstract: 'x' },
+    });
     expect(isFormBlank(s)).toBe(false);
   });
 });
 
+const MEMBER_A = 'a'.repeat(56);
+const MEMBER_B = 'b'.repeat(56);
+const OPEN_HASH = 'f'.repeat(64);
+
+function committeeCtx(): ActionContextResponse {
+  return {
+    epoch: 500,
+    prev: {
+      lastEnacted: null,
+      open: [
+        {
+          txHash: OPEN_HASH,
+          index: 0,
+          id: 'gov_action1open',
+          type: 'NewCommittee',
+          title: null,
+          proposedEpoch: 499,
+        },
+      ],
+    },
+    committee: {
+      members: [
+        { coldHex: MEMBER_A, hasScript: false, expirationEpoch: 600 },
+        { coldHex: MEMBER_B, hasScript: false, expirationEpoch: 610 },
+      ],
+      quorum: { numerator: 2, denominator: 3 },
+      maxTermLength: 100,
+    },
+  };
+}
+
 describe('committeeMode and validateCommitteePanel', () => {
-  const MEMBER_A = 'a'.repeat(56);
-  const MEMBER_B = 'b'.repeat(56);
-  const OPEN_HASH = 'f'.repeat(64);
-
-  function committeeCtx(): ActionContextResponse {
-    return {
-      epoch: 500,
-      prev: {
-        lastEnacted: null,
-        open: [
-          {
-            txHash: OPEN_HASH,
-            index: 0,
-            id: 'gov_action1open',
-            type: 'NewCommittee',
-            title: null,
-            proposedEpoch: 499,
-          },
-        ],
-      },
-      committee: {
-        members: [
-          { coldHex: MEMBER_A, hasScript: false, expirationEpoch: 600 },
-          { coldHex: MEMBER_B, hasScript: false, expirationEpoch: 610 },
-        ],
-        quorum: { numerator: 2, denominator: 3 },
-        maxTermLength: 100,
-      },
-    };
-  }
-
   it('is enacted by default and open when the prev is one of the open rows', () => {
     expect(committeeMode(null, committeeCtx())).toBe('enacted');
     expect(committeeMode({ txHashHex: OPEN_HASH, index: 0 }, committeeCtx())).toBe('open');
@@ -352,5 +396,82 @@ describe('committeeMode and validateCommitteePanel', () => {
     expect(r.mode).toBe('open');
     expect(r.errors).toEqual([]);
     expect(r.value?.remove).toEqual([{ hashHex: 'c'.repeat(56), isScript: true }]);
+  });
+
+  it('carries ticked removals into free rows when the prev switches to an open proposal', () => {
+    let s = initialGovActionFormState();
+    s = govActionFormReducer(s, { kind: 'contextRequested', requestId: 1 });
+    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 1, data: committeeCtx() });
+    s = govActionFormReducer(s, { kind: 'setType', type: 'UpdateCommittee' });
+    // setType drops the context, so re-load it for the type now selected.
+    s = govActionFormReducer(s, { kind: 'contextRequested', requestId: 2 });
+    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 2, data: committeeCtx() });
+
+    s = govActionFormReducer(s, {
+      kind: 'setPanel',
+      type: 'UpdateCommittee',
+      state: {
+        ...s.panels.UpdateCommittee,
+        removeHex: [MEMBER_A, MEMBER_B],
+        quorum: { numerator: '1', denominator: '3' },
+      },
+    });
+    expect(committeeMode(s.panels.UpdateCommittee.prev, committeeCtx())).toBe('enacted');
+
+    s = govActionFormReducer(s, {
+      kind: 'setPanel',
+      type: 'UpdateCommittee',
+      state: { ...s.panels.UpdateCommittee, prev: { txHashHex: OPEN_HASH, index: 0 } },
+    });
+    expect(s.panels.UpdateCommittee.removeFree).toEqual([
+      { input: MEMBER_A, hexKind: 'key' },
+      { input: MEMBER_B, hexKind: 'key' },
+    ]);
+    // And the built action really carries them, which is what was dropped.
+    const r = validateCommitteePanel(s.panels.UpdateCommittee, committeeCtx());
+    expect(r.mode).toBe('open');
+    expect(r.value?.remove).toEqual([
+      { hashHex: MEMBER_A, isScript: false },
+      { hashHex: MEMBER_B, isScript: false },
+    ]);
+  });
+
+  it('keeps the ticked removals on the way back to the enacted default and does not seed twice', () => {
+    let s = initialGovActionFormState();
+    s = govActionFormReducer(s, { kind: 'contextRequested', requestId: 1 });
+    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 1, data: committeeCtx() });
+    s = govActionFormReducer(s, {
+      kind: 'setPanel',
+      type: 'UpdateCommittee',
+      state: {
+        ...s.panels.UpdateCommittee,
+        removeHex: [MEMBER_A],
+        quorum: { numerator: '1', denominator: '3' },
+      },
+    });
+    s = govActionFormReducer(s, {
+      kind: 'setPanel',
+      type: 'UpdateCommittee',
+      state: { ...s.panels.UpdateCommittee, prev: { txHashHex: OPEN_HASH, index: 0 } },
+    });
+    expect(s.panels.UpdateCommittee.removeFree).toHaveLength(1);
+
+    s = govActionFormReducer(s, {
+      kind: 'setPanel',
+      type: 'UpdateCommittee',
+      state: { ...s.panels.UpdateCommittee, prev: null },
+    });
+    expect(s.panels.UpdateCommittee.removeHex).toEqual([MEMBER_A]);
+    const back = validateCommitteePanel(s.panels.UpdateCommittee, committeeCtx());
+    expect(back.mode).toBe('enacted');
+    expect(back.value?.remove).toEqual([{ hashHex: MEMBER_A, isScript: false }]);
+
+    // Flipping to open again must not duplicate the seeded row.
+    s = govActionFormReducer(s, {
+      kind: 'setPanel',
+      type: 'UpdateCommittee',
+      state: { ...s.panels.UpdateCommittee, prev: { txHashHex: OPEN_HASH, index: 0 } },
+    });
+    expect(s.panels.UpdateCommittee.removeFree).toHaveLength(1);
   });
 });

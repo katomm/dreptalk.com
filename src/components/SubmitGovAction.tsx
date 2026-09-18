@@ -438,7 +438,9 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
         if (new TextEncoder().encode(text).length > CONSTITUTION_DOCUMENT_MAX_BYTES) {
           return { ok: false, error: 'The constitution document is over the 256 KiB limit.' };
         }
-        const hash = panel.scriptHashHex.trim();
+        // Same fallback the panel field shows: untouched means the hash of
+        // the constitution in force, an empty string means no script.
+        const hash = (panel.scriptHashHex ?? ctx?.constitution?.scriptHash ?? '').trim();
         if (hash !== '' && !/^[0-9a-f]{56}$/i.test(hash)) {
           return { ok: false, error: 'A guardrails script hash is exactly 56 hex characters.' };
         }

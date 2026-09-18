@@ -2,7 +2,7 @@
 // itself, and the optional guardrails script hash. Presentational, with the
 // two checks that can be made off chain (the byte cap and the hex shape) done
 // inline, because nothing else about a constitution is checkable here.
-import { useEffect, useMemo, useRef } from 'react';
+import { useMemo } from 'react';
 import type { CSSProperties } from 'react';
 import PrevActionField from './PrevActionField.js';
 import { CONSTITUTION_DOCUMENT_MAX_BYTES } from '@/lib/governance/infoActionLimits.js';
@@ -34,21 +34,15 @@ export default function NewConstitutionPanel({ context, value, onChange, disable
   const prevContext = context.prev ?? { lastEnacted: null, open: [] };
   const contextScriptHash = context.constitution?.scriptHash ?? null;
 
-  // Prefill the guardrails hash from the constitution in force, once, and only
-  // into an untouched field: re-running it would fight a user who cleared the
-  // field on purpose to propose a constitution without a script.
-  const prefilledRef = useRef(false);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: a one-shot prefill on the context value, re-running it on every value/onChange change would fight the user
-  useEffect(() => {
-    if (prefilledRef.current || !contextScriptHash) return;
-    prefilledRef.current = true;
-    if (value.scriptHashHex === '') onChange({ ...value, scriptHashHex: contextScriptHash });
-    // The prefill is a one-shot on the context value, not a sync of the field.
-  }, [contextScriptHash]);
+  // The default is derived, not written into the state by an effect: an edit
+  // to the textarea in the same tick would otherwise be built on a state
+  // without the hash and silently drop it. null means untouched, so the hash
+  // in force shows, and an empty string means deliberately cleared.
+  const scriptHashHex = value.scriptHashHex ?? contextScriptHash ?? '';
 
   const byteLength = useMemo(() => ENCODER.encode(value.text).length, [value.text]);
   const overCap = byteLength > CONSTITUTION_DOCUMENT_MAX_BYTES;
-  const hashInvalid = value.scriptHashHex.trim() !== '' && !SCRIPT_HASH_RE.test(value.scriptHashHex.trim());
+  const hashInvalid = scriptHashHex.trim() !== '' && !SCRIPT_HASH_RE.test(scriptHashHex.trim());
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
@@ -93,7 +87,7 @@ export default function NewConstitutionPanel({ context, value, onChange, disable
         <input
           id="ga-guardrails-hash"
           type="text"
-          value={value.scriptHashHex}
+          value={scriptHashHex}
           onChange={e => onChange({ ...value, scriptHashHex: e.target.value })}
           disabled={disabled}
           style={inputStyle}
