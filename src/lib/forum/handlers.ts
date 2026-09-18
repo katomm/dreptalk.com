@@ -6,11 +6,12 @@ import { createTopic, createPost, getPostById, editPost, editTitle } from '../db
 import { flagPost, unflagPost, type FlagState } from '../db/postFlags.js';
 import { setReaction, clearReaction, isReaction, type ReactionState, type Reaction } from '../db/postReactions.js';
 import { renderMarkdown, type MentionLink } from '../markdown.js';
-import { getCategory, isDiscussion } from '../../../config/categories.js';
+import { getCategory, isDiscussion, PROPOSAL_DRAFTS_CATEGORY_SLUG } from '../../../config/categories.js';
 import { checkRate } from '../rate.js';
 import type { RateLimiter } from '../rateLimiterDO.js';
-import { isWriter, WRITER_ROLES } from '../auth/roles.js';
+import { isWriter, isModerator, WRITER_ROLES } from '../auth/roles.js';
 import { isGrantActiveForUser } from '../db/proposerGrants.js';
+import { unlinkDraftAction } from '../db/draftLinks.js';
 import { isSystemAuthor } from './author.js';
 import { toBase64Url } from '../crypto/base64url.js';
 import { notifyReply, notifyMentions } from '../notifications/notify.js';
@@ -625,6 +626,64 @@ export async function handleEditTitle(input: EditTitleInput): Promise<HandlerRes
     } catch (err) {
       return editError(err);
     }
+  } catch {
+    return { status: 500, json: { ok: false, error: 'internal error' } };
+  }
+}
+
+export interface DraftUnlinkInput {
+  user: User | null;
+  topicId: string;
+  body: { actionId: unknown };
+  db: D1Database;
+  rateLimiter: DurableObjectNamespace<RateLimiter>;
+  now: number;
+}
+
+/**
+ * Detaches a governance action from a Proposal Drafts thread whose references
+ * named it without being the draft's own action. Open to the draft's author
+ * under the same mandate the title editor checks, or to a moderator. No writer
+ * role is required: an author whose role lapsed must still be able to undo a
+ * stranger's link.
+ */
+export async function handleDraftUnlink(input: DraftUnlinkInput): Promise<HandlerResult> {
+  try {
+    const { user, topicId, body, db, rateLimiter, now } = input;
+    if (!user) return { status: 401, json: { ok: false, error: 'unauthorized' } };
+
+    const actionId = typeof body.actionId === 'string' ? body.actionId.trim() : '';
+    if (!actionId) return { status: 400, json: { ok: false, error: 'missing action id' } };
+
+    const topic = await db
+      .prepare('SELECT author_id, category_slug, deleted, proposer_grant_id FROM topics WHERE id = ?')
+      .bind(topicId)
+      .first<{ author_id: string; category_slug: string; deleted: number; proposer_grant_id: string | null }>();
+    if (!topic || topic.deleted || topic.category_slug !== PROPOSAL_DRAFTS_CATEGORY_SLUG) {
+      return { status: 404, json: { ok: false, error: 'not found' } };
+    }
+
+    const isOwner =
+      topic.author_id === user.id && (topic.proposer_grant_id ?? null) === (user.grantId ?? null);
+    if (!isOwner && !isModerator(user.roles)) {
+      return { status: 403, json: { ok: false, error: 'forbidden' } };
+    }
+    // No writer role or DRep activity check (an author whose role lapsed must
+    // still undo a stranger's link), but a grant-backed session re-checks its
+    // grant in D1 like every other write: a revoked co-proposer must not act.
+    const mandate = await mandateGate(db, user);
+    if (mandate) return mandate;
+
+    const allowed = await checkRate(rateLimiter, `edit:${user.id}`, { max: 30, windowSec: 600, now });
+    if (!allowed) return { status: 429, json: { ok: false, error: 'rate_limited' } };
+
+    const linked = await db
+      .prepare('SELECT 1 AS x FROM governance_actions WHERE id = ? AND draft_topic_id = ?')
+      .bind(actionId, topicId)
+      .first<{ x: number }>();
+    if (!linked) return { status: 404, json: { ok: false, error: 'not linked' } };
+    await unlinkDraftAction(db, actionId, topicId);
+    return { status: 200, json: { ok: true } };
   } catch {
     return { status: 500, json: { ok: false, error: 'internal error' } };
   }

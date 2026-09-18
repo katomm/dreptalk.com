@@ -5,8 +5,10 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { createTopic, getTopicBySlug } from '../db/forum.js';
-import { handleCreateTopic, handleCreatePost, handleEditPost } from './handlers.js';
+import { handleCreateTopic, handleCreatePost, handleEditPost, handleDraftUnlink } from './handlers.js';
 import { getNotificationsPage } from '../db/notifications.js';
+import { buildInsertGovernanceAction } from '../db/governance.js';
+import { buildDraftLinkStatements } from '../db/draftLinks.js';
 
 // Stable fake user with a real on-chain writer role (drep). 'writer' is not a
 // real role; posting is gated by isWriter() which only accepts drep/spo/cc/proposer.
@@ -945,5 +947,105 @@ describe('drep write access follows the synced drep status', () => {
       now: NOW,
     });
     expect(res.status).toBe(201);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleDraftUnlink
+// ---------------------------------------------------------------------------
+
+describe('handleDraftUnlink', () => {
+  const AUTHOR = { id: 'draft-owner-1', roles: ['drep'] };
+  let seq = 0;
+
+  async function linkedDraft(opts: { grantId?: string | null } = {}) {
+    const s = seq++;
+    const { topic: draft } = await createTopic(db(), {
+      categorySlug: 'proposal-drafts', authorId: AUTHOR.id, title: `Draft ${s}`, bodyMd: 'x', bodyHtml: '<p>x</p>',
+      source: 'user', now: NOW, rand: `du${s}`, proposerGrantId: opts.grantId ?? null,
+    });
+    const { topic: gov } = await createTopic(db(), {
+      categorySlug: 'governance-actions', authorId: 'gov-sync', title: `Gov ${s}`, bodyMd: 'x', bodyHtml: '<p>x</p>',
+      source: 'governance', now: NOW, rand: `gu${s}`,
+    });
+    const actionId = `${'ab'.repeat(31)}${String(s).padStart(2, '0')}#0`;
+    await buildInsertGovernanceAction(db(), {
+      id: actionId, proposalId: null, type: 'InfoAction', title: 'Foreign action', abstract: null, rationaleHtml: null,
+      authors: null, references: null, anchorUrl: null, anchorHash: null, anchorStatus: 'no-anchor',
+      returnAddress: null, deposit: null, submittedEpoch: 1, submittedAt: null, expiryEpoch: null,
+      enactedEpoch: null, onchainPayload: null, metaVersion: 1, topicId: gov.id, now: NOW,
+    }).run();
+    await db().batch(buildDraftLinkStatements(db(), actionId, draft.id));
+    return { draft, actionId };
+  }
+
+  const call = (user: { id: string; roles: string[]; grantId?: string | null } | null, topicId: string, actionId: unknown) =>
+    handleDraftUnlink({ user, topicId, body: { actionId }, db: db(), rateLimiter: rateLimiter(), now: NOW });
+
+  it('lets the author unlink, which reopens the draft', async () => {
+    const { draft, actionId } = await linkedDraft();
+    const res = await call(AUTHOR, draft.id, actionId);
+    expect(res.status).toBe(200);
+    const t = await db().prepare('SELECT locked FROM topics WHERE id = ?').bind(draft.id).first<{ locked: number }>();
+    expect(t!.locked).toBe(0);
+  });
+
+  it('lets a moderator unlink', async () => {
+    const { draft, actionId } = await linkedDraft();
+    expect((await call({ id: 'mod-1', roles: ['moderator'] }, draft.id, actionId)).status).toBe(200);
+  });
+
+  it('lets the author unlink without a writer role', async () => {
+    const { draft, actionId } = await linkedDraft();
+    expect((await call({ id: AUTHOR.id, roles: ['member'] }, draft.id, actionId)).status).toBe(200);
+  });
+
+  it('refuses anyone else', async () => {
+    const { draft, actionId } = await linkedDraft();
+    expect((await call(null, draft.id, actionId)).status).toBe(401);
+    expect((await call({ id: 'other-writer', roles: ['drep'] }, draft.id, actionId)).status).toBe(403);
+  });
+
+  it('refuses a co-proposer whose mandate was revoked, and accepts one whose mandate is active', async () => {
+    await insertGrant({ id: 'grant-active-1', proposerUserId: 'principal-1', coUserId: AUTHOR.id });
+    await insertGrant({ id: 'grant-revoked-1', proposerUserId: 'principal-2', coUserId: AUTHOR.id, status: 'revoked' });
+    const active = await linkedDraft({ grantId: 'grant-active-1' });
+    const revoked = await linkedDraft({ grantId: 'grant-revoked-1' });
+    expect((await call({ ...AUTHOR, grantId: 'grant-active-1' }, active.draft.id, active.actionId)).status).toBe(200);
+    expect((await call({ ...AUTHOR, grantId: 'grant-revoked-1' }, revoked.draft.id, revoked.actionId)).status).toBe(403);
+  });
+
+  it('refuses the author under a different mandate', async () => {
+    const { draft, actionId } = await linkedDraft({ grantId: null });
+    expect((await call({ ...AUTHOR, grantId: 'grant-x' }, draft.id, actionId)).status).toBe(403);
+  });
+
+  it('answers 404 for an action that is not linked to this draft, and 400 for a missing id', async () => {
+    const { draft } = await linkedDraft();
+    expect((await call(AUTHOR, draft.id, `${'ff'.repeat(32)}#0`)).status).toBe(404);
+    expect((await call(AUTHOR, draft.id, '')).status).toBe(400);
+  });
+
+  it('answers 404 outside Proposal Drafts', async () => {
+    const { topic } = await createTopic(db(), {
+      categorySlug: 'general', authorId: AUTHOR.id, title: 'Plain thread', bodyMd: 'x', bodyHtml: '<p>x</p>',
+      source: 'user', now: NOW, rand: 'plain1',
+    });
+    expect((await call(AUTHOR, topic.id, `${'ab'.repeat(32)}#0`)).status).toBe(404);
+  });
+});
+
+describe('handleCreateTopic: proposal drafts', () => {
+  it('lets a writer open a draft and refuses a member', async () => {
+    const ok = await handleCreateTopic({
+      user: WRITER, body: { categorySlug: 'proposal-drafts', title: 'A first draft', bodyMd: '## Summary' },
+      db: db(), rateLimiter: rateLimiter(), now: NOW,
+    });
+    expect(ok.status).toBe(201);
+    const denied = await handleCreateTopic({
+      user: { id: 'member-1', roles: ['member'] }, body: { categorySlug: 'proposal-drafts', title: 'Nope', bodyMd: 'x' },
+      db: db(), rateLimiter: rateLimiter(), now: NOW,
+    });
+    expect(denied.status).toBe(403);
   });
 });
