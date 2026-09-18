@@ -32,7 +32,7 @@ const { topicId, canonicalUrl, linked, viewerIsAuthor, viewerCanUnlink } = Astro
         </li>
       ))}
     </ul>
-    <p class="draft-status__note">This draft is closed. The discussion continues on the governance action.</p>
+    <p class="draft-status__note">This draft is closed. The discussion continues on the governance action. <a href="/help/get-feedback-on-a-proposal/">How drafts connect to governance actions</a></p>
     <p class="draft-status__error" data-error role="alert" hidden></p>
   </section>
 ) : viewerIsAuthor ? (
@@ -40,6 +40,7 @@ const { topicId, canonicalUrl, linked, viewerIsAuthor, viewerCanUnlink } = Astro
     <p class="draft-status__note">
       When you submit this as a governance action, add this thread's link to its references. The thread then connects to the on-chain action and closes.
     </p>
+    <p class="draft-status__note"><a href="/help/get-feedback-on-a-proposal/">How drafts connect to governance actions</a></p>
     <p class="draft-status__urlrow">
       <code class="draft-status__url">{canonicalUrl}</code>
       <CopyButton value={canonicalUrl} label="Copy thread link" />
