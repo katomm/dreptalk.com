@@ -22,7 +22,7 @@ export const FRESHNESS: readonly FreshnessRow[] = [
     key: 'posts',
     label: 'Forum posts and topics',
     refresh: 'Immediate',
-    notes: 'Real forum activity is not delayed. Anonymous views are edge-cached for about 30 seconds.',
+    notes: 'Real forum activity is not delayed. Signed-out visitors may see a page up to a minute old, and for ten minutes after that a cached copy is served while a fresh one renders.',
   },
   {
     key: 'ga-discovery',
@@ -41,7 +41,7 @@ export const FRESHNESS: readonly FreshnessRow[] = [
     key: 'ga-tallies',
     label: 'Governance tallies and status (DRep, SPO, CC)',
     refresh: 'About every 15 minutes, active actions only',
-    notes: 'Frozen once an action is ratified, enacted, expired, or dropped. Shown with an "as of" time.',
+    notes: 'Frozen once an action is ratified, enacted, expired, dropped, or closed. Shown with an "as of" time.',
   },
   {
     key: 'vote-badges',

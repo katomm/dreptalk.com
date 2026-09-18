@@ -4,7 +4,7 @@ description: "How moderation works on DRepTalk: community flagging today, with a
 cardLabel: "Moderation"
 category: "About DRepTalk"
 order: 3
-updated: 2026-09-02
+updated: 2026-09-18
 ---
 
 DRepTalk keeps moderation light and transparent. There are no appointed
@@ -30,10 +30,10 @@ hidden post is out of sight but still stored, and it comes back unchanged if
 the flags are withdrawn. A deleted post leaves the forum at once, and once 30
 days have passed its text is erased: the post itself, every earlier version
 of it, and its entry in the search index. Deletion is not a member action:
-only the site operator deletes a post, on request or to deal with abuse. One
-exception happens automatically: a vote rationale cross-posted to a
+only the site operator deletes a post, on request or to deal with abuse. Two
+exceptions happen automatically. A vote rationale cross-posted to a
 discussion is removed on its own when the on-chain vote behind it never
-confirms.
+confirms, and when its author votes again with the cross-post turned off.
 
 The 30 days exist so that abusive content can still be dealt with after it
 has been taken down. Anything that has to be kept on record needs to stay

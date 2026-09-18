@@ -4,7 +4,7 @@ description: "Who can sign in to DRepTalk and with which Cardano keys: DReps (CI
 cardLabel: "Signing in"
 category: "Start here"
 order: 4
-updated: 2026-09-02
+updated: 2026-09-18
 ---
 
 DRepTalk has no passwords and no accounts to create. You sign in with your Cardano
@@ -43,8 +43,7 @@ DReps cannot sign in, since they have no member keys to sign with.
 Pick the **Proposer** role. You sign with your wallet's
 **reward (stake) address**, and we confirm on-chain that this address
 submitted at least one governance action. Use the same wallet that submitted the
-action. Listed moderators also sign in through this flow, and so do
-**co-proposers**: people a proposer has authorized to write on their behalf,
+action. **Co-proposers** also sign in through this flow: people a proposer has authorized to write on their behalf,
 using their own wallet. How a proposer invites and revokes co-proposers is
 covered in [Proposers](/help/proposers/).
 

@@ -4,7 +4,7 @@ description: "What a DRep is, what the role involves, which wallet you need, and
 cardLabel: "How to become a DRep"
 category: "Start here"
 order: 1
-updated: 2026-09-02
+updated: 2026-09-18
 ---
 
 Becoming a DRep (delegated representative) is how you take an active role in
@@ -27,7 +27,7 @@ regardless of how much ada you personally hold. Your own stake counts only if
 you delegate it to yourself.
 
 Anyone can register as a DRep. There is no minimum stake requirement and no
-application process. The only requirement is a Cardano wallet and the
+application process. You need a CIP-95 capable wallet and the
 registration deposit.
 
 ## What the role involves

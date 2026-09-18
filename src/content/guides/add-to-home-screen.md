@@ -1,11 +1,11 @@
 ---
 title: "Install DRepTalk as an app on your home screen"
-description: "How to install DRepTalk as an app on iPhone, iPad, Android, and desktop (a progressive web app, or PWA). On iOS and iPadOS the installed app is also required for push notifications."
+description: "How to install DRepTalk as an app on iPhone, iPad, and Android (a progressive web app, or PWA). On iOS and iPadOS the installed app is also required for push notifications."
 cardLabel: "DRepTalk as an app"
 category: "About DRepTalk"
 order: 8
 featured: true
-updated: 2026-08-16
+updated: 2026-09-18
 ---
 
 You can install DRepTalk as an app on your home screen: it opens in its own

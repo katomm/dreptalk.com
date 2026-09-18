@@ -123,7 +123,7 @@ export default function DrepProfileFields({ value, onChange, disabled, idPrefix,
           </div>
           <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', fontSize: '0.875rem' }}>
             <input type="checkbox" checked={value.doNotList} onChange={(e) => set('doNotList', e.target.checked)} disabled={disabled} style={{ marginTop: '0.15rem' }} />
-            <span>Set the CIP-119 "do not list" flag (kept in your on-chain metadata; DRepTalk still shows you).</span>
+            <span>Set the CIP-119 "do not list" flag (kept in your on-chain metadata, DRepTalk still shows you).</span>
           </label>
         </div>
       )}

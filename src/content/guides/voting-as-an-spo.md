@@ -4,16 +4,16 @@ description: "How a stake pool operator votes on Cardano governance actions: whi
 cardLabel: "Voting as an SPO"
 category: "Understanding governance"
 order: 7
-updated: 2026-09-02
+updated: 2026-09-18
 faqs:
   - q: "Can I cast my pool's vote on DRepTalk?"
-    a: "No. DRepTalk builds votes only for DReps, signed in their own wallet. A pool vote must be witnessed by the pool cold key, which no browser wallet can do, so you cast it with your pool tooling. DRepTalk then shows your vote and rationale on the action's Votes tab."
+    a: "No. A pool vote needs the pool cold key, so you cast it with your pool tooling and DRepTalk lists it afterwards."
   - q: "What happens if my pool does not vote?"
-    a: "Since the Plomin hard fork, a pool that does not vote is counted as a No vote. There is one lever: if the pool's reward account delegates to the predefined Abstain DRep, the missing vote counts as Abstain instead. For hard fork initiations this lever does not apply, a missing vote is always a No."
+    a: "It counts as No, unless the pool's reward account delegates to the Abstain or the No confidence DRep. On a hard fork initiation a missing vote is always No."
   - q: "Why is my rationale not shown next to my pool's vote?"
-    a: "DRepTalk fetches rationale documents from the chain only for voters with at least 10,000 ada of voting weight. A pool with less voted stake gets its vote listed without the rationale text."
+    a: "DRepTalk reads rationale documents only for voters with at least 10,000 ada of voting weight. Below that the vote shows Rationale unavailable."
   - q: "Do SPOs vote on treasury withdrawals?"
-    a: "No. Treasury withdrawals are decided by DReps and the Constitutional Committee. SPO votes count on motions of no confidence, committee changes, hard fork initiations, security-relevant parameter changes, and Info actions."
+    a: "No. Treasury withdrawals are decided by DReps and the Constitutional Committee."
 ---
 
 Stake pool operators are one of Cardano's three governance bodies, next to DReps and the Constitutional Committee. Unlike DRep votes, a pool vote cannot be cast on DRepTalk: it must be signed with your pool cold key, which no browser wallet can do. This guide covers what your vote counts on, what happens when you do not vote, and where to actually cast it.
@@ -55,9 +55,9 @@ Like a DRep vote, a pool vote can carry a link to a rationale document explainin
 
 ## Your vote on DRepTalk
 
-Once your vote is on-chain, DRepTalk picks it up automatically: it appears on the action's Votes tab with your pool name, and your rationale is shown with it.
+Once your vote is on-chain, DRepTalk picks it up automatically: it appears on the action's Votes tab with your pool name.
 
-One limit applies to the rationale text: DRepTalk fetches rationale documents from the chain only for voters with at least 10,000 ada of voting weight. A pool with less voted stake still gets its vote listed, but without the rationale text. Since a pool vote is always cast outside DRepTalk, there is no other path for it. [Sign in as an SPO](/help/signing-in/) with your Calidus key to also join the discussion under each action, before or after voting.
+One limit applies to the rationale text: DRepTalk fetches rationale documents from the chain only for voters with at least 10,000 ada of voting weight. A pool with less voted stake still gets its vote listed, marked Rationale unavailable instead of the text. The same label shows while a linked document cannot be read. Since a pool vote is always cast outside DRepTalk, there is no other path for it. [Sign in as an SPO](/help/signing-in/) with your Calidus key to also join the discussion under each action, before or after voting.
 
 ## Related
 

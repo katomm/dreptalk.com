@@ -4,7 +4,7 @@ description: "The kinds of on-chain governance actions on Cardano, what each one
 cardLabel: "Governance action types"
 category: "Understanding governance"
 order: 2
-updated: 2026-08-27
+updated: 2026-09-18
 ---
 
 On Cardano, governance is exercised through **governance actions**: on-chain proposals that the community votes on. There are seven distinct action types defined in CIP-1694 (the Conway era governance rules), each with its own purpose and its own set of voters.
@@ -41,8 +41,8 @@ An info action records an on-chain opinion or signal without changing any ledger
 
 Three bodies participate in Cardano on-chain governance:
 
-- **DReps (Delegated Representatives):** holders of ada delegate their voting power to DReps, who cast votes on governance actions on their behalf. DReps vote on almost every action type.
-- **SPOs (Stake Pool Operators):** SPOs vote to represent the interests of the network's block producers. They are required for no-confidence motions, constitutional committee changes, and hard forks. They also co-vote on security-relevant protocol parameter changes. How a pool casts its vote is covered in [Voting as an SPO](/help/voting-as-an-spo/).
+- **DReps (Delegated Representatives):** holders of ada delegate their voting power to DReps, who cast votes on governance actions on their behalf. DReps vote on every action type.
+- **SPOs (Stake Pool Operators):** SPOs vote to represent the interests of the network's block producers. They are required for no-confidence motions, constitutional committee changes, and hard forks. They also co-vote on security-relevant protocol parameter changes and on Info actions. How a pool casts its vote is covered in [Voting as an SPO](/help/voting-as-an-spo/).
 - **The Constitutional Committee:** A group of elected representatives who verify that proposed actions conform to the Cardano constitution. They vote on most action types, with two exceptions: no-confidence motions (where they have a conflict of interest) and updates to the constitutional committee or its threshold (where they are themselves the subject of the action).
 
 Which combination of bodies must approve a given action, and what share of each body's stake or seats is required, are both governed by **protocol parameters**. Those thresholds can change over time. The exact current values are not stated here. For the lifecycle of a specific action after voting closes, see [Governance action statuses](/help/governance-statuses/). You can browse all live governance actions in the [governance actions feed](/c/governance-actions/).

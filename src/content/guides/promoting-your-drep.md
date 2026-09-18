@@ -4,14 +4,14 @@ description: "Practical ways for a Cardano DRep to become more visible: a comple
 cardLabel: "Promoting your DRep"
 category: "For DReps"
 order: 4
-updated: 2026-09-02
+updated: 2026-09-18
 faqs:
   - q: "Can I pay to promote my DRep on DRepTalk?"
-    a: "No. There is no paid placement. The DRep directory ranks by on-chain numbers such as voting power and delegator count, so visibility comes from verifiable activity only."
+    a: "No. There is no paid placement on DRepTalk."
   - q: "How quickly do my votes and rationales show up on DRepTalk?"
-    a: "On-chain values are synced on a schedule, so a new vote or rationale usually appears within minutes rather than instantly. Pages show an as-of time for their data."
+    a: "Usually within minutes, since on-chain data syncs on a schedule."
   - q: "Do I have to post on the DRepTalk forum to attract delegators?"
-    a: "It is not required, but it clearly helps your visibility. Every post carries your DRep identity and links back to your profile, so the discussions are where undecided delegators get to know you. Your on-chain voting record remains the foundation."
+    a: "No, but it helps. Your posts carry your DRep identity and are where undecided delegators get to know you."
 ---
 
 Hundreds of DReps are registered on Cardano, and delegators pick the ones they
@@ -35,7 +35,7 @@ it work for you:
 
 - **Vote on everything you reasonably can.** Actions you skip are visible too.
   A thin record is a reason to delegate elsewhere.
-- **Vote early in the voting window.** Most attention lands on an action while
+- **Vote early in the voting window.** Most attention goes to an action while
   it is open and undecided. An early vote puts you on the action page during
   exactly that window. A vote cast just before expiry is technically identical
   but nobody is watching anymore.
@@ -53,7 +53,8 @@ what to include.
 ## Be present in the discussions
 
 Every governance action has its own discussion thread on DRepTalk, and there
-are open categories for constitution, budget, and general governance topics.
+are open categories for constitution, budget, general governance topics, and
+[proposal drafts](/help/get-feedback-on-a-proposal/) that are not on-chain yet.
 When you [sign in as a DRep](/help/signing-in/), your posts carry your DRep
 identity and link back to your profile, so answering questions and explaining
 your thinking in the [discussions](/discussions/) is visibility with your name
@@ -92,27 +93,6 @@ voting-power gains of each epoch are listed on
 [Movers of the epoch](/dreps/movers/). Both reward steady participation over
 time. A DRep who has voted, explained, and answered questions for months has a
 story no promotion can fake.
-
-## Frequently asked questions
-
-### Can I pay to promote my DRep on DRepTalk?
-
-No. There is no paid placement. The directory ranks by on-chain numbers such as
-voting power and delegator count, so visibility comes from verifiable activity
-only.
-
-### How quickly do my votes and rationales show up?
-
-On-chain values are synced on a schedule, so a new vote or rationale usually
-appears within minutes rather than instantly. See
-[data freshness](/help/data-freshness/) for details.
-
-### Do I have to post on the forum to attract delegators?
-
-It is not required, but it clearly helps your visibility. Every post carries
-your DRep identity and links back to your profile, so the discussions are where
-undecided delegators get to know you. Your on-chain voting record remains the
-foundation. The forum is how people find the person behind it.
 
 ## Related
 
