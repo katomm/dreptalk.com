@@ -210,6 +210,10 @@ export interface GovernanceAction {
    */
   metaAttempts: number;
   topicId: string | null;
+  /** Proposal Drafts thread this action was linked to via its references, or null. */
+  draftTopicId: string | null;
+  /** The draft's author unlinked this action, so it never links again. */
+  draftLinkRejected: boolean;
   createdAt: number;
   lastSyncedAt: number;
   /** Materialized trending sort key (gov-sync cron); null until first refreshed. */
@@ -274,6 +278,8 @@ interface GovernanceActionRow {
   meta_version: number;
   meta_attempts: number;
   topic_id: string | null;
+  draft_topic_id: string | null;
+  draft_link_rejected: number;
   created_at: number;
   last_synced_at: number;
   trending_score: number | null;
@@ -385,6 +391,8 @@ function rowToGovernanceAction(r: GovernanceActionRow): GovernanceAction {
     metaVersion: r.meta_version,
     metaAttempts: r.meta_attempts ?? 0,
     topicId: r.topic_id,
+    draftTopicId: r.draft_topic_id ?? null,
+    draftLinkRejected: r.draft_link_rejected === 1,
     createdAt: r.created_at,
     lastSyncedAt: r.last_synced_at,
     trendingScore: r.trending_score,
