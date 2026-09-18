@@ -4,7 +4,7 @@ description: "How often DRepTalk refreshes Cardano on-chain values: governance t
 cardLabel: "Data freshness"
 category: "About DRepTalk"
 order: 7
-updated: 2026-09-14
+updated: 2026-09-18
 ---
 
 DRepTalk reads on-chain data (governance tallies and status, DRep profiles, vote badges)

@@ -4,7 +4,7 @@ description: "How a registered DRep casts a Yes, No, or Abstain vote on an open 
 cardLabel: "How to vote"
 category: "For DReps"
 order: 3
-updated: 2026-09-02
+updated: 2026-09-18
 ---
 
 As a registered DRep you can vote on open governance actions directly on DRepTalk and sign the vote in your own wallet. Voting is the core of the role: it is how you turn the voting power delegated to you into a decision on each action. This guide covers who can vote, how the flow works, and what happens to your vote and rationale.

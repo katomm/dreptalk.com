@@ -4,7 +4,7 @@ description: "What a DRep is, what the role involves, which wallet you need, and
 cardLabel: "How to become a DRep"
 category: "Start here"
 order: 1
-updated: 2026-09-02
+updated: 2026-09-18
 ---
 
 Becoming a DRep (delegated representative) is how you take an active role in

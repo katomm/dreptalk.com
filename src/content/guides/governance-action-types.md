@@ -4,7 +4,7 @@ description: "The kinds of on-chain governance actions on Cardano, what each one
 cardLabel: "Governance action types"
 category: "Understanding governance"
 order: 2
-updated: 2026-08-27
+updated: 2026-09-18
 ---
 
 On Cardano, governance is exercised through **governance actions**: on-chain proposals that the community votes on. There are seven distinct action types defined in CIP-1694 (the Conway era governance rules), each with its own purpose and its own set of voters.

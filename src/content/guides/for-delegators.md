@@ -4,16 +4,14 @@ description: "How an ada holder signs in to DRepTalk as a delegator to follow th
 cardLabel: "Tracking your delegation"
 category: "Start here"
 order: 3
-updated: 2026-09-02
+updated: 2026-09-18
 faqs:
   - q: "Does signing in as a delegator cost anything?"
-    a: "No. Signing in is a message signature, not a transaction. There is no fee, nothing is sent on-chain, and DRepTalk never sees your keys."
+    a: "No. Signing in is a free message signature, not a transaction."
   - q: "Can I change my delegation on DRepTalk?"
-    a: "Yes. The profile of every DRep who is not retired has a Delegate button. Your wallet signs and submits the delegation certificate, DRepTalk never holds your funds or keys. You can also delegate from the governance section of your wallet."
+    a: "Yes, with the Delegate button on any DRep profile that is not retired. Your wallet signs the certificate."
   - q: "Can delegators post or vote on DRepTalk?"
-    a: "No. Posting and voting require an on-chain governance role such as DRep, proposer, SPO, or Constitutional Committee member. A delegator sign-in is read-only: it is for following your DRep and getting notified."
-  - q: "Which wallets work for the delegator sign-in?"
-    a: "Any Cardano wallet that can sign a message works, for example Lace, Eternl, or Typhon. You do not need a governance-capable wallet just to track your delegation."
+    a: "No. A delegator sign-in is read-only, posting and voting need an on-chain governance role."
 ---
 
 If you have delegated your voting power to a DRep, the natural next question

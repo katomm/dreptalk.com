@@ -4,18 +4,18 @@ description: "How to link to any Cardano DRep, governance action, or individual 
 cardLabel: "Linking to pages"
 category: "About DRepTalk"
 order: 5
-updated: 2026-09-02
+updated: 2026-09-18
 faqs:
   - q: "How do I link to a governance action without knowing its DRepTalk URL?"
-    a: "Put the action's id after `dreptalk.com/ga/`, for example `dreptalk.com/ga/gov_action1xyz`. DRepTalk resolves the id and redirects to the action's page. The bech32 `gov_action1` form and the hex forms used by explorers both work."
+    a: "Put the action id after `dreptalk.com/ga/`, in bech32 or hex form, and DRepTalk redirects to its page."
   - q: "How do I link to a DRep profile with just the DRep ID?"
-    a: "Use `dreptalk.com/dreps/` followed by the `drep1` id from any wallet or explorer. If the DRep has a named profile URL, you are redirected there automatically, so the link keeps working."
+    a: "Use `dreptalk.com/dreps/` plus the `drep1` id. It redirects to the DRep's named profile URL if there is one."
   - q: "What happens when the id is unknown?"
-    a: "You are redirected to search with the id prefilled, so you can see whether it matches anything on the current network."
+    a: "DRepTalk opens search with the id filled in."
   - q: "Can I link to one specific vote?"
-    a: "Yes. On an action's Votes tab, rows with a rationale or a vote history expand, and the expanded part has a copy-link button. Votes with a rationale have their own shareable page with a preview card."
+    a: "Yes, with the copy-link button in an expanded row on the Votes tab. Votes with a rationale also have their own page."
   - q: "Can another site link to the discussion for every governance action?"
-    a: "Yes. Explorers, wallets, and dashboards can build the address from the action id with `dreptalk.com/ga/`, with no API key and no lookup step. Every governance action gets its discussion page as soon as it appears on chain, so the link is always valid and can be rendered unconditionally."
+    a: "Yes. Build `dreptalk.com/ga/` plus the action id, with no key and no lookup. Until the discussion page opens, the link leads to search."
 ---
 
 Pages on DRepTalk have readable URLs, but you never need to know them to
@@ -36,7 +36,7 @@ Append any governance action id to `dreptalk.com/ga/`:
   it. Both work after `/ga/` as well.
 
 DRepTalk looks the id up and redirects to the action's page. If the id does
-not match an action on the current network, you land on search with the id
+not match an action on the current network, DRepTalk opens search with the id
 prefilled instead of an error page.
 
 ## DReps
@@ -104,7 +104,7 @@ Two properties make this safe to render unconditionally:
   read, not when someone first writes a comment. Until then the link leads to
   search. A link built from any valid action id always leads somewhere, so you
   never need to check first whether a discussion exists.
-- **Unknown ids do not break.** An id that does not resolve lands on search
+- **Unknown ids do not break.** An id that does not resolve opens search
   with the id prefilled instead of an error page.
 
 Each deployment serves one network, so use ids from the network that

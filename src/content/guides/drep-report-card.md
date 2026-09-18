@@ -4,7 +4,7 @@ description: "What the participation percentile, rationale coverage, vote timing
 cardLabel: "Governance record"
 category: "Understanding governance"
 order: 92
-updated: 2026-09-02
+updated: 2026-09-18
 faqs:
   - q: "Why does one DRep show percentiles and another none?"
     a: "Percentiles need a fair comparison basis. A DRep with fewer than five eligible actions, or one that is not currently active, has no cohort to be measured against, so the card shows its plain numbers without a percentile rather than one drawn from too small or too uneven a group."

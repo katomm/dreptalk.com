@@ -4,14 +4,14 @@ description: "Practical ways for a Cardano DRep to become more visible: a comple
 cardLabel: "Promoting your DRep"
 category: "For DReps"
 order: 4
-updated: 2026-09-02
+updated: 2026-09-18
 faqs:
   - q: "Can I pay to promote my DRep on DRepTalk?"
-    a: "No. There is no paid placement. The DRep directory ranks by on-chain numbers such as voting power and delegator count, so visibility comes from verifiable activity only."
+    a: "No. There is no paid placement on DRepTalk."
   - q: "How quickly do my votes and rationales show up on DRepTalk?"
-    a: "On-chain values are synced on a schedule, so a new vote or rationale usually appears within minutes rather than instantly. Pages show an as-of time for their data."
+    a: "Usually within minutes, since on-chain data syncs on a schedule."
   - q: "Do I have to post on the DRepTalk forum to attract delegators?"
-    a: "It is not required, but it clearly helps your visibility. Every post carries your DRep identity and links back to your profile, so the discussions are where undecided delegators get to know you. Your on-chain voting record remains the foundation."
+    a: "No, but it helps. Your posts carry your DRep identity and are where undecided delegators get to know you."
 ---
 
 Hundreds of DReps are registered on Cardano, and delegators pick the ones they

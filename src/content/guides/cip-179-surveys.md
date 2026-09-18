@@ -6,18 +6,18 @@ category: "For DReps"
 order: 6
 faqs:
   - q: "What is a CIP-179 survey?"
-    a: "A survey published on the Cardano chain as transaction metadata under label 17, following CIP-179. Its rules live on chain, and so does every answer, so anyone can read and count them without trusting whoever published the survey. Some surveys keep their question texts in a document off chain, and those cannot be answered on DRepTalk."
+    a: "A poll published on the Cardano chain. Its rules and every answer are on chain, so anyone can read and count them."
   - q: "Why do only some surveys appear on DRepTalk?"
-    a: "A survey gets a thread here when DReps may answer it, its definition is valid, any encryption it uses can be decrypted, and a governance action DRepTalk has imported carries a valid link to it. That keeps the category tied to the proposals under discussion here instead of listing every survey on the chain."
+    a: "Only surveys that DReps may answer and that a governance action discussed here links to get a thread."
   - q: "Does DRepTalk show the result of a survey?"
-    a: "It shows a reading, never a result. CIP-179 leaves weighting and aggregation out of scope, so whoever counts a survey picks a rule and should say which one. The survey card draws an informational tally counted under the generic CIP-179 rules, states the denominator under every share, and links to Tessera, which shows its own tally of the same survey."
+    a: "No. The survey card shows an informational tally under the generic CIP-179 rules, which is a reading and not a result."
   - q: "What does answering put on chain?"
-    a: "Your DRep credential, your role and your answers, permanently. On a sealed survey the answers stay encrypted until the reveal time, but the credential and the role are public from the start."
+    a: "Your DRep credential, your role and your answers, publicly and for good. A sealed survey hides the answers until its reveal time."
   - q: "Can I change my answer?"
-    a: "Yes. Answer again and the later response replaces the earlier one, so the participation count does not go up. You pay the network fee a second time."
+    a: "Yes, while the survey is open. The new answer replaces the old one and costs another network fee."
   - q: "Can I answer after the closing epoch?"
-    a: "The transaction would still be built and you would still pay the network fee, but a response that arrives after the closing epoch is not counted. Answer while the card still shows the survey as open."
-updated: 2026-09-14
+    a: "No. A late response is not counted, although the network fee is still spent."
+updated: 2026-09-18
 ---
 
 [CIP-179](https://github.com/cardano-foundation/CIPs/tree/master/CIP-0179) puts

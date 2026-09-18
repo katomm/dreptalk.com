@@ -4,16 +4,16 @@ description: "A tour of a Cardano governance action page on DRepTalk: the Overvi
 cardLabel: "Reading a governance action"
 category: "Understanding governance"
 order: 1
-updated: 2026-09-02
+updated: 2026-09-18
 faqs:
   - q: "Who can post in a governance action's discussion?"
-    a: "Reading is public, no sign-in needed. Posting requires signing in with an on-chain governance identity: DReps, proposers and their co-proposers, SPOs, and Constitutional Committee members. Delegator sign-ins are read-only."
+    a: "Anyone can read. Posting needs a sign-in with an on-chain governance role, and delegators can only read."
   - q: "Why is a rationale post in the discussion marked as frozen?"
-    a: "It is a copy of a rationale that a DRep committed on-chain together with their vote. The on-chain document cannot change, so the discussion copy cannot be edited either. If the DRep votes again, the copy is replaced or removed along with the old vote."
+    a: "It copies a rationale committed on-chain with a vote, so it cannot be edited here."
   - q: "Why is a vote marked as not counted?"
-    a: "Votes can still be cast after an action is ratified, but the tally that ratified the action was already frozen at that point. DRepTalk shows these late votes for completeness and marks them as not counted in the outcome."
+    a: "It was cast after the action was already ratified, so it did not change the outcome."
   - q: "Are the vote numbers on the page live?"
-    a: "They are synced from the chain on a schedule, usually within minutes. Each page shows an as-of time. See the data freshness guide for details."
+    a: "They sync from the chain every few minutes, and each page shows the time of its data."
 ---
 
 Every Cardano governance action has its own page on DRepTalk, whether or not

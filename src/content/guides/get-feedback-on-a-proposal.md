@@ -7,15 +7,15 @@ order: 6
 updated: 2026-09-18
 faqs:
   - q: "Can I get feedback on a Cardano governance action before I submit it?"
-    a: "Yes. Open a thread in Proposal Drafts on DRepTalk and describe what you plan to submit. DReps, SPOs and Constitutional Committee members can reply before anything is on-chain."
+    a: "Yes. Open a thread in Proposal Drafts, and anyone with a governance role can reply before anything is on-chain."
   - q: "Who can open a proposal draft?"
-    a: "Anyone signed in with an on-chain governance role: a DRep, an SPO, a Constitutional Committee member, a proposer who has submitted a governance action before, or a co-proposer that proposer has authorized. Everyone can read drafts."
+    a: "Any signed-in DRep, SPO, Constitutional Committee member, proposer or co-proposer. Everyone can read drafts."
   - q: "How do I connect my draft to the governance action?"
-    a: "Before you submit, add the link to your draft thread to `body.references` in the action's metadata document, early in the list. Once the action is on-chain and its metadata document can be read, DRepTalk connects both threads."
+    a: "Put the draft thread's link into `body.references` of your action's metadata. DRepTalk connects both threads once the action is on-chain."
   - q: "What happens to the draft once it is connected?"
-    a: "Once DRepTalk connects the action to your draft, the draft closes and points to the governance action's thread, where the discussion and the vote continue. The draft stays readable as it was."
+    a: "It closes for replies and points to the governance thread, where the discussion and the vote continue."
   - q: "What if someone else links my draft?"
-    a: "As the draft's author you see an Unlink button next to each connected action. Unlinking detaches that action for good, and the draft reopens once no connected action remains."
+    a: "As the draft's author you can unlink their action, and that link stays removed."
 ---
 
 A governance action is hard to change once it is on-chain. The metadata is
@@ -80,8 +80,7 @@ Put the draft link early in the list. DRepTalk reads up to 20 references per
 action, so a link further down is not seen.
 
 As its author you see your draft's exact link with a copy button until the
-draft is connected.
-Use that link as it is: a draft on the preprod test network has a
+draft is connected. Use that link as it is: a draft on the preprod test network has a
 `preprod.dreptalk.com` address and connects only to preprod actions.
 
 Once the action is on-chain, DRepTalk opens its

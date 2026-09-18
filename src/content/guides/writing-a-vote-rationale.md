@@ -4,7 +4,7 @@ description: "How a DRep writes a clear, useful rationale for a governance vote,
 cardLabel: "Writing a vote rationale"
 category: "For DReps"
 order: 2
-updated: 2026-08-02
+updated: 2026-09-18
 ---
 
 A vote rationale is a short written explanation of why you voted the way you did on a governance action. It is attached to your vote as metadata so your delegators and the broader community can see your reasoning. Writing one is not mandatory, but it is good practice: delegators choose you because they trust your judgment, and a rationale shows that judgment transparently.

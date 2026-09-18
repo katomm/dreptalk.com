@@ -4,14 +4,14 @@ description: "Always abstain and always no confidence explained: what each optio
 cardLabel: "Default options"
 category: "Understanding governance"
 order: 91
-updated: 2026-09-02
+updated: 2026-09-18
 faqs:
   - q: "Is always abstain the same as not delegating at all?"
-    a: "No. Undelegated stake simply does not participate. Always abstain is an active choice that removes your stake from the yes and no calculation while still being counted as delegated, and choosing it also satisfies the vote-delegation requirement for withdrawing staking rewards."
+    a: "No. Always abstain is delegated stake that stays out of the yes and no count, and it satisfies the delegation requirement for withdrawing staking rewards."
   - q: "Does always no confidence mean my stake votes no on everything?"
-    a: "On almost everything. The one exception is a motion of no confidence itself, where this option counts as a yes, because supporting no confidence is exactly what it declares."
+    a: "On everything except a motion of no confidence, where it counts as yes."
   - q: "Can I switch away from a default option later?"
-    a: "Yes, at any time. Delegating to a DRep, or switching between the two default options, is a single on-chain action. See delegating your voting power for the steps."
+    a: "Yes, at any time, with one on-chain delegation."
 ---
 
 When you delegate voting power on Cardano, you do not have to pick a person. The protocol ships two predefined options, and a large amount of stake sits in them. The [analytics page](/analytics/#hub-defaults-title) shows how much, and how it moves per epoch.

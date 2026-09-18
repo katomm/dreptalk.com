@@ -4,24 +4,24 @@ description: "What the governance analytics page shows, where its numbers come f
 cardLabel: "Analytics page"
 category: "Understanding governance"
 order: 90
-updated: 2026-09-02
+updated: 2026-09-18
 faqs:
   - q: "Why do some charts start later than others?"
-    a: "Each metric shows data from the first epoch it can be measured reliably. Voting power can be reconstructed from chain history, but delegator counts only exist from the point DRepTalk started observing them live, so that chart starts later instead of pretending older data exists."
+    a: "Each chart starts at the first epoch its metric can be measured. Delegator counts, for example, exist only from when DRepTalk began recording them."
   - q: "Why does the current epoch look provisional?"
-    a: "An epoch's vote activity is only final once the epoch has ended. The page treats the running epoch as incomplete by design and finalizes its numbers right after the epoch rolls over."
+    a: "Its vote activity is only final once the epoch ends, and its numbers settle right after the rollover."
   - q: "What is the difference between active and with voting power?"
-    a: "Active follows the on-chain registration state. A DRep can be active with zero delegated stake, and stake can still sit with a DRep whose registration has lapsed. The activity section shows both layers separately."
+    a: "Active is the on-chain registration state, voting power is delegated stake. Each can exist without the other."
   - q: "Why do some actions show no concentration numbers?"
-    a: "The per-vote voting power for at least one vote on that action is not recorded. Concentration stats are computed only over complete data, a partial reading would understate how concentrated the vote really was."
+    a: "At least one vote on the action has no recorded voting power, and the stats are only shown on complete data."
   - q: "What counts as a changed vote?"
-    a: "Only a re-vote whose final position differs from the voter's first recorded one. Re-votes that keep the position, for example to attach or update a rationale, are counted separately and never shown as changed votes."
+    a: "A re-vote that ends on a different position than the voter's first one. Re-votes that only update a rationale do not count."
   - q: "Could the largest DReps really decide an action on their own?"
-    a: "The minimum coalition numbers are arithmetic on the current delegated voting power: those DReps together hold enough weight to reach the threshold's share. Nothing suggests they coordinate, and in practice votes come from a much broader set, which the voting concentration and effective representation panels measure."
+    a: "The coalition figure is arithmetic on delegated power. It shows what their weight could do, not that they coordinate."
   - q: "Does a missing rationale mean a DRep voted carelessly?"
-    a: "No. The rationale figures measure whether a vote carries a published explanation, nothing about its reasoning. Some DReps explain their votes in other places, and a vote without an attached rationale can be as considered as any other."
+    a: "No. The figures only check whether a vote links an explanation, never how well it was reasoned."
   - q: "Why do committee counts differ from the seat count?"
-    a: "Membership changes over time. A member who resigned, whose term expired, or who had not yet registered a voting key does not count as eligible for an action decided in that period, so each action is measured against the committee as it stood at the time."
+    a: "Each action is measured against the members eligible when it was decided, which changes with resignations, ended terms and key registrations."
 ---
 
 The [analytics page](/analytics/) tracks how healthy, representative and decentralized Cardano governance is, one epoch at a time. Everything on it comes from on-chain data, refreshed several times a day. The page is organized in five chapters: governance today, representation and participation, accountability and behavior, decentralization, and governance throughput. The [homepage](/) carries a "Governance at a glance" strip with four of its headline figures, DReps holding delegated power, delegated voting power, DReps that voted in the recent window, and the share held by the top 10 DReps, each with a sparkline of the last epochs and a link into the chapter that explains it.

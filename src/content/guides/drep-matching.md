@@ -4,7 +4,7 @@ description: "How to choose a Cardano DRep with the Find your DRep quiz: how que
 cardLabel: "How DRep matching works"
 category: "Start here"
 order: 6
-updated: 2026-09-02
+updated: 2026-09-18
 ---
 
 [Find your DRep](/match/) is a short quiz built entirely from completed

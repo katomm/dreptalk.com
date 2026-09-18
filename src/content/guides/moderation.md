@@ -4,7 +4,7 @@ description: "How moderation works on DRepTalk: community flagging today, with a
 cardLabel: "Moderation"
 category: "About DRepTalk"
 order: 3
-updated: 2026-09-02
+updated: 2026-09-18
 ---
 
 DRepTalk keeps moderation light and transparent. There are no appointed

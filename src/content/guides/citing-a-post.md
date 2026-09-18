@@ -4,20 +4,20 @@ description: "Posts on DRepTalk have a permanent, verifiable version you can cit
 cardLabel: "Citing a post"
 category: "About DRepTalk"
 order: 6
-updated: 2026-09-02
+updated: 2026-09-18
 faqs:
   - q: "How do I cite a DRepTalk post so the quote cannot change?"
-    a: "Use the Cite action on the post. It opens the post's version list, where each version has its own permanent address. Link to a version and the text behind that link can never change, because the address is derived from the content itself."
+    a: "Use Cite on the post and link a version from its version list. A version's address is derived from its text, so the text behind it never changes."
   - q: "What happens to a citation when the author edits the post?"
-    a: "Nothing. The version you cited stays available exactly as it was, and the edit becomes a new version with its own address. The version list shows both, so a reader can see what changed."
+    a: "Nothing. The edit becomes a new version next to the one you cited."
   - q: "What does the hash actually prove?"
-    a: "That the text you are reading is the text that was published under that address. It does not prove who wrote it. Author identity on DRepTalk is the account that published the post, not a cryptographic signature."
+    a: "That the text matches what was published at that address. It does not prove who wrote it."
   - q: "What happens if a post is deleted?"
-    a: "Its versions stop being served and the address returns a Gone response. The version list keeps a record that the post existed and was deleted, without the author's identity."
+    a: "Its versions answer Gone, and the version list notes the deletion without naming the author."
   - q: "Is a deleted post's text really gone?"
-    a: "The versions stop being served at once. The forum keeps its own copy for 30 days so that abuse can still be dealt with, and erases it after that: the post, every earlier version of it and its search entry."
+    a: "It stops being served at once, and the forum erases its own copy 30 days after the deletion."
   - q: "Why does a citation answer not found instead of Gone?"
-    a: "Gone means the post was deleted and its versions are not coming back. Not found means the post is not available on the forum at the moment, which can change: if it returns, the same address serves the same text again."
+    a: "Not found means the post is unavailable for now and may return with the same text. Gone is final."
 ---
 
 When you quote a forum post in a vote rationale, or link to it from anywhere
@@ -100,12 +100,10 @@ manifest are not. They are our own JSON-LD, meant for finding and following
 documents, and validating them against the CIP-100 schema will report them as
 broken when they are simply a different thing.
 
-A deleted version stops being served straight away, and erasing the bytes
-behind that address is a separate, later step. The text is kept for 30 days
-so that abuse can still be dealt with, and is erased after that: the post
-body, every earlier version of it, its search index entry and the document
-bytes themselves. Deleting a whole thread erases every post in it the same
-way, though the thread's title stays in its address.
+A deleted version stops being served straight away. Erasing the document
+bytes behind its address is a separate step, 30 days later, together with the
+rest of the post as described above. Deleting a whole thread erases every
+post in it the same way, though the thread's title stays in its address.
 
 ## Related
 

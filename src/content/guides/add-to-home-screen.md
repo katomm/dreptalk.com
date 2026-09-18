@@ -5,7 +5,7 @@ cardLabel: "DRepTalk as an app"
 category: "About DRepTalk"
 order: 8
 featured: true
-updated: 2026-08-16
+updated: 2026-09-18
 ---
 
 You can install DRepTalk as an app on your home screen: it opens in its own

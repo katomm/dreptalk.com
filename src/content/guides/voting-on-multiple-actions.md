@@ -4,7 +4,7 @@ description: "How a DRep selects several open governance actions on the voting d
 cardLabel: "Voting on multiple actions"
 category: "For DReps"
 order: 5
-updated: 2026-09-02
+updated: 2026-09-18
 ---
 
 When several governance actions are open at the same time, you do not have to vote on them one by one. The voting dashboard lets you pick a choice for each action and submit everything as a single transaction: one wallet prompt, one signature, one network fee. This guide covers how the batch flow works, how rationales behave in a batch, and the limits that apply.
@@ -38,7 +38,7 @@ Rationales are written in the same editor as single votes, with Markdown support
 
 ## Good to know
 
-- **A batch is all-or-nothing.** If one of the selected actions stops accepting votes before the transaction lands, the whole transaction fails and no vote in it is cast. The dashboard re-checks every selected action right before signing and removes closed ones with a notice, so this should practically never happen.
+- **A batch is all-or-nothing.** If one of the selected actions stops accepting votes before the transaction is confirmed, the whole transaction fails and no vote in it is cast. The dashboard re-checks every selected action right before signing and removes closed ones with a notice, so this should practically never happen.
 - **Re-voting is allowed.** On-chain, your newest vote on an action counts. The batch bar warns you when a selection would replace one of your earlier votes, and the review list shows exactly which vote changes.
 - **Drafts survive, locally.** Your selections and rationale texts are kept in your browser's local storage until the transaction is submitted, so an accidental reload or a crash does not lose your writing. Nothing is sent to or stored on a server: a draft never leaves your device, and it is only published once you approve the transaction. This also means a draft does not follow you to another browser or device.
 - **Single voting still works.** Voting inline on an action's page is unchanged, and DReps with a script credential (multisig) continue to vote there.

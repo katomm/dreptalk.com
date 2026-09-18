@@ -4,7 +4,7 @@ description: "Who can sign in to DRepTalk and with which Cardano keys: DReps (CI
 cardLabel: "Signing in"
 category: "Start here"
 order: 4
-updated: 2026-09-02
+updated: 2026-09-18
 ---
 
 DRepTalk has no passwords and no accounts to create. You sign in with your Cardano
