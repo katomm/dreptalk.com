@@ -290,7 +290,7 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
   }, [draftKey, state]);
 
   // Deposit and voting thresholds are informational chain data, independent of
-  // the wallet connection; one /epoch_params read serves both.
+  // the wallet connection, and one /epoch_params read serves both.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -354,7 +354,7 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
   const contextReady = state.context.status === 'ready' && state.context.data !== null;
   const contextData = state.context.data;
   // The committee panel is the one with enough rules to be worth blocking on
-  // before the wallet is involved; the rest are caught in prepareAction.
+  // before the wallet is involved, the rest are caught in prepareAction.
   const committeeBlocked =
     state.type === 'UpdateCommittee' && validateCommitteePanel(state.panels.UpdateCommittee, contextData).value === null;
 
