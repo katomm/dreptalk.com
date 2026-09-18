@@ -1338,6 +1338,8 @@ export async function updateActionMetadata(
     references: AnchorReference[] | null;
     metaVersion: number;
   },
+  /** Statements committed in the same batch, e.g. the Proposal Drafts link. */
+  extra: D1PreparedStatement[] = [],
 ): Promise<void> {
   // Only ever called after a successful, hash-verified extraction, so the row
   // settles as anchor_status 'ok'. This is essential for rows recovered from a
@@ -1345,7 +1347,7 @@ export async function updateActionMetadata(
   // predicate would re-fetch them on every run forever. A successful extract also
   // clears meta_attempts so a future version bump starts this row's retry budget
   // fresh (a past dead spell must not count against it).
-  await db
+  const update = db
     .prepare(
       "UPDATE governance_actions SET title = ?, abstract = ?, rationale_html = ?, authors = ?, references_json = ?, anchor_status = 'ok', meta_version = ?, meta_attempts = 0 WHERE id = ?",
     )
@@ -1357,8 +1359,8 @@ export async function updateActionMetadata(
       m.references ? JSON.stringify(m.references) : null,
       m.metaVersion,
       id,
-    )
-    .run();
+    );
+  await db.batch([update, ...extra]);
 }
 
 // The tally + pct + epoch fields a sync writes: a subset of GovernanceAction, so
