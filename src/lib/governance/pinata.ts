@@ -83,6 +83,40 @@ const defaultUpload: FileUploader = async (file, jwt, groupId) => {
 };
 
 /**
+ * Uploads exact bytes to IPFS and returns their CID. Byte-for-byte, unmodified:
+ * the caller has already hashed these bytes for the on-chain anchor, and
+ * verifies the uploaded size matches before trusting the returned CID.
+ *
+ * The shared core behind pinInfoActionMetadata (CIP-108 JSON) and the
+ * constitution document handler (markdown text): both anchor the blake2b-256
+ * of exact bytes, so both need the identical no-reencoding, size-checked,
+ * duplicate-safe upload path. Only the file name and content type differ.
+ */
+export async function pinDocument(input: {
+  bytes: Uint8Array<ArrayBuffer>;
+  fileName: string;
+  contentType: string;
+  jwt: string;
+  /** Our Pinata group, when configured. Absent means the file is not collectable. */
+  groupId?: string;
+  upload?: FileUploader;
+}): Promise<{ cid: string; fileId: string | null }> {
+  const file = new File([input.bytes], input.fileName, { type: input.contentType });
+  const upload = input.upload ?? defaultUpload;
+  const { cid, size, fileId, isDuplicate } = await upload(file, input.jwt, input.groupId);
+  if (size !== input.bytes.byteLength) {
+    throw new Error(`pinata size mismatch: uploaded ${size}, expected ${input.bytes.byteLength}`);
+  }
+  if (!CID_RE.test(cid)) throw new Error(`pinata returned an invalid CID: ${cid}`);
+  // A duplicate means Pinata matched bytes that were already on the account, so
+  // the id it handed back may belong to a file this app never created. Returning
+  // null keeps it out of the collector's reach. The anchor still resolves: the
+  // CID is the same bytes either way, which is the whole point of content
+  // addressing. Same for an upload that produced no id at all.
+  return { cid, fileId: isDuplicate ? null : fileId };
+}
+
+/**
  * Uploads the exact hashed CIP-108 body to IPFS and returns its CID.
  * `body` must be the same string that was hashed for the anchor (the caller's
  * blake2b-256 digest); this function uploads it byte-for-byte, unmodified,
@@ -96,18 +130,14 @@ export async function pinInfoActionMetadata(input: {
   groupId?: string;
   upload?: FileUploader;
 }): Promise<{ cid: string; fileId: string | null }> {
-  const bytes = TEXT_ENCODER.encode(input.body);
-  const file = new File([bytes], `${input.anchorHash}.json`, { type: 'application/ld+json' });
-  const upload = input.upload ?? defaultUpload;
-  const { cid, size, fileId, isDuplicate } = await upload(file, input.jwt, input.groupId);
-  if (size !== bytes.byteLength) throw new Error(`pinata size mismatch: uploaded ${size}, expected ${bytes.byteLength}`);
-  if (!CID_RE.test(cid)) throw new Error(`pinata returned an invalid CID: ${cid}`);
-  // A duplicate means Pinata matched bytes that were already on the account, so
-  // the id it handed back may belong to a file this app never created. Returning
-  // null keeps it out of the collector's reach. The anchor still resolves: the
-  // CID is the same bytes either way, which is the whole point of content
-  // addressing. Same for an upload that produced no id at all.
-  return { cid, fileId: isDuplicate ? null : fileId };
+  return pinDocument({
+    bytes: TEXT_ENCODER.encode(input.body),
+    fileName: `${input.anchorHash}.json`,
+    contentType: 'application/ld+json',
+    jwt: input.jwt,
+    groupId: input.groupId,
+    upload: input.upload,
+  });
 }
 
 // ---------------------------------------------------------------------------

@@ -75,6 +75,46 @@ describe('govActionMetadata', () => {
     expect(await pins()).toHaveLength(0);
   });
 
+  it('stores and returns the kind, defaulting to cip108', async () => {
+    const hash = 'k'.repeat(64);
+    await putGovActionMetadata(env.DB, { hash, cid: 'bafyk', body: '{}', createdAt: 1 });
+    expect((await serveGovActionMetadata(env.DB, hash, NOW))?.kind).toBe('cip108');
+
+    const hash2 = 'l'.repeat(64);
+    await putGovActionMetadata(env.DB, { hash: hash2, cid: 'bafyl', body: 'text', createdAt: 1, kind: 'constitution' });
+    expect((await serveGovActionMetadata(env.DB, hash2, NOW))?.kind).toBe('constitution');
+  });
+
+  it('never offers a constitution row referenced by a NewConstitution payload', async () => {
+    const hash = 'm'.repeat(64);
+    await putGovActionMetadata(env.DB, {
+      hash,
+      cid: 'bafym',
+      body: 'text',
+      createdAt: NOW - GRACE - DAY,
+      kind: 'constitution',
+    });
+    await env.DB.prepare(
+      `UPDATE gov_action_metadata SET pinata_file_id = ?, last_served_at = ? WHERE hash = ?`,
+    )
+      .bind('file-m', NOW - GRACE - DAY, hash)
+      .run();
+    await env.DB.prepare(
+      `INSERT INTO governance_actions (id, type, onchain_payload, status, meta_version, topic_id, created_at, last_synced_at)
+       VALUES (?, 'NewConstitution', ?, 'active', 5, 'topic-m', 1, 1)`,
+    )
+      .bind('tx-m#0', JSON.stringify({ constitution: { anchor: { dataHash: hash } } }))
+      .run();
+    expect(await pins()).toHaveLength(0);
+  });
+
+  it('collects a constitution row referenced nowhere', async () => {
+    const hash = 'n'.repeat(64);
+    await insertOld(hash);
+    await env.DB.prepare(`UPDATE gov_action_metadata SET kind = 'constitution' WHERE hash = ?`).bind(hash).run();
+    expect(await pins()).toHaveLength(1);
+  });
+
   // A claim is a lease, not a lock. A run killed between claiming and finishing
   // would otherwise strand the row forever: never served, never re-selected.
   it('takes back a claim left behind by a run that died', async () => {

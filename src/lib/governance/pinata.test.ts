@@ -2,7 +2,7 @@
 // re-serialization, no re-encoding. These tests inject a fake uploader so
 // they never touch the network.
 import { describe, expect, it } from 'vitest';
-import { pinInfoActionMetadata } from './pinata.js';
+import { pinInfoActionMetadata, pinDocument } from './pinata.js';
 
 const VALID_CID = 'bafybeihgxdzljxb26q6nf3r3eifqeedsvt2eubqtskghpme66cgjyw4fra';
 
@@ -64,6 +64,31 @@ describe('pinInfoActionMetadata', () => {
     await pinInfoActionMetadata({ body: '{}', anchorHash: 'h', jwt: 'j', groupId: 'grp-7', upload });
     await pinInfoActionMetadata({ body: '{}', anchorHash: 'h', jwt: 'j', upload });
     expect(seen).toEqual(['grp-7', undefined]);
+  });
+
+  it('pins a markdown constitution document with its own file name and content type', async () => {
+    const text = '# The Constitution\n\nWe hold these bytes to be self-evident.';
+    const bytes = new TextEncoder().encode(text);
+    let seenName = '';
+    let seenType = '';
+    let seenBytes: Uint8Array | null = null;
+    const upload = async (file: File) => {
+      seenName = file.name;
+      seenType = file.type;
+      seenBytes = new Uint8Array(await file.arrayBuffer());
+      return { cid: VALID_CID, size: seenBytes.byteLength, fileId: 'file-md', isDuplicate: false };
+    };
+    const res = await pinDocument({
+      bytes,
+      fileName: 'deadbeef.md',
+      contentType: 'text/markdown',
+      jwt: 'jwt',
+      upload,
+    });
+    expect(res.cid).toBe(VALID_CID);
+    expect(seenName).toBe('deadbeef.md');
+    expect(seenType).toBe('text/markdown');
+    expect(new TextDecoder().decode(seenBytes!)).toBe(text);
   });
 
   it('does not go through JSON.stringify again (preserves exotic bytes verbatim)', async () => {

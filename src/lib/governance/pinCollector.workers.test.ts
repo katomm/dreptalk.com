@@ -142,6 +142,32 @@ describe('collectUnreferencedPins', () => {
     expect(client.calls).toEqual([]);
   });
 
+  it('leaves a constitution document referenced by a NewConstitution payload alone', async () => {
+    const hash = 'g'.repeat(64);
+    await insertOld(hash, 'file-g');
+    await env.DB.prepare(`UPDATE gov_action_metadata SET kind = 'constitution' WHERE hash = ?`).bind(hash).run();
+    await env.DB.prepare(
+      `INSERT INTO governance_actions (id, type, onchain_payload, status, meta_version, topic_id, created_at, last_synced_at)
+       VALUES (?, 'NewConstitution', ?, 'active', 5, 'topic-g', 1, 1)`,
+    )
+      .bind('tx-g#0', JSON.stringify({ constitution: { anchor: { dataHash: hash } } }))
+      .run();
+    const client = fakeRemover();
+    const res = await run(client);
+    expect(res).toMatchObject({ scanned: 0, deleted: 0 });
+    expect(client.calls).toEqual([]);
+  });
+
+  it('deletes a constitution document referenced nowhere', async () => {
+    const hash = 'h'.repeat(64);
+    await insertOld(hash, 'file-h');
+    await env.DB.prepare(`UPDATE gov_action_metadata SET kind = 'constitution' WHERE hash = ?`).bind(hash).run();
+    const client = fakeRemover();
+    const res = await run(client);
+    expect(res).toMatchObject({ scanned: 1, deleted: 1 });
+    expect(client.calls).toEqual(['file-h']);
+  });
+
   it('reports the remaining backlog so overload is visible', async () => {
     for (let i = 0; i < 3; i++) await insertOld(`${'3'.repeat(63)}${i}`, `file-3${i}`);
     const res = await run(fakeRemover(), 1);
