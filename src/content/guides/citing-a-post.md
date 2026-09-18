@@ -107,44 +107,6 @@ body, every earlier version of it, its search index entry and the document
 bytes themselves. Deleting a whole thread erases every post in it the same
 way, though the thread's title stays in its address.
 
-## Frequently asked questions
-
-### How do I cite a post so the quote cannot change?
-
-Use the Cite action on the post. It opens the version list, where each
-version has its own permanent address. The address is derived from the
-content itself, so the text behind it can never change.
-
-### What happens to a citation when the post is edited?
-
-Nothing. The version you cited stays available exactly as it was, and the
-edit becomes a new version with its own address. The version list shows
-both.
-
-### What does the hash actually prove?
-
-That the text you are reading is the text published under that address. It
-does not prove who wrote it: author identity on DRepTalk is the account that
-published the post, not a cryptographic signature.
-
-### What happens if a post is deleted?
-
-Its versions stop being served and the address answers with a Gone
-response. The version list keeps a record that the post existed and was
-deleted, without the author's identity.
-
-### Is a deleted post's text really gone?
-
-The versions stop being served at once. The forum keeps its own copy for 30
-days so that abuse can still be dealt with, and erases it after that: the
-post, every earlier version of it and its search entry.
-
-### Why does a citation answer not found instead of Gone?
-
-Gone means the post was deleted and its versions are not coming back. Not
-found means the post is not available on the forum at the moment, which can
-change: if it returns, the same address serves the same text again.
-
 ## Related
 
 - [Linking to DReps, governance actions, and votes](/help/linking/)

@@ -7,15 +7,15 @@ order: 5
 updated: 2026-09-02
 faqs:
   - q: "How do I link to a governance action without knowing its DRepTalk URL?"
-    a: "Put the action's id after dreptalk.com/ga/, for example dreptalk.com/ga/gov_action1xyz. DRepTalk resolves the id and redirects to the action's page. The bech32 gov_action1 form and the hex forms used by explorers both work."
+    a: "Put the action's id after `dreptalk.com/ga/`, for example `dreptalk.com/ga/gov_action1xyz`. DRepTalk resolves the id and redirects to the action's page. The bech32 `gov_action1` form and the hex forms used by explorers both work."
   - q: "How do I link to a DRep profile with just the DRep ID?"
-    a: "Use dreptalk.com/dreps/ followed by the drep1 id from any wallet or explorer. If the DRep has a named profile URL, you are redirected there automatically, so the link keeps working."
+    a: "Use `dreptalk.com/dreps/` followed by the `drep1` id from any wallet or explorer. If the DRep has a named profile URL, you are redirected there automatically, so the link keeps working."
   - q: "What happens when the id is unknown?"
     a: "You are redirected to search with the id prefilled, so you can see whether it matches anything on the current network."
   - q: "Can I link to one specific vote?"
     a: "Yes. On an action's Votes tab, rows with a rationale or a vote history expand, and the expanded part has a copy-link button. Votes with a rationale have their own shareable page with a preview card."
   - q: "Can another site link to the discussion for every governance action?"
-    a: "Yes. Explorers, wallets, and dashboards can build the address from the action id with dreptalk.com/ga/, with no API key and no lookup step. Every governance action gets its discussion page as soon as it appears on chain, so the link is always valid and can be rendered unconditionally."
+    a: "Yes. Explorers, wallets, and dashboards can build the address from the action id with `dreptalk.com/ga/`, with no API key and no lookup step. Every governance action gets its discussion page as soon as it appears on chain, so the link is always valid and can be rendered unconditionally."
 ---
 
 Pages on DRepTalk have readable URLs, but you never need to know them to
@@ -116,36 +116,6 @@ every public post has its own permanent, content-addressed version for that.
 
 If you want a logo or a badge to go with the link, the [brand
 page](/brand/) has ready-made snippets and the colors and marks to use.
-
-## Frequently asked questions
-
-### How do I link to a governance action without knowing its URL?
-
-Put the action's id after `dreptalk.com/ga/`. The bech32 `gov_action1…`
-form and the explorer hex forms both resolve and redirect.
-
-### How do I link to a DRep with just the DRep ID?
-
-Use `dreptalk.com/dreps/` plus the `drep1…` id. If the DRep has a named
-profile URL, the link redirects there automatically.
-
-### What if the id is not on DRepTalk?
-
-You are redirected to search with the id prefilled. Ids from the other
-network (mainnet vs preprod) will not resolve, since each deployment serves
-one network.
-
-### Can I link to one specific vote?
-
-Yes: expand the row on the Votes tab and use its copy-link button. Only
-rows with a rationale or a vote history expand. You can also share the
-vote's own page when it has a rationale.
-
-### Can another site link to the discussion for every governance action?
-
-Yes. Build the address from the action id with `dreptalk.com/ga/`, no key or
-lookup needed. Every action gets its discussion page as soon as it appears on
-chain, so the link is always valid.
 
 ## Related
 

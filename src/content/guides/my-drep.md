@@ -56,13 +56,3 @@ There is nothing to cast and no rationale to read. The option applies itself, on
 The page renders your own delegation and nothing else. Your stake address is used on the server to resolve who you delegated to and never leaves it: it is in no link, no URL and no part of the rendered page. The page is excluded from search engines, and pages served to a signed-in session are never stored in a shared cache.
 
 Your DRep is not told that you are following its record, and the page reveals nothing about other delegators.
-
-## Frequently asked questions
-
-### Why does my page say the delegation start is still being looked up?
-
-The start comes from your latest delegation certificate on chain, which DRepTalk reads once per tracked account. A fresh link, or a delegation you just changed, is normally on record within a day. Until it is, the page shows no figures and no actions rather than counting from a date it cannot prove.
-
-### Does the page show my stake address to anyone?
-
-No. Your stake address stays on the server. It appears in no link, no page URL and no part of the page you can view or share, and the page only ever renders your own delegation.

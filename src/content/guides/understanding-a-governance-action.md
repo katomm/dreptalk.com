@@ -145,30 +145,6 @@ line late. Epochs are shown with their calendar dates. A **Compare with**
 picker overlays a second, concluded action of the same type on the chart,
 both curves aligned on day 0 of their own voting window.
 
-## Frequently asked questions
-
-### Who can post in the discussion?
-
-Reading is public. Posting requires signing in with an on-chain governance
-identity: DRep, proposer or co-proposer, SPO, or Constitutional Committee
-member. Delegator sign-ins are read-only. See [Signing in](/help/signing-in/).
-
-### Why is a rationale post marked as frozen?
-
-It is a copy of a rationale committed on-chain with a vote. The on-chain
-document cannot change, so the copy cannot be edited. It is replaced or
-removed if the DRep re-votes.
-
-### Why is a vote marked as not counted?
-
-It was cast after the action was ratified, when the deciding tally was
-already frozen. It is shown for completeness but did not affect the outcome.
-
-### Are the numbers live?
-
-They are synced from the chain on a schedule, usually within minutes, and
-each page shows an as-of time. See [Data freshness](/help/data-freshness/).
-
 ## Related
 
 - [Governance action types](/help/governance-action-types/)

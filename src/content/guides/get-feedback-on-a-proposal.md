@@ -11,7 +11,7 @@ faqs:
   - q: "Who can open a proposal draft?"
     a: "Anyone signed in with an on-chain governance role: a DRep, an SPO, a Constitutional Committee member, a proposer who has submitted a governance action before, or a co-proposer that proposer has authorized. Everyone can read drafts."
   - q: "How do I connect my draft to the governance action?"
-    a: "Before you submit, add the link to your draft thread to body.references in the action's metadata document, early in the list. Once the action is on-chain and its metadata document can be read, DRepTalk connects both threads."
+    a: "Before you submit, add the link to your draft thread to `body.references` in the action's metadata document, early in the list. Once the action is on-chain and its metadata document can be read, DRepTalk connects both threads."
   - q: "What happens to the draft once it is connected?"
     a: "Once DRepTalk connects the action to your draft, the draft closes and points to the governance action's thread, where the discussion and the vote continue. The draft stays readable as it was."
   - q: "What if someone else links my draft?"
@@ -104,35 +104,7 @@ own action. As the draft's author you see **Not your action? Unlink** next to
 each connected action. Unlinking detaches that action permanently, and the
 draft reopens once no connected action remains.
 
-## Frequently asked questions
-
-**Can I get feedback on a Cardano governance action before I submit it?**
-Yes. Open a thread in Proposal Drafts on DRepTalk and describe what you plan to
-submit. DReps, SPOs and Constitutional Committee members can reply before
-anything is on-chain.
-
-**Who can open a proposal draft?**
-Anyone signed in with an on-chain governance role: a DRep, an SPO, a
-Constitutional Committee member, a proposer who has submitted a governance
-action before, or a co-proposer that proposer has authorized. Everyone can
-read drafts.
-
-**How do I connect my draft to the governance action?**
-Before you submit, add the link to your draft thread to `body.references` in
-the action's metadata document, early in the list. Once the action is on-chain
-and its metadata document can be read, DRepTalk connects both threads.
-
-**What happens to the draft once it is connected?**
-Once DRepTalk connects the action to your draft, the draft closes and points
-to the governance action's thread, where the discussion and the vote continue.
-The draft stays readable as it was.
-
-**What if someone else links my draft?**
-As the draft's author you see an Unlink button next to each connected action.
-Unlinking detaches that action for good, and the draft reopens once no
-connected action remains.
-
-## Related guides
+## Related
 
 - [Proposers of Cardano governance actions](/help/proposers/)
 - [Governance action types](/help/governance-action-types/)

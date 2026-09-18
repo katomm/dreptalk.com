@@ -36,4 +36,10 @@ describe('buildFaqLd', () => {
       acceptedAnswer: { '@type': 'Answer', text: 'A1' },
     });
   });
+
+  it('drops inline code backticks from answers', () => {
+    const ld = buildFaqLd([{ q: 'Q', a: 'Add it to `body.references`.' }]) as Record<string, unknown>;
+    const mainEntity = ld.mainEntity as Array<Record<string, { text: string }>>;
+    expect(mainEntity[0].acceptedAnswer.text).toBe('Add it to body.references.');
+  });
 });

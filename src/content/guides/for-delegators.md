@@ -96,31 +96,6 @@ changes and voting power in that span, and what a default option would have
 meant on the decided actions. [Following your own DRep](/help/my-drep/)
 explains that page.
 
-## Frequently asked questions
-
-### Does signing in as a delegator cost anything?
-
-No. It is a message signature, not a transaction. There is no fee and
-nothing is recorded on-chain.
-
-### Can I change my delegation on DRepTalk?
-
-Yes. The profile of every DRep who is not retired has a Delegate button, and
-your wallet signs and submits the delegation certificate. You can also delegate from your wallet's
-governance section, as described in [How to delegate to a
-DRep](/help/delegate-to-a-drep/).
-
-### Can delegators post or vote?
-
-No. Posting and voting require an on-chain governance role. A delegator
-sign-in is for following and notifications. If you want a more active role,
-see [How to become a DRep](/help/become-a-drep/).
-
-### Which wallets work?
-
-Any Cardano wallet that can sign a message, for example Lace, Eternl, or
-Typhon. Governance features like CIP-95 are not required for tracking.
-
 ## Related
 
 - [How to delegate to a DRep](/help/delegate-to-a-drep/)

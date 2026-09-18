@@ -93,27 +93,6 @@ voting-power gains of each epoch are listed on
 time. A DRep who has voted, explained, and answered questions for months has a
 story no promotion can fake.
 
-## Frequently asked questions
-
-### Can I pay to promote my DRep on DRepTalk?
-
-No. There is no paid placement. The directory ranks by on-chain numbers such as
-voting power and delegator count, so visibility comes from verifiable activity
-only.
-
-### How quickly do my votes and rationales show up?
-
-On-chain values are synced on a schedule, so a new vote or rationale usually
-appears within minutes rather than instantly. See
-[data freshness](/help/data-freshness/) for details.
-
-### Do I have to post on the forum to attract delegators?
-
-It is not required, but it clearly helps your visibility. Every post carries
-your DRep identity and links back to your profile, so the discussions are where
-undecided delegators get to know you. Your on-chain voting record remains the
-foundation. The forum is how people find the person behind it.
-
 ## Related
 
 - [Managing your DRep](/help/managing-your-drep/)

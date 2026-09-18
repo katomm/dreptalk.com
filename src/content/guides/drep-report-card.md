@@ -41,13 +41,3 @@ The trend chart on a profile reaches all the way back to the start of the DRep e
 ## For DRep owners
 
 Signed-in DReps can access a [private detail page](/my-governance-record/) showing the complete data behind the governance record card. The page displays the full distributions underlying your participation and rationale percentiles, lists eligible actions you have not yet voted on, shows votes without a published rationale, and compares your voting timing pattern to the network median. The page is private to you, but every underlying fact is public blockchain data.
-
-## Frequently asked questions
-
-### Why does one DRep show percentiles and another none?
-
-Percentiles need a fair comparison basis. A DRep with fewer than five eligible actions, or one that is not currently active, has no cohort to be measured against, so the card shows its plain numbers without a percentile rather than one drawn from too small or too uneven a group.
-
-### Is a low vote-timing day better?
-
-No. The median day describes when a DRep tends to vote, not how well. Voting late in a window can reflect waiting for discussion to develop, and voting early can reflect a firm existing position. Neither pattern is scored.

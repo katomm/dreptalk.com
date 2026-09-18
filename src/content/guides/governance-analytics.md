@@ -103,37 +103,3 @@ Timing is measured in epochs, not calendar days, because both submission and dec
 DRepTalk records one row of governance aggregates per epoch, built from the same chain data that powers the rest of the site. Voting power snapshots come from the per-epoch stake distribution, vote counts from the on-chain votes themselves, and the concentration figures from the full distribution of delegated power across DReps, with the two default options excluded. The effective-representation panel measures each action against its decision epoch, while the tally bar on an action page uses the epoch of the latest tally, so the two can sit one epoch apart for the same action. The threshold marker on the full-stake bar sits on the ratification denominator, the yes votes plus the No side as the ledger counts it, which already includes the always-no-confidence weight, so the marker is the same bar the chain measures against.
 
 The same aggregates are the basis of the [Governance Review](/help/governance-review/), which takes one window of a few epochs, freezes the figures for it, and writes up what happened. Where this page shows the numbers as they stand now, an edition is a dated account of one stretch.
-
-## Frequently asked questions
-
-### Why do some charts start later than others?
-
-Each metric shows data from the first epoch it can be measured reliably. Voting power can be reconstructed from chain history, but delegator counts only exist from the point DRepTalk started observing them live, so that chart starts later instead of pretending older data exists.
-
-### Why does the current epoch look provisional?
-
-An epoch's vote activity is only final once the epoch has ended. The page treats the running epoch as incomplete by design and finalizes its numbers right after the epoch rolls over.
-
-### What is the difference between active and with voting power?
-
-Active follows the on-chain registration state. A DRep can be active with zero delegated stake, and stake can still sit with a DRep whose registration has lapsed. The activity section shows both layers separately.
-
-### Why do some actions show no concentration numbers?
-
-The per-vote voting power for at least one vote on that action is not recorded. Concentration stats are computed only over complete data, a partial reading would understate how concentrated the vote really was.
-
-### What counts as a changed vote?
-
-Only a re-vote whose final position differs from the voter's first recorded one. Re-votes that keep the position, for example to attach or update a rationale, are counted separately and never shown as changed votes.
-
-### Does a missing rationale mean a DRep voted carelessly?
-
-No. The rationale figures measure whether a vote carries a published explanation, nothing about its reasoning. Some DReps explain their votes in other places, and a vote without an attached rationale can be as considered as any other.
-
-### Could the largest DReps really decide an action on their own?
-
-The minimum coalition numbers are arithmetic on the current delegated voting power: those DReps together hold enough weight to reach the threshold's share. Nothing suggests they coordinate, and in practice votes come from a much broader set, which the voting concentration and effective representation panels measure.
-
-### Why do committee counts differ from the seat count?
-
-Membership changes over time. A member who resigned, whose term expired, or who had not yet registered a voting key does not count as eligible for an action decided in that period, so each action is measured against the committee as it stood at the time.
