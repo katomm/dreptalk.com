@@ -117,4 +117,30 @@ describe('action_rationale', () => {
     await fail(t);
     expect(await queued(t + 30 * 24 * HOUR)).toBe(false);
   });
+
+  it('fetches new anchors before long-failing ones, then by power', async () => {
+    const ga = `${'5'.repeat(63)}a#0`;
+    const now = 1_900_000_000_000;
+    const DAY = 24 * 60 * 60 * 1000;
+    const seedDrep = (id: string, power: string) =>
+      env.DB.prepare(`INSERT OR REPLACE INTO dreps (drep_id, hex, voting_power, status, last_synced_at, created_at) VALUES (?,?,?,'active',0,0)`).bind(id, `${id}-hex`, power);
+    const seedVote = (id: string) =>
+      env.DB.prepare(`INSERT OR REPLACE INTO drep_votes (ga_id, voter_role, voter_id, vote, meta_url, meta_hash, block_time, synced_at) VALUES (?,?,?,?,?,?,?,?)`).bind(ga, 'DRep', id, 'Yes', `ipfs://${id}`, 'ab'.repeat(32), 1700000000, 1700000100);
+    await env.DB.batch([
+      seedDrep('drep1stale', '9000000000000'), seedVote('drep1stale'),
+      seedDrep('drep1early', '8000000000000'), seedVote('drep1early'),
+      seedDrep('drep1freshbig', '7000000000000'), seedVote('drep1freshbig'),
+      seedDrep('drep1freshsmall', '6000000000000'), seedVote('drep1freshsmall'),
+    ]);
+    const fail = (id: string, times: number) =>
+      env.DB
+        .prepare(`INSERT OR REPLACE INTO action_rationale (ga_id, voter_id, body_html, body_text, source, anchor_url, status, attempts, created_at, fetched_at) VALUES (?,?,NULL,'','onchain',?,'failed',?,1,?)`)
+        .bind(ga, id, `ipfs://${id}`, times, now - 2 * DAY)
+        .run();
+    await fail('drep1stale', 4);
+    await fail('drep1early', 1);
+    const jobs = await getRationaleFetchQueue(env.DB, { minPower: 1_000_000_000_000, limit: 50, now });
+    const order = jobs.map((j) => j.voterId).filter((id) => ['drep1stale', 'drep1early', 'drep1freshbig', 'drep1freshsmall'].includes(id));
+    expect(order).toEqual(['drep1freshbig', 'drep1freshsmall', 'drep1early', 'drep1stale']);
+  });
 });
