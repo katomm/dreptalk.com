@@ -194,7 +194,7 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
     name: 'metadata',
     when: heavyOnly,
     run: async (ctx) => {
-      const metaBackfill = await backfillActionMetadata({ db: ctx.db, now: Date.now(), fetchImpl: fetch, limit: 10 });
+      const metaBackfill = await backfillActionMetadata({ db: ctx.db, network: ctx.cfg.network, now: Date.now(), fetchImpl: fetch, limit: 10 });
       console.log(`[gov-meta-backfill] scanned=${metaBackfill.scanned} updated=${metaBackfill.updated} failed=${metaBackfill.failed}`);
       return { items: metaBackfill.updated, failed: metaBackfill.failed };
     },

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   CATEGORIES,
   GOVERNANCE_CATEGORY_SLUG,
+  PROPOSAL_DRAFTS_CATEGORY_SLUG,
   getCategories,
   getCategory,
   isDiscussion,
@@ -44,5 +45,18 @@ describe('categories config', () => {
 
   it('isDiscussion returns true for general', () => {
     expect(isDiscussion('general')).toBe(true);
+  });
+
+  it('proposal drafts is a discussion category listed right after governance actions', () => {
+    const drafts = getCategory(PROPOSAL_DRAFTS_CATEGORY_SLUG);
+    expect(drafts).toMatchObject({
+      slug: 'proposal-drafts',
+      name: 'Proposal Drafts',
+      description: 'Governance action ideas and drafts, discussed before they go on-chain.',
+      kind: 'discussion',
+    });
+    const order = getCategories({ surveys: true }).map((c) => c.slug);
+    expect(order.slice(0, 2)).toEqual([GOVERNANCE_CATEGORY_SLUG, PROPOSAL_DRAFTS_CATEGORY_SLUG]);
+    expect(isDiscussion(PROPOSAL_DRAFTS_CATEGORY_SLUG)).toBe(true);
   });
 });

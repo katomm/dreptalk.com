@@ -17,7 +17,10 @@ import {
   META_EXTRACT_VERSION,
   META_REEXTRACT_MAX_ATTEMPTS,
   type AnchorResult,
+  type AnchorReference,
 } from './metadata.js';
+import { draftSlugsFromReferences } from './draftLink.js';
+import { resolveDraftTopic, buildDraftLinkStatements } from '../db/draftLinks.js';
 import { renderMarkdown } from '../markdown.js';
 import { createTopic, buildTopicPostedAtStatements, setGovTopicTitleAndBody, getAllTopicsByCategory } from '../db/forum.js';
 import { activityInsert, buildSetGovCreatedEventDate } from '../db/activity.js';
@@ -144,6 +147,9 @@ function anchorMayStillAnswer(status: string): boolean {
 async function rereadActionAnchor(
   db: D1Database,
   ga: GovernanceAction,
+  /** This network's origin, for recognizing Proposal Drafts thread links in the
+   * references. A link is only written when the action already has its topic. */
+  siteOrigin: string,
   fetchImpl?: typeof fetch,
 ): Promise<AnchorResult> {
   const result: AnchorResult =
@@ -154,15 +160,36 @@ async function rereadActionAnchor(
     await incrementActionMetaAttempts(db, ga.id);
     return result;
   }
-  await updateActionMetadata(db, ga.id, {
-    title: result.metadata.title,
-    abstract: result.metadata.abstract,
-    rationaleHtml: result.metadata.rationaleHtml,
-    authors: result.metadata.authors,
-    references: result.metadata.references,
-    metaVersion: META_EXTRACT_VERSION,
-  });
+  const draftTopicId =
+    ga.topicId ? await draftTopicFor(db, result.metadata.references, siteOrigin) : null;
+  await updateActionMetadata(
+    db,
+    ga.id,
+    {
+      title: result.metadata.title,
+      abstract: result.metadata.abstract,
+      rationaleHtml: result.metadata.rationaleHtml,
+      authors: result.metadata.authors,
+      references: result.metadata.references,
+      metaVersion: META_EXTRACT_VERSION,
+    },
+    draftTopicId ? buildDraftLinkStatements(db, ga.id, draftTopicId) : [],
+  );
   return result;
+}
+
+/**
+ * The Proposal Drafts thread an action's references name, as its topic id, or
+ * null. One indexed lookup, and only when a reference looks like a thread URL
+ * on this network's origin.
+ */
+async function draftTopicFor(
+  db: D1Database,
+  refs: readonly AnchorReference[] | null,
+  siteOrigin: string,
+): Promise<string | null> {
+  const slugs = draftSlugsFromReferences(refs, siteOrigin);
+  return slugs.length > 0 ? resolveDraftTopic(db, slugs) : null;
 }
 
 /** The stored-action shape of FirstPostFields, shared by every re-render path. */
@@ -219,6 +246,9 @@ async function openGovActionTopic(
     rand: string;
     /** Statement linking the action row to the topic this creates. */
     link: (topicId: string) => D1PreparedStatement;
+    actionId: string;
+    /** The Proposal Drafts thread this action's references name, if any. */
+    draftTopicId: string | null;
   },
 ): Promise<void> {
   await createTopic(db, {
@@ -240,6 +270,7 @@ async function openGovActionTopic(
         createdAt: a.postedAt,
         notifiedAt: a.now,
       }),
+      ...(a.draftTopicId ? buildDraftLinkStatements(db, a.actionId, a.draftTopicId) : []),
     ],
   });
 }
@@ -344,6 +375,8 @@ export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResu
         now,
         rand: rand(),
         link: insertAction,
+        actionId: id,
+        draftTopicId: await draftTopicFor(db, meta?.references ?? null, cfg.siteOrigin),
       });
 
       created++;
@@ -433,12 +466,14 @@ export async function createDeferredGovTopics(deps: DeferredTopicDeps): Promise<
     try {
       let title = ga.title;
       let abstract = ga.abstract;
+      let references = ga.references;
 
       if (!title && ga.anchorUrl && ga.anchorHash && ga.metaAttempts < DEFERRED_TOPIC_MAX_ATTEMPTS) {
-        const result = await rereadActionAnchor(db, ga, fetchImpl);
+        const result = await rereadActionAnchor(db, ga, cfg.siteOrigin, fetchImpl);
         if (result.status === 'ok') {
           title = result.metadata.title;
           abstract = result.metadata.abstract;
+          references = result.metadata.references;
         } else if (anchorMayStillAnswer(result.status)) {
           deferred++;
           continue;
@@ -455,6 +490,8 @@ export async function createDeferredGovTopics(deps: DeferredTopicDeps): Promise<
         now,
         rand: rand(),
         link: (topicId) => buildAttachActionTopic(db, ga.id, topicId),
+        actionId: ga.id,
+        draftTopicId: await draftTopicFor(db, references, cfg.siteOrigin),
       });
       created++;
     } catch {
@@ -473,6 +510,7 @@ export interface MetaBackfillResult {
 
 export interface MetaBackfillDeps {
   db: D1Database;
+  network: CardanoNetwork;
   now: number;
   /** Anchor fetch implementation (injected for tests). */
   fetchImpl?: typeof fetch;
@@ -497,7 +535,8 @@ export interface MetaBackfillDeps {
  * (the row is now current, just empty).
  */
 export async function backfillActionMetadata(deps: MetaBackfillDeps): Promise<MetaBackfillResult> {
-  const { db, fetchImpl, limit } = deps;
+  const { db, network, fetchImpl, limit } = deps;
+  const { siteOrigin } = resolveNetwork(network);
   const candidates = await getActionsNeedingMetaReextract(db, META_EXTRACT_VERSION, limit, META_REEXTRACT_MAX_ATTEMPTS);
   let updated = 0;
   let failed = 0;
@@ -508,7 +547,7 @@ export async function backfillActionMetadata(deps: MetaBackfillDeps): Promise<Me
       // keeps its old version, so it stays a candidate until it exhausts its
       // attempt budget. The topic title and opening post are reconciled
       // separately by backfillGovTopicTitles, so this stays on the action row.
-      if ((await rereadActionAnchor(db, ga, fetchImpl)).status === 'ok') updated++;
+      if ((await rereadActionAnchor(db, ga, siteOrigin, fetchImpl)).status === 'ok') updated++;
       else failed++;
     } catch {
       failed++;

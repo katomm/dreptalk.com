@@ -3,7 +3,7 @@ title: "How to vote on governance actions as an SPO"
 description: "How a stake pool operator votes on Cardano governance actions: which action types an SPO vote counts on, what happens when a pool does not vote, why the pool cold key signs, and which tools to use."
 cardLabel: "Voting as an SPO"
 category: "Understanding governance"
-order: 6
+order: 7
 updated: 2026-09-02
 faqs:
   - q: "Can I cast my pool's vote on DRepTalk?"

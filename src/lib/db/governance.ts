@@ -210,6 +210,10 @@ export interface GovernanceAction {
    */
   metaAttempts: number;
   topicId: string | null;
+  /** Proposal Drafts thread this action was linked to via its references, or null. */
+  draftTopicId: string | null;
+  /** The draft's author unlinked this action, so it never links again. */
+  draftLinkRejected: boolean;
   createdAt: number;
   lastSyncedAt: number;
   /** Materialized trending sort key (gov-sync cron); null until first refreshed. */
@@ -274,6 +278,8 @@ interface GovernanceActionRow {
   meta_version: number;
   meta_attempts: number;
   topic_id: string | null;
+  draft_topic_id: string | null;
+  draft_link_rejected: number;
   created_at: number;
   last_synced_at: number;
   trending_score: number | null;
@@ -385,6 +391,8 @@ function rowToGovernanceAction(r: GovernanceActionRow): GovernanceAction {
     metaVersion: r.meta_version,
     metaAttempts: r.meta_attempts ?? 0,
     topicId: r.topic_id,
+    draftTopicId: r.draft_topic_id ?? null,
+    draftLinkRejected: r.draft_link_rejected === 1,
     createdAt: r.created_at,
     lastSyncedAt: r.last_synced_at,
     trendingScore: r.trending_score,
@@ -1330,6 +1338,8 @@ export async function updateActionMetadata(
     references: AnchorReference[] | null;
     metaVersion: number;
   },
+  /** Statements committed in the same batch, e.g. the Proposal Drafts link. */
+  extra: D1PreparedStatement[] = [],
 ): Promise<void> {
   // Only ever called after a successful, hash-verified extraction, so the row
   // settles as anchor_status 'ok'. This is essential for rows recovered from a
@@ -1337,7 +1347,7 @@ export async function updateActionMetadata(
   // predicate would re-fetch them on every run forever. A successful extract also
   // clears meta_attempts so a future version bump starts this row's retry budget
   // fresh (a past dead spell must not count against it).
-  await db
+  const update = db
     .prepare(
       "UPDATE governance_actions SET title = ?, abstract = ?, rationale_html = ?, authors = ?, references_json = ?, anchor_status = 'ok', meta_version = ?, meta_attempts = 0 WHERE id = ?",
     )
@@ -1349,8 +1359,8 @@ export async function updateActionMetadata(
       m.references ? JSON.stringify(m.references) : null,
       m.metaVersion,
       id,
-    )
-    .run();
+    );
+  await db.batch([update, ...extra]);
 }
 
 // The tally + pct + epoch fields a sync writes: a subset of GovernanceAction, so
