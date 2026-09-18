@@ -36,7 +36,7 @@ This number describes a style, not a quality. Earlier is not better. A DRep that
 
 ## Power and delegator trend
 
-The trend chart on a profile reaches all the way back to the start of the DRep era, epoch 508 on mainnet, so it shows a DRep's full history of delegated voting power rather than a recent window. Delegator counts on the same chart start later. They exist only from the epoch DRepTalk began observing them, so that line begins partway through the chart instead of implying a count that was never actually recorded. As more epochs pass, both lines simply get longer.
+The trend chart on a profile shows a DRep's delegated voting power over the latest 16 epochs, about 80 days. Delegator counts on the same chart can start later. They exist only from the epoch DRepTalk began observing them, so that line may begin partway through the chart instead of implying a count that was never actually recorded.
 
 ## For DRep owners
 

@@ -60,7 +60,7 @@ You do not need to understand CIP-100 to write a good rationale. What matters is
 
 ## Sharing your rationale in the discussion
 
-Your rationale is always recorded on-chain with your vote and shown on the action's Votes tab, whichever way you vote. Separately, when you submit a vote with a rationale, a checkbox lets you also post a copy of it into the action's discussion thread, so other DReps and delegators can respond to it there.
+When you vote on DRepTalk, your rationale is recorded on-chain with your vote and shown on the action's Votes tab, whichever way you vote. Separately, when you submit a vote with a rationale, a checkbox lets you also post a copy of it into the action's discussion thread, so other DReps and delegators can respond to it there.
 
 That cross-post is optional and off by default. Leave the box unchecked and your rationale stays on the Votes tab only. Check it and a frozen copy also appears in the discussion. The discussion copy is tied to your on-chain vote and cannot be edited. If you later re-vote with the box unchecked, the discussion copy is removed again.
 

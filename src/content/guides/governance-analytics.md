@@ -72,7 +72,7 @@ None of this is a quality measure. Timing describes when votes arrive, not how c
 
 ## The Constitutional Committee
 
-The committee panel shows how the Constitutional Committee participates: the median share of members voting on decided actions, how often the committee split rather than voting one way, how many actions finished below its approval threshold, and each member's participation by name. Eligibility follows the committee's actual membership at each action's tally epoch, so resignations, term expirations and hot-key rotations are accounted for, and only a member's final vote on an action counts.
+The committee panel shows how the Constitutional Committee participates: the median share of members voting on decided actions, how often the committee split rather than voting one way, how many actions finished below its approval threshold, and each member's participation by name. Eligibility follows the committee's actual membership at the epoch boundary that decided each action, so resignations, term expirations and hot-key rotations are accounted for, and only a member's final vote on an action counts.
 
 A committee vote against an action expresses that the member did not find it consistent with the constitution in force at the time. The panel reports these outcomes as numbers and takes no position on any individual judgment.
 

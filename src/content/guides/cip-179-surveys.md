@@ -53,7 +53,7 @@ Beside it, a column carries the facts about the survey: where it stands, the
 roles that may answer, the closing epoch, the linking governance action and a
 link into Tessera. Below the card it is an ordinary forum thread. Anyone can
 read it, and anyone with a wallet-verified role, so DReps, SPOs, Constitutional
-Committee members and proposers, can reply.
+Committee members, proposers and co-proposers, can reply.
 
 ## Answering one
 

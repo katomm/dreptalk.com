@@ -100,7 +100,7 @@ nor hurt the score.
 Each result card prints that division underneath the percent, so 7.5 / 10
 reads as seven and a half points across ten shared questions. Because the
 denominator is the shared count and not the full question set, two DReps
-can land on the same percent from a different number of shared questions:
+can reach the same percent from a different number of shared questions:
 7.5 out of 10 and 6 out of 8 are both 75 percent.
 
 Two floors apply before a result appears:

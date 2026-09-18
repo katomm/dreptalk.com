@@ -55,9 +55,9 @@ Like a DRep vote, a pool vote can carry a link to a rationale document explainin
 
 ## Your vote on DRepTalk
 
-Once your vote is on-chain, DRepTalk picks it up automatically: it appears on the action's Votes tab with your pool name, and your rationale is shown with it.
+Once your vote is on-chain, DRepTalk picks it up automatically: it appears on the action's Votes tab with your pool name.
 
-One limit applies to the rationale text: DRepTalk fetches rationale documents from the chain only for voters with at least 10,000 ada of voting weight. A pool with less voted stake still gets its vote listed, but without the rationale text. Since a pool vote is always cast outside DRepTalk, there is no other path for it. [Sign in as an SPO](/help/signing-in/) with your Calidus key to also join the discussion under each action, before or after voting.
+One limit applies to the rationale text: DRepTalk fetches rationale documents from the chain only for voters with at least 10,000 ada of voting weight. A pool with less voted stake still gets its vote listed, marked Rationale unavailable instead of the text. The same label shows while a linked document cannot be read. Since a pool vote is always cast outside DRepTalk, there is no other path for it. [Sign in as an SPO](/help/signing-in/) with your Calidus key to also join the discussion under each action, before or after voting.
 
 ## Related
 

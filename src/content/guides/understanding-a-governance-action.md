@@ -62,8 +62,12 @@ The sidebar next to the content answers the status questions:
   to a full-stake breakdown of what the tally counts and what it leaves out.
   Not every body votes on every action: [Governance action
   types](/help/governance-action-types/) lists who votes on what.
-- **Proposer.** Who submitted the action, with more actions from the same
-  proposer where available.
+- **Proposer** and **Authors.** Who submitted the action and who signed its
+  proposal document. **More from this proposer** lists their other actions.
+- **Discussed as a draft.** Shown when the action links a
+  [Proposal Drafts](/help/get-feedback-on-a-proposal/) thread, where it was
+  discussed before submission.
+- **References.** The links from the proposal document.
 
 <img class="shot" src="/help/shots/ga-voting-info.webp" alt="The voting information card: one row per voting body with the yes share of the counted stake, a threshold marker on the bar, a Met or Not met verdict, and an expander for the excluded stake" width="320" height="502" loading="lazy" />
 
@@ -97,11 +101,13 @@ discussion](https://dreptalk.com/t/withdraw-120-000-000-ada-for-alphagrowth-s-ca
 
 ## Votes
 
-The Votes tab lists every DRep and SPO vote on the action, ordered by voting
-power, with a toggle to switch between the two bodies. A third **CC** segment
-appears when the action has Constitutional Committee votes. Each row shows the
-voter, their vote, and their voting power at the time. Rows with a rationale
-expand in place so you can read the reasoning without leaving the page. Above
+The Votes tab lists every DRep and SPO vote on the action, with a toggle to
+switch between the two bodies. A third **CC** segment appears when the action
+has Constitutional Committee votes. DRep votes are ordered by the DRep's
+current voting power, SPO votes by the newest vote first. Rows with a
+rationale expand in place so you can read the reasoning without leaving the
+page. A vote that links a rationale DRepTalk could not read shows **Rationale
+unavailable**. Above
 the list, a short concentration strip reads how few voters cast half of the
 voted power, the largest voter's share, the combined top 5, and how many of
 the largest voters together held as much power as the threshold required.

@@ -53,15 +53,15 @@ DRepTalk with the next metadata re-read, which runs every six hours.
 ## How do I get my 500 ada DRep deposit back?
 
 The 500 ada you locked when you registered is refunded automatically when you
-**deregister** (retire) your DRep. Sign in as a DRep, open [Settings](/settings/),
-and use **Retire DRep** in the danger zone. Your wallet submits a deregistration
+**deregister** (retire) your DRep. Sign in as a DRep, open the
+[Danger Zone](/settings/danger/) in Settings, and use **Retire DRep**. Your wallet submits a deregistration
 certificate, and the full deposit is returned to your wallet once the transaction
 confirms. There is no separate withdrawal step and no extra deposit. You pay only
 the small network fee for the transaction.
 
 ## How do I retire (deregister) my DRep?
 
-Retiring is done from [Settings](/settings/). It submits a deregistration
+Retiring is done from the [Danger Zone](/settings/danger/) in Settings. It submits a deregistration
 certificate to the chain: your 500 ada deposit is refunded once it confirms, and
 everyone who delegated their voting power to you loses that delegation. You can
 register again later, but delegators would need to delegate to you again.

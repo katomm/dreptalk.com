@@ -27,7 +27,7 @@ regardless of how much ada you personally hold. Your own stake counts only if
 you delegate it to yourself.
 
 Anyone can register as a DRep. There is no minimum stake requirement and no
-application process. The only requirement is a Cardano wallet and the
+application process. You need a CIP-95 capable wallet and the
 registration deposit.
 
 ## What the role involves

@@ -79,7 +79,8 @@ CIP-108 describes, next to the title, abstract and rationale:
 Put the draft link early in the list. DRepTalk reads up to 20 references per
 action, so a link further down is not seen.
 
-Your draft shows its exact link with a copy button while you are signed in.
+As its author you see your draft's exact link with a copy button until the
+draft is connected.
 Use that link as it is: a draft on the preprod test network has a
 `preprod.dreptalk.com` address and connects only to preprod actions.
 

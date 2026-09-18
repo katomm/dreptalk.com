@@ -99,10 +99,11 @@ works, so whichever one your site already stores is fine.
 
 Two properties make this safe to render unconditionally:
 
-- **Every governance action has a discussion page.** The page is created as
-  soon as DRepTalk sees the action on chain, not when someone first writes a
-  comment. A link built from any valid action id always leads somewhere, so
-  you never need to check first whether a discussion exists.
+- **Every governance action has a discussion page.** The page opens within
+  minutes of the action appearing on chain, once its proposal document can be
+  read, not when someone first writes a comment. Until then the link leads to
+  search. A link built from any valid action id always leads somewhere, so you
+  never need to check first whether a discussion exists.
 - **Unknown ids do not break.** An id that does not resolve lands on search
   with the id prefilled instead of an error page.
 

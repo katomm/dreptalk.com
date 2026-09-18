@@ -35,7 +35,7 @@ it work for you:
 
 - **Vote on everything you reasonably can.** Actions you skip are visible too.
   A thin record is a reason to delegate elsewhere.
-- **Vote early in the voting window.** Most attention lands on an action while
+- **Vote early in the voting window.** Most attention goes to an action while
   it is open and undecided. An early vote puts you on the action page during
   exactly that window. A vote cast just before expiry is technically identical
   but nobody is watching anymore.
@@ -53,7 +53,8 @@ what to include.
 ## Be present in the discussions
 
 Every governance action has its own discussion thread on DRepTalk, and there
-are open categories for constitution, budget, and general governance topics.
+are open categories for constitution, budget, general governance topics, and
+[proposal drafts](/help/get-feedback-on-a-proposal/) that are not on-chain yet.
 When you [sign in as a DRep](/help/signing-in/), your posts carry your DRep
 identity and link back to your profile, so answering questions and explaining
 your thinking in the [discussions](/discussions/) is visibility with your name
