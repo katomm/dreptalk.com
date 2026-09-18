@@ -16,6 +16,16 @@ import type { GovActionFormType, PrevActionRef } from './prevAction.js';
 import type { ProtocolVersion } from './hardForkVersion.js';
 import type { GovActionDraft } from './govActionDraft.js';
 import type { ActionContextResponse } from './actionContextHandler.js';
+import { parseColdCredential, validateCommitteeUpdate } from './committeeUpdate.js';
+import type {
+  AddedMember,
+  ColdCredential,
+  CommitteeUpdate,
+  CurrentMember,
+  Quorum,
+  ValidationError,
+  ValidationWarning,
+} from './committeeUpdate.js';
 
 /** The four types that need a previous action, i.e. everything with a panel. */
 export type ChainedFormType = Exclude<GovActionFormType, 'InfoAction'>;
@@ -357,4 +367,115 @@ export function isFormBlank(state: GovActionFormState): boolean {
     m.references.length === 0 &&
     !m.surveyRef.trim();
   return metadataBlank && state.type === 'InfoAction' && panelsAreEmpty(state.panels);
+}
+
+// ---------------------------------------------------------------------------
+// Committee panel validation
+// ---------------------------------------------------------------------------
+
+/**
+ * Which committee state the diff will meet: today's committee when the
+ * proposal chains onto the enacted root, an unknown future one when it chains
+ * onto a proposal that is still open.
+ */
+export function committeeMode(
+  prev: PrevActionRef | null,
+  context: ActionContextResponse | null,
+): 'enacted' | 'open' {
+  if (!prev) return 'enacted';
+  const hash = prev.txHashHex.toLowerCase();
+  const open = context?.prev?.open ?? [];
+  return open.some(o => o.txHash.toLowerCase() === hash && o.index === prev.index) ? 'open' : 'enacted';
+}
+
+/** A positive-looking integer field parsed from its typed text, or null when it is not one. */
+function parseIntegerField(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  return Number(trimmed);
+}
+
+/**
+ * Turns the committee panel's typed text into the validator's input and runs
+ * it. Rows whose credential or epoch cannot be parsed are reported as errors
+ * on their own field and left out of the validated value, so a half-typed row
+ * blocks submit without hiding the other rows' problems.
+ *
+ * Used by the panel to render and by the shell to build the action, so the
+ * two can never disagree about what is valid.
+ */
+export function validateCommitteePanel(
+  panel: UpdateCommitteePanelState,
+  context: ActionContextResponse | null,
+): { errors: ValidationError[]; warnings: ValidationWarning[]; value: CommitteeUpdate | null; mode: 'enacted' | 'open' } {
+  const mode = committeeMode(panel.prev, context);
+  const parseErrors: ValidationError[] = [];
+  const committee = context?.committee ?? null;
+  const members: CurrentMember[] = (committee?.members ?? [])
+    .filter((m): m is { coldHex: string; hasScript: boolean; expirationEpoch: number | null } => m.coldHex !== null)
+    .map(m => ({ hashHex: m.coldHex.toLowerCase(), isScript: m.hasScript, expirationEpoch: m.expirationEpoch }));
+
+  const remove: ColdCredential[] = [];
+  if (mode === 'enacted') {
+    panel.removeHex.forEach((hex, i) => {
+      const member = members.find(m => m.hashHex === hex.toLowerCase());
+      if (!member) {
+        parseErrors.push({ field: `remove[${i}]`, message: 'this member is no longer on the committee' });
+        return;
+      }
+      remove.push({ hashHex: member.hashHex, isScript: member.isScript });
+    });
+  } else {
+    panel.removeFree.forEach((row, i) => {
+      const parsed = parseColdCredential(row.input, row.hexKind);
+      if (!parsed) {
+        parseErrors.push({ field: `remove[${i}]`, message: 'not a cold credential (cc_cold... or 56 hex characters)' });
+        return;
+      }
+      remove.push(parsed);
+    });
+  }
+
+  const add: AddedMember[] = [];
+  panel.add.forEach((row, i) => {
+    const parsed = parseColdCredential(row.input, row.hexKind);
+    if (!parsed) {
+      parseErrors.push({ field: `add[${i}].credential`, message: 'not a cold credential (cc_cold... or 56 hex characters)' });
+      return;
+    }
+    const expiry = parseIntegerField(row.expiryEpoch);
+    if (expiry === null) {
+      parseErrors.push({ field: `add[${i}].expiryEpoch`, message: 'expiry epoch must be a whole number' });
+      return;
+    }
+    add.push({ credential: parsed, expiryEpoch: expiry });
+  });
+
+  let quorum: Quorum | null = null;
+  if (panel.quorum) {
+    const numerator = parseIntegerField(panel.quorum.numerator);
+    const denominator = parseIntegerField(panel.quorum.denominator);
+    if (numerator === null) {
+      parseErrors.push({ field: 'quorum.numerator', message: 'quorum numerator must be a whole number' });
+    }
+    if (denominator === null) {
+      parseErrors.push({ field: 'quorum.denominator', message: 'quorum denominator must be a whole number' });
+    }
+    if (numerator !== null && denominator !== null) quorum = { numerator, denominator };
+  }
+
+  const result = validateCommitteeUpdate({
+    mode,
+    epoch: context?.epoch ?? 0,
+    maxTermLength: committee?.maxTermLength ?? null,
+    current: members,
+    remove,
+    add,
+    quorum,
+    currentQuorum: committee?.quorum ?? null,
+  });
+
+  if (!result.ok) return { errors: [...parseErrors, ...result.errors], warnings: [], value: null, mode };
+  if (parseErrors.length > 0) return { errors: parseErrors, warnings: result.warnings, value: null, mode };
+  return { errors: [], warnings: result.warnings, value: result.value, mode };
 }

@@ -111,6 +111,7 @@ describe('validateCommitteeUpdate', () => {
   const cred = (n: string, isScript = false): ColdCredential => ({ hashHex: n.repeat(56), isScript });
 
   const base = {
+    mode: 'enacted' as const,
     epoch: 500,
     maxTermLength: 100,
     current: [] as { hashHex: string; isScript: boolean; expirationEpoch: number | null }[],
@@ -159,6 +160,7 @@ describe('validateCommitteeUpdate', () => {
     const c = cred('a');
     const result = validateCommitteeUpdate({
       ...base,
+      current: [{ hashHex: c.hashHex, isScript: c.isScript, expirationEpoch: 700 }],
       remove: [c],
       add: [{ credential: c, expiryEpoch: 600 }],
     });
@@ -294,6 +296,7 @@ describe('validateCommitteeUpdate', () => {
     const c = cred('a');
     const result = validateCommitteeUpdate({
       ...base,
+      current: [{ hashHex: cred('b').hashHex, isScript: false, expirationEpoch: 700 }],
       remove: [cred('b')],
       add: [{ credential: c, expiryEpoch: 600 }],
       quorum: { numerator: 1, denominator: 3 },
@@ -306,5 +309,71 @@ describe('validateCommitteeUpdate', () => {
         quorum: { numerator: 1, denominator: 3 },
       });
     }
+  });
+
+  // Chaining onto an open committee proposal changes what "today's committee"
+  // means: the diff is applied to the committee as it stands at enactment, so
+  // the two rules that compare against today's state have to step aside.
+  describe('open mode', () => {
+    it('accepts a quorum equal to today\'s, since the open prev may have changed it', () => {
+      const input = {
+        ...base,
+        quorum: { numerator: 2, denominator: 3 },
+        currentQuorum: { numerator: 2, denominator: 3 },
+      };
+      const open = validateCommitteeUpdate({ ...input, mode: 'open' });
+      expect(open.ok).toBe(true);
+
+      const enacted = validateCommitteeUpdate({ ...input, mode: 'enacted' });
+      expect(enacted.ok).toBe(false);
+      if (!enacted.ok) expect(enacted.errors.some(e => e.field === 'changes')).toBe(true);
+    });
+
+    it('accepts removing a credential that is not a member today, since the open prev may add it', () => {
+      const input = {
+        ...base,
+        current: [],
+        remove: [cred('e')],
+        quorum: { numerator: 1, denominator: 3 },
+      };
+      const open = validateCommitteeUpdate({ ...input, mode: 'open' });
+      expect(open.ok).toBe(true);
+      if (open.ok) expect(open.value.remove).toEqual([cred('e')]);
+
+      const enacted = validateCommitteeUpdate({ ...input, mode: 'enacted' });
+      expect(enacted.ok).toBe(false);
+      if (!enacted.ok) expect(enacted.errors.some(e => e.field === 'remove[0]')).toBe(true);
+    });
+
+    it('drops the already-a-member warning, since membership at enactment is unknown', () => {
+      const c = cred('a');
+      const input = {
+        ...base,
+        current: [{ hashHex: c.hashHex, isScript: c.isScript, expirationEpoch: 700 }],
+        add: [{ credential: c, expiryEpoch: 600 }],
+      };
+      const open = validateCommitteeUpdate({ ...input, mode: 'open' });
+      expect(open.ok).toBe(true);
+      if (open.ok) expect(open.warnings).toEqual([]);
+
+      const enacted = validateCommitteeUpdate({ ...input, mode: 'enacted' });
+      expect(enacted.ok).toBe(true);
+      if (enacted.ok) expect(enacted.warnings).toHaveLength(1);
+    });
+
+    it('still rejects a credential in both lists and an expiry in the past', () => {
+      const c = cred('a');
+      const result = validateCommitteeUpdate({
+        ...base,
+        mode: 'open',
+        remove: [c],
+        add: [{ credential: c, expiryEpoch: 400 }],
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.errors.some(e => e.field === 'add[0].credential')).toBe(true);
+        expect(result.errors.some(e => e.field === 'add[0].expiryEpoch')).toBe(true);
+      }
+    });
   });
 });

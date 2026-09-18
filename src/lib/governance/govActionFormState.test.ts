@@ -5,6 +5,8 @@ import {
   effectivePrev,
   draftFromState,
   isFormBlank,
+  committeeMode,
+  validateCommitteePanel,
   type GovActionFormState,
 } from './govActionFormState.js';
 import type { ActionContextResponse } from './actionContextHandler.js';
@@ -254,5 +256,101 @@ describe('draftFromState and isFormBlank', () => {
   it('is not blank once any metadata text is typed', () => {
     const s = govActionFormReducer(initialGovActionFormState(), { kind: 'setMetadata', patch: { abstract: 'x' } });
     expect(isFormBlank(s)).toBe(false);
+  });
+});
+
+describe('committeeMode and validateCommitteePanel', () => {
+  const MEMBER_A = 'a'.repeat(56);
+  const MEMBER_B = 'b'.repeat(56);
+  const OPEN_HASH = 'f'.repeat(64);
+
+  function committeeCtx(): ActionContextResponse {
+    return {
+      epoch: 500,
+      prev: {
+        lastEnacted: null,
+        open: [
+          {
+            txHash: OPEN_HASH,
+            index: 0,
+            id: 'gov_action1open',
+            type: 'NewCommittee',
+            title: null,
+            proposedEpoch: 499,
+          },
+        ],
+      },
+      committee: {
+        members: [
+          { coldHex: MEMBER_A, hasScript: false, expirationEpoch: 600 },
+          { coldHex: MEMBER_B, hasScript: false, expirationEpoch: 610 },
+        ],
+        quorum: { numerator: 2, denominator: 3 },
+        maxTermLength: 100,
+      },
+    };
+  }
+
+  it('is enacted by default and open when the prev is one of the open rows', () => {
+    expect(committeeMode(null, committeeCtx())).toBe('enacted');
+    expect(committeeMode({ txHashHex: OPEN_HASH, index: 0 }, committeeCtx())).toBe('open');
+    expect(committeeMode({ txHashHex: 'c'.repeat(64), index: 0 }, committeeCtx())).toBe('enacted');
+  });
+
+  it('builds the validated value from a ticked member and a typed add row', () => {
+    const r = validateCommitteePanel(
+      {
+        prev: null,
+        removeHex: [MEMBER_A],
+        removeFree: [],
+        add: [{ input: MEMBER_B, hexKind: 'key', expiryEpoch: '560' }],
+        quorum: { numerator: '2', denominator: '3' },
+      },
+      committeeCtx(),
+    );
+    expect(r.errors).toEqual([]);
+    expect(r.mode).toBe('enacted');
+    expect(r.value).toEqual({
+      remove: [{ hashHex: MEMBER_A, isScript: false }],
+      add: [{ credential: { hashHex: MEMBER_B, isScript: false }, expiryEpoch: 560 }],
+      quorum: { numerator: 2, denominator: 3 },
+    });
+    // Re-adding a sitting member is a term change, which is a warning only.
+    expect(r.warnings).toHaveLength(1);
+  });
+
+  it('reports an unparseable credential and a non-numeric epoch on their own fields', () => {
+    const r = validateCommitteePanel(
+      {
+        prev: null,
+        removeHex: [],
+        removeFree: [],
+        add: [
+          { input: 'nonsense', hexKind: 'key', expiryEpoch: '560' },
+          { input: MEMBER_B, hexKind: 'key', expiryEpoch: 'soon' },
+        ],
+        quorum: { numerator: '2', denominator: '3' },
+      },
+      committeeCtx(),
+    );
+    expect(r.value).toBeNull();
+    expect(r.errors.some(e => e.field === 'add[0].credential')).toBe(true);
+    expect(r.errors.some(e => e.field === 'add[1].expiryEpoch')).toBe(true);
+  });
+
+  it('takes the free remove rows in open mode', () => {
+    const r = validateCommitteePanel(
+      {
+        prev: { txHashHex: OPEN_HASH, index: 0 },
+        removeHex: [],
+        removeFree: [{ input: 'c'.repeat(56), hexKind: 'script' }],
+        add: [],
+        quorum: { numerator: '2', denominator: '3' },
+      },
+      committeeCtx(),
+    );
+    expect(r.mode).toBe('open');
+    expect(r.errors).toEqual([]);
+    expect(r.value?.remove).toEqual([{ hashHex: 'c'.repeat(56), isScript: true }]);
   });
 });

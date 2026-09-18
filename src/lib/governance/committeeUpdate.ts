@@ -32,6 +32,15 @@ export type ValidationError = { field: string; message: string };
 export type ValidationWarning = { field: string; message: string };
 
 export type ValidateCommitteeUpdateInput = {
+  /**
+   * Which committee the diff will meet. 'enacted' is the default case: the
+   * proposal chains onto the last enacted action, so today's committee is the
+   * state the diff is applied to and can be compared against. 'open' is a
+   * proposal chained onto one that is still open: the committee at enactment
+   * is whatever that proposal leaves behind, which is not knowable here, so
+   * the rules that compare against today's committee step aside.
+   */
+  mode: 'enacted' | 'open';
   epoch: number;
   maxTermLength: number | null;
   current: CurrentMember[];
@@ -106,8 +115,12 @@ function quorumsEqual(a: Quorum, b: Quorum): boolean {
  * Validates an UpdateCommittee proposal's fields: each added credential's
  * expiry, conflicts between the add and remove lists, an added credential
  * that is already a current member (warning, not an error, since re-adding
- * with a new expiry is a legitimate way to extend a term), the quorum
- * fraction, and that the proposal actually changes something.
+ * with a new expiry is a legitimate way to extend a term), the removal of a
+ * credential that is not a member, the quorum fraction, and that the proposal
+ * actually changes something.
+ *
+ * The last three compare against today's committee and therefore only apply
+ * in 'enacted' mode, see the `mode` field.
  */
 export function validateCommitteeUpdate(
   input: ValidateCommitteeUpdateInput,
@@ -153,7 +166,7 @@ export function validateCommitteeUpdate(
     }
     seenAddKeys.add(key);
 
-    if (currentByKey.has(key)) {
+    if (input.mode === 'enacted' && currentByKey.has(key)) {
       warnings.push({
         field: `add[${i}].credential`,
         message: 'credential is already a current committee member, this extends its term',
@@ -162,10 +175,19 @@ export function validateCommitteeUpdate(
   });
 
   input.remove.forEach((c, i) => {
-    if (seenAddKeys.has(credentialKey(c))) {
+    const key = credentialKey(c);
+    if (seenAddKeys.has(key)) {
       errors.push({
         field: `remove[${i}]`,
         message: 'credential is in both the add and remove lists',
+      });
+    }
+    // Only meaningful against today's committee: in open mode the credential
+    // may be one the open prev adds, so it is a free credential there.
+    if (input.mode === 'enacted' && !currentByKey.has(key)) {
+      errors.push({
+        field: `remove[${i}]`,
+        message: 'credential is not a current committee member',
       });
     }
   });
@@ -203,7 +225,9 @@ export function validateCommitteeUpdate(
     (input.currentQuorum == null || !quorumsEqual(input.quorum, input.currentQuorum));
   const hasMembershipChange = input.add.length > 0 || input.remove.length > 0;
 
-  if (!hasMembershipChange && !quorumChanged && errors.length === 0) {
+  // In open mode a quorum equal to today's can still be a real change,
+  // because the open prev may have moved it, so the rule is skipped there.
+  if (input.mode === 'enacted' && !hasMembershipChange && !quorumChanged && errors.length === 0) {
     errors.push({ field: 'changes', message: 'nothing to change' });
   }
 
