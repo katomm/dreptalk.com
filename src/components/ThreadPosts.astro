@@ -12,6 +12,8 @@ import type { Reaction } from '@/lib/db/postReactions.js';
 import type { AuthorDescriptor } from '@/lib/forum/author.js';
 import type { SessionUser } from '@/lib/forum/postVisibility.js';
 import { isWriter } from '@/lib/auth/roles.js';
+import { PROPOSAL_DRAFTS_CATEGORY_SLUG } from '../../config/categories.js';
+import { DRAFT_FOLD_CHARS, plainTextLength } from '@/lib/forum/postLimits.js';
 
 interface Props {
   topic: Topic;
@@ -113,6 +115,7 @@ const notVoted = (author: AuthorDescriptor) =>
           postNumber={startIndex !== undefined ? startIndex + i + 1 : undefined}
           mandate={mandateFor(post)}
           citable={citablePostIds.has(post.id)}
+          foldable={isOpening && topic.category_slug === PROPOSAL_DRAFTS_CATEGORY_SLUG && plainTextLength(post.body_html) > DRAFT_FOLD_CHARS}
         />
         {children.length > 0 && (
           <div class="thread-replies">
@@ -166,7 +169,7 @@ const notVoted = (author: AuthorDescriptor) =>
         <p class="reply-sub">Share your thoughts. Be respectful and stay on topic.</p>
       </>
     )}
-    <Composer client:load mode="post" topicId={topic.id} />
+    <Composer client:load mode="post" topicId={topic.id} categorySlug={topic.category_slug} openingPostId={thread.openingPost?.id} />
     <QuoteSelection client:load />
   </section>
 )}

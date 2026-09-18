@@ -8,6 +8,7 @@ import {
   toStoredResponse,
   fromStoredResponse,
   isStale,
+  staleWhileRevalidate,
   PAGE_CACHE_CC,
   PAGE_CACHE_STAMP,
 } from './pageCache.js';
@@ -159,5 +160,33 @@ describe('stale-while-revalidate', () => {
   it('treats an unstamped entry as stale so it is refreshed on sight', () => {
     const bare = new Response('<html></html>', { headers: { 'Cache-Control': 'public, s-maxage=30' } });
     expect(isStale(bare, 1_000)).toBe(true);
+  });
+});
+
+describe('a page that declares its own stale window', () => {
+  const cc = 'public, s-maxage=60, stale-while-revalidate=600';
+  const page = () =>
+    new Response('<html></html>', { status: 200, headers: { 'Content-Type': 'text/html', 'Cache-Control': cc } });
+
+  it('reads the declared window, and nothing else', () => {
+    expect(staleWhileRevalidate(cc)).toBe(600);
+    expect(staleWhileRevalidate('public, s-maxage=30')).toBeNull();
+    expect(staleWhileRevalidate(null)).toBeNull();
+  });
+
+  it('is stored for exactly its freshness plus its window', () => {
+    expect(storedTtlSeconds(60, 600)).toBe(660);
+    expect(toStoredResponse(page(), 1_000).headers.get('Cache-Control')).toBe('public, s-maxage=660');
+  });
+
+  it('turns stale after its freshness, not after its window', () => {
+    const stored = toStoredResponse(page(), 1_000);
+    expect(isStale(stored, 1_000 + 59_000)).toBe(false);
+    expect(isStale(stored, 1_000 + 60_000)).toBe(true);
+  });
+
+  it('keeps the factor-based window for a page that declares none', () => {
+    expect(storedTtlSeconds(30, null)).toBe(300);
+    expect(storedTtlSeconds(30)).toBe(300);
   });
 });

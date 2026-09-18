@@ -4,7 +4,7 @@ description: "How any ada holder hands their Cardano voting power to a DRep, wha
 cardLabel: "Delegating to a DRep"
 category: "Start here"
 order: 2
-updated: 2026-09-02
+updated: 2026-09-18
 ---
 
 Every ada holder on Cardano has voting power in the governance system. If you
@@ -89,8 +89,8 @@ take a position on current proposals. Abstaining stake is recorded as active
 participation but counts for neither side, so it does not push an action toward
 or away from its approval threshold.
 
-**No Confidence** signals that you do not recognize the current governance
-structure as legitimate. Your stake is counted toward the "no confidence" pool
+**No Confidence** signals that you believe the current constitutional
+committee should not hold its role. Your stake is counted toward the "no confidence" pool
 of DRep voting power: it supports motions of no confidence and counts against
 other actions that need DRep approval. Use this if you want your stake to
 reflect a consistent no-confidence stance without delegating to a specific DRep.

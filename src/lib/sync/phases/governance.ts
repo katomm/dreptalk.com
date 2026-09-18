@@ -7,6 +7,7 @@
 import { bytesToHex } from '../../crypto/hex.js';
 import {
   syncGovernanceActions,
+  createDeferredGovTopics,
   backfillActionMetadata,
   backfillGovTopicSubmittedAt,
   backfillGovTopicTitles,
@@ -92,12 +93,32 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
       const disc = await syncGovernanceActions({
         koios: ctx.koios, db: ctx.db, network: ctx.cfg.network, now: ctx.now, rand: randSuffix,
       });
-      console.log(`[gov-sync] total=${disc.total} created=${disc.created} skipped=${disc.skipped} failed=${disc.failed}`);
+      console.log(
+        `[gov-sync] total=${disc.total} created=${disc.created} deferred=${disc.deferred}` +
+          ` skipped=${disc.skipped} failed=${disc.failed}`,
+      );
       // Recorded for the pin collector, which must not delete on a mirror that
-      // just lost an import.
+      // just lost an import. A deferred action is not a lost import: its row is
+      // written, so its anchor hash protects the pin.
       // Set after the sync returned, so a throw leaves it false.
       ctx.state.mirrorHealthy = disc.failed === 0;
       return { items: disc.total, failed: disc.failed };
+    },
+  },
+  {
+    // Open the threads discovery held back because the action's anchor was not
+    // readable yet (a freshly pinned IPFS document, typically). Every tick, not
+    // heavy-only: the whole point is to get the thread out within minutes, and
+    // the candidate set is empty on a settled run.
+    name: 'gov-deferred-topics',
+    run: async (ctx) => {
+      const r = await createDeferredGovTopics({
+        db: ctx.db, network: ctx.cfg.network, now: ctx.now, rand: randSuffix, fetchImpl: fetch, limit: 10,
+      });
+      if (r.scanned > 0) {
+        console.log(`[gov-deferred-topics] scanned=${r.scanned} created=${r.created} deferred=${r.deferred} failed=${r.failed}`);
+      }
+      return { items: r.created, failed: r.failed };
     },
   },
   {
@@ -155,7 +176,7 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
     name: 'voted-power',
     when: heavyOnly,
     run: async (ctx) => {
-      const backfill = await backfillVotedPower({ koios: ctx.koios, db: ctx.db, limit: 25 });
+      const backfill = await backfillVotedPower({ koios: ctx.koios, db: ctx.db, limit: 25, now: ctx.now });
       console.log(`[gov-backfill] scanned=${backfill.scanned} updated=${backfill.updated} failed=${backfill.failed}`);
       return { items: backfill.updated, failed: backfill.failed };
     },
@@ -164,7 +185,7 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
     name: 'threshold-backfill',
     when: heavyOnly,
     run: async (ctx) => {
-      const bf = await backfillThresholdSnapshots({ koios: ctx.koios, db: ctx.db, limit: 15, paceMs: 100 });
+      const bf = await backfillThresholdSnapshots({ koios: ctx.koios, db: ctx.db, now: ctx.now, limit: 15, paceMs: 100 });
       console.log(`[gov-threshold-backfill] actions=${bf.actions} failed=${bf.failed}`);
       return { items: bf.actions, failed: bf.failed };
     },
@@ -173,7 +194,7 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
     name: 'metadata',
     when: heavyOnly,
     run: async (ctx) => {
-      const metaBackfill = await backfillActionMetadata({ db: ctx.db, now: Date.now(), fetchImpl: fetch, limit: 10 });
+      const metaBackfill = await backfillActionMetadata({ db: ctx.db, network: ctx.cfg.network, now: Date.now(), fetchImpl: fetch, limit: 10 });
       console.log(`[gov-meta-backfill] scanned=${metaBackfill.scanned} updated=${metaBackfill.updated} failed=${metaBackfill.failed}`);
       return { items: metaBackfill.updated, failed: metaBackfill.failed };
     },

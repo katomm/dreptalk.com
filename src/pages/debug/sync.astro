@@ -13,6 +13,9 @@ import { readVotingTimingSnapshot } from '@/lib/db/votingTimingSnapshot.js';
 import { classifySnapshot, type VotingTimingSnapshotHealth } from '@/lib/analytics/votingTimingSnapshotHealth.js';
 import { countGivenUpMetaActions } from '@/lib/db/governance.js';
 import { countGivenUpAvatars } from '@/lib/db/dreps.js';
+import { getCommitteeTimeline } from '@/lib/db/committee.js';
+import { getProtocolParams } from '@/lib/db/protocolParams.js';
+import { committeeTimelineDrift } from '@/lib/koios/committeeTimeline.js';
 import { AVATAR_FETCH_MAX_ATTEMPTS } from '@/lib/dreps/avatarStore.js';
 import { META_EXTRACT_VERSION, META_REEXTRACT_MAX_ATTEMPTS } from '@/lib/governance/metadata.js';
 import { errorMessage } from '@/lib/sync/runRecorder.js';
@@ -46,6 +49,12 @@ const runsPromise = listSyncRuns(db, 30);
 const latestPromise = latestSyncRunByKind(db).catch(() => [] as SyncRun[]);
 const givenUpPromise = countGivenUpMetaActions(db, META_EXTRACT_VERSION, META_REEXTRACT_MAX_ATTEMPTS).catch(() => 0);
 const givenUpAvatarsPromise = countGivenUpAvatars(db, AVATAR_FETCH_MAX_ATTEMPTS).catch(() => 0);
+// The live committee size (stored by the params sync) against the seeded
+// membership timeline. A mismatch means a committee change was enacted that no
+// migration has seeded yet, which skews every committee tally.
+const committeeDriftPromise = Promise.all([getCommitteeTimeline(db), getProtocolParams(db)])
+  .then(([timeline, params]) => committeeTimelineDrift(timeline.members, params?.committeeSize ?? null, params?.epoch ?? null))
+  .catch(() => null);
 
 let runs: SyncRun[] = [];
 let loadError: string | null = null;
@@ -73,6 +82,7 @@ try {
 // queries, so without these counts they would silently disappear from view.
 const givenUp = await givenUpPromise;
 const givenUpAvatars = await givenUpAvatarsPromise;
+const committeeDrift = await committeeDriftPromise;
 
 const latestByKind = new Map<string, SyncRun>();
 for (const run of await latestPromise) {
@@ -157,6 +167,14 @@ Astro.response.headers.set('Refresh', '60');
       );
     })}
   </div>
+
+  {committeeDrift && (
+    <p class="error-text">
+      Committee timeline out of date: Koios counts {committeeDrift.liveSize} active committee members,
+      the seeded timeline {committeeDrift.timelineSize}. A committee change was enacted that no
+      migration has seeded yet, so the committee roster and yes-percentages are wrong until one does.
+    </p>
+  )}
 
   {givenUp > 0 && (
     <p class="given-up">

@@ -34,6 +34,9 @@ interface Props {
   miniChart: TrendChart | null;
   // Href of the History tab, for the teaser link.
   trendHref: string;
+  // The Proposal Drafts thread this action grew from, if any. Null when the
+  // action has no draft origin or that draft thread was deleted.
+  draftOrigin?: { slug: string; title: string } | null;
 }
 
 const {
@@ -50,6 +53,7 @@ const {
   now,
   miniChart,
   trendHref,
+  draftOrigin,
 } = Astro.props;
 ---
 
@@ -65,6 +69,15 @@ const {
   <VotingInfoCard action={action} params={params} drepStakeTotal={drepStakeTotal} now={now} miniChart={miniChart} trendHref={trendHref} />
   <ProposerCard returnAddress={action.returnAddress} />
   <AuthorsCard authors={action.authors} />
+  {/* The Proposal Drafts thread this action was discussed in before submission.
+      Rendered here rather than as its own component so the scoped
+      .sidebar-card--link styles below apply, like the analytics link card. */}
+  {draftOrigin && (
+    <a class="sidebar-card sidebar-card--link" href={`/t/${draftOrigin.slug}/`}>
+      <span class="sidebar-card__title">Discussed as a draft</span>
+      <span class="sidebar-card__desc">{draftOrigin.title}</span>
+    </a>
+  )}
   <ReferencesCard references={action.references} />
   <RelatedActionsCard actions={related} />
   {/* Always-on cross-link to the governance analytics hub, not tied to this

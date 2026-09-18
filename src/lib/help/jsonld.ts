@@ -3,6 +3,7 @@
 // shared builder in lib/jsonld.
 
 import { isoDate } from '../format/date.js';
+import { stripInlineCode } from './inlineCode.js';
 
 export interface Faq {
   q: string;
@@ -37,7 +38,7 @@ export function buildFaqLd(faqs: Faq[] | undefined): Record<string, unknown> | n
     mainEntity: faqs.map((f) => ({
       '@type': 'Question',
       name: f.q,
-      acceptedAnswer: { '@type': 'Answer', text: f.a },
+      acceptedAnswer: { '@type': 'Answer', text: stripInlineCode(f.a) },
     })),
   };
 }

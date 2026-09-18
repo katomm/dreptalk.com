@@ -14,13 +14,15 @@ export interface Category {
 
 export const CATEGORIES: Category[] = [
   { slug: 'governance-actions', name: 'Governance Actions', description: 'On-chain governance actions, one thread each, opened automatically.', kind: 'governance', position: 1 },
-  { slug: 'constitution', name: 'Constitution and Guardrails', description: 'The Cardano Constitution, guardrails, and amendments.', kind: 'discussion', position: 2 },
-  { slug: 'budget', name: 'Budget and Treasury', description: 'Treasury withdrawals and the budget process.', kind: 'discussion', position: 3 },
-  { slug: 'general', name: 'General and Off-topic', description: 'General Cardano governance discussion.', kind: 'discussion', position: 4 },
-  { slug: 'surveys', name: 'Surveys', description: 'On-chain CIP-179 surveys linked to governance actions, one thread each, opened automatically.', kind: 'survey', position: 5 },
+  { slug: 'proposal-drafts', name: 'Proposal Drafts', description: 'Governance action ideas and drafts, discussed before they go on-chain.', kind: 'discussion', position: 2 },
+  { slug: 'constitution', name: 'Constitution and Guardrails', description: 'The Cardano Constitution, guardrails, and amendments.', kind: 'discussion', position: 3 },
+  { slug: 'budget', name: 'Budget and Treasury', description: 'Treasury withdrawals and the budget process.', kind: 'discussion', position: 4 },
+  { slug: 'general', name: 'General and Off-topic', description: 'General Cardano governance discussion.', kind: 'discussion', position: 5 },
+  { slug: 'surveys', name: 'Surveys', description: 'On-chain CIP-179 surveys linked to governance actions, one thread each, opened automatically.', kind: 'survey', position: 6 },
 ];
 
 export const GOVERNANCE_CATEGORY_SLUG = 'governance-actions';
+export const PROPOSAL_DRAFTS_CATEGORY_SLUG = 'proposal-drafts';
 export const BUDGET_CATEGORY_SLUG = 'budget';
 export const SURVEYS_CATEGORY_SLUG = 'surveys';
 

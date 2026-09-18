@@ -4,16 +4,16 @@ description: "A tour of a Cardano governance action page on DRepTalk: the Overvi
 cardLabel: "Reading a governance action"
 category: "Understanding governance"
 order: 1
-updated: 2026-09-02
+updated: 2026-09-18
 faqs:
   - q: "Who can post in a governance action's discussion?"
-    a: "Reading is public, no sign-in needed. Posting requires signing in with an on-chain governance identity: DReps, proposers and their co-proposers, SPOs, and Constitutional Committee members. Delegator sign-ins are read-only."
+    a: "Anyone can read. Posting needs a sign-in with an on-chain governance role, and delegators can only read."
   - q: "Why is a rationale post in the discussion marked as frozen?"
-    a: "It is a copy of a rationale that a DRep committed on-chain together with their vote. The on-chain document cannot change, so the discussion copy cannot be edited either. If the DRep votes again, the copy is replaced or removed along with the old vote."
+    a: "It copies a rationale committed on-chain with a vote, so it cannot be edited here."
   - q: "Why is a vote marked as not counted?"
-    a: "Votes can still be cast after an action is ratified, but the tally that ratified the action was already frozen at that point. DRepTalk shows these late votes for completeness and marks them as not counted in the outcome."
+    a: "It was cast after the action was already ratified, so it did not change the outcome."
   - q: "Are the vote numbers on the page live?"
-    a: "They are synced from the chain on a schedule, usually within minutes. Each page shows an as-of time. See the data freshness guide for details."
+    a: "They sync from the chain every few minutes, and each page shows the time of its data."
 ---
 
 Every Cardano governance action has its own page on DRepTalk, whether or not
@@ -62,8 +62,12 @@ The sidebar next to the content answers the status questions:
   to a full-stake breakdown of what the tally counts and what it leaves out.
   Not every body votes on every action: [Governance action
   types](/help/governance-action-types/) lists who votes on what.
-- **Proposer.** Who submitted the action, with more actions from the same
-  proposer where available.
+- **Proposer** and **Authors.** Who submitted the action and who signed its
+  proposal document. **More from this proposer** lists their other actions.
+- **Discussed as a draft.** Shown when the action links a
+  [Proposal Drafts](/help/get-feedback-on-a-proposal/) thread, where it was
+  discussed before submission.
+- **References.** The links from the proposal document.
 
 <img class="shot" src="/help/shots/ga-voting-info.webp" alt="The voting information card: one row per voting body with the yes share of the counted stake, a threshold marker on the bar, a Met or Not met verdict, and an expander for the excluded stake" width="320" height="502" loading="lazy" />
 
@@ -97,11 +101,13 @@ discussion](https://dreptalk.com/t/withdraw-120-000-000-ada-for-alphagrowth-s-ca
 
 ## Votes
 
-The Votes tab lists every DRep and SPO vote on the action, ordered by voting
-power, with a toggle to switch between the two bodies. A third **CC** segment
-appears when the action has Constitutional Committee votes. Each row shows the
-voter, their vote, and their voting power at the time. Rows with a rationale
-expand in place so you can read the reasoning without leaving the page. Above
+The Votes tab lists every DRep and SPO vote on the action, with a toggle to
+switch between the two bodies. A third **CC** segment appears when the action
+has Constitutional Committee votes. DRep votes are ordered by the DRep's
+current voting power, SPO votes by the newest vote first. Rows with a
+rationale expand in place so you can read the reasoning without leaving the
+page. A vote that links a rationale DRepTalk could not read shows **Rationale
+unavailable**. Above
 the list, a short concentration strip reads how few voters cast half of the
 voted power, the largest voter's share, the combined top 5, and how many of
 the largest voters together held as much power as the threshold required.
@@ -144,30 +150,6 @@ you can see whether an action cleared its threshold early or crossed the
 line late. Epochs are shown with their calendar dates. A **Compare with**
 picker overlays a second, concluded action of the same type on the chart,
 both curves aligned on day 0 of their own voting window.
-
-## Frequently asked questions
-
-### Who can post in the discussion?
-
-Reading is public. Posting requires signing in with an on-chain governance
-identity: DRep, proposer or co-proposer, SPO, or Constitutional Committee
-member. Delegator sign-ins are read-only. See [Signing in](/help/signing-in/).
-
-### Why is a rationale post marked as frozen?
-
-It is a copy of a rationale committed on-chain with a vote. The on-chain
-document cannot change, so the copy cannot be edited. It is replaced or
-removed if the DRep re-votes.
-
-### Why is a vote marked as not counted?
-
-It was cast after the action was ratified, when the deciding tally was
-already frozen. It is shown for completeness but did not affect the outcome.
-
-### Are the numbers live?
-
-They are synced from the chain on a schedule, usually within minutes, and
-each page shows an as-of time. See [Data freshness](/help/data-freshness/).
 
 ## Related
 

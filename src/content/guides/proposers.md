@@ -4,7 +4,7 @@ description: "How DRepTalk shows who proposed a governance action, and how propo
 cardLabel: "Proposers"
 category: "Understanding governance"
 order: 5
-updated: 2026-09-02
+updated: 2026-09-18
 ---
 
 Every governance action has a proposer, identified on-chain by the reward
@@ -86,6 +86,13 @@ time.
 
 Co-proposers cannot invite further people, and a wallet can hold only one
 mandate at a time.
+
+## Discussing a proposal before you submit it
+
+You can share a draft of your governance action in
+[Proposal Drafts](/c/proposal-drafts/) and collect feedback from DReps first.
+Once the action is on-chain, the draft connects to its thread. See
+[Get feedback on a proposal](/help/get-feedback-on-a-proposal/).
 
 ## Related
 

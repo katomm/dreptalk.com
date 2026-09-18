@@ -103,7 +103,7 @@ export async function syncProtocolParams(deps: {
     const cm = await syncCurrentCommitteeMembership(db, cc.members, ep.epoch_no ?? null);
     unknownMembers = cm.unknown;
     if (cm.unknown > 0) {
-      console.warn(`[gov-params] ${cm.unknown} committee member(s) not in the seeded timeline; a committee change may need seeding`);
+      console.warn(`[gov-params] ${cm.unknown} committee member(s) not in the seeded timeline, a committee change needs seeding`);
     }
   }
   console.log(`[gov-params] epoch=${next.epoch} treasury=${next.dvtTreasuryWithdrawal} cc=${next.ccThreshold} ccSize=${next.committeeSize} treasuryLovelace=${next.treasuryLovelace}`);

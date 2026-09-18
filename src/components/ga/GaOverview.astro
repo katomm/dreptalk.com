@@ -67,7 +67,7 @@ const missing = hasBody
           {/* Collapsed by default: the abstract above is the summary, so the full
               body opens only on demand. Toggle sits before the body so it stays put
               when the body is hidden. */}
-          <input type="checkbox" id="ga-rationale-more" class="ga-rationale__cb" aria-hidden="true" tabindex="-1" />
+          <input type="checkbox" id="ga-rationale-more" class="ga-rationale__cb" aria-hidden="true" tabindex="-1" autocomplete="off" />
           <label for="ga-rationale-more" class="ga-rationale__toggle"></label>
           <div class="prose ga-rationale__body" set:html={enhanceStoredHtml(action.rationaleHtml)} />
         </>

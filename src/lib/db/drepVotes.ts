@@ -440,6 +440,8 @@ export interface ActionVoterRow {
   image_url: string | null;
   /** Unix seconds of the vote tx; used to tell whether it predates ratification. */
   block_time: number | null;
+  /** 1 when the vote carries a rationale anchor. Set by the positions list queries only. */
+  has_anchor?: number;
 }
 
 // Shared ORDER BY fragments (aliases: v = drep_votes, d = dreps) for the
@@ -448,6 +450,7 @@ export interface ActionVoterRow {
 // can never disagree with the rendered order.
 export const DREP_VOTERS_ORDER = '(d.voting_power IS NULL), CAST(d.voting_power AS INTEGER) DESC, v.voter_id';
 const SPO_VOTERS_ORDER = '(v.block_time IS NULL), v.block_time DESC, v.voter_id';
+const HAS_ANCHOR_SQL = "(v.meta_url IS NOT NULL AND v.meta_url <> '')";
 
 /**
  * DRep votes (role 'DRep') on one action, joined to dreps for identity + power,
@@ -466,7 +469,7 @@ export async function getActionVoters(
       .prepare(
         `SELECT v.voter_id AS voter_id, v.vote AS vote,
                 d.voting_power AS voting_power, d.hex AS hex, v.voter_hex AS voter_hex, d.image_url AS image_url,
-                v.block_time AS block_time
+                v.block_time AS block_time, ${HAS_ANCHOR_SQL} AS has_anchor
          FROM drep_votes v
          LEFT JOIN dreps d ON d.drep_id = v.voter_id
          WHERE v.ga_id = ? AND v.voter_role = 'DRep'
@@ -508,7 +511,7 @@ export async function getActionSpoVoters(
       .prepare(
         `SELECT v.voter_id AS voter_id, v.vote AS vote,
                 NULL AS voting_power, p.pool_hash AS hex, v.voter_hex AS voter_hex,
-                p.image_stored_url AS image_url, v.block_time AS block_time
+                p.image_stored_url AS image_url, v.block_time AS block_time, ${HAS_ANCHOR_SQL} AS has_anchor
          FROM drep_votes v
          LEFT JOIN pools p ON p.pool_id = v.voter_id
          WHERE v.ga_id = ? AND v.voter_role = 'SPO' AND ${liveVoteSql('v')}

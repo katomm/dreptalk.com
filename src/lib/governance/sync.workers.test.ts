@@ -1,8 +1,17 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { syncGovernanceActions, backfillActionMetadata, backfillGovTopicSubmittedAt, backfillGovTopicTitles, refreshTrendingScores } from './sync.js';
+import {
+  syncGovernanceActions,
+  createDeferredGovTopics,
+  DEFERRED_TOPIC_MAX_ATTEMPTS,
+  backfillActionMetadata,
+  backfillGovTopicSubmittedAt,
+  backfillGovTopicTitles,
+  refreshTrendingScores,
+} from './sync.js';
 import { META_EXTRACT_VERSION, META_REEXTRACT_MAX_ATTEMPTS } from './metadata.js';
 import { buildInsertGovernanceAction, getGovernanceActionByTopicId } from '../db/governance.js';
+import { unlinkDraftAction } from '../db/draftLinks.js';
 import { activityInsert } from '../db/activity.js';
 import { putVoteRationale } from '../db/voteRationale.js';
 import { createTopic, getOpeningPostBody } from '../db/forum.js';
@@ -418,7 +427,7 @@ describe('backfillActionMetadata', () => {
     const fetchImpl: typeof fetch = async () =>
       new Response(backfillJson, { headers: { 'content-type': 'application/json' } });
 
-    const result = await backfillActionMetadata({ db: env.DB, now: NOW_BF + 1, fetchImpl, limit: 10 });
+    const result = await backfillActionMetadata({ db: env.DB, network: 'preprod', now: NOW_BF + 1, fetchImpl, limit: 10 });
     expect(result.updated).toBeGreaterThanOrEqual(1);
     expect(result.failed).toBe(0);
 
@@ -466,7 +475,7 @@ describe('backfillActionMetadata', () => {
     ]);
     const fetchImpl: typeof fetch = async () =>
       new Response(backfillJson, { headers: { 'content-type': 'application/json' } });
-    await backfillActionMetadata({ db: env.DB, now: NOW_BF + 30, fetchImpl, limit: 200 });
+    await backfillActionMetadata({ db: env.DB, network: 'preprod', now: NOW_BF + 30, fetchImpl, limit: 200 });
     const got = await getGovernanceActionByTopicId(env.DB, topicId);
     expect(got!.title).toBe('Backfill Action');
     expect(got!.anchorStatus).toBe('ok');
@@ -525,7 +534,7 @@ describe('backfillActionMetadata', () => {
 
     const fetchFail: typeof fetch = async () => { throw new Error('network error'); };
 
-    const result = await backfillActionMetadata({ db: env.DB, now: NOW_BF + 2, fetchImpl: fetchFail, limit: 10 });
+    const result = await backfillActionMetadata({ db: env.DB, network: 'preprod', now: NOW_BF + 2, fetchImpl: fetchFail, limit: 10 });
     expect(result.failed).toBeGreaterThanOrEqual(1);
 
     const got = await getGovernanceActionByTopicId(env.DB, topicId);
@@ -540,7 +549,7 @@ describe('backfillActionMetadata', () => {
     const fetchImpl: typeof fetch = async () =>
       new Response(backfillJson, { headers: { 'content-type': 'application/json' } });
 
-    const result = await backfillActionMetadata({ db: env.DB, now: NOW_BF + 3, fetchImpl, limit: 10 });
+    const result = await backfillActionMetadata({ db: env.DB, network: 'preprod', now: NOW_BF + 3, fetchImpl, limit: 10 });
     expect(result.failed).toBeGreaterThanOrEqual(1);
 
     const got = await getGovernanceActionByTopicId(env.DB, topicId);
@@ -556,7 +565,7 @@ describe('backfillActionMetadata', () => {
     const fetchImpl: typeof fetch = async () =>
       new Response(emptyJson, { headers: { 'content-type': 'application/json' } });
 
-    const result = await backfillActionMetadata({ db: env.DB, now: NOW_BF + 4, fetchImpl, limit: 10 });
+    const result = await backfillActionMetadata({ db: env.DB, network: 'preprod', now: NOW_BF + 4, fetchImpl, limit: 10 });
     expect(result.failed).toBe(0);
 
     const got = await getGovernanceActionByTopicId(env.DB, topicId);
@@ -565,13 +574,30 @@ describe('backfillActionMetadata', () => {
     expect(got!.rationaleHtml).toBeNull();
   });
 
+  it('leaves an action that has no thread yet to the deferred-topic phase', async () => {
+    // A deferred action carries stale metadata and a failed anchor status, so it
+    // matches this backfill's candidate predicate too. Both phases fetching the
+    // same anchor would double-spend the shared meta_attempts budget.
+    const { id } = await insertStaleAction('https://example.com/nothread.json', backfillHash);
+    await env.DB.prepare('UPDATE governance_actions SET topic_id = NULL WHERE id = ?').bind(id).run();
+
+    const result = await backfillActionMetadata({
+      db: env.DB,
+      network: 'preprod',
+      now: NOW_BF + 4,
+      fetchImpl: async () => new Response(backfillJson, { headers: { 'content-type': 'application/json' } }),
+      limit: 10,
+    });
+    expect(result.scanned).toBe(0);
+  });
+
   it('respects the limit parameter', async () => {
     await insertStaleAction('https://example.com/lim1.json', backfillHash);
     await insertStaleAction('https://example.com/lim2.json', backfillHash);
     const fetchImpl: typeof fetch = async () =>
       new Response(backfillJson, { headers: { 'content-type': 'application/json' } });
 
-    const result = await backfillActionMetadata({ db: env.DB, now: NOW_BF + 5, fetchImpl, limit: 1 });
+    const result = await backfillActionMetadata({ db: env.DB, network: 'preprod', now: NOW_BF + 5, fetchImpl, limit: 1 });
     expect(result.scanned).toBe(1);
   });
 
@@ -579,8 +605,8 @@ describe('backfillActionMetadata', () => {
     const { id, topicId } = await insertStaleAction('https://example.com/attempts.json', backfillHash);
 
     const fetchFail: typeof fetch = async () => { throw new Error('network error'); };
-    await backfillActionMetadata({ db: env.DB, now: NOW_BF + 8, fetchImpl: fetchFail, limit: 10 });
-    await backfillActionMetadata({ db: env.DB, now: NOW_BF + 9, fetchImpl: fetchFail, limit: 10 });
+    await backfillActionMetadata({ db: env.DB, network: 'preprod', now: NOW_BF + 8, fetchImpl: fetchFail, limit: 10 });
+    await backfillActionMetadata({ db: env.DB, network: 'preprod', now: NOW_BF + 9, fetchImpl: fetchFail, limit: 10 });
 
     const afterFail = await env.DB.prepare('SELECT meta_attempts FROM governance_actions WHERE id = ?')
       .bind(id).first<{ meta_attempts: number }>();
@@ -589,7 +615,7 @@ describe('backfillActionMetadata', () => {
     // A successful extract bumps the version and clears the attempt counter.
     const fetchImpl: typeof fetch = async () =>
       new Response(backfillJson, { headers: { 'content-type': 'application/json' } });
-    await backfillActionMetadata({ db: env.DB, now: NOW_BF + 10, fetchImpl, limit: 10 });
+    await backfillActionMetadata({ db: env.DB, network: 'preprod', now: NOW_BF + 10, fetchImpl, limit: 10 });
 
     const got = await getGovernanceActionByTopicId(env.DB, topicId);
     expect(got!.metaVersion).toBe(META_EXTRACT_VERSION);
@@ -605,7 +631,7 @@ describe('backfillActionMetadata', () => {
       .bind(META_REEXTRACT_MAX_ATTEMPTS, id).run();
 
     const fetchFail: typeof fetch = async () => { throw new Error('still dead'); };
-    const result = await backfillActionMetadata({ db: env.DB, now: NOW_BF + 11, fetchImpl: fetchFail, limit: 10 });
+    const result = await backfillActionMetadata({ db: env.DB, network: 'preprod', now: NOW_BF + 11, fetchImpl: fetchFail, limit: 10 });
 
     // The exhausted row is no longer a candidate: nothing scanned, nothing failed.
     const stillThere = await env.DB.prepare('SELECT id FROM governance_actions WHERE id = ?')
@@ -619,11 +645,11 @@ describe('backfillActionMetadata', () => {
     const fetchImpl: typeof fetch = async () =>
       new Response(backfillJson, { headers: { 'content-type': 'application/json' } });
 
-    await backfillActionMetadata({ db: env.DB, now: NOW_BF + 6, fetchImpl, limit: 10 });
+    await backfillActionMetadata({ db: env.DB, network: 'preprod', now: NOW_BF + 6, fetchImpl, limit: 10 });
     const got = await getGovernanceActionByTopicId(env.DB, topicId);
     expect(got!.metaVersion).toBe(META_EXTRACT_VERSION);
 
-    const second = await backfillActionMetadata({ db: env.DB, now: NOW_BF + 7, fetchImpl, limit: 10 });
+    const second = await backfillActionMetadata({ db: env.DB, network: 'preprod', now: NOW_BF + 7, fetchImpl, limit: 10 });
     // The action inserted above is now current; it must not appear in scanned.
     expect(second.scanned).toBe(0);
   });
@@ -1194,5 +1220,363 @@ describe('syncGovernanceActions self-hosted anchors', () => {
     expect(fetcher.calls()).toBe(0);
     const ga = await env.DB.prepare(`SELECT anchor_status FROM governance_actions WHERE id = ?`).bind(`${'dd'.repeat(32)}#0`).first<{ anchor_status: string }>();
     expect(ga?.anchor_status).toBe('fetch-failed');
+  });
+});
+
+describe('deferred governance topics', () => {
+  const txHash = '1a'.repeat(32);
+  const actionId = `${txHash}#0`;
+  const deferrable: ProposalListRow = {
+    proposal_id: 'gov_action1defer',
+    proposal_tx_hash: txHash,
+    proposal_index: 0,
+    proposal_type: 'InfoAction',
+    deposit: '100000000000',
+    return_address: 'stake_test1defer',
+    proposed_epoch: 300,
+    expiration: 310,
+    block_time: 1_700_000_900,
+    meta_url: 'https://example.com/defer.json',
+    meta_hash: anchorHash,
+  };
+  const fetchFail: typeof fetch = async () => {
+    throw new Error('gateway down');
+  };
+
+  async function discoverWithFailedAnchor(): Promise<void> {
+    let n = 900;
+    await syncGovernanceActions({
+      koios: fakeKoios([deferrable]),
+      db: env.DB,
+      network: 'preprod',
+      now: 1_700_000_900_000,
+      rand: () => `rd${n++}`,
+      fetchImpl: fetchFail,
+    });
+  }
+
+  it('opens no thread for an action whose anchor was unreadable at discovery', async () => {
+    await discoverWithFailedAnchor();
+
+    const row = await env.DB.prepare('SELECT topic_id, title FROM governance_actions WHERE id = ?')
+      .bind(actionId)
+      .first<{ topic_id: string | null; title: string | null }>();
+    expect(row).toBeTruthy();
+    expect(row!.topic_id).toBeNull();
+    expect(row!.title).toBeNull();
+
+    // Nothing user-visible yet: no thread, and no feed event announcing one.
+    const topics = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM topics WHERE title LIKE 'Info Action (1a1a1a1a%'",
+    ).first<{ n: number }>();
+    expect(topics!.n).toBe(0);
+  });
+
+  // A document that arrived but does not match its on-chain hash is a verdict on
+  // the document, not a transport miss: no gateway can serve a different answer.
+  const fetchWrongDoc: typeof fetch = async () =>
+    new Response(JSON.stringify({ body: { title: 'Not the anchored document' } }), {
+      headers: { 'content-type': 'application/json' },
+    });
+
+  it('opens the thread immediately when the anchor document fails its hash check', async () => {
+    let n = 940;
+    await syncGovernanceActions({
+      koios: fakeKoios([deferrable]),
+      db: env.DB,
+      network: 'preprod',
+      now: 1_700_000_940_000,
+      rand: () => `rm${n++}`,
+      fetchImpl: fetchWrongDoc,
+    });
+    const row = await env.DB.prepare('SELECT topic_id, anchor_status FROM governance_actions WHERE id = ?')
+      .bind(actionId)
+      .first<{ topic_id: string | null; anchor_status: string }>();
+    expect(row!.anchor_status).toBe('hash-mismatch');
+    expect(row!.topic_id).toBeTruthy();
+  });
+
+  it('opens the thread immediately when the anchor reads but carries no title', async () => {
+    // A readable but titleless document will never yield a better title, so
+    // deferring it would only delay the thread.
+    const titleless = JSON.stringify({ body: { abstract: 'No title here.' } });
+    const titlelessHash = bytesToHex(blake2b256(new TextEncoder().encode(titleless)));
+    const p: ProposalListRow = {
+      ...deferrable,
+      proposal_tx_hash: '2b'.repeat(32),
+      proposal_id: 'gov_action1notitle',
+      meta_hash: titlelessHash,
+    };
+    let n = 950;
+    await syncGovernanceActions({
+      koios: fakeKoios([p]),
+      db: env.DB,
+      network: 'preprod',
+      now: 1_700_000_950_000,
+      rand: () => `rn${n++}`,
+      fetchImpl: async () => new Response(titleless, { headers: { 'content-type': 'application/json' } }),
+    });
+    const row = await env.DB.prepare('SELECT topic_id FROM governance_actions WHERE id = ?')
+      .bind(`${'2b'.repeat(32)}#0`)
+      .first<{ topic_id: string | null }>();
+    expect(row!.topic_id).toBeTruthy();
+  });
+
+  it('opens the thread with the recovered title once the anchor becomes readable', async () => {
+    await discoverWithFailedAnchor();
+
+    let n = 960;
+    const r = await createDeferredGovTopics({
+      db: env.DB,
+      network: 'preprod',
+      now: 1_700_001_000_000,
+      rand: () => `rc${n++}`,
+      fetchImpl: fetchOk,
+      limit: 10,
+    });
+    expect(r).toMatchObject({ scanned: 1, created: 1, deferred: 0 });
+
+    const row = await env.DB.prepare('SELECT topic_id, title FROM governance_actions WHERE id = ?')
+      .bind(actionId)
+      .first<{ topic_id: string; title: string }>();
+    expect(row!.title).toBe('Fund Community Tooling');
+    const topic = await env.DB.prepare('SELECT slug, title, created_at FROM topics WHERE id = ?')
+      .bind(row!.topic_id)
+      .first<{ slug: string; title: string; created_at: number }>();
+    expect(topic!.title).toBe('Fund Community Tooling');
+    expect(topic!.slug.startsWith('fund-community-tooling-')).toBe(true);
+    // The thread keeps the on-chain submission time, not the (later) creation time.
+    expect(topic!.created_at).toBe(1_700_000_900_000);
+
+    const ev = await env.DB.prepare("SELECT COUNT(*) AS n FROM activity WHERE type = 'gov_created' AND topic_id = ?")
+      .bind(row!.topic_id)
+      .first<{ n: number }>();
+    expect(ev!.n).toBe(1);
+  });
+
+  it('stops waiting as soon as a reread returns a verdict on the document', async () => {
+    await discoverWithFailedAnchor();
+
+    let n = 965;
+    const r = await createDeferredGovTopics({
+      db: env.DB,
+      network: 'preprod',
+      now: 1_700_001_050_000,
+      rand: () => `rv${n++}`,
+      fetchImpl: fetchWrongDoc,
+      limit: 10,
+    });
+    expect(r).toMatchObject({ scanned: 1, created: 1, deferred: 0 });
+
+    const row = await env.DB.prepare('SELECT topic_id FROM governance_actions WHERE id = ?')
+      .bind(actionId)
+      .first<{ topic_id: string }>();
+    const topic = await env.DB.prepare('SELECT title FROM topics WHERE id = ?')
+      .bind(row!.topic_id)
+      .first<{ title: string }>();
+    expect(topic!.title).toBe('Info Action (1a1a1a1a#0)');
+  });
+
+  it('leaves the action pending and counts the attempt while the anchor stays unreadable', async () => {
+    await discoverWithFailedAnchor();
+
+    let n = 970;
+    const r = await createDeferredGovTopics({
+      db: env.DB,
+      network: 'preprod',
+      now: 1_700_001_100_000,
+      rand: () => `rp${n++}`,
+      fetchImpl: fetchFail,
+      limit: 10,
+    });
+    expect(r).toMatchObject({ scanned: 1, created: 0, deferred: 1 });
+
+    const row = await env.DB.prepare('SELECT topic_id, meta_attempts FROM governance_actions WHERE id = ?')
+      .bind(actionId)
+      .first<{ topic_id: string | null; meta_attempts: number }>();
+    expect(row!.topic_id).toBeNull();
+    expect(row!.meta_attempts).toBe(1);
+  });
+
+  it('opens the thread with the fallback title once the attempt budget is spent', async () => {
+    await discoverWithFailedAnchor();
+    await env.DB.prepare('UPDATE governance_actions SET meta_attempts = ? WHERE id = ?')
+      .bind(DEFERRED_TOPIC_MAX_ATTEMPTS, actionId)
+      .run();
+
+    let n = 980;
+    const r = await createDeferredGovTopics({
+      db: env.DB,
+      network: 'preprod',
+      now: 1_700_001_200_000,
+      rand: () => `rg${n++}`,
+      fetchImpl: fetchFail,
+      limit: 10,
+    });
+    expect(r).toMatchObject({ scanned: 1, created: 1, deferred: 0 });
+
+    const row = await env.DB.prepare('SELECT topic_id FROM governance_actions WHERE id = ?')
+      .bind(actionId)
+      .first<{ topic_id: string }>();
+    const topic = await env.DB.prepare('SELECT title FROM topics WHERE id = ?')
+      .bind(row!.topic_id)
+      .first<{ title: string }>();
+    expect(topic!.title).toBe('Info Action (1a1a1a1a#0)');
+  });
+
+  it('scans nothing once every action has a thread', async () => {
+    const r = await createDeferredGovTopics({
+      db: env.DB,
+      network: 'preprod',
+      now: 1_700_001_300_000,
+      rand: () => 'rz0',
+      fetchImpl: fetchOk,
+      limit: 10,
+    });
+    expect(r).toMatchObject({ scanned: 0, created: 0, deferred: 0 });
+  });
+});
+
+describe('proposal drafts linking', () => {
+  const DRAFT_TITLE = 'Tooling draft';
+
+  async function makeDraft(title = DRAFT_TITLE) {
+    const { topic } = await createTopic(env.DB, {
+      categorySlug: 'proposal-drafts', authorId: 'draft-author', title, bodyMd: 'x', bodyHtml: '<p>x</p>',
+      source: 'user', now: 1_700_000_000_000, rand: `dr${Math.random().toString(36).slice(2, 6)}`,
+    });
+    return topic;
+  }
+
+  function anchorWithRefs(uris: string[]) {
+    const json = JSON.stringify({
+      body: {
+        title: 'Fund Community Tooling',
+        abstract: 'A treasury withdrawal for tooling.',
+        rationale: 'Rationale.',
+        references: uris.map((uri) => ({ '@type': 'Other', label: 'Draft', uri })),
+      },
+    });
+    const hash = bytesToHex(blake2b256(new TextEncoder().encode(json)));
+    const fetchImpl: typeof fetch = async () => new Response(json, { headers: { 'content-type': 'application/json' } });
+    return { hash, fetchImpl };
+  }
+
+  function row(txHash: string, metaHash: string): ProposalListRow {
+    return {
+      proposal_id: `gov_action1${txHash.slice(0, 6)}`, proposal_tx_hash: txHash, proposal_index: 0,
+      proposal_type: 'InfoAction', deposit: '100000000000', return_address: 'stake_test1draft',
+      proposed_epoch: 400, expiration: 410, meta_url: 'https://example.com/draft.json', meta_hash: metaHash,
+    };
+  }
+
+  const state = async (actionId: string, draftId: string) => ({
+    link: (await env.DB.prepare('SELECT draft_topic_id FROM governance_actions WHERE id = ?').bind(actionId)
+      .first<{ draft_topic_id: string | null }>())!.draft_topic_id,
+    locked: (await env.DB.prepare('SELECT locked FROM topics WHERE id = ?').bind(draftId).first<{ locked: number }>())!.locked,
+  });
+
+  it('links and locks the draft when discovery opens the thread', async () => {
+    const draft = await makeDraft();
+    const { hash, fetchImpl } = anchorWithRefs([`https://preprod.dreptalk.com/t/${draft.slug}/`]);
+    const tx = 'd1'.repeat(32);
+    await syncGovernanceActions({ koios: fakeKoios([row(tx, hash)]), db: env.DB, network: 'preprod', now: 1_700_000_000_000, rand: () => 'dd1', fetchImpl });
+    expect(await state(`${tx}#0`, draft.id)).toEqual({ link: draft.id, locked: 1 });
+  });
+
+  it('ignores a reference to a thread outside Proposal Drafts and a mainnet URL on preprod', async () => {
+    const { topic: general } = await createTopic(env.DB, {
+      categorySlug: 'general', authorId: 'someone', title: 'General chat', bodyMd: 'x', bodyHtml: '<p>x</p>',
+      source: 'user', now: 1_700_000_000_000, rand: 'gg1',
+    });
+    const draft = await makeDraft('Mainnet only draft');
+    const { hash, fetchImpl } = anchorWithRefs([
+      `https://preprod.dreptalk.com/t/${general.slug}/`,
+      `https://dreptalk.com/t/${draft.slug}/`,
+    ]);
+    const tx = 'd2'.repeat(32);
+    await syncGovernanceActions({ koios: fakeKoios([row(tx, hash)]), db: env.DB, network: 'preprod', now: 1_700_000_000_000, rand: () => 'dd2', fetchImpl });
+    expect(await state(`${tx}#0`, draft.id)).toEqual({ link: null, locked: 0 });
+  });
+
+  it('links a deferred action only when its thread opens', async () => {
+    const draft = await makeDraft('Deferred draft');
+    const { hash, fetchImpl } = anchorWithRefs([`https://preprod.dreptalk.com/t/${draft.slug}/`]);
+    const tx = 'd3'.repeat(32);
+    const fetchFail: typeof fetch = async () => { throw new Error('gateway down'); };
+    await syncGovernanceActions({ koios: fakeKoios([row(tx, hash)]), db: env.DB, network: 'preprod', now: 1_700_000_000_000, rand: () => 'dd3', fetchImpl: fetchFail });
+    expect(await state(`${tx}#0`, draft.id)).toEqual({ link: null, locked: 0 });
+
+    await createDeferredGovTopics({ db: env.DB, network: 'preprod', now: 1_700_000_100_000, rand: () => 'dd4', fetchImpl, limit: 10 });
+    expect(await state(`${tx}#0`, draft.id)).toEqual({ link: draft.id, locked: 1 });
+  });
+
+  it('leaves the draft untouched when the metadata reread works but the thread open fails, and links on the retry', async () => {
+    const draft = await makeDraft('Retry draft');
+    const { hash, fetchImpl } = anchorWithRefs([`https://preprod.dreptalk.com/t/${draft.slug}/`]);
+    const tx = 'd5'.repeat(32);
+    const fetchFail: typeof fetch = async () => { throw new Error('gateway down'); };
+    await syncGovernanceActions({ koios: fakeKoios([row(tx, hash)]), db: env.DB, network: 'preprod', now: 1_700_000_000_000, rand: () => 'dd5', fetchImpl: fetchFail });
+
+    // A colliding slug suffix makes createTopic throw inside the open batch.
+    const { topic: blocker } = await createTopic(env.DB, {
+      categorySlug: 'general', authorId: 'x', title: 'Fund Community Tooling', bodyMd: 'x', bodyHtml: '<p>x</p>',
+      source: 'user', now: 1_700_000_000_000, rand: 'clash1',
+    });
+    expect(blocker.slug).toBe('fund-community-tooling-clash1');
+    await createDeferredGovTopics({ db: env.DB, network: 'preprod', now: 1_700_000_100_000, rand: () => 'clash1', fetchImpl, limit: 10 });
+    expect(await state(`${tx}#0`, draft.id)).toEqual({ link: null, locked: 0 });
+
+    await createDeferredGovTopics({ db: env.DB, network: 'preprod', now: 1_700_000_200_000, rand: () => 'ok1', fetchImpl, limit: 10 });
+    expect(await state(`${tx}#0`, draft.id)).toEqual({ link: draft.id, locked: 1 });
+  });
+
+  it('links an action that already has a thread on metadata re-extraction, and never moves the link', async () => {
+    const first = await makeDraft('First draft');
+    const second = await makeDraft('Second draft');
+    const tx = 'd6'.repeat(32);
+    const plain = anchorWithRefs([]);
+    await syncGovernanceActions({ koios: fakeKoios([row(tx, plain.hash)]), db: env.DB, network: 'preprod', now: 1_700_000_000_000, rand: () => 'dd6', fetchImpl: plain.fetchImpl });
+
+    const withFirst = anchorWithRefs([`https://preprod.dreptalk.com/t/${first.slug}/`]);
+    await env.DB.prepare('UPDATE governance_actions SET meta_version = 0, anchor_hash = ? WHERE id = ?').bind(withFirst.hash, `${tx}#0`).run();
+    await backfillActionMetadata({ db: env.DB, network: 'preprod', now: 1_700_000_100_000, fetchImpl: withFirst.fetchImpl, limit: 10 });
+    expect(await state(`${tx}#0`, first.id)).toEqual({ link: first.id, locked: 1 });
+
+    const withSecond = anchorWithRefs([`https://preprod.dreptalk.com/t/${second.slug}/`]);
+    await env.DB.prepare('UPDATE governance_actions SET meta_version = 0, anchor_hash = ? WHERE id = ?').bind(withSecond.hash, `${tx}#0`).run();
+    await backfillActionMetadata({ db: env.DB, network: 'preprod', now: 1_700_000_200_000, fetchImpl: withSecond.fetchImpl, limit: 10 });
+    expect(await state(`${tx}#0`, first.id)).toEqual({ link: first.id, locked: 1 });
+    expect(await state(`${tx}#0`, second.id)).toEqual({ link: first.id, locked: 0 });
+  });
+
+  it('opens the thread but does not link a rejected deferred action', async () => {
+    // A rejection normally needs an existing link, which needs a thread, so no
+    // regular path reaches a topic open with the flag set. The flag is set by
+    // hand here to pin the guard inside the topic-open batch, which must hold
+    // whatever state a manual D1 repair leaves behind.
+    const draft = await makeDraft('Rejected before open');
+    const { hash, fetchImpl } = anchorWithRefs([`https://preprod.dreptalk.com/t/${draft.slug}/`]);
+    const tx = 'd8'.repeat(32);
+    const fetchFail: typeof fetch = async () => { throw new Error('gateway down'); };
+    await syncGovernanceActions({ koios: fakeKoios([row(tx, hash)]), db: env.DB, network: 'preprod', now: 1_700_000_000_000, rand: () => 'dd8', fetchImpl: fetchFail });
+    await env.DB.prepare('UPDATE governance_actions SET draft_link_rejected = 1 WHERE id = ?').bind(`${tx}#0`).run();
+
+    await createDeferredGovTopics({ db: env.DB, network: 'preprod', now: 1_700_000_100_000, rand: () => 'dd9', fetchImpl, limit: 10 });
+    const opened = await env.DB.prepare('SELECT topic_id FROM governance_actions WHERE id = ?').bind(`${tx}#0`).first<{ topic_id: string | null }>();
+    expect(opened!.topic_id).not.toBeNull();
+    expect(await state(`${tx}#0`, draft.id)).toEqual({ link: null, locked: 0 });
+  });
+
+  it('does not relink a rejected action on re-extraction', async () => {
+    const draft = await makeDraft('Rejected draft');
+    const { hash, fetchImpl } = anchorWithRefs([`https://preprod.dreptalk.com/t/${draft.slug}/`]);
+    const tx = 'd7'.repeat(32);
+    await syncGovernanceActions({ koios: fakeKoios([row(tx, hash)]), db: env.DB, network: 'preprod', now: 1_700_000_000_000, rand: () => 'dd7', fetchImpl });
+    await unlinkDraftAction(env.DB, `${tx}#0`, draft.id);
+
+    await env.DB.prepare('UPDATE governance_actions SET meta_version = 0 WHERE id = ?').bind(`${tx}#0`).run();
+    await backfillActionMetadata({ db: env.DB, network: 'preprod', now: 1_700_000_100_000, fetchImpl, limit: 10 });
+    expect(await state(`${tx}#0`, draft.id)).toEqual({ link: null, locked: 0 });
   });
 });

@@ -67,13 +67,13 @@ function expectUniqueNames(defs: readonly { name: string }[]) {
 describe('governancePhases', () => {
   it('runs only discovery, notification dispatch, and cleanup phases on a light tick', () => {
     expect(activePhaseNames(governancePhases, govCtx(false))).toEqual([
-      'discovery', 'delegation-fanout', 'webpush', 'telegram', 'post-erasure', 'cip100',
+      'discovery', 'gov-deferred-topics', 'delegation-fanout', 'webpush', 'telegram', 'post-erasure', 'cip100',
     ]);
   });
 
   it('adds the tally/backfill/params phases in order on a heavy tick', () => {
     expect(activePhaseNames(governancePhases, govCtx(true))).toEqual([
-      'discovery', 'tallies', 'gov-status-times', 'voted-power',
+      'discovery', 'gov-deferred-topics', 'tallies', 'gov-status-times', 'voted-power',
       'threshold-backfill', 'metadata', 'gov-titles', 'post-dates', 'trending', 'params',
       'delegation-fanout', 'webpush', 'telegram', 'delegation-refresh', 'post-erasure', 'cip100',
     ]);
@@ -82,7 +82,7 @@ describe('governancePhases', () => {
   it('runs the surveys mirror only when the Tessera client is configured', () => {
     expect(activePhaseNames(governancePhases, govCtx(false))).not.toContain('surveys');
     expect(activePhaseNames(governancePhases, govCtx(false, { tessera: true }))).toEqual([
-      'discovery', 'surveys', 'delegation-fanout', 'webpush', 'telegram', 'post-erasure',
+      'discovery', 'gov-deferred-topics', 'surveys', 'delegation-fanout', 'webpush', 'telegram', 'post-erasure',
       'cip100',
     ]);
   });
@@ -93,7 +93,7 @@ describe('governancePhases', () => {
     expect(activePhaseNames(governancePhases, govCtx(true))).not.toContain('pin-gc');
     expect(activePhaseNames(governancePhases, govCtx(false, { pinGc: true }))).not.toContain('pin-gc');
     expect(activePhaseNames(governancePhases, govCtx(true, { pinGc: true }))).toEqual([
-      'discovery', 'tallies', 'gov-status-times', 'voted-power',
+      'discovery', 'gov-deferred-topics', 'tallies', 'gov-status-times', 'voted-power',
       'threshold-backfill', 'metadata', 'gov-titles', 'pin-gc', 'post-dates', 'trending', 'params',
       'delegation-fanout', 'webpush', 'telegram', 'delegation-refresh', 'post-erasure', 'cip100',
     ]);

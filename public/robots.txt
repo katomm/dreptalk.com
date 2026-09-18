@@ -8,12 +8,20 @@ Disallow: /imprint
 Disallow: /privacy
 
 # Share-preview cards under /og/ are generated on demand for social scrapers,
-# so a preview shows up when someone posts a link. Amazonbot crawls every page
-# and fetches the card each page points at, without ever displaying one, so it
-# is asked to skip them while the pages themselves stay crawlable. This group
-# repeats the default disallows, because a named group replaces the wildcard
-# group rather than adding to it.
+# so a preview shows up when someone posts a link. SEO and index crawlers fetch
+# the card every page points at without ever displaying one, so they are asked
+# to skip the cards while the pages themselves stay crawlable. Preview fetchers
+# (Twitterbot, facebookexternalhit, Slackbot, Discordbot, TelegramBot,
+# LinkedInBot) are deliberately not in this group. The group repeats the
+# default disallows, because a named group replaces the wildcard group rather
+# than adding to it.
+User-agent: AhrefsBot
+User-agent: SemrushBot
+User-agent: MJ12bot
+User-agent: DotBot
+User-agent: DataForSeoBot
 User-agent: Amazonbot
+User-agent: Amzn-SearchBot
 Disallow: /og/
 Disallow: /admin
 Disallow: /api

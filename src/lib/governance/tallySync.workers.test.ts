@@ -2,9 +2,9 @@
 // Tally/vote sync tests, run in real workerd via vitest-pool-workers.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { buildInsertGovernanceAction, getGovernanceActionByTopicId, getActionsNeedingVotedPower, markVotesSynced } from '../db/governance.js';
+import { buildInsertGovernanceAction, getGovernanceActionByTopicId, getActionsNeedingVotedPower, markBackfillAttempt, markVotesSynced } from '../db/governance.js';
 import { getVotesByGaId, recordLocalVote, getViewerVote, upsertVotes } from '../db/drepVotes.js';
-import { syncGovernanceTallies, syncGovernanceVotes, deriveStatus, backfillVotedPower, backfillFinalizedVotes, backfillGovStatusTimes, reconcilePendingVotes, backfillVoteMetaHashes, backfillThresholdSnapshots } from './tallySync.js';
+import { syncGovernanceTallies, syncGovernanceVotes, deriveStatus, backfillVotedPower, BACKFILL_RETRY_MS, backfillFinalizedVotes, backfillGovStatusTimes, reconcilePendingVotes, backfillVoteMetaHashes, backfillThresholdSnapshots } from './tallySync.js';
 import { activityInsert } from '../db/activity.js';
 import { getActionsNeedingVoteBackfill } from '../db/governance.js';
 import { getDrepVotingHistory, getVotesNeedingMetaHash } from '../db/drepVotes.js';
@@ -330,7 +330,7 @@ describe('syncGovernanceTallies', () => {
     // so votes cast between the last vote sync and the freeze are picked up.
     expect((await getGovernanceActionByTopicId(db(), a.topicId))!.status).toBe('expired');
     expect((await getGovernanceActionByTopicId(db(), b.topicId))!.status).toBe('active');
-    const queued = await getActionsNeedingVoteBackfill(db(), 10);
+    const queued = await getActionsNeedingVoteBackfill(db(), 10, NOW);
     expect(queued.map((g) => g.id)).toContain(a.id);
     expect(queued.map((g) => g.id)).not.toContain(b.id);
   });
@@ -442,7 +442,7 @@ describe('syncGovernanceTallies re-syncs ratified actions until enacted', () => 
     expect(got.drepNo).toBe(5); // frozen tally left intact (no re-fetch)
     // The status-only re-check must NOT null votes_synced_at: re-queuing an
     // already-pulled finalised vote list every run would be wasteful.
-    const queued = await getActionsNeedingVoteBackfill(db(), 50);
+    const queued = await getActionsNeedingVoteBackfill(db(), 50, NOW);
     expect(queued.map((g) => g.id)).not.toContain(a.id);
   });
 
@@ -686,7 +686,7 @@ describe('backfillVotedPower', () => {
       },
     };
 
-    const result = await backfillVotedPower({ koios, db: db(), limit: 10 });
+    const result = await backfillVotedPower({ koios, db: db(), limit: 10, now: NOW });
     expect(result.scanned).toBe(2);
     expect(result.updated).toBe(2);
     expect(result.failed).toBe(0);
@@ -715,7 +715,7 @@ describe('backfillVotedPower', () => {
       },
     };
 
-    const result = await backfillVotedPower({ koios, db: db(), limit: 1 });
+    const result = await backfillVotedPower({ koios, db: db(), limit: 1, now: NOW });
     expect(result.scanned).toBe(1);
     expect(result.updated).toBe(1);
   });
@@ -739,8 +739,8 @@ describe('backfillVotedPower', () => {
       },
     };
 
-    await backfillVotedPower({ koios, db: db(), limit: 10 });
-    const second = await backfillVotedPower({ koios, db: db(), limit: 10 });
+    await backfillVotedPower({ koios, db: db(), limit: 10, now: NOW });
+    const second = await backfillVotedPower({ koios, db: db(), limit: 10, now: NOW });
 
     // The terminal from this test is now filled; it falls out of the candidate set.
     const got = await getGovernanceActionByTopicId(db(), t.topicId);
@@ -764,7 +764,7 @@ describe('backfillVotedPower', () => {
       .bind(SUMMED_VOTED_POWER, 29497454745, 3536695673892, 0, 0, 0, 0, 0, ga.id)
       .run();
 
-    const needing = await getActionsNeedingVotedPower(db(), 10);
+    const needing = await getActionsNeedingVotedPower(db(), 10, NOW);
     expect(needing.map((g) => g.id)).toContain(ga.id);
 
     const withDefaults: VotingSummary = {
@@ -781,7 +781,7 @@ describe('backfillVotedPower', () => {
       },
     };
 
-    const result = await backfillVotedPower({ koios, db: db(), limit: 10 });
+    const result = await backfillVotedPower({ koios, db: db(), limit: 10, now: NOW });
     expect(result.updated).toBe(1);
 
     const got = await getGovernanceActionByTopicId(db(), ga.topicId);
@@ -801,7 +801,7 @@ describe('backfillVotedPower', () => {
       },
     };
 
-    const result = await backfillVotedPower({ koios, db: db(), limit: 10 });
+    const result = await backfillVotedPower({ koios, db: db(), limit: 10, now: NOW });
     // Scanned includes the candidate; failed counts the error; updated stays 0.
     expect(result.scanned).toBeGreaterThanOrEqual(1);
     expect(result.failed).toBeGreaterThanOrEqual(1);
@@ -810,9 +810,84 @@ describe('backfillVotedPower', () => {
     const got = await getGovernanceActionByTopicId(db(), t.topicId);
     expect(got!.drepVotedPower).toBeNull();
   });
+
+  // These compare the ids a run asked Koios for rather than the run totals, so
+  // they hold whatever else sits in the candidate set.
+  function recordingKoios(answer: (pid: string) => VotingSummary | null) {
+    const asked: string[] = [];
+    return {
+      asked,
+      async proposalVotingSummary(pid: string): Promise<VotingSummary | null> {
+        asked.push(pid);
+        return answer(pid);
+      },
+    };
+  }
+
+  // The base summary carries no default-option or No-side fields, so a row it
+  // fills keeps drep_always_abstain_power NULL and stays a candidate.
+  it.each([
+    ['fails', () => { throw new Error('timeout'); }],
+    ['has no summary', () => null],
+    ['leaves a power column empty', () => summary],
+  ] as const)('rests an action whose Koios request %s for the retry window, then asks again', async (_case, answer) => {
+    const t = await insertTerminal('expired');
+    const first = recordingKoios((pid) => (pid === t.proposalId ? answer() : summary));
+    await backfillVotedPower({ koios: first, db: db(), limit: 1000, now: NOW });
+    expect(first.asked).toContain(t.proposalId);
+
+    const inside = recordingKoios(() => summary);
+    await backfillVotedPower({ koios: inside, db: db(), limit: 1000, now: NOW + BACKFILL_RETRY_MS - 1 });
+    expect(inside.asked).not.toContain(t.proposalId);
+
+    const after = recordingKoios(() => summary);
+    await backfillVotedPower({ koios: after, db: db(), limit: 1000, now: NOW + BACKFILL_RETRY_MS });
+    expect(after.asked).toContain(t.proposalId);
+  });
+
+  it('puts never-attempted actions ahead of attempted ones, so failures cannot fill the limit', async () => {
+    const stuck = await insertTerminal('expired');
+    await markBackfillAttempt(db(), 'votedPower', stuck.id, NOW - 10_000);
+    const fresh = await insertTerminal('expired');
+
+    const needing = await getActionsNeedingVotedPower(db(), 1000, NOW);
+    const ids = needing.map((g) => g.id);
+    expect(ids).toContain(stuck.id);
+    expect(ids.indexOf(fresh.id)).toBeLessThan(ids.indexOf(stuck.id));
+  });
 });
 
 describe('backfillFinalizedVotes', () => {
+  it('rests an action whose vote list fails for the retry window, then asks again', async () => {
+    await env.DB.prepare(
+      `INSERT INTO governance_actions (id, type, title, status, proposal_id, topic_id, created_at, last_synced_at)
+       VALUES ('gaRest', 'InfoAction', 'Timing Out', 'expired', 'propRest', NULL, 0, 0)`,
+    ).run();
+    const asked: string[] = [];
+    const koios = (fail: boolean) => ({
+      proposalVotes: async (pid: string) => {
+        asked.push(pid);
+        if (fail && pid === 'propRest') throw new Error('timeout');
+        return [];
+      },
+      poolInfoBatch: async () => [],
+    });
+
+    const first = await backfillFinalizedVotes({ koios: koios(true), db: env.DB, now: NOW, limit: 1000 });
+    expect(first.failed).toBeGreaterThanOrEqual(1);
+    expect(asked).toContain('propRest');
+
+    asked.length = 0;
+    await backfillFinalizedVotes({ koios: koios(false), db: env.DB, now: NOW + BACKFILL_RETRY_MS - 1, limit: 1000 });
+    expect(asked).not.toContain('propRest');
+
+    await backfillFinalizedVotes({ koios: koios(false), db: env.DB, now: NOW + BACKFILL_RETRY_MS, limit: 1000 });
+    expect(asked).toContain('propRest');
+    expect(await getActionsNeedingVoteBackfill(env.DB, 1000, NOW + 2 * BACKFILL_RETRY_MS)).not.toContainEqual(
+      expect.objectContaining({ id: 'gaRest' }),
+    );
+  });
+
   it('pulls votes for a finalised action, writes them, and marks it synced', async () => {
     await env.DB.prepare(
       `INSERT INTO governance_actions (id, type, title, status, proposal_id, topic_id, created_at, last_synced_at)
@@ -830,7 +905,7 @@ describe('backfillFinalizedVotes', () => {
     expect(r.votes).toBe(1);
 
     expect(await getDrepVotingHistory(env.DB, 'drepH', {})).toHaveLength(1);
-    expect(await getActionsNeedingVoteBackfill(env.DB, 10)).toEqual([]); // now marked synced
+    expect(await getActionsNeedingVoteBackfill(env.DB, 10, NOW)).toEqual([]); // now marked synced
   });
 
   it('caps a pathological finalised vote list and still marks the action synced', async () => {
@@ -858,7 +933,7 @@ describe('backfillFinalizedVotes', () => {
     expect(calls).toBe(3); // bounded; did not run away
     expect(r.votes).toBe(60);
     // Marked synced despite the cap, so it cannot stall the backfill every run.
-    expect(await getActionsNeedingVoteBackfill(env.DB, 10)).toEqual([]);
+    expect(await getActionsNeedingVoteBackfill(env.DB, 10, NOW)).toEqual([]);
   });
 
   it('never emits a fan-out job, even when followedDrepIds is present in deps', async () => {
@@ -1313,7 +1388,7 @@ describe('backfillThresholdSnapshots', () => {
     const a2 = await terminal(600, 606); // same boundary -> epoch_params cached
 
     const koios = fakeKoios();
-    const res = await backfillThresholdSnapshots({ koios, db: db(), limit: 10 });
+    const res = await backfillThresholdSnapshots({ koios, db: db(), now: NOW, limit: 10 });
     expect(res.actions).toBe(2);
     expect(res.failed).toBe(0);
 
@@ -1330,7 +1405,7 @@ describe('backfillThresholdSnapshots', () => {
     expect(koios.calls.filter((e) => e === 600)).toHaveLength(1);
 
     // Fully drained: a second run finds nothing.
-    const second = await backfillThresholdSnapshots({ koios: fakeKoios(), db: db(), limit: 10 });
+    const second = await backfillThresholdSnapshots({ koios: fakeKoios(), db: db(), now: NOW, limit: 10 });
     expect(second.actions).toBe(0);
   });
 
@@ -1338,7 +1413,7 @@ describe('backfillThresholdSnapshots', () => {
     await upsertProtocolParams(db(), params);
     await seedCommittee(6);
     const a = await terminal(null, null);
-    const res = await backfillThresholdSnapshots({ koios: fakeKoios(), db: db(), limit: 10 });
+    const res = await backfillThresholdSnapshots({ koios: fakeKoios(), db: db(), now: NOW, limit: 10 });
     expect(res.actions).toBe(1);
     const s = await snapOf(a.topicId);
     expect(s?.ccBelowMinSize).toBeNull();
@@ -1356,13 +1431,16 @@ describe('backfillThresholdSnapshots', () => {
         return answer ? { epoch_no: epochNo ?? null, committee_min_size: 5 } : null;
       },
     };
-    const first = await backfillThresholdSnapshots({ koios, db: db(), limit: 10 });
+    const first = await backfillThresholdSnapshots({ koios, db: db(), now: NOW, limit: 10 });
     expect(first.actions).toBe(0);
     expect(first.failed).toBe(0);
     expect(await snapOf(a.topicId)).toBeNull(); // left for a later run, not frozen on a gap
 
     answer = true;
-    const second = await backfillThresholdSnapshots({ koios, db: db(), limit: 10 });
+    // A deferral rests the action like a failure, so a run inside the window skips it.
+    const inside = await backfillThresholdSnapshots({ koios, db: db(), now: NOW + BACKFILL_RETRY_MS - 1, limit: 10 });
+    expect(inside.actions).toBe(0);
+    const second = await backfillThresholdSnapshots({ koios, db: db(), now: NOW + BACKFILL_RETRY_MS, limit: 10 });
     expect(second.actions).toBe(1);
     const s = await snapOf(a.topicId);
     expect(s?.ccGate).toEqual({ boundaryEpoch: 650, sizeAtBoundary: 6, minSize: 5, minSizeSource: 'epoch-params' });
@@ -1373,7 +1451,32 @@ describe('backfillThresholdSnapshots', () => {
   it('skips the run (drains nothing) when protocol params are not synced', async () => {
     await seedCommittee(6);
     await terminal(600, 605); // no upsertProtocolParams
-    const res = await backfillThresholdSnapshots({ koios: fakeKoios(), db: db(), limit: 10 });
+    const res = await backfillThresholdSnapshots({ koios: fakeKoios(), db: db(), now: NOW, limit: 10 });
     expect(res.actions).toBe(0);
+  });
+
+  it('rests an action whose Koios read fails for the retry window, then asks again', async () => {
+    await upsertProtocolParams(db(), params);
+    await seedCommittee(6);
+    const a = await terminal(610, 615);
+    const failing = {
+      async epochParams(epochNo?: number): Promise<EpochParamsRow | null> {
+        if (epochNo === 610) throw new Error('timeout');
+        return { epoch_no: epochNo ?? null, committee_min_size: 5 };
+      },
+    };
+    const first = await backfillThresholdSnapshots({ koios: failing, db: db(), now: NOW, limit: 10 });
+    expect(first.failed).toBe(1);
+
+    const inside = fakeKoios();
+    await backfillThresholdSnapshots({ koios: inside, db: db(), now: NOW + BACKFILL_RETRY_MS - 1, limit: 10 });
+    expect(inside.calls).not.toContain(610);
+    expect(await snapOf(a.topicId)).toBeNull();
+
+    const after = fakeKoios();
+    const res = await backfillThresholdSnapshots({ koios: after, db: db(), now: NOW + BACKFILL_RETRY_MS, limit: 10 });
+    expect(after.calls).toContain(610);
+    expect(res.actions).toBe(1);
+    expect((await snapOf(a.topicId))?.v).toBe(3);
   });
 });

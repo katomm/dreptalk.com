@@ -17,7 +17,7 @@ import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import { formatRelativeTime, truncateId } from '@/lib/forum/view.js';
 import { statusBadge, tallyBar, epochCountdown, fmtPct, TONE_COLORS } from '@/lib/governance/view.js';
 import { resolveNetwork, epochStartMs, type CardanoNetwork } from '@/lib/config/network.js';
-import { MESSAGE_PATH, USERS_PATH, topicTypeIconPath } from '@/lib/forum/icons.js';
+import { LOCK_PATH, MESSAGE_PATH, PIN_PATH, USERS_PATH, topicTypeIconPath } from '@/lib/forum/icons.js';
 
 interface Props {
   topic: Topic;
@@ -71,13 +71,13 @@ const gaCountdown = governance
     <div class="topic-row__titleline">
       {topic.pinned && (
         <>
-          <span aria-hidden="true" title="Pinned" class="topic-row__glyph topic-row__glyph--pin">&#128204;</span>
+          <svg class="topic-row__glyph topic-row__glyph--pin" aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><title>Pinned</title><path d={PIN_PATH} /></svg>
           <span class="sr-only">Pinned. </span>
         </>
       )}
       {topic.locked && (
         <>
-          <span aria-hidden="true" title="Locked" class="topic-row__glyph">&#128274;</span>
+          <svg class="topic-row__glyph" aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><title>Locked</title><path d={LOCK_PATH} /></svg>
           <span class="sr-only">Locked. </span>
         </>
       )}
@@ -187,7 +187,7 @@ const gaCountdown = governance
     align-items: center;
     flex-wrap: wrap;
   }
-  .topic-row__glyph { flex-shrink: 0; font-size: 0.8125rem; color: var(--muted); }
+  .topic-row__glyph { flex-shrink: 0; color: var(--muted); }
   .topic-row__glyph--pin { color: var(--accent); }
   .topic-row__title { font-weight: 500; text-decoration: none; color: var(--fg); }
   .topic-row__title:hover { text-decoration: underline; }

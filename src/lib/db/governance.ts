@@ -71,7 +71,8 @@ export interface NewGovernanceAction {
   onchainPayload?: string | null;
   /** Metadata-extraction version used when writing title/abstract/rationale_html. */
   metaVersion: number;
-  topicId: string;
+  /** Null while the action waits for a readable anchor before its thread opens. */
+  topicId: string | null;
   now: number;
 }
 
@@ -209,6 +210,10 @@ export interface GovernanceAction {
    */
   metaAttempts: number;
   topicId: string | null;
+  /** Proposal Drafts thread this action was linked to via its references, or null. */
+  draftTopicId: string | null;
+  /** The draft's author unlinked this action, so it never links again. */
+  draftLinkRejected: boolean;
   createdAt: number;
   lastSyncedAt: number;
   /** Materialized trending sort key (gov-sync cron); null until first refreshed. */
@@ -273,6 +278,8 @@ interface GovernanceActionRow {
   meta_version: number;
   meta_attempts: number;
   topic_id: string | null;
+  draft_topic_id: string | null;
+  draft_link_rejected: number;
   created_at: number;
   last_synced_at: number;
   trending_score: number | null;
@@ -384,6 +391,8 @@ function rowToGovernanceAction(r: GovernanceActionRow): GovernanceAction {
     metaVersion: r.meta_version,
     metaAttempts: r.meta_attempts ?? 0,
     topicId: r.topic_id,
+    draftTopicId: r.draft_topic_id ?? null,
+    draftLinkRejected: r.draft_link_rejected === 1,
     createdAt: r.created_at,
     lastSyncedAt: r.last_synced_at,
     trendingScore: r.trending_score,
@@ -741,6 +750,47 @@ export async function batchUpdateTrendingScores(
 }
 
 /**
+ * Attempt-clock column per governance_actions backfill that rotates its
+ * candidates. Each backfill has its own clock, so a failure in one pass never
+ * rests an action for another.
+ */
+const BACKFILL_ATTEMPT_COLUMNS = {
+  votedPower: 'voted_power_attempted_at',
+  thresholds: 'thresholds_attempted_at',
+  finalizedVotes: 'votes_backfill_attempted_at',
+} as const;
+
+export type GovernanceBackfill = keyof typeof BACKFILL_ATTEMPT_COLUMNS;
+
+/**
+ * The candidate filter and ordering shared by the rotating backfills: an action
+ * attempted after the bound retry-before timestamp (unix ms) is left out, and
+ * never-attempted actions come first, so one Koios cannot answer for is retried
+ * once per window instead of on every tick, and a pile of those can never fill
+ * the whole limit ahead of actions that would succeed. Binds one parameter.
+ */
+function backfillRotation(backfill: GovernanceBackfill): { where: string; orderBy: string } {
+  const column = BACKFILL_ATTEMPT_COLUMNS[backfill];
+  return {
+    where: `(${column} IS NULL OR ${column} <= ?)`,
+    orderBy: `ORDER BY ${column} ASC NULLS FIRST, id`,
+  };
+}
+
+/** Stamps a backfill attempt at an action, the clock its candidate query's retry window runs on. */
+export async function markBackfillAttempt(
+  db: D1Database,
+  backfill: GovernanceBackfill,
+  id: string,
+  attemptedAt: number,
+): Promise<void> {
+  await db
+    .prepare(`UPDATE governance_actions SET ${BACKFILL_ATTEMPT_COLUMNS[backfill]} = ? WHERE id = ?`)
+    .bind(attemptedAt, id)
+    .run();
+}
+
+/**
  * Terminal actions still missing power data: the turnout sum (drep_voted_power),
  * the per-option power buckets (drep_yes_power), the eligible SPO stake
  * (spo_eligible_power), or the default-option power buckets
@@ -751,9 +801,15 @@ export async function batchUpdateTrendingScores(
  * always-no-confidence double count was removed from that sum. The last two
  * clauses each re-queue every terminal action exactly once when their column is
  * first introduced (draining at the backfill's existing per-run budget). Bounded
- * by `limit` so a cron tick stays within Koios/subrequest budgets.
+ * by `limit` so a cron tick stays within Koios/subrequest budgets, and rotated
+ * by `retryBefore` (unix ms) as described at backfillRotation.
  */
-export async function getActionsNeedingVotedPower(db: D1Database, limit: number): Promise<GovernanceAction[]> {
+export async function getActionsNeedingVotedPower(
+  db: D1Database,
+  limit: number,
+  retryBefore: number,
+): Promise<GovernanceAction[]> {
+  const rotation = backfillRotation('votedPower');
   const rows = (
     await db
       .prepare(
@@ -762,9 +818,11 @@ export async function getActionsNeedingVotedPower(db: D1Database, limit: number)
            AND (drep_voted_power IS NULL OR drep_yes_power IS NULL OR spo_eligible_power IS NULL
                 OR drep_always_abstain_power IS NULL OR drep_no_side_power IS NULL)
            AND status NOT IN ('active', 'pending')
+           AND ${rotation.where}
+         ${rotation.orderBy}
          LIMIT ?`,
       )
-      .bind(limit)
+      .bind(retryBefore, limit)
       .all<GovernanceActionRow>()
   ).results ?? [];
   return rows.map(rowToGovernanceAction);
@@ -902,7 +960,10 @@ export async function updateVotedPower(db: D1Database, id: string, p: VotePowerF
  * such a row is stamped at the current version with empty metadata, so the
  * version check alone would never revisit it. Rows that have failed
  * re-extraction maxAttempts times are excluded: their anchor is treated as
- * permanently dead so the backfill stops retrying it every run.
+ * permanently dead so the backfill stops retrying it every run. Actions still
+ * waiting for their thread (topic_id IS NULL) are excluded too: createDeferredGovTopics
+ * re-reads those anchors itself, and a second reader would fetch the same document
+ * twice per run and double-spend the shared meta_attempts budget.
  */
 export async function getActionsNeedingMetaReextract(
   db: D1Database,
@@ -914,13 +975,40 @@ export async function getActionsNeedingMetaReextract(
     await db
       .prepare(
         `SELECT * FROM governance_actions
-         WHERE anchor_url IS NOT NULL AND (meta_version < ? OR anchor_status != 'ok') AND meta_attempts < ?
+         WHERE anchor_url IS NOT NULL AND topic_id IS NOT NULL
+           AND (meta_version < ? OR anchor_status != 'ok') AND meta_attempts < ?
          LIMIT ?`,
       )
       .bind(currentVersion, maxAttempts, limit)
       .all<GovernanceActionRow>()
   ).results ?? [];
   return rows.map(rowToGovernanceAction);
+}
+
+/**
+ * Actions discovered without a thread yet: the anchor was unreadable at
+ * discovery, so opening the thread (and freezing its title-derived slug on a
+ * fallback title) was deferred.
+ */
+export async function getActionsAwaitingTopic(db: D1Database, limit: number): Promise<GovernanceAction[]> {
+  const rows = (
+    await db
+      .prepare('SELECT * FROM governance_actions WHERE topic_id IS NULL LIMIT ?')
+      .bind(limit)
+      .all<GovernanceActionRow>()
+  ).results ?? [];
+  return rows.map(rowToGovernanceAction);
+}
+
+/**
+ * Attaches a freshly created topic to its action, as a prepared statement so it
+ * commits in the same batch as the topic and its first post. The topic_id guard
+ * makes a concurrent second run a no-op instead of a silent re-point.
+ */
+export function buildAttachActionTopic(db: D1Database, id: string, topicId: string): D1PreparedStatement {
+  return db
+    .prepare('UPDATE governance_actions SET topic_id = ? WHERE id = ? AND topic_id IS NULL')
+    .bind(topicId, id);
 }
 
 /** Records one failed metadata re-extraction attempt; drives the give-up cap. */
@@ -956,18 +1044,26 @@ export async function countGivenUpMetaActions(
  * Finalised actions whose full per-voter vote list has never been synced
  * (votes_synced_at IS NULL) and that have a proposal id to query. Active/pending
  * actions are covered by the live vote sync, so they are excluded here. Bounded
- * by `limit` so a cron tick stays within Koios/subrequest budgets.
+ * by `limit` so a cron tick stays within Koios/subrequest budgets, and rotated by
+ * `retryBefore` (unix ms) as described at backfillRotation.
  */
-export async function getActionsNeedingVoteBackfill(db: D1Database, limit: number): Promise<GovernanceAction[]> {
+export async function getActionsNeedingVoteBackfill(
+  db: D1Database,
+  limit: number,
+  retryBefore: number,
+): Promise<GovernanceAction[]> {
+  const rotation = backfillRotation('finalizedVotes');
   const rows = (
     await db
       .prepare(
         `SELECT * FROM governance_actions
          WHERE status NOT IN ('active', 'pending')
            AND proposal_id IS NOT NULL AND votes_synced_at IS NULL
+           AND ${rotation.where}
+         ${rotation.orderBy}
          LIMIT ?`,
       )
-      .bind(limit)
+      .bind(retryBefore, limit)
       .all<GovernanceActionRow>()
   ).results ?? [];
   return rows.map(rowToGovernanceAction);
@@ -981,13 +1077,16 @@ export async function markVotesSynced(db: D1Database, id: string, now: number): 
 /**
  * Terminal actions (Info actions excluded, they have no on-chain threshold) whose
  * frozen threshold snapshot is missing or predates `version`. Drives the one-time
- * backfill that fills the CC quorum gate for pre-existing actions. Bounded by `limit`.
+ * backfill that fills the CC quorum gate for pre-existing actions. Bounded by `limit`
+ * and rotated by `retryBefore` (unix ms) as described at backfillRotation.
  */
 export async function getActionsNeedingThresholdSnapshot(
   db: D1Database,
   version: number,
   limit: number,
+  retryBefore: number,
 ): Promise<GovernanceAction[]> {
+  const rotation = backfillRotation('thresholds');
   const rows = (
     await db
       .prepare(
@@ -997,9 +1096,11 @@ export async function getActionsNeedingThresholdSnapshot(
            AND (thresholds_json IS NULL
                 OR json_extract(thresholds_json, '$.v') IS NULL
                 OR json_extract(thresholds_json, '$.v') < ?)
+           AND ${rotation.where}
+         ${rotation.orderBy}
          LIMIT ?`,
       )
-      .bind(version, limit)
+      .bind(version, retryBefore, limit)
       .all<GovernanceActionRow>()
   ).results ?? [];
   return rows.map(rowToGovernanceAction);
@@ -1237,6 +1338,8 @@ export async function updateActionMetadata(
     references: AnchorReference[] | null;
     metaVersion: number;
   },
+  /** Statements committed in the same batch, e.g. the Proposal Drafts link. */
+  extra: D1PreparedStatement[] = [],
 ): Promise<void> {
   // Only ever called after a successful, hash-verified extraction, so the row
   // settles as anchor_status 'ok'. This is essential for rows recovered from a
@@ -1244,7 +1347,7 @@ export async function updateActionMetadata(
   // predicate would re-fetch them on every run forever. A successful extract also
   // clears meta_attempts so a future version bump starts this row's retry budget
   // fresh (a past dead spell must not count against it).
-  await db
+  const update = db
     .prepare(
       "UPDATE governance_actions SET title = ?, abstract = ?, rationale_html = ?, authors = ?, references_json = ?, anchor_status = 'ok', meta_version = ?, meta_attempts = 0 WHERE id = ?",
     )
@@ -1256,8 +1359,8 @@ export async function updateActionMetadata(
       m.references ? JSON.stringify(m.references) : null,
       m.metaVersion,
       id,
-    )
-    .run();
+    );
+  await db.batch([update, ...extra]);
 }
 
 // The tally + pct + epoch fields a sync writes: a subset of GovernanceAction, so

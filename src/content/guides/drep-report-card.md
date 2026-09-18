@@ -4,7 +4,7 @@ description: "What the participation percentile, rationale coverage, vote timing
 cardLabel: "Governance record"
 category: "Understanding governance"
 order: 92
-updated: 2026-09-02
+updated: 2026-09-18
 faqs:
   - q: "Why does one DRep show percentiles and another none?"
     a: "Percentiles need a fair comparison basis. A DRep with fewer than five eligible actions, or one that is not currently active, has no cohort to be measured against, so the card shows its plain numbers without a percentile rather than one drawn from too small or too uneven a group."
@@ -36,18 +36,8 @@ This number describes a style, not a quality. Earlier is not better. A DRep that
 
 ## Power and delegator trend
 
-The trend chart on a profile reaches all the way back to the start of the DRep era, epoch 508 on mainnet, so it shows a DRep's full history of delegated voting power rather than a recent window. Delegator counts on the same chart start later. They exist only from the epoch DRepTalk began observing them, so that line begins partway through the chart instead of implying a count that was never actually recorded. As more epochs pass, both lines simply get longer.
+The trend chart on a profile shows a DRep's delegated voting power over the latest 16 epochs, about 80 days. Delegator counts on the same chart can start later. They exist only from the epoch DRepTalk began observing them, so that line may begin partway through the chart instead of implying a count that was never actually recorded.
 
 ## For DRep owners
 
 Signed-in DReps can access a [private detail page](/my-governance-record/) showing the complete data behind the governance record card. The page displays the full distributions underlying your participation and rationale percentiles, lists eligible actions you have not yet voted on, shows votes without a published rationale, and compares your voting timing pattern to the network median. The page is private to you, but every underlying fact is public blockchain data.
-
-## Frequently asked questions
-
-### Why does one DRep show percentiles and another none?
-
-Percentiles need a fair comparison basis. A DRep with fewer than five eligible actions, or one that is not currently active, has no cohort to be measured against, so the card shows its plain numbers without a percentile rather than one drawn from too small or too uneven a group.
-
-### Is a low vote-timing day better?
-
-No. The median day describes when a DRep tends to vote, not how well. Voting late in a window can reflect waiting for discussion to develop, and voting early can reflect a firm existing position. Neither pattern is scored.

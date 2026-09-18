@@ -85,4 +85,62 @@ describe('action_rationale', () => {
     expect(ids).toContain('drep1big');
     expect(ids).not.toContain('drep1small'); // below threshold
   });
+
+  it('retries a failed fetch after a wait that grows with every attempt', async () => {
+    const ga = `${'6'.repeat(63)}f#0`;
+    const MIN = 60 * 1000;
+    const HOUR = 60 * MIN;
+    await env.DB.batch([
+      env.DB.prepare(`INSERT OR REPLACE INTO dreps (drep_id, hex, voting_power, status, last_synced_at, created_at) VALUES ('drep1retry','ad','5000000000000','active',0,0)`),
+      env.DB.prepare(`INSERT OR REPLACE INTO drep_votes (ga_id, voter_role, voter_id, vote, meta_url, meta_hash, block_time, synced_at) VALUES (?,?,?,?,?,?,?,?)`).bind(ga, 'DRep', 'drep1retry', 'Yes', 'ipfs://fresh', 'ab'.repeat(32), 1700000000, 1700000100),
+    ]);
+    const queued = async (now: number) =>
+      (await getRationaleFetchQueue(env.DB, { minPower: 1_000_000_000_000, limit: 50, now })).some((j) => j.voterId === 'drep1retry');
+    const fail = (now: number) =>
+      upsertActionRationale(env.DB, { gaId: ga, voterId: 'drep1retry', bodyHtml: null, source: 'onchain', anchorUrl: 'ipfs://fresh', status: 'failed', createdAt: 1, now });
+
+    // Each retry runs as soon as it is due and fails again.
+    const steps: Array<[number, number]> = [
+      [29 * MIN, 31 * MIN], // after attempt 1: half an hour, not a day
+      [2 * HOUR, 3 * HOUR + MIN], // after attempt 2: three hours
+      [23 * HOUR, 24 * HOUR + MIN], // after attempt 3: a day
+      [23 * HOUR, 24 * HOUR + MIN], // after attempt 4: a day
+    ];
+    let t = 1_800_000_000_000;
+    for (const [early, due] of steps) {
+      await fail(t);
+      expect(await queued(t + early)).toBe(false);
+      expect(await queued(t + due)).toBe(true);
+      t += due;
+    }
+    // Attempt 5 failed: retries are exhausted.
+    await fail(t);
+    expect(await queued(t + 30 * 24 * HOUR)).toBe(false);
+  });
+
+  it('fetches new anchors before long-failing ones, then by power', async () => {
+    const ga = `${'5'.repeat(63)}a#0`;
+    const now = 1_900_000_000_000;
+    const DAY = 24 * 60 * 60 * 1000;
+    const seedDrep = (id: string, power: string) =>
+      env.DB.prepare(`INSERT OR REPLACE INTO dreps (drep_id, hex, voting_power, status, last_synced_at, created_at) VALUES (?,?,?,'active',0,0)`).bind(id, `${id}-hex`, power);
+    const seedVote = (id: string) =>
+      env.DB.prepare(`INSERT OR REPLACE INTO drep_votes (ga_id, voter_role, voter_id, vote, meta_url, meta_hash, block_time, synced_at) VALUES (?,?,?,?,?,?,?,?)`).bind(ga, 'DRep', id, 'Yes', `ipfs://${id}`, 'ab'.repeat(32), 1700000000, 1700000100);
+    await env.DB.batch([
+      seedDrep('drep1stale', '9000000000000'), seedVote('drep1stale'),
+      seedDrep('drep1early', '8000000000000'), seedVote('drep1early'),
+      seedDrep('drep1freshbig', '7000000000000'), seedVote('drep1freshbig'),
+      seedDrep('drep1freshsmall', '6000000000000'), seedVote('drep1freshsmall'),
+    ]);
+    const fail = (id: string, times: number) =>
+      env.DB
+        .prepare(`INSERT OR REPLACE INTO action_rationale (ga_id, voter_id, body_html, body_text, source, anchor_url, status, attempts, created_at, fetched_at) VALUES (?,?,NULL,'','onchain',?,'failed',?,1,?)`)
+        .bind(ga, id, `ipfs://${id}`, times, now - 2 * DAY)
+        .run();
+    await fail('drep1stale', 4);
+    await fail('drep1early', 1);
+    const jobs = await getRationaleFetchQueue(env.DB, { minPower: 1_000_000_000_000, limit: 50, now });
+    const order = jobs.map((j) => j.voterId).filter((id) => ['drep1stale', 'drep1early', 'drep1freshbig', 'drep1freshsmall'].includes(id));
+    expect(order).toEqual(['drep1freshbig', 'drep1freshsmall', 'drep1early', 'drep1stale']);
+  });
 });

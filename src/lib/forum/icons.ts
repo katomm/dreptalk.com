@@ -15,6 +15,10 @@ export function topicTypeIconPath(source: Topic['source']): string {
   if (source === 'survey') return CHECKLIST_PATH;
   return MESSAGE_PATH;
 }
+// Topic state glyphs for the list rows: padlock (locked) and push pin (pinned).
+export const LOCK_PATH = 'M5 11h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2z M7 11V7a5 5 0 0 1 10 0v4';
+export const PIN_PATH =
+  'M12 17v5 M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z';
 // A "people" glyph for the participants count in the compact meta line.
 export const USERS_PATH = 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M12 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75';
 // The shield outline used across the governance UI (hero feature row, category

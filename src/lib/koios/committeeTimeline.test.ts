@@ -5,6 +5,7 @@ import {
   committeeBoundaryForAction,
   committeeCoversBoundary,
   committeeStanding,
+  committeeTimelineDrift,
   decisionBoundaryEpoch,
   versionCovers,
   type CommitteeMemberTerm,
@@ -74,6 +75,32 @@ describe('committeeCoversBoundary', () => {
     expect(committeeCoversBoundary(seed, 300)).toBe(false);
     expect(committeeCoversBoundary(seed, 507)).toBe(true);
     expect(committeeCoversBoundary(seed, 602)).toBe(false); // the seed above stops at version 581 to 601
+  });
+});
+
+describe('committeeTimelineDrift', () => {
+  // A closed version, and the current one with a hot key registered inside
+  // epoch 654 and a resigned seat.
+  const members: CommitteeMemberTerm[] = [
+    { coldKeyHex: 'old', versionFrom: 602, versionTo: 653, termExpiration: 653, authorizedFrom: 582, resignedAt: null },
+    { coldKeyHex: 'kept', versionFrom: 654, versionTo: null, termExpiration: 726, authorizedFrom: 582, resignedAt: null },
+    { coldKeyHex: 'new', versionFrom: 654, versionTo: null, termExpiration: 799, authorizedFrom: 654, resignedAt: null },
+    { coldKeyHex: 'gone', versionFrom: 654, versionTo: null, termExpiration: 799, authorizedFrom: 582, resignedAt: 654 },
+  ];
+
+  it('is quiet when the timeline seats the live size, counting a hot key registered inside the epoch', () => {
+    expect(committeeTimelineDrift(members, 2, 654)).toBeNull();
+    expect(committeeTimelineDrift(members, 1, 653)).toBeNull(); // old version, term still counts in its expiration epoch
+  });
+
+  it('reports both sizes when a committee change is not seeded yet', () => {
+    expect(committeeTimelineDrift(members, 4, 655)).toEqual({ liveSize: 4, timelineSize: 2 });
+  });
+
+  it('returns null when the live size, the epoch or the timeline is unknown', () => {
+    expect(committeeTimelineDrift(members, null, 655)).toBeNull();
+    expect(committeeTimelineDrift(members, 4, null)).toBeNull();
+    expect(committeeTimelineDrift([], 4, 655)).toBeNull();
   });
 });
 

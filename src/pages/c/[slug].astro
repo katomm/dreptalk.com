@@ -9,7 +9,7 @@ import TopicRow from '@/components/TopicRow.astro';
 import GovActionRow from '@/components/GovActionRow.astro';
 import Pager from '@/components/Pager.astro';
 import CategoryShell from '@/components/CategoryShell.astro';
-import { getCategories, isDiscussion, GOVERNANCE_CATEGORY_SLUG, BUDGET_CATEGORY_SLUG, SURVEYS_CATEGORY_SLUG } from '../../../config/categories.js';
+import { getCategories, isDiscussion, GOVERNANCE_CATEGORY_SLUG, BUDGET_CATEGORY_SLUG, SURVEYS_CATEGORY_SLUG, PROPOSAL_DRAFTS_CATEGORY_SLUG } from '../../../config/categories.js';
 import { surveysEnabled } from '@/lib/surveys/switch.js';
 import { freshnessLine } from '@/lib/surveys/view.js';
 import SurveyRow from '@/components/survey/SurveyRow.astro';
@@ -76,6 +76,7 @@ const now = Date.now();
 const isGovernanceCategory = category?.slug === GOVERNANCE_CATEGORY_SLUG;
 const isBudgetCategory = category?.slug === BUDGET_CATEGORY_SLUG;
 const isSurveysCategory = category?.slug === SURVEYS_CATEGORY_SLUG;
+const isProposalDraftsCategory = category?.slug === PROPOSAL_DRAFTS_CATEGORY_SLUG;
 // OG card per category kind: the governance-actions overview gets its own card,
 // other discussion categories share the generic discussion card. The budget
 // category is finalized to the current treasury card after the overview loads,
@@ -492,6 +493,13 @@ const breadcrumbLd = {
         </>
       ) : (
         <>
+          {isProposalDraftsCategory && (
+            <p class="svy-help">
+              Share a governance action before you submit it and collect feedback from DReps.{' '}
+              <a href="/help/get-feedback-on-a-proposal/">How proposal drafts work</a>.
+            </p>
+          )}
+
           {treasuryOverview && (
             <TreasuryOverview data={treasuryOverview} detailHref="/treasury/" />
           )}
@@ -544,7 +552,7 @@ const breadcrumbLd = {
 )}
 
 <style>
-  /* Pointer to the guide, above the surveys list. */
+  /* Pointer to the guide, above the surveys list or the proposal drafts list. */
   .svy-help {
     font-size: 0.875rem;
     color: var(--muted);

@@ -72,6 +72,11 @@ export function isCacheableResponse(response: Response, user: unknown | null): b
 // render, and the only cost is that a page nobody has requested in a while can
 // be up to the stored TTL old, which is exactly the case where nobody was
 // looking anyway.
+//
+// A page may say how long that stale window is by declaring
+// stale-while-revalidate next to its s-maxage, which then also documents the
+// policy on the response itself. A page that declares only s-maxage gets the
+// factor-based window below.
 
 /** Header carrying the render time (unix ms) on the stored copy. */
 export const PAGE_CACHE_STAMP = 'x-page-cache-stamp';
@@ -84,21 +89,33 @@ const MAX_STALE_SECONDS = 600;
 
 /** The s-maxage in a Cache-Control value, or null when it declares none. */
 export function sMaxAge(cacheControl: string | null): number | null {
-  const m = /\bs-maxage=(\d+)/.exec(cacheControl ?? '');
+  return directiveSeconds(cacheControl, 's-maxage');
+}
+
+/** The stale-while-revalidate window a Cache-Control value declares, or null. */
+export function staleWhileRevalidate(cacheControl: string | null): number | null {
+  return directiveSeconds(cacheControl, 'stale-while-revalidate');
+}
+
+function directiveSeconds(cacheControl: string | null, name: string): number | null {
+  const m = new RegExp(`\\b${name}=(\\d+)`).exec(cacheControl ?? '');
   if (!m) return null;
   const n = Number(m[1]);
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 /**
- * How long the stored copy should live: ten times the freshness its page asked
- * for, but never more than MAX_STALE_SECONDS past it. Expressed as a ceiling on
- * the STALENESS rather than on the TTL, so a page that declares a long freshness
- * (the legal pages and the treasury ask for an hour) still gets at least the
- * lifetime it asked for. Capping the TTL itself would have stored those pages
- * for LESS time than before, and left them no stale window at all.
+ * How long the stored copy should live. A page that declares its own
+ * stale-while-revalidate window is stored for exactly that long past its
+ * freshness. Otherwise: ten times the freshness its page asked for, but never
+ * more than MAX_STALE_SECONDS past it. Expressed as a ceiling on the STALENESS
+ * rather than on the TTL, so a page that declares a long freshness (the legal
+ * pages and the treasury ask for an hour) still gets at least the lifetime it
+ * asked for. Capping the TTL itself would have stored those pages for LESS time
+ * than before, and left them no stale window at all.
  */
-export function storedTtlSeconds(freshSeconds: number): number {
+export function storedTtlSeconds(freshSeconds: number, staleSeconds: number | null = null): number {
+  if (staleSeconds !== null) return freshSeconds + staleSeconds;
   return Math.min(freshSeconds * STALE_FACTOR, freshSeconds + MAX_STALE_SECONDS);
 }
 
@@ -113,7 +130,10 @@ export function toStoredResponse(response: Response, nowMs: number): Response {
   const stored = new Response(response.body, response);
   stored.headers.set(PAGE_CACHE_CC, own);
   stored.headers.set(PAGE_CACHE_STAMP, String(nowMs));
-  stored.headers.set('Cache-Control', `public, s-maxage=${storedTtlSeconds(sMaxAge(own) ?? 0)}`);
+  stored.headers.set(
+    'Cache-Control',
+    `public, s-maxage=${storedTtlSeconds(sMaxAge(own) ?? 0, staleWhileRevalidate(own))}`,
+  );
   return stored;
 }
 
