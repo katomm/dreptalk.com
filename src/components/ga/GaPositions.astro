@@ -242,7 +242,7 @@ const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
               <div class="ga-positions__summary ga-positions__summary--static">
                 {lead}
                 <span class="ga-positions__cta ga-positions__cta--none">
-                  <span class="ga-positions__cta-label">No rationale</span>
+                  <span class="ga-positions__cta-label">{v.has_anchor ? 'Rationale unavailable' : 'No rationale'}</span>
                 </span>
               </div>
             )}
@@ -459,8 +459,9 @@ const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
   }
 
   /* Expand affordance column. Mobile: just the chevron (compact). Desktop: a
-     "Rationale" / "No rationale" label too. Fixed width so the amount column to
-     its left stays aligned across every row. */
+     "Rationale" / "No rationale" / "Rationale unavailable" label too, on one
+     line. Fixed width so the amount column to its left stays aligned across
+     every row. */
   .ga-positions__cta {
     flex-shrink: 0;
     width: 0.9rem;
@@ -493,10 +494,11 @@ const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
 
   @media (min-width: 40rem) {
     .ga-positions__cta {
-      width: 6.5rem;
+      width: 7.75rem;
     }
     .ga-positions__cta-label {
       display: inline;
+      white-space: nowrap;
     }
   }
 
