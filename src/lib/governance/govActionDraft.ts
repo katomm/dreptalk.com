@@ -1,4 +1,4 @@
-// Draft persistence for the "/ga/new" InfoAction submission form
+// Draft persistence for the "/ga/new" governance-action submission form
 // (SubmitInfoAction.tsx), so a long title/motivation/rationale is not lost to
 // a wallet error, laptop sleep, or an accidental tab close. Mirrors the
 // draft-storage conventions from voteFlowClient.ts (dreptalk:*-draft: key
@@ -8,14 +8,29 @@
 // jsdom: the test uses an in-memory fake, and the island passes
 // window.localStorage.
 //
+// v2 format: the CIP-108 metadata fields (unchanged from the v1
+// InfoActionDraft this module replaces) plus a `type` selecting which form
+// panel is active and a `panels` bag holding each panel's own state, keyed by
+// type. Panel state stays `unknown` at this layer: each panel validates its
+// own shape once it exists (a later task), this module only guarantees each
+// panel value is a plain JSON object and drops anything else. A v1 draft (no
+// `v` field, the shape this module used to store) loads as a v2 InfoAction
+// draft with empty panels, so an existing draft in a user's browser is never
+// lost by this upgrade.
+//
 // Kept leaf-clean on purpose: no import from cip108Canonical.ts or
 // infoActionMetadata.ts (the jsonld/URDNA2015 canonicalization engine), so
 // pulling this module into the island can never drag that engine into the
 // client bundle. infoActionLimits.ts is fine to import if ever needed since
 // it is equally leaf-clean.
+import type { GovActionFormType } from './prevAction.js';
+
+export type { GovActionFormType };
 
 /** The full set of form fields worth restoring; never wallet/address/signature/deposit/tx data. */
-export interface InfoActionDraft {
+export interface GovActionDraft {
+  v: 2;
+  type: GovActionFormType;
   title: string;
   abstract: string;
   motivation: string;
@@ -25,10 +40,24 @@ export interface InfoActionDraft {
   references: { label: string; uri: string }[];
   /** Raw, unnormalised CIP-179 survey reference as typed. Empty when unset. */
   surveyRef: string;
+  /** Per-type panel state, keyed by every form type except InfoAction (which has no panel). */
+  panels: Partial<Record<Exclude<GovActionFormType, 'InfoAction'>, unknown>>;
+}
+
+const FORM_TYPES: readonly GovActionFormType[] = [
+  'InfoAction',
+  'NoConfidence',
+  'HardForkInitiation',
+  'NewConstitution',
+  'UpdateCommittee',
+];
+
+function isFormType(value: unknown): value is GovActionFormType {
+  return typeof value === 'string' && (FORM_TYPES as readonly string[]).includes(value);
 }
 
 /** Per-network draft key, so a preprod draft never collides with (a future) mainnet one. */
-export function infoActionDraftKey(network: string): string {
+export function govActionDraftKey(network: string): string {
   return `dreptalk:ga-new-draft:${network}`;
 }
 
@@ -51,13 +80,33 @@ function coerceReferenceRow(raw: unknown): { label: string; uri: string } | null
 }
 
 /**
- * Parses a stored draft; defensively coerces every field to a safe default
- * and drops malformed reference rows rather than rejecting the whole draft.
- * Returns null for a missing key, invalid JSON, or a non-object value (e.g. a
- * JSON array or primitive). Never throws, including when storage.getItem
- * itself throws (a blocked or disabled store).
+ * Coerces a stored `panels` value to the v2 shape: a plain object whose
+ * per-type entries are themselves kept only when they are plain objects.
+ * Anything else (a non-object panels field, or a non-object per-type value)
+ * is dropped rather than failing the whole draft.
  */
-export function loadInfoActionDraft(storage: Pick<Storage, 'getItem'>, key: string): InfoActionDraft | null {
+function coercePanels(raw: unknown): GovActionDraft['panels'] {
+  if (!isPlainObject(raw)) return {};
+  const panels: Record<string, unknown> = {};
+  for (const [type, value] of Object.entries(raw)) {
+    if (type === 'InfoAction') continue;
+    if (!isFormType(type)) continue;
+    if (!isPlainObject(value)) continue;
+    panels[type] = value;
+  }
+  return panels;
+}
+
+/**
+ * Parses a stored draft; defensively coerces every field to a safe default
+ * and drops malformed reference rows or panel state rather than rejecting
+ * the whole draft. Returns null for a missing key, invalid JSON, or a
+ * non-object value (e.g. a JSON array or primitive). A stored v1 draft (no
+ * `v` field) upgrades to v2 as an InfoAction draft with empty panels. An
+ * unknown `type` string falls back to InfoAction. Never throws, including
+ * when storage.getItem itself throws (a blocked or disabled store).
+ */
+export function loadGovActionDraft(storage: Pick<Storage, 'getItem'>, key: string): GovActionDraft | null {
   let raw: string | null;
   try {
     raw = storage.getItem(key);
@@ -80,6 +129,8 @@ export function loadInfoActionDraft(storage: Pick<Storage, 'getItem'>, key: stri
     : [];
 
   return {
+    v: 2,
+    type: isFormType(parsed.type) ? parsed.type : 'InfoAction',
     title: str(parsed.title),
     abstract: str(parsed.abstract),
     motivation: str(parsed.motivation),
@@ -89,11 +140,12 @@ export function loadInfoActionDraft(storage: Pick<Storage, 'getItem'>, key: stri
     references,
     // Drafts saved before the survey-link field existed simply have none.
     surveyRef: str(parsed.surveyRef),
+    panels: coercePanels(parsed.panels),
   };
 }
 
 /** Stores the draft as JSON. Best-effort: storage can be full or blocked, so this never throws. */
-export function saveInfoActionDraft(storage: Pick<Storage, 'setItem'>, key: string, draft: InfoActionDraft): void {
+export function saveGovActionDraft(storage: Pick<Storage, 'setItem'>, key: string, draft: GovActionDraft): void {
   try {
     storage.setItem(key, JSON.stringify(draft));
   } catch {
@@ -102,7 +154,7 @@ export function saveInfoActionDraft(storage: Pick<Storage, 'setItem'>, key: stri
 }
 
 /** Removes a stored draft. Best-effort: never throws. */
-export function clearInfoActionDraft(storage: Pick<Storage, 'removeItem'>, key: string): void {
+export function clearGovActionDraft(storage: Pick<Storage, 'removeItem'>, key: string): void {
   try {
     storage.removeItem(key);
   } catch {

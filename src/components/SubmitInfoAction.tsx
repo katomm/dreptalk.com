@@ -28,12 +28,12 @@ import {
 } from '@/lib/governance/infoActionLimits.js';
 import { parseSurveyRefInput } from '@/lib/governance/surveyRef.js';
 import {
-  infoActionDraftKey,
-  loadInfoActionDraft,
-  saveInfoActionDraft,
-  clearInfoActionDraft,
-  type InfoActionDraft,
-} from '@/lib/governance/infoActionDraft.js';
+  govActionDraftKey,
+  loadGovActionDraft,
+  saveGovActionDraft,
+  clearGovActionDraft,
+  type GovActionDraft,
+} from '@/lib/governance/govActionDraft.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import { txExplorerUrl } from '@/lib/config/network.js';
 import { readableError } from '@/lib/wallet/walletError.js';
@@ -245,11 +245,11 @@ export default function SubmitInfoAction({ network }: SubmitInfoActionProps) {
   // stored draft with the pre-restore empty state. Mirrors VotePanel's
   // draftRestoredRef pattern. Never persists wallet data, addresses,
   // signatures, the deposit, or the tx result: only the plain form fields.
-  const draftKey = infoActionDraftKey(network);
+  const draftKey = govActionDraftKey(network);
   const draftRestoredRef = useRef(false);
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const draft = loadInfoActionDraft(window.localStorage, draftKey);
+    const draft = loadGovActionDraft(window.localStorage, draftKey);
     if (draft) {
       setTitle(draft.title);
       setAbstract(draft.abstract);
@@ -264,13 +264,28 @@ export default function SubmitInfoAction({ network }: SubmitInfoActionProps) {
   }, [draftKey]);
   useEffect(() => {
     if (typeof window === 'undefined' || !draftRestoredRef.current) return;
-    const draft: InfoActionDraft = { title, abstract, motivation, rationale, signAsAuthor, authorName, references, surveyRef };
+    // Interim shape: this island still only builds the InfoAction panel, so
+    // type and panels are fixed here. Task 8 adds the type selector and
+    // per-type panels, and the blank check below becomes type/panel aware.
+    const draft: GovActionDraft = {
+      v: 2,
+      type: 'InfoAction',
+      title,
+      abstract,
+      motivation,
+      rationale,
+      signAsAuthor,
+      authorName,
+      references,
+      surveyRef,
+      panels: {},
+    };
     // A draft is only worth keeping while it carries some text; an all-blank
     // draft (e.g. right after a clear) should not leave a stale empty entry.
     const isBlank =
       !title.trim() && !abstract.trim() && !motivation.trim() && !rationale.trim() && !authorName.trim() && references.length === 0 && !surveyRef.trim();
-    if (isBlank) clearInfoActionDraft(window.localStorage, draftKey);
-    else saveInfoActionDraft(window.localStorage, draftKey, draft);
+    if (isBlank) clearGovActionDraft(window.localStorage, draftKey);
+    else saveGovActionDraft(window.localStorage, draftKey, draft);
   }, [draftKey, title, abstract, motivation, rationale, signAsAuthor, authorName, references, surveyRef]);
 
   // Deposit is informational chain data, independent of wallet connection;
@@ -486,7 +501,7 @@ export default function SubmitInfoAction({ network }: SubmitInfoActionProps) {
 
       // The proposal is on chain: drop the draft eagerly so a crash right
       // after success cannot resurrect the already-submitted form text.
-      if (typeof window !== 'undefined') clearInfoActionDraft(window.localStorage, draftKey);
+      if (typeof window !== 'undefined') clearGovActionDraft(window.localStorage, draftKey);
       setPhase({ status: 'success', txHash, authored: signAsAuthor });
     } catch (err) {
       setPhase({ status: 'error', message: mapSubmitError(err), connected: true });
