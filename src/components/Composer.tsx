@@ -5,15 +5,18 @@ import { EDIT_EVENT, type EditEventDetail } from '@/lib/forum/editEvent.js';
 import { QUOTE_EVENT, type QuoteEventDetail } from '@/lib/forum/quoteEvent.js';
 import { buildQuoteBlock, appendQuote } from '@/lib/forum/quoteFormat.js';
 import { initialDraftBody } from '@/lib/forum/draftTemplate.js';
+import { maxPostBody } from '@/lib/forum/postLimits.js';
 import MarkdownEditor, { type MarkdownEditorHandle } from '@/components/MarkdownEditor.js';
 
 interface ComposerProps {
   mode: 'topic' | 'post';
   categorySlug?: string;
   topicId?: string;
+  /** The thread's opening post, whose edit may take the longer draft cap. */
+  openingPostId?: string;
 }
 
-export default function Composer({ mode, categorySlug, topicId }: ComposerProps) {
+export default function Composer({ mode, categorySlug, topicId, openingPostId }: ComposerProps) {
   const [title, setTitle] = useState('');
   const [bodyMd, setBodyMd] = useState(() => initialDraftBody(mode, categorySlug));
   const [submitting, setSubmitting] = useState(false);
@@ -26,6 +29,9 @@ export default function Composer({ mode, categorySlug, topicId }: ComposerProps)
   // when the user is scrolled up at the post they quoted.
   const [quoteToast, setQuoteToast] = useState(false);
   const editorRef = useRef<MarkdownEditorHandle>(null);
+  // Same cap the server applies: a new draft or an edit of its opening post may
+  // run longer than any other post.
+  const bodyMax = maxPostBody(categorySlug, mode === 'topic' || (editingPostId !== null && editingPostId === openingPostId));
   const formRef = useRef<HTMLFormElement>(null);
 
   // The Reply buttons live in server-rendered markup (no island), so they talk
@@ -74,7 +80,7 @@ export default function Composer({ mode, categorySlug, topicId }: ComposerProps)
       if (!detail?.postId || !detail.text) return;
       if (editingPostId || submitting) return;
       const block = buildQuoteBlock({ author: detail.author, href: detail.href, text: detail.text });
-      const result = appendQuote(bodyMd, block, 20000);
+      const result = appendQuote(bodyMd, block, bodyMax);
       if (!result.ok) {
         setError('That quote would make the reply too long.');
         return;
@@ -84,7 +90,7 @@ export default function Composer({ mode, categorySlug, topicId }: ComposerProps)
     };
     window.addEventListener(QUOTE_EVENT, onQuote);
     return () => window.removeEventListener(QUOTE_EVENT, onQuote);
-  }, [mode, editingPostId, submitting, bodyMd]);
+  }, [mode, editingPostId, submitting, bodyMd, bodyMax]);
 
   // Auto-dismiss the confirmation.
   useEffect(() => {
@@ -295,7 +301,7 @@ export default function Composer({ mode, categorySlug, topicId }: ComposerProps)
         ref={editorRef}
         value={bodyMd}
         onChange={setBodyMd}
-        maxLength={20000}
+        maxLength={bodyMax}
         label={mode === 'topic' ? 'Body' : 'Reply'}
         idPrefix="composer"
         placeholder="Write your message in Markdown..."

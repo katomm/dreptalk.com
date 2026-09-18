@@ -41,9 +41,11 @@ interface Props {
       affordance in PostActions, defaults to false so a caller that forgets to
       pass it never shows a link that 404s. */
   citable?: boolean;
+  /** Long Proposal Drafts opening post: folds behind "Show full draft". */
+  foldable?: boolean;
 }
 
-const { post, author, authorVote, authorHasNotVoted = false, user, flagged, viewerReaction, canReply, now, compact = false, topicLocked = false, postNumber, mandate, citable = false } = Astro.props;
+const { post, author, authorVote, authorHasNotVoted = false, user, flagged, viewerReaction, canReply, now, compact = false, topicLocked = false, postNumber, mandate, citable = false, foldable = false } = Astro.props;
 
 const { canSeeContent, canFlag, reactions, isOwnPost, canEdit } = postViewerContext(post, user, !!author.isSystem);
 
@@ -122,7 +124,15 @@ const changedVoteHref = author.drepId ? positionsVoterAnchor(author.drepId) : '?
       <a href={changedVoteHref} class="vr-anchor-link">current position</a>.
     </p>
   )}
-  {canSeeContent ? (
+  {canSeeContent && foldable ? (
+    <div class="post-fold">
+      {/* CSS-only fold, the same checkbox pattern as the governance overview's
+          long rationale: the first screen stays readable, the rest opens on demand. */}
+      <input type="checkbox" id={`fold-${post.id}`} class="post-fold__cb" aria-hidden="true" tabindex="-1" autocomplete="off" />
+      <div class="prose post-fold__body" set:html={enhanceStoredHtml(post.body_html)} />
+      <label for={`fold-${post.id}`} class="post-fold__toggle"></label>
+    </div>
+  ) : canSeeContent ? (
     <div class="prose" set:html={enhanceStoredHtml(post.body_html)} />
   ) : (
     <p style="margin:0;color:var(--muted);font-style:italic;font-size:0.9375rem;">
@@ -146,6 +156,20 @@ const changedVoteHref = author.drepId ? positionsVoterAnchor(author.drepId) : '?
 </article>
 
 <style>
+  .post-fold { position: relative; }
+  .post-fold__cb { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  .post-fold__body {
+    max-height: 26rem;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent);
+    mask-image: linear-gradient(to bottom, #000 70%, transparent);
+  }
+  .post-fold__cb:checked ~ .post-fold__body { max-height: none; -webkit-mask-image: none; mask-image: none; }
+  .post-fold__toggle { display: inline-block; margin-top: 0.5rem; color: var(--accent); cursor: pointer; font-size: 0.8125rem; font-weight: 600; }
+  .post-fold__toggle::after { content: 'Show full draft'; }
+  .post-fold__cb:checked ~ .post-fold__toggle::after { content: 'Show less'; }
+  .post-fold__cb:focus-visible ~ .post-fold__toggle { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+
   /* The post named in the URL hash (a fresh reply, a shared permalink) flashes
      briefly so the eye lands on it after the scroll. */
   article:target {

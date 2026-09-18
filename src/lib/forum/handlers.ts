@@ -2,7 +2,8 @@
 // Testable handler functions for forum write operations.
 // All I/O deps are injected; Astro routes are thin wrappers over these.
 
-import { createTopic, createPost, getPostById, editPost, editTitle } from '../db/forum.js';
+import { createTopic, createPost, getPostById, getPostPlacement, editPost, editTitle } from '../db/forum.js';
+import { POST_BODY_MAX, maxPostBody } from './postLimits.js';
 import { flagPost, unflagPost, type FlagState } from '../db/postFlags.js';
 import { setReaction, clearReaction, isReaction, type ReactionState, type Reaction } from '../db/postReactions.js';
 import { renderMarkdown, type MentionLink } from '../markdown.js';
@@ -172,8 +173,9 @@ export async function handleCreateTopic(input: CreateTopicInput): Promise<Handle
 
     // 5. Validate bodyMd.
     const bodyMd = (typeof body.bodyMd === 'string' ? body.bodyMd : '').trim();
-    if (bodyMd.length === 0 || bodyMd.length > 20000) {
-      return { status: 400, json: { ok: false, error: 'body must be 1 to 20000 characters' } };
+    const bodyMax = maxPostBody(categorySlug, true);
+    if (bodyMd.length === 0 || bodyMd.length > bodyMax) {
+      return { status: 400, json: { ok: false, error: `body must be 1 to ${bodyMax} characters` } };
     }
 
     // 6. Render and sanitize markdown, linkifying resolved @mentions.
@@ -263,8 +265,8 @@ export async function handleCreatePost(input: CreatePostInput): Promise<HandlerR
 
     // 3. Validate bodyMd and the optional reply target.
     const bodyMd = (typeof body.bodyMd === 'string' ? body.bodyMd : '').trim();
-    if (bodyMd.length === 0 || bodyMd.length > 20000) {
-      return { status: 400, json: { ok: false, error: 'body must be 1 to 20000 characters' } };
+    if (bodyMd.length === 0 || bodyMd.length > POST_BODY_MAX) {
+      return { status: 400, json: { ok: false, error: `body must be 1 to ${POST_BODY_MAX} characters` } };
     }
     const parentPostId = body.parentPostId ?? null;
     if (parentPostId !== null && typeof parentPostId !== 'string') {
@@ -553,8 +555,15 @@ export async function handleEditPost(input: EditPostInput): Promise<HandlerResul
     if (!allowed) return { status: 429, json: { ok: false, error: 'rate_limited' } };
 
     const bodyMd = (typeof body.bodyMd === 'string' ? body.bodyMd : '').trim();
-    if (bodyMd.length === 0 || bodyMd.length > 20000) {
-      return { status: 400, json: { ok: false, error: 'body must be 1 to 20000 characters' } };
+    // Only a body past the normal cap pays for the placement lookup: a Proposal
+    // Drafts opening post may run longer than any other post.
+    let bodyMax = POST_BODY_MAX;
+    if (bodyMd.length > POST_BODY_MAX) {
+      const placement = await getPostPlacement(db, postId);
+      if (placement) bodyMax = maxPostBody(placement.categorySlug, placement.isOpeningPost);
+    }
+    if (bodyMd.length === 0 || bodyMd.length > bodyMax) {
+      return { status: 400, json: { ok: false, error: `body must be 1 to ${bodyMax} characters` } };
     }
     // Render with mention links, but edits never create notifications: a
     // mention added after the fact stays silent by design (Phase 1).

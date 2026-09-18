@@ -9,6 +9,7 @@ import { handleCreateTopic, handleCreatePost, handleEditPost, handleDraftUnlink 
 import { getNotificationsPage } from '../db/notifications.js';
 import { buildInsertGovernanceAction } from '../db/governance.js';
 import { buildDraftLinkStatements } from '../db/draftLinks.js';
+import { DRAFT_OPENING_BODY_MAX, POST_BODY_MAX } from './postLimits.js';
 
 // Stable fake user with a real on-chain writer role (drep). 'writer' is not a
 // real role; posting is gated by isWriter() which only accepts drep/spo/cc/proposer.
@@ -1073,5 +1074,64 @@ describe('handleCreateTopic: proposal drafts', () => {
       db: db(), rateLimiter: rateLimiter(), now: NOW,
     });
     expect(denied.status).toBe(403);
+  });
+});
+
+describe('Proposal Drafts body caps', () => {
+  const DRAFTER = { id: 'drafter-cap-1', roles: ['drep'] };
+  const long = (n: number) => 'x'.repeat(n);
+
+  async function openDraft(bodyMd: string) {
+    return handleCreateTopic({
+      user: DRAFTER,
+      body: { categorySlug: 'proposal-drafts', title: `Long draft ${bodyMd.length}`, bodyMd },
+      db: db(),
+      rateLimiter: rateLimiter(),
+      now: NOW,
+    });
+  }
+
+  it('takes an opening post up to the long cap, and refuses one character more', async () => {
+    expect((await openDraft(long(DRAFT_OPENING_BODY_MAX))).status).toBe(201);
+    const over = await openDraft(long(DRAFT_OPENING_BODY_MAX + 1));
+    expect(over.status).toBe(400);
+  });
+
+  it('keeps the normal cap for a topic in any other category', async () => {
+    const res = await handleCreateTopic({
+      user: DRAFTER,
+      body: { categorySlug: 'general', title: 'Too long elsewhere', bodyMd: long(POST_BODY_MAX + 1) },
+      db: db(),
+      rateLimiter: rateLimiter(),
+      now: NOW,
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('lets the author grow the opening post past the normal cap, but not a reply', async () => {
+    const created = await openDraft('## Summary\n\nShort start.');
+    const { slug } = created.json as { slug: string };
+    const topic = await getTopicBySlug(db(), slug);
+    const opening = await db()
+      .prepare('SELECT id FROM posts WHERE topic_id = ? ORDER BY created_at LIMIT 1')
+      .bind(topic!.id)
+      .first<{ id: string }>();
+
+    const grown = await handleEditPost({
+      user: DRAFTER, postId: opening!.id, body: { bodyMd: long(POST_BODY_MAX + 5000) },
+      db: db(), rateLimiter: rateLimiter(), now: NOW + 1,
+    });
+    expect(grown.status).toBe(200);
+
+    const reply = await handleCreatePost({
+      user: DRAFTER, topicId: topic!.id, body: { bodyMd: 'A reply.' },
+      db: db(), rateLimiter: rateLimiter(), now: NOW + 2,
+    });
+    const { postId } = reply.json as { postId: string };
+    const replyEdit = await handleEditPost({
+      user: DRAFTER, postId, body: { bodyMd: long(POST_BODY_MAX + 1) },
+      db: db(), rateLimiter: rateLimiter(), now: NOW + 3,
+    });
+    expect(replyEdit.status).toBe(400);
   });
 });

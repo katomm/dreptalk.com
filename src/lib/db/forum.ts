@@ -338,6 +338,25 @@ const OPENING_POST_SQL = `SELECT p.id FROM posts p
      WHERE p.topic_id = ? AND ${OPENING_POST_MATCH}
      ORDER BY p.created_at ASC LIMIT 1`;
 
+/** The category of a post's topic and whether the post opens that topic, or null for an unknown post. */
+export async function getPostPlacement(
+  db: D1Database,
+  postId: string,
+): Promise<{ categorySlug: string; isOpeningPost: boolean } | null> {
+  const row = await db
+    .prepare(
+      `SELECT t0.category_slug AS category_slug,
+              (SELECT p.id FROM posts p JOIN topics t ON t.id = p.topic_id
+                WHERE p.topic_id = t0.id AND ${OPENING_POST_MATCH}
+                ORDER BY p.created_at ASC LIMIT 1) = ?1 AS is_opening
+         FROM posts p0 JOIN topics t0 ON t0.id = p0.topic_id
+        WHERE p0.id = ?1`,
+    )
+    .bind(postId)
+    .first<{ category_slug: string; is_opening: number }>();
+  return row ? { categorySlug: row.category_slug, isOpeningPost: row.is_opening === 1 } : null;
+}
+
 /**
  * Statements that move a topic's post date: stamp the opening post with
  * `postedAt`, then set the topic's created_at to it and recompute last_post_at
