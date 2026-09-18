@@ -27,6 +27,10 @@ The aim is a place where Cardano governance is discussed, voted, and explained, 
 - **Treasury.** Enacted withdrawals tracked against the Net Change Limit of each budget period at `/treasury`.
 - **For delegators.** A delegation dashboard at `/my-drep` reading the DRep's record since the day you delegated, a matching quiz at `/match`, and notifications by browser push or Telegram.
 
+## Submitting a governance action
+
+A submit page at `/ga/new` builds and submits new governance actions: an information action, a motion of no confidence, a hard fork initiation, a new constitution, and a committee update. It walks through the CIP-108 metadata, pins it to IPFS, and hands back an unwitnessed transaction for the connected wallet to sign. Submission is preprod-only for now.
+
 ## Quickstart
 
 Requires Node 20+. Local and preview run against the Cardano preprod testnet, set `CARDANO_NETWORK=preprod` in `.dev.vars`.

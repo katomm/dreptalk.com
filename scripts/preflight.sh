@@ -41,6 +41,14 @@ if grep -rl 'cloudflare:test' dist/; then
   exit 1
 fi
 
+# Gate: the client bundle must stay free of the jsonld/URDNA2015 canonicalization
+# engine (cip108Canonical.ts is a server-only leaf, nothing it pulls in may reach
+# dist/client).
+if grep -rl 'URDNA2015' dist/client; then
+  echo 'Client bundle contains the server-only URDNA2015 canonicalization engine.'
+  exit 1
+fi
+
 # Gate: production dependencies must be free of high and critical vulnerabilities.
 # This is the gate that silently reds every open PR when a fresh advisory lands
 # against a build-tree dependency, so mirror it here to catch it before pushing.
