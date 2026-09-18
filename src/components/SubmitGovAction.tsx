@@ -53,6 +53,7 @@ import type { EpochParamsRow } from '@/lib/koios/client.js';
 import type { ProtocolParams } from '@/lib/db/protocolParams.js';
 import TypeSelector from '@/components/govAction/TypeSelector.js';
 import PrevActionField from '@/components/govAction/PrevActionField.js';
+import HardForkPanel from '@/components/govAction/HardForkPanel.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import { txExplorerUrl } from '@/lib/config/network.js';
 import { readableError } from '@/lib/wallet/walletError.js';
@@ -660,6 +661,15 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
             context={prevContext}
             value={state.panels.NoConfidence.prev}
             onChange={(prev) => dispatch({ kind: 'setPanel', type: 'NoConfidence', state: { prev } })}
+            disabled={busy}
+          />
+        );
+      case 'HardForkInitiation':
+        return (
+          <HardForkPanel
+            context={contextData}
+            value={state.panels.HardForkInitiation}
+            onChange={(panel) => dispatch({ kind: 'setPanel', type: 'HardForkInitiation', state: panel })}
             disabled={busy}
           />
         );
