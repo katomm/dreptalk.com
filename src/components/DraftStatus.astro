@@ -27,7 +27,7 @@ const { topicId, canonicalUrl, linked, viewerIsAuthor, viewerCanUnlink } = Astro
             ? <a href={`/t/${a.topicSlug}/`}>{a.title ?? 'Untitled governance action'}</a>
             : <span>{a.title ?? 'Untitled governance action'}</span>}
           {viewerCanUnlink && (
-            <button type="button" class="draft-status__unlink" data-unlink={a.id}>Not your action? Unlink</button>
+            <button type="button" class="draft-status__unlink" data-unlink={a.id}>{viewerIsAuthor ? 'Not your action? Unlink' : 'Unlink'}</button>
           )}
         </li>
       ))}

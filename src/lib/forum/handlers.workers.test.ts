@@ -1033,6 +1033,32 @@ describe('handleDraftUnlink', () => {
     });
     expect((await call(AUTHOR, topic.id, `${'ab'.repeat(32)}#0`)).status).toBe(404);
   });
+
+  it('refuses to unlink another draft\'s action even for the same author, and leaves that draft untouched', async () => {
+    const { topic: draftA } = await createTopic(db(), {
+      categorySlug: 'proposal-drafts', authorId: AUTHOR.id, title: 'Draft A', bodyMd: 'x', bodyHtml: '<p>x</p>',
+      source: 'user', now: NOW, rand: `du${seq++}`,
+    });
+    const { draft: draftB, actionId } = await linkedDraft();
+    expect((await call(AUTHOR, draftA.id, actionId)).status).toBe(404);
+    const action = await db()
+      .prepare('SELECT draft_topic_id, draft_link_rejected FROM governance_actions WHERE id = ?')
+      .bind(actionId)
+      .first<{ draft_topic_id: string; draft_link_rejected: number }>();
+    expect(action!.draft_topic_id).toBe(draftB.id);
+    expect(action!.draft_link_rejected).toBe(0);
+    const topicB = await db().prepare('SELECT locked FROM topics WHERE id = ?').bind(draftB.id).first<{ locked: number }>();
+    expect(topicB!.locked).toBe(1);
+  });
+
+  it('answers 400 for a null body instead of throwing into the 500 path', async () => {
+    const { draft } = await linkedDraft();
+    const res = await handleDraftUnlink({
+      user: AUTHOR, topicId: draft.id, body: null as unknown as { actionId: unknown },
+      db: db(), rateLimiter: rateLimiter(), now: NOW,
+    });
+    expect(res.status).toBe(400);
+  });
 });
 
 describe('handleCreateTopic: proposal drafts', () => {

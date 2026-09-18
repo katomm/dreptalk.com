@@ -652,7 +652,8 @@ export async function handleDraftUnlink(input: DraftUnlinkInput): Promise<Handle
     const { user, topicId, body, db, rateLimiter, now } = input;
     if (!user) return { status: 401, json: { ok: false, error: 'unauthorized' } };
 
-    const actionId = typeof body.actionId === 'string' ? body.actionId.trim() : '';
+    const raw = (body as { actionId?: unknown } | null)?.actionId;
+    const actionId = typeof raw === 'string' ? raw.trim() : '';
     if (!actionId) return { status: 400, json: { ok: false, error: 'missing action id' } };
 
     const topic = await db
