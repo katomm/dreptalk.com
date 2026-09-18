@@ -29,6 +29,7 @@ import {
   REFERENCE_LABEL_MAX,
   REFERENCE_URI_MAX,
   REFERENCES_MAX,
+  CONSTITUTION_DOCUMENT_MAX_BYTES,
 } from '@/lib/governance/infoActionLimits.js';
 import { parseSurveyRefInput } from '@/lib/governance/surveyRef.js';
 import {
@@ -43,8 +44,10 @@ import {
   effectivePrev,
   draftFromState,
   isFormBlank,
+  validateCommitteePanel,
 } from '@/lib/governance/govActionFormState.js';
 import { chainForType, refStillPresent } from '@/lib/governance/prevAction.js';
+import { versionsThatFollow } from '@/lib/governance/hardForkVersion.js';
 import type { PrevActionRef } from '@/lib/governance/prevAction.js';
 import type { GovActionSpec } from '@/lib/governance/govActionParts.js';
 import type { ActionContextResponse } from '@/lib/governance/actionContextHandler.js';
@@ -350,6 +353,10 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
   const surveyRefState = metadata.surveyRef.trim() ? parseSurveyRefInput(metadata.surveyRef) : null;
   const contextReady = state.context.status === 'ready' && state.context.data !== null;
   const contextData = state.context.data;
+  // The committee panel is the one with enough rules to be worth blocking on
+  // before the wallet is involved; the rest are caught in prepareAction.
+  const committeeBlocked =
+    state.type === 'UpdateCommittee' && validateCommitteePanel(state.panels.UpdateCommittee, contextData).value === null;
 
   // ------------------------------------------------------------------
   // References row editor (optional, like GovTool's reference links).
@@ -368,22 +375,92 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
     setMetadata({ references: [...metadata.references, { label: '', uri: '' }] });
   }
 
+  /** The panel's own choice of previous action, before it is resolved against a context. */
+  function chosenPrevOf(type: typeof state.type): PrevActionRef | null {
+    switch (type) {
+      case 'InfoAction':
+        return null;
+      case 'NoConfidence':
+        return state.panels.NoConfidence.prev;
+      case 'HardForkInitiation':
+        return state.panels.HardForkInitiation.prev;
+      case 'NewConstitution':
+        return state.panels.NewConstitution.prev;
+      case 'UpdateCommittee':
+        return state.panels.UpdateCommittee.prev;
+    }
+  }
+
   /**
-   * Builds the typed action for the chosen type from the panel state and the
-   * context that was displayed. Returns an error string instead of throwing so
-   * the submit handler can surface it like any other validation failure.
+   * Validates the panel against a context and returns what the action needs,
+   * as an error string rather than a throw so the submit handler can surface
+   * it like any other validation failure. Called with the FRESH context at
+   * submit time, so an epoch or a protocol version that moved while the form
+   * was open is caught here, and (for the panel preview) with the displayed
+   * one.
    */
-  function buildActionSpec(ctx: ActionContextResponse | null): { ok: true; spec: GovActionSpec; prev: PrevActionRef | null } | { ok: false; error: string } {
+  function prepareAction(
+    ctx: ActionContextResponse | null,
+    prev: PrevActionRef | null,
+  ):
+    | { ok: false; error: string }
+    | { ok: true; spec: GovActionSpec }
+    // The constitution document has to be published before its hash can go
+    // into the action, so this arm carries the text instead of a finished spec.
+    | { ok: true; constitution: { text: string; scriptHashHex: string | null; prev: PrevActionRef | null } } {
     switch (state.type) {
       case 'InfoAction':
-        return { ok: true, spec: { type: 'InfoAction' }, prev: null };
-      case 'NoConfidence': {
-        const prev = effectivePrev(state.panels.NoConfidence.prev, ctx);
-        return { ok: true, spec: { type: 'NoConfidence', prev }, prev };
+        return { ok: true, spec: { type: 'InfoAction' } };
+
+      case 'NoConfidence':
+        return { ok: true, spec: { type: 'NoConfidence', prev } };
+
+      case 'HardForkInitiation': {
+        const version = state.panels.HardForkInitiation.version;
+        if (!version) return { ok: false, error: 'Choose the protocol version to propose.' };
+        const active = ctx?.protocolVersion ?? null;
+        if (!active) return { ok: false, error: 'The current protocol version could not be read from the chain. Please try again.' };
+        const openRow = (ctx?.prev?.open ?? []).find(
+          (o) => prev !== null && o.txHash.toLowerCase() === prev.txHashHex.toLowerCase() && o.index === prev.index,
+        );
+        const base = openRow ? (openRow.version ?? null) : active;
+        if (!base) return { ok: false, error: 'The protocol version of the chosen previous action could not be read, so no version can be proposed against it.' };
+        if (!versionsThatFollow(base, active).some((c) => c.major === version.major && c.minor === version.minor)) {
+          return { ok: false, error: `Protocol version ${version.major}.${version.minor} no longer follows the current chain state. ${PREV_ACTION_CHANGED}` };
+        }
+        return { ok: true, spec: { type: 'HardForkInitiation', prev, version } };
       }
-      default:
-        // The remaining panels land in the following commits of this branch.
-        return { ok: false, error: 'This action type is not available yet.' };
+
+      case 'NewConstitution': {
+        const panel = state.panels.NewConstitution;
+        const text = panel.text;
+        if (!text.trim()) return { ok: false, error: 'Enter the constitution text.' };
+        if (new TextEncoder().encode(text).length > CONSTITUTION_DOCUMENT_MAX_BYTES) {
+          return { ok: false, error: 'The constitution document is over the 256 KiB limit.' };
+        }
+        const hash = panel.scriptHashHex.trim();
+        if (hash !== '' && !/^[0-9a-f]{56}$/i.test(hash)) {
+          return { ok: false, error: 'A guardrails script hash is exactly 56 hex characters.' };
+        }
+        return { ok: true, constitution: { text, scriptHashHex: hash === '' ? null : hash.toLowerCase(), prev } };
+      }
+
+      case 'UpdateCommittee': {
+        const result = validateCommitteePanel({ ...state.panels.UpdateCommittee, prev }, ctx);
+        if (!result.value) {
+          return { ok: false, error: result.errors[0]?.message ?? 'The committee update is not valid yet.' };
+        }
+        return {
+          ok: true,
+          spec: {
+            type: 'UpdateCommittee',
+            prev,
+            remove: result.value.remove,
+            add: result.value.add,
+            quorum: result.value.quorum,
+          },
+        };
+      }
     }
   }
 
@@ -486,13 +563,10 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
       return;
     }
 
-    // The action is built against the context the user actually saw, so the
-    // freshness check below compares like for like.
-    const built = buildActionSpec(contextData);
-    if (!built.ok) {
-      setPhase({ status: 'error', message: built.error, connected: true });
-      return;
-    }
+    // Resolved against the context the user actually saw, so the freshness
+    // check below compares like for like: a chain root that moved in the
+    // meantime is a change, not something to follow silently.
+    const prev = effectivePrev(chosenPrevOf(state.type), contextData);
 
     // Trimmed, non-empty rows only. Sent identically to both the prepare and
     // finalize calls below so the hash the wallet signs matches what is
@@ -513,8 +587,9 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
       // proposal chained onto a vanished previous action is rejected by the
       // node after the deposit prompt. Check first, before anything is
       // published or signed.
+      let fresh: ActionContextResponse | null = contextData;
       if (chained) {
-        const fresh = await refreshContext();
+        fresh = await refreshContext();
         if (!fresh?.prev) {
           setPhase({
             status: 'error',
@@ -523,10 +598,51 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
           });
           return;
         }
-        if (!refStillPresent(built.prev, fresh.prev)) {
+        if (!refStillPresent(prev, fresh.prev)) {
           setPhase({ status: 'error', message: PREV_ACTION_CHANGED, connected: true });
           return;
         }
+      }
+
+      // The panel is validated against the fresh context too: an expiry epoch
+      // or a protocol version that was fine when it was typed can be stale by
+      // now, and the ledger would reject the proposal after the deposit.
+      const prepared = prepareAction(fresh, prev);
+      if (!prepared.ok) {
+        setPhase({ status: 'error', message: prepared.error, connected: true });
+        return;
+      }
+
+      // The constitution document is published first, so a failed pin aborts
+      // before the proposal metadata is published or anything is signed.
+      let spec: GovActionSpec;
+      if ('constitution' in prepared) {
+        const docRes = await fetchWithTimeout(`${window.location.origin}/api/gov-action/document`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ text: prepared.constitution.text }),
+        });
+        if (!docRes.ok) {
+          const body = (await docRes.json().catch(() => null)) as { error?: string } | null;
+          setPhase({
+            status: 'error',
+            message: body?.error
+              ? `Could not publish the constitution document: ${body.error}.`
+              : 'Could not publish the constitution document. Nothing else was published, please try again.',
+            connected: true,
+          });
+          return;
+        }
+        const doc = (await docRes.json()) as { url: string; hashHex: string };
+        spec = {
+          type: 'NewConstitution',
+          prev: prepared.constitution.prev,
+          anchorUrl: doc.url,
+          anchorHashHex: doc.hashHex,
+          scriptHashHex: prepared.constitution.scriptHashHex,
+        };
+      } else {
+        spec = prepared.spec;
       }
 
       // The reward address is required regardless of author signing: it is
@@ -611,7 +727,7 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
         anchorUrl,
         anchorHashHex: anchorHash,
         govActionDepositLovelace: deposit.lovelace,
-        action: built.spec,
+        action: spec,
       });
 
       // The proposal is on chain: drop the draft eagerly so a crash right
@@ -619,7 +735,7 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
       if (typeof window !== 'undefined') clearGovActionDraft(window.localStorage, draftKey);
       setPhase({ status: 'success', txHash, authored: metadata.signAsAuthor });
     } catch (err) {
-      setPhase({ status: 'error', message: mapSubmitError(err, built.prev), connected: true });
+      setPhase({ status: 'error', message: mapSubmitError(err, prev), connected: true });
     }
   }
 
@@ -1007,6 +1123,12 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
                     <strong>What happens when you submit</strong>
                   </p>
                   <ol style={{ margin: '0.4rem 0 0', paddingLeft: '1.15rem', fontSize: '0.875rem', lineHeight: 1.5 }}>
+                    {state.type === 'NewConstitution' && (
+                      <li>
+                        The constitution document is published to IPFS first, so a failed upload stops the flow before
+                        anything else is published.
+                      </li>
+                    )}
                     {metadata.signAsAuthor && (
                       <li>Your wallet asks you to sign the metadata. This is the author signature, not a payment.</li>
                     )}
@@ -1028,7 +1150,7 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
               </div>
 
               <div>
-                <button type="submit" className="btn btn-primary" disabled={busy || deposit.status !== 'ready' || (chained && !contextReady)}>
+                <button type="submit" className="btn btn-primary" disabled={busy || deposit.status !== 'ready' || (chained && !contextReady) || committeeBlocked}>
                   {phase.status === 'submitting' ? 'Awaiting wallet...' : 'Submit proposal'}
                 </button>
               </div>
