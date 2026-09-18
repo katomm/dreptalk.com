@@ -10,6 +10,7 @@ import {
   treasuryTotalLovelace,
   lineagePredecessor,
   lineagePredecessorTxIds,
+  parseHardForkVersion,
 } from './onchain.js';
 
 describe('formatValue', () => {
@@ -174,6 +175,32 @@ describe('decodeOnchainChanges', () => {
       tag: 'InfoAction',
       text: 'Informational action. No on-chain effect; the vote signals opinion only.',
     });
+  });
+});
+
+describe('parseHardForkVersion', () => {
+  it('parses the typed version off the same fixture decodeHardFork uses', () => {
+    const payload = { tag: 'HardForkInitiation', contents: [null, { major: 11, minor: 0 }] };
+    expect(parseHardForkVersion(payload)).toEqual({ major: 11, minor: 0 });
+  });
+
+  it('defaults minor to 0 when absent', () => {
+    const payload = { tag: 'HardForkInitiation', contents: [null, { major: 12 }] };
+    expect(parseHardForkVersion(payload)).toEqual({ major: 12, minor: 0 });
+  });
+
+  it('returns null for a non-hard-fork payload', () => {
+    expect(parseHardForkVersion({ tag: 'InfoAction', contents: [] })).toBeNull();
+  });
+
+  it('returns null when the version object is missing', () => {
+    expect(parseHardForkVersion({ tag: 'HardForkInitiation', contents: [null] })).toBeNull();
+  });
+
+  it('returns null for null or non-object input', () => {
+    expect(parseHardForkVersion(null)).toBeNull();
+    expect(parseHardForkVersion(undefined)).toBeNull();
+    expect(parseHardForkVersion('not an object')).toBeNull();
   });
 });
 

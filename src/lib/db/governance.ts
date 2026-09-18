@@ -2,7 +2,7 @@
 // Parameterized D1 access for the governance_actions table.
 // All queries use .prepare().bind(); never string-concatenated SQL.
 
-import { sqlPlaceholders, chunked } from './sql.js';
+import { sqlPlaceholders, chunked, D1_MAX_BINDS } from './sql.js';
 import { TERMINAL_STATUSES, OPEN_STATUSES } from '../governance/view.js';
 import type { GovSort, GovStatus } from '../governance/sort.js';
 import type { ProposalListRow } from '../koios/client.js';
@@ -616,6 +616,32 @@ export async function getGovernanceActionSlugsByIds(
         .all<{ id: string; slug: string | null }>()
     ).results ?? [];
     for (const row of rows) map.set(row.id, row.slug);
+  }
+  return map;
+}
+
+/**
+ * Batch-resolves each governance-action id (the "<txHash>#<index>" key, never
+ * the bech32 proposal_id) to its title, null when the action has no title yet,
+ * absent from the map when there is no row at all. Used by the /ga/new
+ * context handler to attach titles to the purpose-chain rows read live from
+ * Koios (which know their own bech32 id, but not our stored title). Chunked
+ * under D1's bound-param cap, one bind per id.
+ */
+export async function getGovernanceActionTitlesByIds(
+  db: D1Database,
+  ids: readonly string[],
+): Promise<Map<string, string | null>> {
+  const map = new Map<string, string | null>();
+  if (ids.length === 0) return map;
+  for (const chunk of chunked(ids, D1_MAX_BINDS)) {
+    const rows = (
+      await db
+        .prepare(`SELECT id, title FROM governance_actions WHERE id IN (${sqlPlaceholders(chunk)})`)
+        .bind(...chunk)
+        .all<{ id: string; title: string | null }>()
+    ).results ?? [];
+    for (const row of rows) map.set(row.id, row.title);
   }
   return map;
 }

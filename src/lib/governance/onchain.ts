@@ -314,6 +314,23 @@ function decodeHardFork(contents: unknown[], ep: Record<string, unknown>): Oncha
   return { kind: 'hardfork', fromVersion, toVersion };
 }
 
+/**
+ * Typed target version for a HardForkInitiation proposal, straight off the
+ * raw Koios proposal_description payload (not a stored JSON string).
+ * Shares findObjByKey's lookup with decodeHardFork above, so the two can never
+ * disagree on where the version object lives in the payload. Returns null for
+ * any non-hard-fork payload or one missing the version object.
+ */
+export function parseHardForkVersion(payload: unknown): { major: number; minor: number } | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const obj = payload as { tag?: string; contents?: unknown };
+  if (obj.tag !== 'HardForkInitiation') return null;
+  const contents = Array.isArray(obj.contents) ? obj.contents : [];
+  const ver = findObjByKey<{ major: number; minor?: number }>(contents, 'major');
+  if (!ver || typeof ver.major !== 'number') return null;
+  return { major: ver.major, minor: typeof ver.minor === 'number' ? ver.minor : 0 };
+}
+
 function decodeTreasury(contents: unknown[], network: CardanoNetwork): OnchainChanges {
   const list = contents[0];
   const rows: TreasuryRow[] = [];

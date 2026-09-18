@@ -482,6 +482,94 @@ describe('createKoiosClient.committeeInfo', () => {
   });
 });
 
+describe('createKoiosClient.lastRatifiedProposal', () => {
+  it('GETs /proposal_list with the exact ratified-root query and parses the row', async () => {
+    const row = {
+      proposal_id: 'gov_action1abc',
+      proposal_tx_hash: 'a'.repeat(64),
+      proposal_index: 0,
+      proposal_type: 'NewCommittee',
+      ratified_epoch: 520,
+    };
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([row]));
+    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
+
+    const out = await client.lastRatifiedProposal(['NoConfidence', 'NewCommittee']);
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://api.koios.rest/api/v1/proposal_list?proposal_type=in.(NoConfidence,NewCommittee)&ratified_epoch=not.is.null&order=ratified_epoch.desc&limit=1',
+      expect.objectContaining({ method: 'GET' }),
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0].proposal_type).toBe('NewCommittee');
+  });
+});
+
+describe('createKoiosClient.openProposals', () => {
+  it('GETs /proposal_list with the exact open-chain query and parses rows', async () => {
+    const rows = [
+      {
+        proposal_id: 'gov_action1def',
+        proposal_tx_hash: 'b'.repeat(64),
+        proposal_index: 0,
+        proposal_type: 'NoConfidence',
+        proposed_epoch: 530,
+      },
+    ];
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(rows));
+    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
+
+    const out = await client.openProposals(['NoConfidence', 'NewCommittee']);
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://api.koios.rest/api/v1/proposal_list?proposal_type=in.(NoConfidence,NewCommittee)' +
+        '&ratified_epoch=is.null&enacted_epoch=is.null&expired_epoch=is.null&dropped_epoch=is.null' +
+        '&order=proposed_epoch.desc&limit=50',
+      expect.objectContaining({ method: 'GET' }),
+    );
+    expect(out).toHaveLength(1);
+  });
+
+  it('passes a custom limit through', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([]));
+    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
+
+    await client.openProposals(['HardForkInitiation'], 5);
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://api.koios.rest/api/v1/proposal_list?proposal_type=in.(HardForkInitiation)' +
+        '&ratified_epoch=is.null&enacted_epoch=is.null&expired_epoch=is.null&dropped_epoch=is.null' +
+        '&order=proposed_epoch.desc&limit=5',
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+});
+
+describe('createKoiosClient.committeeQuorum', () => {
+  it('preserves a 0 numerator', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse([{ members: [], quorum_numerator: 0, quorum_denominator: 1 }]),
+    );
+    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
+
+    expect(await client.committeeQuorum()).toEqual({ numerator: 0, denominator: 1 });
+  });
+
+  it('parses a 2/3 quorum', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(committeeResponseFixture));
+    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
+
+    expect(await client.committeeQuorum()).toEqual({ numerator: 2, denominator: 3 });
+  });
+
+  it('returns null when there is no committee row', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([]));
+    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
+
+    expect(await client.committeeQuorum()).toBeNull();
+  });
+});
+
 // --- scriptInfo ---
 
 describe('createKoiosClient.scriptInfo', () => {

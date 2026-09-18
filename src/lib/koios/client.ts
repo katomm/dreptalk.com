@@ -377,6 +377,9 @@ const committeeInfoRowSchema = z
 // because Koios only started populating them from the Chang hard fork onward.
 const epochParamsRowSchema = z.object({
   epoch_no: z.number().nullable().optional(),
+  protocol_major: z.number().nullable().optional(),
+  protocol_minor: z.number().nullable().optional(),
+  committee_max_term_length: z.number().nullable().optional(),
   dvt_motion_no_confidence: z.number().nullable().optional(),
   dvt_committee_normal: z.number().nullable().optional(),
   dvt_committee_no_confidence: z.number().nullable().optional(),
@@ -775,6 +778,30 @@ export function createKoiosClient(opts: KoiosClientOptions) {
       return z.array(proposalListRowSchema).parse(data);
     },
 
+    // The current root of a purpose chain (CIP-1694): the most recently
+    // ratified proposal among the given Koios proposal_type names. At most
+    // one row (limit 1, newest ratified_epoch first). Used by the /ga/new
+    // context handler to resolve the previous-action id for a chained type.
+    async lastRatifiedProposal(types: readonly string[]): Promise<ProposalListRow[]> {
+      const path =
+        `/proposal_list?proposal_type=in.(${types.join(',')})` +
+        `&ratified_epoch=not.is.null&order=ratified_epoch.desc&limit=1`;
+      const data = await request(path, { method: 'GET' });
+      return z.array(proposalListRowSchema).parse(data);
+    },
+
+    // Proposals of the given chain still open: none of ratified, enacted,
+    // expired or dropped has happened. Newest proposed first. Used alongside
+    // lastRatifiedProposal to build the full purpose-chain context.
+    async openProposals(types: readonly string[], limit = 50): Promise<ProposalListRow[]> {
+      const path =
+        `/proposal_list?proposal_type=in.(${types.join(',')})` +
+        `&ratified_epoch=is.null&enacted_epoch=is.null&expired_epoch=is.null&dropped_epoch=is.null` +
+        `&order=proposed_epoch.desc&limit=${limit}`;
+      const data = await request(path, { method: 'GET' });
+      return z.array(proposalListRowSchema).parse(data);
+    },
+
     // Enumerates all DReps. Koios paginates at 1000 rows; callers may
     // page through by incrementing offset in steps of limit.
     async drepList(limit = 1000, offset = 0): Promise<DrepListRow[]> {
@@ -875,6 +902,33 @@ export function createKoiosClient(opts: KoiosClientOptions) {
           ? row.quorum_numerator / row.quorum_denominator
           : null;
       return { quorum, members: row.members };
+    },
+
+    // Raw quorum threshold from /committee_info, sharing committeeRow() like
+    // the two views above. Unlike committeeSummary's simplified ratio, this
+    // keeps numerator and denominator separate so a numerator of 0 (a
+    // theoretical committee_min_size of 0) is not lost to `0 && x` falsiness.
+    async committeeQuorum(): Promise<{ numerator: number; denominator: number } | null> {
+      const row = await committeeRow();
+      if (!row || row.quorum_numerator == null || row.quorum_denominator == null) return null;
+      return { numerator: row.quorum_numerator, denominator: row.quorum_denominator };
+    },
+
+    // Members and quorum from one /committee_info fetch. Distinct from
+    // committeeInfo()/committeeQuorum() (each of which fetches independently)
+    // so a caller that needs both, like the /ga/new context handler, does not
+    // pay for the request twice within the same request.
+    async committeeContext(): Promise<{
+      members: CommitteeMember[];
+      quorum: { numerator: number; denominator: number } | null;
+    }> {
+      const row = await committeeRow();
+      if (!row) return { members: [], quorum: null };
+      const quorum =
+        row.quorum_numerator == null || row.quorum_denominator == null
+          ? null
+          : { numerator: row.quorum_numerator, denominator: row.quorum_denominator };
+      return { members: row.members, quorum };
     },
 
     // Latest epoch's protocol params; carries the CIP-1694 voting thresholds
