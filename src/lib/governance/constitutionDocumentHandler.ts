@@ -12,9 +12,12 @@ import { bytesToHex } from '../crypto/hex.js';
 import { gateGovActionRequest, GOV_ACTION_RATE_POLICIES } from './govActionGate.js';
 import { pinDocument, type FileUploader } from './pinata.js';
 import { serveGovActionMetadata, putGovActionMetadata } from '../db/govActionMetadata.js';
+import { CONSTITUTION_DOCUMENT_MAX_BYTES } from './infoActionLimits.js';
 
-/** 256 KiB, measured on the UTF-8 encoded bytes of the submitted text. */
-export const CONSTITUTION_DOCUMENT_MAX_BYTES = 256 * 1024;
+// 256 KiB, measured on the UTF-8 encoded bytes of the submitted text. Defined
+// in the leaf limits module so the submit form's byte counter reads the same
+// number, re-exported here since this is where callers expect it.
+export { CONSTITUTION_DOCUMENT_MAX_BYTES } from './infoActionLimits.js';
 
 const TEXT_ENCODER = new TextEncoder();
 

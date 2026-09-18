@@ -54,6 +54,7 @@ import type { ProtocolParams } from '@/lib/db/protocolParams.js';
 import TypeSelector from '@/components/govAction/TypeSelector.js';
 import PrevActionField from '@/components/govAction/PrevActionField.js';
 import HardForkPanel from '@/components/govAction/HardForkPanel.js';
+import NewConstitutionPanel from '@/components/govAction/NewConstitutionPanel.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import { txExplorerUrl } from '@/lib/config/network.js';
 import { readableError } from '@/lib/wallet/walletError.js';
@@ -670,6 +671,15 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
             context={contextData}
             value={state.panels.HardForkInitiation}
             onChange={(panel) => dispatch({ kind: 'setPanel', type: 'HardForkInitiation', state: panel })}
+            disabled={busy}
+          />
+        );
+      case 'NewConstitution':
+        return (
+          <NewConstitutionPanel
+            context={contextData}
+            value={state.panels.NewConstitution}
+            onChange={(panel) => dispatch({ kind: 'setPanel', type: 'NewConstitution', state: panel })}
             disabled={busy}
           />
         );
