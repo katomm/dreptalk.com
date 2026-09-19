@@ -45,7 +45,7 @@ import type { PinataFileRemover } from './pinata.js';
 
 /** Seven days. Long enough that a slow proposer never loses a document they are still about to anchor. */
 export const PIN_GRACE_SECONDS = 7 * 24 * 60 * 60;
-/** A delete claim older than this was left by a run that died; take it back. */
+/** A delete claim older than this was left by a run that died, take it back. */
 export const PIN_STALE_CLAIM_SECONDS = 60 * 60;
 
 export interface CollectPinsInput {

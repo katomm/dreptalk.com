@@ -66,7 +66,7 @@ import { assertWalletNetwork } from '@/lib/wallet/networkGuard.js';
 import { inputStyle, labelStyle } from '@/components/drepFormStyles.js';
 import WalletConnection from '@/components/WalletConnection.js';
 
-// Mirrors the un-exported AUTHOR_NAME_MAX in infoActionMetadataHandler.ts; kept
+// Mirrors the un-exported AUTHOR_NAME_MAX in infoActionMetadataHandler.ts, kept
 // in sync manually since that constant is server-internal.
 const AUTHOR_NAME_MAX = 120;
 
@@ -84,7 +84,7 @@ const PREV_ACTION_CHANGED = 'The previous action changed, review the selection.'
 type DataSignature = { signature: string; key: string };
 
 interface Cip30Api {
-  // Never called again on an already-enabled api; typed as never so a stray
+  // Never called again on an already-enabled api, typed as never so a stray
   // call anywhere below this point is a compile error, not a runtime bug.
   enable?: never;
   getNetworkId(): Promise<number>;
@@ -267,7 +267,7 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
   const chained = chainForType(state.type) !== null;
 
   // Draft persistence: restore runs once after mount (no localStorage during
-  // SSR); the persist effect stays quiet until then so it can never clobber a
+  // SSR), the persist effect stays quiet until then so it can never clobber a
   // stored draft with the pre-restore empty state. Mirrors VotePanel's
   // draftRestoredRef pattern. Never persists wallet data, addresses,
   // signatures, the deposit, or the tx result: only the plain form fields and
@@ -985,7 +985,7 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
                 <span style={labelStyle}>References (optional)</span>
                 <span style={helpStyle}>Link to supporting documents or discussions, like GovTool&apos;s reference links.</span>
                 {metadata.references.map((ref, i) => (
-                  // biome-ignore lint/suspicious/noArrayIndexKey: rows are positional inputs owned by index; there is no stable id
+                  // biome-ignore lint/suspicious/noArrayIndexKey: rows are positional inputs owned by index, there is no stable id
                   <div key={i} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                     <input
                       type="text"

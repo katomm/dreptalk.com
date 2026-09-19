@@ -27,7 +27,7 @@ import { GOV_ACTION_FORM_TYPES, type GovActionFormType } from './prevAction.js';
 
 export type { GovActionFormType };
 
-/** The full set of form fields worth restoring; never wallet/address/signature/deposit/tx data. */
+/** The full set of form fields worth restoring, never wallet/address/signature/deposit/tx data. */
 export interface GovActionDraft {
   v: 2;
   type: GovActionFormType;
@@ -90,7 +90,7 @@ function coercePanels(raw: unknown): GovActionDraft['panels'] {
 }
 
 /**
- * Parses a stored draft; defensively coerces every field to a safe default
+ * Parses a stored draft, defensively coerces every field to a safe default
  * and drops malformed reference rows or panel state rather than rejecting
  * the whole draft. Returns null for a missing key, invalid JSON, or a
  * non-object value (e.g. a JSON array or primitive). A stored v1 draft (no
@@ -141,7 +141,7 @@ export function saveGovActionDraft(storage: Pick<Storage, 'setItem'>, key: strin
   try {
     storage.setItem(key, JSON.stringify(draft));
   } catch {
-    // Storage can be full or blocked; drafting is best-effort.
+    // Storage can be full or blocked, drafting is best-effort.
   }
 }
 
@@ -150,6 +150,6 @@ export function clearGovActionDraft(storage: Pick<Storage, 'removeItem'>, key: s
   try {
     storage.removeItem(key);
   } catch {
-    // Storage can be blocked; clearing is best-effort.
+    // Storage can be blocked, clearing is best-effort.
   }
 }
