@@ -1,12 +1,14 @@
 // Unit tests for buildGovernanceAction: the single construction helper that
 // turns a GovActionSpec into the SDK's typed GovernanceAction union. Pure
-// (no network, no wallet), so every arm runs offline. Also covers
-// buildInfoActionProposeParts, moved here from the retired InfoAction-only builder.
+// (no network, no wallet), so every arm runs offline. Also covers the reward
+// account and anchor construction govActionTx.ts builds inline for every
+// proposal, assertions that used to sit on a retired InfoAction-only builder
+// and now sit directly on the SDK calls.
 
 import { describe, it, expect } from 'vitest';
-import { GovernanceAction, RewardAccount } from '@evolution-sdk/evolution';
-import { buildGovernanceAction, buildInfoActionProposeParts } from './govActionParts.js';
-import { bytesToHex } from '../crypto/hex.js';
+import { Anchor, GovernanceAction, RewardAccount, Url } from '@evolution-sdk/evolution';
+import { buildGovernanceAction } from './govActionParts.js';
+import { bytesToHex, hexToBytes } from '../crypto/hex.js';
 
 // Deterministic test fixtures.
 const REWARD_ADDRESS_HEX = `e0${'00'.repeat(28)}`; // testnet-style reward address (29 bytes)
@@ -17,34 +19,11 @@ const TX_HASH_HEX = 'cd'.repeat(32);
 const KEY_HASH_HEX = '11'.repeat(28);
 const SCRIPT_HASH_HEX = '22'.repeat(28);
 
-describe('buildInfoActionProposeParts', () => {
-  it('builds an InfoAction proposal with a reward account and anchor', () => {
-    const parts = buildInfoActionProposeParts({
-      rewardAddressHex: REWARD_ADDRESS_HEX,
-      anchorUrl: ANCHOR_URL,
-      anchorHashHex: ANCHOR_HASH_HEX,
-    });
-
-    expect(parts.rewardAccount).toBeDefined();
-    expect(parts.governanceAction).toBeDefined();
-    expect(parts.anchor).toBeDefined();
-  });
-
-  it('tags the governance action as InfoAction', () => {
-    const parts = buildInfoActionProposeParts({
-      rewardAddressHex: REWARD_ADDRESS_HEX,
-      anchorUrl: ANCHOR_URL,
-      anchorHashHex: ANCHOR_HASH_HEX,
-    });
-
-    expect((parts.governanceAction as { _tag: string })._tag).toBe('InfoAction');
-  });
-
+describe('InfoAction proposal parts (the reward account and anchor govActionTx.ts builds inline, InfoAction itself is covered below)', () => {
   it('round-trips the anchor URL and hash via toJSON', () => {
-    const { anchor } = buildInfoActionProposeParts({
-      rewardAddressHex: REWARD_ADDRESS_HEX,
-      anchorUrl: ANCHOR_URL,
-      anchorHashHex: ANCHOR_HASH_HEX,
+    const anchor = new Anchor.Anchor({
+      anchorUrl: new Url.Url({ href: ANCHOR_URL }),
+      anchorDataHash: hexToBytes(ANCHOR_HASH_HEX),
     });
 
     const json = anchor.toJSON();
@@ -53,12 +32,7 @@ describe('buildInfoActionProposeParts', () => {
   });
 
   it('builds a RewardAccount matching the given hex', () => {
-    const { rewardAccount } = buildInfoActionProposeParts({
-      rewardAddressHex: REWARD_ADDRESS_HEX,
-      anchorUrl: ANCHOR_URL,
-      anchorHashHex: ANCHOR_HASH_HEX,
-    });
-
+    const rewardAccount = RewardAccount.fromHex(REWARD_ADDRESS_HEX);
     expect(rewardAccount).toEqual(RewardAccount.fromHex(REWARD_ADDRESS_HEX));
   });
 });

@@ -49,7 +49,7 @@ export default function HardForkPanel({ context, value, onChange, disabled = fal
       <PrevActionField
         context={prevContext}
         value={value.prev}
-        onChange={prev => onChange({ ...value, prev })}
+        onChange={prev => onChange({ ...value, prev, version: null })}
         disabled={disabled}
       />
 

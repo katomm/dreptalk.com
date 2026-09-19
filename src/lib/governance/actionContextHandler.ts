@@ -19,20 +19,13 @@ import {
   pickLastEnacted,
   openInChain,
   formatGovActionKey,
+  GOV_ACTION_FORM_TYPES,
   type GovActionFormType,
   type GovActionRef,
 } from './prevAction.js';
 import { parseHardForkVersion, decodeOnchainChanges } from './onchain.js';
 import { getGovernanceActionTitlesByIds } from '../db/governance.js';
 import type { ProposalListRow, EpochParamsRow, CommitteeMember } from '../koios/client.js';
-
-const GOV_ACTION_FORM_TYPES: readonly GovActionFormType[] = [
-  'NoConfidence',
-  'HardForkInitiation',
-  'NewConstitution',
-  'UpdateCommittee',
-  'InfoAction',
-];
 
 function isGovActionFormType(value: string | null): value is GovActionFormType {
   return value !== null && (GOV_ACTION_FORM_TYPES as readonly string[]).includes(value);
@@ -102,7 +95,7 @@ async function buildPrevContext(
   ]);
 
   // pickLastEnacted/openInChain take the structural ChainRow type from
-  // prevAction.ts; ProposalListRow satisfies it, and the values returned are
+  // prevAction.ts, ProposalListRow satisfies it, and the values returned are
   // the exact same row objects (never rebuilt), so the cast back is safe and
   // keeps proposal_description available for the hard-fork version and
   // constitution script-hash reads below.

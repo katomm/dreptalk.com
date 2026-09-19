@@ -545,32 +545,16 @@ describe('createKoiosClient.openProposals', () => {
   });
 });
 
-describe('createKoiosClient.committeeQuorum', () => {
+describe('createKoiosClient.committeeContext', () => {
   it('preserves a 0 numerator', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       jsonResponse([{ members: [], quorum_numerator: 0, quorum_denominator: 1 }]),
     );
     const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
 
-    expect(await client.committeeQuorum()).toEqual({ numerator: 0, denominator: 1 });
+    expect((await client.committeeContext()).quorum).toEqual({ numerator: 0, denominator: 1 });
   });
 
-  it('parses a 2/3 quorum', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(committeeResponseFixture));
-    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
-
-    expect(await client.committeeQuorum()).toEqual({ numerator: 2, denominator: 3 });
-  });
-
-  it('returns null when there is no committee row', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([]));
-    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
-
-    expect(await client.committeeQuorum()).toBeNull();
-  });
-});
-
-describe('createKoiosClient.committeeContext', () => {
   it('derives both members and quorum from a single /committee_info fetch', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(committeeResponseFixture));
     const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });

@@ -1,7 +1,15 @@
 /// <reference types="@cloudflare/workers-types" />
-// Removes IPFS pins for InfoAction metadata documents that no governance action
+// Removes IPFS pins for governance metadata documents that no governance action
 // ever anchored: abandoned submissions (the user declined the transaction after
 // the document was already published) and anything pinned to abuse the endpoint.
+// Governs both document kinds the `kind` column on gov_action_metadata tracks,
+// CIP-108 metadata and constitution documents, so a collector run protects a
+// constitution text the same way it protects a proposal's metadata anchor. A
+// constitution document also gets a second protection beyond the anchor_hash
+// check below, a row stays uncollectable while its hash occurs in a
+// NewConstitution action's onchain_payload (the instr() predicate in
+// src/lib/db/govActionMetadata.ts), since a constitution text is referenced by
+// that payload rather than by anchor_hash.
 //
 // READ THIS BEFORE CHANGING ANYTHING HERE.
 //

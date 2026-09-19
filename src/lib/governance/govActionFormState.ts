@@ -288,6 +288,24 @@ function carryCommitteeRemovals(
   return { ...next, removeFree: [...next.removeFree, ...seeded] };
 }
 
+// A protocol version chosen against one prev row is meaningless once the
+// user picks a different prev, since the candidate versions are computed
+// from that row's own version. Guards against a stale version surviving a
+// prev switch even if a panel's onChange forgets to clear it itself.
+function resetHardForkVersionOnPrevChange(
+  before: HardForkPanelState,
+  next: HardForkPanelState,
+): HardForkPanelState {
+  if (before.version === null) return next;
+  const prevChanged =
+    (before.prev === null) !== (next.prev === null) ||
+    (before.prev !== null &&
+      next.prev !== null &&
+      (before.prev.txHashHex !== next.prev.txHashHex || before.prev.index !== next.prev.index));
+  if (!prevChanged) return next;
+  return { ...next, version: null };
+}
+
 // ---------------------------------------------------------------------------
 // Reducer
 // ---------------------------------------------------------------------------
@@ -315,7 +333,9 @@ export function govActionFormReducer(
       const next =
         action.type === 'UpdateCommittee'
           ? carryCommitteeRemovals(state.panels.UpdateCommittee, action.state, state.context.data)
-          : action.state;
+          : action.type === 'HardForkInitiation'
+            ? resetHardForkVersionOnPrevChange(state.panels.HardForkInitiation, action.state)
+            : action.state;
       return { ...state, panels: { ...state.panels, [action.type]: next } };
     }
 

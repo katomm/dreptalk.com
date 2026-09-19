@@ -10,7 +10,6 @@ import {
   Constitution,
   GovernanceAction,
   KeyHash,
-  RewardAccount,
   ScriptHash,
   UnitInterval,
   Url,
@@ -54,7 +53,7 @@ function buildColdCredential(credential: ColdCredential): KeyHash.KeyHash | Scri
 
 /**
  * Constructs the typed SDK GovernanceAction for any of the five unwitnessed
- * action types from a GovActionSpec. Pure; exported for unit tests.
+ * action types from a GovActionSpec. Pure. Exported for unit tests.
  */
 export function buildGovernanceAction(spec: GovActionSpec): GovernanceAction.GovernanceAction {
   switch (spec.type) {
@@ -103,25 +102,4 @@ export function buildGovernanceAction(spec: GovActionSpec): GovernanceAction.Gov
       });
     }
   }
-}
-
-/**
- * Pure helper: constructs the typed RewardAccount, GovernanceAction, and Anchor
- * values for an InfoAction proposal from the raw inputs. No network access
- * required. Exported for unit tests that verify construction without a live
- * wallet.
- */
-export function buildInfoActionProposeParts(opts: {
-  rewardAddressHex: string;
-  anchorUrl: string;
-  anchorHashHex: string;
-}): { rewardAccount: RewardAccount.RewardAccount; governanceAction: GovernanceAction.InfoAction; anchor: Anchor.Anchor } {
-  return {
-    rewardAccount: RewardAccount.fromHex(opts.rewardAddressHex),
-    governanceAction: new GovernanceAction.InfoAction({}),
-    anchor: new Anchor.Anchor({
-      anchorUrl: new Url.Url({ href: opts.anchorUrl }),
-      anchorDataHash: hexToBytes(opts.anchorHashHex),
-    }),
-  };
 }

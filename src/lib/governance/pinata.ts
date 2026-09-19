@@ -119,7 +119,7 @@ export async function pinDocument(input: {
 /**
  * Uploads the exact hashed CIP-108 body to IPFS and returns its CID.
  * `body` must be the same string that was hashed for the anchor (the caller's
- * blake2b-256 digest); this function uploads it byte-for-byte, unmodified,
+ * blake2b-256 digest). This function uploads it byte-for-byte, unmodified,
  * and verifies the uploaded size matches before trusting the returned CID.
  */
 export async function pinInfoActionMetadata(input: {

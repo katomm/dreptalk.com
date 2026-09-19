@@ -23,7 +23,7 @@
 // pulling this module into the island can never drag that engine into the
 // client bundle. infoActionLimits.ts is fine to import if ever needed since
 // it is equally leaf-clean.
-import type { GovActionFormType } from './prevAction.js';
+import { GOV_ACTION_FORM_TYPES, type GovActionFormType } from './prevAction.js';
 
 export type { GovActionFormType };
 
@@ -44,16 +44,8 @@ export interface GovActionDraft {
   panels: Partial<Record<Exclude<GovActionFormType, 'InfoAction'>, unknown>>;
 }
 
-const FORM_TYPES: readonly GovActionFormType[] = [
-  'InfoAction',
-  'NoConfidence',
-  'HardForkInitiation',
-  'NewConstitution',
-  'UpdateCommittee',
-];
-
 function isFormType(value: unknown): value is GovActionFormType {
-  return typeof value === 'string' && (FORM_TYPES as readonly string[]).includes(value);
+  return typeof value === 'string' && (GOV_ACTION_FORM_TYPES as readonly string[]).includes(value);
 }
 
 /** Per-network draft key, so a preprod draft never collides with (a future) mainnet one. */

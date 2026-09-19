@@ -13,7 +13,7 @@ import {
   type GovActionDraft,
 } from './govActionDraft.js';
 
-/** A minimal in-memory Storage fake; optionally throws on a given method to simulate a blocked/full store. */
+/** A minimal in-memory Storage fake, optionally throws on a given method to simulate a blocked/full store. */
 function makeFakeStorage(opts?: { throwOn?: 'getItem' | 'setItem' | 'removeItem' }) {
   const map = new Map<string, string>();
   return {

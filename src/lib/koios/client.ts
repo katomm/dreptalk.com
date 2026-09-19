@@ -904,20 +904,14 @@ export function createKoiosClient(opts: KoiosClientOptions) {
       return { quorum, members: row.members };
     },
 
-    // Raw quorum threshold from /committee_info, sharing committeeRow() like
-    // the two views above. Unlike committeeSummary's simplified ratio, this
-    // keeps numerator and denominator separate so a numerator of 0 (a
-    // theoretical committee_min_size of 0) is not lost to `0 && x` falsiness.
-    async committeeQuorum(): Promise<{ numerator: number; denominator: number } | null> {
-      const row = await committeeRow();
-      if (!row || row.quorum_numerator == null || row.quorum_denominator == null) return null;
-      return { numerator: row.quorum_numerator, denominator: row.quorum_denominator };
-    },
-
-    // Members and quorum from one /committee_info fetch. Distinct from
-    // committeeInfo()/committeeQuorum() (each of which fetches independently)
-    // so a caller that needs both, like the /ga/new context handler, does not
-    // pay for the request twice within the same request.
+    // Members and quorum from one /committee_info fetch, sharing committeeRow()
+    // like committeeInfo()/committeeSummary() above. Unlike committeeSummary's
+    // simplified ratio, this keeps numerator and denominator separate so a
+    // numerator of 0 (a theoretical committee_min_size of 0) is not lost to
+    // `0 && x` falsiness. Exists as its own call, distinct from fetching
+    // committeeInfo() and this quorum separately, so a caller that needs both,
+    // like the /ga/new context handler, does not pay for the request twice
+    // within the same request.
     async committeeContext(): Promise<{
       members: CommitteeMember[];
       quorum: { numerator: number; denominator: number } | null;

@@ -48,6 +48,23 @@ export type GovActionFormType =
   | 'UpdateCommittee'
   | 'InfoAction';
 
+// The one runtime list of form types. Every other module that needs to
+// iterate, validate or default to a form type imports this instead of
+// keeping its own copy, so the list and the union type can't drift.
+export const GOV_ACTION_FORM_TYPES = [
+  'InfoAction',
+  'NoConfidence',
+  'HardForkInitiation',
+  'NewConstitution',
+  'UpdateCommittee',
+] as const satisfies readonly GovActionFormType[];
+
+// Compile-time guard: fails to typecheck if a union member is ever added to
+// GovActionFormType without adding it to the list above.
+type MissingFormType = Exclude<GovActionFormType, (typeof GOV_ACTION_FORM_TYPES)[number]>;
+const _exhaustiveFormTypes: MissingFormType extends never ? true : never = true;
+void _exhaustiveFormTypes;
+
 // Purpose chains keyed by their Koios proposal_type names. NoConfidence and
 // NewCommittee (Koios's name for what the form calls UpdateCommittee) share
 // one chain because either can supersede the sitting committee.

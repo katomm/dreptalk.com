@@ -31,7 +31,7 @@ export interface ConstitutionDocumentDeps {
 
 /**
  * Validates, hashes, pins to IPFS, and stores a dedup/audit row for a
- * constitution document. Never throws; unexpected errors become a generic
+ * constitution document. Never throws. Unexpected errors become a generic
  * 500.
  *
  * Error-contract ordering: gate -> parse/validate -> D1 lookup by hash (reuse

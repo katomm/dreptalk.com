@@ -1,7 +1,7 @@
 // GET /api/gov-action/context
 // Live ledger context (purpose-chain root/open rows, protocol version,
 // committee, constitution script hash) for the /ga/new type selector.
-// All logic lives in handleActionContext; this route only wires up the real
+// All logic lives in handleActionContext. This route only wires up the real
 // Koios client from the runtime env and delegates.
 import type { APIRoute } from 'astro';
 import { runtimeEnv, currentNetwork } from '@/lib/api/response';

@@ -85,6 +85,43 @@ describe('setType', () => {
   });
 });
 
+describe('setPanel on HardForkInitiation', () => {
+  it('drops a version chosen against an open prev once the prev switches', () => {
+    let s = initialGovActionFormState();
+    s = govActionFormReducer(s, { kind: 'setType', type: 'HardForkInitiation' });
+    s = govActionFormReducer(s, {
+      kind: 'setPanel',
+      type: 'HardForkInitiation',
+      state: { prev: REF_A, version: { major: 11, minor: 0 } },
+    });
+    expect(s.panels.HardForkInitiation.version).toEqual({ major: 11, minor: 0 });
+
+    s = govActionFormReducer(s, {
+      kind: 'setPanel',
+      type: 'HardForkInitiation',
+      state: { prev: REF_B, version: { major: 11, minor: 0 } },
+    });
+    expect(s.panels.HardForkInitiation.prev).toEqual(REF_B);
+    expect(s.panels.HardForkInitiation.version).toBeNull();
+  });
+
+  it('keeps the version when the panel state changes but the prev does not', () => {
+    let s = initialGovActionFormState();
+    s = govActionFormReducer(s, { kind: 'setType', type: 'HardForkInitiation' });
+    s = govActionFormReducer(s, {
+      kind: 'setPanel',
+      type: 'HardForkInitiation',
+      state: { prev: REF_A, version: { major: 11, minor: 0 } },
+    });
+    s = govActionFormReducer(s, {
+      kind: 'setPanel',
+      type: 'HardForkInitiation',
+      state: { prev: REF_A, version: { major: 11, minor: 0 } },
+    });
+    expect(s.panels.HardForkInitiation.version).toEqual({ major: 11, minor: 0 });
+  });
+});
+
 describe('context lifecycle', () => {
   it('contextRequested marks loading and records the request id', () => {
     const s = govActionFormReducer(initialGovActionFormState(), {

@@ -1,7 +1,7 @@
 // Client-side builder for a Conway governance-action proposal, covering all
 // five unwitnessed action types (InfoAction, NoConfidence, HardForkInitiation,
 // NewConstitution, UpdateCommittee). Non-custodial: the connected wallet signs
-// and submits; the server is never involved in key operations. Preprod-only
+// and submits, the server is never involved in key operations. Preprod-only
 // by construction: governance action submission is a testing/demo flow, never
 // offered on mainnet.
 
@@ -20,7 +20,7 @@ import { hexToBytes } from '../crypto/hex.js';
 import type { CardanoNetwork } from '../config/network.js';
 import { govActionSubmissionAvailable } from './submissionGate.js';
 
-export interface SubmitInfoActionOpts {
+export interface SubmitGovActionOpts {
   /** CIP-30 wallet API obtained from cardano[walletId].enable(). */
   walletApi: WalletApi;
   network: CardanoNetwork;
@@ -42,16 +42,16 @@ export interface SubmitInfoActionOpts {
  * Builds, signs, and submits a Conway governance-action proposal for any of
  * the five unwitnessed action types.
  *
- * The wallet extension performs signing and submission; the server is never
+ * The wallet extension performs signing and submission, the server is never
  * involved in key operations. The CIP-20 attribution tag (label 674) is
  * attached so chain observers can identify DRepTalk-originated actions.
  *
  * Rejected outright on mainnet regardless of what the caller passes:
  * governance action submission is a preprod-only flow. Requires a live
- * wallet and a reachable Koios provider; not unit-testable offline beyond the
+ * wallet and a reachable Koios provider, not unit-testable offline beyond the
  * mainnet guard and the propose-op wiring (see govActionTx.test.ts).
  */
-export async function submitGovAction(opts: SubmitInfoActionOpts): Promise<{ txHash: string }> {
+export async function submitGovAction(opts: SubmitGovActionOpts): Promise<{ txHash: string }> {
   if (!govActionSubmissionAvailable(opts.network)) {
     throw new Error('Governance action submission is preprod only.');
   }
@@ -84,6 +84,6 @@ export async function submitGovAction(opts: SubmitInfoActionOpts): Promise<{ txH
     .collectFrom({ inputs })
     .build({ availableUtxos });
 
-  // signAndSubmit already returns { txHash }; return it directly, do not re-wrap.
+  // signAndSubmit already returns { txHash }, return it directly, do not re-wrap.
   return signAndSubmit(built, opts.walletApi);
 }

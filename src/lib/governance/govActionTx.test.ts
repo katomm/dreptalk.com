@@ -1,6 +1,6 @@
 // Unit tests for the mainnet guard, the funding-shortfall message, and the
 // propose-op wiring in govActionTx.ts. collectWalletUtxos and makeClient are
-// mocked so these run offline; a live wallet and Koios provider are needed
+// mocked so these run offline, a live wallet and Koios provider are needed
 // for the full build/sign/submit path, which is not covered here.
 
 import { describe, it, expect, vi } from 'vitest';
