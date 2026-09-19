@@ -11,9 +11,10 @@ import { useMemo } from 'react';
 import type { CSSProperties } from 'react';
 import PrevActionField from './PrevActionField.js';
 import { validateCommitteePanel } from '@/lib/governance/govActionFormState.js';
+import { isBech32CredentialInput } from '@/lib/governance/committeeUpdate.js';
 import type { CommitteeAddRow, UpdateCommitteePanelState } from '@/lib/governance/govActionFormState.js';
 import type { ActionContextResponse } from '@/lib/governance/actionContextHandler.js';
-import { inputStyle } from '@/components/drepFormStyles.js';
+import { inputStyle, labelStyle, mutedStyle } from '@/components/drepFormStyles.js';
 
 export interface UpdateCommitteePanelProps {
   context: ActionContextResponse;
@@ -22,8 +23,6 @@ export interface UpdateCommitteePanelProps {
   disabled?: boolean;
 }
 
-const mutedStyle: CSSProperties = { color: 'var(--muted)', fontSize: '0.8125rem' };
-const labelStyle: CSSProperties = { display: 'block', fontSize: '0.875rem', marginBottom: '0.25rem', color: 'var(--muted)' };
 const errorStyle: CSSProperties = { margin: '0.25rem 0 0', fontSize: '0.8125rem', color: 'var(--danger, #b3261e)' };
 const rowStyle: CSSProperties = { display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' };
 const linkButtonStyle = (disabled: boolean): CSSProperties => ({
@@ -35,11 +34,6 @@ const linkButtonStyle = (disabled: boolean): CSSProperties => ({
   padding: '0 0.25rem',
   textDecoration: 'underline',
 });
-
-/** True for input the parser reads as CIP-129 bech32, where the header byte already says key or script. */
-function isBech32Credential(input: string): boolean {
-  return /^cc_cold1/i.test(input.trim());
-}
 
 function shortHex(hex: string): string {
   return `${hex.slice(0, 12)}...${hex.slice(-6)}`;
@@ -53,7 +47,7 @@ function KindToggle(props: {
   disabled: boolean;
   label: string;
 }) {
-  const auto = isBech32Credential(props.input);
+  const auto = isBech32CredentialInput(props.input);
   return (
     <select
       value={props.value}

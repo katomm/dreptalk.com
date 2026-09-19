@@ -9,7 +9,9 @@
 // time, so a root that moves while the page is open is caught by the
 // submit-time freshness check instead of being followed silently.
 import type { CSSProperties } from 'react';
+import { matchesRef } from '@/lib/governance/prevAction.js';
 import type { PrevActionRef, GovActionRef } from '@/lib/governance/prevAction.js';
+import { labelStyle, mutedStyle } from '@/components/drepFormStyles.js';
 
 export interface PrevActionFieldProps {
   context: { lastEnacted: GovActionRef | null; open: GovActionRef[] };
@@ -22,16 +24,10 @@ export interface PrevActionFieldProps {
 // field can say it is showing a window rather than the whole chain.
 const OPEN_DISPLAY_CAP = 50;
 
-const labelStyle: CSSProperties = { display: 'block', fontSize: '0.875rem', marginBottom: '0.25rem', color: 'var(--muted)' };
 const rowStyle: CSSProperties = { fontSize: '0.875rem', lineHeight: 1.5 };
-const mutedStyle: CSSProperties = { color: 'var(--muted)', fontSize: '0.8125rem' };
 
 function refLabel(ref: GovActionRef): string {
   return ref.title ?? `${ref.id.slice(0, 16)}...`;
-}
-
-function sameRef(a: PrevActionRef | null, b: GovActionRef): boolean {
-  return a !== null && a.txHashHex.toLowerCase() === b.txHash.toLowerCase() && a.index === b.index;
 }
 
 function RefLine({ action }: { action: GovActionRef }) {
@@ -87,7 +83,7 @@ export default function PrevActionField({ context, value, onChange, disabled = f
                 <input
                   type="radio"
                   name="ga-prev-action"
-                  checked={sameRef(value, o)}
+                  checked={value !== null && matchesRef(value, o)}
                   disabled={disabled}
                   onChange={() => onChange({ txHashHex: o.txHash, index: o.index })}
                   style={{ marginTop: '0.2rem' }}

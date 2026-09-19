@@ -13,7 +13,7 @@
 // Everything that is not wallet state lives in the govActionFormState
 // reducer, so the type switch, the per-type panels and the out-of-order
 // context guard are unit-tested without a DOM.
-import { useEffect, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { CopyButton } from '@/components/CopyButton.js';
@@ -29,7 +29,6 @@ import {
   REFERENCE_LABEL_MAX,
   REFERENCE_URI_MAX,
   REFERENCES_MAX,
-  CONSTITUTION_DOCUMENT_MAX_BYTES,
 } from '@/lib/governance/infoActionLimits.js';
 import { parseSurveyRefInput } from '@/lib/governance/surveyRef.js';
 import {
@@ -45,10 +44,12 @@ import {
   draftFromState,
   isFormBlank,
   validateCommitteePanel,
+  validateHardForkPanel,
+  validateNewConstitutionPanel,
+  PREV_ACTION_CHANGED,
 } from '@/lib/governance/govActionFormState.js';
 import { chainForType, refStillPresent } from '@/lib/governance/prevAction.js';
-import { versionsThatFollow } from '@/lib/governance/hardForkVersion.js';
-import type { PrevActionRef } from '@/lib/governance/prevAction.js';
+import type { GovActionFormType, PrevActionRef } from '@/lib/governance/prevAction.js';
 import type { GovActionSpec } from '@/lib/governance/govActionParts.js';
 import type { ActionContextResponse } from '@/lib/governance/actionContextHandler.js';
 import { protocolParamsFromEpochParams } from '@/lib/koios/protocolParamsAdapter.js';
@@ -69,9 +70,6 @@ import WalletConnection from '@/components/WalletConnection.js';
 // Mirrors the un-exported AUTHOR_NAME_MAX in infoActionMetadataHandler.ts, kept
 // in sync manually since that constant is server-internal.
 const AUTHOR_NAME_MAX = 120;
-
-/** Shown when the chosen previous action is gone from the fresh submit-time context. */
-const PREV_ACTION_CHANGED = 'The previous action changed, review the selection.';
 
 // The real CIP-30 DataSignature shape (COSE_Sign1 signature + COSE_Key), which
 // is what every wallet actually returns and what the author witness reads.
@@ -264,7 +262,37 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
   const contextRequestIdRef = useRef(0);
 
   const metadata = state.metadata;
+  // Destructured for the draft effect below, which reads exactly these three
+  // and must not re-run on a context transition.
+  const { type, panels } = state;
   const chained = chainForType(state.type) !== null;
+
+  /**
+   * Fetches the live ledger context for a type and files the outcome through
+   * the reducer. Used both by the mount/type-change effect and by the
+   * submit-time refetch, so the request-id bookkeeping is written once.
+   *
+   * Nothing to cancel: every request carries an id and the reducer ignores a
+   * loaded or failed response whose id is no longer the latest, so a response
+   * that arrives after a type switch is already a no-op.
+   */
+  const loadContext = useCallback(async (forType: GovActionFormType): Promise<ActionContextResponse | null> => {
+    contextRequestIdRef.current += 1;
+    const requestId = contextRequestIdRef.current;
+    dispatch({ kind: 'contextRequested', requestId });
+    try {
+      const res = await fetchWithTimeout(
+        `${window.location.origin}/api/gov-action/context?type=${encodeURIComponent(forType)}`,
+      );
+      if (!res.ok) throw new Error(`context request failed (${res.status})`);
+      const data = (await res.json()) as ActionContextResponse;
+      dispatch({ kind: 'contextLoaded', requestId, data });
+      return data;
+    } catch {
+      dispatch({ kind: 'contextFailed', requestId });
+      return null;
+    }
+  }, []);
 
   // Draft persistence: restore runs once after mount (no localStorage during
   // SSR), the persist effect stays quiet until then so it can never clobber a
@@ -285,9 +313,10 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
     // A draft is only worth keeping while it carries something: metadata text,
     // a non-default type, or a filled panel. A committee panel with no
     // metadata yet is kept, which is why the check is not metadata-only.
-    if (isFormBlank(state)) clearGovActionDraft(window.localStorage, draftKey);
-    else saveGovActionDraft(window.localStorage, draftKey, draftFromState(state));
-  }, [draftKey, state]);
+    const draftable = { metadata, type, panels };
+    if (isFormBlank(draftable)) clearGovActionDraft(window.localStorage, draftKey);
+    else saveGovActionDraft(window.localStorage, draftKey, draftFromState(draftable));
+  }, [draftKey, metadata, type, panels]);
 
   // Deposit and voting thresholds are informational chain data, independent of
   // the wallet connection, and one /epoch_params read serves both.
@@ -326,26 +355,8 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     if (chainForType(state.type) === null) return;
-    let cancelled = false;
-    contextRequestIdRef.current += 1;
-    const requestId = contextRequestIdRef.current;
-    dispatch({ kind: 'contextRequested', requestId });
-    (async () => {
-      try {
-        const res = await fetchWithTimeout(
-          `${window.location.origin}/api/gov-action/context?type=${encodeURIComponent(state.type)}`,
-        );
-        if (!res.ok) throw new Error(`context request failed (${res.status})`);
-        const data = (await res.json()) as ActionContextResponse;
-        if (!cancelled) dispatch({ kind: 'contextLoaded', requestId, data });
-      } catch {
-        if (!cancelled) dispatch({ kind: 'contextFailed', requestId });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [state.type, contextAttempt]);
+    void loadContext(state.type);
+  }, [state.type, contextAttempt, loadContext]);
 
   const busy = phase.status === 'connecting' || phase.status === 'submitting';
   // Same parser the server uses, so the form can never accept a ref the
@@ -416,35 +427,15 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
         return { ok: true, spec: { type: 'NoConfidence', prev } };
 
       case 'HardForkInitiation': {
-        const version = state.panels.HardForkInitiation.version;
-        if (!version) return { ok: false, error: 'Choose the protocol version to propose.' };
-        const active = ctx?.protocolVersion ?? null;
-        if (!active) return { ok: false, error: 'The current protocol version could not be read from the chain. Please try again.' };
-        const openRow = (ctx?.prev?.open ?? []).find(
-          (o) => prev !== null && o.txHash.toLowerCase() === prev.txHashHex.toLowerCase() && o.index === prev.index,
-        );
-        const base = openRow ? (openRow.version ?? null) : active;
-        if (!base) return { ok: false, error: 'The protocol version of the chosen previous action could not be read, so no version can be proposed against it.' };
-        if (!versionsThatFollow(base, active).some((c) => c.major === version.major && c.minor === version.minor)) {
-          return { ok: false, error: `Protocol version ${version.major}.${version.minor} no longer follows the current chain state. ${PREV_ACTION_CHANGED}` };
-        }
-        return { ok: true, spec: { type: 'HardForkInitiation', prev, version } };
+        const result = validateHardForkPanel({ ...state.panels.HardForkInitiation, prev }, ctx);
+        if (!result.ok) return result;
+        return { ok: true, spec: { type: 'HardForkInitiation', prev, version: result.value } };
       }
 
       case 'NewConstitution': {
-        const panel = state.panels.NewConstitution;
-        const text = panel.text;
-        if (!text.trim()) return { ok: false, error: 'Enter the constitution text.' };
-        if (new TextEncoder().encode(text).length > CONSTITUTION_DOCUMENT_MAX_BYTES) {
-          return { ok: false, error: 'The constitution document is over the 256 KiB limit.' };
-        }
-        // Same fallback the panel field shows: untouched means the hash of
-        // the constitution in force, an empty string means no script.
-        const hash = (panel.scriptHashHex ?? ctx?.constitution?.scriptHash ?? '').trim();
-        if (hash !== '' && !/^[0-9a-f]{56}$/i.test(hash)) {
-          return { ok: false, error: 'A guardrails script hash is exactly 56 hex characters.' };
-        }
-        return { ok: true, constitution: { text, scriptHashHex: hash === '' ? null : hash.toLowerCase(), prev } };
+        const result = validateNewConstitutionPanel({ ...state.panels.NewConstitution, prev }, ctx);
+        if (!result.ok) return result;
+        return { ok: true, constitution: { ...result.value, prev } };
       }
 
       case 'UpdateCommittee': {
@@ -496,30 +487,6 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
     enabledApiRef.current = api;
     rememberWallet(selected);
     setPhase({ status: 'form' });
-  }
-
-  /**
-   * Refetches the context (the route answers no-store, so this cannot come
-   * from the browser cache) and checks the chosen previous action is still
-   * there. The fresh response replaces the stored one either way, so the
-   * panel immediately shows what the chain looks like now.
-   */
-  async function refreshContext(): Promise<ActionContextResponse | null> {
-    contextRequestIdRef.current += 1;
-    const requestId = contextRequestIdRef.current;
-    dispatch({ kind: 'contextRequested', requestId });
-    try {
-      const res = await fetchWithTimeout(
-        `${window.location.origin}/api/gov-action/context?type=${encodeURIComponent(state.type)}`,
-      );
-      if (!res.ok) throw new Error(`context request failed (${res.status})`);
-      const data = (await res.json()) as ActionContextResponse;
-      dispatch({ kind: 'contextLoaded', requestId, data });
-      return data;
-    } catch {
-      dispatch({ kind: 'contextFailed', requestId });
-      return null;
-    }
   }
 
   // ------------------------------------------------------------------
@@ -591,7 +558,10 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
       // published or signed.
       let fresh: ActionContextResponse | null = contextData;
       if (chained) {
-        fresh = await refreshContext();
+        // The route answers no-store, so this cannot come from the browser
+        // cache. The fresh response replaces the stored one either way, so
+        // the panel immediately shows what the chain looks like now.
+        fresh = await loadContext(state.type);
         if (!fresh?.prev) {
           setPhase({
             status: 'error',

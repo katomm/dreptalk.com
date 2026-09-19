@@ -6,9 +6,10 @@ import { useMemo } from 'react';
 import type { CSSProperties } from 'react';
 import PrevActionField from './PrevActionField.js';
 import { CONSTITUTION_DOCUMENT_MAX_BYTES } from '@/lib/governance/infoActionLimits.js';
+import { HEX_HASH_224_RE } from '@/lib/crypto/hex.js';
 import type { ActionContextResponse } from '@/lib/governance/actionContextHandler.js';
 import type { NewConstitutionPanelState } from '@/lib/governance/govActionFormState.js';
-import { inputStyle } from '@/components/drepFormStyles.js';
+import { inputStyle, labelStyle, mutedStyle } from '@/components/drepFormStyles.js';
 
 export interface NewConstitutionPanelProps {
   context: ActionContextResponse;
@@ -17,11 +18,8 @@ export interface NewConstitutionPanelProps {
   disabled?: boolean;
 }
 
-const mutedStyle: CSSProperties = { color: 'var(--muted)', fontSize: '0.8125rem' };
-const labelStyle: CSSProperties = { display: 'block', fontSize: '0.875rem', marginBottom: '0.25rem', color: 'var(--muted)' };
 const textAreaStyle: CSSProperties = { ...inputStyle, lineHeight: '1.6', resize: 'vertical', fontFamily: 'ui-monospace, monospace', fontSize: '0.875rem' };
 
-const SCRIPT_HASH_RE = /^[0-9a-f]{56}$/i;
 const ENCODER = new TextEncoder();
 
 /** Human-readable size for the byte counter, kept to whole KiB above a kilobyte. */
@@ -42,7 +40,7 @@ export default function NewConstitutionPanel({ context, value, onChange, disable
 
   const byteLength = useMemo(() => ENCODER.encode(value.text).length, [value.text]);
   const overCap = byteLength > CONSTITUTION_DOCUMENT_MAX_BYTES;
-  const hashInvalid = scriptHashHex.trim() !== '' && !SCRIPT_HASH_RE.test(scriptHashHex.trim());
+  const hashInvalid = scriptHashHex.trim() !== '' && !HEX_HASH_224_RE.test(scriptHashHex.trim());
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>

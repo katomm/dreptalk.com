@@ -9,11 +9,15 @@
 // type switch therefore cannot land the previous type's chain data on the new
 // type's panel.
 //
-// Leaf-clean like the other modules the island pulls in: the only imports are
-// types, so nothing from the canonicalisation engine can reach the client
-// bundle through here.
+// Leaf-clean like the other modules the island pulls in: types plus a handful
+// of pure leaf helpers, so nothing from the canonicalisation engine can reach
+// the client bundle through here.
+import { matchesRef } from './prevAction.js';
 import type { GovActionFormType, PrevActionRef } from './prevAction.js';
+import { hardForkBaseVersion, versionsThatFollow } from './hardForkVersion.js';
 import type { ProtocolVersion } from './hardForkVersion.js';
+import { HEX_HASH_224_RE } from '../crypto/hex.js';
+import { CONSTITUTION_DOCUMENT_MAX_BYTES } from './infoActionLimits.js';
 import type { GovActionDraft } from './govActionDraft.js';
 import type { ActionContextResponse } from './actionContextHandler.js';
 import { parseColdCredential, validateCommitteeUpdate } from './committeeUpdate.js';
@@ -393,18 +397,21 @@ export function effectivePrev(
   return { txHashHex: root.txHash, index: root.index };
 }
 
+/**
+ * The part of the form state a draft is made of. Narrower than the whole
+ * state on purpose: the live context is never stored, and taking only these
+ * three keys lets the persist effect depend on them instead of on every
+ * context transition.
+ */
+export type DraftableState = Pick<GovActionFormState, 'metadata' | 'type' | 'panels'>;
+
 /** Builds the v2 draft for the current state: the type, the metadata, every panel. */
-export function draftFromState(state: GovActionFormState): GovActionDraft {
+export function draftFromState(state: DraftableState): GovActionDraft {
   return {
     v: 2,
     type: state.type,
     ...state.metadata,
-    panels: {
-      NoConfidence: state.panels.NoConfidence,
-      HardForkInitiation: state.panels.HardForkInitiation,
-      NewConstitution: state.panels.NewConstitution,
-      UpdateCommittee: state.panels.UpdateCommittee,
-    },
+    panels: state.panels,
   };
 }
 
@@ -431,7 +438,7 @@ function panelsAreEmpty(panels: PanelStates): boolean {
  * empty metadata is therefore kept, which is the whole point of storing the
  * panels in the draft.
  */
-export function isFormBlank(state: GovActionFormState): boolean {
+export function isFormBlank(state: DraftableState): boolean {
   const m = state.metadata;
   const metadataBlank =
     !m.title.trim() &&
@@ -442,6 +449,76 @@ export function isFormBlank(state: GovActionFormState): boolean {
     m.references.length === 0 &&
     !m.surveyRef.trim();
   return metadataBlank && state.type === 'InfoAction' && panelsAreEmpty(state.panels);
+}
+
+// ---------------------------------------------------------------------------
+// Panel validation
+//
+// One validator per chained panel that has rules of its own, each returning
+// the value the action needs or the message to show. The panels render
+// through these and the submit shell builds the action through them with the
+// FRESH context, so what the form accepts and what is proposed cannot drift.
+// ---------------------------------------------------------------------------
+
+/** Shown when the chosen previous action is gone from the fresh submit-time context. */
+export const PREV_ACTION_CHANGED = 'The previous action changed, review the selection.';
+
+/** A panel's validation outcome: the value the action needs, or one message to show. */
+export type PanelValidation<T> = { ok: true; value: T } | { ok: false; error: string };
+
+/**
+ * The hard fork panel's rules: a version has to be picked, the active version
+ * has to be readable, and the pick has to still be one of the versions that
+ * may follow the base (see hardForkBaseVersion). The last check is what
+ * catches a chain that moved while the form was open.
+ */
+export function validateHardForkPanel(
+  panel: HardForkPanelState,
+  context: ActionContextResponse | null,
+): PanelValidation<ProtocolVersion> {
+  const version = panel.version;
+  if (!version) return { ok: false, error: 'Choose the protocol version to propose.' };
+  const active = context?.protocolVersion ?? null;
+  if (!active) {
+    return { ok: false, error: 'The current protocol version could not be read from the chain. Please try again.' };
+  }
+  const base = hardForkBaseVersion(panel.prev, context?.prev?.open ?? [], active);
+  if (!base) {
+    return {
+      ok: false,
+      error:
+        'The protocol version of the chosen previous action could not be read, so no version can be proposed against it.',
+    };
+  }
+  if (!versionsThatFollow(base, active).some(c => c.major === version.major && c.minor === version.minor)) {
+    return {
+      ok: false,
+      error: `Protocol version ${version.major}.${version.minor} no longer follows the current chain state. ${PREV_ACTION_CHANGED}`,
+    };
+  }
+  return { ok: true, value: version };
+}
+
+/**
+ * The new constitution panel's rules: a non-empty document within the byte
+ * cap, and a guardrails script hash that is either empty or 56 hex chars.
+ * An untouched hash field means the hash of the constitution in force, which
+ * is what the field itself shows, and an empty one means no script at all.
+ */
+export function validateNewConstitutionPanel(
+  panel: NewConstitutionPanelState,
+  context: ActionContextResponse | null,
+): PanelValidation<{ text: string; scriptHashHex: string | null }> {
+  const text = panel.text;
+  if (!text.trim()) return { ok: false, error: 'Enter the constitution text.' };
+  if (new TextEncoder().encode(text).length > CONSTITUTION_DOCUMENT_MAX_BYTES) {
+    return { ok: false, error: 'The constitution document is over the 256 KiB limit.' };
+  }
+  const hash = (panel.scriptHashHex ?? context?.constitution?.scriptHash ?? '').trim();
+  if (hash !== '' && !HEX_HASH_224_RE.test(hash)) {
+    return { ok: false, error: 'A guardrails script hash is exactly 56 hex characters.' };
+  }
+  return { ok: true, value: { text, scriptHashHex: hash === '' ? null : hash.toLowerCase() } };
 }
 
 // ---------------------------------------------------------------------------
@@ -458,9 +535,8 @@ export function committeeMode(
   context: ActionContextResponse | null,
 ): 'enacted' | 'open' {
   if (!prev) return 'enacted';
-  const hash = prev.txHashHex.toLowerCase();
   const open = context?.prev?.open ?? [];
-  return open.some(o => o.txHash.toLowerCase() === hash && o.index === prev.index) ? 'open' : 'enacted';
+  return open.some(o => matchesRef(prev, o)) ? 'open' : 'enacted';
 }
 
 /** A positive-looking integer field parsed from its typed text, or null when it is not one. */

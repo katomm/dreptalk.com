@@ -5,12 +5,16 @@
 // (preceedingHardFork): a proposal chained onto an open hard fork proposal is
 // checked against that proposal's version, everything else against the
 // version currently active.
-import type { CSSProperties } from 'react';
 import PrevActionField from './PrevActionField.js';
-import { versionsThatFollow, type ProtocolVersion } from '@/lib/governance/hardForkVersion.js';
-import type { GovActionRef } from '@/lib/governance/prevAction.js';
+import {
+  hardForkBaseVersion,
+  versionsThatFollow,
+  type ProtocolVersion,
+} from '@/lib/governance/hardForkVersion.js';
+import { matchesRef } from '@/lib/governance/prevAction.js';
 import type { ActionContextResponse } from '@/lib/governance/actionContextHandler.js';
 import type { HardForkPanelState } from '@/lib/governance/govActionFormState.js';
+import { labelStyle, mutedStyle } from '@/components/drepFormStyles.js';
 
 export interface HardForkPanelProps {
   context: ActionContextResponse;
@@ -18,9 +22,6 @@ export interface HardForkPanelProps {
   onChange: (value: HardForkPanelState) => void;
   disabled?: boolean;
 }
-
-const mutedStyle: CSSProperties = { color: 'var(--muted)', fontSize: '0.8125rem' };
-const labelStyle: CSSProperties = { display: 'block', fontSize: '0.875rem', marginBottom: '0.25rem', color: 'var(--muted)' };
 
 function formatVersion(v: ProtocolVersion): string {
   return `${v.major}.${v.minor}`;
@@ -30,18 +31,15 @@ function sameVersion(a: ProtocolVersion | null, b: ProtocolVersion): boolean {
   return a !== null && a.major === b.major && a.minor === b.minor;
 }
 
-/** The open row the chosen prev points at, when the choice is an open proposal rather than the chain root. */
-function chosenOpenRow(value: HardForkPanelState, open: GovActionRef[]): GovActionRef | null {
-  if (!value.prev) return null;
-  const hash = value.prev.txHashHex.toLowerCase();
-  return open.find(o => o.txHash.toLowerCase() === hash && o.index === value.prev?.index) ?? null;
-}
-
 export default function HardForkPanel({ context, value, onChange, disabled = false }: HardForkPanelProps) {
   const prevContext = context.prev ?? { lastEnacted: null, open: [] };
   const active = context.protocolVersion ?? null;
-  const openRow = chosenOpenRow(value, prevContext.open);
-  const base = openRow ? (openRow.version ?? null) : active;
+  const prev = value.prev;
+  // The open row the chosen prev points at, when the choice is an open
+  // proposal rather than the chain root. Only needed for the explanatory
+  // lines below, the base version itself comes from hardForkBaseVersion.
+  const openRow = prev ? (prevContext.open.find(o => matchesRef(prev, o)) ?? null) : null;
+  const base = active ? hardForkBaseVersion(prev, prevContext.open, active) : null;
   const candidates = base && active ? versionsThatFollow(base, active) : [];
 
   return (
@@ -49,7 +47,7 @@ export default function HardForkPanel({ context, value, onChange, disabled = fal
       <PrevActionField
         context={prevContext}
         value={value.prev}
-        onChange={prev => onChange({ ...value, prev, version: null })}
+        onChange={prev => onChange({ ...value, prev })}
         disabled={disabled}
       />
 

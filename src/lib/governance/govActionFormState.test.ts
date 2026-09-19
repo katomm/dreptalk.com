@@ -7,6 +7,9 @@ import {
   isFormBlank,
   committeeMode,
   validateCommitteePanel,
+  validateHardForkPanel,
+  validateNewConstitutionPanel,
+  PREV_ACTION_CHANGED,
   type GovActionFormState,
 } from './govActionFormState.js';
 import type { ActionContextResponse } from './actionContextHandler.js';
@@ -510,5 +513,120 @@ describe('committeeMode and validateCommitteePanel', () => {
       state: { ...s.panels.UpdateCommittee, prev: { txHashHex: OPEN_HASH, index: 0 } },
     });
     expect(s.panels.UpdateCommittee.removeFree).toHaveLength(1);
+  });
+});
+
+describe('validateHardForkPanel', () => {
+  const OPEN_ROW = {
+    txHash: 'b'.repeat(64),
+    index: 1,
+    id: 'gov_action1yyyy',
+    type: 'HardForkInitiation',
+    title: null,
+    proposedEpoch: 500,
+    version: { major: 10, minor: 1 },
+  };
+
+  function hfCtx(overrides: Partial<ActionContextResponse> = {}): ActionContextResponse {
+    return {
+      epoch: 500,
+      prev: { lastEnacted: null, open: [OPEN_ROW] },
+      protocolVersion: { major: 10, minor: 0 },
+      ...overrides,
+    };
+  }
+
+  it('accepts a version that follows the active one when chaining onto the root', () => {
+    const result = validateHardForkPanel({ prev: null, version: { major: 11, minor: 0 } }, hfCtx());
+    expect(result).toEqual({ ok: true, value: { major: 11, minor: 0 } });
+  });
+
+  it('accepts a version that follows the chosen open proposal', () => {
+    const prev = { txHashHex: 'b'.repeat(64), index: 1 };
+    const result = validateHardForkPanel({ prev, version: { major: 10, minor: 2 } }, hfCtx());
+    expect(result).toEqual({ ok: true, value: { major: 10, minor: 2 } });
+  });
+
+  it('asks for a version when none is picked', () => {
+    const result = validateHardForkPanel({ prev: null, version: null }, hfCtx());
+    expect(result).toEqual({ ok: false, error: 'Choose the protocol version to propose.' });
+  });
+
+  it('refuses when the active protocol version could not be read', () => {
+    const result = validateHardForkPanel(
+      { prev: null, version: { major: 11, minor: 0 } },
+      hfCtx({ protocolVersion: undefined }),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain('current protocol version could not be read');
+  });
+
+  it('refuses when the chosen open proposal carries no readable version', () => {
+    const prev = { txHashHex: 'b'.repeat(64), index: 1 };
+    const ctxNoVersion = hfCtx({
+      prev: { lastEnacted: null, open: [{ ...OPEN_ROW, version: undefined }] },
+    });
+    const result = validateHardForkPanel({ prev, version: { major: 10, minor: 2 } }, ctxNoVersion);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain('could not be read, so no version can be proposed');
+  });
+
+  it('refuses a version that no longer follows the chain state', () => {
+    const result = validateHardForkPanel({ prev: null, version: { major: 12, minor: 0 } }, hfCtx());
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toBe(
+        `Protocol version 12.0 no longer follows the current chain state. ${PREV_ACTION_CHANGED}`,
+      );
+    }
+  });
+});
+
+describe('validateNewConstitutionPanel', () => {
+  const HASH = 'a'.repeat(56);
+
+  function ncCtx(scriptHash: string | null): ActionContextResponse {
+    return { epoch: 500, prev: { lastEnacted: null, open: [] }, constitution: { scriptHash } };
+  }
+
+  it('falls back to the hash in force while the field is untouched', () => {
+    const result = validateNewConstitutionPanel(
+      { prev: null, text: '# Constitution', scriptHashHex: null },
+      ncCtx(HASH),
+    );
+    expect(result).toEqual({ ok: true, value: { text: '# Constitution', scriptHashHex: HASH } });
+  });
+
+  it('lowercases a typed hash and takes a deliberately cleared field as no script', () => {
+    const upper = validateNewConstitutionPanel(
+      { prev: null, text: 'text', scriptHashHex: 'A'.repeat(56) },
+      ncCtx(null),
+    );
+    expect(upper).toEqual({ ok: true, value: { text: 'text', scriptHashHex: HASH } });
+
+    const cleared = validateNewConstitutionPanel(
+      { prev: null, text: 'text', scriptHashHex: '' },
+      ncCtx(HASH),
+    );
+    expect(cleared).toEqual({ ok: true, value: { text: 'text', scriptHashHex: null } });
+  });
+
+  it('asks for the constitution text when it is empty or whitespace', () => {
+    const result = validateNewConstitutionPanel({ prev: null, text: '   ', scriptHashHex: null }, ncCtx(null));
+    expect(result).toEqual({ ok: false, error: 'Enter the constitution text.' });
+  });
+
+  it('refuses a document over the byte cap', () => {
+    const tooBig = 'x'.repeat(256 * 1024 + 1);
+    const result = validateNewConstitutionPanel({ prev: null, text: tooBig, scriptHashHex: null }, ncCtx(null));
+    expect(result).toEqual({ ok: false, error: 'The constitution document is over the 256 KiB limit.' });
+  });
+
+  it('refuses a guardrails hash that is not 56 hex characters', () => {
+    const result = validateNewConstitutionPanel(
+      { prev: null, text: 'text', scriptHashHex: 'nope' },
+      ncCtx(null),
+    );
+    expect(result).toEqual({ ok: false, error: 'A guardrails script hash is exactly 56 hex characters.' });
   });
 });

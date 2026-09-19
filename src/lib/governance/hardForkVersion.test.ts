@@ -1,7 +1,13 @@
 // Tests for hard fork protocol version rules mirroring the Conway ledger's
 // GOV rule preceedingHardFork.
 import { describe, expect, it } from 'vitest';
-import { follows, type ProtocolVersion, versionsThatFollow } from './hardForkVersion.js';
+import {
+  follows,
+  hardForkBaseVersion,
+  type ProtocolVersion,
+  versionsThatFollow,
+} from './hardForkVersion.js';
+import type { GovActionRef } from './prevAction.js';
 
 describe('follows', () => {
   it('is true for a major bump to minor 0', () => {
@@ -52,5 +58,41 @@ describe('versionsThatFollow', () => {
       { major: 11, minor: 0 },
       { major: 10, minor: 2 },
     ]);
+  });
+});
+
+describe('hardForkBaseVersion', () => {
+  const ACTIVE: ProtocolVersion = { major: 10, minor: 0 };
+
+  function openRow(overrides: Partial<GovActionRef> = {}): GovActionRef {
+    return {
+      txHash: 'b'.repeat(64),
+      index: 1,
+      id: 'gov_action1yyyy',
+      type: 'HardForkInitiation',
+      title: null,
+      proposedEpoch: 500,
+      version: { major: 10, minor: 1 },
+      ...overrides,
+    };
+  }
+
+  it('uses the chosen open row version when the prev points at one', () => {
+    const prev = { txHashHex: 'B'.repeat(64), index: 1 };
+    expect(hardForkBaseVersion(prev, [openRow()], ACTIVE)).toEqual({ major: 10, minor: 1 });
+  });
+
+  it('is null when the chosen open row carries no readable version', () => {
+    const prev = { txHashHex: 'b'.repeat(64), index: 1 };
+    expect(hardForkBaseVersion(prev, [openRow({ version: undefined })], ACTIVE)).toBeNull();
+  });
+
+  it('uses the active version for the chain root, i.e. no prev pick', () => {
+    expect(hardForkBaseVersion(null, [openRow()], ACTIVE)).toEqual(ACTIVE);
+  });
+
+  it('uses the active version for a prev that is not one of the open rows', () => {
+    const prev = { txHashHex: 'c'.repeat(64), index: 0 };
+    expect(hardForkBaseVersion(prev, [openRow()], ACTIVE)).toEqual(ACTIVE);
   });
 });

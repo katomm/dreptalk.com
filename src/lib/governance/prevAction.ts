@@ -3,8 +3,6 @@
 // the committee chain, NewConstitution and HardForkInitiation each have their
 // own single-type chain. Pure logic only, no network and no D1, so the /ga/new
 // context handler and the form field can both depend on this leaf module.
-import { decodeBech32 } from '../crypto/bech32.js';
-import { bytesToHex } from '../crypto/hex.js';
 
 /** A resolved previous-action reference: the tx hash and output index it points at. */
 export type PrevActionRef = {
@@ -72,6 +70,16 @@ const COMMITTEE_CHAIN = ['NoConfidence', 'NewCommittee'] as const;
 const CONSTITUTION_CHAIN = ['NewConstitution'] as const;
 const HARD_FORK_CHAIN = ['HardForkInitiation'] as const;
 
+/**
+ * The Koios proposal_type name for a form type. The two vocabularies differ in
+ * exactly one place: the form calls it UpdateCommittee, Koios calls it
+ * NewCommittee (the same name COMMITTEE_CHAIN above uses). Every other form
+ * type is spelled the same on both sides, so it maps to itself.
+ */
+export function koiosProposalType(formType: GovActionFormType): string {
+  return formType === 'UpdateCommittee' ? 'NewCommittee' : formType;
+}
+
 /** Returns the Koios proposal_type names in the form type's purpose chain, or null when the type is unchained (InfoAction). */
 export function chainForType(type: GovActionFormType): readonly string[] | null {
   switch (type) {
@@ -94,8 +102,8 @@ export function chainForType(type: GovActionFormType): readonly string[] | null 
  * is the earliest reliable signal of which row is now the chain's root.
  * Returns null when no row in the chain has been ratified yet.
  */
-export function pickLastEnacted(rows: readonly ChainRow[]): ChainRow | null {
-  let best: ChainRow | null = null;
+export function pickLastEnacted<T extends ChainRow>(rows: readonly T[]): T | null {
+  let best: T | null = null;
   for (const r of rows) {
     if (r.ratified_epoch == null) continue;
     if (best == null || (best.ratified_epoch as number) < r.ratified_epoch) {
@@ -110,7 +118,7 @@ export function pickLastEnacted(rows: readonly ChainRow[]): ChainRow | null {
  * dropped has happened yet. Sorted by proposed_epoch descending (newest
  * first), stable for ties so callers get a deterministic order.
  */
-export function openInChain(rows: readonly ChainRow[]): ChainRow[] {
+export function openInChain<T extends ChainRow>(rows: readonly T[]): T[] {
   return rows
     .map((r, i) => ({ r, i }))
     .filter(
@@ -124,38 +132,15 @@ export function openInChain(rows: readonly ChainRow[]): ChainRow[] {
     .map(({ r }) => r);
 }
 
-const GOV_ACTION_BECH32_PREFIX = 'gov_action';
-const HEX_INDEX_RE = /^([0-9a-fA-F]{64})#(\d+)$/;
-
 /**
- * Parses a user-supplied previous-action reference, either the CIP-129
- * bech32 form (gov_action1...) or the <64-hex-tx-hash>#<index> form used as
- * the governance_actions.id key elsewhere in the app. Returns null for any
- * malformed input: wrong bech32 prefix, bad checksum, wrong payload length,
- * or a hex string that is not exactly 64 characters.
+ * True when a candidate row is the action a PrevActionRef points at. The two
+ * sides spell the tx hash differently (a ref carries txHashHex, a row carries
+ * txHash) and their casing is not guaranteed to agree, so the hash is compared
+ * case-insensitively and the index exactly. The one place this comparison is
+ * written, so no caller can drift into a case-sensitive version of it.
  */
-export function parseGovActionRef(input: string): PrevActionRef | null {
-  const trimmed = input.trim();
-  if (trimmed.length === 0) return null;
-
-  const hexMatch = trimmed.match(HEX_INDEX_RE);
-  if (hexMatch) {
-    return { txHashHex: hexMatch[1].toLowerCase(), index: Number(hexMatch[2]) };
-  }
-
-  if (/^gov_action1[a-z0-9]+$/i.test(trimmed)) {
-    try {
-      const { prefix, data } = decodeBech32(trimmed.toLowerCase());
-      if (prefix !== GOV_ACTION_BECH32_PREFIX) return null;
-      // CIP-129 payload: 32-byte tx hash followed by a 1-byte action index.
-      if (data.length !== 33) return null;
-      return { txHashHex: bytesToHex(data.slice(0, 32)), index: data[32] };
-    } catch {
-      return null;
-    }
-  }
-
-  return null;
+export function matchesRef(ref: PrevActionRef, candidate: { txHash: string; index: number }): boolean {
+  return ref.txHashHex.toLowerCase() === candidate.txHash.toLowerCase() && ref.index === candidate.index;
 }
 
 /** Formats a PrevActionRef as the "<txHashHex>#<index>" key used as governance_actions.id. */
@@ -177,13 +162,6 @@ export function refStillPresent(
   ctx: { lastEnacted: GovActionRef | null; open: readonly GovActionRef[] },
 ): boolean {
   if (chosen === null) return ctx.lastEnacted === null;
-  const chosenHash = chosen.txHashHex.toLowerCase();
-  if (
-    ctx.lastEnacted != null &&
-    ctx.lastEnacted.txHash.toLowerCase() === chosenHash &&
-    ctx.lastEnacted.index === chosen.index
-  ) {
-    return true;
-  }
-  return ctx.open.some(r => r.txHash.toLowerCase() === chosenHash && r.index === chosen.index);
+  if (ctx.lastEnacted != null && matchesRef(chosen, ctx.lastEnacted)) return true;
+  return ctx.open.some(r => matchesRef(chosen, r));
 }

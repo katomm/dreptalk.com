@@ -4,6 +4,11 @@
 // the enacted root (no open prev) or the resulting major jump would exceed
 // the active version's major plus one, in which case it is checked against
 // the active protocol version instead. Pure logic, no network.
+//
+// prevAction.ts is itself a leaf (no imports of its own), so depending on its
+// types and its one ref predicate keeps this module usable from both the panel
+// and the submit path without dragging anything else along.
+import { matchesRef, type GovActionRef, type PrevActionRef } from './prevAction.js';
 
 /** A Cardano protocol version as a (major, minor) pair. */
 export type ProtocolVersion = { major: number; minor: number };
@@ -34,4 +39,29 @@ export function versionsThatFollow(
   const minorBump: ProtocolVersion = { major: base.major, minor: base.minor + 1 };
   const candidates = [majorBump, minorBump];
   return candidates.filter(c => c.major <= active.major + 1);
+}
+
+/**
+ * The version the candidates are computed from, following the ledger's
+ * preceedingHardFork rule: a proposal chained onto an open hard fork proposal
+ * is checked against that proposal's version, everything else against the
+ * version currently active.
+ *
+ * Null when the prev points at an open row whose version could not be read
+ * from its on-chain payload. That case cannot fall back to the active version:
+ * the ledger would still check against the open row's real version, so
+ * offering a candidate here would be offering one the node rejects. The panel
+ * says so and offers nothing, and the submit path refuses for the same reason.
+ *
+ * The panel and the submit path both resolve the base through here, so the
+ * versions offered and the versions accepted cannot disagree.
+ */
+export function hardForkBaseVersion(
+  prev: PrevActionRef | null,
+  open: readonly GovActionRef[],
+  active: ProtocolVersion,
+): ProtocolVersion | null {
+  const openRow = prev ? open.find(o => matchesRef(prev, o)) : undefined;
+  if (openRow) return openRow.version ?? null;
+  return active;
 }

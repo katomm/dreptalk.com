@@ -3,6 +3,8 @@
 // yes-percentages against them. Thresholds come from protocol_params (fractions
 // 0..1); the tallies arrive as percentages 0..100.
 import type { ProtocolParams } from '../db/protocolParams.js';
+import { koiosProposalType } from './prevAction.js';
+import type { GovActionFormType } from './prevAction.js';
 
 export type Body = 'DRep' | 'SPO' | 'CC';
 
@@ -80,11 +82,6 @@ function plan(input: ThresholdInput, p: ProtocolParams): { drep: number | null; 
   }
 }
 
-// The submit form's own type names differ from Koios's in one place: the form
-// calls it UpdateCommittee, Koios (and therefore the threshold table above)
-// calls it NewCommittee. Mapped here so there is exactly one threshold table.
-const FORM_TYPE_TO_KOIOS_TYPE: Record<string, string> = { UpdateCommittee: 'NewCommittee' };
-
 // The action types SPOs vote on at all (CIP-1694). ParameterChange is absent
 // because there it depends on the changed parameters, and this sentence is
 // only used for the five types the submit form offers.
@@ -109,8 +106,11 @@ function thresholdPctLabel(fraction: number | null): string {
  * no-confidence motion has passed, the ledger switches to the
  * *_committee_no_confidence thresholds, a state this form does not model.
  */
-export function thresholdSentence(type: string, p: ProtocolParams): string {
-  const koiosType = FORM_TYPE_TO_KOIOS_TYPE[type] ?? type;
+export function thresholdSentence(type: GovActionFormType, p: ProtocolParams): string {
+  // The form's type names differ from Koios's in one place (UpdateCommittee
+  // vs NewCommittee), which prevAction.ts owns, so there is exactly one
+  // threshold table here and one mapping there.
+  const koiosType = koiosProposalType(type);
   const pl = plan({ type: koiosType, drepYesPct: null, spoYesPct: null, ccYesPct: null }, p);
   if (!pl) return 'No ratification thresholds, an InfoAction is advisory and never enacts.';
 

@@ -6,6 +6,16 @@ export const HEX_64_SOURCE = '[0-9a-f]{64}';
 /** A 32-byte hash as 64 lowercase hex chars (sha256, blake2b-256). */
 export const HEX_HASH_256_RE = new RegExp(`^${HEX_64_SOURCE}$`);
 
+/** Regex source for a 28-byte hash as 56 lowercase hex chars, for composing path patterns. */
+export const HEX_56_SOURCE = '[0-9a-f]{56}';
+
+/**
+ * A 28-byte hash as 56 hex chars (blake2b-224: key hashes, script hashes).
+ * Case-insensitive, since users paste these by hand: callers lowercase what
+ * they keep rather than rejecting uppercase input.
+ */
+export const HEX_HASH_224_RE = new RegExp(`^${HEX_56_SOURCE}$`, 'i');
+
 /** Converts a hex string (upper or lowercase) to a Uint8Array. */
 export function hexToBytes(hex: string): Uint8Array {
   if (hex.length === 0) return new Uint8Array(0);

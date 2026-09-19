@@ -1,22 +1,17 @@
 // Tests for the purpose-chain rules governing "previous action id" selection
 // for chained Conway governance action types.
 import { describe, expect, it } from 'vitest';
-import { decodeBech32, encodeBech32 } from '../crypto/bech32.js';
 import {
   type ChainRow,
   chainForType,
   formatGovActionKey,
   type GovActionRef,
+  koiosProposalType,
+  matchesRef,
   openInChain,
-  parseGovActionRef,
   pickLastEnacted,
   refStillPresent,
 } from './prevAction.js';
-
-// A real preprod committee-chain root, verified against a live decode below
-// rather than a hard-coded guess at its hex.
-const PREPROD_COMMITTEE_ROOT =
-  'gov_action1h0arqw4rt5verxf5ld07x6chgcy6pswlk3a9gmxdd6jc4f6ju24qqj0haqp';
 
 function row(overrides: Partial<ChainRow>): ChainRow {
   return {
@@ -107,64 +102,33 @@ describe('openInChain', () => {
   });
 });
 
-describe('parseGovActionRef', () => {
-  it('decodes a real preprod committee-chain root bech32 id', () => {
-    const { data } = decodeBech32(PREPROD_COMMITTEE_ROOT);
-    const expectedHex = Array.from(data.slice(0, 32))
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join('');
-    const ref = parseGovActionRef(PREPROD_COMMITTEE_ROOT);
-    expect(ref).not.toBeNull();
-    expect(ref?.txHashHex.length).toBe(64);
-    expect(ref?.txHashHex).toBe(expectedHex);
-    expect(ref?.index).toBe(0);
+describe('matchesRef', () => {
+  it('matches a candidate row whose tx hash differs only in case', () => {
+    const ref = { txHashHex: 'A'.repeat(64), index: 2 };
+    expect(matchesRef(ref, { txHash: 'a'.repeat(64), index: 2 })).toBe(true);
   });
 
-  it('round-trips a bech32 string built from a known hex and index', () => {
-    const hex = 'ab'.repeat(32);
-    const payload = new Uint8Array(33);
-    for (let i = 0; i < 32; i++) payload[i] = 0xab;
-    payload[32] = 0;
-    const encoded = encodeBech32('gov_action', payload);
-    const ref = parseGovActionRef(encoded);
-    expect(ref).toEqual({ txHashHex: hex, index: 0 });
+  it('does not match when the index differs', () => {
+    const ref = { txHashHex: 'a'.repeat(64), index: 2 };
+    expect(matchesRef(ref, { txHash: 'a'.repeat(64), index: 3 })).toBe(false);
   });
 
-  it('accepts the <hex>#<index> form', () => {
-    const hex = 'f'.repeat(64);
-    expect(parseGovActionRef(`${hex}#3`)).toEqual({ txHashHex: hex, index: 3 });
+  it('does not match a different tx hash', () => {
+    const ref = { txHashHex: 'a'.repeat(64), index: 0 };
+    expect(matchesRef(ref, { txHash: 'b'.repeat(64), index: 0 })).toBe(false);
+  });
+});
+
+describe('koiosProposalType', () => {
+  it('maps the form name UpdateCommittee to Koios NewCommittee', () => {
+    expect(koiosProposalType('UpdateCommittee')).toBe('NewCommittee');
   });
 
-  it('lowercases uppercase hex in the <hex>#<index> form', () => {
-    const hex = 'F'.repeat(64);
-    expect(parseGovActionRef(`${hex}#0`)).toEqual({ txHashHex: 'f'.repeat(64), index: 0 });
-  });
-
-  it('returns null for the wrong bech32 prefix', () => {
-    const payload = new Uint8Array(33).fill(1);
-    const encoded = encodeBech32('drep', payload);
-    expect(parseGovActionRef(encoded)).toBeNull();
-  });
-
-  it('returns null for a bad checksum', () => {
-    const { data } = decodeBech32(PREPROD_COMMITTEE_ROOT);
-    void data;
-    const corrupted = `${PREPROD_COMMITTEE_ROOT.slice(0, -1)}${
-      PREPROD_COMMITTEE_ROOT.endsWith('p') ? 'q' : 'p'
-    }`;
-    expect(parseGovActionRef(corrupted)).toBeNull();
-  });
-
-  it('returns null for the wrong payload length', () => {
-    const payload = new Uint8Array(32).fill(2);
-    const encoded = encodeBech32('gov_action', payload);
-    expect(parseGovActionRef(encoded)).toBeNull();
-  });
-
-  it('returns null for garbage input', () => {
-    expect(parseGovActionRef('not a gov action id')).toBeNull();
-    expect(parseGovActionRef('')).toBeNull();
-    expect(parseGovActionRef(`${'a'.repeat(63)}#0`)).toBeNull();
+  it('leaves every other form type unchanged', () => {
+    expect(koiosProposalType('NoConfidence')).toBe('NoConfidence');
+    expect(koiosProposalType('HardForkInitiation')).toBe('HardForkInitiation');
+    expect(koiosProposalType('NewConstitution')).toBe('NewConstitution');
+    expect(koiosProposalType('InfoAction')).toBe('InfoAction');
   });
 });
 

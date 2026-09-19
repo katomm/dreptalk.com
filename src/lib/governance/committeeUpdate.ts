@@ -3,7 +3,7 @@
 // only, no network and no D1, so the /ga/new form can depend on this leaf
 // module directly.
 import { decodeBech32 } from '../crypto/bech32.js';
-import { bytesToHex } from '../crypto/hex.js';
+import { bytesToHex, HEX_HASH_224_RE } from '../crypto/hex.js';
 
 /** A committee member's cold credential: a key hash or a script hash. */
 export type ColdCredential = { hashHex: string; isScript: boolean };
@@ -54,10 +54,20 @@ export type ValidateCommitteeUpdateResult =
   | { ok: true; value: CommitteeUpdate; warnings: ValidationWarning[] }
   | { ok: false; errors: ValidationError[] };
 
-const HEX_56_RE = /^[0-9a-f]{56}$/;
 const CC_COLD_PREFIX = 'cc_cold';
+const CC_COLD_BECH32_RE = /^cc_cold1[a-z0-9]+$/;
 const CC_COLD_KEY_HEADER = 0x12;
 const CC_COLD_SCRIPT_HEADER = 0x13;
+
+/**
+ * True when the input is the CIP-129 bech32 form rather than raw hex, using
+ * exactly the rule parseColdCredential applies below. The caller needs this to
+ * know whether the key/script choice still matters: a bech32 credential
+ * carries that in its header byte, so the toggle beside the field is moot.
+ */
+export function isBech32CredentialInput(input: string): boolean {
+  return CC_COLD_BECH32_RE.test(input.trim().toLowerCase());
+}
 
 /**
  * Parses a cold credential from either 56 hex chars (kind given explicitly
@@ -75,11 +85,11 @@ export function parseColdCredential(
   if (trimmed.length === 0) return null;
 
   const lowered = trimmed.toLowerCase();
-  if (HEX_56_RE.test(lowered)) {
+  if (HEX_HASH_224_RE.test(lowered)) {
     return { hashHex: lowered, isScript: hexKind === 'script' };
   }
 
-  if (/^cc_cold1[a-z0-9]+$/.test(lowered)) {
+  if (CC_COLD_BECH32_RE.test(lowered)) {
     try {
       const { prefix, data } = decodeBech32(lowered);
       if (prefix !== CC_COLD_PREFIX) return null;

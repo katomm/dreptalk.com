@@ -94,13 +94,12 @@ async function buildPrevContext(
     koios.openProposals(chain),
   ]);
 
-  // pickLastEnacted/openInChain take the structural ChainRow type from
-  // prevAction.ts, ProposalListRow satisfies it, and the values returned are
-  // the exact same row objects (never rebuilt), so the cast back is safe and
-  // keeps proposal_description available for the hard-fork version and
+  // Both helpers are generic over the structural ChainRow type from
+  // prevAction.ts, so a ProposalListRow in gives a ProposalListRow out and
+  // proposal_description stays available for the hard-fork version and
   // constitution script-hash reads below.
-  const lastEnactedRow = pickLastEnacted(ratifiedRows) as ProposalListRow | null;
-  const openRows = openInChain(openRowsRaw) as ProposalListRow[];
+  const lastEnactedRow = pickLastEnacted(ratifiedRows);
+  const openRows = openInChain(openRowsRaw);
 
   const allRows = lastEnactedRow ? [lastEnactedRow, ...openRows] : openRows;
   const ids = allRows.map((r) => formatGovActionKey({ txHashHex: r.proposal_tx_hash, index: r.proposal_index }));
@@ -146,25 +145,33 @@ export async function handleActionContext(
   const type = typeParam;
 
   try {
-    const tip = await deps.koios.tip();
-    const response: ActionContextResponse = { epoch: tip.epoch_no };
-
+    // The tip, the purpose chain and the type-specific reads are independent
+    // of each other, so all of them are started before anything is awaited and
+    // the request costs one round trip rather than three in a row. Which ones
+    // exist depends on the type, so the branching happens on the promises.
     const chain = chainForType(type);
-    let prevResult: PrevContextResult | null = null;
-    if (chain) {
-      prevResult = await buildPrevContext(deps.koios, db, chain);
-      response.prev = prevResult.context;
+    const tipPromise = deps.koios.tip();
+    const prevPromise = chain ? buildPrevContext(deps.koios, db, chain) : null;
+    const needsEpochParams = type === 'HardForkInitiation' || type === 'NoConfidence' || type === 'UpdateCommittee';
+    const paramsPromise = needsEpochParams ? deps.koios.epochParams() : null;
+    const committeePromise =
+      type === 'NoConfidence' || type === 'UpdateCommittee' ? deps.koios.committeeContext() : null;
+
+    const [tip, prevResult, params, committeeCtx] = await Promise.all([
+      tipPromise,
+      prevPromise,
+      paramsPromise,
+      committeePromise,
+    ]);
+
+    const response: ActionContextResponse = { epoch: tip.epoch_no };
+    if (prevResult) response.prev = prevResult.context;
+
+    if (type === 'HardForkInitiation' && params?.protocol_major != null) {
+      response.protocolVersion = { major: params.protocol_major, minor: params.protocol_minor ?? 0 };
     }
 
-    if (type === 'HardForkInitiation') {
-      const params = await deps.koios.epochParams();
-      if (params?.protocol_major != null) {
-        response.protocolVersion = { major: params.protocol_major, minor: params.protocol_minor ?? 0 };
-      }
-    }
-
-    if (type === 'NoConfidence' || type === 'UpdateCommittee') {
-      const [committeeCtx, params] = await Promise.all([deps.koios.committeeContext(), deps.koios.epochParams()]);
+    if (committeeCtx) {
       response.committee = {
         members: committeeCtx.members.map((m) => ({
           coldHex: m.cc_cold_hex,
