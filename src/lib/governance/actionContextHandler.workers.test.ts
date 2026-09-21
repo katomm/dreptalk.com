@@ -336,6 +336,44 @@ describe('handleActionContext', () => {
     expect(json.committee.members).toEqual([{ coldHex: cold, hasScript: false, expirationEpoch: 700, name: 'New Name' }]);
   });
 
+  it('resolves a name declared only under a retired hot key, through the current hot key sharing the same cold key', async () => {
+    const cold = '2'.repeat(56);
+    const oldHot = '3'.repeat(56);
+    const newHot = '4'.repeat(56);
+    await seedHotKey(oldHot, cold);
+    await seedHotKey(newHot, cold);
+    await seedCcName(oldHot, 'Retired Vote Author', 100);
+    // newHot never voted with a name attached, only a lookup through the
+    // shared cold key can find it, a direct hot-key lookup on the current
+    // hot key would answer null here.
+
+    const res = await handleActionContext(ctx('UpdateCommittee'), {
+      koios: mockKoios({
+        committeeContext: async () => ({
+          members: [
+            {
+              status: 'authorized',
+              cc_hot_id: null,
+              cc_cold_id: null,
+              cc_hot_hex: newHot,
+              cc_cold_hex: cold,
+              expiration_epoch: 700,
+              cc_hot_has_script: null,
+              cc_cold_has_script: false,
+            },
+          ],
+          quorum: { numerator: 2, denominator: 3 },
+        }),
+      }),
+      network: preprod,
+      env: testEnv,
+    });
+    const json = (await res.json()) as {
+      committee: { members: { coldHex: string | null; hasScript: boolean; expirationEpoch: number | null; name: string | null }[] };
+    };
+    expect(json.committee.members).toEqual([{ coldHex: cold, hasScript: false, expirationEpoch: 700, name: 'Retired Vote Author' }]);
+  });
+
   it('includes constitution.scriptHash from the last ratified row, null when there is none', async () => {
     const withScript = row({
       proposal_type: 'NewConstitution',

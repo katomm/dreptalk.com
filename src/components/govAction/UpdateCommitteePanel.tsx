@@ -216,7 +216,11 @@ export default function UpdateCommitteePanel({ context, value, onChange, network
               </div>
             ))}
             <datalist id="ga-committee-members">
-              {members.map(m => (m.coldHex === null ? null : <option key={m.coldHex} value={m.coldHex} />))}
+              {members.map(m =>
+                m.coldHex === null ? null : (
+                  <option key={m.coldHex} value={ccColdBech32(m.coldHex, m.hasScript)} />
+                ),
+              )}
             </datalist>
             <div>
               <button

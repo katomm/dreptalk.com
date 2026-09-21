@@ -23,6 +23,7 @@ import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/re
 const SLOW = { timeout: 5000 };
 import SubmitGovAction from './SubmitGovAction.js';
 import { loadGovActionDraft, govActionDraftKey } from '@/lib/governance/govActionDraft.js';
+import { ccColdBech32 } from '@/lib/governance/committeeUpdate.js';
 
 const submitGovActionMock = vi.fn();
 vi.mock('@/lib/governance/govActionTx.js', () => ({
@@ -59,6 +60,8 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 const DRAFT_KEY = govActionDraftKey('preprod');
 const MEMBER_A = 'a'.repeat(56);
 const NEW_MEMBER = 'b'.repeat(56);
+const SCRIPT_MEMBER = 'c'.repeat(56);
+const OPEN_HASH = 'f'.repeat(64);
 const REWARD_ADDRESS = 'e0'.concat('c'.repeat(56));
 
 const EPOCH_PARAMS_ROW = {
@@ -96,6 +99,40 @@ const COMMITTEE_CONTEXT = {
   },
 };
 
+// Same chain, but with an open proposal to chain onto (so the committee panel
+// can be switched into open mode) and a script member in the sitting
+// committee, for the add-row suggestion test: the fix this covers is the
+// datalist offering typed (bech32) credentials rather than bare hex, since a
+// bare hex suggestion for a script member would silently add it as a key.
+const OPEN_COMMITTEE_CONTEXT = {
+  ...COMMITTEE_CONTEXT,
+  prev: {
+    ...COMMITTEE_CONTEXT.prev,
+    open: [
+      {
+        txHash: OPEN_HASH,
+        index: 0,
+        id: 'gov_action1open',
+        type: 'UpdateCommittee',
+        title: 'An open committee change',
+        proposedEpoch: 480,
+      },
+    ],
+  },
+  committee: {
+    members: [
+      { coldHex: MEMBER_A, hasScript: false, expirationEpoch: 600 },
+      { coldHex: SCRIPT_MEMBER, hasScript: true, expirationEpoch: 650 },
+    ],
+    quorum: { numerator: 2, denominator: 3 },
+    maxTermLength: 100,
+  },
+};
+
+// Overridden per test that needs a different chain context; reset to the
+// plain enacted-mode fixture in beforeEach.
+let committeeContext: unknown = COMMITTEE_CONTEXT;
+
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
 }
@@ -105,7 +142,7 @@ function installFetchMock() {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
     if (url.includes('/api/koios/epoch_params')) return jsonResponse([EPOCH_PARAMS_ROW]);
-    if (url.includes('/api/gov-action/context')) return jsonResponse(COMMITTEE_CONTEXT);
+    if (url.includes('/api/gov-action/context')) return jsonResponse(committeeContext);
     if (url.includes('/api/gov-action/metadata')) {
       return jsonResponse({ anchorUrl: 'ipfs://meta', anchorHash: 'e'.repeat(64) });
     }
@@ -167,6 +204,7 @@ describe('SubmitGovAction', () => {
     submitGovActionMock.mockReset();
     walletLovelace = 200_000_000_000n;
     collectWalletUtxosImpl = null;
+    committeeContext = COMMITTEE_CONTEXT;
     installFetchMock();
     installWalletMock();
   });
@@ -242,6 +280,38 @@ describe('SubmitGovAction', () => {
     const draft = loadGovActionDraft(window.localStorage, DRAFT_KEY);
     expect(draft?.type).toBe('UpdateCommittee');
     expect(draft?.title).toBe('A committee change');
+  });
+
+  it('suggests a script member as a typed bech32 credential in open mode, so picking it adds a script credential', async () => {
+    committeeContext = OPEN_COMMITTEE_CONTEXT;
+    render(<SubmitGovAction network="preprod" />);
+    await connect();
+    fillMetadata();
+
+    fireEvent.click(screen.getByRole('radio', { name: /Update committee/ }));
+    await screen.findByText('Members to remove');
+
+    fireEvent.click(screen.getByText('Advanced: chain onto an open proposal'));
+    fireEvent.click(await screen.findByRole('radio', { name: /An open committee change/ }));
+    await screen.findByText(/Chained onto a proposal that is still open/);
+
+    // The suggestion itself has to carry the kind: a bare hex value here
+    // would add the script member as a key credential unless the user also
+    // flips the toggle by hand.
+    const scriptBech32 = ccColdBech32(SCRIPT_MEMBER, true);
+    expect(document.querySelector(`#ga-committee-members option[value="${scriptBech32}"]`)).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add a member' }));
+    fireEvent.change(screen.getByLabelText('Credential to add 1'), { target: { value: scriptBech32 } });
+    fireEvent.change(screen.getByLabelText('Expiry epoch for addition 1'), { target: { value: '560' } });
+
+    const submit = screen.getByRole('button', { name: 'Submit proposal' }) as HTMLButtonElement;
+    await waitFor(() => expect(submit.disabled).toBe(false), SLOW);
+    fireEvent.click(submit);
+
+    await waitFor(() => expect(submitGovActionMock).toHaveBeenCalledTimes(1), SLOW);
+    const opts = submitGovActionMock.mock.calls[0][0] as { action: { add: { credential: { hashHex: string; isScript: boolean } }[] } };
+    expect(opts.action.add).toEqual([{ credential: { hashHex: SCRIPT_MEMBER, isScript: true }, expiryEpoch: 560 }]);
   });
 
   it('shows the whole form with no wallet extension at all, and says so in the sign section', async () => {
