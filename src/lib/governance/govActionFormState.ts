@@ -169,6 +169,7 @@ export type GovActionFormAction =
   | { kind: 'contextLoaded'; requestId: number; data: ActionContextResponse }
   | { kind: 'contextFailed'; requestId: number }
   | { kind: 'restoreDraft'; draft: GovActionDraft }
+  | { kind: 'discardDraft'; displayName: string }
   | { kind: 'walletConnecting' }
   | { kind: 'walletConnected'; rewardAddressHex: string }
   | { kind: 'walletBalanceLoading' }
@@ -198,10 +199,26 @@ export function emptyPanelStates(): PanelStates {
   };
 }
 
-export function initialGovActionFormState(): GovActionFormState {
+/**
+ * The metadata a fresh or discarded form starts from: signing as author is on
+ * by default, with the signed-in display name prefilled. Shared by
+ * initialGovActionFormState and the discardDraft action so the two can never
+ * disagree about what "untouched" looks like.
+ */
+function defaultMetadataState(displayName: string): MetadataState {
+  return { ...emptyMetadataState(), signAsAuthor: true, authorName: displayName };
+}
+
+/**
+ * @param displayName The signed-in user's display name (resolved the way
+ * /home/ resolves it), prefilled as the author name with signing on by
+ * default. Empty when there is none to show, which keeps every existing
+ * caller that omits it valid.
+ */
+export function initialGovActionFormState(displayName = ''): GovActionFormState {
   return {
     type: 'InfoAction',
-    metadata: emptyMetadataState(),
+    metadata: defaultMetadataState(displayName),
     panels: emptyPanelStates(),
     context: { status: 'idle', requestId: 0, data: null },
     wallet: { status: 'none' },
@@ -419,6 +436,18 @@ export function govActionFormReducer(
         dirty: false,
       };
 
+    case 'discardDraft':
+      // Back to the same untouched shape a fresh visit starts from. The
+      // context and the wallet are not draft data, so neither is touched:
+      // discarding the text is not the same as disconnecting a wallet.
+      return {
+        ...state,
+        type: 'InfoAction',
+        metadata: defaultMetadataState(action.displayName),
+        panels: emptyPanelStates(),
+        dirty: false,
+      };
+
     // ------------------------------------------------------------------
     // Wallet step. Every balance action is ignored unless a wallet is
     // connected, so a read that resolves after the user disconnected cannot
@@ -521,20 +550,28 @@ function panelsAreEmpty(panels: PanelStates): boolean {
   );
 }
 
+/** What "untouched" means for the fields that default to more than empty. */
+export interface FormDefaults {
+  /** The signed-in display name, prefilled as the author name. */
+  authorName: string;
+}
+
 /**
- * True when there is nothing worth storing: no metadata text, the type still
- * on the InfoAction default, and every panel untouched. A filled panel with
- * empty metadata is therefore kept, which is the whole point of storing the
- * panels in the draft.
+ * True when there is nothing worth storing: no metadata text, the author
+ * fields still on their defaults (signing on, name is the prefilled display
+ * name), the type still on the InfoAction default, and every panel untouched.
+ * A filled panel with empty metadata is therefore kept, which is the whole
+ * point of storing the panels in the draft.
  */
-export function isFormBlank(state: DraftableState): boolean {
+export function isFormBlank(state: DraftableState, defaults: FormDefaults): boolean {
   const m = state.metadata;
+  const authorBlank = m.signAsAuthor === true && m.authorName === defaults.authorName;
   const metadataBlank =
     !m.title.trim() &&
     !m.abstract.trim() &&
     !m.motivation.trim() &&
     !m.rationale.trim() &&
-    !m.authorName.trim() &&
+    authorBlank &&
     m.references.length === 0 &&
     !m.surveyRef.trim();
   return metadataBlank && state.type === 'InfoAction' && panelsAreEmpty(state.panels);

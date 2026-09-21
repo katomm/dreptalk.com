@@ -11,6 +11,7 @@ import Layout from '@/layouts/Layout.astro';
 import SubmitGovAction from '@/components/SubmitGovAction.tsx';
 import { currentNetwork } from '@/lib/api/response';
 import { govActionSubmissionAvailable } from '@/lib/governance/submissionGate';
+import { loadSessionHeader } from '@/lib/forum/sessionHeader';
 
 const net = currentNetwork();
 if (!govActionSubmissionAvailable(net.network)) {
@@ -23,6 +24,10 @@ if (!user) {
 }
 
 const network = net.network;
+// Resolved the way /home/ resolves its greeting, so "Sign as author" prefills
+// the same name the user sees elsewhere on the site.
+const [account] = await loadSessionHeader(Astro.locals, user.id);
+const displayName = account.displayName;
 ---
 <Layout title="Submit a governance action (Beta) - DRepTalk" description="Beta preprod tool for submitting a governance action." noindex={true}>
   <div class="callout callout--warning" role="status">
@@ -39,5 +44,5 @@ const network = net.network;
     Everything is signed locally, dreptalk.com never handles your private keys.
   </p>
 
-  <SubmitGovAction network={network} client:load />
+  <SubmitGovAction network={network} displayName={displayName} client:load />
 </Layout>

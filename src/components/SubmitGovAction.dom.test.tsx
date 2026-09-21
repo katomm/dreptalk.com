@@ -58,6 +58,9 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 }
 
 const DRAFT_KEY = govActionDraftKey('preprod');
+// Passed to every render: "Sign as author" is on by default with this as the
+// prefilled name, mirroring the signed-in display name new.astro resolves.
+const DISPLAY_NAME = 'Jane DRep';
 const MEMBER_A = 'a'.repeat(56);
 const NEW_MEMBER = 'b'.repeat(56);
 const SCRIPT_MEMBER = 'c'.repeat(56);
@@ -137,12 +140,23 @@ function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
 }
 
+// The witness the mocked wallet hands back for a signed body hash, a fixed
+// COSE_Sign1 signature/key pair the island passes straight through as
+// author.keyHex / author.signatureHex.
+const WITNESS_SIGNATURE = 'a1'.repeat(32);
+const WITNESS_KEY = 'a4'.repeat(20);
+
 /** Routes every request the island makes, so no test depends on a real network. */
 function installFetchMock() {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
     if (url.includes('/api/koios/epoch_params')) return jsonResponse([EPOCH_PARAMS_ROW]);
     if (url.includes('/api/gov-action/context')) return jsonResponse(committeeContext);
+    // Checked before the bare /metadata branch below: prepare only returns
+    // the body hash to sign, never the anchor the finalize call returns.
+    if (url.includes('/api/gov-action/metadata/prepare')) {
+      return jsonResponse({ bodyHash: 'b'.repeat(64) });
+    }
     if (url.includes('/api/gov-action/metadata')) {
       return jsonResponse({ anchorUrl: 'ipfs://meta', anchorHash: 'e'.repeat(64) });
     }
@@ -160,7 +174,9 @@ function installWalletMock() {
     getUsedAddresses: vi.fn(async () => []),
     getUnusedAddresses: vi.fn(async () => []),
     getUtxos: vi.fn(async () => []),
-    signData: vi.fn(),
+    // Real CIP-30 shape: { signature, key }, the COSE_Sign1 signature plus
+    // its COSE_Key, which is what the author witness reads.
+    signData: vi.fn(async () => ({ signature: WITNESS_SIGNATURE, key: WITNESS_KEY })),
     signTx: vi.fn(),
     submitTx: vi.fn(),
   };
@@ -219,7 +235,7 @@ describe('SubmitGovAction', () => {
   });
 
   it('keeps the metadata across a type switch and restores the panel on the way back', async () => {
-    render(<SubmitGovAction network="preprod" />);
+    render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
     await connect();
     fillMetadata();
     await fillCommitteePanel();
@@ -238,14 +254,14 @@ describe('SubmitGovAction', () => {
   });
 
   it('restores the type, the metadata and the panel from storage after a remount', async () => {
-    const first = render(<SubmitGovAction network="preprod" />);
+    const first = render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
     await connect();
     fillMetadata();
     await fillCommitteePanel();
     await waitFor(() => expect(loadGovActionDraft(window.localStorage, DRAFT_KEY)?.type).toBe('UpdateCommittee'), SLOW);
     first.unmount();
 
-    render(<SubmitGovAction network="preprod" />);
+    render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
     await connect();
     expect((screen.getByRole('radio', { name: /Update committee/ }) as HTMLInputElement).checked).toBe(true);
     expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('A committee change');
@@ -256,7 +272,7 @@ describe('SubmitGovAction', () => {
 
   it('leaves the form and the draft intact when the transaction is rejected', async () => {
     submitGovActionMock.mockRejectedValue(new Error('user declined the transaction'));
-    render(<SubmitGovAction network="preprod" />);
+    render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
     await connect();
     fillMetadata();
     await fillCommitteePanel();
@@ -288,7 +304,7 @@ describe('SubmitGovAction', () => {
 
   it('suggests a script member as a typed bech32 credential in open mode, so picking it adds a script credential', async () => {
     committeeContext = OPEN_COMMITTEE_CONTEXT;
-    render(<SubmitGovAction network="preprod" />);
+    render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
     await connect();
     fillMetadata();
 
@@ -320,7 +336,7 @@ describe('SubmitGovAction', () => {
 
   it('shows the whole form with no wallet extension at all, and says so in the sign section', async () => {
     (window as unknown as { cardano: unknown }).cardano = {};
-    render(<SubmitGovAction network="preprod" />);
+    render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
 
     // The form is the page, not something behind a wallet gate.
     fillMetadata();
@@ -334,7 +350,7 @@ describe('SubmitGovAction', () => {
   });
 
   it('asks only for a wallet once the form itself is complete', async () => {
-    render(<SubmitGovAction network="preprod" />);
+    render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
     fillMetadata();
     await fillCommitteePanel();
 
@@ -352,7 +368,7 @@ describe('SubmitGovAction', () => {
     cardano.testwallet.enable = vi.fn(async () => {
       throw new Error('user rejected the connection');
     });
-    render(<SubmitGovAction network="preprod" />);
+    render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
     fillMetadata();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Connect wallet' }));
@@ -367,7 +383,7 @@ describe('SubmitGovAction', () => {
   it('names both figures on a short wallet and clears them after a top-up', async () => {
     // Deposit 100,000 tADA plus the 5 tADA reserve, against a 900 tADA wallet.
     walletLovelace = 900_000_000n;
-    render(<SubmitGovAction network="preprod" />);
+    render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
     fillMetadata();
     await fillCommitteePanel();
     await connect();
@@ -389,7 +405,7 @@ describe('SubmitGovAction', () => {
   it('files a slow balance read against the wallet it was started for, not the next one', async () => {
     const slow = deferred<MockUtxos>();
     collectWalletUtxosImpl = () => slow.promise;
-    render(<SubmitGovAction network="preprod" />);
+    render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
     fillMetadata();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Connect wallet' }));
@@ -415,7 +431,7 @@ describe('SubmitGovAction', () => {
     collectWalletUtxosImpl = async () => {
       throw new Error('Koios is down');
     };
-    render(<SubmitGovAction network="preprod" />);
+    render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
     fillMetadata();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Connect wallet' }));
@@ -428,7 +444,7 @@ describe('SubmitGovAction', () => {
 
   it('lets the browser reject an invalid reference URL before anything is published', async () => {
     const fetchMock = installFetchMock();
-    render(<SubmitGovAction network="preprod" />);
+    render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
     fillMetadata();
     await connect();
 
@@ -453,7 +469,7 @@ describe('SubmitGovAction', () => {
   it('rejects a wallet with no reward address and stays disconnected', async () => {
     const api = installWalletMock();
     api.getRewardAddresses = vi.fn(async () => []);
-    render(<SubmitGovAction network="preprod" />);
+    render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
     fillMetadata();
 
     fireEvent.click(await screen.findByRole('button', { name: 'Connect wallet' }));
@@ -466,7 +482,7 @@ describe('SubmitGovAction', () => {
   });
 
   it('drops the balance and the address again on "Use a different wallet"', async () => {
-    render(<SubmitGovAction network="preprod" />);
+    render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
     fillMetadata();
     await connect();
 
@@ -486,7 +502,7 @@ describe('SubmitGovAction', () => {
     const slowEnable = deferred<unknown>();
     const entry = walletEntry();
     entry.enable = vi.fn(() => slowEnable.promise);
-    render(<SubmitGovAction network="preprod" />);
+    render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
 
     const connectButton = await screen.findByRole('button', { name: 'Connect wallet' });
     fireEvent.click(connectButton);
@@ -496,5 +512,113 @@ describe('SubmitGovAction', () => {
     slowEnable.resolve(api);
     await screen.findByText(/^Deposit .*wallet/, {}, SLOW);
     expect(entry.enable).toHaveBeenCalledTimes(1);
+  });
+
+  describe('sign as author, on by default', () => {
+    /** Finds the fetch call to the bare finalize route, never the /prepare one. */
+    function metadataCallBody(fetchMock: ReturnType<typeof installFetchMock>): Record<string, unknown> {
+      const call = fetchMock.mock.calls.find(([url]) => {
+        const s = String(url);
+        return s.includes('/api/gov-action/metadata') && !s.includes('/prepare');
+      }) as unknown[] | undefined;
+      const init = call?.[1] as RequestInit | undefined;
+      return JSON.parse(init?.body as string);
+    }
+
+    it('reaches submitGovAction with the prefilled name and a wallet witness', async () => {
+      submitGovActionMock.mockResolvedValue({ txHash: 'a'.repeat(64) });
+      const fetchMock = installFetchMock();
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      fillMetadata();
+      await connect();
+
+      const submit = screen.getByRole('button', { name: 'Submit proposal' }) as HTMLButtonElement;
+      await waitFor(() => expect(submit.disabled).toBe(false), SLOW);
+      fireEvent.click(submit);
+
+      await waitFor(() => expect(submitGovActionMock).toHaveBeenCalledTimes(1), SLOW);
+      expect(
+        fetchMock.mock.calls.some(([url]) => String(url).includes('/api/gov-action/metadata/prepare')),
+      ).toBe(true);
+      expect(metadataCallBody(fetchMock).author).toEqual({
+        name: DISPLAY_NAME,
+        keyHex: WITNESS_KEY,
+        signatureHex: WITNESS_SIGNATURE,
+      });
+    });
+
+    it('reaches submitGovAction with no author once signing is turned off', async () => {
+      submitGovActionMock.mockResolvedValue({ txHash: 'b'.repeat(64) });
+      const fetchMock = installFetchMock();
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      fillMetadata();
+      fireEvent.click(screen.getByRole('checkbox', { name: /Sign as author/ }));
+      await connect();
+
+      const submit = screen.getByRole('button', { name: 'Submit proposal' }) as HTMLButtonElement;
+      await waitFor(() => expect(submit.disabled).toBe(false), SLOW);
+      fireEvent.click(submit);
+
+      await waitFor(() => expect(submitGovActionMock).toHaveBeenCalledTimes(1), SLOW);
+      expect(
+        fetchMock.mock.calls.some(([url]) => String(url).includes('/api/gov-action/metadata/prepare')),
+      ).toBe(false);
+      expect('author' in metadataCallBody(fetchMock)).toBe(false);
+    });
+  });
+
+  describe('draft restore banner', () => {
+    function storedDraft(overrides: Partial<Record<string, unknown>> = {}): string {
+      return JSON.stringify({
+        v: 2,
+        type: 'InfoAction',
+        title: 'Old title',
+        abstract: 'Old abstract',
+        motivation: 'Old motivation',
+        rationale: 'Old rationale',
+        signAsAuthor: true,
+        authorName: 'Someone else',
+        references: [],
+        surveyRef: '',
+        panels: {},
+        ...overrides,
+      });
+    }
+
+    it('shows the relative time when the stored draft carries a savedAt', async () => {
+      window.localStorage.setItem(DRAFT_KEY, storedDraft({ savedAt: Date.now() - 5 * 60 * 1000 }));
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      await screen.findByText(/^Restored your draft from \d+m ago$/);
+    });
+
+    it('shows the plain fallback when the stored draft has no savedAt', async () => {
+      window.localStorage.setItem(DRAFT_KEY, storedDraft());
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      await screen.findByText('Restored your saved draft');
+    });
+
+    it('discard empties the form and storage, and a remount shows no banner', async () => {
+      window.localStorage.setItem(DRAFT_KEY, storedDraft({ savedAt: Date.now() }));
+      const first = render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      await screen.findByText(/^Restored your draft from/);
+      expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('Old title');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+
+      expect(screen.queryByText(/^Restored your/)).toBeNull();
+      expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('');
+      expect((screen.getByLabelText('Author name') as HTMLInputElement).value).toBe(DISPLAY_NAME);
+      expect(loadGovActionDraft(window.localStorage, DRAFT_KEY)).toBeNull();
+
+      first.unmount();
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      expect(screen.queryByText(/^Restored your/)).toBeNull();
+    });
+
+    it('writes no draft on a fresh visit with nothing edited', async () => {
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      await screen.findByText(/Governance action deposit/);
+      expect(loadGovActionDraft(window.localStorage, DRAFT_KEY)).toBeNull();
+    });
   });
 });

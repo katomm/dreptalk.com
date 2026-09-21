@@ -73,6 +73,7 @@ import { readableError } from '@/lib/wallet/walletError.js';
 import { assertWalletNetwork } from '@/lib/wallet/networkGuard.js';
 import { inputStyle, labelStyle } from '@/components/drepFormStyles.js';
 import SignAndSubmit from '@/components/govAction/SignAndSubmit.js';
+import DraftRestoreBanner from '@/components/govAction/DraftRestoreBanner.js';
 
 // Mirrors the un-exported AUTHOR_NAME_MAX in infoActionMetadataHandler.ts, kept
 // in sync manually since that constant is server-internal.
@@ -123,6 +124,12 @@ type Phase =
 
 export interface SubmitGovActionProps {
   network: CardanoNetwork;
+  /**
+   * The signed-in user's display name, resolved by the page the way /home/
+   * resolves it. Prefilled as the author name, with signing on by default.
+   * Empty when there is none to show.
+   */
+  displayName: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -244,7 +251,7 @@ function DepositInfo({ deposit }: { deposit: DepositState }) {
 // React component
 // ---------------------------------------------------------------------------
 
-export default function SubmitGovAction({ network }: SubmitGovActionProps) {
+export default function SubmitGovAction({ network, displayName }: SubmitGovActionProps) {
   // resolveNetwork returns the same cached config object for a given
   // network every call, so this needs no memoization to stay referentially
   // stable across renders.
@@ -253,9 +260,16 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
   const [phase, setPhase] = useState<Phase>({ status: 'editing' });
   const [deposit, setDeposit] = useState<DepositState>({ status: 'loading' });
   const [params, setParams] = useState<ProtocolParams | null>(null);
-  const [state, dispatch] = useReducer(govActionFormReducer, undefined, initialGovActionFormState);
+  // displayName is the lazy initializer's own argument (not read through a
+  // closure), so useReducer only ever prefills the author name once, at
+  // mount, even if the prop identity changes on a later render.
+  const [state, dispatch] = useReducer(govActionFormReducer, displayName, initialGovActionFormState);
   // Bumped by the retry button so the context effect runs again for the same type.
   const [contextAttempt, setContextAttempt] = useState(0);
+  // When a stored draft was restored: its savedAt (a relative time to show),
+  // null (restored but predates savedAt), or undefined (nothing restored,
+  // either a fresh visit or the draft was discarded). Drives the banner.
+  const [restoredAt, setRestoredAt] = useState<number | null | undefined>(undefined);
 
   // Cached CIP-30 api: avoids a second enable() IPC round trip on submit,
   // mirroring DRepService/VotePanel's enabledApiRef pattern.
@@ -266,9 +280,9 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
   const balanceReadIdRef = useRef(0);
 
   const metadata = state.metadata;
-  // Destructured for the draft effect below, which reads exactly these three
+  // Destructured for the draft effect below, which reads exactly these four
   // and must not re-run on a context transition.
-  const { type, panels } = state;
+  const { type, panels, dirty } = state;
   const chained = chainForType(state.type) !== null;
 
   /**
@@ -309,18 +323,32 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const draft = loadGovActionDraft(window.localStorage, draftKey);
-    if (draft) dispatch({ kind: 'restoreDraft', draft });
+    if (draft) {
+      dispatch({ kind: 'restoreDraft', draft });
+      setRestoredAt(draft.savedAt ?? null);
+    }
     draftRestoredRef.current = true;
   }, [draftKey]);
   useEffect(() => {
-    if (typeof window === 'undefined' || !draftRestoredRef.current) return;
+    // Saving only while dirty is what keeps a fresh visit from writing a
+    // draft at all: the prefilled author name and default signing-on would
+    // otherwise look like something worth storing the moment localStorage
+    // becomes available.
+    if (typeof window === 'undefined' || !draftRestoredRef.current || !dirty) return;
     // A draft is only worth keeping while it carries something: metadata text,
     // a non-default type, or a filled panel. A committee panel with no
     // metadata yet is kept, which is why the check is not metadata-only.
     const draftable = { metadata, type, panels };
-    if (isFormBlank(draftable)) clearGovActionDraft(window.localStorage, draftKey);
+    if (isFormBlank(draftable, { authorName: displayName })) clearGovActionDraft(window.localStorage, draftKey);
     else saveGovActionDraft(window.localStorage, draftKey, draftFromState(draftable));
-  }, [draftKey, metadata, type, panels]);
+  }, [draftKey, metadata, type, panels, dirty, displayName]);
+
+  /** Discards the restored/in-progress draft: back to the defaults, storage cleared, banner gone. */
+  function handleDiscardDraft() {
+    dispatch({ kind: 'discardDraft', displayName });
+    if (typeof window !== 'undefined') clearGovActionDraft(window.localStorage, draftKey);
+    setRestoredAt(undefined);
+  }
 
   // Deposit and voting thresholds are informational chain data, independent of
   // the wallet connection, and one /epoch_params read serves both.
@@ -962,6 +990,10 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
 
   return (
     <div style={{ maxWidth: '40rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+      {restoredAt !== undefined && (
+        <DraftRestoreBanner savedAt={restoredAt} now={Date.now()} onDiscard={handleDiscardDraft} />
+      )}
+
       <DepositInfo deposit={deposit} />
 
       <form

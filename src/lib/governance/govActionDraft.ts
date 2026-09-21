@@ -42,6 +42,12 @@ export interface GovActionDraft {
   surveyRef: string;
   /** Per-type panel state, keyed by every form type except InfoAction (which has no panel). */
   panels: Partial<Record<Exclude<GovActionFormType, 'InfoAction'>, unknown>>;
+  /**
+   * When this draft was written, in ms. Written by saveGovActionDraft on every
+   * save, absent on a draft saved before this field existed (which shows
+   * "Restored your saved draft" instead of a relative time).
+   */
+  savedAt?: number;
 }
 
 function isFormType(value: unknown): value is GovActionFormType {
@@ -133,13 +139,25 @@ export function loadGovActionDraft(storage: Pick<Storage, 'getItem'>, key: strin
     // Drafts saved before the survey-link field existed simply have none.
     surveyRef: str(parsed.surveyRef),
     panels: coercePanels(parsed.panels),
+    // Drafts saved before savedAt existed simply have none.
+    ...(typeof parsed.savedAt === 'number' ? { savedAt: parsed.savedAt } : {}),
   };
 }
 
-/** Stores the draft as JSON. Best-effort: storage can be full or blocked, so this never throws. */
-export function saveGovActionDraft(storage: Pick<Storage, 'setItem'>, key: string, draft: GovActionDraft): void {
+/**
+ * Stores the draft as JSON, stamped with the save time. Best-effort: storage
+ * can be full or blocked, so this never throws. nowMs is a parameter (rather
+ * than reading Date.now() unconditionally) so a test can assert an exact
+ * value.
+ */
+export function saveGovActionDraft(
+  storage: Pick<Storage, 'setItem'>,
+  key: string,
+  draft: GovActionDraft,
+  nowMs: number = Date.now(),
+): void {
   try {
-    storage.setItem(key, JSON.stringify(draft));
+    storage.setItem(key, JSON.stringify({ ...draft, savedAt: nowMs }));
   } catch {
     // Storage can be full or blocked, drafting is best-effort.
   }

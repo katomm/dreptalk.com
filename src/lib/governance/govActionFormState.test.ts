@@ -38,7 +38,7 @@ function ctx(epoch: number, lastEnactedHash?: string): ActionContextResponse {
 }
 
 describe('initialGovActionFormState', () => {
-  it('starts on InfoAction with empty metadata, empty panels and an idle context', () => {
+  it('starts on InfoAction with empty metadata text, empty panels and an idle context', () => {
     const s = initialGovActionFormState();
     expect(s.type).toBe('InfoAction');
     expect(s.metadata.title).toBe('');
@@ -46,6 +46,18 @@ describe('initialGovActionFormState', () => {
     expect(s.panels.UpdateCommittee.add).toEqual([]);
     expect(s.context.status).toBe('idle');
     expect(s.context.data).toBeNull();
+  });
+
+  it('signs as author by default, with no name when none is given', () => {
+    const s = initialGovActionFormState();
+    expect(s.metadata.signAsAuthor).toBe(true);
+    expect(s.metadata.authorName).toBe('');
+  });
+
+  it('prefills the author name from the signed-in display name', () => {
+    const s = initialGovActionFormState('Jane DRep');
+    expect(s.metadata.signAsAuthor).toBe(true);
+    expect(s.metadata.authorName).toBe('Jane DRep');
   });
 });
 
@@ -309,7 +321,27 @@ describe('draftFromState and isFormBlank', () => {
   });
 
   it('treats the untouched form as blank', () => {
-    expect(isFormBlank(initialGovActionFormState())).toBe(true);
+    expect(isFormBlank(initialGovActionFormState(), { authorName: '' })).toBe(true);
+  });
+
+  it('treats the prefilled author name and the default signing-on as blank too', () => {
+    expect(isFormBlank(initialGovActionFormState('Jane DRep'), { authorName: 'Jane DRep' })).toBe(true);
+  });
+
+  it('is not blank once the author name is edited away from the default', () => {
+    const s = govActionFormReducer(initialGovActionFormState('Jane DRep'), {
+      kind: 'setMetadata',
+      patch: { authorName: 'Someone else' },
+    });
+    expect(isFormBlank(s, { authorName: 'Jane DRep' })).toBe(false);
+  });
+
+  it('is not blank once signing as author is turned off, even with the name untouched', () => {
+    const s = govActionFormReducer(initialGovActionFormState('Jane DRep'), {
+      kind: 'setMetadata',
+      patch: { signAsAuthor: false },
+    });
+    expect(isFormBlank(s, { authorName: 'Jane DRep' })).toBe(false);
   });
 
   it('keeps a filled panel with empty metadata', () => {
@@ -323,7 +355,7 @@ describe('draftFromState and isFormBlank', () => {
         add: [{ input: 'ab', hexKind: 'key', expiryEpoch: '410' }],
       },
     });
-    expect(isFormBlank(s)).toBe(false);
+    expect(isFormBlank(s, { authorName: '' })).toBe(false);
   });
 
   it('is not blank once the type alone moved away from InfoAction', () => {
@@ -331,7 +363,7 @@ describe('draftFromState and isFormBlank', () => {
       kind: 'setType',
       type: 'NoConfidence',
     });
-    expect(isFormBlank(s)).toBe(false);
+    expect(isFormBlank(s, { authorName: '' })).toBe(false);
   });
 
   it('is not blank once any metadata text is typed', () => {
@@ -339,7 +371,7 @@ describe('draftFromState and isFormBlank', () => {
       kind: 'setMetadata',
       patch: { abstract: 'x' },
     });
-    expect(isFormBlank(s)).toBe(false);
+    expect(isFormBlank(s, { authorName: '' })).toBe(false);
   });
 });
 
@@ -782,5 +814,53 @@ describe('dirty', () => {
     s = govActionFormReducer(s, { kind: 'walletConnecting' });
     s = govActionFormReducer(s, { kind: 'walletConnected', rewardAddressHex: 'e0ff' });
     expect(s.dirty).toBe(false);
+  });
+});
+
+describe('discardDraft', () => {
+  it('resets the type, metadata and panels to the defaults and clears dirty', () => {
+    let s = initialGovActionFormState('Jane DRep');
+    s = govActionFormReducer(s, { kind: 'setType', type: 'UpdateCommittee' });
+    s = govActionFormReducer(s, { kind: 'setMetadata', patch: { title: 'Draft title', authorName: 'Someone else' } });
+    s = govActionFormReducer(s, {
+      kind: 'setPanel',
+      type: 'UpdateCommittee',
+      state: { ...s.panels.UpdateCommittee, add: [{ input: 'ab', hexKind: 'key', expiryEpoch: '410' }] },
+    });
+    expect(s.dirty).toBe(true);
+
+    s = govActionFormReducer(s, { kind: 'discardDraft', displayName: 'Jane DRep' });
+    expect(s.type).toBe('InfoAction');
+    expect(s.metadata).toEqual({
+      title: '',
+      abstract: '',
+      motivation: '',
+      rationale: '',
+      signAsAuthor: true,
+      authorName: 'Jane DRep',
+      references: [],
+      surveyRef: '',
+    });
+    expect(s.panels.UpdateCommittee.add).toEqual([]);
+    expect(s.dirty).toBe(false);
+  });
+
+  it('leaves the context and the wallet untouched', () => {
+    let s = initialGovActionFormState('Jane DRep');
+    s = govActionFormReducer(s, { kind: 'contextRequested', requestId: 1 });
+    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 1, data: ctx(500) });
+    s = govActionFormReducer(s, { kind: 'walletConnecting' });
+    s = govActionFormReducer(s, { kind: 'walletConnected', rewardAddressHex: 'e0ff' });
+
+    s = govActionFormReducer(s, { kind: 'discardDraft', displayName: 'Jane DRep' });
+    expect(s.context.status).toBe('ready');
+    expect(s.wallet).toEqual({ status: 'connected', rewardAddressHex: 'e0ff', balance: { status: 'loading' } });
+  });
+
+  it('leaves the form blank straight after discarding', () => {
+    let s = initialGovActionFormState('Jane DRep');
+    s = govActionFormReducer(s, { kind: 'setMetadata', patch: { title: 'x' } });
+    s = govActionFormReducer(s, { kind: 'discardDraft', displayName: 'Jane DRep' });
+    expect(isFormBlank(s, { authorName: 'Jane DRep' })).toBe(true);
   });
 });

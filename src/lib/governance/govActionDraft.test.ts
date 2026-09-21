@@ -54,20 +54,24 @@ describe('govActionDraftKey', () => {
   });
 });
 
+// A fixed save time, so the round-trip tests can assert an exact savedAt
+// instead of merely "some number close to now".
+const SAVED_AT = 1_700_000_000_000;
+
 describe('saveGovActionDraft / loadGovActionDraft round trip', () => {
   it('round-trips every metadata field, including references', () => {
     const storage = makeFakeStorage();
     const key = govActionDraftKey('preprod');
-    saveGovActionDraft(storage, key, fullDraft);
-    expect(loadGovActionDraft(storage, key)).toEqual(fullDraft);
+    saveGovActionDraft(storage, key, fullDraft, SAVED_AT);
+    expect(loadGovActionDraft(storage, key)).toEqual({ ...fullDraft, savedAt: SAVED_AT });
   });
 
   it('round-trips an empty-references draft', () => {
     const storage = makeFakeStorage();
     const key = govActionDraftKey('preprod');
     const draft: GovActionDraft = { ...fullDraft, references: [] };
-    saveGovActionDraft(storage, key, draft);
-    expect(loadGovActionDraft(storage, key)).toEqual(draft);
+    saveGovActionDraft(storage, key, draft, SAVED_AT);
+    expect(loadGovActionDraft(storage, key)).toEqual({ ...draft, savedAt: SAVED_AT });
   });
 
   it('round-trips a v2 draft with type UpdateCommittee and its panel state', () => {
@@ -78,8 +82,28 @@ describe('saveGovActionDraft / loadGovActionDraft round trip', () => {
       type: 'UpdateCommittee',
       panels: { UpdateCommittee: { addMembers: ['abc'], threshold: '2/3' } },
     };
-    saveGovActionDraft(storage, key, draft);
-    expect(loadGovActionDraft(storage, key)).toEqual(draft);
+    saveGovActionDraft(storage, key, draft, SAVED_AT);
+    expect(loadGovActionDraft(storage, key)).toEqual({ ...draft, savedAt: SAVED_AT });
+  });
+});
+
+describe('savedAt', () => {
+  it('is written on every save, and defaults to Date.now() when not passed explicitly', () => {
+    const storage = makeFakeStorage();
+    const key = govActionDraftKey('preprod');
+    const before = Date.now();
+    saveGovActionDraft(storage, key, fullDraft);
+    const after = Date.now();
+    const loaded = loadGovActionDraft(storage, key);
+    expect(loaded?.savedAt).toBeGreaterThanOrEqual(before);
+    expect(loaded?.savedAt).toBeLessThanOrEqual(after);
+  });
+
+  it('is tolerated when absent from an older stored draft', () => {
+    const storage = makeFakeStorage();
+    const key = govActionDraftKey('preprod');
+    storage.setItem(key, JSON.stringify(fullDraft));
+    expect(loadGovActionDraft(storage, key)?.savedAt).toBeUndefined();
   });
 });
 
