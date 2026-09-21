@@ -93,6 +93,33 @@ export default defineConfig({
     '/datenschutz': '/privacy',
   },
   vite: {
+    // The server bundle keeps the Evolution SDK and its effect runtime in one
+    // chunk. Left to itself, the bundler split the SDK across two chunks that
+    // import each other (the SDK's network presets landed in the drepTx chunk,
+    // which in turn needs the SDK's effect helpers). Whether that cycle breaks
+    // depends on which chunk a page loads first: /ga/new/ loaded the SDK chunk
+    // first and crashed at startup with "dual is not a function". One chunk has
+    // no cycle to break. Server build only, the client bundles are unaffected.
+    plugins: [
+      {
+        name: 'evolution-sdk-single-server-chunk',
+        apply: 'build',
+        config(_config, env) {
+          if (!env.isSsrBuild) return;
+          return {
+            build: {
+              rolldownOptions: {
+                output: {
+                  codeSplitting: {
+                    groups: [{ name: 'evolution-sdk', test: /node_modules[\\/](@evolution-sdk|effect)[\\/]/ }],
+                  },
+                },
+              },
+            },
+          };
+        },
+      },
+    ],
     // Pin React to a single instance. Astro's React islands load the renderer's
     // React through Vite's optimized deps (the ?v= query), while a component's
     // own `import { useState } from 'react'` can resolve to a second,
