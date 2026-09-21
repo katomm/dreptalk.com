@@ -227,7 +227,10 @@ export type OnchainChanges =
   | { kind: 'hardfork'; fromVersion: string | null; toVersion: string }
   | { kind: 'treasury'; rows: TreasuryRow[]; totalAda: string }
   | { kind: 'committee'; added: CommitteeMemberChange[]; removed: CommitteeMemberChange[]; threshold: string | null }
-  | { kind: 'constitution'; anchorUrl: string | null; scriptHash: string | null }
+  // dataHash is the blake2b-256 of the constitution document the anchor points
+  // at, not the action's own CIP-108 metadata hash. It is what lets a reader
+  // verify the document they open is the one that was proposed.
+  | { kind: 'constitution'; anchorUrl: string | null; dataHash: string | null; scriptHash: string | null }
   | { kind: 'note'; text: string; tag: 'NoConfidence' | 'InfoAction' };
 
 function shortenHash(h: string): string {
@@ -406,10 +409,11 @@ function decodeCommittee(contents: unknown[]): OnchainChanges {
 }
 
 function decodeConstitution(contents: unknown[]): OnchainChanges {
-  const body = findObjByKey<{ anchor?: { url?: string }; script?: string }>(contents, 'anchor');
+  const body = findObjByKey<{ anchor?: { url?: string; dataHash?: string }; script?: string }>(contents, 'anchor');
   return {
     kind: 'constitution',
     anchorUrl: body?.anchor?.url ?? null,
+    dataHash: typeof body?.anchor?.dataHash === 'string' ? body.anchor.dataHash : null,
     scriptHash: typeof body?.script === 'string' ? body.script : null,
   };
 }

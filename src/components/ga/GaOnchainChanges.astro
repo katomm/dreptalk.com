@@ -147,6 +147,12 @@ const show =
             </span>
           </li>
         )}
+        {changes.dataHash && (
+          <li class="ocx__row">
+            <span class="ocx__name">Document hash</span>
+            <span class="ocx__val mono">{changes.dataHash}<CopyButton value={changes.dataHash} label="Copy document hash" /></span>
+          </li>
+        )}
         {changes.scriptHash && (
           <li class="ocx__row">
             <span class="ocx__name">Guardrails script</span>

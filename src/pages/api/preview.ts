@@ -1,10 +1,21 @@
 import type { APIRoute } from 'astro';
-import { renderMarkdown } from '@/lib/markdown.js';
+import { enhanceStoredHtml, renderMarkdown } from '@/lib/markdown.js';
 import { resolveBodyMentions } from '@/lib/forum/handlers.js';
 import { checkRate } from '@/lib/rate.js';
 import { jsonResponse, runtimeEnv } from '@/lib/api/response';
+import { INFO_RATIONALE_MAX } from '@/lib/governance/infoActionLimits.js';
 
 export const prerender = false;
+
+// The governance submit form previews its Markdown fields (abstract,
+// motivation, rationale) in one round trip. Four is one more than it sends,
+// so a fourth field can be added without touching the route.
+const MAX_PARTS = 4;
+
+// The widest metadata field the submit form accepts, plus room for the few
+// hundred characters a user can paste past the counter before the form trims.
+// One cap for every part: the route does not know which field a key names.
+const MAX_PART_LENGTH = INFO_RATIONALE_MAX + 400;
 
 export const POST: APIRoute = async ({ request, locals }) => {
   const user = locals.user;
@@ -34,6 +45,36 @@ export const POST: APIRoute = async ({ request, locals }) => {
     body = await request.json();
   } catch {
     return jsonResponse({ ok: false, error: 'invalid JSON' }, 400);
+  }
+
+  // Parts mode, used by the governance submit form's review modal: several
+  // short Markdown fields rendered in one round trip, each returned under its
+  // own key. Mentions are not resolved here (a CIP-108 document has none) and
+  // enhanceStoredHtml runs, because the island injects this HTML as is while
+  // the forum applies that pass itself at display time.
+  const parts = (body as { parts?: unknown }).parts;
+  if (parts !== undefined) {
+    if (typeof parts !== 'object' || parts === null || Array.isArray(parts)) {
+      return jsonResponse({ ok: false, error: 'invalid input' }, 400);
+    }
+    const entries = Object.entries(parts as Record<string, unknown>);
+    if (entries.length > MAX_PARTS) {
+      return jsonResponse({ ok: false, error: 'too many parts' }, 400);
+    }
+    // Null-prototype: the keys come from the request, and writing a key like
+    // __proto__ onto a plain object hits the prototype setter instead of
+    // creating an own property, so that part would silently vanish.
+    const html: Record<string, string> = Object.create(null);
+    for (const [key, value] of entries) {
+      if (typeof value !== 'string') {
+        return jsonResponse({ ok: false, error: 'invalid input' }, 400);
+      }
+      if (value.length > MAX_PART_LENGTH) {
+        return jsonResponse({ ok: false, error: 'part too long' }, 400);
+      }
+      html[key] = enhanceStoredHtml(renderMarkdown(value.trim()));
+    }
+    return jsonResponse({ html });
   }
 
   const rawMd = typeof (body as { bodyMd?: unknown }).bodyMd === 'string'
