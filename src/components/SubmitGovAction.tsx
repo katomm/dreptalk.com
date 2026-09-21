@@ -16,7 +16,7 @@
 // guard and the wallet transitions are unit-tested without a DOM. The enabled
 // CIP-30 api object itself stays in enabledApiRef: it is a live IPC handle,
 // not data.
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { CopyButton } from '@/components/CopyButton.js';
@@ -57,6 +57,7 @@ import {
   validateNewConstitutionPanel,
   PREV_ACTION_CHANGED,
 } from '@/lib/governance/govActionFormState.js';
+import { previewModelFromForm } from '@/lib/governance/previewModel.js';
 import type { OpenProposalDraft } from '@/lib/db/proposalDrafts.js';
 import type { DepositState } from '@/lib/governance/govActionFormState.js';
 import { chainForType, refStillPresent } from '@/lib/governance/prevAction.js';
@@ -79,6 +80,7 @@ import { inputStyle, labelStyle } from '@/components/drepFormStyles.js';
 import SignAndSubmit from '@/components/govAction/SignAndSubmit.js';
 import DraftRestoreBanner from '@/components/govAction/DraftRestoreBanner.js';
 import DraftLinkControl from '@/components/govAction/DraftLinkControl.js';
+import ReviewModal from '@/components/govAction/ReviewModal.js';
 
 // Mirrors the un-exported AUTHOR_NAME_MAX in infoActionMetadataHandler.ts, kept
 // in sync manually since that constant is server-internal.
@@ -286,6 +288,10 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   const [phase, setPhase] = useState<Phase>({ status: 'editing' });
   const [deposit, setDeposit] = useState<DepositState>({ status: 'loading' });
   const [params, setParams] = useState<ProtocolParams | null>(null);
+  // The same /epoch_params row, kept raw: the preview feeds it to the shared
+  // on-chain decoder, which reads the snake_case Koios keys (protocol_major
+  // and friends) that protocolParamsFromEpochParams has already mapped away.
+  const [epochParamsRow, setEpochParamsRow] = useState<EpochParamsRow | null>(null);
   // displayName is the lazy initializer's own argument (not read through a
   // closure), so useReducer only ever prefills the author name once, at
   // mount, even if the prop identity changes on a later render.
@@ -296,6 +302,11 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   // null (restored but predates savedAt), or undefined (nothing restored,
   // either a fresh visit or the draft was discarded). Drives the banner.
   const [restoredAt, setRestoredAt] = useState<number | null | undefined>(undefined);
+  // The review modal. Optional and never gated on readiness: an incomplete
+  // form previews too, with the missing fields listed inside.
+  const [reviewOpen, setReviewOpen] = useState(false);
+  // Focus goes back here when the modal closes, whichever way it closed.
+  const reviewButtonRef = useRef<HTMLButtonElement>(null);
 
   // Cached CIP-30 api: avoids a second enable() IPC round trip on submit,
   // mirroring DRepService/VotePanel's enabledApiRef pattern.
@@ -392,6 +403,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
         if (!cancelled) {
           setDeposit({ status: 'ready', lovelace });
           setParams(protocolParamsFromEpochParams(row as EpochParamsRow));
+          setEpochParamsRow(row as EpochParamsRow);
         }
       } catch {
         if (!cancelled) {
@@ -471,6 +483,35 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
     wallet: state.wallet,
     depositLovelace: deposit.status === 'ready' ? deposit.lovelace : null,
   });
+
+  // ------------------------------------------------------------------
+  // Review: the action as the action page will render it, built entirely
+  // from what is on screen (the form, the displayed context, the epoch
+  // params), so untouched defaults resolve exactly as the panels resolve
+  // them. Only the Markdown goes to the server, once, from inside the modal.
+  //
+  // Built only while the modal is open: a NewConstitution preview hashes the
+  // whole document (up to 256 KiB), which is not something to redo on every
+  // keystroke of a form that is closed over it.
+  // ------------------------------------------------------------------
+  const preview = useMemo(
+    () => (reviewOpen ? previewModelFromForm(state, contextData, epochParamsRow, network) : null),
+    [reviewOpen, state, contextData, epochParamsRow, network],
+  );
+  // Names for the on-chain card's committee rows, keyed by cold hex exactly as
+  // the decoder returns it. Same source the panel's own labels come from.
+  const committeeNames = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const member of contextData?.committee?.members ?? []) {
+      if (member.coldHex && member.name) names.set(member.coldHex, member.name);
+    }
+    return names;
+  }, [contextData]);
+
+  function closeReview() {
+    setReviewOpen(false);
+    reviewButtonRef.current?.focus();
+  }
 
   // ------------------------------------------------------------------
   // References row editor (optional, like GovTool's reference links).
@@ -1291,6 +1332,31 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
           connectError={phase.status === 'error' && phase.step === 'connect' ? phase.message : null}
           submitError={phase.status === 'error' && phase.step === 'submit' ? phase.message : null}
           onUseDifferentWallet={reset}
+          reviewSlot={
+            <button
+              ref={reviewButtonRef}
+              type="button"
+              className="btn"
+              onClick={() => setReviewOpen(true)}
+              disabled={busy}
+            >
+              Review
+            </button>
+          }
+        />
+
+        <ReviewModal
+          open={reviewOpen}
+          onClose={closeReview}
+          title={metadata.title}
+          abstractMd={metadata.abstract}
+          motivationMd={metadata.motivation}
+          rationaleMd={metadata.rationale}
+          authorLine={preview?.authorLine ?? ''}
+          missing={preview?.missing ?? []}
+          references={metadata.references}
+          onchain={preview?.onchain ?? null}
+          committeeNames={committeeNames}
         />
 
         {phase.status === 'submitting' && (

@@ -815,6 +815,18 @@ export const PREV_ACTION_CHANGED = 'The previous action changed, review the sele
 export type PanelValidation<T> = { ok: true; value: T } | { ok: false; error: string };
 
 /**
+ * A panel's lenient reading, for the review preview: whatever of the payload
+ * is usable right now, plus the names of the fields still standing between
+ * the form and a submittable action. The validators above answer "may this be
+ * submitted", which is a yes-or-no question, and the preview needs the half of an
+ * answer that a no still contains, since an incomplete form is previewed too.
+ */
+export interface PanelDescription<T> {
+  payloadPart: T | null;
+  missing: string[];
+}
+
+/**
  * The hard fork panel's rules: a version has to be picked, the active version
  * has to be readable, and the pick has to still be one of the versions that
  * may follow the base (see hardForkBaseVersion). The last check is what
@@ -848,25 +860,84 @@ export function validateHardForkPanel(
 }
 
 /**
+ * The hard fork panel read leniently: the version the user picked is what the
+ * preview shows even when it no longer validates, because a version that has
+ * fallen behind the chain is still what is on screen in the field. Every
+ * failure reduces to the one field the panel has.
+ */
+export function describeHardForkPanel(
+  panel: HardForkPanelState,
+  context: ActionContextResponse | null,
+): PanelDescription<ProtocolVersion> {
+  const result = validateHardForkPanel(panel, context);
+  if (result.ok) return { payloadPart: result.value, missing: [] };
+  return { payloadPart: panel.version, missing: ['Protocol version'] };
+}
+
+/** The constitution panel's two fields as read, each with the reason it is not usable yet. */
+interface NewConstitutionReading {
+  text: string;
+  /** The resolved guardrails hash, or null for "no script" AND for a malformed one. */
+  scriptHashHex: string | null;
+  textError: string | null;
+  scriptError: string | null;
+}
+
+/**
+ * Reads the panel's two fields once, so the strict validator and the lenient
+ * describer below cannot disagree about what the field holds or why it is not
+ * usable. An untouched hash field means the hash of the constitution in force,
+ * which is what the field itself shows, and an empty one means no script at all.
+ */
+function readNewConstitutionPanel(
+  panel: NewConstitutionPanelState,
+  context: ActionContextResponse | null,
+): NewConstitutionReading {
+  const text = panel.text;
+  let textError: string | null = null;
+  if (!text.trim()) textError = 'Enter the constitution text.';
+  else if (new TextEncoder().encode(text).length > CONSTITUTION_DOCUMENT_MAX_BYTES) {
+    textError = 'The constitution document is over the 256 KiB limit.';
+  }
+  const hash = (panel.scriptHashHex ?? context?.constitution?.scriptHash ?? '').trim();
+  const scriptError =
+    hash !== '' && !HEX_HASH_224_RE.test(hash) ? 'A guardrails script hash is exactly 56 hex characters.' : null;
+  return {
+    text,
+    scriptHashHex: scriptError !== null || hash === '' ? null : hash.toLowerCase(),
+    textError,
+    scriptError,
+  };
+}
+
+/**
  * The new constitution panel's rules: a non-empty document within the byte
  * cap, and a guardrails script hash that is either empty or 56 hex chars.
- * An untouched hash field means the hash of the constitution in force, which
- * is what the field itself shows, and an empty one means no script at all.
  */
 export function validateNewConstitutionPanel(
   panel: NewConstitutionPanelState,
   context: ActionContextResponse | null,
 ): PanelValidation<{ text: string; scriptHashHex: string | null }> {
-  const text = panel.text;
-  if (!text.trim()) return { ok: false, error: 'Enter the constitution text.' };
-  if (new TextEncoder().encode(text).length > CONSTITUTION_DOCUMENT_MAX_BYTES) {
-    return { ok: false, error: 'The constitution document is over the 256 KiB limit.' };
-  }
-  const hash = (panel.scriptHashHex ?? context?.constitution?.scriptHash ?? '').trim();
-  if (hash !== '' && !HEX_HASH_224_RE.test(hash)) {
-    return { ok: false, error: 'A guardrails script hash is exactly 56 hex characters.' };
-  }
-  return { ok: true, value: { text, scriptHashHex: hash === '' ? null : hash.toLowerCase() } };
+  const reading = readNewConstitutionPanel(panel, context);
+  if (reading.textError) return { ok: false, error: reading.textError };
+  if (reading.scriptError) return { ok: false, error: reading.scriptError };
+  return { ok: true, value: { text: reading.text, scriptHashHex: reading.scriptHashHex } };
+}
+
+/**
+ * The constitution panel read leniently: the text as typed (so the preview can
+ * hash exactly the bytes that would be published) and the guardrails hash when
+ * it is usable, with the unusable fields named.
+ */
+export function describeNewConstitutionPanel(
+  panel: NewConstitutionPanelState,
+  context: ActionContextResponse | null,
+): PanelDescription<{ text: string; scriptHashHex: string | null }> {
+  const reading = readNewConstitutionPanel(panel, context);
+  const missing: string[] = [];
+  if (reading.textError) missing.push('Constitution text');
+  if (reading.scriptError) missing.push('Guardrails script hash');
+  return { payloadPart: { text: reading.text, scriptHashHex: reading.scriptHashHex }, missing };
 }
 
 // ---------------------------------------------------------------------------
@@ -895,6 +966,19 @@ function parseIntegerField(raw: string): number | null {
 }
 
 /**
+ * The committee panel's typed text after parsing, before any rule is applied.
+ * Rows that could not be parsed are simply absent. Carried out of the
+ * validator so the preview can render the rows that ARE readable while the
+ * others are still being typed, without parsing the panel a second time.
+ */
+export interface CommitteePanelParse {
+  remove: ColdCredential[];
+  add: AddedMember[];
+  /** null when the quorum is neither typed readably nor known from the context. */
+  quorum: Quorum | null;
+}
+
+/**
  * Turns the committee panel's typed text into the validator's input and runs
  * it. Rows whose credential or epoch cannot be parsed are reported as errors
  * on their own field and left out of the validated value, so a half-typed row
@@ -906,7 +990,13 @@ function parseIntegerField(raw: string): number | null {
 export function validateCommitteePanel(
   panel: UpdateCommitteePanelState,
   context: ActionContextResponse | null,
-): { errors: ValidationError[]; warnings: ValidationWarning[]; value: CommitteeUpdate | null; mode: 'enacted' | 'open' } {
+): {
+  errors: ValidationError[];
+  warnings: ValidationWarning[];
+  value: CommitteeUpdate | null;
+  mode: 'enacted' | 'open';
+  parsed: CommitteePanelParse;
+} {
   const mode = committeeMode(panel.prev, context);
   const parseErrors: ValidationError[] = [];
   const committee = context?.committee ?? null;
@@ -979,7 +1069,50 @@ export function validateCommitteePanel(
     currentQuorum: committee?.quorum ?? null,
   });
 
-  if (!result.ok) return { errors: [...parseErrors, ...result.errors], warnings: [], value: null, mode };
-  if (parseErrors.length > 0) return { errors: parseErrors, warnings: result.warnings, value: null, mode };
-  return { errors: [], warnings: result.warnings, value: result.value, mode };
+  const parsed: CommitteePanelParse = { remove, add, quorum };
+  if (!result.ok) return { errors: [...parseErrors, ...result.errors], warnings: [], value: null, mode, parsed };
+  if (parseErrors.length > 0) return { errors: parseErrors, warnings: result.warnings, value: null, mode, parsed };
+  return { errors: [], warnings: result.warnings, value: result.value, mode, parsed };
+}
+
+/** The label the preview shows for a committee error that names no single field. */
+const COMMITTEE_WHOLE_PANEL_LABEL = 'Committee changes';
+
+/** A committee validation error's field path as a field name a reader recognizes. */
+function committeeFieldLabel(field: string): string {
+  const remove = /^remove\[(\d+)\]$/.exec(field);
+  if (remove) return `Member to remove ${Number(remove[1]) + 1}`;
+  const addCredential = /^add\[(\d+)\]\.credential$/.exec(field);
+  if (addCredential) return `Member to add ${Number(addCredential[1]) + 1}`;
+  const addExpiry = /^add\[(\d+)\]\.expiryEpoch$/.exec(field);
+  if (addExpiry) return `Expiry epoch for addition ${Number(addExpiry[1]) + 1}`;
+  if (field === 'quorum.numerator') return 'Quorum numerator';
+  if (field === 'quorum.denominator') return 'Quorum denominator';
+  return COMMITTEE_WHOLE_PANEL_LABEL;
+}
+
+/**
+ * The committee panel read leniently: every row that parsed, plus the field
+ * names of the ones that did not. A malformed credential is reported, never
+ * thrown, so a half-typed row does not take the whole preview down with it.
+ *
+ * The payload part is always returned, quorum included when it is known, so
+ * the preview can show the diff that IS readable next to the list of what is
+ * not.
+ */
+export function describeCommitteePanel(
+  panel: UpdateCommitteePanelState,
+  context: ActionContextResponse | null,
+): PanelDescription<CommitteePanelParse> {
+  const result = validateCommitteePanel(panel, context);
+  if (result.value) return { payloadPart: result.value, missing: [] };
+  const labels: string[] = [];
+  for (const error of result.errors) {
+    const label = committeeFieldLabel(error.field);
+    if (!labels.includes(label)) labels.push(label);
+  }
+  // "Nothing to change" is judged on the rows that parsed, so while a row is
+  // still half typed it says nothing the named row does not already say.
+  const missing = labels.length > 1 ? labels.filter((l) => l !== COMMITTEE_WHOLE_PANEL_LABEL) : labels;
+  return { payloadPart: result.parsed, missing };
 }

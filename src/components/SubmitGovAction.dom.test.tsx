@@ -146,10 +146,25 @@ function jsonResponse(body: unknown): Response {
 const WITNESS_SIGNATURE = 'a1'.repeat(32);
 const WITNESS_KEY = 'a4'.repeat(20);
 
+// What the mocked /api/preview answers with. Replaced by the tests that need a
+// failure or a specific body; reset in beforeEach.
+let previewImpl: (() => Promise<Response>) | null = null;
+
 /** Routes every request the island makes, so no test depends on a real network. */
 function installFetchMock() {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.includes('/api/preview')) {
+      return previewImpl
+        ? await previewImpl()
+        : jsonResponse({
+            html: {
+              abstract: '<p>The rendered <strong>abstract</strong>.</p>',
+              motivation: '<p>The rendered motivation.</p>',
+              rationale: '<p>The rendered rationale.</p>',
+            },
+          });
+    }
     if (url.includes('/api/koios/epoch_params')) return jsonResponse([EPOCH_PARAMS_ROW]);
     if (url.includes('/api/gov-action/context')) return jsonResponse(committeeContext);
     // Checked before the bare /metadata branch below: prepare only returns
@@ -225,6 +240,7 @@ describe('SubmitGovAction', () => {
     walletLovelace = 200_000_000_000n;
     collectWalletUtxosImpl = null;
     committeeContext = COMMITTEE_CONTEXT;
+    previewImpl = null;
     installFetchMock();
     installWalletMock();
   });
@@ -691,6 +707,113 @@ describe('SubmitGovAction', () => {
       render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
       await screen.findByText(/Governance action deposit/);
       expect(loadGovActionDraft(window.localStorage, DRAFT_KEY)).toBeNull();
+    });
+  });
+  // ------------------------------------------------------------------
+  // Review modal. The model behind it is covered by previewModel.test.ts, so
+  // these cover only what needs a DOM: the one round trip, the injection
+  // boundary (server HTML in, everything else as text) and the modal's own
+  // open/close behaviour. happy-dom's showModal() only flips `open`, so the
+  // real focus trap and Tab order are not asserted here.
+  // ------------------------------------------------------------------
+  describe('review modal', () => {
+    async function openReview() {
+      const review = await screen.findByRole('button', { name: 'Review' });
+      fireEvent.click(review);
+      return review as HTMLButtonElement;
+    }
+
+    it('shows the server-rendered HTML under the abstract label', async () => {
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      fillMetadata();
+      await openReview();
+
+      const abstractLabel = await screen.findByText('Abstract', { selector: 'p' }, SLOW);
+      const body = abstractLabel.nextElementSibling as HTMLElement;
+      expect(body.className).toContain('ga-abstract__body');
+      expect(body.querySelector('strong')?.textContent).toBe('abstract');
+
+      // One request for the three fields, nothing else.
+      const previewCalls = (globalThis.fetch as unknown as { mock: { calls: [string][] } }).mock.calls.filter(
+        ([url]) => String(url).includes('/api/preview'),
+      );
+      expect(previewCalls).toHaveLength(1);
+    });
+
+    it('renders markup typed into the title as text, never as an element', async () => {
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      fillMetadata();
+      fireEvent.change(screen.getByLabelText('Title'), {
+        target: { value: '<script>alert(1)</script>' },
+      });
+      await openReview();
+
+      const heading = await screen.findByRole('heading', { name: '<script>alert(1)</script>' }, SLOW);
+      expect(heading.querySelector('script')).toBeNull();
+      expect(document.querySelector('dialog script')).toBeNull();
+    });
+
+    it('does not link a reference whose scheme the allowlist refuses', async () => {
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      fillMetadata();
+      fireEvent.click(screen.getByRole('button', { name: 'Add reference' }));
+      fireEvent.change(screen.getByLabelText('Reference 1 label'), { target: { value: 'Looks helpful' } });
+      fireEvent.change(screen.getByLabelText('Reference 1 URL'), { target: { value: 'javascript:alert(1)' } });
+      await openReview();
+
+      await screen.findByText('Preview, nothing is published yet', {}, SLOW);
+      const dialog = document.querySelector('dialog') as HTMLElement;
+      expect([...dialog.querySelectorAll('a')].map(a => a.getAttribute('href'))).not.toContain('javascript:alert(1)');
+      expect(screen.queryByText('Looks helpful')).toBeNull();
+    });
+
+    it('lists what is still missing instead of refusing to preview', async () => {
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Only a title' } });
+      await openReview();
+
+      const heading = await screen.findByText('Still missing', {}, SLOW);
+      const items = [...(heading.parentElement as HTMLElement).querySelectorAll('li')].map(li => li.textContent);
+      expect(items).toEqual(['Abstract', 'Motivation', 'Rationale']);
+    });
+
+    it('says the preview is unavailable and retries, leaving the form alone', async () => {
+      previewImpl = async () => new Response('nope', { status: 500 });
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      fillMetadata();
+      await openReview();
+
+      await screen.findByText(/Preview unavailable, the form is unaffected/, {}, SLOW);
+      previewImpl = null;
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+      await screen.findByText('Preview, nothing is published yet', {}, SLOW);
+      expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('A committee change');
+    });
+
+    it('locks the page behind it while open and unlocks it on Edit, with focus back on Review', async () => {
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      fillMetadata();
+      const review = await openReview();
+
+      await screen.findByText('Preview, nothing is published yet', {}, SLOW);
+      expect(document.body.style.overflow).toBe('hidden');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+      await waitFor(() => expect(screen.queryByText('Preview, nothing is published yet')).toBeNull());
+      expect(document.body.style.overflow).not.toBe('hidden');
+      expect(document.activeElement).toBe(review);
+    });
+
+    it('closes on Escape and returns focus to the Review button', async () => {
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      fillMetadata();
+      const review = await openReview();
+
+      await screen.findByText('Preview, nothing is published yet', {}, SLOW);
+      fireEvent.keyDown(document.querySelector('dialog') as HTMLElement, { key: 'Escape' });
+
+      await waitFor(() => expect(screen.queryByText('Preview, nothing is published yet')).toBeNull());
+      expect(document.activeElement).toBe(review);
     });
   });
 });
