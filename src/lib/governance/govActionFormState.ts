@@ -160,8 +160,8 @@ export interface GovActionFormState {
    * The Proposal Drafts thread slug the "Link a Proposal Draft" control is
    * tracking, or null when nothing is linked. The reference it produced
    * ({ label: title, uri: `${siteOrigin}/t/${slug}/` }) lives in
-   * metadata.references like any other reference; this field is only what
-   * lets linkDraft find and replace that one row again.
+   * metadata.references like any other reference. This field only lets
+   * linkDraft find and replace that one row again.
    */
   linkedDraftSlug: string | null;
   /**
@@ -178,7 +178,18 @@ type SetPanelAction = {
 
 export type GovActionFormAction =
   | { kind: 'setType'; type: GovActionFormType }
-  | { kind: 'setMetadata'; patch: Partial<MetadataState> }
+  | {
+      kind: 'setMetadata';
+      patch: Partial<MetadataState>;
+      /**
+       * What draftSlugsFromReferences compares a reference's URL against,
+       * needed only to notice a hand-edited references array walking the
+       * tracked draft reference away (see the reducer's setMetadata case).
+       * Optional and skipped when absent, never used to clear a tracked slug
+       * on a guess: a caller that does not pass it leaves tracking as is.
+       */
+      siteOrigin?: string;
+    }
   | SetPanelAction
   | { kind: 'contextRequested'; requestId: number }
   | { kind: 'contextLoaded'; requestId: number; data: ActionContextResponse }
@@ -364,25 +375,48 @@ function referenceIndexForSlug(
 }
 
 /**
+ * A slugify() output shape (see forum.ts): lowercase letters, digits and
+ * hyphens. A stored linkedDraftSlug that fails this is either corrupted or
+ * tampered localStorage content, never a slug this app wrote, so it is
+ * dropped rather than trusted as a select option's value.
+ */
+export const DRAFT_SLUG_RE = /^[a-z0-9-]+$/i;
+
+/** The first reference whose thread slug is in the open drafts list, or null when none matches. */
+function firstOpenDraftSlugInReferences(
+  references: readonly { label: string; uri: string }[],
+  openDrafts: readonly { slug: string }[],
+  siteOrigin: string,
+): string | null {
+  const openSlugs = new Set(openDrafts.map((d) => d.slug));
+  for (const ref of references) {
+    const [slug] = draftSlugsFromReferences([ref], siteOrigin);
+    if (slug && openSlugs.has(slug)) return slug;
+  }
+  return null;
+}
+
+/**
  * The tracked slug for a restored draft: the stored value when the draft
- * carries one (a string, or an explicit null for "linked then unlinked"), or,
- * for a draft saved before linkedDraftSlug existed (the key is absent, not
- * null), the first reference whose thread slug is still in the open drafts
- * list. A reference naming a slug that is not open (a closed or foreign
- * thread) is left alone, exactly as a manually typed reference always was.
+ * carries one and it is a well-formed slug (a string, or an explicit null for
+ * "linked then unlinked"), or, for a draft saved before linkedDraftSlug
+ * existed (the key is absent, not null), the first reference whose thread
+ * slug is still in the open drafts list. A reference naming a slug that is
+ * not open (a closed or foreign thread) is left alone, exactly as a manually
+ * typed reference always was. A malformed stored slug (see DRAFT_SLUG_RE) is
+ * dropped rather than derived around, since a corrupted explicit value is not
+ * the same signal as one simply predating the field.
  */
 function linkedDraftSlugFromDraft(
   draft: GovActionDraft,
   openDrafts: readonly { slug: string }[],
   siteOrigin: string,
 ): string | null {
-  if (draft.linkedDraftSlug !== undefined) return draft.linkedDraftSlug;
-  const openSlugs = new Set(openDrafts.map((d) => d.slug));
-  for (const ref of draft.references) {
-    const [slug] = draftSlugsFromReferences([ref], siteOrigin);
-    if (slug && openSlugs.has(slug)) return slug;
+  if (draft.linkedDraftSlug !== undefined) {
+    const slug = draft.linkedDraftSlug;
+    return slug === null || DRAFT_SLUG_RE.test(slug) ? slug : null;
   }
-  return null;
+  return firstOpenDraftSlugInReferences(draft.references, openDrafts, siteOrigin);
 }
 
 /**
@@ -459,10 +493,28 @@ export function govActionFormReducer(
       };
     }
 
-    case 'setMetadata':
+    case 'setMetadata': {
       // Covers the author fields too: "sign as author" and the name are part
       // of the metadata, so they mark the form dirty like any other edit.
-      return { ...state, metadata: { ...state.metadata, ...action.patch }, dirty: true };
+      const nextMetadata = { ...state.metadata, ...action.patch };
+      // A hand-edit of the references (the "Remove"/"Add reference" buttons,
+      // or typing straight into a reference's URI field) can walk the tracked
+      // reference away from the slug it was linked under, e.g. editing a
+      // linked draft's URI to a different thread. Tracking follows the
+      // references rather than trusting a slug whose row is gone. Only acts
+      // on positive evidence (the caller passed a siteOrigin and the
+      // references were part of this patch): with neither, tracking is left
+      // exactly as it was, since a caller not touching references never has a
+      // reason to walk it away.
+      const linkedDraftSlug =
+        action.patch.references !== undefined &&
+        state.linkedDraftSlug !== null &&
+        action.siteOrigin &&
+        referenceIndexForSlug(nextMetadata.references, state.linkedDraftSlug, action.siteOrigin) === -1
+          ? null
+          : state.linkedDraftSlug;
+      return { ...state, metadata: nextMetadata, linkedDraftSlug, dirty: true };
+    }
 
     case 'setPanel': {
       const next =
@@ -529,9 +581,15 @@ export function govActionFormReducer(
         return { ...state, draftLinkError: 'Remove a reference first, the list is full' };
       }
       const nextRef = { label: action.title, uri };
+      // Inserted at the front, not appended: resolveDraftTopic (see
+      // draftLinks.ts) takes the FIRST Proposal Drafts reference in order,
+      // and its filter only excludes a deleted thread, not a locked or
+      // already-linked one. An earlier reference naming a closed draft would
+      // otherwise outrank the one the picker shows as chosen. Replacing an
+      // already-tracked reference keeps its existing position instead.
       const references =
         existingIndex === -1
-          ? [...state.metadata.references, nextRef]
+          ? [nextRef, ...state.metadata.references]
           : state.metadata.references.map((r, i) => (i === existingIndex ? nextRef : r));
       return {
         ...state,
@@ -655,6 +713,23 @@ export function linkedDraftReference(
   if (!state.linkedDraftSlug) return null;
   const index = referenceIndexForSlug(state.metadata.references, state.linkedDraftSlug, siteOrigin);
   return index === -1 ? null : state.metadata.references[index];
+}
+
+/**
+ * What the "Link a Proposal Draft" select should show as chosen: the tracked
+ * slug when it still has a matching reference (setMetadata keeps the two in
+ * sync, see the reducer), or, when nothing is tracked, the first reference
+ * that names an open draft. That fallback is what makes a hand-typed or
+ * hand-edited reference to an open draft show up as selected even though the
+ * control was never used to add it.
+ */
+export function effectiveLinkedDraftSlug(
+  state: Pick<GovActionFormState, 'metadata' | 'linkedDraftSlug'>,
+  openDrafts: readonly { slug: string }[],
+  siteOrigin: string,
+): string | null {
+  if (state.linkedDraftSlug) return state.linkedDraftSlug;
+  return firstOpenDraftSlugInReferences(state.metadata.references, openDrafts, siteOrigin);
 }
 
 /**

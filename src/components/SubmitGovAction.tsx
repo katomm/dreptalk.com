@@ -50,6 +50,7 @@ import {
   draftFromState,
   isFormBlank,
   linkedDraftReference,
+  effectiveLinkedDraftSlug,
   draftConflict,
   validateCommitteePanel,
   validateHardForkPanel,
@@ -277,8 +278,10 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   const networkConfig = resolveNetwork(network);
   // What draftSlugsFromReferences compares a reference's URL against. The
   // prop always carries this from new.astro, the fallback only matters for a
-  // test or a caller that omits it.
-  const draftSiteOrigin = siteOrigin ?? networkConfig.siteOrigin;
+  // test or a caller that omits it. `||`, not `??`: an explicit empty string
+  // is exactly as unusable as a missing prop, since it would build a
+  // reference URI with no origin at all.
+  const draftSiteOrigin = siteOrigin || networkConfig.siteOrigin;
   const { wallets, selected, setSelected } = useCardanoWallets();
   const [phase, setPhase] = useState<Phase>({ status: 'editing' });
   const [deposit, setDeposit] = useState<DepositState>({ status: 'loading' });
@@ -473,7 +476,10 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   // References row editor (optional, like GovTool's reference links).
   // ------------------------------------------------------------------
   function setMetadata(patch: Partial<typeof metadata>) {
-    dispatch({ kind: 'setMetadata', patch });
+    // siteOrigin is only read by the reducer when patch carries a new
+    // references array (see govActionFormState.ts), so passing it on every
+    // call is harmless for the title/abstract/author/etc. edits.
+    dispatch({ kind: 'setMetadata', patch, siteOrigin: draftSiteOrigin });
   }
   function updateReference(i: number, patch: { label?: string; uri?: string }) {
     setMetadata({ references: metadata.references.map((r, idx) => (idx === i ? { ...r, ...patch } : r)) });
@@ -498,6 +504,10 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
     dispatch({ kind: 'unlinkDraft', siteOrigin: draftSiteOrigin });
   }
   const linkedDraftRef = linkedDraftReference(state, draftSiteOrigin);
+  // What the select shows as chosen: the tracked slug, or, when nothing is
+  // tracked, the first reference that names an open draft (a hand-typed or
+  // hand-edited URL the control never added).
+  const selectedDraftSlug = effectiveLinkedDraftSlug(state, openDrafts, draftSiteOrigin);
 
   /** The panel's own choice of previous action, before it is resolved against a context. */
   function chosenPrevOf(type: typeof state.type): PrevActionRef | null {
@@ -1107,7 +1117,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
 
         <DraftLinkControl
           openDrafts={openDrafts}
-          linkedDraftSlug={state.linkedDraftSlug}
+          linkedDraftSlug={selectedDraftSlug}
           linkedDraftLabel={linkedDraftRef?.label ?? ''}
           onLink={handleLinkDraft}
           onUnlink={handleUnlinkDraft}

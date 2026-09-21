@@ -599,6 +599,23 @@ describe('SubmitGovAction', () => {
 
       expect(screen.queryByLabelText('Reference 1 label')).toBeNull();
     });
+
+    it('follows a hand-edited reference URI to a different open draft', () => {
+      render(
+        <SubmitGovAction network="preprod" displayName={DISPLAY_NAME} openDrafts={OPEN_DRAFTS} siteOrigin={SITE_ORIGIN} />,
+      );
+
+      fireEvent.change(screen.getByLabelText('Link a Proposal Draft'), { target: { value: 'fund-tooling-a1b2' } });
+      expect((screen.getByLabelText('Link a Proposal Draft') as HTMLInputElement).value).toBe('fund-tooling-a1b2');
+
+      // The same row's URL field, edited by hand to a different open draft's
+      // thread, exactly as typing over it would.
+      fireEvent.change(screen.getByLabelText('Reference 1 URL'), {
+        target: { value: `${SITE_ORIGIN}/t/other-draft-c3d4/` },
+      });
+
+      expect((screen.getByLabelText('Link a Proposal Draft') as HTMLInputElement).value).toBe('other-draft-c3d4');
+    });
   });
 
   describe('draft restore banner', () => {

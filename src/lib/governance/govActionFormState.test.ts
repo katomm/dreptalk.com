@@ -6,6 +6,7 @@ import {
   draftFromState,
   isFormBlank,
   linkedDraftReference,
+  effectiveLinkedDraftSlug,
   draftConflict,
   committeeMode,
   validateCommitteePanel,
@@ -369,6 +370,18 @@ describe('restoreDraft', () => {
     });
     expect(s.linkedDraftSlug).toBe('closed-draft-f9');
     expect(s.metadata.references).toEqual(draft.references);
+  });
+
+  it('drops a malformed stored slug instead of tracking it', () => {
+    const draft: GovActionDraft = {
+      ...baseDraft,
+      // Not a slugify() shape (see forum.ts): corrupted or tampered storage,
+      // never a value this app wrote.
+      linkedDraftSlug: '../etc/passwd',
+      references: [{ label: 'Suspicious', uri: `${SITE_ORIGIN}/t/../etc/passwd/` }],
+    };
+    const s = govActionFormReducer(initialGovActionFormState(), { kind: 'restoreDraft', draft });
+    expect(s.linkedDraftSlug).toBeNull();
   });
 });
 
@@ -984,16 +997,43 @@ describe('linkDraft', () => {
       patch: { references: [{ label: 'Discussion', uri: `${SITE_ORIGIN}/t/other-thread/` }] },
     });
     s = govActionFormReducer(s, { kind: 'linkDraft', slug: 'draft-a', title: 'Draft A', siteOrigin: SITE_ORIGIN });
+    // Inserted at the front, ahead of the unrelated reference: gov-sync's
+    // resolver takes the first Proposal Drafts reference in order, so the
+    // picked draft has to outrank whatever else is already listed.
     expect(s.metadata.references).toEqual([
-      { label: 'Discussion', uri: `${SITE_ORIGIN}/t/other-thread/` },
       { label: 'Draft A', uri: `${SITE_ORIGIN}/t/draft-a/` },
+      { label: 'Discussion', uri: `${SITE_ORIGIN}/t/other-thread/` },
     ]);
 
     s = govActionFormReducer(s, { kind: 'linkDraft', slug: 'draft-b', title: 'Draft B', siteOrigin: SITE_ORIGIN });
     expect(s.linkedDraftSlug).toBe('draft-b');
+    // Replacing keeps the tracked reference's own position (the front), the
+    // unrelated one is still untouched.
     expect(s.metadata.references).toEqual([
-      { label: 'Discussion', uri: `${SITE_ORIGIN}/t/other-thread/` },
       { label: 'Draft B', uri: `${SITE_ORIGIN}/t/draft-b/` },
+      { label: 'Discussion', uri: `${SITE_ORIGIN}/t/other-thread/` },
+    ]);
+  });
+
+  it('inserts the picked draft ahead of an earlier reference naming a closed draft, so it stays the first Proposal Drafts reference', () => {
+    // Nothing is tracked here on purpose: this is the shape a manually typed
+    // reference to an old, now-locked draft leaves behind, which is exactly
+    // what resolveDraftTopic (draftLinks.ts) would otherwise read first.
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'setMetadata',
+      patch: {
+        references: [
+          { label: 'Closed draft A', uri: `${SITE_ORIGIN}/t/closed-draft-a/` },
+          { label: 'Unrelated', uri: `${SITE_ORIGIN}/t/unrelated-thread/` },
+        ],
+      },
+    });
+    s = govActionFormReducer(s, { kind: 'linkDraft', slug: 'draft-b', title: 'Draft B', siteOrigin: SITE_ORIGIN });
+    expect(s.linkedDraftSlug).toBe('draft-b');
+    expect(s.metadata.references).toEqual([
+      { label: 'Draft B', uri: `${SITE_ORIGIN}/t/draft-b/` },
+      { label: 'Closed draft A', uri: `${SITE_ORIGIN}/t/closed-draft-a/` },
+      { label: 'Unrelated', uri: `${SITE_ORIGIN}/t/unrelated-thread/` },
     ]);
   });
 
@@ -1048,6 +1088,103 @@ describe('unlinkDraft', () => {
     const s = govActionFormReducer(initialGovActionFormState(), { kind: 'unlinkDraft', siteOrigin: SITE_ORIGIN });
     expect(s.linkedDraftSlug).toBeNull();
     expect(s.metadata.references).toEqual([]);
+  });
+});
+
+describe('setMetadata keeps the tracked slug in sync with the references', () => {
+  it('clears the tracked slug once its reference is hand-edited to a different thread', () => {
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'linkDraft',
+      slug: 'draft-a',
+      title: 'Draft A',
+      siteOrigin: SITE_ORIGIN,
+    });
+    // The URI input for that same row, edited by hand to a different draft's URL.
+    s = govActionFormReducer(s, {
+      kind: 'setMetadata',
+      patch: { references: [{ label: 'Draft A', uri: `${SITE_ORIGIN}/t/draft-b/` }] },
+      siteOrigin: SITE_ORIGIN,
+    });
+    expect(s.linkedDraftSlug).toBeNull();
+  });
+
+  it('leaves the tracked slug alone when the edit does not touch its reference', () => {
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'linkDraft',
+      slug: 'draft-a',
+      title: 'Draft A',
+      siteOrigin: SITE_ORIGIN,
+    });
+    s = govActionFormReducer(s, {
+      kind: 'setMetadata',
+      patch: { references: [...s.metadata.references, { label: 'Other', uri: 'https://example.org/x' }] },
+      siteOrigin: SITE_ORIGIN,
+    });
+    expect(s.linkedDraftSlug).toBe('draft-a');
+  });
+
+  it('leaves the tracked slug alone when the caller does not pass a siteOrigin', () => {
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'linkDraft',
+      slug: 'draft-a',
+      title: 'Draft A',
+      siteOrigin: SITE_ORIGIN,
+    });
+    // No siteOrigin: there is no positive evidence the reference is gone, so
+    // tracking is left exactly as it was rather than cleared on a guess.
+    s = govActionFormReducer(s, { kind: 'setMetadata', patch: { references: [] } });
+    expect(s.linkedDraftSlug).toBe('draft-a');
+  });
+
+  it('never clears the tracked slug for a patch that does not touch references at all', () => {
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'linkDraft',
+      slug: 'draft-a',
+      title: 'Draft A',
+      siteOrigin: SITE_ORIGIN,
+    });
+    s = govActionFormReducer(s, { kind: 'setMetadata', patch: { title: 'A title' }, siteOrigin: SITE_ORIGIN });
+    expect(s.linkedDraftSlug).toBe('draft-a');
+  });
+});
+
+describe('effectiveLinkedDraftSlug', () => {
+  it('returns the tracked slug when it still has a matching reference', () => {
+    const s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'linkDraft',
+      slug: 'draft-a',
+      title: 'Draft A',
+      siteOrigin: SITE_ORIGIN,
+    });
+    expect(effectiveLinkedDraftSlug(s, [{ slug: 'draft-a' }], SITE_ORIGIN)).toBe('draft-a');
+  });
+
+  it('follows a hand-edited reference to a different open draft once tracking is cleared', () => {
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'linkDraft',
+      slug: 'draft-a',
+      title: 'Draft A',
+      siteOrigin: SITE_ORIGIN,
+    });
+    s = govActionFormReducer(s, {
+      kind: 'setMetadata',
+      patch: { references: [{ label: 'Draft A', uri: `${SITE_ORIGIN}/t/draft-b/` }] },
+      siteOrigin: SITE_ORIGIN,
+    });
+    expect(s.linkedDraftSlug).toBeNull();
+    expect(effectiveLinkedDraftSlug(s, [{ slug: 'draft-b' }], SITE_ORIGIN)).toBe('draft-b');
+  });
+
+  it('picks up a hand-typed reference to an open draft even though nothing was ever tracked', () => {
+    const s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'setMetadata',
+      patch: { references: [{ label: 'Hand typed', uri: `${SITE_ORIGIN}/t/draft-b/` }] },
+    });
+    expect(effectiveLinkedDraftSlug(s, [{ slug: 'draft-b' }], SITE_ORIGIN)).toBe('draft-b');
+  });
+
+  it('is null when nothing is tracked and no reference names an open draft', () => {
+    expect(effectiveLinkedDraftSlug(initialGovActionFormState(), [{ slug: 'draft-b' }], SITE_ORIGIN)).toBeNull();
   });
 });
 

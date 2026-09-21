@@ -7,6 +7,7 @@
 // linkedDraftReference), this only renders the select and the help text.
 import type { ChangeEvent, CSSProperties } from 'react';
 import { labelStyle, mutedStyle, inputStyle } from '@/components/drepFormStyles.js';
+import { DRAFT_SLUG_RE } from '@/lib/governance/govActionFormState.js';
 
 export interface DraftLinkControlOption {
   slug: string;
@@ -44,8 +45,13 @@ export default function DraftLinkControl({
   error,
   disabled,
 }: DraftLinkControlProps) {
-  const trackedInList = linkedDraftSlug !== null && openDrafts.some((d) => d.slug === linkedDraftSlug);
-  const trackedMissing = linkedDraftSlug !== null && !trackedInList;
+  // A slug from any caller (not only the reducer's own validated restore
+  // path) is treated as untrusted here too: one that fails the slug shape is
+  // rendered as if nothing were tracked, rather than trusted as a select
+  // option's value.
+  const safeLinkedDraftSlug = linkedDraftSlug !== null && DRAFT_SLUG_RE.test(linkedDraftSlug) ? linkedDraftSlug : null;
+  const trackedInList = safeLinkedDraftSlug !== null && openDrafts.some((d) => d.slug === safeLinkedDraftSlug);
+  const trackedMissing = safeLinkedDraftSlug !== null && !trackedInList;
 
   function handleChange(e: ChangeEvent<HTMLSelectElement>) {
     const slug = e.target.value;
@@ -68,7 +74,13 @@ export default function DraftLinkControl({
         </p>
       ) : (
         <>
-          <select id="ga-draft-link" value={linkedDraftSlug ?? ''} onChange={handleChange} disabled={disabled} style={inputStyle}>
+          <select
+            id="ga-draft-link"
+            value={safeLinkedDraftSlug ?? ''}
+            onChange={handleChange}
+            disabled={disabled}
+            style={inputStyle}
+          >
             <option value="">No draft linked</option>
             {openDrafts.map((d) => (
               <option key={d.slug} value={d.slug}>
@@ -76,8 +88,8 @@ export default function DraftLinkControl({
                 {d.own ? ' (yours)' : ''}
               </option>
             ))}
-            {trackedMissing && linkedDraftSlug !== null && (
-              <option value={linkedDraftSlug}>{linkedDraftLabel || linkedDraftSlug}</option>
+            {trackedMissing && safeLinkedDraftSlug !== null && (
+              <option value={safeLinkedDraftSlug}>{linkedDraftLabel || safeLinkedDraftSlug}</option>
             )}
           </select>
           <span style={helpStyle}>
