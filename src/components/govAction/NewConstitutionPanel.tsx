@@ -97,9 +97,15 @@ export default function NewConstitutionPanel({ context, value, onChange, disable
             A guardrails script hash is exactly 56 hex characters.
           </p>
         )}
+        {contextScriptHash !== null && (
+          <p style={{ ...mutedStyle, margin: '0.375rem 0 0' }}>
+            This is the guardrails script the constitution in force enforces. Clearing it proposes a constitution
+            without a guardrails script.
+          </p>
+        )}
         {contextScriptHash === null && (
           <p style={{ ...mutedStyle, margin: '0.375rem 0 0' }}>
-            The constitution in force has no guardrails script hash on record here, so this field starts empty.
+            No guardrails script hash could be read from the chain, leave empty to enact a constitution without one.
           </p>
         )}
       </div>

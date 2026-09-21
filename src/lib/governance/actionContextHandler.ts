@@ -23,7 +23,48 @@ import {
   type GovActionFormType,
   type GovActionRef,
 } from './prevAction.js';
-import { parseHardForkVersion, decodeOnchainChanges } from './onchain.js';
+import { parseHardForkVersion, parseProposalPolicyHash, decodeOnchainChanges } from './onchain.js';
+
+// Proposal types whose ledger-accepted policy hash witnesses the constitution's
+// guardrails script in force, for chains where no NewConstitution action has
+// ever been ratified (see parseProposalPolicyHash).
+const POLICY_HASH_WITNESS_TYPES = ['ParameterChange', 'TreasuryWithdrawals'] as const;
+
+/**
+ * The guardrails script hash the constitution in force enforces, picked from
+ * whichever of the two ratified rows is newer: a NewConstitution action (the
+ * hash it set directly) or a ParameterChange/TreasuryWithdrawals action (the
+ * policy hash the ledger required it to be submitted with). A chain such as
+ * preprod's, where the constitution came from the Conway bootstrap and no
+ * NewConstitution was ever ratified, only has the second source. Missing or
+ * unparsable sources fall back to the other; both missing (or a tie) return
+ * whichever source is present, preferring the constitution row.
+ */
+function pickConstitutionScriptHash(
+  constitutionRow: ProposalListRow | null,
+  policyRow: ProposalListRow | null,
+  network: NetworkConfig['network'],
+): string | null {
+  const constitutionScript =
+    constitutionRow?.proposal_description != null
+      ? (() => {
+          const changes = decodeOnchainChanges(JSON.stringify(constitutionRow.proposal_description), null, network);
+          return changes?.kind === 'constitution' ? changes.scriptHash : null;
+        })()
+      : null;
+  const policyHash =
+    policyRow?.proposal_description != null ? parseProposalPolicyHash(policyRow.proposal_description) : null;
+
+  if (constitutionScript !== null && policyHash !== null) {
+    const constitutionEpoch = constitutionRow?.ratified_epoch ?? null;
+    const policyEpoch = policyRow?.ratified_epoch ?? null;
+    if (policyEpoch !== null && (constitutionEpoch === null || policyEpoch > constitutionEpoch)) {
+      return policyHash;
+    }
+    return constitutionScript;
+  }
+  return constitutionScript ?? policyHash;
+}
 import { getGovernanceActionTitlesByIds } from '../db/governance.js';
 import type { ProposalListRow, EpochParamsRow, CommitteeMember } from '../koios/client.js';
 
@@ -156,12 +197,19 @@ export async function handleActionContext(
     const paramsPromise = needsEpochParams ? deps.koios.epochParams() : null;
     const committeePromise =
       type === 'NoConfidence' || type === 'UpdateCommittee' ? deps.koios.committeeContext() : null;
+    // preprod's constitution came from the Conway bootstrap with no
+    // NewConstitution ever ratified, so the last ratified ParameterChange or
+    // TreasuryWithdrawals is the only witness of the guardrails script in
+    // force there. Only fetched for the type that needs it.
+    const policyRowPromise =
+      type === 'NewConstitution' ? deps.koios.lastRatifiedProposal(POLICY_HASH_WITNESS_TYPES) : null;
 
-    const [tip, prevResult, params, committeeCtx] = await Promise.all([
+    const [tip, prevResult, params, committeeCtx, policyRows] = await Promise.all([
       tipPromise,
       prevPromise,
       paramsPromise,
       committeePromise,
+      policyRowPromise,
     ]);
 
     const response: ActionContextResponse = { epoch: tip.epoch_no };
@@ -184,13 +232,9 @@ export async function handleActionContext(
     }
 
     if (type === 'NewConstitution') {
-      let scriptHash: string | null = null;
-      const raw = prevResult?.lastEnactedRow;
-      if (raw?.proposal_description != null) {
-        const changes = decodeOnchainChanges(JSON.stringify(raw.proposal_description), null, net.network);
-        if (changes?.kind === 'constitution') scriptHash = changes.scriptHash;
-      }
-      response.constitution = { scriptHash };
+      const constitutionRow = prevResult?.lastEnactedRow ?? null;
+      const policyRow = policyRows?.[0] ?? null;
+      response.constitution = { scriptHash: pickConstitutionScriptHash(constitutionRow, policyRow, net.network) };
     }
 
     return jsonResponse(response, 200, { 'cache-control': 'no-store' });

@@ -11,6 +11,7 @@ import {
   lineagePredecessor,
   lineagePredecessorTxIds,
   parseHardForkVersion,
+  parseProposalPolicyHash,
 } from './onchain.js';
 
 describe('formatValue', () => {
@@ -201,6 +202,50 @@ describe('parseHardForkVersion', () => {
     expect(parseHardForkVersion(null)).toBeNull();
     expect(parseHardForkVersion(undefined)).toBeNull();
     expect(parseHardForkVersion('not an object')).toBeNull();
+  });
+});
+
+describe('parseProposalPolicyHash', () => {
+  it('reads the policy hash off a real preprod ParameterChange payload', () => {
+    const payload = {
+      tag: 'ParameterChange',
+      contents: [
+        { txId: '3e1b', govActionIx: 0 },
+        { govActionDeposit: 1000000000 },
+        'fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64',
+      ],
+    };
+    expect(parseProposalPolicyHash(payload)).toBe('fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64');
+  });
+
+  it('reads the policy hash off a TreasuryWithdrawals payload', () => {
+    const payload = {
+      tag: 'TreasuryWithdrawals',
+      contents: [[], null, 'fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64'],
+    };
+    expect(parseProposalPolicyHash(payload)).toBe('fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64');
+  });
+
+  it('returns null for a null policy hash', () => {
+    const payload = {
+      tag: 'ParameterChange',
+      contents: [{ txId: '3e1b', govActionIx: 0 }, { govActionDeposit: 1000000000 }, null],
+    };
+    expect(parseProposalPolicyHash(payload)).toBeNull();
+  });
+
+  it('returns null for a non-hex or wrong-length value', () => {
+    const payload = { tag: 'ParameterChange', contents: [null, null, 'not-a-hash'] };
+    expect(parseProposalPolicyHash(payload)).toBeNull();
+  });
+
+  it('returns null for an unrelated tag', () => {
+    expect(parseProposalPolicyHash({ tag: 'HardForkInitiation', contents: [] })).toBeNull();
+  });
+
+  it('returns null for null or non-object input', () => {
+    expect(parseProposalPolicyHash(null)).toBeNull();
+    expect(parseProposalPolicyHash(undefined)).toBeNull();
   });
 });
 

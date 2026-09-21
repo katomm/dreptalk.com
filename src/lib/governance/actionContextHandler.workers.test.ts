@@ -251,4 +251,68 @@ describe('handleActionContext', () => {
     const jsonNone = (await resNone.json()) as { constitution: { scriptHash: string | null } };
     expect(jsonNone.constitution.scriptHash).toBeNull();
   });
+
+  it('falls back to the last ratified ParameterChange policy hash when no NewConstitution was ever ratified', async () => {
+    const policyChange = row({
+      proposal_type: 'ParameterChange',
+      ratified_epoch: 300,
+      proposal_description: {
+        tag: 'ParameterChange',
+        contents: [null, null, 'fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64'],
+      },
+    });
+
+    const res = await handleActionContext(ctx('NewConstitution'), {
+      koios: mockKoios({
+        lastRatifiedProposal: async (types) =>
+          types.includes('NewConstitution' as never) ? [] : [policyChange],
+      }),
+      network: preprod,
+      env: testEnv,
+    });
+    const json = (await res.json()) as { constitution: { scriptHash: string | null } };
+    expect(json.constitution.scriptHash).toBe('fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64');
+  });
+
+  it('picks the newer of a ratified NewConstitution and a ratified ParameterChange', async () => {
+    const constitutionRow = row({
+      proposal_type: 'NewConstitution',
+      ratified_epoch: 400,
+      proposal_description: {
+        tag: 'NewConstitution',
+        contents: [null, { anchor: { url: 'https://example.com/con.json' }, script: 'aa'.repeat(28) }],
+      },
+    });
+    const policyChange = row({
+      proposal_type: 'ParameterChange',
+      ratified_epoch: 300,
+      proposal_description: {
+        tag: 'ParameterChange',
+        contents: [null, null, 'fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64'],
+      },
+    });
+
+    const res = await handleActionContext(ctx('NewConstitution'), {
+      koios: mockKoios({
+        lastRatifiedProposal: async (types) =>
+          types.includes('NewConstitution' as never) ? [constitutionRow] : [policyChange],
+      }),
+      network: preprod,
+      env: testEnv,
+    });
+    const json = (await res.json()) as { constitution: { scriptHash: string | null } };
+    expect(json.constitution.scriptHash).toBe('aa'.repeat(28));
+
+    const newerPolicy = { ...policyChange, ratified_epoch: 500 };
+    const res2 = await handleActionContext(ctx('NewConstitution'), {
+      koios: mockKoios({
+        lastRatifiedProposal: async (types) =>
+          types.includes('NewConstitution' as never) ? [constitutionRow] : [newerPolicy],
+      }),
+      network: preprod,
+      env: testEnv,
+    });
+    const json2 = (await res2.json()) as { constitution: { scriptHash: string | null } };
+    expect(json2.constitution.scriptHash).toBe('fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64');
+  });
 });

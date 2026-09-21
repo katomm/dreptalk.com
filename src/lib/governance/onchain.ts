@@ -331,6 +331,27 @@ export function parseHardForkVersion(payload: unknown): { major: number; minor: 
   return { major: ver.major, minor: typeof ver.minor === 'number' ? ver.minor : 0 };
 }
 
+/**
+ * Policy hash a ParameterChange or TreasuryWithdrawals proposal was submitted
+ * with, straight off the raw Koios proposal_description payload. The ledger
+ * only accepts either action when its policy hash equals the constitution's
+ * guardrails script hash at submission time, so the most recently ratified
+ * of these proposals is a reliable witness of that script when no
+ * NewConstitution action has ever been ratified. contents[2] is the policy
+ * hash slot for both tags: null when the constitution carries no guardrails
+ * script. Returns null for any other tag or a malformed/non-hex value.
+ */
+export function parseProposalPolicyHash(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const obj = payload as { tag?: string; contents?: unknown };
+  if (obj.tag !== 'ParameterChange' && obj.tag !== 'TreasuryWithdrawals') return null;
+  const contents = Array.isArray(obj.contents) ? obj.contents : [];
+  const hash = contents[2];
+  if (typeof hash !== 'string') return null;
+  const lower = hash.toLowerCase();
+  return /^[0-9a-f]{56}$/.test(lower) ? lower : null;
+}
+
 function decodeTreasury(contents: unknown[], network: CardanoNetwork): OnchainChanges {
   const list = contents[0];
   const rows: TreasuryRow[] = [];
