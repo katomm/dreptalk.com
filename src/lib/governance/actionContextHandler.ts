@@ -24,6 +24,8 @@ import {
   type GovActionRef,
 } from './prevAction.js';
 import { parseHardForkVersion, parseProposalPolicyHash, decodeOnchainChanges } from './onchain.js';
+import { getGovernanceActionTitlesByIds } from '../db/governance.js';
+import type { ProposalListRow, EpochParamsRow, CommitteeMember } from '../koios/client.js';
 
 // Proposal types whose ledger-accepted policy hash witnesses the constitution's
 // guardrails script in force, for chains where no NewConstitution action has
@@ -37,7 +39,7 @@ const POLICY_HASH_WITNESS_TYPES = ['ParameterChange', 'TreasuryWithdrawals'] as 
  * policy hash the ledger required it to be submitted with). A chain such as
  * preprod's, where the constitution came from the Conway bootstrap and no
  * NewConstitution was ever ratified, only has the second source. Missing or
- * unparsable sources fall back to the other; both missing (or a tie) return
+ * unparsable sources fall back to the other. Both missing, or a tie, return
  * whichever source is present, preferring the constitution row.
  */
 function pickConstitutionScriptHash(
@@ -65,8 +67,6 @@ function pickConstitutionScriptHash(
   }
   return constitutionScript ?? policyHash;
 }
-import { getGovernanceActionTitlesByIds } from '../db/governance.js';
-import type { ProposalListRow, EpochParamsRow, CommitteeMember } from '../koios/client.js';
 
 function isGovActionFormType(value: string | null): value is GovActionFormType {
   return value !== null && (GOV_ACTION_FORM_TYPES as readonly string[]).includes(value);
