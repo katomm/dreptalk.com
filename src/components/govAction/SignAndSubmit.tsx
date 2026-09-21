@@ -25,7 +25,6 @@ export interface SignAndSubmitProps {
   onConnect: () => void;
   /** Re-reads the wallet balance after a top-up. */
   onCheckAgain: () => void;
-  onSubmit: () => void;
   submitting: boolean;
   /** The Review button, which readiness never disables. */
   reviewSlot?: ReactNode;
@@ -70,11 +69,19 @@ function ErrorIcon() {
   );
 }
 
-/** "Deposit 1000 tADA, wallet 99,435 tADA", once both figures are known. */
+/**
+ * The one line under the connected wallet, in the four states it can be in.
+ * A failed read says so instead of claiming to still be reading: the
+ * readiness list says the balance is unknown, and the two must not
+ * contradict each other.
+ */
 function balanceLine(deposit: DepositState, wallet: WalletState): string | null {
-  if (wallet.status !== 'connected' || wallet.balance.status !== 'ready') return null;
-  if (deposit.status !== 'ready') return null;
-  return `Deposit ${formatAdaPlain(deposit.lovelace)} tADA, wallet ${formatAdaPlain(wallet.balance.lovelace)} tADA`;
+  if (wallet.status !== 'connected') return null;
+  const balance = wallet.balance;
+  if (balance.status === 'loading') return 'Reading the wallet balance...';
+  if (balance.status === 'error') return balance.message || 'Could not read the wallet balance';
+  if (deposit.status !== 'ready') return `Wallet ${formatAdaPlain(balance.lovelace)} tADA`;
+  return `Deposit ${formatAdaPlain(deposit.lovelace)} tADA, wallet ${formatAdaPlain(balance.lovelace)} tADA`;
 }
 
 export default function SignAndSubmit(props: SignAndSubmitProps) {
@@ -127,7 +134,7 @@ export default function SignAndSubmit(props: SignAndSubmitProps) {
 
           {connected && (
             <p style={{ margin: 0, fontSize: '0.875rem', display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-              <span>{figures ?? 'Reading the wallet balance...'}</span>
+              <span>{figures}</span>
               {balanceKnown && (
                 <button type="button" onClick={props.onCheckAgain} disabled={submitting} style={linkButtonStyle}>
                   Check again
@@ -145,12 +152,10 @@ export default function SignAndSubmit(props: SignAndSubmitProps) {
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', flexWrap: 'wrap' }}>
         {props.reviewSlot}
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={props.onSubmit}
-          disabled={submitting || reasons.length > 0}
-        >
+        {/* A real submit button inside the island's form, so the browser runs
+            its own validation (the reference URL fields above have rules of
+            their own) before the handler publishes anything. */}
+        <button type="submit" className="btn btn-primary" disabled={submitting || reasons.length > 0}>
           {submitting ? 'Awaiting wallet...' : 'Submit proposal'}
         </button>
       </div>

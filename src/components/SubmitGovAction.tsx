@@ -258,6 +258,8 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
   const enabledApiRef = useRef<Cip30Api | null>(null);
   // Monotonic id for every context fetch, including the submit-time refetch.
   const contextRequestIdRef = useRef(0);
+  // Monotonic id for every balance read, see readBalance.
+  const balanceReadIdRef = useRef(0);
 
   const metadata = state.metadata;
   // Destructured for the draft effect below, which reads exactly these three
@@ -514,11 +516,21 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
    * top-up nothing else has changed.
    */
   async function readBalance(api: Cip30Api) {
+    // Every read carries a generation and only the latest one may file its
+    // answer. "Use a different wallet" during a slow read, and a second
+    // "Check again" before the first came back, both leave an older read in
+    // flight, while the reducer's own guard only knows that SOME wallet is
+    // connected. Comparing the api object instead would not do: reconnecting
+    // the same extension hands back the same object.
+    balanceReadIdRef.current += 1;
+    const readId = balanceReadIdRef.current;
     dispatch({ kind: 'walletBalanceLoading' });
     try {
       const utxos = await collectWalletUtxos(network, window.location.origin, api as unknown as WalletApi);
+      if (balanceReadIdRef.current !== readId) return;
       dispatch({ kind: 'walletBalance', lovelace: totalLovelace(utxos) });
     } catch (err) {
+      if (balanceReadIdRef.current !== readId) return;
       dispatch({ kind: 'walletBalanceFailed', message: readableError(err) });
     }
   }
@@ -818,6 +830,8 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
    */
   function reset() {
     enabledApiRef.current = null;
+    // Anything still in flight for the wallet being dropped is now stale.
+    balanceReadIdRef.current += 1;
     dispatch({ kind: 'walletDisconnected' });
     setPhase({ status: 'editing' });
   }
@@ -1176,7 +1190,6 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
           reasons={reasons}
           onConnect={() => void handleConnect()}
           onCheckAgain={handleCheckAgain}
-          onSubmit={() => void handleSubmit()}
           submitting={busy}
           connectError={phase.status === 'error' && phase.step === 'connect' ? phase.message : null}
           submitError={phase.status === 'error' && phase.step === 'submit' ? phase.message : null}

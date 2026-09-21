@@ -34,13 +34,27 @@ vi.mock('@/lib/governance/govActionTx.js', () => ({
 // the collector is replaced, so totalLovelace and the funding headroom stay
 // the real ones the transaction builder uses.
 let walletLovelace = 200_000_000_000n;
+type MockUtxos = { assets: { lovelace: bigint } }[];
+// Set by the tests that need a read to stay open while something else
+// happens, null for the ordinary "answers immediately" case.
+let collectWalletUtxosImpl: (() => Promise<MockUtxos>) | null = null;
 vi.mock('@/lib/governance/walletUtxos.js', async importOriginal => {
   const actual = await importOriginal<typeof import('@/lib/governance/walletUtxos.js')>();
   return {
     ...actual,
-    collectWalletUtxos: async () => [{ assets: { lovelace: walletLovelace } }],
+    collectWalletUtxos: async () =>
+      collectWalletUtxosImpl ? await collectWalletUtxosImpl() : [{ assets: { lovelace: walletLovelace } }],
   };
 });
+
+/** A promise plus its resolver, for holding a mocked round trip open. */
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(r => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
 
 const DRAFT_KEY = govActionDraftKey('preprod');
 const MEMBER_A = 'a'.repeat(56);
@@ -119,6 +133,11 @@ function installWalletMock() {
   return api;
 }
 
+/** The injected extension entry, for tests that control enable() themselves. */
+function walletEntry(): { enable: ReturnType<typeof vi.fn> } {
+  return (window as unknown as { cardano: Record<string, { enable: ReturnType<typeof vi.fn> }> }).cardano.testwallet;
+}
+
 /** Connects the wallet and waits for the balance read to come back. */
 async function connect() {
   fireEvent.click(await screen.findByRole('button', { name: 'Connect wallet' }));
@@ -147,6 +166,7 @@ describe('SubmitGovAction', () => {
     window.localStorage.clear();
     submitGovActionMock.mockReset();
     walletLovelace = 200_000_000_000n;
+    collectWalletUtxosImpl = null;
     installFetchMock();
     installWalletMock();
   });
@@ -290,5 +310,117 @@ describe('SubmitGovAction', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
     await waitFor(() => expect(screen.queryByText(/The wallet holds/)).toBeNull(), SLOW);
     await waitFor(() => expect(submit.disabled).toBe(false), SLOW);
+  });
+
+  it('files a slow balance read against the wallet it was started for, not the next one', async () => {
+    const slow = deferred<MockUtxos>();
+    collectWalletUtxosImpl = () => slow.promise;
+    render(<SubmitGovAction network="preprod" />);
+    fillMetadata();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Connect wallet' }));
+    await screen.findByText('Reading the wallet balance...', {}, SLOW);
+
+    // The user gives up on that wallet and connects another one, which answers
+    // at once.
+    fireEvent.click(screen.getByRole('button', { name: 'Use a different wallet' }));
+    collectWalletUtxosImpl = null;
+    walletLovelace = 200_000_000_000n;
+    await connect();
+
+    // The first wallet's read comes back last, and with a balance that would
+    // block the submit if it were filed against the wallet now connected.
+    slow.resolve([{ assets: { lovelace: 900_000_000n } }]);
+    await waitFor(() => expect(submitGovActionMock).not.toHaveBeenCalled());
+    expect(screen.getByText('Deposit 100,000 tADA, wallet 200,000 tADA')).toBeTruthy();
+    expect(screen.queryByText(/The wallet holds/)).toBeNull();
+    expect((screen.getByRole('button', { name: 'Submit proposal' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('says the balance read failed instead of claiming to still be reading', async () => {
+    collectWalletUtxosImpl = async () => {
+      throw new Error('Koios is down');
+    };
+    render(<SubmitGovAction network="preprod" />);
+    fillMetadata();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Connect wallet' }));
+
+    await screen.findByText('Could not read the wallet balance, check again', {}, SLOW);
+    expect(screen.queryByText('Reading the wallet balance...')).toBeNull();
+    expect(screen.getByText(/Koios is down/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Submit proposal' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('lets the browser reject an invalid reference URL before anything is published', async () => {
+    const fetchMock = installFetchMock();
+    render(<SubmitGovAction network="preprod" />);
+    fillMetadata();
+    await connect();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add reference' }));
+    fireEvent.change(screen.getByLabelText('Reference 1 label'), { target: { value: 'The discussion' } });
+    fireEvent.change(screen.getByLabelText('Reference 1 URL'), { target: { value: 'not a url' } });
+
+    const submit = screen.getByRole('button', { name: 'Submit proposal' }) as HTMLButtonElement;
+    // Readiness has nothing against it: the URL rule is the browser's.
+    expect(submit.disabled).toBe(false);
+    fireEvent.click(submit);
+
+    await waitFor(() => expect(submitGovActionMock).not.toHaveBeenCalled());
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/api/gov-action/metadata'))).toBe(false);
+
+    // The same click goes through once the URL is one.
+    fireEvent.change(screen.getByLabelText('Reference 1 URL'), { target: { value: 'https://example.org/thread' } });
+    fireEvent.click(submit);
+    await waitFor(() => expect(submitGovActionMock).toHaveBeenCalledTimes(1), SLOW);
+  });
+
+  it('rejects a wallet with no reward address and stays disconnected', async () => {
+    const api = installWalletMock();
+    api.getRewardAddresses = vi.fn(async () => []);
+    render(<SubmitGovAction network="preprod" />);
+    fillMetadata();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Connect wallet' }));
+
+    await screen.findByText(/exposes no reward address/, {}, SLOW);
+    await screen.findByText('Connect a wallet');
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
+    expect(screen.queryByText(/^Deposit /)).toBeNull();
+    expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('A committee change');
+  });
+
+  it('drops the balance and the address again on "Use a different wallet"', async () => {
+    render(<SubmitGovAction network="preprod" />);
+    fillMetadata();
+    await connect();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Use a different wallet' }));
+
+    await screen.findByText('Connect a wallet');
+    expect(screen.queryByText(/^Deposit /)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Check again' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Connect wallet' })).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Submit proposal' }) as HTMLButtonElement).disabled).toBe(true);
+    // The form is untouched by any of it.
+    expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('A committee change');
+  });
+
+  it('enables the wallet once even when Connect is clicked twice', async () => {
+    const api = installWalletMock();
+    const slowEnable = deferred<unknown>();
+    const entry = walletEntry();
+    entry.enable = vi.fn(() => slowEnable.promise);
+    render(<SubmitGovAction network="preprod" />);
+
+    const connectButton = await screen.findByRole('button', { name: 'Connect wallet' });
+    fireEvent.click(connectButton);
+    await screen.findByRole('button', { name: 'Connecting...' });
+    fireEvent.click(screen.getByRole('button', { name: 'Connecting...' }));
+
+    slowEnable.resolve(api);
+    await screen.findByText(/^Deposit /, {}, SLOW);
+    expect(entry.enable).toHaveBeenCalledTimes(1);
   });
 });
