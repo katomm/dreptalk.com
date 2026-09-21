@@ -612,7 +612,28 @@ describe('SubmitGovAction', () => {
 
       first.unmount();
       render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      await screen.findByText(/Governance action deposit/);
       expect(screen.queryByText(/^Restored your/)).toBeNull();
+      // The remount's own restore effect finds nothing (storage was cleared
+      // by discard) and dirty stays false, so nothing gets re-saved either.
+      expect(window.localStorage.getItem(DRAFT_KEY)).toBeNull();
+    });
+
+    it('re-saves once a restored draft is edited', async () => {
+      window.localStorage.setItem(DRAFT_KEY, storedDraft({ savedAt: Date.now() - 60_000 }));
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      await screen.findByText(/^Restored your draft from/);
+
+      // Restoring cleared dirty, so nothing has been written back yet.
+      expect(loadGovActionDraft(window.localStorage, DRAFT_KEY)?.title).toBe('Old title');
+
+      fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Edited after restore' } });
+
+      // The edit sets dirty back to true, so the persist effect saves again.
+      await waitFor(
+        () => expect(loadGovActionDraft(window.localStorage, DRAFT_KEY)?.title).toBe('Edited after restore'),
+        SLOW,
+      );
     });
 
     it('writes no draft on a fresh visit with nothing edited', async () => {
