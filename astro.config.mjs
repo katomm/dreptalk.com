@@ -93,22 +93,25 @@ export default defineConfig({
     '/datenschutz': '/privacy',
   },
   vite: {
-    // The server bundle keeps the Evolution SDK and its effect runtime in one
-    // chunk. Left to itself, the bundler split the SDK across two chunks that
-    // import each other (the SDK's network presets landed in the drepTx chunk,
-    // which in turn needs the SDK's effect helpers). Whether that cycle breaks
-    // depends on which chunk a page loads first: /ga/new/ loaded the SDK chunk
-    // first and crashed at startup with "dual is not a function". One chunk has
-    // no cycle to break. Server build only, the client bundles are unaffected.
+    // Both the server and the browser bundle keep the Evolution SDK and its
+    // effect runtime in one chunk. Left to itself, the bundler split the SDK
+    // across two chunks that import each other (the SDK's network presets
+    // landed in the drepTx chunk, which in turn needs the SDK's effect helpers).
+    // Whether that cycle breaks depends on which chunk loads first: /ga/new/
+    // loaded the SDK chunk first and crashed with "dual is not a function", on
+    // the server at startup and in the browser on hydration. One chunk has no
+    // cycle to break. Every page using the SDK loaded both halves anyway, so the
+    // browser downloads no more than before. The prerender and astro
+    // environments do not bundle the SDK and stay untouched.
     plugins: [
       {
-        name: 'evolution-sdk-single-server-chunk',
+        name: 'evolution-sdk-single-chunk',
         apply: 'build',
-        // Per environment, not the global config: Astro builds client and
-        // server from one Vite builder, so a global build option (or a check on
-        // isSsrBuild) reaches the client bundles too.
+        // Per environment, not the global config: Astro builds all
+        // environments from one Vite builder, so a global build option (or a
+        // check on isSsrBuild) would reach every environment.
         configEnvironment(name) {
-          if (name !== 'ssr') return;
+          if (name !== 'ssr' && name !== 'client') return;
           return {
             build: {
               rolldownOptions: {
