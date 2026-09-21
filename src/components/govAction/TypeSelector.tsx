@@ -5,15 +5,26 @@
 // the cards can never disagree with the Voting Information card on a GA page.
 import type { CSSProperties } from 'react';
 import type { GovActionFormType } from '@/lib/governance/prevAction.js';
-import { thresholdSentence } from '@/lib/governance/thresholds.js';
+import { thresholdSentence, decidersLine } from '@/lib/governance/thresholds.js';
 import type { ProtocolParams } from '@/lib/db/protocolParams.js';
+import type { DepositState } from '@/lib/governance/govActionFormState.js';
+import { formatAdaPlain } from '@/lib/format/ada.js';
 
 export interface TypeSelectorProps {
   value: GovActionFormType;
   onChange: (type: GovActionFormType) => void;
   /** Live protocol parameters for the threshold sentence, null while they load. */
   params: ProtocolParams | null;
+  /** The same epoch_params fetch the island already runs, for the deposit line. No new fetch here. */
+  deposit: DepositState;
   disabled?: boolean;
+}
+
+/** The deposit line under the threshold sentence, in the deposit fetch's three states. */
+function depositLine(deposit: DepositState): string {
+  if (deposit.status === 'loading') return 'Deposit: loading';
+  if (deposit.status === 'error') return 'Deposit unavailable';
+  return `Deposit ${formatAdaPlain(deposit.lovelace)} tADA, refunded when the action is finalized`;
 }
 
 const TYPES: { type: GovActionFormType; label: string; summary: string }[] = [
@@ -60,7 +71,7 @@ function cardStyle(selected: boolean, disabled: boolean): CSSProperties {
   };
 }
 
-export default function TypeSelector({ value, onChange, params, disabled = false }: TypeSelectorProps) {
+export default function TypeSelector({ value, onChange, params, deposit, disabled = false }: TypeSelectorProps) {
   return (
     <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
       <legend style={{ fontSize: '0.875rem', color: 'var(--muted)', padding: 0, marginBottom: '0.5rem' }}>
@@ -87,6 +98,12 @@ export default function TypeSelector({ value, onChange, params, disabled = false
                 {params
                   ? thresholdSentence(t.type, params)
                   : 'Loading the current voting thresholds...'}
+              </span>
+              <span style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--muted)', marginTop: '0.15rem' }}>
+                {depositLine(deposit)}
+              </span>
+              <span style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--muted)', marginTop: '0.15rem' }}>
+                {decidersLine(t.type)}
               </span>
             </span>
           </label>

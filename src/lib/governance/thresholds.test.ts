@@ -7,6 +7,7 @@ import {
   tallyContradictsOutcome,
   THRESHOLD_SNAPSHOT_VERSION,
   thresholdSentence,
+  decidersLine,
 } from './thresholds.js';
 import type { BodyResult } from './thresholds.js';
 import type { ProtocolParams } from '../db/protocolParams.js';
@@ -243,5 +244,27 @@ describe('thresholdSentence', () => {
   it('formats a fractional threshold without trailing zeros', () => {
     const odd: ProtocolParams = { ...P, dvtUpdateConstitution: 0.725 };
     expect(thresholdSentence('NewConstitution', odd)).toBe('DReps 72.5%, the committee votes.');
+  });
+});
+
+describe('decidersLine', () => {
+  it('InfoAction: advisory, never ratified', () => {
+    expect(decidersLine('InfoAction')).toBe('Advisory, never ratified, DReps and SPOs vote to signal');
+  });
+
+  it('NoConfidence: DReps and SPOs', () => {
+    expect(decidersLine('NoConfidence')).toBe('Decided by DReps and SPOs');
+  });
+
+  it('UpdateCommittee: DReps and SPOs', () => {
+    expect(decidersLine('UpdateCommittee')).toBe('Decided by DReps and SPOs');
+  });
+
+  it('NewConstitution: DReps and the committee', () => {
+    expect(decidersLine('NewConstitution')).toBe('Decided by DReps and the committee');
+  });
+
+  it('HardForkInitiation: DReps, SPOs and the committee', () => {
+    expect(decidersLine('HardForkInitiation')).toBe('Decided by DReps, SPOs and the committee');
   });
 });

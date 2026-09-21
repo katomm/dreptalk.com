@@ -975,6 +975,7 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
           value={state.type}
           onChange={(type) => dispatch({ kind: 'setType', type })}
           params={params}
+          deposit={deposit}
           disabled={busy}
         />
 

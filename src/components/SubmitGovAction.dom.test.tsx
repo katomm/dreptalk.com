@@ -175,10 +175,14 @@ function walletEntry(): { enable: ReturnType<typeof vi.fn> } {
   return (window as unknown as { cardano: Record<string, { enable: ReturnType<typeof vi.fn> }> }).cardano.testwallet;
 }
 
-/** Connects the wallet and waits for the balance read to come back. */
+/**
+ * Connects the wallet and waits for the balance read to come back. Matches on
+ * "wallet" too because the type cards now carry their own "Deposit ..." line
+ * regardless of wallet state, so a bare /^Deposit / would find more than one.
+ */
 async function connect() {
   fireEvent.click(await screen.findByRole('button', { name: 'Connect wallet' }));
-  await screen.findByText(/^Deposit /, {}, SLOW);
+  await screen.findByText(/^Deposit .*wallet/, {}, SLOW);
 }
 
 function fillMetadata() {
@@ -457,7 +461,7 @@ describe('SubmitGovAction', () => {
     await screen.findByText(/exposes no reward address/, {}, SLOW);
     await screen.findByText('Connect a wallet');
     expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
-    expect(screen.queryByText(/^Deposit /)).toBeNull();
+    expect(screen.queryByText(/^Deposit .*wallet/)).toBeNull();
     expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('A committee change');
   });
 
@@ -469,7 +473,7 @@ describe('SubmitGovAction', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Use a different wallet' }));
 
     await screen.findByText('Connect a wallet');
-    expect(screen.queryByText(/^Deposit /)).toBeNull();
+    expect(screen.queryByText(/^Deposit .*wallet/)).toBeNull();
     expect(screen.queryByRole('button', { name: 'Check again' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Connect wallet' })).toBeTruthy();
     expect((screen.getByRole('button', { name: 'Submit proposal' }) as HTMLButtonElement).disabled).toBe(true);
@@ -490,7 +494,7 @@ describe('SubmitGovAction', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Connecting...' }));
 
     slowEnable.resolve(api);
-    await screen.findByText(/^Deposit /, {}, SLOW);
+    await screen.findByText(/^Deposit .*wallet/, {}, SLOW);
     expect(entry.enable).toHaveBeenCalledTimes(1);
   });
 });
