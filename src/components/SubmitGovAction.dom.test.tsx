@@ -567,6 +567,40 @@ describe('SubmitGovAction', () => {
     });
   });
 
+  describe('Link a Proposal Draft', () => {
+    const OPEN_DRAFTS = [
+      { slug: 'fund-tooling-a1b2', title: 'Fund tooling', authorId: 'author-1', createdAt: 1, own: true },
+      { slug: 'other-draft-c3d4', title: 'Someone else draft', authorId: 'author-2', createdAt: 1, own: false },
+    ];
+    const SITE_ORIGIN = 'https://preprod.dreptalk.com';
+
+    it('picking a draft adds it as a reference in the shape the sync matcher recognizes', () => {
+      render(
+        <SubmitGovAction network="preprod" displayName={DISPLAY_NAME} openDrafts={OPEN_DRAFTS} siteOrigin={SITE_ORIGIN} />,
+      );
+
+      fireEvent.change(screen.getByLabelText('Link a Proposal Draft'), { target: { value: 'fund-tooling-a1b2' } });
+
+      expect((screen.getByLabelText('Reference 1 label') as HTMLInputElement).value).toBe('Fund tooling');
+      expect((screen.getByLabelText('Reference 1 URL') as HTMLInputElement).value).toBe(
+        `${SITE_ORIGIN}/t/fund-tooling-a1b2/`,
+      );
+    });
+
+    it('unlinking removes the reference it added', () => {
+      render(
+        <SubmitGovAction network="preprod" displayName={DISPLAY_NAME} openDrafts={OPEN_DRAFTS} siteOrigin={SITE_ORIGIN} />,
+      );
+
+      fireEvent.change(screen.getByLabelText('Link a Proposal Draft'), { target: { value: 'fund-tooling-a1b2' } });
+      expect(screen.getByLabelText('Reference 1 label')).toBeTruthy();
+
+      fireEvent.change(screen.getByLabelText('Link a Proposal Draft'), { target: { value: '' } });
+
+      expect(screen.queryByLabelText('Reference 1 label')).toBeNull();
+    });
+  });
+
   describe('draft restore banner', () => {
     function storedDraft(overrides: Partial<Record<string, unknown>> = {}): string {
       return JSON.stringify({

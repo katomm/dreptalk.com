@@ -5,6 +5,8 @@ import {
   effectivePrev,
   draftFromState,
   isFormBlank,
+  linkedDraftReference,
+  draftConflict,
   committeeMode,
   validateCommitteePanel,
   validateHardForkPanel,
@@ -14,9 +16,11 @@ import {
 } from './govActionFormState.js';
 import type { ActionContextResponse } from './actionContextHandler.js';
 import type { GovActionDraft } from './govActionDraft.js';
+import { REFERENCES_MAX } from './infoActionLimits.js';
 
 const REF_A = { txHashHex: 'a'.repeat(64), index: 0 };
 const REF_B = { txHashHex: 'b'.repeat(64), index: 1 };
+const SITE_ORIGIN = 'https://dreptalk.com';
 
 function ctx(epoch: number, lastEnactedHash?: string): ActionContextResponse {
   return {
@@ -280,6 +284,91 @@ describe('restoreDraft', () => {
     const s = govActionFormReducer(initialGovActionFormState(), { kind: 'restoreDraft', draft });
     expect(s.panels.HardForkInitiation).toEqual({ prev: null, version: null });
     expect(s.panels.NewConstitution).toEqual({ prev: null, text: '', scriptHashHex: 'ab' });
+  });
+
+  const baseDraft: GovActionDraft = {
+    v: 2,
+    type: 'InfoAction',
+    title: '',
+    abstract: '',
+    motivation: '',
+    rationale: '',
+    signAsAuthor: false,
+    authorName: '',
+    references: [],
+    surveyRef: '',
+    panels: {},
+  };
+
+  it('restores an explicit tracked slug', () => {
+    const draft: GovActionDraft = { ...baseDraft, linkedDraftSlug: 'my-draft-a1b2' };
+    const s = govActionFormReducer(initialGovActionFormState(), { kind: 'restoreDraft', draft });
+    expect(s.linkedDraftSlug).toBe('my-draft-a1b2');
+  });
+
+  it('restores an explicit null tracked slug (linked then unlinked) without deriving one', () => {
+    const draft: GovActionDraft = {
+      ...baseDraft,
+      linkedDraftSlug: null,
+      references: [{ label: 'A draft', uri: `${SITE_ORIGIN}/t/still-open-a1/` }],
+    };
+    const s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'restoreDraft',
+      draft,
+      openDrafts: [{ slug: 'still-open-a1' }],
+      siteOrigin: SITE_ORIGIN,
+    });
+    expect(s.linkedDraftSlug).toBeNull();
+  });
+
+  it('derives the tracked slug of a legacy draft (no stored linkedDraftSlug) from the first reference naming an open draft', () => {
+    const draft: GovActionDraft = {
+      ...baseDraft,
+      references: [
+        { label: 'Not a draft', uri: 'https://example.org/notes' },
+        { label: 'My draft', uri: `${SITE_ORIGIN}/t/legacy-draft-c3/` },
+      ],
+    };
+    expect(draft.linkedDraftSlug).toBeUndefined();
+    const s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'restoreDraft',
+      draft,
+      openDrafts: [{ slug: 'legacy-draft-c3' }],
+      siteOrigin: SITE_ORIGIN,
+    });
+    expect(s.linkedDraftSlug).toBe('legacy-draft-c3');
+    // The reference itself is untouched, restore only infers what it already tracks.
+    expect(s.metadata.references).toEqual(draft.references);
+  });
+
+  it('leaves the tracked slug null for a legacy draft whose references name no open draft', () => {
+    const draft: GovActionDraft = {
+      ...baseDraft,
+      references: [{ label: 'A closed thread', uri: `${SITE_ORIGIN}/t/no-longer-open/` }],
+    };
+    const s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'restoreDraft',
+      draft,
+      openDrafts: [{ slug: 'some-other-draft' }],
+      siteOrigin: SITE_ORIGIN,
+    });
+    expect(s.linkedDraftSlug).toBeNull();
+  });
+
+  it('keeps an explicit tracked slug and its reference even once the draft is no longer open', () => {
+    const draft: GovActionDraft = {
+      ...baseDraft,
+      linkedDraftSlug: 'closed-draft-f9',
+      references: [{ label: 'Closed draft', uri: `${SITE_ORIGIN}/t/closed-draft-f9/` }],
+    };
+    const s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'restoreDraft',
+      draft,
+      openDrafts: [],
+      siteOrigin: SITE_ORIGIN,
+    });
+    expect(s.linkedDraftSlug).toBe('closed-draft-f9');
+    expect(s.metadata.references).toEqual(draft.references);
   });
 });
 
@@ -862,5 +951,171 @@ describe('discardDraft', () => {
     s = govActionFormReducer(s, { kind: 'setMetadata', patch: { title: 'x' } });
     s = govActionFormReducer(s, { kind: 'discardDraft', displayName: 'Jane DRep' });
     expect(isFormBlank(s, { authorName: 'Jane DRep' })).toBe(true);
+  });
+
+  it('clears the tracked draft slug', () => {
+    let s = initialGovActionFormState('Jane DRep');
+    s = govActionFormReducer(s, { kind: 'linkDraft', slug: 'a-draft', title: 'A draft', siteOrigin: SITE_ORIGIN });
+    s = govActionFormReducer(s, { kind: 'discardDraft', displayName: 'Jane DRep' });
+    expect(s.linkedDraftSlug).toBeNull();
+    expect(s.metadata.references).toEqual([]);
+  });
+});
+
+describe('linkDraft', () => {
+  it('appends a reference in the exact shape draftSlugsFromReferences recognizes', () => {
+    const s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'linkDraft',
+      slug: 'fund-tooling-a1b2',
+      title: 'Fund tooling',
+      siteOrigin: SITE_ORIGIN,
+    });
+    expect(s.linkedDraftSlug).toBe('fund-tooling-a1b2');
+    expect(s.metadata.references).toEqual([
+      { label: 'Fund tooling', uri: `${SITE_ORIGIN}/t/fund-tooling-a1b2/` },
+    ]);
+    expect(s.dirty).toBe(true);
+    expect(s.draftLinkError).toBeNull();
+  });
+
+  it('replaces the tracked reference when switching drafts, leaving an unrelated thread reference untouched', () => {
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'setMetadata',
+      patch: { references: [{ label: 'Discussion', uri: `${SITE_ORIGIN}/t/other-thread/` }] },
+    });
+    s = govActionFormReducer(s, { kind: 'linkDraft', slug: 'draft-a', title: 'Draft A', siteOrigin: SITE_ORIGIN });
+    expect(s.metadata.references).toEqual([
+      { label: 'Discussion', uri: `${SITE_ORIGIN}/t/other-thread/` },
+      { label: 'Draft A', uri: `${SITE_ORIGIN}/t/draft-a/` },
+    ]);
+
+    s = govActionFormReducer(s, { kind: 'linkDraft', slug: 'draft-b', title: 'Draft B', siteOrigin: SITE_ORIGIN });
+    expect(s.linkedDraftSlug).toBe('draft-b');
+    expect(s.metadata.references).toEqual([
+      { label: 'Discussion', uri: `${SITE_ORIGIN}/t/other-thread/` },
+      { label: 'Draft B', uri: `${SITE_ORIGIN}/t/draft-b/` },
+    ]);
+  });
+
+  it('replaces the tracked reference in place even when the list is at the cap', () => {
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'linkDraft',
+      slug: 'draft-a',
+      title: 'Draft A',
+      siteOrigin: SITE_ORIGIN,
+    });
+    const filler = Array.from({ length: REFERENCES_MAX - 1 }, (_, i) => ({ label: `R${i}`, uri: `https://example.org/${i}` }));
+    s = govActionFormReducer(s, {
+      kind: 'setMetadata',
+      patch: { references: [...s.metadata.references, ...filler] },
+    });
+    expect(s.metadata.references).toHaveLength(REFERENCES_MAX);
+
+    s = govActionFormReducer(s, { kind: 'linkDraft', slug: 'draft-b', title: 'Draft B', siteOrigin: SITE_ORIGIN });
+    expect(s.linkedDraftSlug).toBe('draft-b');
+    expect(s.metadata.references).toHaveLength(REFERENCES_MAX);
+    expect(s.metadata.references[0]).toEqual({ label: 'Draft B', uri: `${SITE_ORIGIN}/t/draft-b/` });
+    expect(s.draftLinkError).toBeNull();
+  });
+
+  it('refuses to append at the cap and leaves the form untouched', () => {
+    const fullRefs = Array.from({ length: REFERENCES_MAX }, (_, i) => ({ label: `R${i}`, uri: `https://example.org/${i}` }));
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'setMetadata',
+      patch: { references: fullRefs },
+    });
+    const before = s;
+    s = govActionFormReducer(s, { kind: 'linkDraft', slug: 'draft-a', title: 'Draft A', siteOrigin: SITE_ORIGIN });
+    expect(s.linkedDraftSlug).toBeNull();
+    expect(s.metadata.references).toEqual(before.metadata.references);
+    expect(s.draftLinkError).toBe('Remove a reference first, the list is full');
+  });
+});
+
+describe('unlinkDraft', () => {
+  it('removes only the tracked reference and clears the slug', () => {
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'setMetadata',
+      patch: { references: [{ label: 'Discussion', uri: `${SITE_ORIGIN}/t/other-thread/` }] },
+    });
+    s = govActionFormReducer(s, { kind: 'linkDraft', slug: 'draft-a', title: 'Draft A', siteOrigin: SITE_ORIGIN });
+    s = govActionFormReducer(s, { kind: 'unlinkDraft', siteOrigin: SITE_ORIGIN });
+    expect(s.linkedDraftSlug).toBeNull();
+    expect(s.metadata.references).toEqual([{ label: 'Discussion', uri: `${SITE_ORIGIN}/t/other-thread/` }]);
+  });
+
+  it('is a no-op when nothing is tracked', () => {
+    const s = govActionFormReducer(initialGovActionFormState(), { kind: 'unlinkDraft', siteOrigin: SITE_ORIGIN });
+    expect(s.linkedDraftSlug).toBeNull();
+    expect(s.metadata.references).toEqual([]);
+  });
+});
+
+describe('linkedDraftReference', () => {
+  it('finds the reference the tracked slug points at', () => {
+    const s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'linkDraft',
+      slug: 'draft-a',
+      title: 'Draft A',
+      siteOrigin: SITE_ORIGIN,
+    });
+    expect(linkedDraftReference(s, SITE_ORIGIN)).toEqual({ label: 'Draft A', uri: `${SITE_ORIGIN}/t/draft-a/` });
+  });
+
+  it('is null when nothing is tracked', () => {
+    expect(linkedDraftReference(initialGovActionFormState(), SITE_ORIGIN)).toBeNull();
+  });
+});
+
+describe('draftConflict', () => {
+  it('is false with a single tracked draft reference', () => {
+    const s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'linkDraft',
+      slug: 'draft-a',
+      title: 'Draft A',
+      siteOrigin: SITE_ORIGIN,
+    });
+    expect(draftConflict(s, [{ slug: 'draft-a' }], SITE_ORIGIN)).toBe(false);
+  });
+
+  it('is true when two references name two different open drafts', () => {
+    const s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'setMetadata',
+      patch: {
+        references: [
+          { label: 'Draft A', uri: `${SITE_ORIGIN}/t/draft-a/` },
+          { label: 'Draft B', uri: `${SITE_ORIGIN}/t/draft-b/` },
+        ],
+      },
+    });
+    expect(draftConflict(s, [{ slug: 'draft-a' }, { slug: 'draft-b' }], SITE_ORIGIN)).toBe(true);
+  });
+
+  it('is false when the second reference names a draft that is not open', () => {
+    const s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'setMetadata',
+      patch: {
+        references: [
+          { label: 'Draft A', uri: `${SITE_ORIGIN}/t/draft-a/` },
+          { label: 'Not open', uri: `${SITE_ORIGIN}/t/not-open/` },
+        ],
+      },
+    });
+    expect(draftConflict(s, [{ slug: 'draft-a' }], SITE_ORIGIN)).toBe(false);
+  });
+
+  it('counts the tracked slug even once it falls off the open drafts list', () => {
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'linkDraft',
+      slug: 'closed-draft',
+      title: 'Closed draft',
+      siteOrigin: SITE_ORIGIN,
+    });
+    s = govActionFormReducer(s, {
+      kind: 'setMetadata',
+      patch: { references: [...s.metadata.references, { label: 'Draft B', uri: `${SITE_ORIGIN}/t/draft-b/` }] },
+    });
+    // closed-draft is no longer in openDrafts, but it is still the tracked slug.
+    expect(draftConflict(s, [{ slug: 'draft-b' }], SITE_ORIGIN)).toBe(true);
   });
 });

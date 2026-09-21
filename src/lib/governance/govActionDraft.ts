@@ -48,6 +48,15 @@ export interface GovActionDraft {
    * "Restored your saved draft" instead of a relative time).
    */
   savedAt?: number;
+  /**
+   * The Proposal Drafts thread slug tracked by the "Link a Proposal Draft"
+   * control, or null when nothing is linked. Written on every save from this
+   * field's introduction onward, so `undefined` (the key absent) means a
+   * draft saved before it existed, not "nothing was linked". A restore of
+   * such a draft derives the slug from the references instead, see
+   * govActionFormState.ts.
+   */
+  linkedDraftSlug?: string | null;
 }
 
 function isFormType(value: unknown): value is GovActionFormType {
@@ -141,6 +150,12 @@ export function loadGovActionDraft(storage: Pick<Storage, 'getItem'>, key: strin
     panels: coercePanels(parsed.panels),
     // Drafts saved before savedAt existed simply have none.
     ...(typeof parsed.savedAt === 'number' ? { savedAt: parsed.savedAt } : {}),
+    // Drafts saved before linkedDraftSlug existed leave the key out entirely
+    // (undefined), which is what tells restoreDraft to derive it instead of
+    // trusting an absent link.
+    ...(typeof parsed.linkedDraftSlug === 'string' || parsed.linkedDraftSlug === null
+      ? { linkedDraftSlug: parsed.linkedDraftSlug }
+      : {}),
   };
 }
 

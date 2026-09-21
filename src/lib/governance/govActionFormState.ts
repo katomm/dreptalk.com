@@ -18,8 +18,9 @@ import type { GovActionFormType, PrevActionRef } from './prevAction.js';
 import { hardForkBaseVersion, versionsThatFollow } from './hardForkVersion.js';
 import type { ProtocolVersion } from './hardForkVersion.js';
 import { HEX_HASH_224_RE } from '../crypto/hex.js';
-import { CONSTITUTION_DOCUMENT_MAX_BYTES } from './infoActionLimits.js';
+import { CONSTITUTION_DOCUMENT_MAX_BYTES, REFERENCES_MAX } from './infoActionLimits.js';
 import type { GovActionDraft } from './govActionDraft.js';
+import { draftSlugsFromReferences } from './draftLink.js';
 import type { ActionContextResponse } from './actionContextHandler.js';
 import { parseColdCredential, validateCommitteeUpdate } from './committeeUpdate.js';
 import type {
@@ -155,6 +156,20 @@ export interface GovActionFormState {
    * restored. Restoring is not an edit: it is the form coming back as it was.
    */
   dirty: boolean;
+  /**
+   * The Proposal Drafts thread slug the "Link a Proposal Draft" control is
+   * tracking, or null when nothing is linked. The reference it produced
+   * ({ label: title, uri: `${siteOrigin}/t/${slug}/` }) lives in
+   * metadata.references like any other reference; this field is only what
+   * lets linkDraft find and replace that one row again.
+   */
+  linkedDraftSlug: string | null;
+  /**
+   * Set when linkDraft's append-at-the-cap is refused, shown next to the
+   * draft control. Cleared by the next linkDraft or unlinkDraft, not by
+   * unrelated edits, since it is that control's own message.
+   */
+  draftLinkError: string | null;
 }
 
 type SetPanelAction = {
@@ -168,8 +183,17 @@ export type GovActionFormAction =
   | { kind: 'contextRequested'; requestId: number }
   | { kind: 'contextLoaded'; requestId: number; data: ActionContextResponse }
   | { kind: 'contextFailed'; requestId: number }
-  | { kind: 'restoreDraft'; draft: GovActionDraft }
+  | {
+      kind: 'restoreDraft';
+      draft: GovActionDraft;
+      /** The open drafts, for deriving the tracked slug of a legacy draft (no stored linkedDraftSlug). Defaults to none. */
+      openDrafts?: readonly { slug: string }[];
+      /** What the matcher compares reference URLs against. Defaults to '', under which no reference ever matches. */
+      siteOrigin?: string;
+    }
   | { kind: 'discardDraft'; displayName: string }
+  | { kind: 'linkDraft'; slug: string; title: string; siteOrigin: string }
+  | { kind: 'unlinkDraft'; siteOrigin: string }
   | { kind: 'walletConnecting' }
   | { kind: 'walletConnected'; rewardAddressHex: string }
   | { kind: 'walletBalanceLoading' }
@@ -223,6 +247,8 @@ export function initialGovActionFormState(displayName = ''): GovActionFormState 
     context: { status: 'idle', requestId: 0, data: null },
     wallet: { status: 'none' },
     dirty: false,
+    linkedDraftSlug: null,
+    draftLinkError: null,
   };
 }
 
@@ -313,6 +339,50 @@ export function panelStatesFromDraft(draft: GovActionDraft): PanelStates {
     NewConstitution: coerceNewConstitutionPanel(draft.panels.NewConstitution),
     UpdateCommittee: coerceUpdateCommitteePanel(draft.panels.UpdateCommittee),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Proposal Draft link (linkDraft / unlinkDraft / restoreDraft's legacy
+// derivation), all built on draftSlugsFromReferences so the exact same rule
+// that gov-sync uses to read a draft link back out of the references also
+// decides which reference the "Link a Proposal Draft" control is tracking.
+// ---------------------------------------------------------------------------
+
+/** The exact reference shape linkDraft writes, recognized by draftSlugsFromReferences. */
+function draftReferenceUri(siteOrigin: string, slug: string): string {
+  return `${siteOrigin}/t/${slug}/`;
+}
+
+/** The index of the reference row naming the given slug, or -1 when there is none. */
+function referenceIndexForSlug(
+  references: readonly { label: string; uri: string }[],
+  slug: string | null,
+  siteOrigin: string,
+): number {
+  if (!slug) return -1;
+  return references.findIndex((r) => draftSlugsFromReferences([r], siteOrigin).includes(slug));
+}
+
+/**
+ * The tracked slug for a restored draft: the stored value when the draft
+ * carries one (a string, or an explicit null for "linked then unlinked"), or,
+ * for a draft saved before linkedDraftSlug existed (the key is absent, not
+ * null), the first reference whose thread slug is still in the open drafts
+ * list. A reference naming a slug that is not open (a closed or foreign
+ * thread) is left alone, exactly as a manually typed reference always was.
+ */
+function linkedDraftSlugFromDraft(
+  draft: GovActionDraft,
+  openDrafts: readonly { slug: string }[],
+  siteOrigin: string,
+): string | null {
+  if (draft.linkedDraftSlug !== undefined) return draft.linkedDraftSlug;
+  const openSlugs = new Set(openDrafts.map((d) => d.slug));
+  for (const ref of draft.references) {
+    const [slug] = draftSlugsFromReferences([ref], siteOrigin);
+    if (slug && openSlugs.has(slug)) return slug;
+  }
+  return null;
 }
 
 /**
@@ -433,6 +503,8 @@ export function govActionFormReducer(
           surveyRef: action.draft.surveyRef,
         },
         panels: panelStatesFromDraft(action.draft),
+        linkedDraftSlug: linkedDraftSlugFromDraft(action.draft, action.openDrafts ?? [], action.siteOrigin ?? ''),
+        draftLinkError: null,
         dirty: false,
       };
 
@@ -445,8 +517,44 @@ export function govActionFormReducer(
         type: 'InfoAction',
         metadata: defaultMetadataState(action.displayName),
         panels: emptyPanelStates(),
+        linkedDraftSlug: null,
+        draftLinkError: null,
         dirty: false,
       };
+
+    case 'linkDraft': {
+      const uri = draftReferenceUri(action.siteOrigin, action.slug);
+      const existingIndex = referenceIndexForSlug(state.metadata.references, state.linkedDraftSlug, action.siteOrigin);
+      if (existingIndex === -1 && state.metadata.references.length >= REFERENCES_MAX) {
+        return { ...state, draftLinkError: 'Remove a reference first, the list is full' };
+      }
+      const nextRef = { label: action.title, uri };
+      const references =
+        existingIndex === -1
+          ? [...state.metadata.references, nextRef]
+          : state.metadata.references.map((r, i) => (i === existingIndex ? nextRef : r));
+      return {
+        ...state,
+        linkedDraftSlug: action.slug,
+        metadata: { ...state.metadata, references },
+        draftLinkError: null,
+        dirty: true,
+      };
+    }
+
+    case 'unlinkDraft': {
+      if (!state.linkedDraftSlug) return { ...state, draftLinkError: null };
+      const references = state.metadata.references.filter(
+        (_, i) => i !== referenceIndexForSlug(state.metadata.references, state.linkedDraftSlug, action.siteOrigin),
+      );
+      return {
+        ...state,
+        linkedDraftSlug: null,
+        metadata: { ...state.metadata, references },
+        draftLinkError: null,
+        dirty: true,
+      };
+    }
 
     // ------------------------------------------------------------------
     // Wallet step. Every balance action is ignored unless a wallet is
@@ -518,19 +626,55 @@ export function effectivePrev(
 /**
  * The part of the form state a draft is made of. Narrower than the whole
  * state on purpose: the live context is never stored, and taking only these
- * three keys lets the persist effect depend on them instead of on every
- * context transition.
+ * keys lets the persist effect depend on them instead of on every context
+ * transition.
  */
-export type DraftableState = Pick<GovActionFormState, 'metadata' | 'type' | 'panels'>;
+export type DraftableState = Pick<GovActionFormState, 'metadata' | 'type' | 'panels' | 'linkedDraftSlug'>;
 
-/** Builds the v2 draft for the current state: the type, the metadata, every panel. */
+/** Builds the v2 draft for the current state: the type, the metadata, every panel, the tracked draft link. */
 export function draftFromState(state: DraftableState): GovActionDraft {
   return {
     v: 2,
     type: state.type,
     ...state.metadata,
     panels: state.panels,
+    linkedDraftSlug: state.linkedDraftSlug,
   };
+}
+
+/**
+ * The reference row the tracked draft slug points at, or null when nothing is
+ * tracked or the reference was since removed by hand. Lets the control show a
+ * title for a tracked slug that has fallen out of the open drafts list (a
+ * closed draft still keeps its reference and its label).
+ */
+export function linkedDraftReference(
+  state: Pick<GovActionFormState, 'metadata' | 'linkedDraftSlug'>,
+  siteOrigin: string,
+): { label: string; uri: string } | null {
+  if (!state.linkedDraftSlug) return null;
+  const index = referenceIndexForSlug(state.metadata.references, state.linkedDraftSlug, siteOrigin);
+  return index === -1 ? null : state.metadata.references[index];
+}
+
+/**
+ * True when more than one reference points at an open draft or at the
+ * tracked slug. The resolver on the server takes the first Proposal Drafts
+ * reference it finds (see resolveDraftTopic), so a second reference naming a
+ * different open draft could make gov-sync link a thread the "Link a
+ * Proposal Draft" control never showed as chosen. Readiness (see
+ * readiness.ts) blocks submit on this rather than silently trusting the
+ * first match.
+ */
+export function draftConflict(
+  state: Pick<GovActionFormState, 'metadata' | 'linkedDraftSlug'>,
+  openDrafts: readonly { slug: string }[],
+  siteOrigin: string,
+): boolean {
+  const candidates = new Set(openDrafts.map((d) => d.slug));
+  if (state.linkedDraftSlug) candidates.add(state.linkedDraftSlug);
+  const refSlugs = draftSlugsFromReferences(state.metadata.references, siteOrigin);
+  return refSlugs.filter((slug) => candidates.has(slug)).length > 1;
 }
 
 function panelsAreEmpty(panels: PanelStates): boolean {
@@ -574,7 +718,10 @@ export function isFormBlank(state: DraftableState, defaults: FormDefaults): bool
     authorBlank &&
     m.references.length === 0 &&
     !m.surveyRef.trim();
-  return metadataBlank && state.type === 'InfoAction' && panelsAreEmpty(state.panels);
+  // Linking a draft always adds a reference, so references.length already
+  // covers it. The explicit check is a defensive belt against the two ever
+  // drifting apart.
+  return metadataBlank && state.type === 'InfoAction' && panelsAreEmpty(state.panels) && state.linkedDraftSlug === null;
 }
 
 // ---------------------------------------------------------------------------

@@ -306,3 +306,35 @@ describe('the survey link is part of the draft', () => {
     expect(loadGovActionDraft(storage, 'k')?.surveyRef).toBe('');
   });
 });
+
+describe('linkedDraftSlug is part of the draft', () => {
+  it('round-trips a linked slug', () => {
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v),
+      removeItem: (k: string) => void store.delete(k),
+    };
+    const draft: GovActionDraft = { ...fullDraft, linkedDraftSlug: 'my-draft-a1b2' };
+    saveGovActionDraft(storage, 'k', draft);
+    expect(loadGovActionDraft(storage, 'k')?.linkedDraftSlug).toBe('my-draft-a1b2');
+  });
+
+  it('round-trips an explicit null (linked then unlinked, still on the v2+ format)', () => {
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => void store.set(k, v),
+      removeItem: (k: string) => void store.delete(k),
+    };
+    const draft: GovActionDraft = { ...fullDraft, linkedDraftSlug: null };
+    saveGovActionDraft(storage, 'k', draft);
+    expect(loadGovActionDraft(storage, 'k')?.linkedDraftSlug).toBeNull();
+  });
+
+  it('leaves the field undefined for a draft saved before it existed', () => {
+    const store = new Map<string, string>([['k', JSON.stringify(fullDraft)]]);
+    const storage = { getItem: (k: string) => store.get(k) ?? null };
+    expect(loadGovActionDraft(storage, 'k')?.linkedDraftSlug).toBeUndefined();
+  });
+});

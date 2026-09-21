@@ -49,11 +49,14 @@ import {
   effectivePrev,
   draftFromState,
   isFormBlank,
+  linkedDraftReference,
+  draftConflict,
   validateCommitteePanel,
   validateHardForkPanel,
   validateNewConstitutionPanel,
   PREV_ACTION_CHANGED,
 } from '@/lib/governance/govActionFormState.js';
+import type { OpenProposalDraft } from '@/lib/db/proposalDrafts.js';
 import type { DepositState } from '@/lib/governance/govActionFormState.js';
 import { chainForType, refStillPresent } from '@/lib/governance/prevAction.js';
 import type { GovActionFormType, PrevActionRef } from '@/lib/governance/prevAction.js';
@@ -74,6 +77,7 @@ import { assertWalletNetwork } from '@/lib/wallet/networkGuard.js';
 import { inputStyle, labelStyle } from '@/components/drepFormStyles.js';
 import SignAndSubmit from '@/components/govAction/SignAndSubmit.js';
 import DraftRestoreBanner from '@/components/govAction/DraftRestoreBanner.js';
+import DraftLinkControl from '@/components/govAction/DraftLinkControl.js';
 
 // Mirrors the un-exported AUTHOR_NAME_MAX in infoActionMetadataHandler.ts, kept
 // in sync manually since that constant is server-internal.
@@ -130,6 +134,21 @@ export interface SubmitGovActionProps {
    * Empty when there is none to show.
    */
   displayName: string;
+  /**
+   * Open Proposal Drafts threads for the "Link a Proposal Draft" control,
+   * an SSR prop rather than a route (see the design doc's decision 3).
+   * Optional and defaulted to none, so every existing render call that
+   * predates this control (and every test that does not care about it)
+   * stays valid.
+   */
+  openDrafts?: readonly OpenProposalDraft[];
+  /**
+   * What draftSlugsFromReferences compares a reference's URL against
+   * (NetworkConfig.siteOrigin), not the browser's own origin. Optional:
+   * falls back to the network's own config, which is what new.astro passes
+   * explicitly anyway.
+   */
+  siteOrigin?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -251,11 +270,15 @@ function DepositInfo({ deposit }: { deposit: DepositState }) {
 // React component
 // ---------------------------------------------------------------------------
 
-export default function SubmitGovAction({ network, displayName }: SubmitGovActionProps) {
+export default function SubmitGovAction({ network, displayName, openDrafts = [], siteOrigin }: SubmitGovActionProps) {
   // resolveNetwork returns the same cached config object for a given
   // network every call, so this needs no memoization to stay referentially
   // stable across renders.
   const networkConfig = resolveNetwork(network);
+  // What draftSlugsFromReferences compares a reference's URL against. The
+  // prop always carries this from new.astro, the fallback only matters for a
+  // test or a caller that omits it.
+  const draftSiteOrigin = siteOrigin ?? networkConfig.siteOrigin;
   const { wallets, selected, setSelected } = useCardanoWallets();
   const [phase, setPhase] = useState<Phase>({ status: 'editing' });
   const [deposit, setDeposit] = useState<DepositState>({ status: 'loading' });
@@ -280,9 +303,9 @@ export default function SubmitGovAction({ network, displayName }: SubmitGovActio
   const balanceReadIdRef = useRef(0);
 
   const metadata = state.metadata;
-  // Destructured for the draft effect below, which reads exactly these four
+  // Destructured for the draft effect below, which reads exactly these five
   // and must not re-run on a context transition.
-  const { type, panels, dirty } = state;
+  const { type, panels, dirty, linkedDraftSlug } = state;
   const chained = chainForType(state.type) !== null;
 
   /**
@@ -320,11 +343,12 @@ export default function SubmitGovAction({ network, displayName }: SubmitGovActio
   // the per-type panel state.
   const draftKey = govActionDraftKey(network);
   const draftRestoredRef = useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: openDrafts and draftSiteOrigin are the page's own SSR props, fixed for the session, restore runs once right after mount regardless
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const draft = loadGovActionDraft(window.localStorage, draftKey);
     if (draft) {
-      dispatch({ kind: 'restoreDraft', draft });
+      dispatch({ kind: 'restoreDraft', draft, openDrafts, siteOrigin: draftSiteOrigin });
       setRestoredAt(draft.savedAt ?? null);
     }
     draftRestoredRef.current = true;
@@ -338,10 +362,10 @@ export default function SubmitGovAction({ network, displayName }: SubmitGovActio
     // A draft is only worth keeping while it carries something: metadata text,
     // a non-default type, or a filled panel. A committee panel with no
     // metadata yet is kept, which is why the check is not metadata-only.
-    const draftable = { metadata, type, panels };
+    const draftable = { metadata, type, panels, linkedDraftSlug };
     if (isFormBlank(draftable, { authorName: displayName })) clearGovActionDraft(window.localStorage, draftKey);
     else saveGovActionDraft(window.localStorage, draftKey, draftFromState(draftable));
-  }, [draftKey, metadata, type, panels, dirty, displayName]);
+  }, [draftKey, metadata, type, panels, linkedDraftSlug, dirty, displayName]);
 
   /** Discards the restored/in-progress draft: back to the defaults, storage cleared, banner gone. */
   function handleDiscardDraft() {
@@ -440,8 +464,7 @@ export default function SubmitGovAction({ network, displayName }: SubmitGovActio
     ),
     authorOk: !metadata.signAsAuthor || metadata.authorName.trim() !== '',
     surveyRefOk: surveyRefState === null || surveyRefState.ok,
-    // Wired by the Proposal Draft link control, which does not exist yet.
-    draftConflict: false,
+    draftConflict: draftConflict(state, openDrafts, draftSiteOrigin),
     wallet: state.wallet,
     depositLovelace: deposit.status === 'ready' ? deposit.lovelace : null,
   });
@@ -462,6 +485,19 @@ export default function SubmitGovAction({ network, displayName }: SubmitGovActio
     if (metadata.references.length >= REFERENCES_MAX) return;
     setMetadata({ references: [...metadata.references, { label: '', uri: '' }] });
   }
+
+  // ------------------------------------------------------------------
+  // Proposal Draft link, directly above the references list: see
+  // govActionFormState.ts's linkDraft/unlinkDraft for the replace-in-place
+  // and append-at-cap rules.
+  // ------------------------------------------------------------------
+  function handleLinkDraft(pick: { slug: string; title: string }) {
+    dispatch({ kind: 'linkDraft', slug: pick.slug, title: pick.title, siteOrigin: draftSiteOrigin });
+  }
+  function handleUnlinkDraft() {
+    dispatch({ kind: 'unlinkDraft', siteOrigin: draftSiteOrigin });
+  }
+  const linkedDraftRef = linkedDraftReference(state, draftSiteOrigin);
 
   /** The panel's own choice of previous action, before it is resolved against a context. */
   function chosenPrevOf(type: typeof state.type): PrevActionRef | null {
@@ -1068,6 +1104,16 @@ export default function SubmitGovAction({ network, displayName }: SubmitGovActio
             placeholder="Explain the reasoning in detail..."
           />
         </CountedField>
+
+        <DraftLinkControl
+          openDrafts={openDrafts}
+          linkedDraftSlug={state.linkedDraftSlug}
+          linkedDraftLabel={linkedDraftRef?.label ?? ''}
+          onLink={handleLinkDraft}
+          onUnlink={handleUnlinkDraft}
+          error={state.draftLinkError}
+          disabled={busy}
+        />
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           <span style={labelStyle}>References (optional)</span>
