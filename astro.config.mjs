@@ -104,8 +104,11 @@ export default defineConfig({
       {
         name: 'evolution-sdk-single-server-chunk',
         apply: 'build',
-        config(_config, env) {
-          if (!env.isSsrBuild) return;
+        // Per environment, not the global config: Astro builds client and
+        // server from one Vite builder, so a global build option (or a check on
+        // isSsrBuild) reaches the client bundles too.
+        configEnvironment(name) {
+          if (name !== 'ssr') return;
           return {
             build: {
               rolldownOptions: {
