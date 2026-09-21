@@ -1,8 +1,9 @@
 // Pure state for the /ga/new submit form: the chosen action type, the CIP-108
-// metadata fields, one state bag per type panel, and the live ledger context
-// fetched for the chosen type. Everything wallet-related (the enabled CIP-30
-// api, the connect/submit phase) stays in the island, so this module is a
-// plain reducer that can be unit-tested without React or a DOM.
+// metadata fields, one state bag per type panel, the live ledger context
+// fetched for the chosen type, and the wallet step at the end of the form.
+// The enabled CIP-30 api object itself stays in the island's ref (it is not
+// data, it is a live IPC handle), so this module remains a plain reducer that
+// can be unit-tested without React or a DOM.
 //
 // Out-of-order guard: every context fetch carries a request id, and a loaded
 // or failed response is ignored unless its id is still the latest one. A fast
@@ -117,11 +118,43 @@ export type ContextState =
   | { status: 'ready'; requestId: number; data: ActionContextResponse }
   | { status: 'error'; requestId: number; data: null };
 
+/** The current governance action deposit, read once from /epoch_params. */
+export type DepositState =
+  | { status: 'loading' }
+  | { status: 'ready'; lovelace: bigint }
+  | { status: 'error'; message: string };
+
+/**
+ * The connected wallet's funding balance: collected from the same UTxO reader
+ * the transaction builder uses, so the readiness check and the builder agree.
+ */
+export type WalletBalanceState =
+  | { status: 'loading' }
+  | { status: 'ready'; lovelace: bigint }
+  | { status: 'error'; message: string };
+
+/**
+ * The wallet step, which sits at the END of the form: a signed-in user drafts
+ * the whole action with `none` here and only then connects. The reward address
+ * is kept because the deposit refund goes there and (when signing as author)
+ * the CIP-108 witness proves ownership of it.
+ */
+export type WalletState =
+  | { status: 'none' }
+  | { status: 'connecting' }
+  | { status: 'connected'; rewardAddressHex: string; balance: WalletBalanceState };
+
 export interface GovActionFormState {
   type: GovActionFormType;
   metadata: MetadataState;
   panels: PanelStates;
   context: ContextState;
+  wallet: WalletState;
+  /**
+   * True once the user has edited anything, false again after a draft is
+   * restored. Restoring is not an edit: it is the form coming back as it was.
+   */
+  dirty: boolean;
 }
 
 type SetPanelAction = {
@@ -135,7 +168,13 @@ export type GovActionFormAction =
   | { kind: 'contextRequested'; requestId: number }
   | { kind: 'contextLoaded'; requestId: number; data: ActionContextResponse }
   | { kind: 'contextFailed'; requestId: number }
-  | { kind: 'restoreDraft'; draft: GovActionDraft };
+  | { kind: 'restoreDraft'; draft: GovActionDraft }
+  | { kind: 'walletConnecting' }
+  | { kind: 'walletConnected'; rewardAddressHex: string }
+  | { kind: 'walletBalanceLoading' }
+  | { kind: 'walletBalance'; lovelace: bigint }
+  | { kind: 'walletBalanceFailed'; message: string }
+  | { kind: 'walletDisconnected' };
 
 export function emptyMetadataState(): MetadataState {
   return {
@@ -165,6 +204,8 @@ export function initialGovActionFormState(): GovActionFormState {
     metadata: emptyMetadataState(),
     panels: emptyPanelStates(),
     context: { status: 'idle', requestId: 0, data: null },
+    wallet: { status: 'none' },
+    dirty: false,
   };
 }
 
@@ -327,11 +368,14 @@ export function govActionFormReducer(
         ...state,
         type: action.type,
         context: { status: 'idle', requestId: state.context.requestId, data: null },
+        dirty: true,
       };
     }
 
     case 'setMetadata':
-      return { ...state, metadata: { ...state.metadata, ...action.patch } };
+      // Covers the author fields too: "sign as author" and the name are part
+      // of the metadata, so they mark the form dirty like any other edit.
+      return { ...state, metadata: { ...state.metadata, ...action.patch }, dirty: true };
 
     case 'setPanel': {
       const next =
@@ -340,7 +384,7 @@ export function govActionFormReducer(
           : action.type === 'HardForkInitiation'
             ? resetHardForkVersionOnPrevChange(state.panels.HardForkInitiation, action.state)
             : action.state;
-      return { ...state, panels: { ...state.panels, [action.type]: next } };
+      return { ...state, panels: { ...state.panels, [action.type]: next }, dirty: true };
     }
 
     case 'contextRequested':
@@ -372,7 +416,52 @@ export function govActionFormReducer(
           surveyRef: action.draft.surveyRef,
         },
         panels: panelStatesFromDraft(action.draft),
+        dirty: false,
       };
+
+    // ------------------------------------------------------------------
+    // Wallet step. Every balance action is ignored unless a wallet is
+    // connected, so a read that resolves after the user disconnected cannot
+    // resurrect a balance for a wallet that is gone.
+    // ------------------------------------------------------------------
+
+    case 'walletConnecting':
+      // A second Connect while one is running is a no-op, not a restart.
+      if (state.wallet.status === 'connecting') return state;
+      return { ...state, wallet: { status: 'connecting' } };
+
+    case 'walletConnected':
+      return {
+        ...state,
+        wallet: {
+          status: 'connected',
+          rewardAddressHex: action.rewardAddressHex,
+          balance: { status: 'loading' },
+        },
+      };
+
+    case 'walletBalanceLoading':
+      if (state.wallet.status !== 'connected') return state;
+      return { ...state, wallet: { ...state.wallet, balance: { status: 'loading' } } };
+
+    case 'walletBalance':
+      if (state.wallet.status !== 'connected') return state;
+      return {
+        ...state,
+        wallet: { ...state.wallet, balance: { status: 'ready', lovelace: action.lovelace } },
+      };
+
+    case 'walletBalanceFailed':
+      if (state.wallet.status !== 'connected') return state;
+      return {
+        ...state,
+        wallet: { ...state.wallet, balance: { status: 'error', message: action.message } },
+      };
+
+    case 'walletDisconnected':
+      // The reward address and the balance belong to the wallet that is being
+      // dropped, so they go with it. The form itself is untouched.
+      return { ...state, wallet: { status: 'none' } };
   }
 }
 

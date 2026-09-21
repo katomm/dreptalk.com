@@ -630,3 +630,157 @@ describe('validateNewConstitutionPanel', () => {
     expect(result).toEqual({ ok: false, error: 'A guardrails script hash is exactly 56 hex characters.' });
   });
 });
+
+describe('wallet state', () => {
+  it('starts with no wallet and a clean form', () => {
+    const s = initialGovActionFormState();
+    expect(s.wallet).toEqual({ status: 'none' });
+    expect(s.dirty).toBe(false);
+  });
+
+  it('walks none, connecting, connected with a loading balance', () => {
+    let s = initialGovActionFormState();
+    s = govActionFormReducer(s, { kind: 'walletConnecting' });
+    expect(s.wallet).toEqual({ status: 'connecting' });
+    s = govActionFormReducer(s, { kind: 'walletConnected', rewardAddressHex: 'e0ff' });
+    expect(s.wallet).toEqual({
+      status: 'connected',
+      rewardAddressHex: 'e0ff',
+      balance: { status: 'loading' },
+    });
+  });
+
+  it('ignores a second connect while one is running', () => {
+    let s = initialGovActionFormState();
+    s = govActionFormReducer(s, { kind: 'walletConnecting' });
+    const again = govActionFormReducer(s, { kind: 'walletConnecting' });
+    expect(again).toBe(s);
+  });
+
+  it('files the balance read, its result and its failure', () => {
+    let s = initialGovActionFormState();
+    s = govActionFormReducer(s, { kind: 'walletConnecting' });
+    s = govActionFormReducer(s, { kind: 'walletConnected', rewardAddressHex: 'e0ff' });
+    s = govActionFormReducer(s, { kind: 'walletBalance', lovelace: 42n });
+    expect(s.wallet).toEqual({
+      status: 'connected',
+      rewardAddressHex: 'e0ff',
+      balance: { status: 'ready', lovelace: 42n },
+    });
+    s = govActionFormReducer(s, { kind: 'walletBalanceLoading' });
+    expect(s.wallet).toEqual({
+      status: 'connected',
+      rewardAddressHex: 'e0ff',
+      balance: { status: 'loading' },
+    });
+    s = govActionFormReducer(s, { kind: 'walletBalanceFailed', message: 'Koios said no' });
+    expect(s.wallet).toEqual({
+      status: 'connected',
+      rewardAddressHex: 'e0ff',
+      balance: { status: 'error', message: 'Koios said no' },
+    });
+  });
+
+  it('ignores a balance action while no wallet is connected', () => {
+    const s = initialGovActionFormState();
+    expect(govActionFormReducer(s, { kind: 'walletBalance', lovelace: 1n })).toBe(s);
+    expect(govActionFormReducer(s, { kind: 'walletBalanceLoading' })).toBe(s);
+    expect(govActionFormReducer(s, { kind: 'walletBalanceFailed', message: 'x' })).toBe(s);
+  });
+
+  it('drops the reward address and the balance on disconnect', () => {
+    let s = initialGovActionFormState();
+    s = govActionFormReducer(s, { kind: 'walletConnecting' });
+    s = govActionFormReducer(s, { kind: 'walletConnected', rewardAddressHex: 'e0ff' });
+    s = govActionFormReducer(s, { kind: 'walletBalance', lovelace: 42n });
+    // "Use a different wallet" after a failed submit.
+    s = govActionFormReducer(s, { kind: 'walletDisconnected' });
+    expect(s.wallet).toEqual({ status: 'none' });
+  });
+
+  it('goes back to none when the connect attempt finds no reward address', () => {
+    let s = initialGovActionFormState();
+    s = govActionFormReducer(s, { kind: 'walletConnecting' });
+    s = govActionFormReducer(s, { kind: 'walletDisconnected' });
+    expect(s.wallet).toEqual({ status: 'none' });
+  });
+
+  it('keeps the form untouched across every wallet transition', () => {
+    let s = initialGovActionFormState();
+    s = govActionFormReducer(s, { kind: 'setMetadata', patch: { title: 'Keep me' } });
+    s = govActionFormReducer(s, { kind: 'walletConnecting' });
+    s = govActionFormReducer(s, { kind: 'walletConnected', rewardAddressHex: 'e0ff' });
+    s = govActionFormReducer(s, { kind: 'walletDisconnected' });
+    expect(s.metadata.title).toBe('Keep me');
+    expect(s.type).toBe('InfoAction');
+  });
+});
+
+describe('dirty', () => {
+  it('is set by a metadata edit', () => {
+    const s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'setMetadata',
+      patch: { title: 'x' },
+    });
+    expect(s.dirty).toBe(true);
+  });
+
+  it('is set by the author fields, which live in the metadata', () => {
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'setMetadata',
+      patch: { signAsAuthor: true },
+    });
+    expect(s.dirty).toBe(true);
+    s = { ...s, dirty: false };
+    s = govActionFormReducer(s, { kind: 'setMetadata', patch: { authorName: 'Someone' } });
+    expect(s.dirty).toBe(true);
+  });
+
+  it('is set by a type switch, but not by re-picking the same type', () => {
+    let s = govActionFormReducer(initialGovActionFormState(), { kind: 'setType', type: 'NoConfidence' });
+    expect(s.dirty).toBe(true);
+    s = { ...s, dirty: false };
+    s = govActionFormReducer(s, { kind: 'setType', type: 'NoConfidence' });
+    expect(s.dirty).toBe(false);
+  });
+
+  it('is set by a panel edit', () => {
+    const s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'setPanel',
+      type: 'NoConfidence',
+      state: { prev: REF_A },
+    });
+    expect(s.dirty).toBe(true);
+  });
+
+  it('is cleared by a draft restore', () => {
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'setMetadata',
+      patch: { title: 'x' },
+    });
+    const draft: GovActionDraft = {
+      v: 2,
+      type: 'InfoAction',
+      title: 'T',
+      abstract: '',
+      motivation: '',
+      rationale: '',
+      signAsAuthor: false,
+      authorName: '',
+      references: [],
+      surveyRef: '',
+      panels: {},
+    };
+    s = govActionFormReducer(s, { kind: 'restoreDraft', draft });
+    expect(s.dirty).toBe(false);
+  });
+
+  it('is untouched by the context lifecycle and by the wallet', () => {
+    let s = initialGovActionFormState();
+    s = govActionFormReducer(s, { kind: 'contextRequested', requestId: 1 });
+    s = govActionFormReducer(s, { kind: 'contextFailed', requestId: 1 });
+    s = govActionFormReducer(s, { kind: 'walletConnecting' });
+    s = govActionFormReducer(s, { kind: 'walletConnected', rewardAddressHex: 'e0ff' });
+    expect(s.dirty).toBe(false);
+  });
+});

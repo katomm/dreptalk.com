@@ -2,17 +2,20 @@
 // flow. preprod-only, Beta internal tool.
 //
 // Non-custodial: the wallet signs and submits, the server never sees a
-// private key. The flow: (1) fetch the current gov action deposit and voting
-// thresholds so the user knows what they are committing, (2) connect a plain
-// CIP-30 wallet (no CIP-95, a proposal needs no DRep key), (3) pick the
-// action type and fill its panel plus the shared CIP-108 fields, (4) host the
-// metadata via the /api/gov-action routes, (5) build/sign/submit the propose
-// tx via submitGovAction. Mirrors DRepService/VotePanel for wallet selection,
-// connect, and phase handling.
+// private key. The flow, form first and wallet last: (1) fetch the current gov
+// action deposit and voting thresholds so the user knows what they are
+// committing, (2) pick the action type and fill its panel plus the shared
+// CIP-108 fields, all without a wallet and even without an extension,
+// (3) connect a plain CIP-30 wallet (no CIP-95, a proposal needs no DRep key)
+// in the section at the end and check the balance against the deposit,
+// (4) host the metadata via the /api/gov-action routes, (5) build/sign/submit
+// the propose tx via submitGovAction.
 //
-// Everything that is not wallet state lives in the govActionFormState
-// reducer, so the type switch, the per-type panels and the out-of-order
-// context guard are unit-tested without a DOM.
+// The form state, including the wallet step, lives in the govActionFormState
+// reducer, so the type switch, the per-type panels, the out-of-order context
+// guard and the wallet transitions are unit-tested without a DOM. The enabled
+// CIP-30 api object itself stays in enabledApiRef: it is a live IPC handle,
+// not data.
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
@@ -20,7 +23,10 @@ import { CopyButton } from '@/components/CopyButton.js';
 import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
 import { submitGovAction } from '@/lib/governance/govActionTx.js';
 import { govActionSubmissionAvailable } from '@/lib/governance/submissionGate.js';
+import { collectWalletUtxos, totalLovelace } from '@/lib/governance/walletUtxos.js';
 import type { WalletApi } from '@/lib/governance/walletUtxos.js';
+import { readinessReasons } from '@/lib/governance/readiness.js';
+import { formatAdaPlain } from '@/lib/format/ada.js';
 import {
   INFO_TITLE_MAX,
   INFO_ABSTRACT_MAX,
@@ -48,6 +54,7 @@ import {
   validateNewConstitutionPanel,
   PREV_ACTION_CHANGED,
 } from '@/lib/governance/govActionFormState.js';
+import type { DepositState } from '@/lib/governance/govActionFormState.js';
 import { chainForType, refStillPresent } from '@/lib/governance/prevAction.js';
 import type { GovActionFormType, PrevActionRef } from '@/lib/governance/prevAction.js';
 import type { GovActionSpec } from '@/lib/governance/govActionParts.js';
@@ -65,7 +72,7 @@ import { txExplorerUrl } from '@/lib/config/network.js';
 import { readableError } from '@/lib/wallet/walletError.js';
 import { assertWalletNetwork } from '@/lib/wallet/networkGuard.js';
 import { inputStyle, labelStyle } from '@/components/drepFormStyles.js';
-import WalletConnection from '@/components/WalletConnection.js';
+import SignAndSubmit from '@/components/govAction/SignAndSubmit.js';
 
 // Mirrors the un-exported AUTHOR_NAME_MAX in infoActionMetadataHandler.ts, kept
 // in sync manually since that constant is server-internal.
@@ -102,20 +109,17 @@ interface InfoActionFields {
   rationale: string;
 }
 
-type DepositState =
-  | { status: 'loading' }
-  | { status: 'ready'; lovelace: bigint }
-  | { status: 'error'; message: string };
-
+// The form is always on screen, so the phase is only about what the page is
+// doing right now. Connecting is wallet state, not a phase: it no longer
+// hides anything.
 type Phase =
-  | { status: 'idle' }
-  | { status: 'connecting' }
-  | { status: 'form' }
+  | { status: 'editing' }
   | { status: 'submitting' }
   | { status: 'success'; txHash: string; authored: boolean }
-  // `connected` distinguishes a connect-step error (show the wallet picker
-  // again) from a submit-step error (keep the filled form on screen).
-  | { status: 'error'; message: string; connected: boolean };
+  // `step` decides where the message goes: a connect error sits next to the
+  // Connect button, a submit error under the Submit button. Neither one takes
+  // the form off the screen.
+  | { status: 'error'; message: string; step: 'connect' | 'submit' };
 
 export interface SubmitGovActionProps {
   network: CardanoNetwork;
@@ -130,12 +134,6 @@ function parseDepositLovelace(raw: unknown): bigint | null {
   if (typeof raw === 'number' && Number.isFinite(raw) && raw >= 0) return BigInt(Math.trunc(raw));
   if (typeof raw === 'string' && /^\d+$/.test(raw)) return BigInt(raw);
   return null;
-}
-
-/** Lovelace (bigint or numeric string) formatted as an ADA amount. */
-function formatAda(lovelace: bigint | string): string {
-  const value = typeof lovelace === 'bigint' ? lovelace : BigInt(lovelace);
-  return (Number(value) / 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
 // Matches the exact message thrown by submitGovAction's funding-shortfall
@@ -168,7 +166,7 @@ function mapSubmitError(err: unknown, prev: PrevActionRef | null): string {
     if (availableLovelace === '0') {
       return 'No preprod UTxOs found for this wallet (is it a Preview wallet? Preview and Preprod are separate testnets with separate funds).';
     }
-    return `Insufficient tADA: this proposal needs about ${formatAda(requiredLovelace)} tADA (deposit plus fee headroom), but your wallet only has ${formatAda(availableLovelace)} tADA.`;
+    return `Insufficient tADA: this proposal needs about ${formatAdaPlain(requiredLovelace)} tADA (deposit plus fee headroom), but your wallet only has ${formatAdaPlain(availableLovelace)} tADA.`;
   }
   const readable = readableError(err);
   if (prev && raw.toLowerCase().includes(prev.txHashHex.toLowerCase())) {
@@ -227,7 +225,7 @@ function DepositInfo({ deposit }: { deposit: DepositState }) {
         {deposit.status === 'ready' && (
           <>
             <p style={{ margin: '0 0 0.5rem', fontWeight: 600 }}>
-              Governance action deposit: {formatAda(deposit.lovelace)} tADA
+              Governance action deposit: {formatAdaPlain(deposit.lovelace)} tADA
             </p>
             <ul style={{ margin: 0, paddingLeft: '1.1rem', color: 'var(--muted)', fontSize: '0.8125rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
               <li>This is the current on-chain governance action deposit.</li>
@@ -248,7 +246,7 @@ function DepositInfo({ deposit }: { deposit: DepositState }) {
 
 export default function SubmitGovAction({ network }: SubmitGovActionProps) {
   const { wallets, selected, setSelected } = useCardanoWallets();
-  const [phase, setPhase] = useState<Phase>({ status: 'idle' });
+  const [phase, setPhase] = useState<Phase>({ status: 'editing' });
   const [deposit, setDeposit] = useState<DepositState>({ status: 'loading' });
   const [params, setParams] = useState<ProtocolParams | null>(null);
   const [state, dispatch] = useReducer(govActionFormReducer, undefined, initialGovActionFormState);
@@ -358,16 +356,61 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
     void loadContext(state.type);
   }, [state.type, contextAttempt, loadContext]);
 
-  const busy = phase.status === 'connecting' || phase.status === 'submitting';
+  // Only the submit step freezes the form now. Connecting a wallet does not:
+  // it happens in the last section while everything above stays editable.
+  const busy = phase.status === 'submitting';
   // Same parser the server uses, so the form can never accept a ref the
   // server would reject (or the other way round).
   const surveyRefState = metadata.surveyRef.trim() ? parseSurveyRefInput(metadata.surveyRef) : null;
   const contextReady = state.context.status === 'ready' && state.context.data !== null;
   const contextData = state.context.data;
-  // The committee panel is the one with enough rules to be worth blocking on
-  // before the wallet is involved, the rest are caught in prepareAction.
-  const committeeBlocked =
-    state.type === 'UpdateCommittee' && validateCommitteePanel(state.panels.UpdateCommittee, contextData).value === null;
+
+  /**
+   * The current type's panel verdict for the readiness list, or null when the
+   * panel has no rules of its own. Null while there is no context at all: a
+   * panel judged against a context that has not arrived would report the
+   * missing context twice, once as itself and once as a panel error.
+   */
+  function panelVerdict(): { ok: boolean; error: string } | null {
+    if (!contextData) return null;
+    switch (state.type) {
+      case 'InfoAction':
+      case 'NoConfidence':
+        return null;
+      case 'HardForkInitiation': {
+        const result = validateHardForkPanel(state.panels.HardForkInitiation, contextData);
+        return result.ok ? { ok: true, error: '' } : { ok: false, error: result.error };
+      }
+      case 'NewConstitution': {
+        const result = validateNewConstitutionPanel(state.panels.NewConstitution, contextData);
+        return result.ok ? { ok: true, error: '' } : { ok: false, error: result.error };
+      }
+      case 'UpdateCommittee': {
+        const result = validateCommitteePanel(state.panels.UpdateCommittee, contextData);
+        return result.value === null
+          ? { ok: false, error: result.errors[0]?.message ?? 'The committee update is not valid yet.' }
+          : { ok: true, error: '' };
+      }
+    }
+  }
+
+  // Everything standing between the form as it is and a submittable proposal.
+  // The same list drives the button's disabled state, so a grey button always
+  // has its reasons on screen next to it.
+  const reasons = readinessReasons({
+    type: state.type,
+    contextStatus: state.context.status,
+    panelValidation: panelVerdict(),
+    metadataComplete: Boolean(
+      metadata.title.trim() && metadata.abstract.trim() && metadata.motivation.trim() && metadata.rationale.trim(),
+    ),
+    authorOk: !metadata.signAsAuthor || metadata.authorName.trim() !== '',
+    surveyRefOk: surveyRefState === null || surveyRefState.ok,
+    // Wired by the Proposal Draft link control, which does not exist yet.
+    draftConflict: false,
+    wallet: state.wallet,
+    depositLovelace: deposit.status === 'ready' ? deposit.lovelace : null,
+  });
 
   // ------------------------------------------------------------------
   // References row editor (optional, like GovTool's reference links).
@@ -458,20 +501,63 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
   }
 
   // ------------------------------------------------------------------
-  // Step 1: connect wallet, run network guard. Plain CIP-30 enable, no CIP-95
-  // extension: submitting a proposal needs no DRep key.
+  // The wallet step, at the END of the form: connect, run the network guard,
+  // read the reward address, then read the funding balance. Plain CIP-30
+  // enable, no CIP-95 extension: submitting a proposal needs no DRep key.
   // ------------------------------------------------------------------
+
+  /**
+   * Reads the wallet's funding balance with exactly the collector the
+   * transaction builder uses, so the readiness check and the builder cannot
+   * disagree about what the wallet holds. Also the "Check again" handler,
+   * which is why it takes the api rather than reading the ref: after a
+   * top-up nothing else has changed.
+   */
+  async function readBalance(api: Cip30Api) {
+    dispatch({ kind: 'walletBalanceLoading' });
+    try {
+      const utxos = await collectWalletUtxos(network, window.location.origin, api as unknown as WalletApi);
+      dispatch({ kind: 'walletBalance', lovelace: totalLovelace(utxos) });
+    } catch (err) {
+      dispatch({ kind: 'walletBalanceFailed', message: readableError(err) });
+    }
+  }
+
+  function handleCheckAgain() {
+    const api = enabledApiRef.current;
+    if (!api) return;
+    void readBalance(api);
+  }
+
   async function handleConnect() {
+    // A second click while the first connect is still running does nothing:
+    // the wallet is already showing its prompt.
+    if (state.wallet.status === 'connecting') return;
     const walletInfo = wallets.find((w) => w.key === selected);
     if (!walletInfo) return;
 
-    setPhase({ status: 'connecting' });
+    /**
+     * Back to no wallet, with the message next to the Connect button. Takes
+     * either a thrown value or a ready-made sentence, since one of the four
+     * failures here is our own rule rather than a wallet error.
+     */
+    function failed(err: unknown) {
+      dispatch({ kind: 'walletDisconnected' });
+      setPhase({
+        status: 'error',
+        message: typeof err === 'string' ? err : readableError(err),
+        step: 'connect',
+      });
+    }
+
+    setPhase({ status: 'editing' });
+    dispatch({ kind: 'walletConnecting' });
 
     let api: Cip30Api;
     try {
       api = (await walletInfo.raw.enable()) as unknown as Cip30Api;
     } catch (err) {
-      setPhase({ status: 'error', message: readableError(err), connected: false });
+      failed(err);
       return;
     }
 
@@ -480,30 +566,58 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
     try {
       await assertWalletNetwork(api, network);
     } catch (err) {
-      setPhase({ status: 'error', message: readableError(err), connected: false });
+      failed(err);
+      return;
+    }
+
+    // The reward address is required regardless of author signing: it is
+    // where the deposit refund lands, and (when signing) the address the
+    // CIP-108 witness proves ownership of. Read at connect time so a wallet
+    // that cannot provide one is rejected before anything is filled in
+    // against it.
+    let rewardAddressHex: string | undefined;
+    try {
+      rewardAddressHex = (await api.getRewardAddresses())[0];
+    } catch (err) {
+      failed(err);
+      return;
+    }
+    if (!rewardAddressHex) {
+      failed(
+        'Your wallet exposes no reward address, so it cannot receive the deposit refund. Please use a different wallet.',
+      );
       return;
     }
 
     enabledApiRef.current = api;
     rememberWallet(selected);
-    setPhase({ status: 'form' });
+    dispatch({ kind: 'walletConnected', rewardAddressHex });
+    void readBalance(api);
   }
 
   // ------------------------------------------------------------------
-  // Step 2: submit. Prepare + sign the author witness (if toggled), host the
-  // metadata, then build/sign/submit the propose tx.
+  // Submit. Prepare + sign the author witness (if toggled), host the
+  // metadata, then build/sign/submit the propose tx. The reward address comes
+  // from the state it was put into at connect time, the api from the ref.
   // ------------------------------------------------------------------
   async function handleSubmit() {
+    // The readiness list is the single gate: it already names every missing
+    // piece on screen, so a submit attempt that slips past the disabled
+    // button (the form's own Enter key) simply does nothing.
+    if (phase.status === 'submitting' || reasons.length > 0) return;
+
     const api = enabledApiRef.current;
-    if (!api) {
-      setPhase({ status: 'error', message: 'Wallet connection was lost. Please reconnect.', connected: false });
+    const rewardAddressHex = state.wallet.status === 'connected' ? state.wallet.rewardAddressHex : null;
+    if (!api || !rewardAddressHex) {
+      dispatch({ kind: 'walletDisconnected' });
+      setPhase({ status: 'error', message: 'Wallet connection was lost. Please reconnect.', step: 'connect' });
       return;
     }
     if (deposit.status !== 'ready') {
       setPhase({
         status: 'error',
         message: 'The current deposit amount has not finished loading. Please wait a moment and try again.',
-        connected: true,
+        step: 'submit',
       });
       return;
     }
@@ -511,7 +625,7 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
       setPhase({
         status: 'error',
         message: 'The current chain state has not finished loading. Please wait a moment and try again.',
-        connected: true,
+        step: 'submit',
       });
       return;
     }
@@ -523,12 +637,12 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
       rationale: metadata.rationale.trim(),
     };
     if (!fields.title || !fields.abstract || !fields.motivation || !fields.rationale) {
-      setPhase({ status: 'error', message: 'Please fill in every field.', connected: true });
+      setPhase({ status: 'error', message: 'Please fill in every field.', step: 'submit' });
       return;
     }
     const trimmedAuthorName = metadata.authorName.trim();
     if (metadata.signAsAuthor && !trimmedAuthorName) {
-      setPhase({ status: 'error', message: 'Enter a name to sign as the author, or turn off "Sign as author".', connected: true });
+      setPhase({ status: 'error', message: 'Enter a name to sign as the author, or turn off "Sign as author".', step: 'submit' });
       return;
     }
 
@@ -566,12 +680,12 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
           setPhase({
             status: 'error',
             message: 'Could not re-check the current chain state. Please try again.',
-            connected: true,
+            step: 'submit',
           });
           return;
         }
         if (!refStillPresent(prev, fresh.prev)) {
-          setPhase({ status: 'error', message: PREV_ACTION_CHANGED, connected: true });
+          setPhase({ status: 'error', message: PREV_ACTION_CHANGED, step: 'submit' });
           return;
         }
       }
@@ -581,7 +695,7 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
       // now, and the ledger would reject the proposal after the deposit.
       const prepared = prepareAction(fresh, prev);
       if (!prepared.ok) {
-        setPhase({ status: 'error', message: prepared.error, connected: true });
+        setPhase({ status: 'error', message: prepared.error, step: 'submit' });
         return;
       }
 
@@ -601,7 +715,7 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
             message: body?.error
               ? `Could not publish the constitution document: ${body.error}.`
               : 'Could not publish the constitution document. Nothing else was published, please try again.',
-            connected: true,
+            step: 'submit',
           });
           return;
         }
@@ -615,20 +729,6 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
         };
       } else {
         spec = prepared.spec;
-      }
-
-      // The reward address is required regardless of author signing: it is
-      // where the deposit refund lands, and (when signing) the address the
-      // CIP-108 witness proves ownership of.
-      const rewardAddresses = await api.getRewardAddresses();
-      const rewardAddressHex = rewardAddresses[0];
-      if (!rewardAddressHex) {
-        setPhase({
-          status: 'error',
-          message: 'Your wallet exposes no reward address, so it cannot receive the deposit refund. Please use a different wallet.',
-          connected: true,
-        });
-        return;
       }
 
       let author: { name: string; keyHex: string; signatureHex: string } | undefined;
@@ -645,7 +745,7 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
             message: body?.error
               ? `Could not prepare the metadata for signing: ${body.error}.`
               : 'Could not prepare the metadata for signing. Please try again.',
-            connected: true,
+            step: 'submit',
           });
           return;
         }
@@ -658,7 +758,7 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
         try {
           sig = await api.signData(rewardAddressHex, bodyHash);
         } catch (err) {
-          setPhase({ status: 'error', message: readableError(err), connected: true });
+          setPhase({ status: 'error', message: readableError(err), step: 'submit' });
           return;
         }
         author = { name: trimmedAuthorName, keyHex: sig.key, signatureHex: sig.signature };
@@ -679,7 +779,7 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
         setPhase({
           status: 'error',
           message: body?.error ? `Could not host the metadata: ${body.error}.` : 'Could not host the metadata. Please try again.',
-          connected: true,
+          step: 'submit',
         });
         return;
       }
@@ -707,13 +807,19 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
       if (typeof window !== 'undefined') clearGovActionDraft(window.localStorage, draftKey);
       setPhase({ status: 'success', txHash, authored: metadata.signAsAuthor });
     } catch (err) {
-      setPhase({ status: 'error', message: mapSubmitError(err, prev), connected: true });
+      setPhase({ status: 'error', message: mapSubmitError(err, prev), step: 'submit' });
     }
   }
 
+  /**
+   * "Use a different wallet": drops the enabled api, the reward address and
+   * the balance, and clears the error. The form itself is untouched, which is
+   * the point of the wallet living at the end of it.
+   */
   function reset() {
     enabledApiRef.current = null;
-    setPhase({ status: 'idle' });
+    dispatch({ kind: 'walletDisconnected' });
+    setPhase({ status: 'editing' });
   }
 
   // ------------------------------------------------------------------
@@ -836,308 +942,255 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
     <div style={{ maxWidth: '40rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
       <DepositInfo deposit={deposit} />
 
-      {wallets.length === 0 ? (
-        <div className="callout callout--info" role="status">
-          <InfoIcon />
-          <div className="callout__body">
-            No Cardano wallet extension detected. Please install one (e.g. Lace, Eternl, Typhon).
-          </div>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
-          {/* Wallet picker: shown until the form phase is reached, or on a
-              connect-step error (not yet connected). */}
-          {(phase.status === 'idle' || phase.status === 'connecting' || (phase.status === 'error' && !phase.connected)) && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
-              <WalletConnection
-                wallets={wallets}
-                selected={selected}
-                onSelect={setSelected}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void handleSubmit();
+        }}
+        style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}
+      >
+        <TypeSelector
+          value={state.type}
+          onChange={(type) => dispatch({ kind: 'setType', type })}
+          params={params}
+          disabled={busy}
+        />
+
+        {renderPanel()}
+
+        <CountedField id="ia-title" label="Title" count={metadata.title.length} max={INFO_TITLE_MAX} help="Short, descriptive title for the proposal.">
+          <input
+            id="ia-title"
+            type="text"
+            value={metadata.title}
+            onChange={(e) => setMetadata({ title: e.target.value })}
+            maxLength={INFO_TITLE_MAX}
+            required
+            disabled={busy}
+            style={inputStyle}
+            placeholder="Proposal title"
+          />
+        </CountedField>
+
+        <CountedField id="ia-abstract" label="Abstract" count={metadata.abstract.length} max={INFO_ABSTRACT_MAX} help="Brief summary of what this proposal is about.">
+          <textarea
+            id="ia-abstract"
+            value={metadata.abstract}
+            onChange={(e) => setMetadata({ abstract: e.target.value })}
+            maxLength={INFO_ABSTRACT_MAX}
+            rows={4}
+            required
+            disabled={busy}
+            style={textAreaStyle}
+            placeholder="What is this proposal about?"
+          />
+        </CountedField>
+
+        <CountedField id="ia-motivation" label="Motivation" count={metadata.motivation.length} max={INFO_MOTIVATION_MAX} help="Why this proposal is needed.">
+          <textarea
+            id="ia-motivation"
+            value={metadata.motivation}
+            onChange={(e) => setMetadata({ motivation: e.target.value })}
+            maxLength={INFO_MOTIVATION_MAX}
+            rows={8}
+            required
+            disabled={busy}
+            style={textAreaStyle}
+            placeholder="Why is this proposal needed?"
+          />
+        </CountedField>
+
+        <CountedField id="ia-rationale" label="Rationale" count={metadata.rationale.length} max={INFO_RATIONALE_MAX} help="Detailed reasoning behind the proposal.">
+          <textarea
+            id="ia-rationale"
+            value={metadata.rationale}
+            onChange={(e) => setMetadata({ rationale: e.target.value })}
+            maxLength={INFO_RATIONALE_MAX}
+            rows={10}
+            required
+            disabled={busy}
+            style={textAreaStyle}
+            placeholder="Explain the reasoning in detail..."
+          />
+        </CountedField>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          <span style={labelStyle}>References (optional)</span>
+          <span style={helpStyle}>Link to supporting documents or discussions, like GovTool&apos;s reference links.</span>
+          {metadata.references.map((ref, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: rows are positional inputs owned by index, there is no stable id
+            <div key={i} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <input
+                type="text"
+                value={ref.label}
+                onChange={(e) => updateReference(i, { label: e.target.value })}
+                placeholder="Label (e.g. Forum discussion)"
+                maxLength={REFERENCE_LABEL_MAX}
                 disabled={busy}
-                label="Signing wallet"
+                style={{ ...inputStyle, flex: '0 0 12rem' }}
+                aria-label={`Reference ${i + 1} label`}
+              />
+              <input
+                type="url"
+                value={ref.uri}
+                onChange={(e) => updateReference(i, { uri: e.target.value })}
+                placeholder="https://..."
+                maxLength={REFERENCE_URI_MAX}
+                disabled={busy}
+                style={{ ...inputStyle, flex: 1, minWidth: 0 }}
+                aria-label={`Reference ${i + 1} URL`}
               />
               <button
                 type="button"
-                className="btn btn-primary"
-                onClick={() => void handleConnect()}
+                onClick={() => removeReference(i)}
                 disabled={busy}
-                style={{ alignSelf: 'flex-start' }}
+                aria-label={`Remove reference ${i + 1}`}
+                style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: busy ? 'not-allowed' : 'pointer', fontSize: '0.8125rem', padding: '0 0.25rem', flexShrink: 0, textDecoration: 'underline' }}
               >
-                {phase.status === 'connecting' ? 'Connecting...' : phase.status === 'error' ? 'Try again' : 'Connect wallet'}
+                Remove
               </button>
             </div>
-          )}
-
-          {/* Connect-step error (not connected): state the problem. */}
-          {phase.status === 'error' && !phase.connected && (
-            <div className="callout callout--error" role="alert">
-              <ErrorIcon />
-              <div className="callout__body">{phase.message}</div>
+          ))}
+          {metadata.references.length < REFERENCES_MAX && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
+              <button
+                type="button"
+                onClick={addReference}
+                disabled={busy}
+                style={{ background: 'transparent', color: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: '0.375rem', padding: '0.375rem 0.75rem', fontSize: '0.875rem', cursor: busy ? 'not-allowed' : 'pointer' }}
+              >
+                Add reference
+              </button>
+              <span style={{ fontSize: '0.8125rem', color: 'var(--muted)' }}>You can add up to {REFERENCES_MAX} references.</span>
             </div>
           )}
+        </div>
 
-          {/* Form: shown once connected. Stays mounted during submit and on a
-              submit-time error so the inputs are never lost. */}
-          {(phase.status === 'form' || phase.status === 'submitting' || (phase.status === 'error' && phase.connected)) && (
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                void handleSubmit();
+        <div style={{ marginBottom: '1rem' }}>
+          <label htmlFor="ga-survey-ref" style={labelStyle}>Linked CIP-179 survey (optional)</label>
+          <p style={{ margin: '0 0 0.375rem', fontSize: '0.8125rem', color: 'var(--muted)' }}>
+            Paste the survey reference or a link to it. A survey only gets a thread here once it is
+            linked by an imported action, so this is how you link one.
+          </p>
+          <input
+            id="ga-survey-ref"
+            type="text"
+            value={metadata.surveyRef}
+            onChange={(e) => setMetadata({ surveyRef: e.target.value })}
+            disabled={busy}
+            placeholder="<transaction id>:<index>"
+            maxLength={2048}
+            style={inputStyle}
+          />
+          {surveyRefState && (
+            <p
+              style={{
+                margin: '0.375rem 0 0',
+                fontSize: '0.8125rem',
+                color: surveyRefState.ok ? 'var(--muted)' : 'var(--danger, #b3261e)',
               }}
-              style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}
             >
-              <TypeSelector
-                value={state.type}
-                onChange={(type) => dispatch({ kind: 'setType', type })}
-                params={params}
-                disabled={busy}
-              />
-
-              {renderPanel()}
-
-              <CountedField id="ia-title" label="Title" count={metadata.title.length} max={INFO_TITLE_MAX} help="Short, descriptive title for the proposal.">
-                <input
-                  id="ia-title"
-                  type="text"
-                  value={metadata.title}
-                  onChange={(e) => setMetadata({ title: e.target.value })}
-                  maxLength={INFO_TITLE_MAX}
-                  required
-                  disabled={busy}
-                  style={inputStyle}
-                  placeholder="Proposal title"
-                />
-              </CountedField>
-
-              <CountedField id="ia-abstract" label="Abstract" count={metadata.abstract.length} max={INFO_ABSTRACT_MAX} help="Brief summary of what this proposal is about.">
-                <textarea
-                  id="ia-abstract"
-                  value={metadata.abstract}
-                  onChange={(e) => setMetadata({ abstract: e.target.value })}
-                  maxLength={INFO_ABSTRACT_MAX}
-                  rows={4}
-                  required
-                  disabled={busy}
-                  style={textAreaStyle}
-                  placeholder="What is this proposal about?"
-                />
-              </CountedField>
-
-              <CountedField id="ia-motivation" label="Motivation" count={metadata.motivation.length} max={INFO_MOTIVATION_MAX} help="Why this proposal is needed.">
-                <textarea
-                  id="ia-motivation"
-                  value={metadata.motivation}
-                  onChange={(e) => setMetadata({ motivation: e.target.value })}
-                  maxLength={INFO_MOTIVATION_MAX}
-                  rows={8}
-                  required
-                  disabled={busy}
-                  style={textAreaStyle}
-                  placeholder="Why is this proposal needed?"
-                />
-              </CountedField>
-
-              <CountedField id="ia-rationale" label="Rationale" count={metadata.rationale.length} max={INFO_RATIONALE_MAX} help="Detailed reasoning behind the proposal.">
-                <textarea
-                  id="ia-rationale"
-                  value={metadata.rationale}
-                  onChange={(e) => setMetadata({ rationale: e.target.value })}
-                  maxLength={INFO_RATIONALE_MAX}
-                  rows={10}
-                  required
-                  disabled={busy}
-                  style={textAreaStyle}
-                  placeholder="Explain the reasoning in detail..."
-                />
-              </CountedField>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                <span style={labelStyle}>References (optional)</span>
-                <span style={helpStyle}>Link to supporting documents or discussions, like GovTool&apos;s reference links.</span>
-                {metadata.references.map((ref, i) => (
-                  // biome-ignore lint/suspicious/noArrayIndexKey: rows are positional inputs owned by index, there is no stable id
-                  <div key={i} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                    <input
-                      type="text"
-                      value={ref.label}
-                      onChange={(e) => updateReference(i, { label: e.target.value })}
-                      placeholder="Label (e.g. Forum discussion)"
-                      maxLength={REFERENCE_LABEL_MAX}
-                      disabled={busy}
-                      style={{ ...inputStyle, flex: '0 0 12rem' }}
-                      aria-label={`Reference ${i + 1} label`}
-                    />
-                    <input
-                      type="url"
-                      value={ref.uri}
-                      onChange={(e) => updateReference(i, { uri: e.target.value })}
-                      placeholder="https://..."
-                      maxLength={REFERENCE_URI_MAX}
-                      disabled={busy}
-                      style={{ ...inputStyle, flex: 1, minWidth: 0 }}
-                      aria-label={`Reference ${i + 1} URL`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeReference(i)}
-                      disabled={busy}
-                      aria-label={`Remove reference ${i + 1}`}
-                      style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: busy ? 'not-allowed' : 'pointer', fontSize: '0.8125rem', padding: '0 0.25rem', flexShrink: 0, textDecoration: 'underline' }}
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ))}
-                {metadata.references.length < REFERENCES_MAX && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
-                    <button
-                      type="button"
-                      onClick={addReference}
-                      disabled={busy}
-                      style={{ background: 'transparent', color: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: '0.375rem', padding: '0.375rem 0.75rem', fontSize: '0.875rem', cursor: busy ? 'not-allowed' : 'pointer' }}
-                    >
-                      Add reference
-                    </button>
-                    <span style={{ fontSize: '0.8125rem', color: 'var(--muted)' }}>You can add up to {REFERENCES_MAX} references.</span>
-                  </div>
-                )}
-              </div>
-
-              <div style={{ marginBottom: '1rem' }}>
-                <label htmlFor="ga-survey-ref" style={labelStyle}>Linked CIP-179 survey (optional)</label>
-                <p style={{ margin: '0 0 0.375rem', fontSize: '0.8125rem', color: 'var(--muted)' }}>
-                  Paste the survey reference or a link to it. A survey only gets a thread here once it is
-                  linked by an imported action, so this is how you link one.
-                </p>
-                <input
-                  id="ga-survey-ref"
-                  type="text"
-                  value={metadata.surveyRef}
-                  onChange={(e) => setMetadata({ surveyRef: e.target.value })}
-                  disabled={busy}
-                  placeholder="<transaction id>:<index>"
-                  maxLength={2048}
-                  style={inputStyle}
-                />
-                {surveyRefState && (
-                  <p
-                    style={{
-                      margin: '0.375rem 0 0',
-                      fontSize: '0.8125rem',
-                      color: surveyRefState.ok ? 'var(--muted)' : 'var(--danger, #b3261e)',
-                    }}
-                  >
-                    {surveyRefState.ok
-                      ? `Links survey ${surveyRefState.txId.slice(0, 12)}...:${surveyRefState.index}. We have not checked its end epoch or whether it can be admitted.`
-                      : surveyRefState.reason}
-                  </p>
-                )}
-              </div>
-
-              <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', fontSize: '0.875rem' }}>
-                <input
-                  type="checkbox"
-                  checked={metadata.signAsAuthor}
-                  onChange={(e) => setMetadata({ signAsAuthor: e.target.checked })}
-                  disabled={busy}
-                  style={{ marginTop: '0.15rem' }}
-                />
-                <span>
-                  Sign as author
-                  <span style={{ display: 'block', color: 'var(--muted)', fontSize: '0.8125rem', marginTop: '0.15rem' }}>
-                    Signs the metadata with your wallet&apos;s reward key. The document then shows &quot;Signed with wallet
-                    key&quot;; the name below is self-declared, not independently verified.
-                  </span>
-                </span>
-              </label>
-
-              {metadata.signAsAuthor && (
-                <CountedField id="ia-author-name" label="Author name" count={metadata.authorName.length} max={AUTHOR_NAME_MAX} help="Shown alongside the wallet-key signature.">
-                  <input
-                    id="ia-author-name"
-                    type="text"
-                    value={metadata.authorName}
-                    onChange={(e) => setMetadata({ authorName: e.target.value })}
-                    maxLength={AUTHOR_NAME_MAX}
-                    disabled={busy}
-                    style={inputStyle}
-                    placeholder="Your name"
-                  />
-                </CountedField>
-              )}
-
-              {/* Submit-time error: keep the form so the user can retry. */}
-              {phase.status === 'error' && phase.connected && (
-                <div className="callout callout--error" role="alert">
-                  <ErrorIcon />
-                  <div className="callout__body">
-                    {phase.message}{' '}
-                    <button
-                      type="button"
-                      onClick={reset}
-                      style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', padding: 0, font: 'inherit', textDecoration: 'underline' }}
-                    >
-                      Use a different wallet
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Order of operations, stated before the button rather than
-                  discovered at the wallet prompt. The publish step comes first
-                  because the transaction anchors the document by its hash, so
-                  the document has to exist to be anchored. That makes the text
-                  public one step before the user commits on chain, which is the
-                  part nobody expects, so it is said plainly. */}
-              <div className="callout callout--info">
-                <div className="callout__body">
-                  <p style={{ margin: 0 }}>
-                    <strong>What happens when you submit</strong>
-                  </p>
-                  <ol style={{ margin: '0.4rem 0 0', paddingLeft: '1.15rem', fontSize: '0.875rem', lineHeight: 1.5 }}>
-                    {state.type === 'NewConstitution' && (
-                      <li>
-                        The constitution document is published to IPFS first, so a failed upload stops the flow before
-                        anything else is published.
-                      </li>
-                    )}
-                    {metadata.signAsAuthor && (
-                      <li>Your wallet asks you to sign the metadata. This is the author signature, not a payment.</li>
-                    )}
-                    <li>
-                      The document is published to IPFS, where it is public and permanent. It stays published even if
-                      you decline the next step.
-                    </li>
-                    <li>
-                      Your wallet asks you to sign the transaction, which locks the
-                      {deposit.status === 'ready' ? ` ${formatAda(deposit.lovelace)} tADA ` : ' '}
-                      deposit and puts the proposal on chain.
-                    </li>
-                  </ol>
-                  <p style={{ margin: '0.4rem 0 0', fontSize: '0.875rem' }}>
-                    So {metadata.signAsAuthor ? 'there are two wallet prompts, and nothing costs' : 'nothing costs'} ada until
-                    the last one. Stopping before it leaves the text published with no proposal pointing at it.
-                  </p>
-                </div>
-              </div>
-
-              <div>
-                <button type="submit" className="btn btn-primary" disabled={busy || deposit.status !== 'ready' || (chained && !contextReady) || committeeBlocked}>
-                  {phase.status === 'submitting' ? 'Awaiting wallet...' : 'Submit proposal'}
-                </button>
-              </div>
-
-              {phase.status === 'submitting' && (
-                <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
-                  {metadata.signAsAuthor
-                    ? 'Please approve each wallet prompt. The first signs the metadata, the second sends the transaction.'
-                    : 'Please review and approve the transaction in your wallet.'}
-                </p>
-              )}
-            </form>
+              {surveyRefState.ok
+                ? `Links survey ${surveyRefState.txId.slice(0, 12)}...:${surveyRefState.index}. We have not checked its end epoch or whether it can be admitted.`
+                : surveyRefState.reason}
+            </p>
           )}
         </div>
-      )}
+
+        <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', fontSize: '0.875rem' }}>
+          <input
+            type="checkbox"
+            checked={metadata.signAsAuthor}
+            onChange={(e) => setMetadata({ signAsAuthor: e.target.checked })}
+            disabled={busy}
+            style={{ marginTop: '0.15rem' }}
+          />
+          <span>
+            Sign as author
+            <span style={{ display: 'block', color: 'var(--muted)', fontSize: '0.8125rem', marginTop: '0.15rem' }}>
+              Signs the metadata with your wallet&apos;s reward key. The document then shows &quot;Signed with wallet
+              key&quot;; the name below is self-declared, not independently verified.
+            </span>
+          </span>
+        </label>
+
+        {metadata.signAsAuthor && (
+          <CountedField id="ia-author-name" label="Author name" count={metadata.authorName.length} max={AUTHOR_NAME_MAX} help="Shown alongside the wallet-key signature.">
+            <input
+              id="ia-author-name"
+              type="text"
+              value={metadata.authorName}
+              onChange={(e) => setMetadata({ authorName: e.target.value })}
+              maxLength={AUTHOR_NAME_MAX}
+              disabled={busy}
+              style={inputStyle}
+              placeholder="Your name"
+            />
+          </CountedField>
+        )}
+
+        {/* Order of operations, stated before the button rather than
+            discovered at the wallet prompt. The publish step comes first
+            because the transaction anchors the document by its hash, so
+            the document has to exist to be anchored. That makes the text
+            public one step before the user commits on chain, which is the
+            part nobody expects, so it is said plainly. */}
+        <div className="callout callout--info">
+          <div className="callout__body">
+            <p style={{ margin: 0 }}>
+              <strong>What happens when you submit</strong>
+            </p>
+            <ol style={{ margin: '0.4rem 0 0', paddingLeft: '1.15rem', fontSize: '0.875rem', lineHeight: 1.5 }}>
+              {state.type === 'NewConstitution' && (
+                <li>
+                  The constitution document is published to IPFS first, so a failed upload stops the flow before
+                  anything else is published.
+                </li>
+              )}
+              {metadata.signAsAuthor && (
+                <li>Your wallet asks you to sign the metadata. This is the author signature, not a payment.</li>
+              )}
+              <li>
+                The document is published to IPFS, where it is public and permanent. It stays published even if
+                you decline the next step.
+              </li>
+              <li>
+                Your wallet asks you to sign the transaction, which locks the
+                {deposit.status === 'ready' ? ` ${formatAdaPlain(deposit.lovelace)} tADA ` : ' '}
+                deposit and puts the proposal on chain.
+              </li>
+            </ol>
+            <p style={{ margin: '0.4rem 0 0', fontSize: '0.875rem' }}>
+              So {metadata.signAsAuthor ? 'there are two wallet prompts, and nothing costs' : 'nothing costs'} ada until
+              the last one. Stopping before it leaves the text published with no proposal pointing at it.
+            </p>
+          </div>
+        </div>
+
+        <SignAndSubmit
+          wallets={wallets}
+          selected={selected}
+          onSelect={setSelected}
+          wallet={state.wallet}
+          deposit={deposit}
+          reasons={reasons}
+          onConnect={() => void handleConnect()}
+          onCheckAgain={handleCheckAgain}
+          onSubmit={() => void handleSubmit()}
+          submitting={busy}
+          connectError={phase.status === 'error' && phase.step === 'connect' ? phase.message : null}
+          submitError={phase.status === 'error' && phase.step === 'submit' ? phase.message : null}
+          onUseDifferentWallet={reset}
+        />
+
+        {phase.status === 'submitting' && (
+          <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
+            {metadata.signAsAuthor
+              ? 'Please approve each wallet prompt. The first signs the metadata, the second sends the transaction.'
+              : 'Please review and approve the transaction in your wallet.'}
+          </p>
+        )}
+      </form>
     </div>
   );
 }

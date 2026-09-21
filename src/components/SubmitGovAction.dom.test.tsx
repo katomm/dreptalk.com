@@ -1,12 +1,15 @@
 // @vitest-environment happy-dom
-// The one DOM test for the submit island. Everything decidable without React
-// is covered by the reducer and the leaf validators, so this test exists for
-// exactly what those cannot reach: the effects and their dependency lists.
-// Three things break silently if a dependency list is wrong, and all three are
-// asserted here: a type switch must not touch the metadata or lose a panel, a
-// remount must restore the whole form from storage (which means the save
-// effect has to have written the panels and the type, not just the text), and
-// a rejected submit must leave both the form and the stored draft alone.
+// The DOM tests for the submit island. Everything decidable without React is
+// covered by the reducer, readiness.ts and the leaf validators, so these tests
+// exist for exactly what those cannot reach: the effects and their dependency
+// lists, and the wiring between the form, the wallet step and the readiness
+// list. Three things break silently if a dependency list is wrong, and all
+// three are asserted here: a type switch must not touch the metadata or lose a
+// panel, a remount must restore the whole form from storage (which means the
+// save effect has to have written the panels and the type, not just the text),
+// and a rejected submit must leave both the form and the stored draft alone.
+// The wallet-last scenarios are the other half: the form has to be usable with
+// no wallet and no extension at all.
 //
 // The environment is file-scoped on purpose: the node and workers test
 // projects keep their own environments.
@@ -25,6 +28,19 @@ const submitGovActionMock = vi.fn();
 vi.mock('@/lib/governance/govActionTx.js', () => ({
   submitGovAction: (...args: unknown[]) => submitGovActionMock(...args),
 }));
+
+// The balance read goes through the collector, not through getUtxos: it reads
+// Koios by the wallet's addresses, so the wallet mock cannot control it. Only
+// the collector is replaced, so totalLovelace and the funding headroom stay
+// the real ones the transaction builder uses.
+let walletLovelace = 200_000_000_000n;
+vi.mock('@/lib/governance/walletUtxos.js', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/lib/governance/walletUtxos.js')>();
+  return {
+    ...actual,
+    collectWalletUtxos: async () => [{ assets: { lovelace: walletLovelace } }],
+  };
+});
 
 const DRAFT_KEY = govActionDraftKey('preprod');
 const MEMBER_A = 'a'.repeat(56);
@@ -103,10 +119,10 @@ function installWalletMock() {
   return api;
 }
 
-/** Connects the wallet and waits for the form to appear. */
+/** Connects the wallet and waits for the balance read to come back. */
 async function connect() {
   fireEvent.click(await screen.findByRole('button', { name: 'Connect wallet' }));
-  await screen.findByLabelText('Title');
+  await screen.findByText(/^Deposit /, {}, SLOW);
 }
 
 function fillMetadata() {
@@ -130,6 +146,7 @@ describe('SubmitGovAction', () => {
   beforeEach(() => {
     window.localStorage.clear();
     submitGovActionMock.mockReset();
+    walletLovelace = 200_000_000_000n;
     installFetchMock();
     installWalletMock();
   });
@@ -205,5 +222,73 @@ describe('SubmitGovAction', () => {
     const draft = loadGovActionDraft(window.localStorage, DRAFT_KEY);
     expect(draft?.type).toBe('UpdateCommittee');
     expect(draft?.title).toBe('A committee change');
+  });
+
+  it('shows the whole form with no wallet extension at all, and says so in the sign section', async () => {
+    (window as unknown as { cardano: unknown }).cardano = {};
+    render(<SubmitGovAction network="preprod" />);
+
+    // The form is the page, not something behind a wallet gate.
+    fillMetadata();
+    expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('A committee change');
+    expect(screen.getByRole('radio', { name: /Update committee/ })).toBeTruthy();
+
+    await screen.findByText('Connect a wallet');
+    await screen.findByText(/No Cardano wallet extension detected/);
+    expect(screen.queryByRole('button', { name: 'Connect wallet' })).toBeNull();
+    expect((screen.getByRole('button', { name: 'Submit proposal' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('asks only for a wallet once the form itself is complete', async () => {
+    render(<SubmitGovAction network="preprod" />);
+    fillMetadata();
+    await fillCommitteePanel();
+
+    // Scoped to the readiness list itself, so the deposit callout's own bullet
+    // list cannot stand in for a reason.
+    await waitFor(() => {
+      const list = screen.getByText('Before you can submit').parentElement as HTMLElement;
+      const items = [...list.querySelectorAll('li')].map(li => li.textContent);
+      expect(items).toEqual(['Connect a wallet']);
+    }, SLOW);
+  });
+
+  it('keeps the filled form when the connect attempt fails', async () => {
+    const cardano = (window as unknown as { cardano: Record<string, { enable: () => Promise<unknown> }> }).cardano;
+    cardano.testwallet.enable = vi.fn(async () => {
+      throw new Error('user rejected the connection');
+    });
+    render(<SubmitGovAction network="preprod" />);
+    fillMetadata();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Connect wallet' }));
+
+    await screen.findByText(/rejected/i, {}, SLOW);
+    expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('A committee change');
+    // Back to no wallet, so the list asks for one again and the button offers a retry.
+    await screen.findByText('Connect a wallet');
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
+  });
+
+  it('names both figures on a short wallet and clears them after a top-up', async () => {
+    // Deposit 100,000 tADA plus the 5 tADA reserve, against a 900 tADA wallet.
+    walletLovelace = 900_000_000n;
+    render(<SubmitGovAction network="preprod" />);
+    fillMetadata();
+    await fillCommitteePanel();
+    await connect();
+
+    await screen.findByText(
+      'The wallet holds 900 tADA, the deposit plus a 5 tADA fee reserve needs 100,005',
+      {},
+      SLOW,
+    );
+    const submit = screen.getByRole('button', { name: 'Submit proposal' }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+
+    walletLovelace = 200_000_000_000n;
+    fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
+    await waitFor(() => expect(screen.queryByText(/The wallet holds/)).toBeNull(), SLOW);
+    await waitFor(() => expect(submit.disabled).toBe(false), SLOW);
   });
 });
