@@ -11,6 +11,7 @@
 //        (default: dist/server and dist/client/_astro, each checked on its own)
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
+import { init, parse } from 'es-module-lexer';
 
 const roots = (process.argv.length > 2 ? process.argv.slice(2) : ['dist/server', 'dist/client/_astro']).map((d) => resolve(d));
 
@@ -22,11 +23,15 @@ function jsFiles(dir) {
   });
 }
 
-// `import ... from "./x"`, `export ... from "./x"` and bare `import "./x"`, but
-// not `import("./x")`. Minified client chunks drop the spaces
-// (`import{a as b}from"./x.js"`), so no whitespace is required around `from`.
-// Only relative specifiers point at other chunks.
-const STATIC_IMPORT = /(?:^|[\s;}])(?:import|export)\s*(?:[^'"();]*?\bfrom\s*)?["'](\.{1,2}\/[^"']+)["']/g;
+// Module references come from a real ES module lexer, not a pattern: a pattern
+// miscounts import-like text inside strings or comments and misses legal forms
+// such as string-named bindings. Only static imports and re-exports (d === -1)
+// count, and only relative specifiers point at other chunks.
+await init;
+function staticRelativeImports(source) {
+  const [imports] = parse(source);
+  return imports.filter((i) => i.d === -1 && i.n && /^\.{1,2}\//.test(i.n)).map((i) => i.n);
+}
 
 function cyclesIn(root) {
   const files = jsFiles(root);
@@ -35,7 +40,7 @@ function cyclesIn(root) {
   for (const file of files) {
     const source = readFileSync(file, 'utf8');
     const targets = new Set();
-    for (const match of source.matchAll(STATIC_IMPORT)) targets.add(resolve(dirname(file), match[1]));
+    for (const spec of staticRelativeImports(source)) targets.add(resolve(dirname(file), spec));
     edges.set(file, [...targets].filter((t) => known.has(t)));
   }
 
