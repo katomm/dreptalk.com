@@ -51,6 +51,19 @@ async function seedTitle(id: string, title: string) {
   ).bind(id, title).run();
 }
 
+async function seedCcName(hotKeyHex: string, name: string, sourceBlockTime: number) {
+  await env.DB.prepare(
+    `INSERT INTO cc_member_name (hot_key_hex, name, source_ga_id, source_block_time, updated_at)
+     VALUES (?, ?, NULL, ?, ?)`,
+  ).bind(hotKeyHex, name, sourceBlockTime, sourceBlockTime).run();
+}
+
+async function seedHotKey(hotKeyHex: string, coldKeyHex: string) {
+  await env.DB.prepare('INSERT INTO committee_hot_key (hot_key_hex, cold_key_hex) VALUES (?, ?)')
+    .bind(hotKeyHex, coldKeyHex)
+    .run();
+}
+
 describe('handleActionContext', () => {
   it('401s when signed out', async () => {
     const res = await handleActionContext(ctx('InfoAction', null), { koios: mockKoios(), network: preprod, env: testEnv });
@@ -215,14 +228,112 @@ describe('handleActionContext', () => {
     expect(res.status).toBe(200);
     const json = (await res.json()) as {
       committee: {
-        members: { coldHex: string | null; hasScript: boolean; expirationEpoch: number | null }[];
+        members: { coldHex: string | null; hasScript: boolean; expirationEpoch: number | null; name: string | null }[];
         quorum: { numerator: number; denominator: number } | null;
         maxTermLength: number | null;
       };
     };
-    expect(json.committee.members).toEqual([{ coldHex: 'abc123', hasScript: true, expirationEpoch: 700 }]);
+    expect(json.committee.members).toEqual([{ coldHex: 'abc123', hasScript: true, expirationEpoch: 700, name: null }]);
     expect(json.committee.quorum).toEqual({ numerator: 0, denominator: 1 });
     expect(json.committee.maxTermLength).toBeNull();
+  });
+
+  it('names a committee member from its self-declared vote rationale, resolved cold-key through the hot-to-cold map', async () => {
+    const cold = 'c'.repeat(56);
+    const hot = 'h'.repeat(56);
+    await seedHotKey(hot, cold);
+    await seedCcName(hot, 'Alice', 100);
+
+    const res = await handleActionContext(ctx('UpdateCommittee'), {
+      koios: mockKoios({
+        committeeContext: async () => ({
+          members: [
+            {
+              status: 'authorized',
+              cc_hot_id: null,
+              cc_cold_id: null,
+              cc_hot_hex: hot,
+              cc_cold_hex: cold,
+              expiration_epoch: 700,
+              cc_hot_has_script: null,
+              cc_cold_has_script: false,
+            },
+          ],
+          quorum: { numerator: 2, denominator: 3 },
+        }),
+      }),
+      network: preprod,
+      env: testEnv,
+    });
+    const json = (await res.json()) as {
+      committee: { members: { coldHex: string | null; hasScript: boolean; expirationEpoch: number | null; name: string | null }[] };
+    };
+    expect(json.committee.members).toEqual([{ coldHex: cold, hasScript: false, expirationEpoch: 700, name: 'Alice' }]);
+  });
+
+  it('leaves name null for a committee member with no stored display name', async () => {
+    const cold = 'd'.repeat(56);
+    const res = await handleActionContext(ctx('NoConfidence'), {
+      koios: mockKoios({
+        committeeContext: async () => ({
+          members: [
+            {
+              status: 'authorized',
+              cc_hot_id: null,
+              cc_cold_id: null,
+              cc_hot_hex: null,
+              cc_cold_hex: cold,
+              expiration_epoch: 700,
+              cc_hot_has_script: null,
+              cc_cold_has_script: false,
+            },
+          ],
+          quorum: { numerator: 2, denominator: 3 },
+        }),
+      }),
+      network: preprod,
+      env: testEnv,
+    });
+    const json = (await res.json()) as {
+      committee: { members: { coldHex: string | null; hasScript: boolean; expirationEpoch: number | null; name: string | null }[] };
+    };
+    expect(json.committee.members).toEqual([{ coldHex: cold, hasScript: false, expirationEpoch: 700, name: null }]);
+  });
+
+  it('resolves the current name through a rotated hot key: the newer vote under the newer hot key wins', async () => {
+    const cold = 'e'.repeat(56);
+    const oldHot = 'f'.repeat(56);
+    const newHot = '1'.repeat(56);
+    await seedHotKey(oldHot, cold);
+    await seedHotKey(newHot, cold);
+    await seedCcName(oldHot, 'Old Name', 100);
+    await seedCcName(newHot, 'New Name', 200);
+
+    const res = await handleActionContext(ctx('UpdateCommittee'), {
+      koios: mockKoios({
+        committeeContext: async () => ({
+          members: [
+            {
+              status: 'authorized',
+              cc_hot_id: null,
+              cc_cold_id: null,
+              cc_hot_hex: newHot,
+              cc_cold_hex: cold,
+              expiration_epoch: 700,
+              cc_hot_has_script: null,
+              cc_cold_has_script: false,
+            },
+          ],
+          quorum: { numerator: 2, denominator: 3 },
+        }),
+      }),
+      network: preprod,
+      env: testEnv,
+    });
+    const json = (await res.json()) as {
+      committee: { members: { coldHex: string | null; hasScript: boolean; expirationEpoch: number | null; name: string | null }[] };
+    };
+    expect(json.committee.members).toEqual([{ coldHex: cold, hasScript: false, expirationEpoch: 700, name: 'New Name' }]);
   });
 
   it('includes constitution.scriptHash from the last ratified row, null when there is none', async () => {

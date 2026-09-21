@@ -2,8 +2,8 @@
 // the UpdateCommittee field rules (expiry, conflicts, quorum). Pure logic
 // only, no network and no D1, so the /ga/new form can depend on this leaf
 // module directly.
-import { decodeBech32 } from '../crypto/bech32.js';
-import { bytesToHex, HEX_HASH_224_RE } from '../crypto/hex.js';
+import { decodeBech32, encodeBech32 } from '../crypto/bech32.js';
+import { bytesToHex, hexToBytes, HEX_HASH_224_RE } from '../crypto/hex.js';
 
 /** A committee member's cold credential: a key hash or a script hash. */
 export type ColdCredential = { hashHex: string; isScript: boolean };
@@ -103,6 +103,20 @@ export function parseColdCredential(
   }
 
   return null;
+}
+
+/**
+ * Encodes a cold credential as its CIP-129 cc_cold bech32 form, the inverse of
+ * parseColdCredential's bech32 branch: the header byte (0x12 key, 0x13
+ * script) followed by the 28-byte hash. Used to show members the panel
+ * already has as hex in the bech32 form CIP-129 wallets and explorers expect.
+ */
+export function ccColdBech32(hashHex: string, isScript: boolean): string {
+  const header = isScript ? CC_COLD_SCRIPT_HEADER : CC_COLD_KEY_HEADER;
+  const payload = new Uint8Array(29);
+  payload[0] = header;
+  payload.set(hexToBytes(hashHex), 1);
+  return encodeBech32(CC_COLD_PREFIX, payload);
 }
 
 function credentialKey(c: { hashHex: string; isScript: boolean }): string {

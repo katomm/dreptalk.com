@@ -365,8 +365,8 @@ function committeeCtx(): ActionContextResponse {
     },
     committee: {
       members: [
-        { coldHex: MEMBER_A, hasScript: false, expirationEpoch: 600 },
-        { coldHex: MEMBER_B, hasScript: false, expirationEpoch: 610 },
+        { coldHex: MEMBER_A, hasScript: false, expirationEpoch: 600, name: null },
+        { coldHex: MEMBER_B, hasScript: false, expirationEpoch: 610, name: null },
       ],
       quorum: { numerator: 2, denominator: 3 },
       maxTermLength: 100,

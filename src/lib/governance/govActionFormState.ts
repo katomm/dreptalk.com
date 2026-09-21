@@ -652,7 +652,10 @@ export function validateCommitteePanel(
   const parseErrors: ValidationError[] = [];
   const committee = context?.committee ?? null;
   const members: CurrentMember[] = (committee?.members ?? [])
-    .filter((m): m is { coldHex: string; hasScript: boolean; expirationEpoch: number | null } => m.coldHex !== null)
+    .filter(
+      (m): m is { coldHex: string; hasScript: boolean; expirationEpoch: number | null; name: string | null } =>
+        m.coldHex !== null,
+    )
     .map(m => ({ hashHex: m.coldHex.toLowerCase(), isScript: m.hasScript, expirationEpoch: m.expirationEpoch }));
 
   const remove: ColdCredential[] = [];

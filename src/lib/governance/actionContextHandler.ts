@@ -25,6 +25,9 @@ import {
 } from './prevAction.js';
 import { parseHardForkVersion, parseProposalPolicyHash, decodeOnchainChanges } from './onchain.js';
 import { getGovernanceActionTitlesByIds } from '../db/governance.js';
+import { getCommitteeTimeline } from '../db/committee.js';
+import { getAllCcMemberNames } from '../db/ccMemberName.js';
+import { buildCcNameIndex } from './ccNames.js';
 import type { ProposalListRow, EpochParamsRow, CommitteeMember } from '../koios/client.js';
 
 // Proposal types whose ledger-accepted policy hash witnesses the constitution's
@@ -98,7 +101,7 @@ export interface ActionContextResponse {
   prev?: { lastEnacted: GovActionRef | null; open: GovActionRef[] };
   protocolVersion?: { major: number; minor: number };
   committee?: {
-    members: { coldHex: string | null; hasScript: boolean; expirationEpoch: number | null }[];
+    members: { coldHex: string | null; hasScript: boolean; expirationEpoch: number | null; name: string | null }[];
     quorum: { numerator: number; denominator: number } | null;
     maxTermLength: number | null;
   };
@@ -203,13 +206,21 @@ export async function handleActionContext(
     // force there. Only fetched for the type that needs it.
     const policyRowPromise =
       type === 'NewConstitution' ? deps.koios.lastRatifiedProposal(POLICY_HASH_WITNESS_TYPES) : null;
+    // Committee member display names: two small D1 reads (the timeline for
+    // hot-to-cold resolution, plus the stored names themselves), only for the
+    // two types that show committee members. No extra Koios call.
+    const namesPromise =
+      type === 'NoConfidence' || type === 'UpdateCommittee'
+        ? Promise.all([getCommitteeTimeline(db), getAllCcMemberNames(db)])
+        : null;
 
-    const [tip, prevResult, params, committeeCtx, policyRows] = await Promise.all([
+    const [tip, prevResult, params, committeeCtx, policyRows, namesResult] = await Promise.all([
       tipPromise,
       prevPromise,
       paramsPromise,
       committeePromise,
       policyRowPromise,
+      namesPromise,
     ]);
 
     const response: ActionContextResponse = { epoch: tip.epoch_no };
@@ -220,11 +231,13 @@ export async function handleActionContext(
     }
 
     if (committeeCtx) {
+      const nameIndex = namesResult ? buildCcNameIndex(namesResult[1], namesResult[0].hotToCold) : null;
       response.committee = {
         members: committeeCtx.members.map((m) => ({
           coldHex: m.cc_cold_hex,
           hasScript: m.cc_cold_has_script === true,
           expirationEpoch: m.expiration_epoch,
+          name: m.cc_cold_hex != null ? (nameIndex?.byCold(m.cc_cold_hex) ?? null) : null,
         })),
         quorum: committeeCtx.quorum,
         maxTermLength: params?.committee_max_term_length ?? null,

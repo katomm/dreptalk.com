@@ -155,7 +155,7 @@ function fillMetadata() {
 async function fillCommitteePanel() {
   fireEvent.click(screen.getByRole('radio', { name: /Update committee/ }));
   await screen.findByText('Members to remove');
-  fireEvent.click(screen.getByRole('checkbox', { name: new RegExp(MEMBER_A.slice(0, 12)) }));
+  fireEvent.click(screen.getByDisplayValue(MEMBER_A));
   fireEvent.click(screen.getByRole('button', { name: 'Add a member' }));
   fireEvent.change(screen.getByLabelText('Credential to add 1'), { target: { value: NEW_MEMBER } });
   fireEvent.change(screen.getByLabelText('Expiry epoch for addition 1'), { target: { value: '560' } });
@@ -192,7 +192,7 @@ describe('SubmitGovAction', () => {
     await screen.findByLabelText('Credential to add 1');
     expect((screen.getByLabelText('Credential to add 1') as HTMLInputElement).value).toBe(NEW_MEMBER);
     expect((screen.getByLabelText('Expiry epoch for addition 1') as HTMLInputElement).value).toBe('560');
-    expect((screen.getByRole('checkbox', { name: new RegExp(MEMBER_A.slice(0, 12)) }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByDisplayValue(MEMBER_A) as HTMLInputElement).checked).toBe(true);
   });
 
   it('restores the type, the metadata and the panel from storage after a remount', async () => {

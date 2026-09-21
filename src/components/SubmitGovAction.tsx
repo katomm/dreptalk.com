@@ -68,7 +68,7 @@ import HardForkPanel from '@/components/govAction/HardForkPanel.js';
 import NewConstitutionPanel from '@/components/govAction/NewConstitutionPanel.js';
 import UpdateCommitteePanel from '@/components/govAction/UpdateCommitteePanel.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
-import { txExplorerUrl } from '@/lib/config/network.js';
+import { resolveNetwork, txExplorerUrl } from '@/lib/config/network.js';
 import { readableError } from '@/lib/wallet/walletError.js';
 import { assertWalletNetwork } from '@/lib/wallet/networkGuard.js';
 import { inputStyle, labelStyle } from '@/components/drepFormStyles.js';
@@ -245,6 +245,10 @@ function DepositInfo({ deposit }: { deposit: DepositState }) {
 // ---------------------------------------------------------------------------
 
 export default function SubmitGovAction({ network }: SubmitGovActionProps) {
+  // resolveNetwork returns the same cached config object for a given
+  // network every call, so this needs no memoization to stay referentially
+  // stable across renders.
+  const networkConfig = resolveNetwork(network);
   const { wallets, selected, setSelected } = useCardanoWallets();
   const [phase, setPhase] = useState<Phase>({ status: 'editing' });
   const [deposit, setDeposit] = useState<DepositState>({ status: 'loading' });
@@ -871,6 +875,7 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
             context={prevContext}
             value={state.panels.NoConfidence.prev}
             onChange={(prev) => dispatch({ kind: 'setPanel', type: 'NoConfidence', state: { prev } })}
+            networkConfig={networkConfig}
             disabled={busy}
           />
         );
@@ -880,6 +885,7 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
             context={contextData}
             value={state.panels.HardForkInitiation}
             onChange={(panel) => dispatch({ kind: 'setPanel', type: 'HardForkInitiation', state: panel })}
+            networkConfig={networkConfig}
             disabled={busy}
           />
         );
@@ -889,6 +895,7 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
             context={contextData}
             value={state.panels.NewConstitution}
             onChange={(panel) => dispatch({ kind: 'setPanel', type: 'NewConstitution', state: panel })}
+            networkConfig={networkConfig}
             disabled={busy}
           />
         );
@@ -898,6 +905,7 @@ export default function SubmitGovAction({ network }: SubmitGovActionProps) {
             context={contextData}
             value={state.panels.UpdateCommittee}
             onChange={(panel) => dispatch({ kind: 'setPanel', type: 'UpdateCommittee', state: panel })}
+            networkConfig={networkConfig}
             disabled={busy}
           />
         );

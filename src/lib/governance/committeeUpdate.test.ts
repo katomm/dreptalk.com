@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { encodeBech32 } from '../crypto/bech32.js';
 import {
   type ColdCredential,
+  ccColdBech32,
   parseColdCredential,
   validateCommitteeUpdate,
 } from './committeeUpdate.js';
@@ -375,5 +376,34 @@ describe('validateCommitteeUpdate', () => {
         expect(result.errors.some(e => e.field === 'add[0].expiryEpoch')).toBe(true);
       }
     });
+  });
+});
+
+describe('ccColdBech32', () => {
+  it('encodes a key hash as a real cc_cold bech32 string decodable by parseColdCredential', () => {
+    const hashHex = 'd'.repeat(56);
+    const bech32 = ccColdBech32(hashHex, false);
+    expect(bech32.startsWith('cc_cold1')).toBe(true);
+    expect(parseColdCredential(bech32, 'key')).toEqual({ hashHex, isScript: false });
+  });
+
+  it('encodes a script hash as a real cc_cold bech32 string decodable by parseColdCredential', () => {
+    const hashHex = 'e'.repeat(56);
+    const bech32 = ccColdBech32(hashHex, true);
+    expect(bech32.startsWith('cc_cold1')).toBe(true);
+    expect(parseColdCredential(bech32, 'key')).toEqual({ hashHex, isScript: true });
+  });
+
+  it('round-trips against a known real cc_cold credential', () => {
+    expect(ccColdBech32(SCRIPT_HEX, true)).toBe(SCRIPT_BECH32);
+  });
+
+  it('round-trips arbitrary hashes for both kinds through parseColdCredential', () => {
+    for (const isScript of [false, true]) {
+      const hashHex = (isScript ? 'f' : '0').repeat(56);
+      const bech32 = ccColdBech32(hashHex, isScript);
+      const parsed = parseColdCredential(bech32, 'key');
+      expect(parsed).toEqual({ hashHex, isScript });
+    }
   });
 });

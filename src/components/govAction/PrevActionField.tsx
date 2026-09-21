@@ -11,12 +11,15 @@
 import type { CSSProperties } from 'react';
 import { matchesRef } from '@/lib/governance/prevAction.js';
 import type { PrevActionRef, GovActionRef } from '@/lib/governance/prevAction.js';
+import { epochWithDate } from '@/lib/governance/epochLabel.js';
+import type { NetworkConfig } from '@/lib/config/network.js';
 import { labelStyle, mutedStyle } from '@/components/drepFormStyles.js';
 
 export interface PrevActionFieldProps {
   context: { lastEnacted: GovActionRef | null; open: GovActionRef[] };
   value: PrevActionRef | null;
   onChange: (value: PrevActionRef | null) => void;
+  networkConfig: NetworkConfig;
   disabled?: boolean;
 }
 
@@ -30,26 +33,26 @@ function refLabel(ref: GovActionRef): string {
   return ref.title ?? `${ref.id.slice(0, 16)}...`;
 }
 
-function RefLine({ action }: { action: GovActionRef }) {
+function RefLine({ action, networkConfig }: { action: GovActionRef; networkConfig: NetworkConfig }) {
   return (
     <>
       <a href={`/ga/${action.id}/`} style={{ color: 'var(--accent)' }}>
         {refLabel(action)}
       </a>{' '}
       <span style={mutedStyle}>
-        ({action.type}, proposed in epoch {action.proposedEpoch})
+        ({action.type}, proposed in {epochWithDate(action.proposedEpoch, networkConfig)})
       </span>
     </>
   );
 }
 
-export default function PrevActionField({ context, value, onChange, disabled = false }: PrevActionFieldProps) {
+export default function PrevActionField({ context, value, onChange, networkConfig, disabled = false }: PrevActionFieldProps) {
   const { lastEnacted, open } = context;
   return (
     <div>
       <span style={labelStyle}>Previous action</span>
       <p style={{ ...rowStyle, margin: '0 0 0.5rem' }}>
-        {lastEnacted ? <RefLine action={lastEnacted} /> : <span>None, this starts the chain.</span>}
+        {lastEnacted ? <RefLine action={lastEnacted} networkConfig={networkConfig} /> : <span>None, this starts the chain.</span>}
       </p>
 
       <details>
@@ -89,7 +92,7 @@ export default function PrevActionField({ context, value, onChange, disabled = f
                   style={{ marginTop: '0.2rem' }}
                 />
                 <span>
-                  <RefLine action={o} />
+                  <RefLine action={o} networkConfig={networkConfig} />
                 </span>
               </label>
             ))
