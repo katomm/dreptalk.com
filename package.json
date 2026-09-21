@@ -11,7 +11,7 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro build && wrangler dev",
-    "check:chunks": "node scripts/check-server-chunk-cycles.mjs",
+    "check:chunks": "node scripts/check-chunk-cycles.mjs",
     "db:migrate": "echo 'Pick a target network: `npm run db:migrate:preprod` or `npm run db:migrate:mainnet` (never the bare wrangler command, it defaults to mainnet).' && exit 1",
     "db:migrate:local": "wrangler d1 migrations apply DB --local --persist-to .wrangler/state",
     "db:migrate:preprod": "wrangler d1 migrations apply DB -c workers/gov-sync/wrangler.toml --env preprod --remote",

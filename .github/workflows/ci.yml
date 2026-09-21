@@ -43,10 +43,10 @@ jobs:
             echo 'Built artifact contains test-runner imports.'
             exit 1
           fi
-      # Gate: no static import cycles between server chunks. A cycle makes module
-      # startup depend on which chunk a page loads first, and a page can then
-      # crash on load with a helper that is not defined yet.
-      - name: Server chunk cycle guard
+      # Gate: no static import cycles between chunks, server or browser. A cycle
+      # makes module startup depend on which chunk a page loads first, and a
+      # page can then crash on load with a helper that is not defined yet.
+      - name: Chunk cycle guard
         run: npm run check:chunks
       # Gate: production dependencies must be free of high and critical vulnerabilities.
       # The deployed Workers runtime ships only the runtime deps (cborg, noble, blake, bech32, zod);
