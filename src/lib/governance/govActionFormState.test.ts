@@ -12,6 +12,7 @@ import {
   validateCommitteePanel,
   validateHardForkPanel,
   validateNewConstitutionPanel,
+  contextChangeLines,
   PREV_ACTION_CHANGED,
   type GovActionFormState,
 } from './govActionFormState.js';
@@ -273,7 +274,7 @@ function reload(s: GovActionFormState, data: ActionContextResponse, now: number)
 describe('contextLoaded change notes', () => {
   it('produces no changes on a first load, there is nothing yet to compare against', () => {
     const s = loadOnce(changeCtx());
-    expect(s.context.changes).toEqual([]);
+    expect(contextChangeLines(s.context.changes)).toEqual([]);
   });
 
   it('sets loadedAt from the action’s own now, not the clock', () => {
@@ -284,38 +285,42 @@ describe('contextLoaded change notes', () => {
   it('notes the previous action moving to a different one', () => {
     let s = loadOnce(changeCtx({ lastEnactedId: 'gov_action1aaa' }));
     s = reload(s, changeCtx({ lastEnactedId: 'gov_action1bbb' }), 1000);
-    expect(s.context.changes).toEqual(['The previous action changed to gov_action1bbb']);
+    expect(contextChangeLines(s.context.changes)).toEqual(['The previous action changed to gov_action1bbb']);
   });
 
   it('notes the previous action moving to none', () => {
     let s = loadOnce(changeCtx({ lastEnactedId: 'gov_action1aaa' }));
     s = reload(s, changeCtx({ lastEnactedId: null }), 1000);
-    expect(s.context.changes).toEqual(['The previous action changed to none, this now starts the chain']);
+    expect(contextChangeLines(s.context.changes)).toEqual([
+      'The previous action changed to none, this now starts the chain',
+    ]);
   });
 
   it('notes the committee quorum changing', () => {
     let s = loadOnce(changeCtx({ quorum: { numerator: 2, denominator: 3 } }));
     s = reload(s, changeCtx({ quorum: { numerator: 3, denominator: 5 } }), 1000);
-    expect(s.context.changes).toEqual(['The committee quorum changed to 3/5']);
+    expect(contextChangeLines(s.context.changes)).toEqual(['The committee quorum changed to 3/5']);
   });
 
   it('notes the guardrails script hash changing, shortened the way the on-chain card shortens it', () => {
     const newHash = 'b'.repeat(56);
     let s = loadOnce(changeCtx({ scriptHash: 'f'.repeat(56) }));
     s = reload(s, changeCtx({ scriptHash: newHash }), 1000);
-    expect(s.context.changes).toEqual([`The guardrails script hash changed to ${newHash.slice(0, 8)}…${newHash.slice(-6)}`]);
+    expect(contextChangeLines(s.context.changes)).toEqual([
+      `The guardrails script hash changed to ${newHash.slice(0, 8)}…${newHash.slice(-6)}`,
+    ]);
   });
 
   it('notes the guardrails script hash going missing', () => {
     let s = loadOnce(changeCtx({ scriptHash: 'f'.repeat(56) }));
     s = reload(s, changeCtx({ scriptHash: null }), 1000);
-    expect(s.context.changes).toEqual(['The guardrails script hash is no longer on record']);
+    expect(contextChangeLines(s.context.changes)).toEqual(['The guardrails script hash is no longer on record']);
   });
 
   it('notes the active protocol version changing', () => {
     let s = loadOnce(changeCtx({ version: { major: 11, minor: 0 } }));
     s = reload(s, changeCtx({ version: { major: 11, minor: 1 } }), 1000);
-    expect(s.context.changes).toEqual(['The active protocol version changed to 11.1']);
+    expect(contextChangeLines(s.context.changes)).toEqual(['The active protocol version changed to 11.1']);
   });
 
   it('lists every field that moved at once, in one refetch', () => {
@@ -327,7 +332,7 @@ describe('contextLoaded change notes', () => {
       changeCtx({ lastEnactedId: 'gov_action1bbb', quorum: { numerator: 3, denominator: 5 }, scriptHash: null, version: { major: 12, minor: 0 } }),
       1000,
     );
-    expect(s.context.changes).toEqual([
+    expect(contextChangeLines(s.context.changes)).toEqual([
       'The previous action changed to gov_action1bbb',
       'The committee quorum changed to 3/5',
       'The guardrails script hash is no longer on record',
@@ -338,44 +343,88 @@ describe('contextLoaded change notes', () => {
   it('reports no changes when a refetch answers with the same reading', () => {
     let s = loadOnce(changeCtx());
     s = reload(s, changeCtx(), 1000);
-    expect(s.context.changes).toEqual([]);
+    expect(contextChangeLines(s.context.changes)).toEqual([]);
+  });
+
+  // Finding 2 (Codex, review round 2): a wholesale replacement on every
+  // refetch loses an earlier note the moment ANY refetch runs, even one that
+  // does not touch the field the note was about. These two tests exercise
+  // exactly the sequence the design promises: a note stays until an edit,
+  // not until the next unrelated network round trip.
+  it('keeps a note through a refetch that changes nothing, and drops it only on the next edit', () => {
+    let s = loadOnce(changeCtx({ quorum: { numerator: 2, denominator: 3 } }));
+    s = reload(s, changeCtx({ quorum: { numerator: 3, denominator: 5 } }), 1000);
+    expect(contextChangeLines(s.context.changes)).toEqual(['The committee quorum changed to 3/5']);
+
+    // An unrelated refetch (nothing moved) must not touch the existing note.
+    s = reload(s, changeCtx({ quorum: { numerator: 3, denominator: 5 } }), 2000);
+    expect(contextChangeLines(s.context.changes)).toEqual(['The committee quorum changed to 3/5']);
+
+    s = govActionFormReducer(s, { kind: 'setMetadata', patch: { title: 'an edit' } });
+    expect(contextChangeLines(s.context.changes)).toEqual([]);
+  });
+
+  it('accumulates notes from different fields moving on successive refetches, not just one refetch at once', () => {
+    let s = loadOnce(changeCtx({ quorum: { numerator: 2, denominator: 3 }, scriptHash: 'f'.repeat(56) }));
+    s = reload(s, changeCtx({ quorum: { numerator: 3, denominator: 5 }, scriptHash: 'f'.repeat(56) }), 1000);
+    expect(contextChangeLines(s.context.changes)).toEqual(['The committee quorum changed to 3/5']);
+
+    // A LATER refetch moves a different field. The quorum note from the
+    // earlier refetch must still be there, in the fixed rendering order.
+    const newHash = 'b'.repeat(56);
+    s = reload(s, changeCtx({ quorum: { numerator: 3, denominator: 5 }, scriptHash: newHash }), 2000);
+    expect(contextChangeLines(s.context.changes)).toEqual([
+      'The committee quorum changed to 3/5',
+      `The guardrails script hash changed to ${newHash.slice(0, 8)}…${newHash.slice(-6)}`,
+    ]);
+  });
+
+  it('replaces a field’s own note when that same field moves again, rather than keeping the stale one', () => {
+    let s = loadOnce(changeCtx({ quorum: { numerator: 2, denominator: 3 } }));
+    s = reload(s, changeCtx({ quorum: { numerator: 3, denominator: 5 } }), 1000);
+    s = reload(s, changeCtx({ quorum: { numerator: 1, denominator: 2 } }), 2000);
+    expect(contextChangeLines(s.context.changes)).toEqual(['The committee quorum changed to 1/2']);
   });
 
   it('clears on setType, since the context itself is dropped', () => {
     let s = loadOnce(changeCtx({ lastEnactedId: 'gov_action1aaa' }));
     s = reload(s, changeCtx({ lastEnactedId: 'gov_action1bbb' }), 1000);
-    expect(s.context.changes).not.toEqual([]);
+    expect(contextChangeLines(s.context.changes)).not.toEqual([]);
     s = govActionFormReducer(s, { kind: 'setType', type: 'NewConstitution' });
-    expect(s.context.changes).toEqual([]);
+    expect(contextChangeLines(s.context.changes)).toEqual([]);
   });
 
   it('clears on setMetadata, setPanel, linkDraft and unlinkDraft, the form’s own edit actions', () => {
     const withChanges = () => {
       let s = loadOnce(changeCtx({ lastEnactedId: 'gov_action1aaa' }));
       s = reload(s, changeCtx({ lastEnactedId: 'gov_action1bbb' }), 1000);
-      expect(s.context.changes).not.toEqual([]);
+      expect(contextChangeLines(s.context.changes)).not.toEqual([]);
       return s;
     };
 
     expect(
-      govActionFormReducer(withChanges(), { kind: 'setMetadata', patch: { title: 'x' } }).context.changes,
+      contextChangeLines(govActionFormReducer(withChanges(), { kind: 'setMetadata', patch: { title: 'x' } }).context.changes),
     ).toEqual([]);
 
     expect(
-      govActionFormReducer(withChanges(), {
-        kind: 'setPanel',
-        type: 'NoConfidence',
-        state: { prev: null },
-      }).context.changes,
+      contextChangeLines(
+        govActionFormReducer(withChanges(), {
+          kind: 'setPanel',
+          type: 'NoConfidence',
+          state: { prev: null },
+        }).context.changes,
+      ),
     ).toEqual([]);
 
     expect(
-      govActionFormReducer(withChanges(), {
-        kind: 'linkDraft',
-        slug: 'a-draft',
-        title: 'A draft',
-        siteOrigin: SITE_ORIGIN,
-      }).context.changes,
+      contextChangeLines(
+        govActionFormReducer(withChanges(), {
+          kind: 'linkDraft',
+          slug: 'a-draft',
+          title: 'A draft',
+          siteOrigin: SITE_ORIGIN,
+        }).context.changes,
+      ),
     ).toEqual([]);
 
     let linked = govActionFormReducer(withChanges(), {
@@ -385,10 +434,23 @@ describe('contextLoaded change notes', () => {
       siteOrigin: SITE_ORIGIN,
     });
     linked = reload(linked, changeCtx({ lastEnactedId: 'gov_action1ccc' }), 2000);
-    expect(linked.context.changes).not.toEqual([]);
+    expect(contextChangeLines(linked.context.changes)).not.toEqual([]);
     expect(
-      govActionFormReducer(linked, { kind: 'unlinkDraft', siteOrigin: SITE_ORIGIN }).context.changes,
+      contextChangeLines(govActionFormReducer(linked, { kind: 'unlinkDraft', siteOrigin: SITE_ORIGIN }).context.changes),
     ).toEqual([]);
+  });
+
+  it('clears on discardDraft too, so a discarded draft leaves no stale notes behind', () => {
+    let s = loadOnce(changeCtx({ lastEnactedId: 'gov_action1aaa' }));
+    s = reload(s, changeCtx({ lastEnactedId: 'gov_action1bbb' }), 1000);
+    expect(contextChangeLines(s.context.changes)).not.toEqual([]);
+
+    s = govActionFormReducer(s, { kind: 'discardDraft', displayName: 'Jane DRep' });
+    expect(contextChangeLines(s.context.changes)).toEqual([]);
+    // The context reading itself (and its age) is not draft data, unlike the
+    // notes: discarding text is not the same as losing the chain reading.
+    expect(s.context.status).toBe('ready');
+    expect(s.context.loadedAt).toBe(1000);
   });
 
   it('keeps the previous changes visible while a same-type refetch is in flight', () => {

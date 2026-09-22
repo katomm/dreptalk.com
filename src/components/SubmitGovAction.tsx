@@ -55,6 +55,7 @@ import {
   validateCommitteePanel,
   validateHardForkPanel,
   validateNewConstitutionPanel,
+  contextChangeLines,
   PREV_ACTION_CHANGED,
 } from '@/lib/governance/govActionFormState.js';
 import { previewModelFromForm } from '@/lib/governance/previewModel.js';
@@ -310,6 +311,17 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   // Focus goes back here when the modal closes, whichever way it closed.
   const reviewButtonRef = useRef<HTMLButtonElement>(null);
 
+  // A live read of `phase` for the visibility effect below, whose listener is
+  // a closure kept across renders (see that effect's own dependency list) and
+  // so cannot see a `phase` update through render alone. Synced after every
+  // commit, which is well before any later user-driven event (a tab regaining
+  // visibility) can fire, so it is current by the time it matters, including
+  // the 'submitting' phase set synchronously at the top of handleSubmit.
+  const phaseRef = useRef(phase);
+  useEffect(() => {
+    phaseRef.current = phase;
+  }, [phase]);
+
   // Cached CIP-30 api: avoids a second enable() IPC round trip on submit,
   // mirroring DRepService/VotePanel's enabledApiRef pattern.
   const enabledApiRef = useRef<Cip30Api | null>(null);
@@ -437,6 +449,19 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   // the retry button does. Under a minute is not worth a request: a quick
   // tab switch should not cost one every time. InfoAction has no context to
   // refetch.
+  //
+  // Never while a submit is running: handleSubmit sets phase to 'submitting'
+  // synchronously before it does its OWN freshness refetch, and that refetch
+  // is what handleSubmit validates and builds the action against. A
+  // background refetch racing it would bump the request id the reducer
+  // tracks, and although the reducer itself ignores whichever response comes
+  // back on a superseded id, `loadContext` still hands its (by then stale)
+  // response straight back to its caller. handleSubmit would use that
+  // returned reading even though the panel on screen has already moved on to
+  // whatever the OTHER request answered with. Gating on the phase, checked
+  // through a ref so this closure sees it live, closes that window: it
+  // covers the whole submit, not just the moment the freshness fetch is
+  // actually in flight.
   const hiddenAtRef = useRef<number | null>(null);
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -449,6 +474,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
       hiddenAtRef.current = null;
       if (hiddenAt === null) return;
       if (Date.now() - hiddenAt <= 60_000) return;
+      if (phaseRef.current.status === 'submitting') return;
       if (chainForType(state.type) === null) return;
       void loadContext(state.type);
     }
@@ -1222,9 +1248,9 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
         {chained && contextAgeLine() && (
           <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.8125rem' }}>{contextAgeLine()}</p>
         )}
-        {chained && state.context.changes.length > 0 && (
+        {chained && contextChangeLines(state.context.changes).length > 0 && (
           <div role="status" style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-            {state.context.changes.map((line) => (
+            {contextChangeLines(state.context.changes).map((line) => (
               <p key={line} style={{ margin: 0, color: 'var(--muted)', fontSize: '0.8125rem' }}>{line}</p>
             ))}
           </div>

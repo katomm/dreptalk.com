@@ -219,6 +219,12 @@ let previewImpl: (() => Promise<Response>) | null = null;
 // for every test that only cares about reaching the success screen at all.
 let statusImpl: (() => Promise<Response>) | null = null;
 
+// Holds every /api/gov-action/context response open on the given promise
+// instead of answering at once, for the test that has to catch a second
+// request starting while the first (the submit's own freshness refetch) is
+// still in flight. Reset in beforeEach.
+let contextHold: Promise<Response> | null = null;
+
 /** Routes every request the island makes, so no test depends on a real network. */
 function installFetchMock() {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -235,7 +241,7 @@ function installFetchMock() {
           });
     }
     if (url.includes('/api/koios/epoch_params')) return jsonResponse([EPOCH_PARAMS_ROW]);
-    if (url.includes('/api/gov-action/context')) return jsonResponse(committeeContext);
+    if (url.includes('/api/gov-action/context')) return contextHold ? await contextHold : jsonResponse(committeeContext);
     if (url.includes('/api/gov-action/status')) {
       return statusImpl ? await statusImpl() : jsonResponse({ synced: false, slug: null, draft: null });
     }
@@ -314,6 +320,7 @@ describe('SubmitGovAction', () => {
     committeeContext = COMMITTEE_CONTEXT;
     previewImpl = null;
     statusImpl = null;
+    contextHold = null;
     installFetchMock();
     installWalletMock();
   });
@@ -1204,6 +1211,59 @@ describe('SubmitGovAction', () => {
         await hideThenShow(30_000);
 
         expect(contextCallCount(fetchMock)).toBe(before);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    // Finding 1 (Codex, review round 2): a visibility refetch racing the
+    // submit's OWN freshness refetch could bump the request id the reducer
+    // tracks, superseding the submit's request there, while `loadContext`
+    // still handed its now-stale response back to `handleSubmit` regardless.
+    // The fix gates the visibility refetch on `phase.status !== 'submitting'`
+    // (checked through a ref, so the closure sees it live), which covers the
+    // whole submit, not just the instant its own refetch is in flight. This
+    // proves the gate itself, not just that a benign hide/show does nothing.
+    it('never starts a background refetch while a submit is in flight, even after being hidden a long time', async () => {
+      const fetchMock = installFetchMock();
+      vi.useFakeTimers();
+      try {
+        await mountOnNoConfidence();
+        expect(screen.getByText('The sitting committee')).toBeTruthy();
+        fillMetadata();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Connect wallet' }));
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0);
+        });
+
+        const submit = screen.getByRole('button', { name: 'Submit proposal' }) as HTMLButtonElement;
+        expect(submit.disabled).toBe(false);
+
+        const before = contextCallCount(fetchMock);
+        const held = deferred<Response>();
+        contextHold = held.promise;
+
+        fireEvent.click(submit);
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0);
+        });
+        // The submit's own freshness refetch has started (and is held open,
+        // so it cannot resolve and move the submit past 'submitting' yet).
+        expect(contextCallCount(fetchMock)).toBe(before + 1);
+
+        await hideThenShow(61_000);
+
+        // Still just the submit's own request: no background refetch snuck
+        // in while phase was 'submitting', even though the tab was "hidden"
+        // long enough that it otherwise would have started one.
+        expect(contextCallCount(fetchMock)).toBe(before + 1);
+
+        held.resolve(jsonResponse(committeeContext));
+        contextHold = null;
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0);
+        });
       } finally {
         vi.useRealTimers();
       }

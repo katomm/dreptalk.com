@@ -111,18 +111,47 @@ export interface PanelStates {
   UpdateCommittee: UpdateCommitteePanelState;
 }
 
+/**
+ * One change note per default-affecting field, so a field that does not move
+ * on a given refetch keeps whatever note an earlier refetch gave it instead
+ * of the whole set being replaced wholesale. null means "nothing to say"
+ * (never moved yet, or the user has since edited the form). See
+ * mergeContextChanges for how a fresh reading updates these, and
+ * contextChangeLines for the island's rendering order.
+ */
+export interface ContextChangeNotes {
+  prevAction: string | null;
+  quorum: string | null;
+  scriptHash: string | null;
+  protocolVersion: string | null;
+}
+
+/** The shared "nothing to say yet" value, reused so an idle/error/cleared context is a cheap reference compare, not a fresh allocation. */
+export const NO_CONTEXT_CHANGES: ContextChangeNotes = {
+  prevAction: null,
+  quorum: null,
+  scriptHash: null,
+  protocolVersion: null,
+};
+
 export type ContextState =
-  | { status: 'idle'; requestId: number; data: null; loadedAt: null; changes: string[] }
+  | { status: 'idle'; requestId: number; data: null; loadedAt: null; changes: ContextChangeNotes }
   // `data` survives a refetch so the panel keeps rendering while the
   // submit-time freshness check is in flight. `changes` survives it the same
-  // way, so the island keeps showing the last computed lines until the fresh
+  // way, so the island keeps showing the last computed notes until the fresh
   // response replaces them (see contextLoaded).
-  | { status: 'loading'; requestId: number; data: ActionContextResponse | null; loadedAt: number | null; changes: string[] }
+  | {
+      status: 'loading';
+      requestId: number;
+      data: ActionContextResponse | null;
+      loadedAt: number | null;
+      changes: ContextChangeNotes;
+    }
   // `loadedAt` is the moment this reading arrived (ms, from the action's own
   // `now`, not read from the clock here, so a test can control it), what the
   // island's "loaded n minutes ago" line is based on.
-  | { status: 'ready'; requestId: number; data: ActionContextResponse; loadedAt: number; changes: string[] }
-  | { status: 'error'; requestId: number; data: null; loadedAt: null; changes: string[] };
+  | { status: 'ready'; requestId: number; data: ActionContextResponse; loadedAt: number; changes: ContextChangeNotes }
+  | { status: 'error'; requestId: number; data: null; loadedAt: null; changes: ContextChangeNotes };
 
 /** The current governance action deposit, read once from /epoch_params. */
 export type DepositState =
@@ -266,7 +295,7 @@ export function initialGovActionFormState(displayName = ''): GovActionFormState 
     type: 'InfoAction',
     metadata: defaultMetadataState(displayName),
     panels: emptyPanelStates(),
-    context: { status: 'idle', requestId: 0, data: null, loadedAt: null, changes: [] },
+    context: { status: 'idle', requestId: 0, data: null, loadedAt: null, changes: NO_CONTEXT_CHANGES },
     wallet: { status: 'none' },
     dirty: false,
     linkedDraftSlug: null,
@@ -483,10 +512,16 @@ function resetHardForkVersionOnPrevChange(
   return { ...next, version: null };
 }
 
+function isEmptyContextChanges(notes: ContextChangeNotes): boolean {
+  return (
+    notes.prevAction === null && notes.quorum === null && notes.scriptHash === null && notes.protocolVersion === null
+  );
+}
+
 /** Drops any change notes on the context, since the user has just acted on the form. A no-op when there are none. */
 function clearContextChanges(context: ContextState): ContextState {
-  if (context.changes.length === 0) return context;
-  return { ...context, changes: [] };
+  if (isEmptyContextChanges(context.changes)) return context;
+  return { ...context, changes: NO_CONTEXT_CHANGES };
 }
 
 /** Truncates a hex hash for a one-line change note, the same shortening onchain.ts and view.ts use for a bech32 id. */
@@ -495,58 +530,83 @@ function shortenHashForChangeNote(hex: string): string {
 }
 
 /**
- * The one-line notes the island shows when a context refetch moves one of the
- * four fields a panel defaults to: the previous action, the committee quorum,
- * the guardrails script hash, and the active protocol version. Compares
- * against the previous reading for the SAME type, which `previous` always is:
- * setType drops the context outright on a type switch (see its reducer
- * case), so whatever is here to compare against was read for the type
- * `next` was just read for too. A first load (`previous` is null) always
- * produces no lines, there is nothing yet to have changed from.
+ * Merges a fresh context reading into the notes the island shows next to the
+ * panel, one of the four default-affecting fields at a time: the previous
+ * action, the committee quorum, the guardrails script hash, and the active
+ * protocol version. A field that moved gets a freshly worded note (replacing
+ * whatever it had), a field that did NOT move keeps its existing note
+ * untouched, so an earlier "quorum changed" note survives an unrelated
+ * refetch (say, one that only moves the previous action) instead of vanishing
+ * the moment anything at all is re-read. Only a user edit
+ * (clearContextChanges, wired into every edit action in the reducer below)
+ * or another move of the SAME field ever takes a note away.
+ *
+ * `previous` is always a reading for the SAME type as `next`: setType drops
+ * the context outright on a type switch (see its reducer case), so whatever
+ * is here to compare against was read for the type `next` was just read for
+ * too. A first load (`previous` is null) has nothing to compare, so nothing
+ * has moved and `existing` (already NO_CONTEXT_CHANGES, for a first load)
+ * passes straight through unchanged.
  */
-function contextChanges(previous: ActionContextResponse | null, next: ActionContextResponse): string[] {
-  if (!previous) return [];
-  const changes: string[] = [];
+function mergeContextChanges(
+  previous: ActionContextResponse | null,
+  next: ActionContextResponse,
+  existing: ContextChangeNotes,
+): ContextChangeNotes {
+  if (!previous) return existing;
 
   const prevActionId = previous.prev?.lastEnacted?.id ?? null;
   const nextActionId = next.prev?.lastEnacted?.id ?? null;
-  if (prevActionId !== nextActionId) {
-    changes.push(
-      nextActionId
+  const prevAction =
+    prevActionId === nextActionId
+      ? existing.prevAction
+      : nextActionId
         ? `The previous action changed to ${nextActionId}`
-        : 'The previous action changed to none, this now starts the chain',
-    );
-  }
+        : 'The previous action changed to none, this now starts the chain';
 
   const prevQuorum = previous.committee?.quorum ?? null;
   const nextQuorum = next.committee?.quorum ?? null;
-  const quorumChanged =
+  const quorumMoved =
     (prevQuorum?.numerator ?? null) !== (nextQuorum?.numerator ?? null) ||
     (prevQuorum?.denominator ?? null) !== (nextQuorum?.denominator ?? null);
-  if (quorumChanged && nextQuorum) {
-    changes.push(`The committee quorum changed to ${nextQuorum.numerator}/${nextQuorum.denominator}`);
-  }
+  // No wording is specified for the quorum going missing, unlike the
+  // previous action and the guardrails hash below, so a move to null clears
+  // the note (there is nothing true left to say) rather than inventing text.
+  const quorum = !quorumMoved
+    ? existing.quorum
+    : nextQuorum
+      ? `The committee quorum changed to ${nextQuorum.numerator}/${nextQuorum.denominator}`
+      : null;
 
   const prevScriptHash = previous.constitution?.scriptHash ?? null;
   const nextScriptHash = next.constitution?.scriptHash ?? null;
-  if (prevScriptHash !== nextScriptHash) {
-    changes.push(
-      nextScriptHash
+  const scriptHash =
+    prevScriptHash === nextScriptHash
+      ? existing.scriptHash
+      : nextScriptHash
         ? `The guardrails script hash changed to ${shortenHashForChangeNote(nextScriptHash)}`
-        : 'The guardrails script hash is no longer on record',
-    );
-  }
+        : 'The guardrails script hash is no longer on record';
 
   const prevVersion = previous.protocolVersion ?? null;
   const nextVersion = next.protocolVersion ?? null;
-  const versionChanged =
+  const versionMoved =
     (prevVersion?.major ?? null) !== (nextVersion?.major ?? null) ||
     (prevVersion?.minor ?? null) !== (nextVersion?.minor ?? null);
-  if (versionChanged && nextVersion) {
-    changes.push(`The active protocol version changed to ${nextVersion.major}.${nextVersion.minor}`);
-  }
+  // Same reasoning as the quorum: no wording for the version going missing.
+  const protocolVersion = !versionMoved
+    ? existing.protocolVersion
+    : nextVersion
+      ? `The active protocol version changed to ${nextVersion.major}.${nextVersion.minor}`
+      : null;
 
-  return changes;
+  return { prevAction, quorum, scriptHash, protocolVersion };
+}
+
+/** The notes in the fixed order the island renders them, with the fields that have nothing to say left out. */
+export function contextChangeLines(notes: ContextChangeNotes): string[] {
+  return [notes.prevAction, notes.quorum, notes.scriptHash, notes.protocolVersion].filter(
+    (line): line is string => line !== null,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -567,7 +627,7 @@ export function govActionFormReducer(
       return {
         ...state,
         type: action.type,
-        context: { status: 'idle', requestId: state.context.requestId, data: null, loadedAt: null, changes: [] },
+        context: { status: 'idle', requestId: state.context.requestId, data: null, loadedAt: null, changes: NO_CONTEXT_CHANGES },
         dirty: true,
       };
     }
@@ -631,7 +691,7 @@ export function govActionFormReducer(
           requestId: action.requestId,
           data: action.data,
           loadedAt: action.now,
-          changes: contextChanges(state.context.data, action.data),
+          changes: mergeContextChanges(state.context.data, action.data, state.context.changes),
         },
       };
 
@@ -639,7 +699,7 @@ export function govActionFormReducer(
       if (action.requestId !== state.context.requestId) return state;
       return {
         ...state,
-        context: { status: 'error', requestId: action.requestId, data: null, loadedAt: null, changes: [] },
+        context: { status: 'error', requestId: action.requestId, data: null, loadedAt: null, changes: NO_CONTEXT_CHANGES },
       };
 
     case 'restoreDraft':
@@ -664,8 +724,12 @@ export function govActionFormReducer(
 
     case 'discardDraft':
       // Back to the same untouched shape a fresh visit starts from. The
-      // context and the wallet are not draft data, so neither is touched:
-      // discarding the text is not the same as disconnecting a wallet.
+      // context data and the wallet are not draft data, so neither is
+      // touched: discarding the text is not the same as disconnecting a
+      // wallet, and loadedAt stays with the data it is the age of. The change
+      // notes ARE cleared, same as any other edit action: they describe a
+      // move the panel the user was just looking at made, and that panel's
+      // own state is gone the moment the draft is discarded.
       return {
         ...state,
         type: 'InfoAction',
@@ -673,6 +737,7 @@ export function govActionFormReducer(
         panels: emptyPanelStates(),
         linkedDraftSlug: null,
         draftLinkError: null,
+        context: clearContextChanges(state.context),
         dirty: false,
       };
 
