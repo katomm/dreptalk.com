@@ -52,6 +52,8 @@ import {
   linkedDraftReference,
   effectiveLinkedDraftSlug,
   draftConflict,
+  chosenPrev,
+  panelReadiness,
   validateCommitteePanel,
   validateHardForkPanel,
   validateNewConstitutionPanel,
@@ -69,7 +71,6 @@ import type { GovActionSpec } from '@/lib/governance/govActionParts.js';
 import type { ActionContextResponse } from '@/lib/governance/actionContextHandler.js';
 import { protocolParamsFromEpochParams } from '@/lib/koios/protocolParamsAdapter.js';
 import type { EpochParamsRow } from '@/lib/koios/client.js';
-import type { ProtocolParams } from '@/lib/db/protocolParams.js';
 import TypeSelector from '@/components/govAction/TypeSelector.js';
 import PrevActionField from '@/components/govAction/PrevActionField.js';
 import HardForkPanel from '@/components/govAction/HardForkPanel.js';
@@ -79,7 +80,8 @@ import type { CardanoNetwork } from '@/lib/config/network.js';
 import { resolveNetwork, txExplorerUrl } from '@/lib/config/network.js';
 import { readableError } from '@/lib/wallet/walletError.js';
 import { assertWalletNetwork } from '@/lib/wallet/networkGuard.js';
-import { inputStyle, labelStyle } from '@/components/drepFormStyles.js';
+import { inputStyle, labelStyle, linkButtonStyle } from '@/components/drepFormStyles.js';
+import { ErrorIcon, InfoIcon } from '@/components/govAction/icons.js';
 import SignAndSubmit from '@/components/govAction/SignAndSubmit.js';
 import DraftRestoreBanner from '@/components/govAction/DraftRestoreBanner.js';
 import DraftLinkControl from '@/components/govAction/DraftLinkControl.js';
@@ -237,22 +239,6 @@ function CountedField(props: { id: string; label: string; count: number; max: nu
   );
 }
 
-function InfoIcon() {
-  return (
-    <svg className="callout__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" />
-    </svg>
-  );
-}
-
-function ErrorIcon() {
-  return (
-    <svg className="callout__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
-    </svg>
-  );
-}
-
 /** Deposit callout shown above the connect/form flow, regardless of wallet state. */
 function DepositInfo({ deposit }: { deposit: DepositState }) {
   return (
@@ -297,11 +283,16 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   const { wallets, selected, setSelected } = useCardanoWallets();
   const [phase, setPhase] = useState<Phase>({ status: 'editing' });
   const [deposit, setDeposit] = useState<DepositState>({ status: 'loading' });
-  const [params, setParams] = useState<ProtocolParams | null>(null);
-  // The same /epoch_params row, kept raw: the preview feeds it to the shared
+  // The /epoch_params row, kept raw: the preview feeds it to the shared
   // on-chain decoder, which reads the snake_case Koios keys (protocol_major
-  // and friends) that protocolParamsFromEpochParams has already mapped away.
+  // and friends) that protocolParamsFromEpochParams maps away. The mapped form
+  // the threshold sentences need is derived from it rather than stored
+  // alongside it, so the two cannot disagree about which row is current.
   const [epochParamsRow, setEpochParamsRow] = useState<EpochParamsRow | null>(null);
+  const params = useMemo(
+    () => (epochParamsRow ? protocolParamsFromEpochParams(epochParamsRow) : null),
+    [epochParamsRow],
+  );
   // displayName is the lazy initializer's own argument (not read through a
   // closure), so useReducer only ever prefills the author name once, at
   // mount, even if the prop identity changes on a later render.
@@ -430,7 +421,6 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
         if (lovelace === null) throw new Error('gov_action_deposit missing from response');
         if (!cancelled) {
           setDeposit({ status: 'ready', lovelace });
-          setParams(protocolParamsFromEpochParams(row as EpochParamsRow));
           setEpochParamsRow(row as EpochParamsRow);
         }
       } catch {
@@ -527,34 +517,14 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   const contextReady = state.context.status === 'ready' && state.context.data !== null;
   const contextData = state.context.data;
 
-  /**
-   * The current type's panel verdict for the readiness list, or null when the
-   * panel has no rules of its own. Null while there is no context at all: a
-   * panel judged against a context that has not arrived would report the
-   * missing context twice, once as itself and once as a panel error.
-   */
-  function panelVerdict(): { ok: boolean; error: string } | null {
-    if (!contextData) return null;
-    switch (state.type) {
-      case 'InfoAction':
-      case 'NoConfidence':
-        return null;
-      case 'HardForkInitiation': {
-        const result = validateHardForkPanel(state.panels.HardForkInitiation, contextData);
-        return result.ok ? { ok: true, error: '' } : { ok: false, error: result.error };
-      }
-      case 'NewConstitution': {
-        const result = validateNewConstitutionPanel(state.panels.NewConstitution, contextData);
-        return result.ok ? { ok: true, error: '' } : { ok: false, error: result.error };
-      }
-      case 'UpdateCommittee': {
-        const result = validateCommitteePanel(state.panels.UpdateCommittee, contextData);
-        return result.value === null
-          ? { ok: false, error: result.errors[0]?.message ?? 'The committee update is not valid yet.' }
-          : { ok: true, error: '' };
-      }
-    }
-  }
+  // The current type's panel verdict for the readiness list (see
+  // panelReadiness for the per-type rules). Memoized because the committee
+  // arm validates every typed row, which is more work than a re-render of an
+  // unrelated field should cost.
+  const panelValidation = useMemo(
+    () => panelReadiness(state.type, state.panels, contextData),
+    [state.type, state.panels, contextData],
+  );
 
   // Everything standing between the form as it is and a submittable proposal.
   // The same list drives the button's disabled state, so a grey button always
@@ -562,7 +532,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   const reasons = readinessReasons({
     type: state.type,
     contextStatus: state.context.status,
-    panelValidation: panelVerdict(),
+    panelValidation,
     metadataComplete: Boolean(
       metadata.title.trim() && metadata.abstract.trim() && metadata.motivation.trim() && metadata.rationale.trim(),
     ),
@@ -656,22 +626,6 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   }
   function handleUnlinkDraft() {
     dispatch({ kind: 'unlinkDraft', siteOrigin: draftSiteOrigin, selectedSlug: selectedDraftSlug });
-  }
-
-  /** The panel's own choice of previous action, before it is resolved against a context. */
-  function chosenPrevOf(type: typeof state.type): PrevActionRef | null {
-    switch (type) {
-      case 'InfoAction':
-        return null;
-      case 'NoConfidence':
-        return state.panels.NoConfidence.prev;
-      case 'HardForkInitiation':
-        return state.panels.HardForkInitiation.prev;
-      case 'NewConstitution':
-        return state.panels.NewConstitution.prev;
-      case 'UpdateCommittee':
-        return state.panels.UpdateCommittee.prev;
-    }
   }
 
   /**
@@ -888,7 +842,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
     // Resolved against the context the user actually saw, so the freshness
     // check below compares like for like: a chain root that moved in the
     // meantime is a change, not something to follow silently.
-    const prev = effectivePrev(chosenPrevOf(state.type), contextData);
+    const prev = effectivePrev(chosenPrev(state.type, state.panels), contextData);
 
     // Trimmed, non-empty rows only. Sent identically to both the prepare and
     // finalize calls below so the hash the wallet signs matches what is
@@ -1130,7 +1084,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
             <button
               type="button"
               onClick={() => setContextAttempt((n) => n + 1)}
-              style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', padding: 0, font: 'inherit', textDecoration: 'underline' }}
+              style={linkButtonStyle}
             >
               Try again
             </button>
@@ -1187,6 +1141,11 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
         return null;
     }
   }
+
+  // The two context lines above the panel, each computed once rather than in
+  // both the guard and the body it guards.
+  const ageLine = contextAgeLine();
+  const changeLines = contextChangeLines(state.context.changes);
 
   // Mirrors submitGovAction's own guard: this flow only ever works on
   // preprod, so fail visibly rather than let the user fill out the form and
@@ -1290,12 +1249,12 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
           disabled={busy}
         />
 
-        {chained && contextAgeLine() && (
-          <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.8125rem' }}>{contextAgeLine()}</p>
+        {chained && ageLine && (
+          <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.8125rem' }}>{ageLine}</p>
         )}
-        {chained && contextChangeLines(state.context.changes).length > 0 && (
+        {chained && changeLines.length > 0 && (
           <div role="status" style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-            {contextChangeLines(state.context.changes).map((line) => (
+            {changeLines.map((line) => (
               <p key={line} style={{ margin: 0, color: 'var(--muted)', fontSize: '0.8125rem' }}>{line}</p>
             ))}
           </div>

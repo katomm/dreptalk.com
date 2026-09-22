@@ -3,11 +3,8 @@ import { enhanceStoredHtml, renderMarkdown } from '@/lib/markdown.js';
 import { resolveBodyMentions } from '@/lib/forum/handlers.js';
 import { checkRate } from '@/lib/rate.js';
 import { jsonResponse, runtimeEnv } from '@/lib/api/response';
-import {
-  INFO_ABSTRACT_MAX,
-  INFO_MOTIVATION_MAX,
-  INFO_RATIONALE_MAX,
-} from '@/lib/governance/infoActionLimits.js';
+import { INFO_ABSTRACT_MAX, INFO_RATIONALE_MAX } from '@/lib/governance/infoActionLimits.js';
+import { CIP108_BODY_MAX } from '@/lib/governance/cip108Body.js';
 
 export const prerender = false;
 
@@ -17,13 +14,13 @@ export const prerender = false;
 const MAX_PARTS = 4;
 
 // What each known part may hold, matched to the form field behind it: the
-// abstract's own cap, and for the merged body the two fields it is built from
-// plus the blank line between them (see cip108Body.ts). A Map, not an object,
-// because the keys come from the request and a plain lookup would answer for
-// inherited names like `constructor`.
+// abstract's own cap, and for the merged body whatever the two fields it is
+// built from can add up to (see CIP108_BODY_MAX in cip108Body.ts). A Map, not
+// an object, because the keys come from the request and a plain lookup would
+// answer for inherited names like `constructor`.
 const PART_MAX_LENGTH = new Map<string, number>([
   ['abstract', INFO_ABSTRACT_MAX],
-  ['body', INFO_MOTIVATION_MAX + INFO_RATIONALE_MAX + 2],
+  ['body', CIP108_BODY_MAX],
 ]);
 
 // Any other key: the widest single metadata field, with no headroom above it,

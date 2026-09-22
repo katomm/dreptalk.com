@@ -18,6 +18,7 @@ import type { GovActionFormType, PrevActionRef } from './prevAction.js';
 import { hardForkBaseVersion, versionsThatFollow } from './hardForkVersion.js';
 import type { ProtocolVersion } from './hardForkVersion.js';
 import { HEX_HASH_224_RE } from '../crypto/hex.js';
+import { shortenHash } from './onchain.js';
 import { CONSTITUTION_DOCUMENT_MAX_BYTES, REFERENCES_MAX } from './infoActionLimits.js';
 import type { GovActionDraft } from './govActionDraft.js';
 import { draftSlugsFromReferences } from './draftLink.js';
@@ -587,11 +588,6 @@ function clearContextChanges(context: ContextState): ContextState {
   return { ...context, changes: NO_CONTEXT_CHANGES };
 }
 
-/** Truncates a hex hash for a one-line change note, the same shortening onchain.ts and view.ts use for a bech32 id. */
-function shortenHashForChangeNote(hex: string): string {
-  return hex.length > 16 ? `${hex.slice(0, 8)}…${hex.slice(-6)}` : hex;
-}
-
 /**
  * Merges a fresh context reading into the notes the island shows next to the
  * panel, one of the four default-affecting fields at a time: the previous
@@ -647,7 +643,7 @@ function mergeContextChanges(
     prevScriptHash === nextScriptHash
       ? existing.scriptHash
       : nextScriptHash
-        ? `The guardrails script hash changed to ${shortenHashForChangeNote(nextScriptHash)}`
+        ? `The guardrails script hash changed to ${shortenHash(nextScriptHash)}`
         : 'The guardrails script hash is no longer on record';
 
   const prevVersion = previous.protocolVersion ?? null;
@@ -835,16 +831,18 @@ export function govActionFormReducer(
         return { ...state, draftLinkError: 'Remove a reference first, the list is full' };
       }
       const nextRef = { label: action.title, uri };
-      // Always at the front, whether this is a fresh link or a replacement:
-      // resolveDraftTopic (see draftLinks.ts) takes the FIRST Proposal Drafts
+      // The row the pick replaces is dropped and the new one appended, then
+      // draftReferenceFirst moves it to the front. That front position is the
+      // whole point (resolveDraftTopic takes the FIRST Proposal Drafts
       // reference in order, and its filter only excludes a deleted thread, not
-      // a locked or already-linked one. An earlier reference naming a closed
-      // draft would otherwise outrank the one the picker shows as chosen, so
-      // the replaced row is moved rather than rewritten where it stood.
-      const references =
+      // a locked or already-linked one), and it is the same rule a restore and
+      // a hand-edit go through, so it is owned by that one function rather than
+      // written out a second time here.
+      const kept =
         existingIndex === -1
-          ? [nextRef, ...state.metadata.references]
-          : [nextRef, ...state.metadata.references.filter((_, i) => i !== existingIndex)];
+          ? state.metadata.references
+          : state.metadata.references.filter((_, i) => i !== existingIndex);
+      const references = draftReferenceFirst([...kept, nextRef], action.slug, action.siteOrigin);
       return {
         ...state,
         linkedDraftSlug: action.slug,
@@ -935,6 +933,29 @@ export function govActionFormReducer(
  * submit-time refetch) is what lets the freshness check notice a root that
  * moved in the meantime.
  */
+/**
+ * The panel's own choice of previous action for a type, before it is resolved
+ * against a context (that is effectivePrev's job). InfoAction is unchained and
+ * has no panel, so it never chooses one. The one place this mapping is
+ * written: the island's submit path and the review preview both read it here,
+ * so the action that is built and the action that is previewed cannot point at
+ * different predecessors.
+ */
+export function chosenPrev(type: GovActionFormType, panels: PanelStates): PrevActionRef | null {
+  switch (type) {
+    case 'InfoAction':
+      return null;
+    case 'NoConfidence':
+      return panels.NoConfidence.prev;
+    case 'HardForkInitiation':
+      return panels.HardForkInitiation.prev;
+    case 'NewConstitution':
+      return panels.NewConstitution.prev;
+    case 'UpdateCommittee':
+      return panels.UpdateCommittee.prev;
+  }
+}
+
 export function effectivePrev(
   chosen: PrevActionRef | null,
   context: ActionContextResponse | null,
@@ -1063,10 +1084,10 @@ export function isFormBlank(state: DraftableState, defaults: FormDefaults): bool
     authorBlank &&
     m.references.length === 0 &&
     !m.surveyRef.trim();
-  // Linking a draft always adds a reference, so references.length already
-  // covers it. The explicit check is a defensive belt against the two ever
-  // drifting apart.
-  return metadataBlank && state.type === 'InfoAction' && panelsAreEmpty(state.panels) && state.linkedDraftSlug === null;
+  // A tracked draft slug always has a reference row behind it (setMetadata
+  // drops the slug the moment its row is gone), so references.length already
+  // covers the draft link.
+  return metadataBlank && state.type === 'InfoAction' && panelsAreEmpty(state.panels);
 }
 
 // ---------------------------------------------------------------------------
@@ -1385,4 +1406,44 @@ export function describeCommitteePanel(
   // still half typed it says nothing the named row does not already say.
   const missing = labels.length > 1 ? labels.filter((l) => l !== COMMITTEE_WHOLE_PANEL_LABEL) : labels;
   return { payloadPart: result.parsed, missing };
+}
+
+/**
+ * The chosen type's panel verdict for the readiness list: ok with no message,
+ * ok false with the one message to point at, or null when the panel has no
+ * rules of its own (InfoAction, NoConfidence).
+ *
+ * Null while there is no context at all: a panel judged against a context that
+ * has not arrived would report the missing context twice, once as itself and
+ * once as a panel error. The readiness list already names the missing context.
+ *
+ * Pure, so the whole per-type verdict is unit-tested without a DOM, and built
+ * on the same validate*Panel functions the panels render through and the
+ * submit path builds the action with.
+ */
+export function panelReadiness(
+  type: GovActionFormType,
+  panels: PanelStates,
+  context: ActionContextResponse | null,
+): { ok: boolean; error: string } | null {
+  if (!context) return null;
+  switch (type) {
+    case 'InfoAction':
+    case 'NoConfidence':
+      return null;
+    case 'HardForkInitiation': {
+      const result = validateHardForkPanel(panels.HardForkInitiation, context);
+      return result.ok ? { ok: true, error: '' } : { ok: false, error: result.error };
+    }
+    case 'NewConstitution': {
+      const result = validateNewConstitutionPanel(panels.NewConstitution, context);
+      return result.ok ? { ok: true, error: '' } : { ok: false, error: result.error };
+    }
+    case 'UpdateCommittee': {
+      const result = validateCommitteePanel(panels.UpdateCommittee, context);
+      return result.value === null
+        ? { ok: false, error: result.errors[0]?.message ?? 'The committee update is not valid yet.' }
+        : { ok: true, error: '' };
+    }
+  }
 }

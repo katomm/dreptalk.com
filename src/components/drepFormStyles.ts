@@ -25,3 +25,19 @@ export const mutedStyle: CSSProperties = {
   color: 'var(--muted)',
   fontSize: '0.8125rem',
 };
+
+/**
+ * A button that reads as an inline link: the accent colour, underlined, and
+ * sitting in the running text at the surrounding font size. Used for the small
+ * in-sentence actions ("Check again", "Use a different wallet", "Try again",
+ * "Retry") that are real buttons rather than navigation.
+ */
+export const linkButtonStyle: CSSProperties = {
+  background: 'none',
+  border: 'none',
+  color: 'var(--accent)',
+  cursor: 'pointer',
+  padding: 0,
+  font: 'inherit',
+  textDecoration: 'underline',
+};

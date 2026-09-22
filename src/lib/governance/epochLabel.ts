@@ -5,6 +5,13 @@
 // epoch math, so it stays safe to pull into the client bundle.
 import { epochStartMs, epochFromUnix, type NetworkConfig } from '../config/network.js';
 
+// Its own formatter rather than view.ts's formatEpochDate: that one writes the
+// US order ("Jan 12, 2027") and reads unix seconds, and it is what the action
+// list and the thread headers already show, so it cannot be turned around
+// without moving every one of those dates. The submit page states a date
+// inside a running sentence ("term ends in epoch 372, about 12 Jan 2027"),
+// where the day-month-year order reads as part of the sentence instead of
+// needing its comma.
 const DATE_FORMAT = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 
 /**

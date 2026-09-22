@@ -233,7 +233,14 @@ export type OnchainChanges =
   | { kind: 'constitution'; anchorUrl: string | null; dataHash: string | null; scriptHash: string | null }
   | { kind: 'note'; text: string; tag: 'NoConfidence' | 'InfoAction' };
 
-function shortenHash(h: string): string {
+/**
+ * The first 8 and last 6 characters of a hash or id, joined by an ellipsis,
+ * and left whole when it is short enough that shortening would save nothing.
+ * The one shortening rule for on-chain identifiers, shared with the submit
+ * page's change notes and its committee panel so the same credential reads the
+ * same everywhere.
+ */
+export function shortenHash(h: string): string {
   return h.length > 16 ? `${h.slice(0, 8)}…${h.slice(-6)}` : h;
 }
 

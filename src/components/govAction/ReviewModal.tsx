@@ -22,6 +22,7 @@ import type { CSSProperties } from 'react';
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { cip108Body } from '@/lib/governance/cip108Body.js';
 import PreviewCard from '@/components/govAction/PreviewCard.js';
+import { linkButtonStyle } from '@/components/drepFormStyles.js';
 import type { OnchainChanges } from '@/lib/governance/onchain.js';
 
 export interface ReviewModalProps {
@@ -190,19 +191,7 @@ export default function ReviewModal(props: ReviewModalProps) {
               <div className="callout callout--error" role="alert">
                 <div className="callout__body">
                   {preview.message}{' '}
-                  <button
-                    type="button"
-                    onClick={() => setAttempt(n => n + 1)}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: 'var(--accent)',
-                      cursor: 'pointer',
-                      padding: 0,
-                      font: 'inherit',
-                      textDecoration: 'underline',
-                    }}
-                  >
+                  <button type="button" onClick={() => setAttempt(n => n + 1)} style={linkButtonStyle}>
                     Retry
                   </button>
                 </div>

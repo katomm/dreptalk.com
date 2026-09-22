@@ -14,6 +14,7 @@ import { decodeOnchainChanges, type OnchainChanges } from './onchain.js';
 import { blake2b256 } from '../crypto/blake.js';
 import { bytesToHex } from '../crypto/hex.js';
 import {
+  chosenPrev,
   effectivePrev,
   describeCommitteePanel,
   describeHardForkPanel,
@@ -59,22 +60,6 @@ function removedEntry(credential: { hashHex: string; isScript: boolean }): Recor
   return credential.isScript ? { scriptHash: credential.hashHex } : { keyHash: credential.hashHex };
 }
 
-/** The chosen previous action for a type, before it is resolved against the context. */
-function chosenPrev(state: PreviewFormState): PrevActionRef | null {
-  switch (state.type) {
-    case 'InfoAction':
-      return null;
-    case 'NoConfidence':
-      return state.panels.NoConfidence.prev;
-    case 'HardForkInitiation':
-      return state.panels.HardForkInitiation.prev;
-    case 'NewConstitution':
-      return state.panels.NewConstitution.prev;
-    case 'UpdateCommittee':
-      return state.panels.UpdateCommittee.prev;
-  }
-}
-
 /**
  * The synthetic Koios `proposal_description` for the form as it stands, plus
  * the panel fields that are still missing. The payload shapes are the ones in
@@ -84,7 +69,7 @@ function previewPayload(
   state: PreviewFormState,
   context: ActionContextResponse | null,
 ): { payload: { tag: string; contents: unknown[] }; missing: string[] } {
-  const prev = prevSlot(effectivePrev(chosenPrev(state), context));
+  const prev = prevSlot(effectivePrev(chosenPrev(state.type, state.panels), context));
 
   switch (state.type) {
     case 'InfoAction':

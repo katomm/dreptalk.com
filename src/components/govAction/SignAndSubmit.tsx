@@ -14,6 +14,8 @@ import type { ReadinessReason } from '@/lib/governance/readiness.js';
 import { formatAdaPlain } from '@/lib/format/ada.js';
 import WalletConnection from '@/components/WalletConnection.js';
 import ReadinessList from '@/components/govAction/ReadinessList.js';
+import { ErrorIcon, InfoIcon } from '@/components/govAction/icons.js';
+import { linkButtonStyle } from '@/components/drepFormStyles.js';
 
 export interface SignAndSubmitProps {
   wallets: CardanoWalletInfo[];
@@ -42,32 +44,6 @@ const sectionStyle: CSSProperties = {
   borderTop: '1px solid var(--border)',
   paddingTop: '1.25rem',
 };
-
-const linkButtonStyle: CSSProperties = {
-  background: 'none',
-  border: 'none',
-  color: 'var(--accent)',
-  cursor: 'pointer',
-  padding: 0,
-  font: 'inherit',
-  textDecoration: 'underline',
-};
-
-function InfoIcon() {
-  return (
-    <svg className="callout__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" />
-    </svg>
-  );
-}
-
-function ErrorIcon() {
-  return (
-    <svg className="callout__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
-    </svg>
-  );
-}
 
 /**
  * The one line under the connected wallet, in the four states it can be in.

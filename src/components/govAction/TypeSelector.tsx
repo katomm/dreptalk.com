@@ -72,6 +72,8 @@ function cardStyle(selected: boolean, disabled: boolean): CSSProperties {
 }
 
 export default function TypeSelector({ value, onChange, params, deposit, disabled = false }: TypeSelectorProps) {
+  // The same line on every card, so it is worded once rather than per type.
+  const depositText = depositLine(deposit);
   return (
     <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
       <legend style={{ fontSize: '0.875rem', color: 'var(--muted)', padding: 0, marginBottom: '0.5rem' }}>
@@ -100,7 +102,7 @@ export default function TypeSelector({ value, onChange, params, deposit, disable
                   : 'Loading the current voting thresholds...'}
               </span>
               <span style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--muted)', marginTop: '0.15rem' }}>
-                {depositLine(deposit)}
+                {depositText}
               </span>
               <span style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--muted)', marginTop: '0.15rem' }}>
                 {decidersLine(t.type)}

@@ -9,12 +9,7 @@ import { jsonResponse, currentNetwork } from '@/lib/api/response.js';
 import type { NetworkConfig } from '@/lib/config/network.js';
 import { gateGovActionRequest, GOV_ACTION_RATE_POLICIES } from './govActionGate.js';
 import { getDraftTopicRef } from '../db/draftLinks.js';
-
-// The same "<64-hex-txHash>#<index>" shape links.ts and drepTx.ts validate,
-// lowercase only since that is how the tx hash and the stored id are both
-// written (see sync.ts, which keys governance_actions.id off proposal_tx_hash
-// straight from Koios).
-const GOV_ACTION_ID_RE = /^[0-9a-f]{64}#\d{1,5}$/;
+import { GOV_ACTION_KEY_RE } from './prevAction.js';
 
 export interface ActionStatusResponse {
   synced: boolean;
@@ -49,7 +44,7 @@ export async function handleActionStatus(
 
   const url = new URL(ctx.request.url);
   const id = url.searchParams.get('id');
-  if (!id || !GOV_ACTION_ID_RE.test(id)) {
+  if (!id || !GOV_ACTION_KEY_RE.test(id)) {
     return jsonResponse({ error: 'invalid id' }, 400, { 'cache-control': 'no-store' });
   }
 

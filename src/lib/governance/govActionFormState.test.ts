@@ -9,6 +9,8 @@ import {
   effectiveLinkedDraftSlug,
   draftConflict,
   committeeMode,
+  emptyPanelStates,
+  panelReadiness,
   validateCommitteePanel,
   validateHardForkPanel,
   validateNewConstitutionPanel,
@@ -1020,6 +1022,29 @@ describe('validateNewConstitutionPanel', () => {
       ncCtx(null),
     );
     expect(result).toEqual({ ok: false, error: 'A guardrails script hash is exactly 56 hex characters.' });
+  });
+});
+
+describe('panelReadiness', () => {
+  const NC_CTX: ActionContextResponse = {
+    epoch: 500,
+    prev: { lastEnacted: null, open: [] },
+    constitution: { scriptHash: 'a'.repeat(56) },
+  };
+
+  it('is ok with no message for a panel that validates', () => {
+    const panels = emptyPanelStates();
+    panels.NewConstitution = { prev: null, text: '# Constitution', scriptHashHex: null };
+    expect(panelReadiness('NewConstitution', panels, NC_CTX)).toEqual({ ok: true, error: '' });
+  });
+
+  it('carries the panel validator message when the panel does not validate', () => {
+    const panels = emptyPanelStates();
+    panels.NewConstitution = { prev: null, text: '   ', scriptHashHex: null };
+    expect(panelReadiness('NewConstitution', panels, NC_CTX)).toEqual({
+      ok: false,
+      error: 'Enter the constitution text.',
+    });
   });
 });
 

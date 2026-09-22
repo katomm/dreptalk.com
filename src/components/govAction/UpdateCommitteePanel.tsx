@@ -12,6 +12,7 @@ import type { CSSProperties } from 'react';
 import PrevActionField from './PrevActionField.js';
 import { validateCommitteePanel } from '@/lib/governance/govActionFormState.js';
 import { ccColdBech32, isBech32CredentialInput } from '@/lib/governance/committeeUpdate.js';
+import { shortenHash } from '@/lib/governance/onchain.js';
 import { epochDateClause, epochWithDate } from '@/lib/governance/epochLabel.js';
 import type { CommitteeAddRow, UpdateCommitteePanelState } from '@/lib/governance/govActionFormState.js';
 import type { ActionContextResponse } from '@/lib/governance/actionContextHandler.js';
@@ -38,11 +39,6 @@ const linkButtonStyle = (disabled: boolean): CSSProperties => ({
   textDecoration: 'underline',
 });
 
-/** The first 8 and last 6 characters of an id, joined by an ellipsis. */
-function shortId(id: string): string {
-  return id.length > 14 ? `${id.slice(0, 8)}…${id.slice(-6)}` : id;
-}
-
 /**
  * A member's cold credential as shortened cc_cold bech32, or, when the chain
  * context hands back a hash that is not 56 hex characters, the shortened hex
@@ -50,7 +46,7 @@ function shortId(id: string): string {
  * shown as what it is rather than allowed to take the panel down.
  */
 function shortColdCredential(coldHex: string, hasScript: boolean): string {
-  return shortId(ccColdBech32(coldHex, hasScript) ?? coldHex);
+  return shortenHash(ccColdBech32(coldHex, hasScript) ?? coldHex);
 }
 
 /**

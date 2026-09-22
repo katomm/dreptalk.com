@@ -43,9 +43,6 @@ export default function HardForkPanel({ context, value, onChange, networkConfig,
   const openRow = prev ? (prevContext.open.find(o => matchesRef(prev, o)) ?? null) : null;
   const base = active ? hardForkBaseVersion(prev, prevContext.open, active) : null;
   const candidates = base && active ? versionsThatFollow(base, active) : [];
-  // Only read when candidates is non-empty, which only happens when base is
-  // set (see the ternary above), so this fallback never actually applies.
-  const baseMajor = base?.major ?? 0;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
@@ -77,7 +74,10 @@ export default function HardForkPanel({ context, value, onChange, networkConfig,
             version can be offered against it. Chain onto the last enacted action instead.
           </p>
         )}
-        {candidates.length > 0 && (
+        {/* `base` is what the candidates were computed from, so it is always
+            set when there are any. Naming it here is what lets the major-bump
+            line below read base.major without a fallback. */}
+        {base && candidates.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
             {candidates.map(c => (
               <label key={formatVersion(c)} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', fontSize: '0.875rem' }}>
@@ -91,7 +91,7 @@ export default function HardForkPanel({ context, value, onChange, networkConfig,
                 <span>
                   {formatVersion(c)}
                   <span style={mutedStyle}>
-                    , {c.major > baseMajor ? 'a new major version (a real hard fork)' : 'a minor version bump'}
+                    , {c.major > base.major ? 'a new major version (a real hard fork)' : 'a minor version bump'}
                   </span>
                 </span>
               </label>
