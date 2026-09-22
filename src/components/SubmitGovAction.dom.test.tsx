@@ -715,6 +715,46 @@ describe('SubmitGovAction', () => {
       expect(screen.queryByLabelText('Reference 1 label')).toBeNull();
     });
 
+    // gov-sync's resolver reads the first Proposal Drafts reference of the
+    // submitted document, and a closed draft is not excluded from that. A
+    // stored draft that carries one ahead of the linked draft would therefore
+    // link the wrong thread, with nothing on screen saying so.
+    it('puts the linked draft first when a restored draft carries a closed one ahead of it', async () => {
+      window.localStorage.setItem(
+        DRAFT_KEY,
+        JSON.stringify({
+          v: 2,
+          type: 'InfoAction',
+          title: 'A restored proposal',
+          abstract: '',
+          motivation: '',
+          rationale: '',
+          signAsAuthor: true,
+          authorName: DISPLAY_NAME,
+          references: [
+            { label: 'A closed draft', uri: `${SITE_ORIGIN}/t/closed-draft-x9/` },
+            { label: 'Fund tooling', uri: `${SITE_ORIGIN}/t/fund-tooling-a1b2/` },
+          ],
+          surveyRef: '',
+          panels: {},
+          linkedDraftSlug: 'fund-tooling-a1b2',
+          savedAt: Date.now(),
+        }),
+      );
+      render(
+        <SubmitGovAction network="preprod" displayName={DISPLAY_NAME} openDrafts={OPEN_DRAFTS} siteOrigin={SITE_ORIGIN} />,
+      );
+      await screen.findByText(/^Restored your draft from/);
+
+      expect((screen.getByLabelText('Reference 1 URL') as HTMLInputElement).value).toBe(
+        `${SITE_ORIGIN}/t/fund-tooling-a1b2/`,
+      );
+      expect((screen.getByLabelText('Reference 2 URL') as HTMLInputElement).value).toBe(
+        `${SITE_ORIGIN}/t/closed-draft-x9/`,
+      );
+      expect((screen.getByLabelText('Link a Proposal Draft') as HTMLInputElement).value).toBe('fund-tooling-a1b2');
+    });
+
     it('removes a hand-typed reference when the control is set back to "No draft linked"', () => {
       render(
         <SubmitGovAction network="preprod" displayName={DISPLAY_NAME} openDrafts={OPEN_DRAFTS} siteOrigin={SITE_ORIGIN} />,

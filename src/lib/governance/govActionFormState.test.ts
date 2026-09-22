@@ -592,8 +592,12 @@ describe('restoreDraft', () => {
       siteOrigin: SITE_ORIGIN,
     });
     expect(s.linkedDraftSlug).toBe('legacy-draft-c3');
-    // The reference itself is untouched, restore only infers what it already tracks.
-    expect(s.metadata.references).toEqual(draft.references);
+    // The rows themselves are untouched, but the derived one is moved to the
+    // front like any tracked reference, see draftReferenceFirst.
+    expect(s.metadata.references).toEqual([
+      { label: 'My draft', uri: `${SITE_ORIGIN}/t/legacy-draft-c3/` },
+      { label: 'Not a draft', uri: 'https://example.org/notes' },
+    ]);
   });
 
   it('leaves the tracked slug null for a legacy draft whose references name no open draft', () => {
@@ -1226,6 +1230,95 @@ describe('discardDraft', () => {
     s = govActionFormReducer(s, { kind: 'discardDraft', displayName: 'Jane DRep' });
     expect(s.linkedDraftSlug).toBeNull();
     expect(s.metadata.references).toEqual([]);
+  });
+});
+
+// resolveDraftTopic (draftLinks.ts) reads the FIRST Proposal Drafts reference
+// of a submitted document, so the tracked draft's reference has to stay at the
+// front through every path, not only through linkDraft's own insert.
+describe('the tracked draft reference stays first', () => {
+  it('moves a restored tracked reference ahead of an earlier closed-draft reference', () => {
+    const s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'restoreDraft',
+      draft: draft({
+        references: [
+          { label: 'Closed draft C', uri: `${SITE_ORIGIN}/t/closed-draft-c/` },
+          { label: 'Draft A', uri: `${SITE_ORIGIN}/t/draft-a/` },
+          { label: 'Discussion', uri: `${SITE_ORIGIN}/t/other-thread/` },
+        ],
+        linkedDraftSlug: 'draft-a',
+      }),
+      openDrafts: [{ slug: 'draft-a' }],
+      siteOrigin: SITE_ORIGIN,
+    });
+
+    expect(s.linkedDraftSlug).toBe('draft-a');
+    expect(s.metadata.references).toEqual([
+      { label: 'Draft A', uri: `${SITE_ORIGIN}/t/draft-a/` },
+      { label: 'Closed draft C', uri: `${SITE_ORIGIN}/t/closed-draft-c/` },
+      { label: 'Discussion', uri: `${SITE_ORIGIN}/t/other-thread/` },
+    ]);
+    // The restore itself is not an edit, moving the row does not make it one.
+    expect(s.dirty).toBe(false);
+  });
+
+  it('moves the tracked reference back to the front when an edit pushes it behind another row', () => {
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'linkDraft',
+      slug: 'draft-a',
+      title: 'Draft A',
+      siteOrigin: SITE_ORIGIN,
+    });
+    s = govActionFormReducer(s, {
+      kind: 'setMetadata',
+      patch: {
+        references: [
+          { label: 'Closed draft C', uri: `${SITE_ORIGIN}/t/closed-draft-c/` },
+          { label: 'Draft A', uri: `${SITE_ORIGIN}/t/draft-a/` },
+        ],
+      },
+      siteOrigin: SITE_ORIGIN,
+    });
+
+    expect(s.linkedDraftSlug).toBe('draft-a');
+    expect(s.metadata.references).toEqual([
+      { label: 'Draft A', uri: `${SITE_ORIGIN}/t/draft-a/` },
+      { label: 'Closed draft C', uri: `${SITE_ORIGIN}/t/closed-draft-c/` },
+    ]);
+  });
+
+  it('leaves the order alone for an edit that does not move the tracked reference', () => {
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'linkDraft',
+      slug: 'draft-a',
+      title: 'Draft A',
+      siteOrigin: SITE_ORIGIN,
+    });
+    s = govActionFormReducer(s, {
+      kind: 'setMetadata',
+      patch: { references: [...s.metadata.references, { label: 'Other', uri: 'https://example.org/x' }] },
+      siteOrigin: SITE_ORIGIN,
+    });
+    s = govActionFormReducer(s, { kind: 'setMetadata', patch: { title: 'A title' }, siteOrigin: SITE_ORIGIN });
+
+    expect(s.metadata.references).toEqual([
+      { label: 'Draft A', uri: `${SITE_ORIGIN}/t/draft-a/` },
+      { label: 'Other', uri: 'https://example.org/x' },
+    ]);
+  });
+
+  it('leaves a restored draft alone when nothing is tracked', () => {
+    const references = [
+      { label: 'Closed draft C', uri: `${SITE_ORIGIN}/t/closed-draft-c/` },
+      { label: 'Discussion', uri: `${SITE_ORIGIN}/t/other-thread/` },
+    ];
+    const s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'restoreDraft',
+      draft: draft({ references, linkedDraftSlug: null }),
+      openDrafts: [{ slug: 'draft-a' }],
+      siteOrigin: SITE_ORIGIN,
+    });
+    expect(s.metadata.references).toEqual(references);
   });
 });
 

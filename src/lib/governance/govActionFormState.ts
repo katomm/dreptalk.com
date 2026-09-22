@@ -474,6 +474,32 @@ function actedOnDraftSlug(
 }
 
 /**
+ * Restores the invariant that the tracked draft's reference is the FIRST
+ * reference row, moving it there and leaving every other row in its relative
+ * order. A no-op when nothing is tracked, when the tracked slug has no
+ * reference, or when it is already first.
+ *
+ * resolveDraftTopic (see draftLinks.ts) reads the FIRST Proposal Drafts
+ * reference of a submitted document, and its filter only excludes a deleted
+ * thread, not a closed or already-linked one. A stored draft whose references
+ * put a closed draft ahead of the tracked one, or an edit that moves a row
+ * above it, would otherwise submit a document linking a thread the control
+ * never showed as chosen, and nothing on the client would say so: draftConflict
+ * only counts references naming an open draft, which a closed one is not.
+ * linkDraft writes the picked reference to the front for the same reason, this
+ * keeps it there through the paths that do not go through linkDraft at all.
+ */
+function draftReferenceFirst(
+  references: { label: string; uri: string }[],
+  slug: string | null,
+  siteOrigin: string,
+): { label: string; uri: string }[] {
+  const index = referenceIndexForSlug(references, slug, siteOrigin);
+  if (index <= 0) return references;
+  return [references[index], ...references.filter((_, i) => i !== index)];
+}
+
+/**
  * The tracked slug for a restored draft: the stored value when the draft
  * carries one and it is a well-formed slug (a string, or an explicit null for
  * "linked then unlinked"), or, for a draft saved before linkedDraftSlug
@@ -689,7 +715,20 @@ export function govActionFormReducer(
         referenceIndexForSlug(nextMetadata.references, state.linkedDraftSlug, action.siteOrigin) === -1
           ? null
           : state.linkedDraftSlug;
-      return { ...state, metadata: nextMetadata, linkedDraftSlug, context: clearContextChanges(state.context), dirty: true };
+      // Same patches, same evidence: a references edit that pushed the tracked
+      // reference behind another row puts it back in front (see
+      // draftReferenceFirst for why the position matters).
+      const references =
+        action.patch.references !== undefined && action.siteOrigin
+          ? draftReferenceFirst(nextMetadata.references, linkedDraftSlug, action.siteOrigin)
+          : nextMetadata.references;
+      return {
+        ...state,
+        metadata: { ...nextMetadata, references },
+        linkedDraftSlug,
+        context: clearContextChanges(state.context),
+        dirty: true,
+      };
     }
 
     case 'setPanel': {
@@ -739,7 +778,13 @@ export function govActionFormReducer(
         context: { status: 'error', requestId: action.requestId, data: null, loadedAt: null, changes: NO_CONTEXT_CHANGES },
       };
 
-    case 'restoreDraft':
+    case 'restoreDraft': {
+      const siteOrigin = action.siteOrigin ?? '';
+      const linkedDraftSlug = linkedDraftSlugFromDraft(action.draft, action.openDrafts ?? [], siteOrigin);
+      // A draft stored before the front-insert rule existed can carry a closed
+      // draft's reference ahead of the tracked one, which is exactly the order
+      // resolveDraftTopic would read the wrong way round.
+      const references = draftReferenceFirst(action.draft.references, linkedDraftSlug, siteOrigin);
       return {
         ...state,
         type: action.draft.type,
@@ -750,14 +795,15 @@ export function govActionFormReducer(
           rationale: action.draft.rationale,
           signAsAuthor: action.draft.signAsAuthor,
           authorName: action.draft.authorName,
-          references: action.draft.references,
+          references,
           surveyRef: action.draft.surveyRef,
         },
         panels: panelStatesFromDraft(action.draft),
-        linkedDraftSlug: linkedDraftSlugFromDraft(action.draft, action.openDrafts ?? [], action.siteOrigin ?? ''),
+        linkedDraftSlug,
         draftLinkError: null,
         dirty: false,
       };
+    }
 
     case 'discardDraft':
       // Back to the same untouched shape a fresh visit starts from. The
