@@ -343,7 +343,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
       );
       if (!res.ok) throw new Error(`context request failed (${res.status})`);
       const data = (await res.json()) as ActionContextResponse;
-      dispatch({ kind: 'contextLoaded', requestId, data });
+      dispatch({ kind: 'contextLoaded', requestId, data, now: Date.now() });
       return data;
     } catch {
       dispatch({ kind: 'contextFailed', requestId });
@@ -430,6 +430,53 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
     if (chainForType(state.type) === null) return;
     void loadContext(state.type);
   }, [state.type, contextAttempt, loadContext]);
+
+  // Reload-safe: a tab left open and switched away from can sit long enough
+  // for the chain to move under it, so a return to visibility after more
+  // than a minute hidden refetches the current type's context, exactly like
+  // the retry button does. Under a minute is not worth a request: a quick
+  // tab switch should not cost one every time. InfoAction has no context to
+  // refetch.
+  const hiddenAtRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    function handleVisibilityChange() {
+      if (document.hidden) {
+        hiddenAtRef.current = Date.now();
+        return;
+      }
+      const hiddenAt = hiddenAtRef.current;
+      hiddenAtRef.current = null;
+      if (hiddenAt === null) return;
+      if (Date.now() - hiddenAt <= 60_000) return;
+      if (chainForType(state.type) === null) return;
+      void loadContext(state.type);
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [state.type, loadContext]);
+
+  // Ticks once a minute so the "loaded n minutes ago" line stays current on
+  // a page nobody touches, without a refetch. Cleared on unmount.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  /**
+   * "Chain context loaded n minutes ago", once the reading is at least ten
+   * minutes old, else null. Reads `loadedAt` rather than gating on the ready
+   * status, so the line keeps showing (and keeps its own age) through a
+   * same-type refetch that is still in flight, exactly like the context data
+   * it is about.
+   */
+  function contextAgeLine(): string | null {
+    if (state.context.loadedAt === null) return null;
+    const minutes = Math.floor((nowMs - state.context.loadedAt) / 60_000);
+    if (minutes < 10) return null;
+    return `Chain context loaded ${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+  }
 
   // Only the submit step freezes the form now. Connecting a wallet does not:
   // it happens in the last section while everything above stays editable.
@@ -1171,6 +1218,17 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
           deposit={deposit}
           disabled={busy}
         />
+
+        {chained && contextAgeLine() && (
+          <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.8125rem' }}>{contextAgeLine()}</p>
+        )}
+        {chained && state.context.changes.length > 0 && (
+          <div role="status" style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+            {state.context.changes.map((line) => (
+              <p key={line} style={{ margin: 0, color: 'var(--muted)', fontSize: '0.8125rem' }}>{line}</p>
+            ))}
+          </div>
+        )}
 
         {renderPanel()}
 

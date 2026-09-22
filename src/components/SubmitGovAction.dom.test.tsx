@@ -1139,4 +1139,113 @@ describe('SubmitGovAction', () => {
       expect(String(call?.[0])).toContain(`id=${encodeURIComponent(`${'b'.repeat(64)}#0`)}`);
     });
   });
+
+  // Reload-safe island: a return to visibility after a while hidden refetches
+  // the current type's context, a stale-looking reading says its own age, and
+  // a refetch that moves a default the panel resolves against says which one
+  // changed. Fake timers throughout: the component is mounted only after
+  // `vi.useFakeTimers()`, and every wait is a manual `advanceTimersByTimeAsync`
+  // flush rather than testing-library's `waitFor`/`findBy*`, which hang under
+  // happy-dom once real timers are replaced (see the polling mock above).
+  describe('reload-safe context (visibility, age, change notes)', () => {
+    function contextCallCount(fetchMock: ReturnType<typeof vi.fn>): number {
+      return fetchMock.mock.calls.filter((c) => String(c[0]).includes('/api/gov-action/context')).length;
+    }
+
+    /** Renders on NoConfidence (any chained type does) and flushes the initial context load. */
+    async function mountOnNoConfidence() {
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      fireEvent.click(screen.getByRole('radio', { name: /No confidence/ }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+    }
+
+    /** Hides the tab, advances by `hiddenMs`, then shows it again, flushing any refetch it triggers. */
+    async function hideThenShow(hiddenMs: number) {
+      const hiddenSpy = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+      act(() => {
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(hiddenMs);
+      });
+      hiddenSpy.mockReturnValue(false);
+      await act(async () => {
+        document.dispatchEvent(new Event('visibilitychange'));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      hiddenSpy.mockRestore();
+    }
+
+    it('refetches the context once the tab was hidden more than 60 s', async () => {
+      const fetchMock = installFetchMock();
+      vi.useFakeTimers();
+      try {
+        await mountOnNoConfidence();
+        expect(screen.getByText('The sitting committee')).toBeTruthy();
+        const before = contextCallCount(fetchMock);
+
+        await hideThenShow(61_000);
+
+        expect(contextCallCount(fetchMock)).toBe(before + 1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('does not refetch when the tab was hidden 30 s or less', async () => {
+      const fetchMock = installFetchMock();
+      vi.useFakeTimers();
+      try {
+        await mountOnNoConfidence();
+        const before = contextCallCount(fetchMock);
+
+        await hideThenShow(30_000);
+
+        expect(contextCallCount(fetchMock)).toBe(before);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('shows the chain context’s age once the reading is ten minutes old', async () => {
+      installFetchMock();
+      vi.useFakeTimers();
+      try {
+        await mountOnNoConfidence();
+        expect(screen.queryByText(/Chain context loaded/)).toBeNull();
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(10 * 60_000);
+        });
+
+        expect(screen.getByText('Chain context loaded 10 minutes ago')).toBeTruthy();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('says which default changed after a refetch moves it, and drops the note on the next edit', async () => {
+      installFetchMock();
+      vi.useFakeTimers();
+      try {
+        await mountOnNoConfidence();
+        expect(screen.getByText('The sitting committee')).toBeTruthy();
+
+        committeeContext = {
+          ...COMMITTEE_CONTEXT,
+          committee: { ...COMMITTEE_CONTEXT.committee, quorum: { numerator: 3, denominator: 5 } },
+        };
+        await hideThenShow(61_000);
+
+        expect(screen.getByText('The committee quorum changed to 3/5')).toBeTruthy();
+
+        fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'An edit' } });
+        expect(screen.queryByText('The committee quorum changed to 3/5')).toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
 });

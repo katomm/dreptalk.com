@@ -97,7 +97,7 @@ describe('setType', () => {
   it('drops a loaded context, since it belongs to the type it was fetched for', () => {
     let s = initialGovActionFormState();
     s = govActionFormReducer(s, { kind: 'contextRequested', requestId: 1 });
-    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 1, data: ctx(500) });
+    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 1, data: ctx(500), now: 0 });
     expect(s.context.status).toBe('ready');
     s = govActionFormReducer(s, { kind: 'setType', type: 'NewConstitution' });
     expect(s.context.status).toBe('idle');
@@ -157,7 +157,7 @@ describe('context lifecycle', () => {
       kind: 'contextRequested',
       requestId: 3,
     });
-    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 3, data: ctx(501) });
+    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 3, data: ctx(501), now: 0 });
     expect(s.context.status).toBe('ready');
     expect(s.context.data?.epoch).toBe(501);
   });
@@ -168,7 +168,7 @@ describe('context lifecycle', () => {
     s = govActionFormReducer(s, { kind: 'setType', type: 'HardForkInitiation' });
     s = govActionFormReducer(s, { kind: 'contextRequested', requestId: 2 });
     // The slow response for the first (NoConfidence-era) request arrives late.
-    const after = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 1, data: ctx(400) });
+    const after = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 1, data: ctx(400), now: 0 });
     expect(after).toBe(s);
     expect(after.context.status).toBe('loading');
     expect(after.context.data).toBeNull();
@@ -178,7 +178,7 @@ describe('context lifecycle', () => {
     let s = initialGovActionFormState();
     s = govActionFormReducer(s, { kind: 'contextRequested', requestId: 1 });
     s = govActionFormReducer(s, { kind: 'contextRequested', requestId: 2 });
-    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 2, data: ctx(502) });
+    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 2, data: ctx(502), now: 0 });
     const after = govActionFormReducer(s, { kind: 'contextFailed', requestId: 1 });
     expect(after).toBe(s);
     expect(after.context.status).toBe('ready');
@@ -199,7 +199,7 @@ describe('context lifecycle', () => {
       kind: 'contextRequested',
       requestId: 1,
     });
-    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 1, data: ctx(500) });
+    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 1, data: ctx(500), now: 0 });
     s = govActionFormReducer(s, { kind: 'contextRequested', requestId: 2 });
     expect(s.context.status).toBe('loading');
     expect(s.context.data?.epoch).toBe(500);
@@ -214,16 +214,190 @@ describe('context lifecycle', () => {
       kind: 'contextLoaded',
       requestId: 1,
       data: ctx(500, 'a'.repeat(64)),
+      now: 0,
     });
     s = govActionFormReducer(s, { kind: 'contextRequested', requestId: 2 });
     s = govActionFormReducer(s, {
       kind: 'contextLoaded',
       requestId: 2,
       data: ctx(501, 'b'.repeat(64)),
+      now: 60_000,
     });
     expect(s.context.status).toBe('ready');
     expect(s.context.data?.epoch).toBe(501);
     expect(s.context.data?.prev?.lastEnacted?.txHash).toBe('b'.repeat(64));
+  });
+});
+
+// A context with every field the change notes compare, so each test below
+// only overrides the one field it moves. `undefined` keeps the base value,
+// an explicit `null` clears the field (no previous action, no script hash).
+function changeCtx(over: {
+  lastEnactedId?: string | null;
+  quorum?: { numerator: number; denominator: number } | null;
+  scriptHash?: string | null;
+  version?: { major: number; minor: number } | null;
+} = {}): ActionContextResponse {
+  const lastEnactedId = over.lastEnactedId === undefined ? 'gov_action1aaa' : over.lastEnactedId;
+  return {
+    epoch: 500,
+    prev: {
+      lastEnacted: lastEnactedId
+        ? { txHash: 'a'.repeat(64), index: 0, id: lastEnactedId, type: 'NewConstitution', title: null, proposedEpoch: 100 }
+        : null,
+      open: [],
+    },
+    committee: {
+      members: [],
+      quorum: over.quorum === undefined ? { numerator: 2, denominator: 3 } : over.quorum,
+      maxTermLength: null,
+    },
+    constitution: { scriptHash: over.scriptHash === undefined ? 'f'.repeat(56) : over.scriptHash },
+    protocolVersion: (over.version === undefined ? { major: 11, minor: 0 } : over.version) ?? undefined,
+  };
+}
+
+/** Loads `data` as the very next ready response, starting from a fresh idle state. */
+function loadOnce(data: ActionContextResponse, now = 0): GovActionFormState {
+  let s = initialGovActionFormState();
+  s = govActionFormReducer(s, { kind: 'contextRequested', requestId: 1 });
+  return govActionFormReducer(s, { kind: 'contextLoaded', requestId: 1, data, now });
+}
+
+/** Refetches over an already-ready state, so contextLoaded has something to compare against. */
+function reload(s: GovActionFormState, data: ActionContextResponse, now: number): GovActionFormState {
+  s = govActionFormReducer(s, { kind: 'contextRequested', requestId: s.context.requestId + 1 });
+  return govActionFormReducer(s, { kind: 'contextLoaded', requestId: s.context.requestId, data, now });
+}
+
+describe('contextLoaded change notes', () => {
+  it('produces no changes on a first load, there is nothing yet to compare against', () => {
+    const s = loadOnce(changeCtx());
+    expect(s.context.changes).toEqual([]);
+  });
+
+  it('sets loadedAt from the action’s own now, not the clock', () => {
+    const s = loadOnce(changeCtx(), 123_456);
+    expect(s.context.loadedAt).toBe(123_456);
+  });
+
+  it('notes the previous action moving to a different one', () => {
+    let s = loadOnce(changeCtx({ lastEnactedId: 'gov_action1aaa' }));
+    s = reload(s, changeCtx({ lastEnactedId: 'gov_action1bbb' }), 1000);
+    expect(s.context.changes).toEqual(['The previous action changed to gov_action1bbb']);
+  });
+
+  it('notes the previous action moving to none', () => {
+    let s = loadOnce(changeCtx({ lastEnactedId: 'gov_action1aaa' }));
+    s = reload(s, changeCtx({ lastEnactedId: null }), 1000);
+    expect(s.context.changes).toEqual(['The previous action changed to none, this now starts the chain']);
+  });
+
+  it('notes the committee quorum changing', () => {
+    let s = loadOnce(changeCtx({ quorum: { numerator: 2, denominator: 3 } }));
+    s = reload(s, changeCtx({ quorum: { numerator: 3, denominator: 5 } }), 1000);
+    expect(s.context.changes).toEqual(['The committee quorum changed to 3/5']);
+  });
+
+  it('notes the guardrails script hash changing, shortened the way the on-chain card shortens it', () => {
+    const newHash = 'b'.repeat(56);
+    let s = loadOnce(changeCtx({ scriptHash: 'f'.repeat(56) }));
+    s = reload(s, changeCtx({ scriptHash: newHash }), 1000);
+    expect(s.context.changes).toEqual([`The guardrails script hash changed to ${newHash.slice(0, 8)}…${newHash.slice(-6)}`]);
+  });
+
+  it('notes the guardrails script hash going missing', () => {
+    let s = loadOnce(changeCtx({ scriptHash: 'f'.repeat(56) }));
+    s = reload(s, changeCtx({ scriptHash: null }), 1000);
+    expect(s.context.changes).toEqual(['The guardrails script hash is no longer on record']);
+  });
+
+  it('notes the active protocol version changing', () => {
+    let s = loadOnce(changeCtx({ version: { major: 11, minor: 0 } }));
+    s = reload(s, changeCtx({ version: { major: 11, minor: 1 } }), 1000);
+    expect(s.context.changes).toEqual(['The active protocol version changed to 11.1']);
+  });
+
+  it('lists every field that moved at once, in one refetch', () => {
+    let s = loadOnce(
+      changeCtx({ lastEnactedId: 'gov_action1aaa', quorum: { numerator: 2, denominator: 3 }, scriptHash: 'f'.repeat(56), version: { major: 11, minor: 0 } }),
+    );
+    s = reload(
+      s,
+      changeCtx({ lastEnactedId: 'gov_action1bbb', quorum: { numerator: 3, denominator: 5 }, scriptHash: null, version: { major: 12, minor: 0 } }),
+      1000,
+    );
+    expect(s.context.changes).toEqual([
+      'The previous action changed to gov_action1bbb',
+      'The committee quorum changed to 3/5',
+      'The guardrails script hash is no longer on record',
+      'The active protocol version changed to 12.0',
+    ]);
+  });
+
+  it('reports no changes when a refetch answers with the same reading', () => {
+    let s = loadOnce(changeCtx());
+    s = reload(s, changeCtx(), 1000);
+    expect(s.context.changes).toEqual([]);
+  });
+
+  it('clears on setType, since the context itself is dropped', () => {
+    let s = loadOnce(changeCtx({ lastEnactedId: 'gov_action1aaa' }));
+    s = reload(s, changeCtx({ lastEnactedId: 'gov_action1bbb' }), 1000);
+    expect(s.context.changes).not.toEqual([]);
+    s = govActionFormReducer(s, { kind: 'setType', type: 'NewConstitution' });
+    expect(s.context.changes).toEqual([]);
+  });
+
+  it('clears on setMetadata, setPanel, linkDraft and unlinkDraft, the form’s own edit actions', () => {
+    const withChanges = () => {
+      let s = loadOnce(changeCtx({ lastEnactedId: 'gov_action1aaa' }));
+      s = reload(s, changeCtx({ lastEnactedId: 'gov_action1bbb' }), 1000);
+      expect(s.context.changes).not.toEqual([]);
+      return s;
+    };
+
+    expect(
+      govActionFormReducer(withChanges(), { kind: 'setMetadata', patch: { title: 'x' } }).context.changes,
+    ).toEqual([]);
+
+    expect(
+      govActionFormReducer(withChanges(), {
+        kind: 'setPanel',
+        type: 'NoConfidence',
+        state: { prev: null },
+      }).context.changes,
+    ).toEqual([]);
+
+    expect(
+      govActionFormReducer(withChanges(), {
+        kind: 'linkDraft',
+        slug: 'a-draft',
+        title: 'A draft',
+        siteOrigin: SITE_ORIGIN,
+      }).context.changes,
+    ).toEqual([]);
+
+    let linked = govActionFormReducer(withChanges(), {
+      kind: 'linkDraft',
+      slug: 'a-draft',
+      title: 'A draft',
+      siteOrigin: SITE_ORIGIN,
+    });
+    linked = reload(linked, changeCtx({ lastEnactedId: 'gov_action1ccc' }), 2000);
+    expect(linked.context.changes).not.toEqual([]);
+    expect(
+      govActionFormReducer(linked, { kind: 'unlinkDraft', siteOrigin: SITE_ORIGIN }).context.changes,
+    ).toEqual([]);
+  });
+
+  it('keeps the previous changes visible while a same-type refetch is in flight', () => {
+    let s = loadOnce(changeCtx({ lastEnactedId: 'gov_action1aaa' }));
+    s = reload(s, changeCtx({ lastEnactedId: 'gov_action1bbb' }), 1000);
+    const withChanges = s.context.changes;
+    s = govActionFormReducer(s, { kind: 'contextRequested', requestId: s.context.requestId + 1 });
+    expect(s.context.status).toBe('loading');
+    expect(s.context.changes).toEqual(withChanges);
   });
 });
 
@@ -575,11 +749,11 @@ describe('committeeMode and validateCommitteePanel', () => {
   it('carries ticked removals into free rows when the prev switches to an open proposal', () => {
     let s = initialGovActionFormState();
     s = govActionFormReducer(s, { kind: 'contextRequested', requestId: 1 });
-    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 1, data: committeeCtx() });
+    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 1, data: committeeCtx(), now: 0 });
     s = govActionFormReducer(s, { kind: 'setType', type: 'UpdateCommittee' });
     // setType drops the context, so re-load it for the type now selected.
     s = govActionFormReducer(s, { kind: 'contextRequested', requestId: 2 });
-    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 2, data: committeeCtx() });
+    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 2, data: committeeCtx(), now: 0 });
 
     s = govActionFormReducer(s, {
       kind: 'setPanel',
@@ -613,7 +787,7 @@ describe('committeeMode and validateCommitteePanel', () => {
   it('keeps the ticked removals on the way back to the enacted default and does not seed twice', () => {
     let s = initialGovActionFormState();
     s = govActionFormReducer(s, { kind: 'contextRequested', requestId: 1 });
-    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 1, data: committeeCtx() });
+    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 1, data: committeeCtx(), now: 0 });
     s = govActionFormReducer(s, {
       kind: 'setPanel',
       type: 'UpdateCommittee',
@@ -950,7 +1124,7 @@ describe('discardDraft', () => {
   it('leaves the context and the wallet untouched', () => {
     let s = initialGovActionFormState('Jane DRep');
     s = govActionFormReducer(s, { kind: 'contextRequested', requestId: 1 });
-    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 1, data: ctx(500) });
+    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 1, data: ctx(500), now: 0 });
     s = govActionFormReducer(s, { kind: 'walletConnecting' });
     s = govActionFormReducer(s, { kind: 'walletConnected', rewardAddressHex: 'e0ff' });
 
