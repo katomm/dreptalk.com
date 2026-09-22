@@ -52,17 +52,21 @@ type TestSuccessPollState =
 interface CapturedStatusPoll {
   fetchStatus: () => Promise<TestGovActionStatusResponse | null>;
   onUpdate: (state: TestSuccessPollState) => void;
+  /** The cancel function startStatusPolling returned for this call, so a test can assert cleanup. */
+  cancel: ReturnType<typeof vi.fn>;
 }
 let capturedPolls: CapturedStatusPoll[] = [];
-const startStatusPollingMock = vi.fn((deps: CapturedStatusPoll) => {
-  capturedPolls.push(deps);
-  return vi.fn();
+const startStatusPollingMock = vi.fn((deps: { fetchStatus: CapturedStatusPoll['fetchStatus']; onUpdate: CapturedStatusPoll['onUpdate'] }) => {
+  const cancel = vi.fn();
+  capturedPolls.push({ ...deps, cancel });
+  return cancel;
 });
 vi.mock('@/lib/governance/successPolling.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/governance/successPolling.js')>();
   return {
     ...actual,
-    startStatusPolling: (deps: unknown) => startStatusPollingMock(deps as CapturedStatusPoll),
+    startStatusPolling: (deps: unknown) =>
+      startStatusPollingMock(deps as { fetchStatus: CapturedStatusPoll['fetchStatus']; onUpdate: CapturedStatusPoll['onUpdate'] }),
   };
 });
 
@@ -206,12 +210,12 @@ const WITNESS_SIGNATURE = 'a1'.repeat(32);
 const WITNESS_KEY = 'a4'.repeat(20);
 
 // What the mocked /api/preview answers with. Replaced by the tests that need a
-// failure or a specific body; reset in beforeEach.
+// failure or a specific body. Reset in beforeEach.
 let previewImpl: (() => Promise<Response>) | null = null;
 
 // What the mocked /api/gov-action/status answers with, for the success
 // screen's sync poll. Replaced by the tests that drive it through several
-// answers; reset in beforeEach. Defaults to "not synced yet", the common case
+// answers. Reset in beforeEach. Defaults to "not synced yet", the common case
 // for every test that only cares about reaching the success screen at all.
 let statusImpl: (() => Promise<Response>) | null = null;
 
@@ -1014,24 +1018,32 @@ describe('SubmitGovAction', () => {
       startStatusPollingMock.mockClear();
     });
 
-    /** Submits the InfoAction form, waits for the success callout, and returns the captured poll. */
-    async function submitAndReachSuccess(): Promise<CapturedStatusPoll> {
-      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+    /**
+     * Submits the InfoAction form, waits for the success callout, and
+     * returns the captured poll plus the render result's own unmount, so a
+     * test can drive the cleanup half of the wiring.
+     */
+    async function submitAndReachSuccess(): Promise<{ poll: CapturedStatusPoll; unmount: () => void }> {
+      const pollsBefore = capturedPolls.length;
+      const view = render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
       fillMetadata();
       await connect();
       const submit = screen.getByRole('button', { name: 'Submit proposal' }) as HTMLButtonElement;
       await waitFor(() => expect(submit.disabled).toBe(false), SLOW);
       fireEvent.click(submit);
       await screen.findByText('Proposal submitted', {}, SLOW);
-      await waitFor(() => expect(capturedPolls.length).toBe(1), SLOW);
-      return capturedPolls[0];
+      // >= pollsBefore + 1 (never reset between two submissions in the same
+      // test, unlike beforeEach) rather than a fixed 1, so a test that mounts
+      // a second island after the first still waits for its own new entry.
+      await waitFor(() => expect(capturedPolls.length).toBeGreaterThan(pollsBefore), SLOW);
+      return { poll: capturedPolls[capturedPolls.length - 1], unmount: view.unmount };
     }
 
     it('asks the status route for "<txHash>#0"', async () => {
       submitGovActionMock.mockResolvedValue({ txHash: 'f'.repeat(64) });
       statusImpl = async () => jsonResponse({ synced: false, slug: null, draft: null });
       const fetchMock = installFetchMock();
-      const poll = await submitAndReachSuccess();
+      const { poll } = await submitAndReachSuccess();
 
       await poll.fetchStatus();
       const call = fetchMock.mock.calls.find(([url]) => String(url).includes('/api/gov-action/status'));
@@ -1040,7 +1052,7 @@ describe('SubmitGovAction', () => {
 
     it('starts pending, then shows the thread link and the draft sentence once synced', async () => {
       submitGovActionMock.mockResolvedValue({ txHash: 'f'.repeat(64) });
-      const poll = await submitAndReachSuccess();
+      const { poll } = await submitAndReachSuccess();
 
       act(() => poll.onUpdate({ kind: 'pending' }));
       // The interim state: the general explanation stays until the poll knows more.
@@ -1058,16 +1070,16 @@ describe('SubmitGovAction', () => {
       expect(
         screen.getByRole('link', { name: 'Your action is on DRepTalk' }).getAttribute('href'),
       ).toBe('/t/my-committee-change-ab12/');
-      expect(
-        screen.getByText(
-          'Linked to your Proposal Draft Fund tooling, the thread is now locked and the discussion continues on the action page.',
-        ),
-      ).toBeTruthy();
+      const draftLink = screen.getByRole('link', { name: 'Fund tooling' });
+      expect(draftLink.getAttribute('href')).toBe('/t/fund-tooling-c3d4/');
+      expect(draftLink.parentElement?.textContent).toBe(
+        'Linked to your Proposal Draft Fund tooling, the thread is now locked and the discussion continues on the action page.',
+      );
     });
 
     it('shows the thread link with no draft sentence when no draft was linked', async () => {
       submitGovActionMock.mockResolvedValue({ txHash: 'e'.repeat(64) });
-      const poll = await submitAndReachSuccess();
+      const { poll } = await submitAndReachSuccess();
 
       act(() => poll.onUpdate({ kind: 'synced', slug: 'my-info-action-cd34', draft: null }));
 
@@ -1079,7 +1091,7 @@ describe('SubmitGovAction', () => {
 
     it('says the action is not synced yet once the ten minute window elapses', async () => {
       submitGovActionMock.mockResolvedValue({ txHash: 'c'.repeat(64) });
-      const poll = await submitAndReachSuccess();
+      const { poll } = await submitAndReachSuccess();
 
       act(() => poll.onUpdate({ kind: 'timed-out' }));
 
@@ -1087,6 +1099,44 @@ describe('SubmitGovAction', () => {
       expect(
         screen.getByRole('link', { name: 'governance actions list' }).getAttribute('href'),
       ).toBe('/c/governance-actions/');
+    });
+
+    it('cancels the poll exactly once when the island unmounts', async () => {
+      submitGovActionMock.mockResolvedValue({ txHash: 'd'.repeat(64) });
+      const { poll, unmount } = await submitAndReachSuccess();
+      expect(poll.cancel).not.toHaveBeenCalled();
+
+      unmount();
+
+      expect(poll.cancel).toHaveBeenCalledTimes(1);
+    });
+
+    // DRepTalk is a multi-page Astro app, not a client-routed SPA, and the
+    // success screen is terminal (its early return skips the form and the
+    // "Use a different wallet" reset button, which only render pre-success):
+    // there is no in-page control to submit a second proposal from the same
+    // mounted island. A second submission is therefore always a fresh page
+    // load, i.e. a fresh mount, which is exactly what this test drives: the
+    // first mount's poll is torn down on unmount, and the second mount gets
+    // its own independent poll for its own id, never reusing or extending
+    // the first one.
+    it('gives a fresh mount its own poll for its own id, independent of a prior submission', async () => {
+      submitGovActionMock.mockResolvedValue({ txHash: 'a'.repeat(64) });
+      const fetchMock = installFetchMock();
+      const first = await submitAndReachSuccess();
+      first.unmount();
+      expect(first.poll.cancel).toHaveBeenCalledTimes(1);
+
+      submitGovActionMock.mockResolvedValue({ txHash: 'b'.repeat(64) });
+      const second = await submitAndReachSuccess();
+
+      expect(capturedPolls.length).toBe(2);
+      expect(second.poll).not.toBe(first.poll);
+      expect(second.poll.cancel).not.toHaveBeenCalled();
+
+      await second.poll.fetchStatus();
+      const call = fetchMock.mock.calls.find(([url]) => String(url).includes('/api/gov-action/status'));
+      expect(String(call?.[0])).toContain(`id=${encodeURIComponent(`${'b'.repeat(64)}#0`)}`);
     });
   });
 });

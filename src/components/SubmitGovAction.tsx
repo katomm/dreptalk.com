@@ -1125,8 +1125,11 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
                 </p>
                 {pollState.draft && (
                   <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
-                    Linked to your Proposal Draft {pollState.draft.title}, the thread is now locked and the
-                    discussion continues on the action page.
+                    Linked to your Proposal Draft{' '}
+                    <a href={`/t/${pollState.draft.slug}/`} style={{ color: 'var(--accent)' }}>
+                      {pollState.draft.title}
+                    </a>
+                    , the thread is now locked and the discussion continues on the action page.
                   </p>
                 )}
               </>
