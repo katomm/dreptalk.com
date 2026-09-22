@@ -170,7 +170,7 @@ function parseDepositLovelace(raw: unknown): bigint | null {
 
 // Matches the exact message thrown by submitGovAction's funding-shortfall
 // guard (see govActionTx.ts), so the required/available numbers can be
-// reformatted in ADA and the "no UTxOs at all" case can get its own wording.
+// reformatted in ada and the "no UTxOs at all" case can get its own wording.
 const INSUFFICIENT_FUNDS_RE = /^Insufficient tADA for the deposit: need (\d+) lovelace, wallet has (\d+)\.$/;
 
 /**
@@ -190,6 +190,13 @@ const INSUFFICIENT_FUNDS_RE = /^Insufficient tADA for the deposit: need (\d+) lo
  * Anything else (including a wallet-rejected signTx) falls back to the shared
  * CIP-30 error reader.
  */
+/**
+ * Shown when the wallet extension answers with a different reward address than
+ * the one read at connect time, which means the user switched accounts in the
+ * extension while the form was open.
+ */
+const WALLET_ACCOUNT_CHANGED = 'The wallet account changed. Connect the wallet again.';
+
 function mapSubmitError(err: unknown, prev: PrevActionRef | null): string {
   const raw = err instanceof Error ? err.message : String(err);
   const m = INSUFFICIENT_FUNDS_RE.exec(raw);
@@ -395,8 +402,15 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
     else saveGovActionDraft(window.localStorage, draftKey, draftFromState(draftable));
   }, [draftKey, metadata, type, panels, linkedDraftSlug, dirty, displayName]);
 
-  /** Discards the restored/in-progress draft: back to the defaults, storage cleared, banner gone. */
+  /**
+   * Discards the restored/in-progress draft: back to the defaults, storage
+   * cleared, banner gone. Refused while a submit is running: that handler is
+   * still reading the very fields this would empty, and the banner's button is
+   * disabled then anyway, so this is the guard behind it rather than the only
+   * one.
+   */
   function handleDiscardDraft() {
+    if (phase.status === 'submitting') return;
     dispatch({ kind: 'discardDraft', displayName });
     if (typeof window !== 'undefined') clearGovActionDraft(window.localStorage, draftKey);
     setRestoredAt(undefined);
@@ -591,7 +605,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   // is inert and the call is dropped. Child effects run before this one, so
   // ReviewModal's own effect has already called dialog.close() by the time
   // this fires. The browser's own focus restoration is the fallback, which on
-  // Safari would land on whatever was focused before the click, not the
+  // Safari would return focus to whatever was focused before the click, not the
   // button, since a button click there does not focus the button.
   const reviewWasOpen = useRef(false);
   useEffect(() => {
@@ -621,20 +635,28 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
 
   // ------------------------------------------------------------------
   // Proposal Draft link, directly above the references list: see
-  // govActionFormState.ts's linkDraft/unlinkDraft for the replace-in-place
+  // govActionFormState.ts's linkDraft/unlinkDraft for the replace-at-the-front
   // and append-at-cap rules.
   // ------------------------------------------------------------------
-  function handleLinkDraft(pick: { slug: string; title: string }) {
-    dispatch({ kind: 'linkDraft', slug: pick.slug, title: pick.title, siteOrigin: draftSiteOrigin });
-  }
-  function handleUnlinkDraft() {
-    dispatch({ kind: 'unlinkDraft', siteOrigin: draftSiteOrigin });
-  }
   const linkedDraftRef = linkedDraftReference(state, draftSiteOrigin);
   // What the select shows as chosen: the tracked slug, or, when nothing is
   // tracked, the first reference that names an open draft (a hand-typed or
-  // hand-edited URL the control never added).
+  // hand-edited URL the control never added). Passed back into both actions so
+  // they replace or remove the row the control is showing, rather than only
+  // ever the one it added itself.
   const selectedDraftSlug = effectiveLinkedDraftSlug(state, openDrafts, draftSiteOrigin);
+  function handleLinkDraft(pick: { slug: string; title: string }) {
+    dispatch({
+      kind: 'linkDraft',
+      slug: pick.slug,
+      title: pick.title,
+      siteOrigin: draftSiteOrigin,
+      selectedSlug: selectedDraftSlug,
+    });
+  }
+  function handleUnlinkDraft() {
+    dispatch({ kind: 'unlinkDraft', siteOrigin: draftSiteOrigin, selectedSlug: selectedDraftSlug });
+  }
 
   /** The panel's own choice of previous action, before it is resolved against a context. */
   function chosenPrevOf(type: typeof state.type): PrevActionRef | null {
@@ -788,7 +810,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
     }
 
     // The reward address is required regardless of author signing: it is
-    // where the deposit refund lands, and (when signing) the address the
+    // where the deposit refund goes, and (when signing) the address the
     // CIP-108 witness proves ownership of. Read at connect time so a wallet
     // that cannot provide one is rejected before anything is filled in
     // against it.
@@ -883,6 +905,29 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
     setPhase({ status: 'submitting' });
 
     try {
+      // The account behind an enabled CIP-30 handle is not fixed: switching
+      // accounts in the extension keeps the same api object but changes both
+      // the UTxOs the builder collects and the reward address the deposit is
+      // refunded to. The address read at connect time is what this submit
+      // would anchor and (when signing as author) prove ownership of, so it is
+      // re-read and compared before anything is published. A mismatch, or a
+      // wallet that suddenly exposes no reward address at all, drops the
+      // connection rather than submitting against two different accounts.
+      let currentRewardAddressHex: string | undefined;
+      try {
+        currentRewardAddressHex = (await api.getRewardAddresses())[0];
+      } catch {
+        currentRewardAddressHex = undefined;
+      }
+      if (!currentRewardAddressHex || currentRewardAddressHex.toLowerCase() !== rewardAddressHex.toLowerCase()) {
+        enabledApiRef.current = null;
+        // Anything still in flight belongs to the account that is being dropped.
+        balanceReadIdRef.current += 1;
+        dispatch({ kind: 'walletDisconnected' });
+        setPhase({ status: 'error', message: WALLET_ACCOUNT_CHANGED, step: 'connect' });
+        return;
+      }
+
       // The chain can move between filling the form and pressing submit, and a
       // proposal chained onto a vanished previous action is rejected by the
       // node after the deposit prompt. Check first, before anything is
@@ -1225,7 +1270,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   return (
     <div style={{ maxWidth: '40rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
       {restoredAt !== undefined && (
-        <DraftRestoreBanner savedAt={restoredAt} now={Date.now()} onDiscard={handleDiscardDraft} />
+        <DraftRestoreBanner savedAt={restoredAt} now={Date.now()} onDiscard={handleDiscardDraft} disabled={busy} />
       )}
 
       <DepositInfo deposit={deposit} />

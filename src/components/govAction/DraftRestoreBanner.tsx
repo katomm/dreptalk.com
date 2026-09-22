@@ -16,6 +16,12 @@ export interface DraftRestoreBannerProps {
   /** The current time, in ms, for the relative-time calculation. */
   now: number;
   onDiscard: () => void;
+  /**
+   * True while a submit is running. Discarding then would empty the form
+   * under a handler that is still reading it, so the button is taken out of
+   * reach for as long as that lasts.
+   */
+  disabled?: boolean;
 }
 
 const bodyStyle: CSSProperties = {
@@ -26,26 +32,26 @@ const bodyStyle: CSSProperties = {
   flexWrap: 'wrap',
 };
 
-const discardButtonStyle: CSSProperties = {
+const discardButtonStyle = (disabled: boolean): CSSProperties => ({
   background: 'none',
   border: 'none',
-  color: 'var(--accent)',
-  cursor: 'pointer',
+  color: disabled ? 'var(--muted)' : 'var(--accent)',
+  cursor: disabled ? 'not-allowed' : 'pointer',
   padding: 0,
   font: 'inherit',
   fontSize: '0.875rem',
   textDecoration: 'underline',
   flexShrink: 0,
-};
+});
 
-export default function DraftRestoreBanner({ savedAt, now, onDiscard }: DraftRestoreBannerProps) {
+export default function DraftRestoreBanner({ savedAt, now, onDiscard, disabled = false }: DraftRestoreBannerProps) {
   const message =
     savedAt === null ? 'Restored your saved draft' : `Restored your draft from ${formatRelativeTime(savedAt, now)}`;
   return (
     <div className="callout callout--info" role="status">
       <div className="callout__body" style={bodyStyle}>
         <span>{message}</span>
-        <button type="button" onClick={onDiscard} style={discardButtonStyle}>
+        <button type="button" onClick={onDiscard} disabled={disabled} style={discardButtonStyle(disabled)}>
           Discard
         </button>
       </div>

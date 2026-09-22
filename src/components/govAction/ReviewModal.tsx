@@ -8,12 +8,19 @@
 // the Tab order inside are a later task, the browser's own modal behaviour
 // covers the common case in the meantime.
 //
-// One round trip per open: the three Markdown fields go to /api/preview in a
-// single request, and nothing else is fetched. A failure says so and offers a
-// retry, never blocking the form underneath.
+// One round trip per open: the Markdown goes to /api/preview in a single
+// request, and nothing else is fetched. A failure says so and offers a retry,
+// never blocking the form underneath.
+//
+// Two parts, not three: the abstract, and the merged motivation-plus-rationale
+// body the action page renders as one text (see cip108Body.ts). Sending the
+// two body fields separately would render them apart, so a link whose
+// reference definition sits in the other field would show as raw Markdown here
+// and as a link on the page.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
+import { cip108Body } from '@/lib/governance/cip108Body.js';
 import PreviewCard from '@/components/govAction/PreviewCard.js';
 import type { OnchainChanges } from '@/lib/governance/onchain.js';
 
@@ -34,7 +41,7 @@ export interface ReviewModalProps {
 
 type PreviewState =
   | { status: 'loading' }
-  | { status: 'ready'; html: { abstract?: string; motivation?: string; rationale?: string } }
+  | { status: 'ready'; html: { abstract?: string; body?: string } }
   | { status: 'error'; message: string };
 
 const dialogStyle: CSSProperties = {
@@ -88,7 +95,7 @@ export default function ReviewModal(props: ReviewModalProps) {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          parts: { abstract: abstractMd, motivation: motivationMd, rationale: rationaleMd },
+          parts: { abstract: abstractMd, body: cip108Body(motivationMd, rationaleMd) },
         }),
       });
       if (stale()) return;
@@ -206,8 +213,6 @@ export default function ReviewModal(props: ReviewModalProps) {
               <PreviewCard
                 title={props.title}
                 html={preview.html}
-                motivationMd={motivationMd}
-                rationaleMd={rationaleMd}
                 authorLine={props.authorLine}
                 missing={props.missing}
                 references={props.references}

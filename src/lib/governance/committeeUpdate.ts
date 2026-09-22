@@ -110,8 +110,16 @@ export function parseColdCredential(
  * parseColdCredential's bech32 branch: the header byte (0x12 key, 0x13
  * script) followed by the 28-byte hash. Used to show members the panel
  * already has as hex in the bech32 form CIP-129 wallets and explorers expect.
+ *
+ * Returns null for anything that is not exactly 56 hex characters. The hash
+ * comes from the chain context, which is upstream data rather than something
+ * this form produced, and a short or malformed one used to throw here (out of
+ * hexToBytes, or out of Uint8Array.set with too many bytes) in the middle of a
+ * render, taking the whole island down. The callers fall back to the shortened
+ * hex instead.
  */
-export function ccColdBech32(hashHex: string, isScript: boolean): string {
+export function ccColdBech32(hashHex: string, isScript: boolean): string | null {
+  if (!HEX_HASH_224_RE.test(hashHex)) return null;
   const header = isScript ? CC_COLD_SCRIPT_HEADER : CC_COLD_KEY_HEADER;
   const payload = new Uint8Array(29);
   payload[0] = header;

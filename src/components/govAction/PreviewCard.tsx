@@ -22,11 +22,12 @@ import type { CommitteeMemberChange, OnchainChanges } from '@/lib/governance/onc
 
 export interface PreviewCardProps {
   title: string;
-  /** Server-rendered HTML per metadata field, keyed as the request sent them. */
-  html: { abstract?: string; motivation?: string; rationale?: string };
-  /** The raw Markdown of the two body fields, for the extractor's identical-text dedupe. */
-  motivationMd: string;
-  rationaleMd: string;
+  /**
+   * Server-rendered HTML per part, keyed as the request sent them: the
+   * abstract, and the one merged body the action page renders (see
+   * cip108Body.ts, applied by the modal before the request).
+   */
+  html: { abstract?: string; body?: string };
   authorLine: string;
   missing: string[];
   references: readonly { label: string; uri: string }[];
@@ -241,12 +242,6 @@ function RenderedField({ html, className }: { html: string; className: string })
 
 export default function PreviewCard(props: PreviewCardProps) {
   const { html, references, onchain } = props;
-  // The sync's extractor merges motivation and rationale and drops one of them
-  // when both hold the identical text, so the preview does the same: otherwise
-  // the modal shows a paragraph twice that the action page will show once.
-  const sameBody = props.motivationMd.trim() !== '' && props.motivationMd.trim() === props.rationaleMd.trim();
-  const bodyHtml = sameBody ? [html.rationale] : [html.motivation, html.rationale];
-  const bodyParts = bodyHtml.filter((part): part is string => Boolean(part));
 
   const links = references.flatMap((r) => {
     const href = resolveAnchorUrl(r.uri);
@@ -298,15 +293,12 @@ export default function PreviewCard(props: PreviewCardProps) {
         </div>
       )}
 
-      {bodyParts.length > 0 && (
+      {html.body && (
         <div className="ga-rationale" style={{ marginTop: '1.125rem' }}>
           <p className="ga-rationale__label" style={labelStyle}>Motivation &amp; rationale</p>
           {/* Plain "prose", not ga-rationale__body: that class is the action
               page's collapsed state, and the preview never collapses. */}
-          {bodyParts.map((part, i) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: the two parts are positional (motivation then rationale), there is no id
-            <RenderedField key={i} html={part} className="prose" />
-          ))}
+          <RenderedField html={html.body} className="prose" />
         </div>
       )}
 

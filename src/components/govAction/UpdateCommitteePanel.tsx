@@ -38,9 +38,19 @@ const linkButtonStyle = (disabled: boolean): CSSProperties => ({
   textDecoration: 'underline',
 });
 
-/** The first 8 and last 6 characters of a cc_cold bech32 string, joined by an ellipsis. */
-function shortBech32(bech32: string): string {
-  return `${bech32.slice(0, 8)}…${bech32.slice(-6)}`;
+/** The first 8 and last 6 characters of an id, joined by an ellipsis. */
+function shortId(id: string): string {
+  return id.length > 14 ? `${id.slice(0, 8)}…${id.slice(-6)}` : id;
+}
+
+/**
+ * A member's cold credential as shortened cc_cold bech32, or, when the chain
+ * context hands back a hash that is not 56 hex characters, the shortened hex
+ * it did hand back. The members come from upstream, so an unencodable hash is
+ * shown as what it is rather than allowed to take the panel down.
+ */
+function shortColdCredential(coldHex: string, hasScript: boolean): string {
+  return shortId(ccColdBech32(coldHex, hasScript) ?? coldHex);
 }
 
 /**
@@ -54,7 +64,7 @@ function committeeMemberLabel(
   member: { coldHex: string; hasScript: boolean; expirationEpoch: number | null; name: string | null },
   networkConfig: NetworkConfig,
 ): string {
-  const short = shortBech32(ccColdBech32(member.coldHex, member.hasScript));
+  const short = shortColdCredential(member.coldHex, member.hasScript);
   const expiry =
     member.expirationEpoch == null
       ? ''
@@ -216,11 +226,13 @@ export default function UpdateCommitteePanel({ context, value, onChange, network
               </div>
             ))}
             <datalist id="ga-committee-members">
-              {members.map(m =>
-                m.coldHex === null ? null : (
-                  <option key={m.coldHex} value={ccColdBech32(m.coldHex, m.hasScript)} />
-                ),
-              )}
+              {/* A member whose cold hash does not encode is left out rather
+                  than offered as a suggestion the credential parser would
+                  refuse anyway. */}
+              {members.map(m => {
+                const bech32 = m.coldHex === null ? null : ccColdBech32(m.coldHex, m.hasScript);
+                return bech32 === null ? null : <option key={m.coldHex} value={bech32} />;
+              })}
             </datalist>
             <div>
               <button

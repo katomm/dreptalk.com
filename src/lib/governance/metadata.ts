@@ -24,6 +24,7 @@ import { renderMarkdown } from '../markdown.js';
 import { isCardanoPaymentAddress } from '../cardano/identity.js';
 import { selfHostedRef, readSelfHostedBody } from './selfHostedDocs.js';
 import { dedupeLinks, type DocumentLink } from './documentLinks.js';
+import { cip108Body } from './cip108Body.js';
 import {
   REFERENCE_LABEL_MAX,
   REFERENCE_URI_MAX,
@@ -290,18 +291,13 @@ function extractCip108(doc: unknown, anchorUrl?: string): AnchorMetadata {
   // abstract and rationale are prose; use multiline sanitizer so Markdown structure survives.
   const abstract = sanitizeExternalMultiline(str(body.abstract), MAX_EXTERNAL_PROSE_LEN);
 
-  // CIP-108 defines `motivation` and `rationale` as two separate fields, and
-  // proposers routinely split one document across both (motivation = intro/early
-  // sections, rationale = later sections). Merge them in document order so nothing
-  // is dropped; the old `rationale || motivation` silently discarded the motivation
-  // whenever a rationale was present. Dedupe the occasional doc that puts identical
-  // text in both fields. motivation/rationale may carry Markdown; render through the
-  // hardened sanitizer (marked + xss). Cap length before rendering.
-  const motivation = str(body.motivation).trim();
-  const rationale = str(body.rationale).trim();
-  const merged = (motivation && motivation === rationale ? [rationale] : [motivation, rationale].filter(Boolean)).join(
-    '\n\n',
-  );
+  // The merge rule itself lives in cip108Body.ts, shared with the submit
+  // form's review preview so the preview cannot render a document differently
+  // from this page. Merging in document order is what keeps a reference
+  // definition written in the rationale resolving a link written in the
+  // motivation. motivation/rationale may carry Markdown, so the merged text is
+  // rendered through the hardened sanitizer (marked + xss), capped first.
+  const merged = cip108Body(str(body.motivation), str(body.rationale));
   let rationaleRaw = sanitizeExternalMultiline(merged, MAX_RATIONALE_LEN);
   // The cap slices at MAX_RATIONALE_LEN, so hitting it means the tail was dropped.
   // Tell the reader and point at the on-chain anchor for the complete document.

@@ -73,8 +73,11 @@ describe('listOpenProposalDrafts', () => {
 
     const drafts = await listOpenProposalDrafts(env.DB, 'viewer-1');
     expect(drafts.map((d) => d.slug)).toEqual([own.slug, other.slug]);
-    expect(drafts[0]).toMatchObject({ slug: own.slug, title: 'My draft', authorId: 'viewer-1', own: true });
-    expect(drafts[1]).toMatchObject({ slug: other.slug, title: 'Someone else draft', authorId: 'other-1', own: false });
+    // The author id itself stays inside the query: the control only needs to
+    // know whether the viewer wrote the draft.
+    expect(drafts[0]).toMatchObject({ slug: own.slug, title: 'My draft', own: true });
+    expect(drafts[1]).toMatchObject({ slug: other.slug, title: 'Someone else draft', own: false });
+    expect('authorId' in drafts[0]).toBe(false);
   });
 
   it('orders own drafts newest first among themselves, then the rest newest first', async () => {

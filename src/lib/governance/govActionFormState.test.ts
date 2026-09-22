@@ -24,6 +24,24 @@ const REF_A = { txHashHex: 'a'.repeat(64), index: 0 };
 const REF_B = { txHashHex: 'b'.repeat(64), index: 1 };
 const SITE_ORIGIN = 'https://dreptalk.com';
 
+/** A stored v2 draft with every field on its empty default, for the restore paths. */
+function draft(overrides: Partial<GovActionDraft> = {}): GovActionDraft {
+  return {
+    v: 2,
+    type: 'InfoAction',
+    title: '',
+    abstract: '',
+    motivation: '',
+    rationale: '',
+    signAsAuthor: true,
+    authorName: '',
+    references: [],
+    surveyRef: '',
+    panels: {},
+    ...overrides,
+  };
+}
+
 function ctx(epoch: number, lastEnactedHash?: string): ActionContextResponse {
   return {
     epoch,
@@ -1243,8 +1261,8 @@ describe('linkDraft', () => {
 
     s = govActionFormReducer(s, { kind: 'linkDraft', slug: 'draft-b', title: 'Draft B', siteOrigin: SITE_ORIGIN });
     expect(s.linkedDraftSlug).toBe('draft-b');
-    // Replacing keeps the tracked reference's own position (the front), the
-    // unrelated one is still untouched.
+    // The replacement is at the front too, the unrelated reference is still
+    // untouched.
     expect(s.metadata.references).toEqual([
       { label: 'Draft B', uri: `${SITE_ORIGIN}/t/draft-b/` },
       { label: 'Discussion', uri: `${SITE_ORIGIN}/t/other-thread/` },
@@ -1294,6 +1312,63 @@ describe('linkDraft', () => {
     expect(s.draftLinkError).toBeNull();
   });
 
+  it('moves a replaced reference to the front, ahead of an earlier closed-draft reference', () => {
+    // The shape a restored draft leaves behind: a reference to a draft that
+    // has since been closed sits ahead of the tracked one. Rewriting the
+    // tracked row where it stood would leave the closed draft first, and
+    // resolveDraftTopic (draftLinks.ts) reads the first Proposal Drafts
+    // reference, not the one the picker shows.
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'restoreDraft',
+      draft: draft({
+        references: [
+          { label: 'Closed draft C', uri: `${SITE_ORIGIN}/t/closed-draft-c/` },
+          { label: 'Draft A', uri: `${SITE_ORIGIN}/t/draft-a/` },
+        ],
+        linkedDraftSlug: 'draft-a',
+      }),
+      openDrafts: [{ slug: 'draft-a' }, { slug: 'draft-b' }],
+      siteOrigin: SITE_ORIGIN,
+    });
+    expect(s.linkedDraftSlug).toBe('draft-a');
+
+    s = govActionFormReducer(s, {
+      kind: 'linkDraft',
+      slug: 'draft-b',
+      title: 'Draft B',
+      siteOrigin: SITE_ORIGIN,
+      selectedSlug: 'draft-a',
+    });
+
+    expect(s.linkedDraftSlug).toBe('draft-b');
+    expect(s.metadata.references).toEqual([
+      { label: 'Draft B', uri: `${SITE_ORIGIN}/t/draft-b/` },
+      { label: 'Closed draft C', uri: `${SITE_ORIGIN}/t/closed-draft-c/` },
+    ]);
+  });
+
+  it('replaces a hand-typed reference the control shows as chosen instead of adding a second one', () => {
+    // Nothing was ever tracked: the reference was typed into the references
+    // list by hand, and the select shows it as chosen all the same.
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'setMetadata',
+      patch: { references: [{ label: 'Hand typed', uri: `${SITE_ORIGIN}/t/draft-a/` }] },
+      siteOrigin: SITE_ORIGIN,
+    });
+    expect(effectiveLinkedDraftSlug(s, [{ slug: 'draft-a' }, { slug: 'draft-b' }], SITE_ORIGIN)).toBe('draft-a');
+
+    s = govActionFormReducer(s, {
+      kind: 'linkDraft',
+      slug: 'draft-b',
+      title: 'Draft B',
+      siteOrigin: SITE_ORIGIN,
+      selectedSlug: 'draft-a',
+    });
+
+    expect(s.linkedDraftSlug).toBe('draft-b');
+    expect(s.metadata.references).toEqual([{ label: 'Draft B', uri: `${SITE_ORIGIN}/t/draft-b/` }]);
+  });
+
   it('refuses to append at the cap and leaves the form untouched', () => {
     const fullRefs = Array.from({ length: REFERENCES_MAX }, (_, i) => ({ label: `R${i}`, uri: `https://example.org/${i}` }));
     let s = govActionFormReducer(initialGovActionFormState(), {
@@ -1316,6 +1391,25 @@ describe('unlinkDraft', () => {
     });
     s = govActionFormReducer(s, { kind: 'linkDraft', slug: 'draft-a', title: 'Draft A', siteOrigin: SITE_ORIGIN });
     s = govActionFormReducer(s, { kind: 'unlinkDraft', siteOrigin: SITE_ORIGIN });
+    expect(s.linkedDraftSlug).toBeNull();
+    expect(s.metadata.references).toEqual([{ label: 'Discussion', uri: `${SITE_ORIGIN}/t/other-thread/` }]);
+  });
+
+  it('removes a hand-typed reference the control shows as chosen', () => {
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'setMetadata',
+      patch: {
+        references: [
+          { label: 'Hand typed', uri: `${SITE_ORIGIN}/t/draft-a/` },
+          { label: 'Discussion', uri: `${SITE_ORIGIN}/t/other-thread/` },
+        ],
+      },
+      siteOrigin: SITE_ORIGIN,
+    });
+    expect(s.linkedDraftSlug).toBeNull();
+
+    s = govActionFormReducer(s, { kind: 'unlinkDraft', siteOrigin: SITE_ORIGIN, selectedSlug: 'draft-a' });
+
     expect(s.linkedDraftSlug).toBeNull();
     expect(s.metadata.references).toEqual([{ label: 'Discussion', uri: `${SITE_ORIGIN}/t/other-thread/` }]);
   });

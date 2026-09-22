@@ -3,20 +3,32 @@ import { enhanceStoredHtml, renderMarkdown } from '@/lib/markdown.js';
 import { resolveBodyMentions } from '@/lib/forum/handlers.js';
 import { checkRate } from '@/lib/rate.js';
 import { jsonResponse, runtimeEnv } from '@/lib/api/response';
-import { INFO_RATIONALE_MAX } from '@/lib/governance/infoActionLimits.js';
+import {
+  INFO_ABSTRACT_MAX,
+  INFO_MOTIVATION_MAX,
+  INFO_RATIONALE_MAX,
+} from '@/lib/governance/infoActionLimits.js';
 
 export const prerender = false;
 
-// The governance submit form previews its Markdown fields (abstract,
-// motivation, rationale) in one round trip. Four is one more than it sends,
-// so a fourth field can be added without touching the route.
+// The governance submit form previews its Markdown in one round trip: the
+// abstract and the merged motivation-plus-rationale body. Four is two more
+// than it sends, so further parts can be added without touching the route.
 const MAX_PARTS = 4;
 
-// Exactly the widest metadata field the submit form accepts. One cap for every
-// part, because the route does not know which field a key names, and no
-// headroom above it: the form enforces the same number with maxLength, so
-// anything longer did not come from the form.
-const MAX_PART_LENGTH = INFO_RATIONALE_MAX;
+// What each known part may hold, matched to the form field behind it: the
+// abstract's own cap, and for the merged body the two fields it is built from
+// plus the blank line between them (see cip108Body.ts). A Map, not an object,
+// because the keys come from the request and a plain lookup would answer for
+// inherited names like `constructor`.
+const PART_MAX_LENGTH = new Map<string, number>([
+  ['abstract', INFO_ABSTRACT_MAX],
+  ['body', INFO_MOTIVATION_MAX + INFO_RATIONALE_MAX + 2],
+]);
+
+// Any other key: the widest single metadata field, with no headroom above it,
+// since the form enforces the same number with maxLength.
+const OTHER_PART_MAX_LENGTH = INFO_RATIONALE_MAX;
 
 export const POST: APIRoute = async ({ request, locals }) => {
   const user = locals.user;
@@ -76,7 +88,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       if (typeof value !== 'string') {
         return jsonResponse({ ok: false, error: 'invalid input' }, 400);
       }
-      if (value.length > MAX_PART_LENGTH) {
+      if (value.length > (PART_MAX_LENGTH.get(key) ?? OTHER_PART_MAX_LENGTH)) {
         return jsonResponse({ ok: false, error: 'part too long' }, 400);
       }
       html[key] = enhanceStoredHtml(renderMarkdown(value.trim()));

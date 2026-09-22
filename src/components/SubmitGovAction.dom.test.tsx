@@ -195,7 +195,19 @@ const OPEN_COMMITTEE_CONTEXT = {
   },
 };
 
-// Overridden per test that needs a different chain context; reset to the
+// A sitting member whose cold hash is not 56 hex characters, which is what an
+// upstream context row may carry. ccColdBech32 refuses it, and the panel has to
+// show the hex rather than throw out of a render.
+const MALFORMED_MEMBER = 'a'.repeat(54);
+const MALFORMED_COMMITTEE_CONTEXT = {
+  ...COMMITTEE_CONTEXT,
+  committee: {
+    ...COMMITTEE_CONTEXT.committee,
+    members: [{ coldHex: MALFORMED_MEMBER, hasScript: false, expirationEpoch: 600 }],
+  },
+};
+
+// Overridden per test that needs a different chain context. Reset to the
 // plain enacted-mode fixture in beforeEach.
 let committeeContext: unknown = COMMITTEE_CONTEXT;
 
@@ -225,9 +237,13 @@ let statusImpl: (() => Promise<Response>) | null = null;
 // still in flight. Reset in beforeEach.
 let contextHold: Promise<Response> | null = null;
 
-/** Routes every request the island makes, so no test depends on a real network. */
+/**
+ * Routes every request the island makes, so no test depends on a real network.
+ * The init argument is declared even though the routing never reads it, so a
+ * test can assert what a POST actually sent.
+ */
 function installFetchMock() {
-  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
     if (url.includes('/api/preview')) {
       return previewImpl
@@ -235,8 +251,7 @@ function installFetchMock() {
         : jsonResponse({
             html: {
               abstract: '<p>The rendered <strong>abstract</strong>.</p>',
-              motivation: '<p>The rendered motivation.</p>',
-              rationale: '<p>The rendered rationale.</p>',
+              body: '<p>The rendered motivation.</p>\n<p>The rendered rationale.</p>',
             },
           });
     }
@@ -378,7 +393,7 @@ describe('SubmitGovAction', () => {
     await fillCommitteePanel();
 
     // The button stays disabled until the quorum prefill effect has run and
-    // the panel validates, so waiting on it is what makes the click land.
+    // the panel validates, so waiting on it is what lets the click through.
     const submit = screen.getByRole('button', { name: 'Submit proposal' }) as HTMLButtonElement;
     await waitFor(() => expect(submit.disabled).toBe(false), SLOW);
     fireEvent.click(submit);
@@ -669,8 +684,8 @@ describe('SubmitGovAction', () => {
 
   describe('Link a Proposal Draft', () => {
     const OPEN_DRAFTS = [
-      { slug: 'fund-tooling-a1b2', title: 'Fund tooling', authorId: 'author-1', createdAt: 1, own: true },
-      { slug: 'other-draft-c3d4', title: 'Someone else draft', authorId: 'author-2', createdAt: 1, own: false },
+      { slug: 'fund-tooling-a1b2', title: 'Fund tooling', createdAt: 1, own: true },
+      { slug: 'other-draft-c3d4', title: 'Someone else draft', createdAt: 1, own: false },
     ];
     const SITE_ORIGIN = 'https://preprod.dreptalk.com';
 
@@ -698,6 +713,46 @@ describe('SubmitGovAction', () => {
       fireEvent.change(screen.getByLabelText('Link a Proposal Draft'), { target: { value: '' } });
 
       expect(screen.queryByLabelText('Reference 1 label')).toBeNull();
+    });
+
+    it('removes a hand-typed reference when the control is set back to "No draft linked"', () => {
+      render(
+        <SubmitGovAction network="preprod" displayName={DISPLAY_NAME} openDrafts={OPEN_DRAFTS} siteOrigin={SITE_ORIGIN} />,
+      );
+
+      // Typed straight into the references list, never through the control,
+      // so nothing is tracked and only the select's own reading connects the
+      // two.
+      fireEvent.click(screen.getByRole('button', { name: 'Add reference' }));
+      fireEvent.change(screen.getByLabelText('Reference 1 label'), { target: { value: 'Hand typed' } });
+      fireEvent.change(screen.getByLabelText('Reference 1 URL'), {
+        target: { value: `${SITE_ORIGIN}/t/fund-tooling-a1b2/` },
+      });
+      expect((screen.getByLabelText('Link a Proposal Draft') as HTMLInputElement).value).toBe('fund-tooling-a1b2');
+
+      fireEvent.change(screen.getByLabelText('Link a Proposal Draft'), { target: { value: '' } });
+
+      expect(screen.queryByLabelText('Reference 1 label')).toBeNull();
+      expect((screen.getByLabelText('Link a Proposal Draft') as HTMLInputElement).value).toBe('');
+    });
+
+    it('replaces a hand-typed reference rather than adding a second one next to it', () => {
+      render(
+        <SubmitGovAction network="preprod" displayName={DISPLAY_NAME} openDrafts={OPEN_DRAFTS} siteOrigin={SITE_ORIGIN} />,
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: 'Add reference' }));
+      fireEvent.change(screen.getByLabelText('Reference 1 label'), { target: { value: 'Hand typed' } });
+      fireEvent.change(screen.getByLabelText('Reference 1 URL'), {
+        target: { value: `${SITE_ORIGIN}/t/fund-tooling-a1b2/` },
+      });
+
+      fireEvent.change(screen.getByLabelText('Link a Proposal Draft'), { target: { value: 'other-draft-c3d4' } });
+
+      expect((screen.getByLabelText('Reference 1 URL') as HTMLInputElement).value).toBe(
+        `${SITE_ORIGIN}/t/other-draft-c3d4/`,
+      );
+      expect(screen.queryByLabelText('Reference 2 URL')).toBeNull();
     });
 
     it('follows a hand-edited reference URI to a different open draft', () => {
@@ -793,6 +848,127 @@ describe('SubmitGovAction', () => {
       expect(loadGovActionDraft(window.localStorage, DRAFT_KEY)).toBeNull();
     });
   });
+  // The account behind an enabled CIP-30 handle can change while the form is
+  // open: the extension keeps handing back the same api object, but the UTxOs
+  // the builder collects and the reward address the refund goes to are then a
+  // different account's. The submit re-reads the address and compares it
+  // before anything is published.
+  describe('wallet account change between connect and submit', () => {
+    async function fillAndConnect() {
+      fillMetadata();
+      await connect();
+      const submit = screen.getByRole('button', { name: 'Submit proposal' }) as HTMLButtonElement;
+      await waitFor(() => expect(submit.disabled).toBe(false), SLOW);
+      return submit;
+    }
+
+    function published(fetchMock: ReturnType<typeof vi.fn>): boolean {
+      return fetchMock.mock.calls.some(([url]) => String(url).includes('/api/gov-action/metadata'));
+    }
+
+    it('stops before anything is published when the reward address changed, with signing on', async () => {
+      const fetchMock = installFetchMock();
+      const api = installWalletMock();
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      const submit = await fillAndConnect();
+
+      api.getRewardAddresses.mockResolvedValue(['e0'.concat('d'.repeat(56))]);
+      fireEvent.click(submit);
+
+      await screen.findByText('The wallet account changed. Connect the wallet again.', {}, SLOW);
+      expect(published(fetchMock)).toBe(false);
+      expect(submitGovActionMock).not.toHaveBeenCalled();
+      // Back to no wallet, so the readiness list asks for one again.
+      await screen.findByText('Connect a wallet');
+    });
+
+    it('stops before anything is published when the reward address changed, with signing off', async () => {
+      const fetchMock = installFetchMock();
+      const api = installWalletMock();
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      fireEvent.click(screen.getByRole('checkbox', { name: /Sign as author/ }));
+      const submit = await fillAndConnect();
+
+      api.getRewardAddresses.mockResolvedValue([]);
+      fireEvent.click(submit);
+
+      await screen.findByText('The wallet account changed. Connect the wallet again.', {}, SLOW);
+      expect(published(fetchMock)).toBe(false);
+      expect(submitGovActionMock).not.toHaveBeenCalled();
+    });
+
+    it('goes through when the wallet still answers with the same reward address', async () => {
+      submitGovActionMock.mockResolvedValue({ txHash: 'a'.repeat(64) });
+      const api = installWalletMock();
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      const submit = await fillAndConnect();
+
+      fireEvent.click(submit);
+
+      await waitFor(() => expect(submitGovActionMock).toHaveBeenCalledTimes(1), SLOW);
+      // Once at connect, once at submit: the second read is the whole point.
+      expect(api.getRewardAddresses.mock.calls.length).toBeGreaterThan(1);
+      await screen.findByText('Proposal submitted', {}, SLOW);
+    });
+  });
+
+  it('refuses to discard the draft while a submit is running', async () => {
+    // Never resolves, so the island stays in the submitting phase for the rest
+    // of the test.
+    submitGovActionMock.mockReturnValue(new Promise(() => {}));
+    window.localStorage.setItem(
+      DRAFT_KEY,
+      JSON.stringify({
+        v: 2,
+        type: 'InfoAction',
+        title: 'Old title',
+        abstract: 'Old abstract',
+        motivation: 'Old motivation',
+        rationale: 'Old rationale',
+        signAsAuthor: true,
+        authorName: 'Someone else',
+        references: [],
+        surveyRef: '',
+        panels: {},
+        savedAt: Date.now(),
+      }),
+    );
+    render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+    await screen.findByText(/^Restored your draft from/);
+    fillMetadata();
+    await connect();
+
+    const submit = screen.getByRole('button', { name: 'Submit proposal' }) as HTMLButtonElement;
+    await waitFor(() => expect(submit.disabled).toBe(false), SLOW);
+    fireEvent.click(submit);
+    await screen.findByText(/Please approve each wallet prompt/, {}, SLOW);
+
+    const discard = screen.getByRole('button', { name: 'Discard' }) as HTMLButtonElement;
+    expect(discard.disabled).toBe(true);
+    fireEvent.click(discard);
+
+    // The form the running handler is reading is still the form on screen.
+    expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('A committee change');
+    expect(screen.getByText(/^Restored your draft from/)).toBeTruthy();
+  });
+
+  it('renders the committee panel when a member cold hash cannot be encoded as bech32', async () => {
+    committeeContext = MALFORMED_COMMITTEE_CONTEXT;
+    render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+    fillMetadata();
+
+    fireEvent.click(screen.getByRole('radio', { name: /Update committee/ }));
+
+    // The form is still standing, and the member is offered under the hex the
+    // context handed over rather than under an encoding that cannot be made.
+    await screen.findByText('Members to remove');
+    expect(screen.getByDisplayValue(MALFORMED_MEMBER)).toBeTruthy();
+    expect(screen.getByText(new RegExp(`${MALFORMED_MEMBER.slice(0, 8)}`))).toBeTruthy();
+    // And it is not offered as a datalist suggestion, since it would not parse
+    // back as a credential.
+    expect(document.querySelector('#ga-committee-members option')).toBeNull();
+  });
+
   // ------------------------------------------------------------------
   // Review modal. The model behind it is covered by previewModel.test.ts, so
   // these cover only what needs a DOM: the one round trip, the injection
@@ -822,6 +998,23 @@ describe('SubmitGovAction', () => {
         ([url]) => String(url).includes('/api/preview'),
       );
       expect(previewCalls).toHaveLength(1);
+    });
+
+    // The action page merges motivation and rationale before rendering, so a
+    // link whose reference definition sits in the other field resolves there.
+    // Sending the two fields apart would show that link as raw Markdown here
+    // and as a link on the page.
+    it('sends the abstract and one merged body, not the two body fields apart', async () => {
+      const fetchMock = installFetchMock();
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      fillMetadata();
+      await openReview();
+      await screen.findByText('Preview, nothing is published yet', {}, SLOW);
+
+      const call = fetchMock.mock.calls.find(([url]) => String(url).includes('/api/preview'));
+      const sent = JSON.parse(String(call?.[1]?.body)) as { parts: Record<string, string> };
+      expect(Object.keys(sent.parts).sort()).toEqual(['abstract', 'body']);
+      expect(sent.parts.body).toBe('The motivation\n\nThe rationale');
     });
 
     it('renders markup typed into the title as text, never as an element', async () => {

@@ -10,7 +10,11 @@
 // a directory out of the route table).
 import { describe, it, expect } from 'vitest';
 import { POST } from '../preview.js';
-import { INFO_RATIONALE_MAX } from '@/lib/governance/infoActionLimits.js';
+import {
+  INFO_ABSTRACT_MAX,
+  INFO_MOTIVATION_MAX,
+  INFO_RATIONALE_MAX,
+} from '@/lib/governance/infoActionLimits.js';
 
 let seq = 0;
 
@@ -98,8 +102,29 @@ describe('POST /api/preview, governance parts path', () => {
     expect(((await res.json()) as { error: string }).error).toBe('too many parts');
   });
 
-  // The cap is the widest metadata field exactly, with no headroom above it.
-  it('accepts a part at the cap and rejects one above it', async () => {
+  // One cap per known part, matched to the form field behind it, each with no
+  // headroom above it.
+  it('accepts an abstract at its own cap and rejects one above it', async () => {
+    const ok = await call({ parts: { abstract: 'x'.repeat(INFO_ABSTRACT_MAX) } });
+    expect(ok.status).toBe(200);
+    const tooLong = await call({ parts: { abstract: 'x'.repeat(INFO_ABSTRACT_MAX + 1) } });
+    expect(tooLong.status).toBe(400);
+    expect(((await tooLong.json()) as { error: string }).error).toBe('part too long');
+  });
+
+  // The merged body carries motivation plus rationale plus the blank line
+  // between them, so the single-field cap would refuse a form that is exactly
+  // within what the fields themselves allow.
+  it('accepts a merged body at motivation plus rationale plus the separator, and rejects one above it', async () => {
+    const bodyMax = INFO_MOTIVATION_MAX + INFO_RATIONALE_MAX + 2;
+    const ok = await call({ parts: { body: 'x'.repeat(bodyMax) } });
+    expect(ok.status).toBe(200);
+    const tooLong = await call({ parts: { body: 'x'.repeat(bodyMax + 1) } });
+    expect(tooLong.status).toBe(400);
+    expect(((await tooLong.json()) as { error: string }).error).toBe('part too long');
+  });
+
+  it('holds any other key to the widest single metadata field', async () => {
     const ok = await call({ parts: { rationale: 'x'.repeat(INFO_RATIONALE_MAX) } });
     expect(ok.status).toBe(200);
     const tooLong = await call({ parts: { rationale: 'x'.repeat(INFO_RATIONALE_MAX + 1) } });

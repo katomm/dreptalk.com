@@ -300,6 +300,56 @@ describe('handleActionContext', () => {
     expect(json.committee.members).toEqual([{ coldHex: cold, hasScript: false, expirationEpoch: 700, name: null }]);
   });
 
+  // The names are cosmetic, the chain data next to them is what the form
+  // validates against, so a D1 hiccup on the name reads must not 503 the whole
+  // context and block the submit.
+  it('still answers 200 with unnamed members when the D1 name reads reject', async () => {
+    const cold = 'd'.repeat(56);
+    const realDb = env.DB;
+    const failingNamesDb = new Proxy(realDb, {
+      get(target, prop, receiver) {
+        if (prop === 'prepare') {
+          return (sql: string) => {
+            if (sql.includes('cc_member_name') || sql.includes('committee_member') || sql.includes('committee_hot_key')) {
+              throw new Error('D1_ERROR: names read failed');
+            }
+            return realDb.prepare(sql);
+          };
+        }
+        const value = Reflect.get(target, prop, receiver);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    }) as D1Database;
+
+    const res = await handleActionContext(ctx('NoConfidence'), {
+      koios: mockKoios({
+        committeeContext: async () => ({
+          members: [
+            {
+              status: 'authorized',
+              cc_hot_id: null,
+              cc_cold_id: null,
+              cc_hot_hex: null,
+              cc_cold_hex: cold,
+              expiration_epoch: 700,
+              cc_hot_has_script: null,
+              cc_cold_has_script: false,
+            },
+          ],
+          quorum: { numerator: 2, denominator: 3 },
+        }),
+      }),
+      network: preprod,
+      env: { ...testEnv, DB: failingNamesDb } as Cloudflare.Env,
+    });
+
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      committee: { members: { coldHex: string | null; hasScript: boolean; expirationEpoch: number | null; name: string | null }[] };
+    };
+    expect(json.committee.members).toEqual([{ coldHex: cold, hasScript: false, expirationEpoch: 700, name: null }]);
+  });
+
   it('resolves the current name through a rotated hot key: the newer vote under the newer hot key wins', async () => {
     const cold = 'e'.repeat(56);
     const oldHot = 'f'.repeat(56);

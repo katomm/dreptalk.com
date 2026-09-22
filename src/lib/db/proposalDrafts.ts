@@ -9,8 +9,8 @@ import { PROPOSAL_DRAFTS_CATEGORY_SLUG } from '../../../config/categories.js';
 export interface OpenProposalDraft {
   slug: string;
   title: string;
-  authorId: string;
   createdAt: number;
+  /** True when the viewer wrote the draft, which is all the control needs the author for. */
   own: boolean;
 }
 
@@ -40,7 +40,6 @@ export async function listOpenProposalDrafts(db: D1Database, viewerId: string): 
   return (rows.results ?? []).map((r) => ({
     slug: r.slug,
     title: r.title,
-    authorId: r.author_id,
     createdAt: r.created_at,
     own: r.author_id === viewerId,
   }));

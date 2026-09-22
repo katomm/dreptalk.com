@@ -1,5 +1,5 @@
-// Formats an epoch number together with the calendar date its boundary falls
-// on, for the places on the submit page that would otherwise show a bare
+// Formats an epoch number together with the calendar date its boundary is on,
+// for the places on the submit page that would otherwise show a bare
 // epoch number: committee term expiries, a chosen previous action's proposal
 // epoch, the expiry cap sentence. Leaf module: depends only on network.ts's
 // epoch math, so it stays safe to pull into the client bundle.
@@ -23,7 +23,7 @@ function qualifiedDate(epoch: number, cfg: NetworkConfig, now: number): string {
 
 /**
  * "epoch 372 (about 12 Jan 2027)": an epoch number plus the calendar date its
- * boundary falls on. See qualifiedDate for when "about" is dropped.
+ * boundary is on. See qualifiedDate for when "about" is dropped.
  */
 export function epochWithDate(epoch: number, cfg: NetworkConfig, now: number = Date.now()): string {
   return `epoch ${epoch} (${qualifiedDate(epoch, cfg, now)})`;

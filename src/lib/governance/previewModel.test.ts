@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { previewModelFromForm, CONSTITUTION_PREVIEW_URL } from './previewModel.js';
+import { cip108Body } from './cip108Body.js';
+import { renderMarkdown } from '../markdown.js';
 import {
   initialGovActionFormState,
   type GovActionFormState,
@@ -359,5 +361,29 @@ describe('previewModelFromForm without a chain context', () => {
     );
     expect(result.missing).toEqual(['Protocol version']);
     expect(result.onchain).toMatchObject({ kind: 'hardfork', fromVersion: null, toVersion: '11.0' });
+  });
+});
+
+// The Markdown half of the preview does not go through previewModelFromForm,
+// it goes to /api/preview. What it must not do is render the two body fields
+// apart: the action page's extractor merges them before rendering (see
+// extractCip108), so a link whose reference definition sits in the other field
+// resolves there and would show as raw Markdown in a preview that rendered
+// them separately. Both sides call cip108Body, and this is the case that
+// proves the rule is worth sharing.
+describe('cip108Body, the merge rule the preview and the action page share', () => {
+  it('resolves a reference definition in the rationale from a link in the motivation', () => {
+    const html = renderMarkdown(cip108Body('See [source][ref].', '[ref]: https://example.com'));
+    expect(html).toContain('href="https://example.com"');
+    expect(html).not.toContain('[source][ref]');
+  });
+
+  it('keeps one copy when both fields hold the identical text', () => {
+    expect(cip108Body('  Same text  ', 'Same text')).toBe('Same text');
+  });
+
+  it('leaves out an empty field instead of opening with a blank line', () => {
+    expect(cip108Body('', 'Only the rationale.')).toBe('Only the rationale.');
+    expect(cip108Body('Only the motivation.', '')).toBe('Only the motivation.');
   });
 });

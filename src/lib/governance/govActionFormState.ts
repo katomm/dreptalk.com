@@ -7,7 +7,7 @@
 //
 // Out-of-order guard: every context fetch carries a request id, and a loaded
 // or failed response is ignored unless its id is still the latest one. A fast
-// type switch therefore cannot land the previous type's chain data on the new
+// type switch therefore cannot deliver the previous type's chain data on the new
 // type's panel.
 //
 // Leaf-clean like the other modules the island pulls in: types plus a handful
@@ -243,8 +243,26 @@ export type GovActionFormAction =
       siteOrigin?: string;
     }
   | { kind: 'discardDraft'; displayName: string }
-  | { kind: 'linkDraft'; slug: string; title: string; siteOrigin: string }
-  | { kind: 'unlinkDraft'; siteOrigin: string }
+  | {
+      kind: 'linkDraft';
+      slug: string;
+      title: string;
+      siteOrigin: string;
+      /**
+       * The slug the control is showing as chosen (see
+       * effectiveLinkedDraftSlug), which is the reference this pick replaces.
+       * Without it a hand-typed reference to an open draft would be shown as
+       * selected and then left in place next to the new one. Optional, so a
+       * caller that only ever links through the control stays valid.
+       */
+      selectedSlug?: string | null;
+    }
+  | {
+      kind: 'unlinkDraft';
+      siteOrigin: string;
+      /** The slug the control is showing as chosen, the one "No draft linked" removes. */
+      selectedSlug?: string | null;
+    }
   | { kind: 'walletConnecting' }
   | { kind: 'walletConnected'; rewardAddressHex: string }
   | { kind: 'walletBalanceLoading' }
@@ -433,6 +451,25 @@ function firstOpenDraftSlugInReferences(
     const [slug] = draftSlugsFromReferences([ref], siteOrigin);
     if (slug && openSlugs.has(slug)) return slug;
   }
+  return null;
+}
+
+/**
+ * The draft reference the link control is acting on: the tracked slug while
+ * its reference is still there, else whatever the control is showing as chosen
+ * (a hand-typed or hand-edited reference to an open draft, which the control
+ * never added and therefore never tracked). Only a slug that really has a
+ * reference row is returned, so the caller either replaces or removes an
+ * existing row, never neither.
+ */
+function actedOnDraftSlug(
+  references: readonly { label: string; uri: string }[],
+  trackedSlug: string | null,
+  selectedSlug: string | null | undefined,
+  siteOrigin: string,
+): string | null {
+  if (trackedSlug && referenceIndexForSlug(references, trackedSlug, siteOrigin) !== -1) return trackedSlug;
+  if (selectedSlug && referenceIndexForSlug(references, selectedSlug, siteOrigin) !== -1) return selectedSlug;
   return null;
 }
 
@@ -743,21 +780,25 @@ export function govActionFormReducer(
 
     case 'linkDraft': {
       const uri = draftReferenceUri(action.siteOrigin, action.slug);
-      const existingIndex = referenceIndexForSlug(state.metadata.references, state.linkedDraftSlug, action.siteOrigin);
+      const existingIndex = referenceIndexForSlug(
+        state.metadata.references,
+        actedOnDraftSlug(state.metadata.references, state.linkedDraftSlug, action.selectedSlug, action.siteOrigin),
+        action.siteOrigin,
+      );
       if (existingIndex === -1 && state.metadata.references.length >= REFERENCES_MAX) {
         return { ...state, draftLinkError: 'Remove a reference first, the list is full' };
       }
       const nextRef = { label: action.title, uri };
-      // Inserted at the front, not appended: resolveDraftTopic (see
-      // draftLinks.ts) takes the FIRST Proposal Drafts reference in order,
-      // and its filter only excludes a deleted thread, not a locked or
-      // already-linked one. An earlier reference naming a closed draft would
-      // otherwise outrank the one the picker shows as chosen. Replacing an
-      // already-tracked reference keeps its existing position instead.
+      // Always at the front, whether this is a fresh link or a replacement:
+      // resolveDraftTopic (see draftLinks.ts) takes the FIRST Proposal Drafts
+      // reference in order, and its filter only excludes a deleted thread, not
+      // a locked or already-linked one. An earlier reference naming a closed
+      // draft would otherwise outrank the one the picker shows as chosen, so
+      // the replaced row is moved rather than rewritten where it stood.
       const references =
         existingIndex === -1
           ? [nextRef, ...state.metadata.references]
-          : state.metadata.references.map((r, i) => (i === existingIndex ? nextRef : r));
+          : [nextRef, ...state.metadata.references.filter((_, i) => i !== existingIndex)];
       return {
         ...state,
         linkedDraftSlug: action.slug,
@@ -769,11 +810,17 @@ export function govActionFormReducer(
     }
 
     case 'unlinkDraft': {
-      if (!state.linkedDraftSlug) {
-        return { ...state, draftLinkError: null, context: clearContextChanges(state.context) };
+      const slug = actedOnDraftSlug(
+        state.metadata.references,
+        state.linkedDraftSlug,
+        action.selectedSlug,
+        action.siteOrigin,
+      );
+      if (!slug) {
+        return { ...state, linkedDraftSlug: null, draftLinkError: null, context: clearContextChanges(state.context) };
       }
       const references = state.metadata.references.filter(
-        (_, i) => i !== referenceIndexForSlug(state.metadata.references, state.linkedDraftSlug, action.siteOrigin),
+        (_, i) => i !== referenceIndexForSlug(state.metadata.references, slug, action.siteOrigin),
       );
       return {
         ...state,
@@ -888,18 +935,24 @@ export function linkedDraftReference(
 
 /**
  * What the "Link a Proposal Draft" select should show as chosen: the tracked
- * slug when it still has a matching reference (setMetadata keeps the two in
- * sync, see the reducer), or, when nothing is tracked, the first reference
- * that names an open draft. That fallback is what makes a hand-typed or
- * hand-edited reference to an open draft show up as selected even though the
- * control was never used to add it.
+ * slug while it still has a matching reference (setMetadata keeps the two in
+ * sync, see the reducer), else the first reference that names an open draft.
+ * That fallback is what makes a hand-typed or hand-edited reference to an open
+ * draft show up as selected even though the control was never used to add it.
+ * The same value goes back into linkDraft and unlinkDraft as their
+ * `selectedSlug`, so the control acts on exactly the row it is showing.
  */
 export function effectiveLinkedDraftSlug(
   state: Pick<GovActionFormState, 'metadata' | 'linkedDraftSlug'>,
   openDrafts: readonly { slug: string }[],
   siteOrigin: string,
 ): string | null {
-  if (state.linkedDraftSlug) return state.linkedDraftSlug;
+  if (
+    state.linkedDraftSlug &&
+    referenceIndexForSlug(state.metadata.references, state.linkedDraftSlug, siteOrigin) !== -1
+  ) {
+    return state.linkedDraftSlug;
+  }
   return firstOpenDraftSlugInReferences(state.metadata.references, openDrafts, siteOrigin);
 }
 
