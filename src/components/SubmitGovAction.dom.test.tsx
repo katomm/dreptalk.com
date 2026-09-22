@@ -14,7 +14,7 @@
 // The environment is file-scoped on purpose: the node and workers test
 // projects keep their own environments.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, waitFor, act } from '@testing-library/react';
 
 // The submit path awaits several mocked round trips while the wallet hook
 // keeps re-scanning on its own interval, so the default one second can be
@@ -29,6 +29,42 @@ const submitGovActionMock = vi.fn();
 vi.mock('@/lib/governance/govActionTx.js', () => ({
   submitGovAction: (...args: unknown[]) => submitGovActionMock(...args),
 }));
+
+// The success screen's three renderings are driven entirely by
+// startStatusPolling's onUpdate callback (successPolling.ts has its own
+// tests for the 30 s/10 minute schedule itself, with no React involved).
+// Mocking the call here lets a test feed it whichever state it wants
+// directly and assert the rendering, instead of needing real 30 s/10 minute
+// waits or fake timers, which turned out to hang testing-library's own
+// waitFor under happy-dom (its MutationObserver notifications depend on the
+// very timers a full-fake-timers test replaces). The captured fetchStatus is
+// still the island's real function, so a test can still call it once against
+// the mocked fetch below to check the request it actually sends.
+interface TestGovActionStatusResponse {
+  synced: boolean;
+  slug: string | null;
+  draft: { slug: string; title: string } | null;
+}
+type TestSuccessPollState =
+  | { kind: 'pending' }
+  | { kind: 'synced'; slug: string | null; draft: { slug: string; title: string } | null }
+  | { kind: 'timed-out' };
+interface CapturedStatusPoll {
+  fetchStatus: () => Promise<TestGovActionStatusResponse | null>;
+  onUpdate: (state: TestSuccessPollState) => void;
+}
+let capturedPolls: CapturedStatusPoll[] = [];
+const startStatusPollingMock = vi.fn((deps: CapturedStatusPoll) => {
+  capturedPolls.push(deps);
+  return vi.fn();
+});
+vi.mock('@/lib/governance/successPolling.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/governance/successPolling.js')>();
+  return {
+    ...actual,
+    startStatusPolling: (deps: unknown) => startStatusPollingMock(deps as CapturedStatusPoll),
+  };
+});
 
 // The balance read goes through the collector, not through getUtxos: it reads
 // Koios by the wallet's addresses, so the wallet mock cannot control it. Only
@@ -173,6 +209,12 @@ const WITNESS_KEY = 'a4'.repeat(20);
 // failure or a specific body; reset in beforeEach.
 let previewImpl: (() => Promise<Response>) | null = null;
 
+// What the mocked /api/gov-action/status answers with, for the success
+// screen's sync poll. Replaced by the tests that drive it through several
+// answers; reset in beforeEach. Defaults to "not synced yet", the common case
+// for every test that only cares about reaching the success screen at all.
+let statusImpl: (() => Promise<Response>) | null = null;
+
 /** Routes every request the island makes, so no test depends on a real network. */
 function installFetchMock() {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -190,6 +232,9 @@ function installFetchMock() {
     }
     if (url.includes('/api/koios/epoch_params')) return jsonResponse([EPOCH_PARAMS_ROW]);
     if (url.includes('/api/gov-action/context')) return jsonResponse(committeeContext);
+    if (url.includes('/api/gov-action/status')) {
+      return statusImpl ? await statusImpl() : jsonResponse({ synced: false, slug: null, draft: null });
+    }
     // Checked before the bare /metadata branch below: prepare only returns
     // the body hash to sign, never the anchor the finalize call returns.
     if (url.includes('/api/gov-action/metadata/prepare')) {
@@ -264,6 +309,7 @@ describe('SubmitGovAction', () => {
     collectWalletUtxosImpl = null;
     committeeContext = COMMITTEE_CONTEXT;
     previewImpl = null;
+    statusImpl = null;
     installFetchMock();
     installWalletMock();
   });
@@ -271,6 +317,10 @@ describe('SubmitGovAction', () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+    // A no-op when a test never switched to fake timers, and a safety net for
+    // the poll-schedule tests below so a failure mid-test cannot leak fake
+    // timers into the next one.
+    vi.useRealTimers();
   });
 
   it('keeps the metadata across a type switch and restores the panel on the way back', async () => {
@@ -955,6 +1005,88 @@ describe('SubmitGovAction', () => {
 
       await waitFor(() => expect(screen.queryByText('Preview, nothing is published yet')).toBeNull());
       expect(document.activeElement).toBe(review);
+    });
+  });
+
+  describe('success screen sync poll', () => {
+    beforeEach(() => {
+      capturedPolls = [];
+      startStatusPollingMock.mockClear();
+    });
+
+    /** Submits the InfoAction form, waits for the success callout, and returns the captured poll. */
+    async function submitAndReachSuccess(): Promise<CapturedStatusPoll> {
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      fillMetadata();
+      await connect();
+      const submit = screen.getByRole('button', { name: 'Submit proposal' }) as HTMLButtonElement;
+      await waitFor(() => expect(submit.disabled).toBe(false), SLOW);
+      fireEvent.click(submit);
+      await screen.findByText('Proposal submitted', {}, SLOW);
+      await waitFor(() => expect(capturedPolls.length).toBe(1), SLOW);
+      return capturedPolls[0];
+    }
+
+    it('asks the status route for "<txHash>#0"', async () => {
+      submitGovActionMock.mockResolvedValue({ txHash: 'f'.repeat(64) });
+      statusImpl = async () => jsonResponse({ synced: false, slug: null, draft: null });
+      const fetchMock = installFetchMock();
+      const poll = await submitAndReachSuccess();
+
+      await poll.fetchStatus();
+      const call = fetchMock.mock.calls.find(([url]) => String(url).includes('/api/gov-action/status'));
+      expect(String(call?.[0])).toContain(`id=${encodeURIComponent(`${'f'.repeat(64)}#0`)}`);
+    });
+
+    it('starts pending, then shows the thread link and the draft sentence once synced', async () => {
+      submitGovActionMock.mockResolvedValue({ txHash: 'f'.repeat(64) });
+      const poll = await submitAndReachSuccess();
+
+      act(() => poll.onUpdate({ kind: 'pending' }));
+      // The interim state: the general explanation stays until the poll knows more.
+      expect(screen.getByText(/appears in DRepTalk and on explorers only/)).toBeTruthy();
+      expect(screen.queryByText('Your action is on DRepTalk')).toBeNull();
+
+      act(() =>
+        poll.onUpdate({
+          kind: 'synced',
+          slug: 'my-committee-change-ab12',
+          draft: { slug: 'fund-tooling-c3d4', title: 'Fund tooling' },
+        }),
+      );
+
+      expect(
+        screen.getByRole('link', { name: 'Your action is on DRepTalk' }).getAttribute('href'),
+      ).toBe('/t/my-committee-change-ab12/');
+      expect(
+        screen.getByText(
+          'Linked to your Proposal Draft Fund tooling, the thread is now locked and the discussion continues on the action page.',
+        ),
+      ).toBeTruthy();
+    });
+
+    it('shows the thread link with no draft sentence when no draft was linked', async () => {
+      submitGovActionMock.mockResolvedValue({ txHash: 'e'.repeat(64) });
+      const poll = await submitAndReachSuccess();
+
+      act(() => poll.onUpdate({ kind: 'synced', slug: 'my-info-action-cd34', draft: null }));
+
+      expect(
+        screen.getByRole('link', { name: 'Your action is on DRepTalk' }).getAttribute('href'),
+      ).toBe('/t/my-info-action-cd34/');
+      expect(screen.queryByText(/Linked to your Proposal Draft/)).toBeNull();
+    });
+
+    it('says the action is not synced yet once the ten minute window elapses', async () => {
+      submitGovActionMock.mockResolvedValue({ txHash: 'c'.repeat(64) });
+      const poll = await submitAndReachSuccess();
+
+      act(() => poll.onUpdate({ kind: 'timed-out' }));
+
+      expect(screen.getByText(/Not synced yet/)).toBeTruthy();
+      expect(
+        screen.getByRole('link', { name: 'governance actions list' }).getAttribute('href'),
+      ).toBe('/c/governance-actions/');
     });
   });
 });

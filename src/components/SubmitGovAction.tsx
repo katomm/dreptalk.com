@@ -58,6 +58,8 @@ import {
   PREV_ACTION_CHANGED,
 } from '@/lib/governance/govActionFormState.js';
 import { previewModelFromForm } from '@/lib/governance/previewModel.js';
+import { startStatusPolling } from '@/lib/governance/successPolling.js';
+import type { GovActionStatusResponse, SuccessPollState } from '@/lib/governance/successPolling.js';
 import type { OpenProposalDraft } from '@/lib/db/proposalDrafts.js';
 import type { DepositState } from '@/lib/governance/govActionFormState.js';
 import { chainForType, refStillPresent } from '@/lib/governance/prevAction.js';
@@ -947,6 +949,9 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
       // The proposal is on chain: drop the draft eagerly so a crash right
       // after success cannot resurrect the already-submitted form text.
       if (typeof window !== 'undefined') clearGovActionDraft(window.localStorage, draftKey);
+      // The submit path above builds exactly one proposal per transaction, so
+      // the on-chain action id (the governance_actions.id form the status
+      // route and the sync both key on) is always this tx hash at index 0.
       setPhase({ status: 'success', txHash, authored: metadata.signAsAuthor });
     } catch (err) {
       setPhase({ status: 'error', message: mapSubmitError(err, prev), step: 'submit' });
@@ -965,6 +970,31 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
     dispatch({ kind: 'walletDisconnected' });
     setPhase({ status: 'editing' });
   }
+
+  // The success screen's own poll: once submitted, ask the status route
+  // every 30 s for up to 10 minutes until gov-sync has opened the thread (see
+  // successPolling.ts for the schedule itself). Kept as a plain tx hash
+  // dependency so the effect only restarts on an actual new submission, never
+  // on an unrelated re-render while already on the success screen.
+  const successTxHash = phase.status === 'success' ? phase.txHash : null;
+  const [pollState, setPollState] = useState<SuccessPollState>({ kind: 'pending' });
+  useEffect(() => {
+    if (successTxHash === null) return;
+    setPollState({ kind: 'pending' });
+    const id = `${successTxHash}#0`;
+    const cancel = startStatusPolling({
+      fetchStatus: async (): Promise<GovActionStatusResponse | null> => {
+        const res = await fetchWithTimeout(
+          `${window.location.origin}/api/gov-action/status?id=${encodeURIComponent(id)}`,
+          { cache: 'no-store' },
+        );
+        if (!res.ok) return null;
+        return (await res.json()) as GovActionStatusResponse;
+      },
+      onUpdate: setPollState,
+    });
+    return cancel;
+  }, [successTxHash]);
 
   // ------------------------------------------------------------------
   // Render
@@ -1076,10 +1106,40 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
             {phase.authored && (
               <p style={{ margin: '0 0 0.5rem', color: 'var(--muted)', fontSize: '0.875rem' }}>Signed with wallet key.</p>
             )}
-            <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
-              The action appears in DRepTalk and on explorers only after the next gov-sync run, and after the
-              metadata document propagates on the IPFS gateway.
-            </p>
+            {pollState.kind === 'pending' && (
+              <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
+                The action appears in DRepTalk and on explorers only after the next gov-sync run, and after the
+                metadata document propagates on the IPFS gateway.
+              </p>
+            )}
+            {pollState.kind === 'synced' && (
+              <>
+                <p style={{ margin: '0 0 0.35rem' }}>
+                  {pollState.slug ? (
+                    <a href={`/t/${pollState.slug}/`} style={{ color: 'var(--accent)', fontWeight: 600 }}>
+                      Your action is on DRepTalk
+                    </a>
+                  ) : (
+                    <span style={{ fontWeight: 600 }}>Your action is on DRepTalk</span>
+                  )}
+                </p>
+                {pollState.draft && (
+                  <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
+                    Linked to your Proposal Draft {pollState.draft.title}, the thread is now locked and the
+                    discussion continues on the action page.
+                  </p>
+                )}
+              </>
+            )}
+            {pollState.kind === 'timed-out' && (
+              <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
+                Not synced yet, check the{' '}
+                <a href="/c/governance-actions/" style={{ color: 'var(--accent)' }}>
+                  governance actions list
+                </a>
+                .
+              </p>
+            )}
           </div>
         </div>
       </div>

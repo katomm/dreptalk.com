@@ -23,6 +23,7 @@ export const GOV_ACTION_RATE_POLICIES = {
   metadata: { rateKey: 'gov-action-meta', rateMax: 10, rateWindowSec: 60, requireJwt: true },
   document: { rateKey: 'gov-action-doc', rateMax: 10, rateWindowSec: 60, requireJwt: true },
   context: { rateKey: 'gov-action-ctx', rateMax: 30, rateWindowSec: 60, requireJwt: false },
+  status: { rateKey: 'gov-action-status', rateMax: 60, rateWindowSec: 60, requireJwt: false },
 } as const satisfies Record<string, GovActionGatePolicy>;
 
 export interface GovActionGateResult {
