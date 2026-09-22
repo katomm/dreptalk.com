@@ -12,10 +12,11 @@ export const prerender = false;
 // so a fourth field can be added without touching the route.
 const MAX_PARTS = 4;
 
-// The widest metadata field the submit form accepts, plus room for the few
-// hundred characters a user can paste past the counter before the form trims.
-// One cap for every part: the route does not know which field a key names.
-const MAX_PART_LENGTH = INFO_RATIONALE_MAX + 400;
+// Exactly the widest metadata field the submit form accepts. One cap for every
+// part, because the route does not know which field a key names, and no
+// headroom above it: the form enforces the same number with maxLength, so
+// anything longer did not come from the form.
+const MAX_PART_LENGTH = INFO_RATIONALE_MAX;
 
 export const POST: APIRoute = async ({ request, locals }) => {
   const user = locals.user;
@@ -47,12 +48,18 @@ export const POST: APIRoute = async ({ request, locals }) => {
     return jsonResponse({ ok: false, error: 'invalid JSON' }, 400);
   }
 
+  // A literal `null` body is valid JSON and would otherwise be read through
+  // below, so it is refused here rather than throwing on a property access.
+  if (body === null) {
+    return jsonResponse({ ok: false, error: 'invalid input' }, 400);
+  }
+
   // Parts mode, used by the governance submit form's review modal: several
   // short Markdown fields rendered in one round trip, each returned under its
   // own key. Mentions are not resolved here (a CIP-108 document has none) and
   // enhanceStoredHtml runs, because the island injects this HTML as is while
   // the forum applies that pass itself at display time.
-  const parts = (body as { parts?: unknown }).parts;
+  const parts = (body as { parts?: unknown } | null)?.parts;
   if (parts !== undefined) {
     if (typeof parts !== 'object' || parts === null || Array.isArray(parts)) {
       return jsonResponse({ ok: false, error: 'invalid input' }, 400);
@@ -77,7 +84,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     return jsonResponse({ html });
   }
 
-  const rawMd = typeof (body as { bodyMd?: unknown }).bodyMd === 'string'
+  const rawMd = typeof (body as { bodyMd?: unknown } | null)?.bodyMd === 'string'
     ? (body as { bodyMd: string }).bodyMd.trim()
     : '';
 

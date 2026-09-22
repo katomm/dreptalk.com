@@ -70,9 +70,18 @@ export default function ReviewModal(props: ReviewModalProps) {
   // Bumped by Retry so the fetch effect runs again for the same open modal.
   const [attempt, setAttempt] = useState(0);
 
+  // Monotonic id per request, so only the latest one may file its answer.
+  // Open, Edit, change a field, open again: if the first request answers last
+  // it would otherwise paint the old text over the new preview. Closing bumps
+  // it too, so a request still in flight cannot reopen a stale modal.
+  const requestIdRef = useRef(0);
+
   // The one round trip. The fields go as they are typed, the server trims,
   // renders and links them exactly as it does for the action page.
   const load = useCallback(async () => {
+    requestIdRef.current += 1;
+    const requestId = requestIdRef.current;
+    const stale = () => requestIdRef.current !== requestId;
     setPreview({ status: 'loading' });
     try {
       const res = await fetchWithTimeout(`${window.location.origin}/api/preview`, {
@@ -82,6 +91,7 @@ export default function ReviewModal(props: ReviewModalProps) {
           parts: { abstract: abstractMd, motivation: motivationMd, rationale: rationaleMd },
         }),
       });
+      if (stale()) return;
       if (!res.ok) {
         // A 400 is ours to explain: the fields are over what the route takes,
         // which the user can act on, unlike a 500 or a dropped connection.
@@ -93,8 +103,10 @@ export default function ReviewModal(props: ReviewModalProps) {
         return;
       }
       const data = (await res.json()) as { html?: Record<string, string> };
+      if (stale()) return;
       setPreview({ status: 'ready', html: data.html ?? {} });
     } catch {
+      if (stale()) return;
       setPreview({ status: 'error', message: 'Preview unavailable, the form is unaffected.' });
     }
   }, [abstractMd, motivationMd, rationaleMd]);
@@ -106,6 +118,8 @@ export default function ReviewModal(props: ReviewModalProps) {
     const dialog = dialogRef.current;
     if (!dialog) return;
     if (!open) {
+      // Anything still in flight belongs to the preview being closed.
+      requestIdRef.current += 1;
       if (dialog.open) dialog.close();
       return;
     }

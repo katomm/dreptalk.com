@@ -147,7 +147,13 @@ function OnchainChangesCard({ changes, names }: { changes: OnchainChanges; names
         )}
       </p>
     );
-  } else if (changes.kind === 'committee') {
+  } else if (
+    changes.kind === 'committee' &&
+    // Same gate as GaOnchainChanges.astro: a diff that adds nobody, removes
+    // nobody and leaves the threshold alone is an empty card, not a card
+    // saying nothing changed.
+    (changes.added.length > 0 || changes.removed.length > 0 || changes.threshold !== null)
+  ) {
     body = (
       <ul className="ocx__rows" style={rowsStyle}>
         {changes.threshold !== null && (
@@ -212,8 +218,9 @@ function OnchainChangesCard({ changes, names }: { changes: OnchainChanges; names
     );
   }
 
-  // params and treasury are unreachable here: the submit form does not offer
-  // ParameterChange or TreasuryWithdrawals (see govActionParts.ts).
+  // Nothing to show: an empty committee diff, or (unreachable from this form,
+  // which offers neither ParameterChange nor TreasuryWithdrawals, see
+  // govActionParts.ts) a params or treasury payload.
   if (body === null) return null;
 
   return (

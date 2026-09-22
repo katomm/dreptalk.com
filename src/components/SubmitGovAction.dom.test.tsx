@@ -102,6 +102,29 @@ const COMMITTEE_CONTEXT = {
   },
 };
 
+// The same chain, but the sitting member carries a display name with markup in
+// it, for the preview card's escaping test. A committee name is stored by hand
+// in ccMemberName, so it is exactly the kind of field that has to be a text
+// node on every surface that shows it.
+const NAMED_COMMITTEE_CONTEXT = {
+  ...COMMITTEE_CONTEXT,
+  committee: {
+    ...COMMITTEE_CONTEXT.committee,
+    members: [
+      { coldHex: MEMBER_A, hasScript: false, expirationEpoch: 600, name: '<img src=x onerror=alert(1)>' },
+    ],
+  },
+};
+
+// A chain with no committee on record: no members to tick and no quorum to
+// fall back to, which is the one committee state whose payload carries nothing
+// at all. The preview card has to stay away in that case, exactly as
+// GaOnchainChanges.astro does.
+const EMPTY_COMMITTEE_CONTEXT = {
+  ...COMMITTEE_CONTEXT,
+  committee: { members: [], quorum: null, maxTermLength: null },
+};
+
 // Same chain, but with an open proposal to chain onto (so the committee panel
 // can be switched into open mode) and a script member in the sitting
 // committee, for the add-row suggestion test: the fix this covers is the
@@ -765,6 +788,124 @@ describe('SubmitGovAction', () => {
       const dialog = document.querySelector('dialog') as HTMLElement;
       expect([...dialog.querySelectorAll('a')].map(a => a.getAttribute('href'))).not.toContain('javascript:alert(1)');
       expect(screen.queryByText('Looks helpful')).toBeNull();
+    });
+
+    it('renders markup in the author name as text', async () => {
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      fillMetadata();
+      fireEvent.change(screen.getByLabelText('Author name'), {
+        target: { value: '<img src=x onerror=alert(1)>' },
+      });
+      await openReview();
+
+      await screen.findByText(
+        'Author: <img src=x onerror=alert(1)>, will be signed with your wallet key when you submit',
+        {},
+        SLOW,
+      );
+      const dialog = document.querySelector('dialog') as HTMLElement;
+      expect(dialog.querySelector('img')).toBeNull();
+    });
+
+    it('renders markup in a reference label as text on an otherwise allowed link', async () => {
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      fillMetadata();
+      fireEvent.click(screen.getByRole('button', { name: 'Add reference' }));
+      fireEvent.change(screen.getByLabelText('Reference 1 label'), {
+        target: { value: '"><img src=x onerror=alert(1)>' },
+      });
+      fireEvent.change(screen.getByLabelText('Reference 1 URL'), {
+        target: { value: 'https://example.com/paper' },
+      });
+      await openReview();
+
+      // The URI is allowed, so the link IS rendered, and only the label has to be
+      // a text node rather than the markup it looks like.
+      const link = await screen.findByRole('link', { name: '"><img src=x onerror=alert(1)>' }, SLOW);
+      expect(link.getAttribute('href')).toBe('https://example.com/paper');
+      const dialog = document.querySelector('dialog') as HTMLElement;
+      expect(dialog.querySelector('img')).toBeNull();
+      expect(dialog.querySelector('[onerror]')).toBeNull();
+    });
+
+    it('drops a data: reference, which the scheme allowlist refuses', async () => {
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      fillMetadata();
+      fireEvent.click(screen.getByRole('button', { name: 'Add reference' }));
+      fireEvent.change(screen.getByLabelText('Reference 1 label'), { target: { value: 'A data url' } });
+      fireEvent.change(screen.getByLabelText('Reference 1 URL'), {
+        target: { value: 'data:text/html,x' },
+      });
+      await openReview();
+
+      await screen.findByText('Preview, nothing is published yet', {}, SLOW);
+      const dialog = document.querySelector('dialog') as HTMLElement;
+      expect([...dialog.querySelectorAll('a')].map(a => a.getAttribute('href'))).not.toContain('data:text/html,x');
+      expect(screen.queryByText('A data url')).toBeNull();
+    });
+
+    it('renders markup in a committee member name as text on the on-chain card', async () => {
+      committeeContext = NAMED_COMMITTEE_CONTEXT;
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      fillMetadata();
+      await fillCommitteePanel();
+      await openReview();
+
+      await screen.findByText('Preview, nothing is published yet', {}, SLOW);
+      const dialog = document.querySelector('dialog') as HTMLElement;
+      // The name reaches the card through the context, so it appears, and it
+      // appears as the characters it is.
+      expect(dialog.textContent).toContain('<img src=x onerror=alert(1)>');
+      expect(dialog.querySelector('img')).toBeNull();
+      expect(dialog.querySelector('[onerror]')).toBeNull();
+    });
+
+    it('ignores a preview response that a newer one has already superseded', async () => {
+      const first = deferred<Response>();
+      const second = deferred<Response>();
+      let call = 0;
+      previewImpl = () => {
+        call += 1;
+        return call === 1 ? first.promise : second.promise;
+      };
+
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      fillMetadata();
+      const review = await openReview();
+      await screen.findByText('Rendering the preview...', {}, SLOW);
+
+      // Close, change the text, open again: request A is still in flight.
+      fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+      await waitFor(() => expect(document.activeElement).toBe(review));
+      fireEvent.change(screen.getByLabelText('Abstract'), { target: { value: 'The new abstract' } });
+      fireEvent.click(review);
+      await screen.findByText('Rendering the preview...', {}, SLOW);
+
+      // B answers first, then the stale A. The newer HTML has to survive.
+      second.resolve(jsonResponse({ html: { abstract: '<p>NEW abstract</p>' } }));
+      await screen.findByText('NEW abstract', {}, SLOW);
+      first.resolve(jsonResponse({ html: { abstract: '<p>OLD abstract</p>' } }));
+
+      await waitFor(() => expect(screen.queryByText('OLD abstract')).toBeNull());
+      expect(screen.getByText('NEW abstract')).toBeTruthy();
+    });
+
+    it('renders no on-chain card for a committee payload that carries nothing', async () => {
+      committeeContext = EMPTY_COMMITTEE_CONTEXT;
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      fillMetadata();
+      fireEvent.click(screen.getByRole('radio', { name: /Update committee/ }));
+      await screen.findByText('There is no committee on record to remove members from.', {}, SLOW);
+      await openReview();
+
+      await screen.findByText('Preview, nothing is published yet', {}, SLOW);
+      // Same gate the action page applies: no adds, no removes and no
+      // threshold is no card at all, not an empty one.
+      const dialog = document.querySelector('dialog') as HTMLElement;
+      expect(dialog.textContent).not.toContain('On-chain changes');
+      // The missing list still explains itself: with no committee on record
+      // there is no quorum to fall back to, so one has to be typed.
+      expect(dialog.textContent).toContain('Quorum numerator');
     });
 
     it('lists what is still missing instead of refusing to preview', async () => {

@@ -42,6 +42,19 @@ describe('POST /api/preview, forum bodyMd path', () => {
     expect(res.status).toBe(400);
   });
 
+  // Valid JSON, but nothing to read a field off: a property access on it would
+  // throw and turn a bad request into a 500.
+  it('rejects a body of literal null', async () => {
+    const request = new Request('https://dreptalk.com/api/preview', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: 'null',
+    });
+    const locals = { user: { id: `preview-user-${++seq}`, roles: [] } } as unknown as App.Locals;
+    const res = (await POST({ request, locals } as never)) as Response;
+    expect(res.status).toBe(400);
+  });
+
   it('401s a signed-out request', async () => {
     const request = new Request('https://dreptalk.com/api/preview', {
       method: 'POST',
@@ -85,10 +98,11 @@ describe('POST /api/preview, governance parts path', () => {
     expect(((await res.json()) as { error: string }).error).toBe('too many parts');
   });
 
+  // The cap is the widest metadata field exactly, with no headroom above it.
   it('accepts a part at the cap and rejects one above it', async () => {
-    const ok = await call({ parts: { rationale: 'x'.repeat(INFO_RATIONALE_MAX + 400) } });
+    const ok = await call({ parts: { rationale: 'x'.repeat(INFO_RATIONALE_MAX) } });
     expect(ok.status).toBe(200);
-    const tooLong = await call({ parts: { rationale: 'x'.repeat(INFO_RATIONALE_MAX + 401) } });
+    const tooLong = await call({ parts: { rationale: 'x'.repeat(INFO_RATIONALE_MAX + 1) } });
     expect(tooLong.status).toBe(400);
     expect(((await tooLong.json()) as { error: string }).error).toBe('part too long');
   });

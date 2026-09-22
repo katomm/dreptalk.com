@@ -498,20 +498,31 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
     () => (reviewOpen ? previewModelFromForm(state, contextData, epochParamsRow, network) : null),
     [reviewOpen, state, contextData, epochParamsRow, network],
   );
-  // Names for the on-chain card's committee rows, keyed by cold hex exactly as
-  // the decoder returns it. Same source the panel's own labels come from.
+  // Names for the on-chain card's committee rows. Keyed lowercase because that
+  // is the case the decoder hands back (the panel lowercases every credential
+  // before it reaches the payload), and the context may well carry it mixed.
+  // Same source the panel's own labels come from.
   const committeeNames = useMemo(() => {
     const names = new Map<string, string>();
     for (const member of contextData?.committee?.members ?? []) {
-      if (member.coldHex && member.name) names.set(member.coldHex, member.name);
+      if (member.coldHex && member.name) names.set(member.coldHex.toLowerCase(), member.name);
     }
     return names;
   }, [contextData]);
 
-  function closeReview() {
-    setReviewOpen(false);
-    reviewButtonRef.current?.focus();
-  }
+  // Focus goes back to the Review button only after the dialog has actually
+  // closed. Calling focus() from the close handler would be a no-op: the
+  // dialog is still shown modally at that point, so the rest of the document
+  // is inert and the call is dropped. Child effects run before this one, so
+  // ReviewModal's own effect has already called dialog.close() by the time
+  // this fires. The browser's own focus restoration is the fallback, which on
+  // Safari would land on whatever was focused before the click, not the
+  // button, since a button click there does not focus the button.
+  const reviewWasOpen = useRef(false);
+  useEffect(() => {
+    if (reviewWasOpen.current && !reviewOpen) reviewButtonRef.current?.focus();
+    reviewWasOpen.current = reviewOpen;
+  }, [reviewOpen]);
 
   // ------------------------------------------------------------------
   // References row editor (optional, like GovTool's reference links).
@@ -1347,7 +1358,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
 
         <ReviewModal
           open={reviewOpen}
-          onClose={closeReview}
+          onClose={() => setReviewOpen(false)}
           title={metadata.title}
           abstractMd={metadata.abstract}
           motivationMd={metadata.motivation}
