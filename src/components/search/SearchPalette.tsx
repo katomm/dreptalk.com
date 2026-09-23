@@ -9,6 +9,7 @@ import type { SearchResponseBody } from '@/lib/search/handler.js';
 import { SCOPES, SCOPE_LABELS, type Scope } from '@/lib/search/scopes.js';
 import { filterRowsByScope } from '@/lib/search/paletteFilter.js';
 import { otherScopesWithRows } from '@/lib/search/emptyHint.js';
+import { avatarUrl } from '@/lib/identity/avatarUrl.js';
 import { SnippetText } from './SnippetText.js';
 
 interface PaletteProps {
@@ -84,7 +85,7 @@ function buildRows(q: string, data: SearchResponseBody | null, helpEntries: Help
       detail: formatAda(d.votingPower) ?? undefined,
       status: d.status,
       snippet: d.snippet,
-      ...(d.imageHash ? { avatar: `/api/avatar/${d.imageHash}` } : {}),
+      ...(d.imageHash ? { avatar: avatarUrl(d.imageHash, 20) } : {}),
     });
   }
   for (const r of data?.rationales ?? []) {
@@ -96,7 +97,7 @@ function buildRows(q: string, data: SearchResponseBody | null, helpEntries: Help
       badge: r.vote,
       detail: r.actionTitle,
       snippet: r.snippet,
-      ...(r.imageHash ? { avatar: `/api/avatar/${r.imageHash}` } : {}),
+      ...(r.imageHash ? { avatar: avatarUrl(r.imageHash, 20) } : {}),
     });
   }
   for (const e of matchStaticEntries(q, signedIn)) {

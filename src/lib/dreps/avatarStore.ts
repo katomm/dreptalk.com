@@ -16,6 +16,7 @@ import {
   clearOrphanedImageStore,
   listReferencedImageHashes,
 } from '../db/dreps.js';
+import { AVATAR_THUMB_EDGE } from '../identity/avatarUrl.js';
 
 // Hard ceiling on the bytes we are willing to keep in R2 for one avatar (512 KB).
 // An image over this is only storable as a downscaled WebP; without a downscaler
@@ -52,6 +53,14 @@ export const OG_AVATAR_KEY_PREFIX = 'og-avatars/';
 /** R2 key of the PNG rendition for a stored avatar hash. */
 export function ogAvatarKey(hash: string): string {
   return `${OG_AVATAR_KEY_PREFIX}${hash}.png`;
+}
+// R2 key prefix for the small rendition served to list-size avatars
+// (/api/avatar/<hash>/thumb). Same content hash and lifetime as the OG rendition.
+export const THUMB_AVATAR_KEY_PREFIX = 'avatar-thumbs/';
+
+/** R2 key of the small rendition for a stored avatar hash. */
+export function thumbAvatarKey(hash: string): string {
+  return `${THUMB_AVATAR_KEY_PREFIX}${hash}`;
 }
 
 /** A downscaler: returns smaller bytes for an oversized image, or null if it cannot. */
@@ -114,6 +123,31 @@ export function pngRenditionEncoder(images: ImagesLike): ImageDownscaler {
       const out = await result.response().arrayBuffer();
       if (out.byteLength === 0 || out.byteLength > MAX_IMAGE_BYTES) return null;
       return { bytes: out, contentType: 'image/png' };
+    } catch {
+      return null;
+    }
+  };
+}
+
+// Thumbs sit next to other small images in a list, so a slightly lower quality
+// than the stored copy does not show and keeps the bytes down.
+const THUMB_QUALITY = 85;
+
+/**
+ * Wraps the Cloudflare Images binding into an encoder for the small list
+ * rendition: fits the avatar to AVATAR_THUMB_EDGE as WebP, never upscaling.
+ * Returns null on any transform error or empty output.
+ */
+export function thumbRenditionEncoder(images: ImagesLike): ImageDownscaler {
+  return async (bytes) => {
+    try {
+      const result = await images
+        .input(new Response(bytes).body as ReadableStream)
+        .transform({ width: AVATAR_THUMB_EDGE, height: AVATAR_THUMB_EDGE, fit: 'scale-down' })
+        .output({ format: 'image/webp', quality: THUMB_QUALITY });
+      const out = await result.response().arrayBuffer();
+      if (out.byteLength === 0) return null;
+      return { bytes: out, contentType: 'image/webp' };
     } catch {
       return null;
     }
@@ -363,10 +397,10 @@ export interface AvatarGcDeps {
 }
 
 /**
- * Deletes avatars/<hash> and og-avatars/<hash>.png objects that no dreps row
- * references anymore, once they are older than the grace period. Both prefixes
- * are keyed by the same content hash, so an avatar and its PNG rendition go at
- * the same time. Paginates the R2 listing; bounded deletions per run.
+ * Deletes avatars/<hash>, og-avatars/<hash>.png and avatar-thumbs/<hash>
+ * objects that no dreps row references anymore, once they are older than the
+ * grace period. All prefixes are keyed by the same content hash, so an avatar
+ * and its renditions go at the same time. Paginates the R2 listing; bounded deletions per run.
  */
 export async function gcDrepAvatars(deps: AvatarGcDeps): Promise<{ scanned: number; deleted: number }> {
   const deleteLimit = deps.deleteLimit ?? 200;
@@ -398,6 +432,7 @@ export async function gcDrepAvatars(deps: AvatarGcDeps): Promise<{ scanned: numb
   await sweep(OG_AVATAR_KEY_PREFIX, (key) =>
     key.slice(OG_AVATAR_KEY_PREFIX.length).replace(/\.png$/, ''),
   );
+  await sweep(THUMB_AVATAR_KEY_PREFIX, (key) => key.slice(THUMB_AVATAR_KEY_PREFIX.length));
 
   for (let i = 0; i < toDelete.length; i += 1000) {
     await deps.bucket.delete(toDelete.slice(i, i + 1000));

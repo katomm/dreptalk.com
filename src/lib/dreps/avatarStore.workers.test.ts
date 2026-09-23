@@ -9,6 +9,7 @@ import {
   ingestDataUriAvatar,
   AVATAR_KEY_PREFIX,
   ogAvatarKey,
+  thumbAvatarKey,
   type ImageDownscaler,
 } from './avatarStore.js';
 import { upsertDrep, getDrepById, listDrepsNeedingAvatar, countGivenUpAvatars } from '../db/dreps.js';
@@ -351,6 +352,19 @@ describe('gcDrepAvatars', () => {
     expect(r.deleted).toBe(1);
     expect(await bucket().get(ogAvatarKey(keepHash))).not.toBeNull();
     expect(await bucket().get(ogAvatarKey(dropHash))).toBeNull();
+  });
+
+  it('deletes an orphaned thumb rendition, keeps a referenced one', async () => {
+    const keepHash = '8'.repeat(64);
+    const dropHash = '9'.repeat(64);
+    await upsertDrep(db(), { ...BASE, drepId: 'gc-thumb', imageUrl: 'https://img.example/t.webp', imageContentHash: keepHash, imageStoredUrl: 'https://img.example/t.webp' });
+    await bucket().put(thumbAvatarKey(keepHash), PNG_BYTES);
+    await bucket().put(thumbAvatarKey(dropHash), PNG_BYTES);
+
+    const r = await gcDrepAvatars({ db: db(), bucket: bucket(), nowMs: Date.now() + 25 * 60 * 60 * 1000 });
+    expect(r.deleted).toBe(1);
+    expect(await bucket().get(thumbAvatarKey(keepHash))).not.toBeNull();
+    expect(await bucket().get(thumbAvatarKey(dropHash))).toBeNull();
   });
 
   it('keeps a fresh orphan inside the grace period', async () => {
