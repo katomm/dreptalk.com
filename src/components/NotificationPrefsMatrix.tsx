@@ -2,14 +2,14 @@
 // push and Telegram settings cards on /notifications. Purely presentational
 // and controlled: the parent (useChannelPrefs) owns pref state, optimistic
 // updates and reverts, and passes the current prefs plus an onChange handler.
-// Three deliberate groups: forum/governance activity (the original three
-// types), the delegator-fanout types introduced for the delegator dashboard
+// Three deliberate groups: forum/governance activity (replies, mentions,
+// governance actions, Governance Review editions), the delegator-fanout types introduced for the delegator dashboard
 // (DRep vote activity, DRep status, the user's own delegation), and the
 // DRep-only types (stats digest, shareable rationale), shown only to
 // accounts flagged as a DRep.
 import type { NotificationEventType } from '@/lib/db/notificationChannels.js';
 
-const GENERAL_EVENT_TYPES: NotificationEventType[] = ['reply', 'mention', 'governance'];
+const GENERAL_EVENT_TYPES: NotificationEventType[] = ['reply', 'mention', 'governance', 'governance_review'];
 const DELEGATION_EVENT_TYPES: NotificationEventType[] = ['drep_activity', 'drep_status', 'my_delegation'];
 const DREP_EVENT_TYPES: NotificationEventType[] = ['drep_stats', 'rationale_ready'];
 
@@ -22,6 +22,7 @@ const EVENT_LABELS: Record<NotificationEventType, { label: string; hint: string 
   my_delegation: { label: 'My delegation', hint: 'When your delegation changes' },
   drep_stats: { label: 'Voting power and delegators', hint: 'Epoch summary of your own DRep statistics' },
   rationale_ready: { label: 'Rationale ready to share', hint: 'When a vote you cast here is confirmed on chain and its rationale can be shared' },
+  governance_review: { label: 'Governance Review', hint: 'When a new edition is published' },
 };
 
 function EventGroup({

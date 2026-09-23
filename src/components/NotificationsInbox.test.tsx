@@ -1,7 +1,7 @@
 // Lightweight render assertion for NotificationsInbox: no testing-library in
 // this repo, so the component is rendered to a static HTML string and asserted
 // on directly (same approach as NotificationPrefsMatrix.test.tsx). Confirms the
-// href === null title-rendering fix (span, not anchor) from Task 7.
+// href === null title rendering (span, not anchor) and the per-kind lead.
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import NotificationsInbox from './NotificationsInbox.tsx';
@@ -37,5 +37,24 @@ describe('NotificationsInbox', () => {
     );
     expect(html).toContain('href="/t/reduce-fees/"');
     expect(html).toMatch(/<a[^>]*href="\/t\/reduce-fees\/"[^>]*>Your DRep voted on Reduce fees<\/a>/);
+  });
+  it('leads a Governance Review announcement with its own label', () => {
+    const html = renderToStaticMarkup(
+      <NotificationsInbox
+        items={[item({ kind: 'review_published', title: 'Edition 43: The budget returns', href: '/governance-review/epochs-656-658/' })]}
+        now={1_700_000_100_000}
+      />,
+    );
+    expect(html).toContain('New Governance Review');
+    expect(html).toContain('Edition 43: The budget returns');
+    expect(html).not.toContain('Governance action is now');
+  });
+
+  it('leads a shareable rationale with its own label, not a status change', () => {
+    const html = renderToStaticMarkup(
+      <NotificationsInbox items={[item({ kind: 'rationale_ready', title: 'Your rationale on X is ready to share' })]} now={1_700_000_100_000} />,
+    );
+    expect(html).toContain('Your vote');
+    expect(html).not.toContain('Governance action is now');
   });
 });

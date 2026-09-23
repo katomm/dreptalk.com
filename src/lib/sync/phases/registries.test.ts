@@ -24,7 +24,7 @@ const core: CoreSyncContext = {
 
 function govCtx(
   heavy: boolean,
-  opts: { tessera?: boolean; pinGc?: boolean } = {},
+  opts: { tessera?: boolean; pinGc?: boolean; site?: boolean } = {},
 ): GovernanceSyncContext {
   return {
     ...core,
@@ -34,6 +34,7 @@ function govCtx(
     tessera: opts.tessera ? ({} as GovernanceSyncContext['tessera']) : null,
     state: { mirrorHealthy: false },
     pinGc: opts.pinGc ? { groupId: 'grp', jwt: 'jwt' } : null,
+    site: opts.site ? { fetch: async () => new Response() } : null,
   };
 }
 
@@ -69,6 +70,15 @@ describe('governancePhases', () => {
     expect(activePhaseNames(governancePhases, govCtx(false))).toEqual([
       'discovery', 'gov-deferred-topics', 'delegation-fanout', 'webpush', 'telegram', 'post-erasure', 'cip100',
     ]);
+  });
+
+  it('announces review editions right before the dispatch phases, on heavy ticks with the app binding', () => {
+    const heavy = activePhaseNames(governancePhases, govCtx(true, { site: true }));
+    expect(heavy.slice(heavy.indexOf('review-announce'), heavy.indexOf('review-announce') + 3)).toEqual([
+      'review-announce', 'delegation-fanout', 'webpush',
+    ]);
+    expect(activePhaseNames(governancePhases, govCtx(false, { site: true }))).not.toContain('review-announce');
+    expect(activePhaseNames(governancePhases, govCtx(true))).not.toContain('review-announce');
   });
 
   it('adds the tally/backfill/params phases in order on a heavy tick', () => {

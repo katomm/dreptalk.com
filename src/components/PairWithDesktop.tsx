@@ -9,7 +9,8 @@
 import { useCallback, useEffect, useState, type CSSProperties } from 'react';
 import { formatPairingCode } from '@/lib/auth/pairingCode.js';
 import { truncateIdMiddle } from '@/lib/forum/view.js';
-import { cardStyle, stepHeadingStyle, linkBtnStyle, POST_LOGIN_DEST } from '@/components/signInStyles.js';
+import { cardStyle, stepHeadingStyle, linkBtnStyle } from '@/components/signInStyles.js';
+import { postLoginDest } from '@/lib/auth/postLoginDest.js';
 
 // Naming the approving account is the whole mitigation against being signed in
 // by an account other than the one the user meant, so it must never degrade to
@@ -345,7 +346,7 @@ export default function PairWithDesktop() {
         <button
           type="button"
           className="btn btn-primary"
-          onClick={() => window.location.assign(POST_LOGIN_DEST)}
+          onClick={() => window.location.assign(postLoginDest(window.location.search))}
           style={{ width: '100%', padding: '0.65rem 1rem', fontSize: '0.9375rem' }}
         >
           Continue as {state.label}

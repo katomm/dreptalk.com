@@ -19,7 +19,10 @@ export interface NotificationInsert {
     | 'drep_stats'
     // rationale_ready rows are written by drepVotes.ts (upsertVotes) with
     // payload + event_key when a pending self-cast with a rationale confirms.
-    | 'rationale_ready';
+    | 'rationale_ready'
+    // review_published rows are written by reviewAnnouncements.ts, one per
+    // account, when a new Governance Review edition goes live.
+    | 'review_published';
   actorId: string | null;
   topicId: string | null;
   postId: string | null;

@@ -63,6 +63,9 @@ export function formatSummary(counts: PendingCounts): string {
   if (counts.rationaleReady > 0) {
     parts.push(`${counts.rationaleReady} ${counts.rationaleReady === 1 ? 'rationale' : 'rationales'} ready to share`);
   }
+  if (counts.reviews > 0) {
+    parts.push(`${counts.reviews} new Governance ${counts.reviews === 1 ? 'Review' : 'Reviews'}`);
+  }
   if (counts.devices > 0) {
     parts.push(`${counts.devices} new ${counts.devices === 1 ? 'device' : 'devices'} paired`);
   }

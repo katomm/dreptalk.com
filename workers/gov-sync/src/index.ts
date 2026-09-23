@@ -145,6 +145,9 @@ export default {
                 env.PINATA_GOV_GROUP_ID && env.PINATA_JWT
                   ? { groupId: env.PINATA_GOV_GROUP_ID, jwt: env.PINATA_JWT }
                   : null,
+              // Mainnet only, set in wrangler.toml: the app worker that serves
+              // the Governance Review editions, for the review-announce phase.
+              site: env.SITE ?? null,
               state: initialGovernanceSyncState(),
             };
             return runPhases(governancePhases, ctx, phase);

@@ -46,6 +46,9 @@ declare namespace Cloudflare {
     IMAGES?: import('./lib/dreps/avatarStore.js').ImagesLike;
     /** Static assets binding; the OG image routes read font files through it. */
     ASSETS?: Fetcher;
+    /** gov-sync only (mainnet): service binding to the app worker, which serves
+     *  the newest Governance Review edition for the review-announce phase. */
+    SITE?: Fetcher;
     CARDANO_NETWORK?: string;
     /** Optional Koios secret for higher rate limits (app proxy + gov-sync). */
     KOIOS_API_KEY?: string;

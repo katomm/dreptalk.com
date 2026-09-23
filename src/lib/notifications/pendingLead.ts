@@ -21,6 +21,8 @@ import { voteStatementPath } from '../governance/voteStatement.js';
 import { parseDrepEventPayload } from '../delegation/notifyPayload.js';
 import { parseDrepStatsPayload, formatDrepStatsDetail } from './drepStats.js';
 import { drepPath } from '../dreps/profile.js';
+import { parseReviewPayload } from '../db/reviewAnnouncements.js';
+import { editionPath } from '../review/windows.js';
 
 const INBOX_PATH = '/notifications/';
 
@@ -36,6 +38,7 @@ const PERSONAL_PREF: Record<string, NotificationEventType | 'always'> = {
   delegation_changed: 'my_delegation',
   drep_stats: 'drep_stats',
   rationale_ready: 'rationale_ready',
+  review_published: 'governance_review',
   device_paired: 'always',
 };
 
@@ -195,6 +198,13 @@ async function hydratePersonal(db: D1Database, row: PersonalRow): Promise<Pendin
       return p.title
         ? { title: clip(p.title), body: 'Your rationale is ready to share', href }
         : { title: 'Your rationale is ready to share', body: 'Your vote is confirmed on chain', href };
+    }
+
+    case 'review_published': {
+      // A new Governance Review edition: its title is the subject.
+      const p = parseReviewPayload(row.payload);
+      if (!p) return null;
+      return { title: clip(p.title), body: `New Governance Review, edition ${p.edition}`, href: editionPath(p.slug) };
     }
 
     default: {

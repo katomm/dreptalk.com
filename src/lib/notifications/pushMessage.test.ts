@@ -12,20 +12,11 @@ function counts(partial: Partial<PendingCounts>): PendingCounts {
     myDelegation: 0,
     drepStats: 0,
     rationaleReady: 0,
+    reviews: 0,
     devices: 0,
   };
   const merged = { ...base, ...partial };
-  const total =
-    merged.replies +
-    merged.mentions +
-    merged.governance +
-    merged.drepActivity +
-    merged.drepStatus +
-    merged.myDelegation +
-    merged.drepStats +
-    merged.rationaleReady +
-    merged.devices;
-  return { ...merged, total };
+  return { ...merged, total: Object.values(merged).reduce((a, b) => a + b, 0) };
 }
 
 const lead: PendingLead = { title: 'Parameter Change', body: 'New governance action', href: '/t/param-change/' };
@@ -79,5 +70,9 @@ describe('formatSummary', () => {
   it('summarizes shareable rationales', () => {
     expect(formatSummary(counts({ rationaleReady: 1 }))).toBe('1 rationale ready to share');
     expect(formatSummary(counts({ rationaleReady: 2, replies: 1 }))).toBe('1 new reply, 2 rationales ready to share');
+  });
+  it('summarizes new Governance Review editions', () => {
+    expect(formatSummary(counts({ reviews: 1 }))).toBe('1 new Governance Review');
+    expect(formatSummary(counts({ reviews: 2, replies: 1 }))).toBe('1 new reply, 2 new Governance Reviews');
   });
 });

@@ -14,6 +14,7 @@ export const NOTIFICATION_EVENT_TYPES = [
   'my_delegation',
   'drep_stats',
   'rationale_ready',
+  'governance_review',
 ] as const;
 export type NotificationEventType = (typeof NOTIFICATION_EVENT_TYPES)[number];
 export type NotificationChannelKind = 'webpush' | 'telegram';
@@ -189,6 +190,8 @@ export interface PendingCounts {
   drepStats: number;
   /** The user's own vote rationale confirmed on chain and ready to share. */
   rationaleReady: number;
+  /** New Governance Review editions. */
+  reviews: number;
   /** Security notices; deliberately not prefs-filtered, unlike the others. */
   devices: number;
   total: number;
@@ -199,8 +202,8 @@ export interface PendingCounts {
  * notifications, distinct live governance threads with activity, delegator
  * fan-out notifications (drep vote activity, drep status changes, and the
  * user's own delegation changes), the user's own DRep stats epoch digests,
- * the user's own shareable vote rationales, all newer than the row's
- * delivered_until cursor. The gov term is the
+ * the user's own shareable vote rationales, new Governance Review editions,
+ * all newer than the row's delivered_until cursor. The gov term is the
  * shared govThreadsSinceSql fragment (same definition the header badge
  * uses), keyed off the channel's delivery cursor instead of the user's
  * notif_seen_at. Each term is zeroed when its pref is off, except
@@ -223,7 +226,8 @@ export async function getPendingCounts(
          (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'delegation_changed' AND created_at > ?2) AS myDelegation,
          (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'drep_stats' AND created_at > ?2) AS drepStats,
          (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'rationale_ready' AND created_at > ?2) AS rationaleReady,
-         ${govThreadsSinceSql('?2')} AS governance`,
+         (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'review_published' AND created_at > ?2) AS reviews,
+         ${govThreadsSinceSql('?2')} AS governance`
     )
     .bind(row.user_id, row.delivered_until)
     .first<{
@@ -236,6 +240,7 @@ export async function getPendingCounts(
       myDelegation: number;
       drepStats: number;
       rationaleReady: number;
+      reviews: number;
     }>();
 
   const replies = prefs.reply ? (result?.replies ?? 0) : 0;
@@ -246,10 +251,11 @@ export async function getPendingCounts(
   const myDelegation = prefs.my_delegation ? (result?.myDelegation ?? 0) : 0;
   const drepStats = prefs.drep_stats ? (result?.drepStats ?? 0) : 0;
   const rationaleReady = prefs.rationale_ready ? (result?.rationaleReady ?? 0) : 0;
+  const reviews = prefs.governance_review ? (result?.reviews ?? 0) : 0;
   // Security notices are deliberately not gated on prefs: an alert that can be
   // switched off is worthless, so a device pairing always contributes.
   const devices = result?.devices ?? 0;
-  return {
+  const terms = {
     replies,
     mentions,
     governance,
@@ -258,7 +264,9 @@ export async function getPendingCounts(
     myDelegation,
     drepStats,
     rationaleReady,
+    reviews,
     devices,
-    total: replies + mentions + governance + drepActivity + drepStatus + myDelegation + drepStats + rationaleReady + devices,
   };
+  // Summed from the terms themselves, so a new term can never be left out of the total.
+  return { ...terms, total: Object.values(terms).reduce((a, b) => a + b, 0) };
 }

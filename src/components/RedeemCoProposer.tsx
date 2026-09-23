@@ -12,10 +12,10 @@ import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallet
 import WalletConnection from '@/components/WalletConnection.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import { cardStyle, stepHeadingStyle, fieldLabelStyle, inputStyle } from '@/components/signInStyles.js';
+import { DEFAULT_POST_LOGIN_DEST } from '@/lib/auth/postLoginDest.js';
 
-// Where a successful redemption lands: the same start page a normal sign-in
-// lands on (see signInStyles.ts's POST_LOGIN_DEST).
-const POST_REDEEM_DEST = '/home/';
+// Where a successful redemption goes: the same start page a normal sign-in uses.
+const POST_REDEEM_DEST = DEFAULT_POST_LOGIN_DEST;
 
 interface RedeemCoProposerProps {
   network: CardanoNetwork;

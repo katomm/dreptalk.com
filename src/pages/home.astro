@@ -26,6 +26,7 @@ import { countActiveByRole } from '@/lib/db/activeParticipants.js';
 import { loadActiveFaces } from '@/lib/forum/activeFaces.js';
 import ActiveFaces from '@/components/ActiveFaces.astro';
 import ReviewCard from '@/components/review/ReviewCard.astro';
+import ReviewSubscribe from '@/components/review/ReviewSubscribe.astro';
 import { loadEditions } from '@/lib/review/editions.js';
 import { authorProfileHref } from '@/lib/forum/author';
 import { activeLabel, ACTIVE_WINDOW_MS, HOME_FACE_LIMIT } from '@/lib/forum/view';
@@ -335,6 +336,7 @@ const cards: HomeCard[] = [
     <section class="home-review" aria-labelledby="home-review-label">
       <p id="home-review-label" class="home-review__label">Latest Governance Review</p>
       <ReviewCard edition={latestReview} cfg={reviewCfg} />
+      <ReviewSubscribe variant="compact" class="home-review__subscribe" />
     </section>
   )}
 </Layout>
@@ -458,6 +460,9 @@ const cards: HomeCard[] = [
   /* Same label treatment as the homepage's review teaser. */
   .home-review {
     margin-top: 2rem;
+  }
+  .home-review :global(.home-review__subscribe) {
+    margin-top: 0.75rem;
   }
   .home-review__label {
     font-size: 0.78rem;
