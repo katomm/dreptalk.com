@@ -1,0 +1,110 @@
+---
+// Header search button plus the global shortcuts (Cmd/Ctrl+K, and "/" outside
+// form fields). Rendered as plain HTML, the palette and React load only once
+// the visitor reaches for the search (see searchHost.tsx).
+import type { Scope } from '@/lib/search/scopes.js';
+
+interface Props {
+  /** Whether a session exists, so the palette can offer the personal pages. */
+  signedIn?: boolean;
+  /** Scope pill the palette opens with on this page (defaults to "all"). */
+  initialScope?: Scope;
+}
+
+const { signedIn = false, initialScope = 'all' } = Astro.props;
+---
+
+<button
+  type="button"
+  class="search-trigger"
+  aria-label="Search"
+  data-search-trigger
+  data-signed-in={signedIn ? '' : undefined}
+  data-scope={initialScope}
+>
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+    <circle cx="11" cy="11" r="7" />
+    <line x1="21" y1="21" x2="16.5" y2="16.5" />
+  </svg>
+  {/* Hidden below 480px (global.css) so the header row fits with the
+      notification bell; the icon plus aria-label keep it usable. */}
+  <span aria-hidden="true" class="search-trigger__label">Search</span>
+</button>
+
+<script>
+  import { SCOPES, type Scope } from '@/lib/search/scopes.js';
+  import type { SearchHost } from './searchHost';
+
+  const trigger = document.querySelector<HTMLButtonElement>('[data-search-trigger]');
+  if (trigger) {
+    const btn = trigger;
+    const rawScope = btn.dataset.scope as Scope | undefined;
+    const initialScope: Scope = rawScope && SCOPES.includes(rawScope) ? rawScope : 'all';
+    const signedIn = btn.dataset.signedIn !== undefined;
+
+    let host: SearchHost | null = null;
+    let loading: Promise<SearchHost | null> | null = null;
+
+    // A failed chunk load (e.g. stale HTML after a deploy) resets, so a later
+    // attempt can retry instead of sticking on the broken promise.
+    const load = () =>
+      (loading ??= import('./searchHost')
+        .then((m) => (host = m.mountSearch({ trigger: btn, signedIn, initialScope })))
+        .catch(() => {
+          loading = null;
+          return null;
+        }));
+
+    // Mobile browsers raise the software keyboard only for a focus() inside the
+    // user's gesture, and the first open has to wait for the chunk. Holding focus
+    // on an invisible input meanwhile keeps the keyboard up, and the palette's
+    // input then takes the focus over from it.
+    function holdKeyboard(): HTMLInputElement {
+      const proxy = document.createElement('input');
+      proxy.type = 'text';
+      proxy.tabIndex = -1;
+      proxy.setAttribute('aria-hidden', 'true');
+      // 16px keeps iOS from zooming in on focus.
+      Object.assign(proxy.style, { position: 'fixed', top: '0', left: '0', width: '1px', height: '1px', opacity: '0', fontSize: '16px', border: '0', padding: '0' });
+      document.body.append(proxy);
+      proxy.focus({ preventScroll: true });
+      return proxy;
+    }
+
+    function show(toggle: boolean) {
+      if (host) {
+        if (toggle) host.toggle();
+        else host.open();
+        return;
+      }
+      const proxy = holdKeyboard();
+      void load().then((h) => {
+        if (h) h.open();
+        proxy.remove();
+        // Without the palette the results page still offers the whole search.
+        if (!h) window.location.assign('/search/');
+      });
+    }
+
+    // Warm the chunk as soon as the visitor heads for the button, so a first
+    // tap or click usually finds it loaded.
+    for (const type of ['pointerenter', 'pointerdown', 'focus'] as const) {
+      btn.addEventListener(type, () => void load(), { once: true, passive: true });
+    }
+    btn.addEventListener('click', () => show(false));
+
+    window.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        show(true);
+        return;
+      }
+      if (e.key === '/' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const t = e.target as HTMLElement | null;
+        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+        e.preventDefault();
+        show(false);
+      }
+    });
+  }
+</script>
