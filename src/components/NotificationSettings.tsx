@@ -41,6 +41,11 @@ export default function NotificationSettings({ channels, prefs, vapidPublicKey, 
   const { prefState, prefError, prefsBusy, masterOn, toggleAll, togglePref } = useChannelPrefs('webpush', prefs);
   // Fingerprint of this device's own push subscription, resolved on mount.
   const [deviceFingerprint, setDeviceFingerprint] = useState<string | null>(null);
+  // Whether this browser can do push, known only after mount: the server has no
+  // navigator, so deciding during render would make the server markup (always
+  // "unsupported") differ from a supporting browser's and break hydration. Until
+  // the check runs, the card renders as if push were supported.
+  const [supported, setSupported] = useState<boolean | null>(null);
   // Per-device test-push state, keyed by channel id.
   const [testState, setTestState] = useState<
     Record<string, { status: 'sending' } | { status: 'scheduled'; delaySeconds: number } | { status: 'error'; message: string }>
@@ -64,10 +69,12 @@ export default function NotificationSettings({ channels, prefs, vapidPublicKey, 
     return () => document.removeEventListener('click', onClick);
   }, []);
 
-  // Resolve this device's subscription fingerprint so its row reads "This
-  // device" and the enable button hides once connected.
+  // Settle push support, then resolve this device's subscription fingerprint so
+  // its row reads "This device" and the enable button hides once connected.
   useEffect(() => {
-    if (!pushSupported()) return;
+    const ok = pushSupported();
+    setSupported(ok);
+    if (!ok) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -93,7 +100,7 @@ export default function NotificationSettings({ channels, prefs, vapidPublicKey, 
     );
   }
 
-  if (!pushSupported()) {
+  if (supported === false) {
     return (
       <p style={{ margin: 0, color: 'var(--muted)', maxWidth: '32rem' }}>
         Push is not supported in this browser. On iPhone and iPad it only works after{' '}
