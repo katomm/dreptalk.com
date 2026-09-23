@@ -107,9 +107,14 @@ const { signedIn = false, initialScope = 'all' } = Astro.props;
           releaseKeyboard();
           return;
         }
-        releaseKeyboard();
-        // Without the palette the results page still offers the whole search.
-        window.location.assign('/search/');
+        // Without the palette the results page still offers the whole search,
+        // carrying what was typed and the scope, like the palette's "See all".
+        const params = new URLSearchParams();
+        const typed = releaseKeyboard().trim();
+        if (typed) params.set('q', typed);
+        if (initialScope !== 'all') params.set('scope', initialScope);
+        const query = params.toString();
+        window.location.assign(query ? `/search/?${query}` : '/search/');
       });
     }
 
