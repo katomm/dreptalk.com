@@ -47,11 +47,12 @@ export async function renderOgCard(
   url: string,
   build: () => string | Promise<string>,
 ): Promise<Response> {
+  // Not withEdgeCache: the fallback card is a 200 too and must stay uncached.
   const cache = (caches as CacheStorage & { default: Cache }).default;
   const cacheKey = new Request(url, { method: 'GET' });
   const cached = await cache.match(cacheKey);
   // Return a fresh, mutable copy: the security middleware decorates every response
-  // and a Cache API Response carries immutable headers (see api/search.ts).
+  // and a Cache API Response carries immutable headers (see lib/http/edgeCache.ts).
   if (cached) return new Response(cached.body, cached);
 
   const [fonts, html] = await Promise.all([loadOgFonts(assets, url), build()]);
