@@ -54,7 +54,10 @@ const { prevHref, nextHref, page, totalPages = null, firstHref = null, lastHref 
   .pager__end--right { justify-content: flex-end; }
   .pager__link { color: var(--accent); text-decoration: none; font-weight: 600; }
   .pager__link:hover { text-decoration: underline; }
-  .pager__link--disabled { color: var(--muted); opacity: 0.5; }
+  /* Inactive end: plain muted text at normal weight, set apart from the bold
+     accent links by colour and weight. No opacity, so it keeps readable contrast
+     in both themes. */
+  .pager__link--disabled { color: var(--muted); font-weight: 400; }
   /* First/Last are secondary to Prev/Next: quieter until hovered. */
   .pager__link--edge { color: var(--muted); font-weight: 500; }
   .pager__link--edge:hover { color: var(--accent); }

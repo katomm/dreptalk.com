@@ -47,6 +47,9 @@
 # instead, which still removes most of the per-navigation roundtrips.
 /brand-copy.js
   Cache-Control: public, max-age=3600, must-revalidate
+# Header search Help list, rebuilt each deploy under the same stable name.
+/search-help-entries.json
+  Cache-Control: public, max-age=3600, must-revalidate
 
 /*
   Content-Security-Policy: default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; connect-src 'self' https://cloudflareinsights.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'

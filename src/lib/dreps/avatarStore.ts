@@ -16,6 +16,7 @@ import {
   clearOrphanedImageStore,
   listReferencedImageHashes,
 } from '../db/dreps.js';
+import { AVATAR_THUMB_EDGE } from '../identity/avatarUrl.js';
 
 // Hard ceiling on the bytes we are willing to keep in R2 for one avatar (512 KB).
 // An image over this is only storable as a downscaled WebP; without a downscaler
@@ -53,6 +54,14 @@ export const OG_AVATAR_KEY_PREFIX = 'og-avatars/';
 export function ogAvatarKey(hash: string): string {
   return `${OG_AVATAR_KEY_PREFIX}${hash}.png`;
 }
+// R2 key prefix for the small rendition served to list-size avatars
+// (/api/avatar/<hash>/thumb). Same content hash and lifetime as the OG rendition.
+export const THUMB_AVATAR_KEY_PREFIX = 'avatar-thumbs/';
+
+/** R2 key of the small rendition for a stored avatar hash. */
+export function thumbAvatarKey(hash: string): string {
+  return `${THUMB_AVATAR_KEY_PREFIX}${hash}`;
+}
 
 /** A downscaler: returns smaller bytes for an oversized image, or null if it cannot. */
 export type ImageDownscaler = (bytes: ArrayBuffer) => Promise<{ bytes: ArrayBuffer; contentType: string } | null>;
@@ -77,48 +86,45 @@ export function refitDropsAnimation(contentType: string): boolean {
 }
 
 /**
- * Wraps the Cloudflare Images binding into a downscaler that fits an avatar to
- * AVATAR_MAX_EDGE and re-encodes it as WebP. Never upscales (fit: scale-down).
- * Returns null on any transform error, or if the result is still over the cap,
- * so the caller treats it as a failed image.
+ * Wraps the Cloudflare Images binding into an encoder that fits an avatar into
+ * `edge` px (never upscaling, fit: scale-down) and outputs `format`. Returns null
+ * on any transform error, on empty output, or on output over `maxBytes`, so each
+ * caller maps that to its own fallback.
  */
-export function imagesDownscaler(images: ImagesLike): ImageDownscaler {
+function imagesEncoder(
+  images: ImagesLike,
+  opts: { edge: number; format: 'image/webp' | 'image/png'; quality?: number; maxBytes?: number },
+): ImageDownscaler {
   return async (bytes) => {
     try {
       const result = await images
         .input(new Response(bytes).body as ReadableStream)
-        .transform({ width: AVATAR_MAX_EDGE, height: AVATAR_MAX_EDGE, fit: 'scale-down' })
-        .output({ format: 'image/webp', quality: AVATAR_DOWNSCALE_QUALITY });
+        .transform({ width: opts.edge, height: opts.edge, fit: 'scale-down' })
+        .output(opts.quality === undefined ? { format: opts.format } : { format: opts.format, quality: opts.quality });
       const out = await result.response().arrayBuffer();
-      if (out.byteLength === 0 || out.byteLength > MAX_IMAGE_BYTES) return null;
-      return { bytes: out, contentType: 'image/webp' };
+      if (out.byteLength === 0 || (opts.maxBytes !== undefined && out.byteLength > opts.maxBytes)) return null;
+      return { bytes: out, contentType: opts.format };
     } catch {
       return null;
     }
   };
 }
 
-/**
- * Wraps the Cloudflare Images binding into a re-encoder that fits an avatar to
- * AVATAR_MAX_EDGE and outputs PNG, for formats the card rasterizer cannot decode.
- * Returns null on any transform error, on empty output, or if the result is over
- * MAX_IMAGE_BYTES, so the caller falls back to the identicon.
- */
-export function pngRenditionEncoder(images: ImagesLike): ImageDownscaler {
-  return async (bytes) => {
-    try {
-      const result = await images
-        .input(new Response(bytes).body as ReadableStream)
-        .transform({ width: AVATAR_MAX_EDGE, height: AVATAR_MAX_EDGE, fit: 'scale-down' })
-        .output({ format: 'image/png' });
-      const out = await result.response().arrayBuffer();
-      if (out.byteLength === 0 || out.byteLength > MAX_IMAGE_BYTES) return null;
-      return { bytes: out, contentType: 'image/png' };
-    } catch {
-      return null;
-    }
-  };
-}
+/** Store-time refit: AVATAR_MAX_EDGE WebP, rejected when still over the cap. */
+export const imagesDownscaler = (images: ImagesLike): ImageDownscaler =>
+  imagesEncoder(images, { edge: AVATAR_MAX_EDGE, format: 'image/webp', quality: AVATAR_DOWNSCALE_QUALITY, maxBytes: MAX_IMAGE_BYTES });
+
+/** PNG rendition for formats the card rasterizer cannot decode (webp/avif/gif). */
+export const pngRenditionEncoder = (images: ImagesLike): ImageDownscaler =>
+  imagesEncoder(images, { edge: AVATAR_MAX_EDGE, format: 'image/png', maxBytes: MAX_IMAGE_BYTES });
+
+// Thumbs sit next to other small images in a list, so a slightly lower quality
+// than the stored copy does not show and keeps the bytes down.
+const THUMB_QUALITY = 85;
+
+/** Small list rendition: AVATAR_THUMB_EDGE WebP. */
+export const thumbRenditionEncoder = (images: ImagesLike): ImageDownscaler =>
+  imagesEncoder(images, { edge: AVATAR_THUMB_EDGE, format: 'image/webp', quality: THUMB_QUALITY });
 
 /**
  * Decides what bytes to store for an avatar: the source when it is already small
@@ -363,10 +369,10 @@ export interface AvatarGcDeps {
 }
 
 /**
- * Deletes avatars/<hash> and og-avatars/<hash>.png objects that no dreps row
- * references anymore, once they are older than the grace period. Both prefixes
- * are keyed by the same content hash, so an avatar and its PNG rendition go at
- * the same time. Paginates the R2 listing; bounded deletions per run.
+ * Deletes avatars/<hash>, og-avatars/<hash>.png and avatar-thumbs/<hash>
+ * objects that no dreps row references anymore, once they are older than the
+ * grace period. All prefixes are keyed by the same content hash, so an avatar
+ * and its renditions go at the same time. Paginates the R2 listing; bounded deletions per run.
  */
 export async function gcDrepAvatars(deps: AvatarGcDeps): Promise<{ scanned: number; deleted: number }> {
   const deleteLimit = deps.deleteLimit ?? 200;
@@ -398,6 +404,7 @@ export async function gcDrepAvatars(deps: AvatarGcDeps): Promise<{ scanned: numb
   await sweep(OG_AVATAR_KEY_PREFIX, (key) =>
     key.slice(OG_AVATAR_KEY_PREFIX.length).replace(/\.png$/, ''),
   );
+  await sweep(THUMB_AVATAR_KEY_PREFIX, (key) => key.slice(THUMB_AVATAR_KEY_PREFIX.length));
 
   for (let i = 0; i < toDelete.length; i += 1000) {
     await deps.bucket.delete(toDelete.slice(i, i + 1000));

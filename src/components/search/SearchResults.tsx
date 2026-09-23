@@ -1,12 +1,13 @@
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { SCOPES, SCOPE_LABELS, PAGE_SIZE, type Scope, type ApiScope } from '@/lib/search/scopes.js';
+import { SCOPES, SCOPE_LABELS, PAGE_SIZE, searchPageHref, type Scope, type ApiScope } from '@/lib/search/scopes.js';
 import { searchHelp, type HelpDoc, type HelpHit } from '@/lib/search/help.js';
 import { otherScopesWithCounts } from '@/lib/search/emptyHint.js';
 import { readableType, statusBadge, TONE_COLORS, formatAda } from '@/lib/governance/view.js';
 import { truncateId } from '@/lib/forum/view.js';
 import { SnippetText } from './SnippetText.js';
 import type { SearchResponseBody } from '@/lib/search/handler.js';
+import { avatarUrl } from '@/lib/identity/avatarUrl.js';
 import type { GaHit, TopicHit, DrepHit, RationaleHit } from '@/lib/db/search.js';
 
 interface Props {
@@ -59,7 +60,7 @@ function DrepRow({ d }: { d: DrepHit }) {
   return (
     <a className="search-hit" href={d.href}>
       <span className="search-hit__head">
-        {d.imageHash && <img src={`/api/avatar/${d.imageHash}`} alt="" width="20" height="20" loading="lazy" style={{ borderRadius: '50%', flexShrink: 0 }} />}
+        {d.imageHash && <img src={avatarUrl(d.imageHash, 20)} alt="" width="20" height="20" loading="lazy" style={{ borderRadius: '50%', flexShrink: 0 }} />}
         <span className="search-hit__title">{d.name ?? truncateId(d.drepId)}</span>
         <span className="search-hit__status">{d.status}</span>
         {formatAda(d.votingPower) && <span className="search-hit__detail">{formatAda(d.votingPower)}</span>}
@@ -86,7 +87,7 @@ function RationaleRow({ r }: { r: RationaleHit }) {
   return (
     <a className="search-hit" href={r.href}>
       <span className="search-hit__head">
-        {r.imageHash && <img src={`/api/avatar/${r.imageHash}`} alt="" width="20" height="20" loading="lazy" style={{ borderRadius: '50%', flexShrink: 0 }} />}
+        {r.imageHash && <img src={avatarUrl(r.imageHash, 20)} alt="" width="20" height="20" loading="lazy" style={{ borderRadius: '50%', flexShrink: 0 }} />}
         <span className="search-hit__title">{r.name ?? truncateId(r.voterId)}</span>
         <span className={`search-hit__vote search-hit__vote--${kind}`}>{r.vote}</span>
         <span className="search-hit__detail">{r.actionTitle}</span>
@@ -173,8 +174,7 @@ export default function SearchResults({ initialQuery, initialScope, initialPage,
       didMount.current = true;
       return;
     }
-    const url = `/search/?q=${encodeURIComponent(trimmed)}${scope === 'all' ? '' : `&scope=${scope}`}${page > 1 ? `&page=${page}` : ''}`;
-    window.history.replaceState(null, '', url);
+    window.history.replaceState(null, '', searchPageHref(trimmed, scope, page));
 
     if (!hasQuery) {
       setData((d) => ({ ...d, query: trimmed, governanceActions: [], discussions: [], dreps: [], exact: null, total: 0, counts: null }));

@@ -3,7 +3,7 @@ import '@/styles/global.css';
 import themeInit from '@/scripts/theme-init.js?raw';
 import badgeSync from '@/scripts/badge-sync.js?raw';
 import ThemeToggle from '@/components/ThemeToggle.astro';
-import SearchTrigger from '@/components/search/SearchTrigger';
+import SearchTrigger from '@/components/search/SearchTrigger.astro';
 import RoleEntry from '@/components/RoleEntry.astro';
 import JsonLd from '@/components/JsonLd.astro';
 import LogoMark from '@/components/LogoMark.astro';
@@ -12,8 +12,6 @@ import { currentNetwork } from '@/lib/api/response';
 import { NAV_LINKS } from '@/lib/config/nav.js';
 import type { AuthorDescriptor } from '@/lib/forum/author';
 import { loadSessionHeader } from '@/lib/forum/sessionHeader';
-import { getHelpEntries } from '@/lib/search/helpEntries.js';
-import type { HelpEntry } from '@/lib/search/staticEntries.js';
 import { scopeForPath, type Scope } from '@/lib/search/scopes.js';
 
 interface Props {
@@ -100,7 +98,6 @@ const isActive = (href: string) => {
   return current === path || current.startsWith(path + '/');
 };
 
-const helpEntries: HelpEntry[] = await getHelpEntries();
 ---
 <!doctype html>
 <html lang="en" data-notif-unread={sessionUser ? String(unreadCount) : undefined}>
@@ -208,7 +205,7 @@ const helpEntries: HelpEntry[] = await getHelpEntries();
         </nav>
 
         <div class="header-actions">
-          <SearchTrigger client:idle helpEntries={helpEntries} signedIn={!!sessionUser} initialScope={searchScope ?? scopeForPath(pathname)} />
+          <SearchTrigger signedIn={!!sessionUser} initialScope={searchScope ?? scopeForPath(pathname)} />
           {/* Share the current page. Only shown in the installed standalone app,
               where there is no address bar to copy or share the URL from. */}
           <span class="header-share"><ShareButton iconOnly ariaLabel="Share this page" /></span>

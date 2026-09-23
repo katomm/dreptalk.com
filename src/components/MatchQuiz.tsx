@@ -10,6 +10,7 @@ import { drepPath } from '@/lib/dreps/profile.js';
 import { formatAdaCompact } from '@/lib/format/ada.js';
 import { voteStatementPath } from '@/lib/governance/voteStatement.js';
 import { identiconSvg } from '@/lib/identity/identicon.js';
+import { avatarUrl } from '@/lib/identity/avatarUrl.js';
 import {
   decodeShareFragment,
   encodeShareFragment,
@@ -560,7 +561,7 @@ function ResultRow({
           {d.imageHash && (
             <span
               className="match-row__avatarimg"
-              style={{ backgroundImage: `url(/api/avatar/${d.imageHash})` }}
+              style={{ backgroundImage: `url(${avatarUrl(d.imageHash, 40)})` }}
             />
           )}
         </span>

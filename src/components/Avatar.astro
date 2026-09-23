@@ -7,6 +7,7 @@
 // implementation, shared by AuthorIdentity, the header pill, the account menu
 // and the DRep profile hero.
 import { identiconSvg, type IdenticonKind } from '@/lib/identity/identicon';
+import { avatarUrl } from '@/lib/identity/avatarUrl';
 
 interface Props {
   /** Stable identicon seed (DRep credential hex when known, else the user id). */
@@ -39,7 +40,7 @@ const Tag = href ? 'a' : 'span';
 >
   <span class="avatar__icon" set:html={identiconSvg(seed, size, kind)} />
   {imageHash && (
-    <span class="avatar__img" style={`background-image:url(/api/avatar/${imageHash})`}></span>
+    <span class="avatar__img" style={`background-image:url(${avatarUrl(imageHash, size)})`}></span>
   )}
 </Tag>
 

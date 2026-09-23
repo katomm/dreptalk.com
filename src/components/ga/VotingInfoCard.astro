@@ -201,8 +201,8 @@ const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now
   )}
 
   {miniChart && (
-    <a class="vtrend-teaser" href={trendHref} aria-label="See the full voting trend">
-      <span class="vtrend-teaser__title">Voting trend over time</span>
+    <a class="vtrend-teaser" href={trendHref}>
+      <span class="vtrend-teaser__title">Voting trend over time<span class="sr-only">, open the full chart</span></span>
       <svg class="vtrend-teaser__svg" viewBox={`0 0 ${miniChart.width} ${miniChart.height}`} aria-hidden="true">
         {miniChart.series.map((s) => (
           <path class="vtrend-teaser__line" style={`color:${s.key === 'DRep' ? 'var(--accent)' : s.key === 'SPO' ? 'var(--c-pos)' : 'var(--c-cc)'}`} d={s.stepPath} vector-effect="non-scaling-stroke" />

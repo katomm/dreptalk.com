@@ -396,8 +396,8 @@ const heroFeatures = [
           <HeroCardTag
             class="gov-card"
             href={heroCard.href}
-            aria-label={heroCard.href ? `Latest governance action: ${heroCard.title}, ${heroCard.badge}` : undefined}
           >
+            {heroCard.href && <span class="sr-only">Latest governance action: </span>}
             <span class="gov-card__icon" aria-hidden="true">
               <GovTypeIcon tone={heroCard.typeTone} size={20} />
             </span>

@@ -6,9 +6,10 @@ import { matchStaticEntries, matchEntries, type HelpEntry } from '@/lib/search/s
 import { readableType, statusBadge, TONE_COLORS, formatAda } from '@/lib/governance/view.js';
 import { truncateId } from '@/lib/forum/view.js';
 import type { SearchResponseBody } from '@/lib/search/handler.js';
-import { SCOPES, SCOPE_LABELS, type Scope } from '@/lib/search/scopes.js';
+import { SCOPES, SCOPE_LABELS, searchPageHref, type Scope } from '@/lib/search/scopes.js';
 import { filterRowsByScope } from '@/lib/search/paletteFilter.js';
 import { otherScopesWithRows } from '@/lib/search/emptyHint.js';
+import { avatarUrl } from '@/lib/identity/avatarUrl.js';
 import { SnippetText } from './SnippetText.js';
 
 interface PaletteProps {
@@ -21,6 +22,9 @@ interface PaletteProps {
   /** Scope pill preselected each time the palette opens (defaults to "all").
       Help and glossary pages pass "help" so a search starts within them. */
   initialScope?: Scope;
+  /** Text typed before the palette could open (its first load), carried into
+      the search field so no keystroke is lost. */
+  seedQuery?: string;
 }
 
 interface Row {
@@ -84,7 +88,7 @@ function buildRows(q: string, data: SearchResponseBody | null, helpEntries: Help
       detail: formatAda(d.votingPower) ?? undefined,
       status: d.status,
       snippet: d.snippet,
-      ...(d.imageHash ? { avatar: `/api/avatar/${d.imageHash}` } : {}),
+      ...(d.imageHash ? { avatar: avatarUrl(d.imageHash, 20) } : {}),
     });
   }
   for (const r of data?.rationales ?? []) {
@@ -96,7 +100,7 @@ function buildRows(q: string, data: SearchResponseBody | null, helpEntries: Help
       badge: r.vote,
       detail: r.actionTitle,
       snippet: r.snippet,
-      ...(r.imageHash ? { avatar: `/api/avatar/${r.imageHash}` } : {}),
+      ...(r.imageHash ? { avatar: avatarUrl(r.imageHash, 20) } : {}),
     });
   }
   for (const e of matchStaticEntries(q, signedIn)) {
@@ -108,7 +112,7 @@ function buildRows(q: string, data: SearchResponseBody | null, helpEntries: Help
   return rows;
 }
 
-export default function SearchPalette({ open, onClose, returnFocusRef, helpEntries, signedIn = false, initialScope = 'all' }: PaletteProps) {
+export default function SearchPalette({ open, onClose, returnFocusRef, helpEntries, signedIn = false, initialScope = 'all', seedQuery = '' }: PaletteProps) {
   const [q, setQ] = useState('');
   const [data, setData] = useState<SearchResponseBody | null>(null);
   const [error, setError] = useState(false);
@@ -126,19 +130,20 @@ export default function SearchPalette({ open, onClose, returnFocusRef, helpEntri
   const clampedActive = Math.min(active, Math.max(rows.length - 1, 0));
 
   // The dedicated results page carries the active query and scope.
-  const seeAllHref = `/search/?q=${encodeURIComponent(trimmed)}${scope === 'all' ? '' : `&scope=${scope}`}`;
+  const seeAllHref = searchPageHref(trimmed, scope);
 
   // Focus + scroll lock while open; reset the scope pill each time it opens.
   useEffect(() => {
     if (!open) return;
     inputRef.current?.focus();
     setScope(initialScope);
+    if (seedQuery) setQ(seedQuery);
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => {
       document.body.style.overflow = prev;
     };
-  }, [open, initialScope]);
+  }, [open, initialScope, seedQuery]);
 
   // Scroll the active option into view when the selection changes.
   useEffect(() => {
