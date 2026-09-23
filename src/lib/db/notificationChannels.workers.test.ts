@@ -17,6 +17,7 @@ import {
 } from './notificationChannels.js';
 import { insertNotifications } from './notifications.js';
 import { activityInsert } from './activity.js';
+import { announceLatestEdition } from './reviewAnnouncements.js';
 
 const db = () => env.DB;
 
@@ -41,6 +42,7 @@ const allEnabled = {
   my_delegation: true,
   drep_stats: true,
   rationale_ready: true,
+  governance_review: true,
 };
 
 describe('addChannel + listChannels + removeChannel', () => {
@@ -210,6 +212,7 @@ describe('getPendingCounts', () => {
       myDelegation: 0,
       drepStats: 0,
       rationaleReady: 0,
+      reviews: 0,
       devices: 0,
       total: 2,
     });
@@ -231,6 +234,7 @@ describe('getPendingCounts', () => {
       myDelegation: 0,
       drepStats: 0,
       rationaleReady: 0,
+      reviews: 0,
       devices: 0,
       total: 1,
     });
@@ -253,6 +257,7 @@ describe('getPendingCounts', () => {
       myDelegation: 0,
       drepStats: 0,
       rationaleReady: 0,
+      reviews: 0,
       devices: 0,
       total: 1,
     });
@@ -272,6 +277,7 @@ describe('getPendingCounts', () => {
       myDelegation: 0,
       drepStats: 0,
       rationaleReady: 0,
+      reviews: 0,
       devices: 0,
       total: 0,
     });
@@ -291,6 +297,7 @@ describe('getPendingCounts', () => {
       myDelegation: 0,
       drepStats: 0,
       rationaleReady: 0,
+      reviews: 0,
       devices: 0,
       total: 0,
     });
@@ -319,6 +326,7 @@ describe('getPendingCounts', () => {
       myDelegation: 0,
       drepStats: 0,
       rationaleReady: 0,
+      reviews: 0,
       devices: 1,
       total: 1,
     });
@@ -382,6 +390,21 @@ describe('getPendingCounts', () => {
 
     const disabledCounts = await getPendingCounts(db(), row(), { ...allEnabled, rationale_ready: false });
     expect(disabledCounts.rationaleReady).toBe(0);
+    expect(disabledCounts.total).toBe(0);
+  });
+  it('counts Governance Review announcements past the cursor, never the seed, gated by its pref', async () => {
+    const ed = (edition: number) => ({ edition, slug: `epochs-${edition}`, title: `Edition ${edition}` });
+    await db().prepare("INSERT INTO users (id, created_at, last_verified_at) VALUES ('alice', 1, 1)").run();
+    await announceLatestEdition(db(), ed(42), 0); // silent seed
+    await announceLatestEdition(db(), ed(43), 50); // before cursor
+    await announceLatestEdition(db(), ed(44), 200);
+
+    const enabledCounts = await getPendingCounts(db(), row(), allEnabled);
+    expect(enabledCounts.reviews).toBe(1);
+    expect(enabledCounts.total).toBe(1);
+
+    const disabledCounts = await getPendingCounts(db(), row(), { ...allEnabled, governance_review: false });
+    expect(disabledCounts.reviews).toBe(0);
     expect(disabledCounts.total).toBe(0);
   });
 });

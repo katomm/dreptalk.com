@@ -1,0 +1,22 @@
+---
+// The Governance Review's "Subscribe to updates" block: the shared
+// SubscribeCallout with the review's own copy, so every placement (edition
+// page, index, homepage teasers) says the same thing.
+import SubscribeCallout from '@/components/SubscribeCallout.astro';
+
+interface Props {
+  variant?: 'full' | 'compact';
+  class?: string;
+}
+const { variant = 'full', class: className } = Astro.props;
+---
+
+<SubscribeCallout
+  eventType="governance_review"
+  heading="Get the next edition"
+  pitch="New editions arrive as a Telegram message or an app notification."
+  subscribedLine="You'll get a notification when the next edition is out."
+  label="Governance Review notifications"
+  variant={variant}
+  class={className}
+/>

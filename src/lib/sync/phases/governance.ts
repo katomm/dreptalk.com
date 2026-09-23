@@ -30,6 +30,8 @@ import { dispatchWebPush, dispatchTelegram } from '../../notifications/dispatch.
 import { sendWebPush, type VapidConfig } from '../../push/webPush.js';
 import { sendTelegramMessage } from '../../push/telegram.js';
 import { refreshBulk } from '../../delegation/refresh.js';
+import { fetchLatestEdition, type SiteFetcher } from '../../review/latestEdition.js';
+import { announceLatestEdition } from '../../db/reviewAnnouncements.js';
 import { syncSurveys, type SurveysTessera } from '../../surveys/sync.js';
 import type { CoreSyncContext } from './context.js';
 import type { SyncPhaseDef } from './registry.js';
@@ -46,6 +48,10 @@ export interface GovernanceSyncContext extends CoreSyncContext {
   tessera: SurveysTessera | null;
   /** Our Pinata group plus the delete-capable token. Null disables the collector. */
   pinGc: { groupId: string; jwt: string } | null;
+  /** Service binding to the app worker, which alone bundles the Governance
+   * Review editions. Null where the binding is absent (preprod, local runs),
+   * which gates the review-announce phase out. */
+  site: SiteFetcher | null;
   state: GovernanceSyncState;
 }
 
@@ -281,6 +287,21 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
     run: async (ctx) => {
       const r = await syncProtocolParams({ koios: ctx.koios, db: ctx.db, now: ctx.now });
       return { items: r.written };
+    },
+  },
+  {
+    // Announce a newly deployed Governance Review edition to every account,
+    // delivered by the webpush/telegram phases below in this same run. Runs
+    // only where the binding to the app worker exists, which is mainnet, the
+    // one network with a review. Heavy ticks only: an edition goes out every
+    // few epochs, so a quarter-hour of delay costs nothing.
+    name: 'review-announce',
+    when: (ctx) => ctx.site !== null && ctx.heavy,
+    run: async (ctx) => {
+      const latest = await fetchLatestEdition(ctx.site!, ctx.cfg.siteOrigin);
+      const outcome = latest ? await announceLatestEdition(ctx.db, latest, Date.now()) : 'none';
+      if (outcome !== 'none') console.log(`[review-announce] ${outcome} edition=${latest!.edition}`);
+      return { items: outcome === 'announced' ? 1 : 0 };
     },
   },
   {

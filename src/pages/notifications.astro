@@ -32,6 +32,8 @@ import { parseDelegationChangePayload } from '@/lib/delegation/payload.js';
 import { parseDrepEventPayload } from '@/lib/delegation/notifyPayload.js';
 import { drepPath } from '@/lib/dreps/profile.js';
 import { parseDrepStatsPayload, formatDrepStatsSummary } from '@/lib/notifications/drepStats.js';
+import { parseReviewPayload } from '@/lib/db/reviewAnnouncements.js';
+import { editionPath } from '@/lib/review/windows.js';
 
 const user = Astro.locals.user;
 if (!user) {
@@ -218,6 +220,23 @@ if (db) {
           verb: null,
           title: `Your DRep is now ${p.to.effective}`,
           href: drepPath({ drepId: p.drepId }),
+          pill: null,
+        },
+      ];
+    }
+    if (n.type === 'review_published') {
+      const p = parseReviewPayload(n.payload);
+      if (!p) return [];
+      return [
+        {
+          kind: 'review_published' as const,
+          createdAt: n.created_at,
+          unread: n.read_at === null,
+          actorName: null,
+          actorHref: null,
+          verb: null,
+          title: `Edition ${p.edition}: ${p.title}`,
+          href: editionPath(p.slug),
           pill: null,
         },
       ];

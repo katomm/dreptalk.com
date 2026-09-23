@@ -28,6 +28,21 @@ const FILTERS: { key: InboxFilter; label: string; countKey: keyof ReturnType<typ
   { key: 'discussions', label: 'Discussions', countKey: 'discussions' },
 ];
 
+// The lead-in for every kind without an actor. A Record, so a new kind cannot
+// ship without a label of its own instead of borrowing another kind's.
+const KIND_LEAD: Record<Exclude<InboxItem['kind'], 'reply' | 'mention'>, string> = {
+  device_paired: 'Security',
+  delegation_changed: 'Delegation',
+  delegator_drep_voted: 'Your DRep',
+  delegator_drep_re_voted: 'Your DRep',
+  delegator_drep_status_changed: 'Your DRep',
+  drep_stats: 'Your DRep stats',
+  rationale_ready: 'Your vote',
+  review_published: 'New Governance Review',
+  gov_created: 'New governance action',
+  gov_status: 'Governance action is now',
+};
+
 function KindIcon({ kind }: { kind: InboxItem['kind'] }) {
   // aria-hidden sits directly on each svg (not in the spread) so tooling can
   // see the icons are decorative; the row text carries the meaning.
@@ -95,6 +110,17 @@ function KindIcon({ kind }: { kind: InboxItem['kind'] }) {
       </svg>
     );
   }
+  if (kind === 'review_published') {
+    // A new Governance Review edition: a page with text lines.
+    return (
+      <svg {...common} aria-hidden="true">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <path d="M14 2v6h6" />
+        <path d="M8 13h8" />
+        <path d="M8 17h5" />
+      </svg>
+    );
+  }
   // Governance (including delegator_drep_voted/re_voted): a simple landmark.
   return (
     <svg {...common} aria-hidden="true">
@@ -125,20 +151,8 @@ function Row({ item, now }: { item: InboxItem; now: number }) {
               )}{' '}
               {item.verb}
             </>
-          ) : item.kind === 'device_paired' ? (
-            'Security'
-          ) : item.kind === 'delegation_changed' ? (
-            'Delegation'
-          ) : item.kind === 'delegator_drep_voted' || item.kind === 'delegator_drep_re_voted' ? (
-            'Your DRep'
-          ) : item.kind === 'delegator_drep_status_changed' ? (
-            'Your DRep'
-          ) : item.kind === 'drep_stats' ? (
-            'Your DRep stats'
-          ) : item.kind === 'gov_created' ? (
-            'New governance action'
           ) : (
-            'Governance action is now'
+            KIND_LEAD[item.kind]
           )}
           {item.pill && (
             <span

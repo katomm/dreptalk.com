@@ -1,0 +1,168 @@
+---
+// "Subscribe to updates" block for one notification event type. It invites
+// the visitor to receive that event through Telegram or app notifications and
+// says plainly that no email address is involved. It branches on where the
+// visitor stands:
+//   anonymous   sign in first, then come back to the notification settings
+//   no_channel  signed in, but no push or Telegram channel connected yet
+//   off         channels connected, this event switched off on all of them
+//   on          subscribed: a quiet confirmation (full) or nothing (compact)
+// Signed-out pages are edge-cached, which is safe: the signed-out markup is
+// the same for everyone, and signed-in pages always render privately.
+//
+// Usage:
+//   <SubscribeCallout
+//     eventType="governance_review"
+//     heading="Get the next edition"
+//     pitch="New editions arrive as a Telegram message or an app notification."
+//     subscribedLine="You'll get a notification when the next edition is out."
+//     label="Governance Review notifications"
+//   />
+import { runtimeEnv } from '@/lib/api/response';
+import { loginHref } from '@/lib/auth/postLoginDest.js';
+import { loadSubscribeState, type SubscribeState } from '@/lib/notifications/subscribeState.js';
+import type { NotificationEventType } from '@/lib/db/notificationChannels.js';
+
+interface Props {
+  eventType: NotificationEventType;
+  /** Heading of the full block. */
+  heading: string;
+  /** What arrives and how, one sentence. */
+  pitch: string;
+  /** The subscribed confirmation, one sentence. */
+  subscribedLine: string;
+  /** The event's name in the settings, for the switched-off line. */
+  label: string;
+  /** full: panel with heading and button. compact: one line under a teaser. */
+  variant?: 'full' | 'compact';
+  class?: string;
+}
+
+const { eventType, heading, pitch, subscribedLine, label, variant = 'full', class: className } = Astro.props;
+const SETTINGS = '/notifications/#notification-settings';
+
+const user = Astro.locals.user;
+const state = await loadSubscribeState(
+  runtimeEnv(Astro.locals).DB as D1Database | undefined,
+  user?.id ?? null,
+  eventType,
+);
+
+const COPY: Record<Exclude<SubscribeState, 'on'>, { text: string; action: string; href: string }> = {
+  anonymous: {
+    text: `${pitch} No email address needed: sign in with your wallet and choose Telegram or app notifications.`,
+    action: 'Subscribe to updates',
+    href: loginHref(SETTINGS),
+  },
+  no_channel: {
+    text: `${pitch} Connect Telegram or app notifications to receive them, no email address needed.`,
+    action: 'Connect a channel',
+    href: SETTINGS,
+  },
+  off: {
+    text: `${label} are switched off on all your channels.`,
+    action: 'Turn them on',
+    href: SETTINGS,
+  },
+};
+const copy = state === 'on' ? null : COPY[state];
+
+// One bell, drawn in both the subscribed line and the invitation panel.
+const BELL =
+  '<svg class="callout__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /></svg>';
+---
+
+{
+  state === 'on' && variant === 'full' && (
+    <p class:list={['sub sub--on', className]}>
+      <Fragment set:html={BELL} />
+      <span>
+        {subscribedLine} <a href={SETTINGS}>Manage</a>
+      </span>
+    </p>
+  )
+}
+{
+  copy && variant === 'compact' && (
+    <p class:list={['sub sub--compact', className]}>
+      {copy.text} <a href={copy.href}>{copy.action}</a>
+    </p>
+  )
+}
+{
+  copy && variant === 'full' && (
+    <aside class:list={['callout callout--info sub--full', className]} aria-label={heading}>
+      <Fragment set:html={BELL} />
+      <div class="callout__body sub__body">
+        <p class="sub__heading">{heading}</p>
+        <p class="sub__text">{copy.text}</p>
+      </div>
+      <a class="btn btn-primary sub__action" href={copy.href}>{copy.action}</a>
+    </aside>
+  )
+}
+
+<style>
+  /* The panel is the shared info callout; only the layout around the button
+     and the text sizes are local. */
+  .sub--full {
+    align-items: center;
+    gap: 1rem;
+  }
+  .sub--full :global(.callout__icon) {
+    align-self: flex-start;
+    margin-top: 0.15rem;
+  }
+  .sub__body {
+    flex: 1;
+  }
+  .sub__heading {
+    margin: 0;
+    font-weight: 700;
+  }
+  .sub__text {
+    margin: 0.25rem 0 0;
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+  .sub__action {
+    flex: none;
+    white-space: nowrap;
+  }
+  .sub--on {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.9rem;
+    line-height: 1.5;
+  }
+  .sub--on :global(.callout__icon) {
+    color: var(--accent);
+    width: 1.25rem;
+    height: 1.25rem;
+    flex: none;
+  }
+  .sub--compact {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+  .sub--on a,
+  .sub--compact a {
+    color: var(--accent);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  @media (max-width: 36rem) {
+    .sub--full {
+      flex-wrap: wrap;
+    }
+    .sub__action {
+      width: 100%;
+      text-align: center;
+    }
+  }
+</style>

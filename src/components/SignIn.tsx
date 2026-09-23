@@ -18,8 +18,8 @@ import {
   inputStyle,
   codeBlockStyle,
   linkBtnStyle,
-  POST_LOGIN_DEST,
 } from '@/components/signInStyles.js';
+import { postLoginDest } from '@/lib/auth/postLoginDest.js';
 
 // ---- Types ------------------------------------------------------------------
 
@@ -500,7 +500,7 @@ function WalletTab({ network, loginState, onLoginStateChange, walletScan }: Wall
     if (result.ok && result.user) {
       rememberWallet(selectedWallet);
       onLoginStateChange({ status: 'success', userId: result.user.id, roles: result.user.roles });
-      window.location.assign(POST_LOGIN_DEST);
+      window.location.assign(postLoginDest(window.location.search));
     } else {
       onLoginStateChange({ status: 'error', message: friendlyLoginError(result.error, signRole, network) });
     }
@@ -692,7 +692,7 @@ function SignerTab({ network, loginState, onLoginStateChange }: SignerTabProps) 
     });
 
     if (r.ok && r.user) {
-      window.location.assign(POST_LOGIN_DEST);
+      window.location.assign(postLoginDest(window.location.search));
     } else {
       onLoginStateChange({ status: 'error', message: friendlyLoginError(r.error, role, network) });
       // Challenge is single-use; refresh so the user can retry without reloading.

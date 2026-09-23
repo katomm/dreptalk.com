@@ -8,6 +8,7 @@ import { dispatchWebPush, dispatchTelegram, type DispatchDeps, type TelegramDisp
 import { addChannel, setPref, listChannelsByKind } from '../db/notificationChannels.js';
 import { insertNotifications } from '../db/notifications.js';
 import { activityInsert } from '../db/activity.js';
+import { announceLatestEdition } from '../db/reviewAnnouncements.js';
 import type { PushSendResult, PushSubscriptionTarget, VapidConfig } from '../push/webPush.js';
 import type { TelegramSendResult } from '../push/telegram.js';
 
@@ -319,6 +320,35 @@ describe('dispatchWebPush', () => {
     expect(payload.title).toBe('Ratify the budget');
     expect(payload.body).toBe('New governance action (+1 more)');
     expect(payload.url).toBe('/notifications/');
+  });
+
+  it('spells out a lone Governance Review announcement and links to the edition', async () => {
+    await seedUser('alice');
+    await addWebpushChannel('alice', 100);
+    await announceLatestEdition(db(), { edition: 42, slug: 'epochs-653-655', title: 'Old' }, 0); // silent seed
+    await announceLatestEdition(db(), { edition: 43, slug: 'epochs-656-658', title: 'The budget returns' }, 300);
+    const { send, calls } = fakeSend({ ok: true, status: 201 });
+
+    await dispatchWebPush(db(), VAPID, { send, now: 999 });
+
+    const payload = JSON.parse(calls[0].payload);
+    expect(payload.title).toBe('The budget returns');
+    expect(payload.body).toBe('New Governance Review, edition 43');
+    expect(payload.url).toBe('/governance-review/epochs-656-658/');
+  });
+
+  it('sends nothing for a Governance Review announcement when its pref is off', async () => {
+    await seedUser('alice');
+    await addWebpushChannel('alice', 100);
+    await setPref(db(), { userId: 'alice', channel: 'webpush', eventType: 'governance_review', enabled: false });
+    await announceLatestEdition(db(), { edition: 42, slug: 'epochs-653-655', title: 'Old' }, 0);
+    await announceLatestEdition(db(), { edition: 43, slug: 'epochs-656-658', title: 'New' }, 300);
+    const { send, calls } = fakeSend({ ok: true, status: 201 });
+
+    const result = await dispatchWebPush(db(), VAPID, { send, now: 999 });
+
+    expect(result).toEqual({ sent: 0, pruned: 0, skipped: 1 });
+    expect(calls).toHaveLength(0);
   });
 
   it('returns all-zero without calling send when vapid is null (unset secret)', async () => {

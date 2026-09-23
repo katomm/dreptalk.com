@@ -10,6 +10,7 @@ import {
   markAllRead,
 } from './notifications.js';
 import { activityInsert } from './activity.js';
+import { announceLatestEdition } from './reviewAnnouncements.js';
 
 const db = () => env.DB;
 
@@ -131,5 +132,14 @@ describe('getUnreadCount + markAllRead + getNotifSeenAt', () => {
 
     // frank's notif_seen_at defaults to 0 (seedUser does not set it); any created_at > 0 counts.
     expect(await getUnreadCount(db(), 'frank')).toBe(1);
+  });
+  it('counts a Governance Review announcement newer than notif_seen_at, but not the seed', async () => {
+    await seedUser('gina');
+    await announceLatestEdition(db(), { edition: 42, slug: 'epochs-a', title: 'a' }, 0); // silent seed
+    expect(await getUnreadCount(db(), 'gina')).toBe(0);
+    await announceLatestEdition(db(), { edition: 43, slug: 'epochs-b', title: 'b' }, 500);
+    expect(await getUnreadCount(db(), 'gina')).toBe(1);
+    await markAllRead(db(), 'gina', 600);
+    expect(await getUnreadCount(db(), 'gina')).toBe(0);
   });
 });

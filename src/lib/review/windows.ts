@@ -7,6 +7,11 @@ export function slugFor(from: number, to: number): string {
   return `epochs-${from}-${to}`;
 }
 
+/** The edition page for a slug. */
+export function editionPath(slug: string): string {
+  return `/governance-review/${slug}/`;
+}
+
 /** An edition number typed as the slug ("41"), the short way to cite an edition.
  *  The epochs slug stays canonical, a number only redirects to it. */
 export function parseEditionNumber(slug: string): number | null {

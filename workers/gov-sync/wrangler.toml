@@ -48,6 +48,15 @@ crons = ["*/5 * * * *", "*/20 * * * *", "0 */6 * * *"]
 # (gitignored) or pass --var CARDANO_NETWORK:preprod. KOIOS_API_KEY is an
 # optional secret for higher rate limits.
 
+# Service binding to the app worker, mainnet only (deliberately absent from
+# [env.preprod], and its absence is what keeps the phase off there): the
+# review-announce phase asks the app for the newest Governance Review edition,
+# since only the app bundles the editions. An internal call, never through the
+# public zone.
+[[services]]
+binding = "SITE"
+service = "dreptalk-com"
+
 # Web push dispatch. The public key is public by design and committed; the
 # matching VAPID_PRIVATE_KEY is NOT listed here: it is a secret, set with
 # `wrangler secret put VAPID_PRIVATE_KEY`.

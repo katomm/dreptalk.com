@@ -43,6 +43,7 @@ import { countActiveByRole } from '@/lib/db/activeParticipants.js';
 import { loadActiveFaces } from '@/lib/forum/activeFaces.js';
 import { fetchLatestRelease } from '@/lib/github/latestRelease.js';
 import ReviewCard from '@/components/review/ReviewCard.astro';
+import ReviewSubscribe from '@/components/review/ReviewSubscribe.astro';
 import { loadEditions } from '@/lib/review/editions.js';
 import { resolveNetwork } from '@/lib/config/network';
 
@@ -536,6 +537,7 @@ const heroFeatures = [
         <div class="glance__review">
           <p class="glance__review-label">Latest Governance Review</p>
           <ReviewCard edition={latestReview} cfg={reviewCfg} />
+          <ReviewSubscribe variant="compact" class="glance__review-subscribe" />
         </div>
       )}
     </section>
@@ -1118,6 +1120,9 @@ const heroFeatures = [
   }
   .glance__review {
     margin-top: 1.5rem;
+  }
+  .glance__review :global(.glance__review-subscribe) {
+    margin-top: 0.75rem;
   }
   .glance__review-label {
     font-size: 0.78rem;

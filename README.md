@@ -23,7 +23,7 @@ The aim is a place where Cardano governance is discussed, voted, and explained, 
 - **Governance actions.** A thread per on-chain action with the DRep, SPO and committee tallies, the vote rationales behind them, and a voting flow for DReps signing in their own wallet.
 - **CIP-179 surveys.** Surveys published on chain under metadata label 17 are mirrored from [Tessera](https://github.com/mpizenberg/cardano-tessera) when a governance action links one, and a DRep can answer from the thread with the wallet they signed in with. An answer is survey metadata and not a vote, so the card shows an informational tally under a stated counting rule, never a result.
 - **Analytics.** A public dashboard at `/analytics` on vote concentration, committee and SPO participation, throughput and timing, the weight parked on the two default delegation options, and a report card per DRep.
-- **Governance Review.** A written edition per epoch window at `/governance-review`: what was decided, what moved, what is still open. Mainnet only.
+- **Governance Review.** A written edition per epoch window at `/governance-review`: what was decided, what moved, what is still open. Signed-in readers get a browser push or Telegram message when a new edition is out. Mainnet only.
 - **Treasury.** Enacted withdrawals tracked against the Net Change Limit of each budget period at `/treasury`.
 - **For delegators.** A delegation dashboard at `/my-drep` reading the DRep's record since the day you delegated, a matching quiz at `/match`, and notifications by browser push or Telegram.
 

@@ -14,6 +14,7 @@ import { buildBreadcrumbLd } from '@/lib/jsonld/breadcrumb.js';
 import { resolveNetwork } from '@/lib/config/network';
 import { cacheControlFor } from '@/lib/forum/view.js';
 import { ogCardVersion } from '@/lib/og/version.js';
+import ReviewSubscribe from '@/components/review/ReviewSubscribe.astro';
 
 const slug = Astro.params.slug ?? '';
 // /governance-review/41/ is the short way to cite an edition. The epochs slug
@@ -112,6 +113,7 @@ Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
     <ReviewAlsoDecided rows={d.alsoDecided} open={d.openActions} featured={d.featuredActions} epochTo={d.epochTo} />
     <ReviewNumbers numbers={d.numbers} from={d.epochFrom} to={d.epochTo} />
     <ReviewSources external={d.external} />
+    <ReviewSubscribe class="rv-subscribe" />
   </article>
   {/* On a wide screen this is the sticky column next to the article: the
       outline, the data note and the edition links. Below the breakpoint the
@@ -196,6 +198,7 @@ Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
   /* Chart figures come from the markdown transform as raw HTML, so their styles
      are global on purpose and scoped by the rv- prefix. Colour tokens map onto the
      site theme variables so charts follow light and dark mode. */
+  .rv :global(.rv-subscribe) { margin-top: 2.5rem; }
   .rv { --rv-s1: var(--accent); --rv-s2: #eb6834; --rv-s3: #7b8590; --rv-ink: var(--fg); --rv-ink-2: var(--muted); --rv-grid: var(--border); --rv-card: var(--surface); }
   .rv-chart { margin: 1.5rem 0 2rem; background: var(--rv-card); border: 1px solid var(--rv-grid); border-radius: var(--radius-sm); padding: 1rem 1rem 0.75rem; }
   .rv-chart__title { font-weight: 700; font-size: 0.95rem; margin: 0 0 0.1rem; }

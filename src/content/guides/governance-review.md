@@ -16,6 +16,8 @@ faqs:
     a: "Follow the proposal links in the text and open \"Sources and further reading\" below the article, which lists everything the edition took from proposal documents, vote rationales and other pages. Each edition also links the saved dataset it was written from and notes any gaps in the available data."
   - q: "What happens if something is wrong?"
     a: "Corrections are dated and listed at the top of the article. The saved dataset behind an edition stays as it was, so a correction changes what the article says, not the record it was written from."
+  - q: "How do I hear about a new edition?"
+    a: "Sign in with your wallet and connect browser push or Telegram in your notification settings. A new edition then arrives as a message with a link to it, and it also shows in your on-site inbox. No email address is involved. The \"Governance Review\" switch in the settings turns the messages off again. Corrections to an existing edition do not send a new message."
 ---
 
 The [Governance Review](/governance-review/) is DRepTalk's written account of
