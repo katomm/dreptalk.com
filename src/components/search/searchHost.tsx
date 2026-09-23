@@ -61,7 +61,7 @@ export function mountSearch({ trigger, signedIn, initialScope }: MountOptions): 
   }
 
   const container = document.createElement('div');
-  document.body.append(container);
+  document.body.appendChild(container);
   const root = createRoot(container);
   flushSync(() => root.render(<Host />));
 

@@ -66,7 +66,7 @@ const { signedIn = false, initialScope = 'all' } = Astro.props;
       proxy.setAttribute('aria-hidden', 'true');
       // 16px keeps iOS from zooming in on focus.
       Object.assign(proxy.style, { position: 'fixed', top: '0', left: '0', width: '1px', height: '1px', opacity: '0', fontSize: '16px', border: '0', padding: '0' });
-      document.body.append(proxy);
+      document.body.appendChild(proxy);
       proxy.focus({ preventScroll: true });
       return proxy;
     }
