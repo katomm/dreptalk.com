@@ -6,6 +6,11 @@ export type ApiScope = 'all' | 'forum' | 'governance' | 'dreps' | 'rationales';
 
 export const SCOPES: readonly Scope[] = ['all', 'forum', 'governance', 'dreps', 'rationales', 'help'];
 
+/** URL of the /search results page for a query, scope and page. */
+export function searchPageHref(q: string, scope: Scope = 'all', page = 1): string {
+  return `/search/?q=${encodeURIComponent(q)}${scope === 'all' ? '' : `&scope=${scope}`}${page > 1 ? `&page=${page}` : ''}`;
+}
+
 // Page size for the /search results page. Lives here (client-safe) so the
 // browser island can import it without pulling in the D1 query module.
 export const PAGE_SIZE = 20;

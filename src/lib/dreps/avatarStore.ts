@@ -86,73 +86,45 @@ export function refitDropsAnimation(contentType: string): boolean {
 }
 
 /**
- * Wraps the Cloudflare Images binding into a downscaler that fits an avatar to
- * AVATAR_MAX_EDGE and re-encodes it as WebP. Never upscales (fit: scale-down).
- * Returns null on any transform error, or if the result is still over the cap,
- * so the caller treats it as a failed image.
+ * Wraps the Cloudflare Images binding into an encoder that fits an avatar into
+ * `edge` px (never upscaling, fit: scale-down) and outputs `format`. Returns null
+ * on any transform error, on empty output, or on output over `maxBytes`, so each
+ * caller maps that to its own fallback.
  */
-export function imagesDownscaler(images: ImagesLike): ImageDownscaler {
+function imagesEncoder(
+  images: ImagesLike,
+  opts: { edge: number; format: 'image/webp' | 'image/png'; quality?: number; maxBytes?: number },
+): ImageDownscaler {
   return async (bytes) => {
     try {
       const result = await images
         .input(new Response(bytes).body as ReadableStream)
-        .transform({ width: AVATAR_MAX_EDGE, height: AVATAR_MAX_EDGE, fit: 'scale-down' })
-        .output({ format: 'image/webp', quality: AVATAR_DOWNSCALE_QUALITY });
+        .transform({ width: opts.edge, height: opts.edge, fit: 'scale-down' })
+        .output(opts.quality === undefined ? { format: opts.format } : { format: opts.format, quality: opts.quality });
       const out = await result.response().arrayBuffer();
-      if (out.byteLength === 0 || out.byteLength > MAX_IMAGE_BYTES) return null;
-      return { bytes: out, contentType: 'image/webp' };
+      if (out.byteLength === 0 || (opts.maxBytes !== undefined && out.byteLength > opts.maxBytes)) return null;
+      return { bytes: out, contentType: opts.format };
     } catch {
       return null;
     }
   };
 }
 
-/**
- * Wraps the Cloudflare Images binding into a re-encoder that fits an avatar to
- * AVATAR_MAX_EDGE and outputs PNG, for formats the card rasterizer cannot decode.
- * Returns null on any transform error, on empty output, or if the result is over
- * MAX_IMAGE_BYTES, so the caller falls back to the identicon.
- */
-export function pngRenditionEncoder(images: ImagesLike): ImageDownscaler {
-  return async (bytes) => {
-    try {
-      const result = await images
-        .input(new Response(bytes).body as ReadableStream)
-        .transform({ width: AVATAR_MAX_EDGE, height: AVATAR_MAX_EDGE, fit: 'scale-down' })
-        .output({ format: 'image/png' });
-      const out = await result.response().arrayBuffer();
-      if (out.byteLength === 0 || out.byteLength > MAX_IMAGE_BYTES) return null;
-      return { bytes: out, contentType: 'image/png' };
-    } catch {
-      return null;
-    }
-  };
-}
+/** Store-time refit: AVATAR_MAX_EDGE WebP, rejected when still over the cap. */
+export const imagesDownscaler = (images: ImagesLike): ImageDownscaler =>
+  imagesEncoder(images, { edge: AVATAR_MAX_EDGE, format: 'image/webp', quality: AVATAR_DOWNSCALE_QUALITY, maxBytes: MAX_IMAGE_BYTES });
+
+/** PNG rendition for formats the card rasterizer cannot decode (webp/avif/gif). */
+export const pngRenditionEncoder = (images: ImagesLike): ImageDownscaler =>
+  imagesEncoder(images, { edge: AVATAR_MAX_EDGE, format: 'image/png', maxBytes: MAX_IMAGE_BYTES });
 
 // Thumbs sit next to other small images in a list, so a slightly lower quality
 // than the stored copy does not show and keeps the bytes down.
 const THUMB_QUALITY = 85;
 
-/**
- * Wraps the Cloudflare Images binding into an encoder for the small list
- * rendition: fits the avatar to AVATAR_THUMB_EDGE as WebP, never upscaling.
- * Returns null on any transform error or empty output.
- */
-export function thumbRenditionEncoder(images: ImagesLike): ImageDownscaler {
-  return async (bytes) => {
-    try {
-      const result = await images
-        .input(new Response(bytes).body as ReadableStream)
-        .transform({ width: AVATAR_THUMB_EDGE, height: AVATAR_THUMB_EDGE, fit: 'scale-down' })
-        .output({ format: 'image/webp', quality: THUMB_QUALITY });
-      const out = await result.response().arrayBuffer();
-      if (out.byteLength === 0) return null;
-      return { bytes: out, contentType: 'image/webp' };
-    } catch {
-      return null;
-    }
-  };
-}
+/** Small list rendition: AVATAR_THUMB_EDGE WebP. */
+export const thumbRenditionEncoder = (images: ImagesLike): ImageDownscaler =>
+  imagesEncoder(images, { edge: AVATAR_THUMB_EDGE, format: 'image/webp', quality: THUMB_QUALITY });
 
 /**
  * Decides what bytes to store for an avatar: the source when it is already small

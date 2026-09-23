@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseApiScope, isScope, groupToScope, scopeForPath, SCOPES } from './scopes.js';
+import { parseApiScope, isScope, groupToScope, scopeForPath, searchPageHref, SCOPES } from './scopes.js';
 
 describe('parseApiScope', () => {
   it('accepts D1 scopes', () => {
@@ -55,5 +55,14 @@ describe('scopeForPath', () => {
     ['/settings/', 'all'],
   ])('maps %s to %s', (path, expected) => {
     expect(scopeForPath(path)).toBe(expected);
+  });
+});
+
+describe('searchPageHref', () => {
+  it('encodes the query and leaves out the defaults', () => {
+    expect(searchPageHref('cc vote')).toBe('/search/?q=cc%20vote');
+    expect(searchPageHref('a&b#c', 'help')).toBe('/search/?q=a%26b%23c&scope=help');
+    expect(searchPageHref('x', 'dreps', 3)).toBe('/search/?q=x&scope=dreps&page=3');
+    expect(searchPageHref('', 'all', 1)).toBe('/search/?q=');
   });
 });

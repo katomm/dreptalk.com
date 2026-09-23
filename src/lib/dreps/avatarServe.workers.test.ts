@@ -90,7 +90,7 @@ describe('serveAvatarThumb', () => {
     expect(calls).toHaveLength(1);
   });
 
-  it('keeps a small source as the thumb without a transform', async () => {
+  it('streams a small source as the thumb without a transform or a copy', async () => {
     const hash = 'b2'.repeat(32);
     await bucket().put(AVATAR_KEY_PREFIX + hash, BYTES, { httpMetadata: { contentType: 'image/png' } });
     const { images, calls } = fakeImages(big(1));
@@ -99,9 +99,10 @@ describe('serveAvatarThumb', () => {
     const res = await serveAvatarThumb(bucket(), images, hash, defer);
     expect(new Uint8Array(await res.arrayBuffer())).toEqual(BYTES);
     expect(res.headers.get('content-type')).toBe('image/png');
+    expect(res.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
     expect(calls).toHaveLength(0);
     await settle();
-    expect(await bucket().head(thumbAvatarKey(hash))).not.toBeNull();
+    expect(await bucket().head(thumbAvatarKey(hash))).toBeNull();
   });
 
   it('keeps an animated GIF as it is', async () => {
@@ -129,19 +130,17 @@ describe('serveAvatarThumb', () => {
     expect((await bucket().head(thumbAvatarKey(hash)))?.size).toBe(10000);
   });
 
-  it('serves the full avatar and stores nothing when the transform fails or the binding is missing', async () => {
+  it('redirects to the full avatar and stores nothing when the transform fails or the binding is missing', async () => {
     const hash = 'e5'.repeat(32);
     await bucket().put(AVATAR_KEY_PREFIX + hash, big(20_000), { httpMetadata: { contentType: 'image/webp' } });
     const { images } = fakeImages('fail');
     const { defer, settle } = collect();
 
-    const failed = await serveAvatarThumb(bucket(), images, hash, defer);
-    expect(failed.status).toBe(200);
-    expect(failed.headers.get('content-length')).toBe('20000');
-    expect(failed.headers.get('cache-control')).toBe('public, max-age=300');
-    const unbound = await serveAvatarThumb(bucket(), undefined, hash, defer);
-    expect(unbound.headers.get('content-length')).toBe('20000');
-    expect(unbound.headers.get('cache-control')).toBe('public, max-age=300');
+    for (const res of [await serveAvatarThumb(bucket(), images, hash, defer), await serveAvatarThumb(bucket(), undefined, hash, defer)]) {
+      expect(res.status).toBe(307);
+      expect(res.headers.get('location')).toBe(`/api/avatar/${hash}`);
+      expect(res.headers.get('cache-control')).toBe('no-store');
+    }
     await settle();
     expect(await bucket().head(thumbAvatarKey(hash))).toBeNull();
   });

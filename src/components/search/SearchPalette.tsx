@@ -6,7 +6,7 @@ import { matchStaticEntries, matchEntries, type HelpEntry } from '@/lib/search/s
 import { readableType, statusBadge, TONE_COLORS, formatAda } from '@/lib/governance/view.js';
 import { truncateId } from '@/lib/forum/view.js';
 import type { SearchResponseBody } from '@/lib/search/handler.js';
-import { SCOPES, SCOPE_LABELS, type Scope } from '@/lib/search/scopes.js';
+import { SCOPES, SCOPE_LABELS, searchPageHref, type Scope } from '@/lib/search/scopes.js';
 import { filterRowsByScope } from '@/lib/search/paletteFilter.js';
 import { otherScopesWithRows } from '@/lib/search/emptyHint.js';
 import { avatarUrl } from '@/lib/identity/avatarUrl.js';
@@ -130,7 +130,7 @@ export default function SearchPalette({ open, onClose, returnFocusRef, helpEntri
   const clampedActive = Math.min(active, Math.max(rows.length - 1, 0));
 
   // The dedicated results page carries the active query and scope.
-  const seeAllHref = `/search/?q=${encodeURIComponent(trimmed)}${scope === 'all' ? '' : `&scope=${scope}`}`;
+  const seeAllHref = searchPageHref(trimmed, scope);
 
   // Focus + scroll lock while open; reset the scope pill each time it opens.
   useEffect(() => {

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { SCOPES, SCOPE_LABELS, PAGE_SIZE, type Scope, type ApiScope } from '@/lib/search/scopes.js';
+import { SCOPES, SCOPE_LABELS, PAGE_SIZE, searchPageHref, type Scope, type ApiScope } from '@/lib/search/scopes.js';
 import { searchHelp, type HelpDoc, type HelpHit } from '@/lib/search/help.js';
 import { otherScopesWithCounts } from '@/lib/search/emptyHint.js';
 import { readableType, statusBadge, TONE_COLORS, formatAda } from '@/lib/governance/view.js';
@@ -174,8 +174,7 @@ export default function SearchResults({ initialQuery, initialScope, initialPage,
       didMount.current = true;
       return;
     }
-    const url = `/search/?q=${encodeURIComponent(trimmed)}${scope === 'all' ? '' : `&scope=${scope}`}${page > 1 ? `&page=${page}` : ''}`;
-    window.history.replaceState(null, '', url);
+    window.history.replaceState(null, '', searchPageHref(trimmed, scope, page));
 
     if (!hasQuery) {
       setData((d) => ({ ...d, query: trimmed, governanceActions: [], discussions: [], dreps: [], exact: null, total: 0, counts: null }));

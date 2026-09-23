@@ -19,15 +19,11 @@ interface MountOptions {
   trigger: HTMLButtonElement;
   signedIn: boolean;
   initialScope: Scope;
+  /** The palette's Help group, fetched by the trigger alongside this chunk. */
+  helpEntries: Promise<HelpEntry[]>;
 }
 
-// Starts with the chunk so the list is usually there before the first keystroke.
-// A failed fetch only leaves the Help group empty.
-const helpEntriesPromise: Promise<HelpEntry[]> = fetch('/search-help-entries.json')
-  .then((res) => (res.ok ? (res.json() as Promise<HelpEntry[]>) : []))
-  .catch(() => []);
-
-export function mountSearch({ trigger, signedIn, initialScope }: MountOptions): SearchHost {
+export function mountSearch({ trigger, signedIn, initialScope, helpEntries: helpEntriesPromise }: MountOptions): SearchHost {
   // Open state lives outside React so the trigger script can flip it
   // synchronously: flushSync commits the palette inside the tap, which lets the
   // input's autoFocus raise the mobile keyboard.

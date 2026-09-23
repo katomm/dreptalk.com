@@ -32,12 +32,12 @@ const { signedIn = false, initialScope = 'all' } = Astro.props;
 </button>
 
 <script>
-  import { SCOPES, type Scope } from '@/lib/search/scopes.js';
+  import { SCOPES, searchPageHref, type Scope } from '@/lib/search/scopes.js';
+  import type { HelpEntry } from '@/lib/search/staticEntries.js';
   import type { SearchHost } from './searchHost';
 
-  const trigger = document.querySelector<HTMLButtonElement>('[data-search-trigger]');
-  if (trigger) {
-    const btn = trigger;
+  const btn = document.querySelector<HTMLButtonElement>('[data-search-trigger]');
+  if (btn) {
     const rawScope = btn.dataset.scope as Scope | undefined;
     const initialScope: Scope = rawScope && SCOPES.includes(rawScope) ? rawScope : 'all';
     const signedIn = btn.dataset.signedIn !== undefined;
@@ -45,15 +45,23 @@ const { signedIn = false, initialScope = 'all' } = Astro.props;
     let host: SearchHost | null = null;
     let loading: Promise<SearchHost | null> | null = null;
 
-    // A failed chunk load (e.g. stale HTML after a deploy) resets, so a later
-    // attempt can retry instead of sticking on the broken promise.
-    const load = () =>
-      (loading ??= import('./searchHost')
-        .then((m) => (host = m.mountSearch({ trigger: btn, signedIn, initialScope })))
+    // The Help list and the chunk load side by side. A failed fetch only leaves
+    // the Help group empty. A failed chunk load (e.g. stale HTML after a deploy)
+    // resets, so a later attempt can retry instead of sticking on the broken
+    // promise.
+    const load = () => {
+      if (loading) return loading;
+      const helpEntries: Promise<HelpEntry[]> = fetch('/search-help-entries.json')
+        .then((res) => (res.ok ? (res.json() as Promise<HelpEntry[]>) : []))
+        .catch(() => []);
+      loading = import('./searchHost')
+        .then((m) => (host = m.mountSearch({ trigger: btn, signedIn, initialScope, helpEntries })))
         .catch(() => {
           loading = null;
           return null;
-        }));
+        });
+      return loading;
+    };
 
     // Mobile browsers raise the software keyboard only for a focus() inside the
     // user's gesture, and the first open has to wait for the chunk. Holding focus
@@ -61,7 +69,7 @@ const { signedIn = false, initialScope = 'all' } = Astro.props;
     // input then takes the focus over from it, along with anything typed so far.
     let proxy: HTMLInputElement | null = null;
 
-    function holdKeyboard() {
+    const holdKeyboard = () => {
       if (proxy) return;
       proxy = document.createElement('input');
       proxy.type = 'text';
@@ -71,21 +79,27 @@ const { signedIn = false, initialScope = 'all' } = Astro.props;
       Object.assign(proxy.style, { position: 'fixed', top: '0', left: '0', width: '1px', height: '1px', opacity: '0', fontSize: '16px', border: '0', padding: '0' });
       document.body.appendChild(proxy);
       proxy.focus({ preventScroll: true });
-    }
+    };
 
     /** Drops the proxy and returns what was typed into it. */
-    function releaseKeyboard(): string {
+    const releaseKeyboard = (): string => {
       const typed = proxy?.value ?? '';
       proxy?.remove();
       proxy = null;
       return typed;
-    }
+    };
 
     // Whether the visitor still wants the palette once the first load finishes:
     // a second Cmd/Ctrl+K or an Escape while it loads cancels the open.
     let wantOpen = false;
 
-    function show(toggle: boolean) {
+    const cancelPending = () => {
+      wantOpen = false;
+      releaseKeyboard();
+      btn.focus({ preventScroll: true });
+    };
+
+    const show = (toggle: boolean) => {
       if (host) {
         if (toggle) host.toggle();
         else host.open();
@@ -102,27 +116,15 @@ const { signedIn = false, initialScope = 'all' } = Astro.props;
         wantOpen = false;
         if (h) {
           // Open first so the palette input holds the focus before the proxy goes.
-          const typed = proxy?.value ?? '';
-          h.open(typed);
+          h.open(proxy?.value ?? '');
           releaseKeyboard();
           return;
         }
         // Without the palette the results page still offers the whole search,
         // carrying what was typed and the scope, like the palette's "See all".
-        const params = new URLSearchParams();
-        const typed = releaseKeyboard().trim();
-        if (typed) params.set('q', typed);
-        if (initialScope !== 'all') params.set('scope', initialScope);
-        const query = params.toString();
-        window.location.assign(query ? `/search/?${query}` : '/search/');
+        window.location.assign(searchPageHref(releaseKeyboard().trim(), initialScope));
       });
-    }
-
-    function cancelPending() {
-      wantOpen = false;
-      releaseKeyboard();
-      btn.focus({ preventScroll: true });
-    }
+    };
 
     // Warm the chunk as soon as the visitor heads for the button, so a first
     // tap or click usually finds it loaded.

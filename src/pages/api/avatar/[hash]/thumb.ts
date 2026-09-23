@@ -6,21 +6,11 @@ import { waitUntil } from 'cloudflare:workers';
 import type { APIRoute } from 'astro';
 import { runtimeEnv } from '@/lib/api/response';
 import { serveAvatarThumb } from '@/lib/dreps/avatarServe';
+import { withEdgeCache } from '@/lib/http/edgeCache';
 
 export const prerender = false;
 
 export const GET: APIRoute = async ({ params, locals, request }) => {
   const env = runtimeEnv(locals as App.Locals);
-
-  const cache = (caches as CacheStorage & { default: Cache }).default;
-  const cacheKey = new Request(request.url, { method: 'GET' });
-  const cached = await cache.match(cacheKey);
-  // Fresh, mutable copy: the security middleware decorates response headers.
-  if (cached) return new Response(cached.body, cached);
-
-  const response = await serveAvatarThumb(env.AVATARS as R2Bucket | undefined, env.IMAGES, params.hash, waitUntil);
-  // The Cache API honours the response's max-age, so a short-lived fallback
-  // (see serveAvatarThumb) expires from the edge on its own.
-  if (response.status === 200) waitUntil(cache.put(cacheKey, response.clone()));
-  return response;
+  return withEdgeCache(request, () => serveAvatarThumb(env.AVATARS as R2Bucket | undefined, env.IMAGES, params.hash, waitUntil));
 };
