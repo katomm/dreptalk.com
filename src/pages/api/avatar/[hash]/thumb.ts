@@ -19,6 +19,8 @@ export const GET: APIRoute = async ({ params, locals, request }) => {
   if (cached) return new Response(cached.body, cached);
 
   const response = await serveAvatarThumb(env.AVATARS as R2Bucket | undefined, env.IMAGES, params.hash, waitUntil);
+  // The Cache API honours the response's max-age, so a short-lived fallback
+  // (see serveAvatarThumb) expires from the edge on its own.
   if (response.status === 200) waitUntil(cache.put(cacheKey, response.clone()));
   return response;
 };

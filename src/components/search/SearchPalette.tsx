@@ -22,6 +22,9 @@ interface PaletteProps {
   /** Scope pill preselected each time the palette opens (defaults to "all").
       Help and glossary pages pass "help" so a search starts within them. */
   initialScope?: Scope;
+  /** Text typed before the palette could open (its first load), carried into
+      the search field so no keystroke is lost. */
+  seedQuery?: string;
 }
 
 interface Row {
@@ -109,7 +112,7 @@ function buildRows(q: string, data: SearchResponseBody | null, helpEntries: Help
   return rows;
 }
 
-export default function SearchPalette({ open, onClose, returnFocusRef, helpEntries, signedIn = false, initialScope = 'all' }: PaletteProps) {
+export default function SearchPalette({ open, onClose, returnFocusRef, helpEntries, signedIn = false, initialScope = 'all', seedQuery = '' }: PaletteProps) {
   const [q, setQ] = useState('');
   const [data, setData] = useState<SearchResponseBody | null>(null);
   const [error, setError] = useState(false);
@@ -134,12 +137,13 @@ export default function SearchPalette({ open, onClose, returnFocusRef, helpEntri
     if (!open) return;
     inputRef.current?.focus();
     setScope(initialScope);
+    if (seedQuery) setQ(seedQuery);
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => {
       document.body.style.overflow = prev;
     };
-  }, [open, initialScope]);
+  }, [open, initialScope, seedQuery]);
 
   // Scroll the active option into view when the selection changes.
   useEffect(() => {

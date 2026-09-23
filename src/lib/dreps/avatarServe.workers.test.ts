@@ -138,8 +138,10 @@ describe('serveAvatarThumb', () => {
     const failed = await serveAvatarThumb(bucket(), images, hash, defer);
     expect(failed.status).toBe(200);
     expect(failed.headers.get('content-length')).toBe('20000');
+    expect(failed.headers.get('cache-control')).toBe('public, max-age=300');
     const unbound = await serveAvatarThumb(bucket(), undefined, hash, defer);
     expect(unbound.headers.get('content-length')).toBe('20000');
+    expect(unbound.headers.get('cache-control')).toBe('public, max-age=300');
     await settle();
     expect(await bucket().head(thumbAvatarKey(hash))).toBeNull();
   });

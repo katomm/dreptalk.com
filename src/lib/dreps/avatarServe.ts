@@ -12,6 +12,10 @@ import {
 } from './avatarStore.js';
 
 const CACHE_CONTROL = 'public, max-age=31536000, immutable';
+// The full avatar standing in for a thumb that could not be made (no Images
+// binding, failed transform). Kept briefly, so the edge cache and browsers retry
+// the thumb soon instead of holding the large bytes for a year.
+const FALLBACK_CACHE_CONTROL = 'public, max-age=300';
 const HASH_RE = /^[0-9a-f]{64}$/;
 // A source this small already costs about what a thumb would, so it is served
 // as the thumb without a transform.
@@ -19,7 +23,13 @@ const THUMB_WORTH_BYTES = 6 * 1024;
 
 const notFound = () => new Response('not found', { status: 404 });
 
-function imageResponse(body: ReadableStream | ArrayBuffer, contentType: string, size: number, etag?: string): Response {
+function imageResponse(
+  body: ReadableStream | ArrayBuffer,
+  contentType: string,
+  size: number,
+  etag?: string,
+  cacheControl = CACHE_CONTROL,
+): Response {
   return new Response(body, {
     status: 200,
     headers: {
@@ -27,15 +37,15 @@ function imageResponse(body: ReadableStream | ArrayBuffer, contentType: string, 
       // size/etag enable exact content-length and If-None-Match revalidation.
       'content-length': String(size),
       ...(etag ? { etag } : {}),
-      'cache-control': CACHE_CONTROL,
+      'cache-control': cacheControl,
       'x-content-type-options': 'nosniff',
       'content-security-policy': "default-src 'none'",
     },
   });
 }
 
-function objectResponse(obj: R2ObjectBody): Response {
-  return imageResponse(obj.body, obj.httpMetadata?.contentType ?? 'application/octet-stream', obj.size, obj.httpEtag);
+function objectResponse(obj: R2ObjectBody, cacheControl?: string): Response {
+  return imageResponse(obj.body, obj.httpMetadata?.contentType ?? 'application/octet-stream', obj.size, obj.httpEtag, cacheControl);
 }
 
 /** Serves one stored avatar; any invalid input or miss is a 404, never a 500. */
@@ -52,8 +62,8 @@ export async function serveAvatar(bucket: R2Bucket | undefined, hash: string | u
  * it from the stored bytes and writes it back under avatar-thumbs/, later ones
  * read it directly. Small sources and animated GIFs are kept as they are, and so
  * is a source the transform cannot beat. Without the Images binding, or when a
- * transform fails, the full avatar is served and nothing is written, so a
- * passing outage never pins the large bytes as the thumb.
+ * transform fails, the full avatar is served with a short cache lifetime and
+ * nothing is written, so a passing outage never pins the large bytes as the thumb.
  */
 export async function serveAvatarThumb(
   bucket: R2Bucket | undefined,
@@ -71,13 +81,13 @@ export async function serveAvatarThumb(
   const sourceType = source.httpMetadata?.contentType ?? 'application/octet-stream';
 
   const keepSource = source.size <= THUMB_WORTH_BYTES || refitDropsAnimation(sourceType);
-  if (!keepSource && !images) return objectResponse(source);
+  if (!keepSource && !images) return objectResponse(source, FALLBACK_CACHE_CONTROL);
 
   const sourceBytes = await source.arrayBuffer();
   let out = { bytes: sourceBytes, contentType: sourceType };
   if (!keepSource && images) {
     const encoded = await thumbRenditionEncoder(images)(sourceBytes);
-    if (!encoded) return imageResponse(sourceBytes, sourceType, sourceBytes.byteLength, source.httpEtag);
+    if (!encoded) return imageResponse(sourceBytes, sourceType, sourceBytes.byteLength, source.httpEtag, FALLBACK_CACHE_CONTROL);
     if (encoded.bytes.byteLength < sourceBytes.byteLength) out = encoded;
   }
 

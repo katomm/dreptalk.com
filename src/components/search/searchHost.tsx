@@ -10,7 +10,8 @@ import SearchPalette from './SearchPalette';
 // other islands never download React.
 
 export interface SearchHost {
-  open(): void;
+  /** Opens the palette, optionally with text typed while it was loading. */
+  open(seedQuery?: string): void;
   toggle(): void;
 }
 
@@ -30,10 +31,11 @@ export function mountSearch({ trigger, signedIn, initialScope }: MountOptions): 
   // Open state lives outside React so the trigger script can flip it
   // synchronously: flushSync commits the palette inside the tap, which lets the
   // input's autoFocus raise the mobile keyboard.
-  let isOpen = false;
+  // One snapshot object per change, as useSyncExternalStore compares by identity.
+  let state = { open: false, seedQuery: '' };
   const listeners = new Set<() => void>();
-  const setOpen = (next: boolean) => {
-    isOpen = next;
+  const setState = (open: boolean, seedQuery = '') => {
+    state = { open, seedQuery };
     for (const listener of listeners) listener();
   };
   const subscribe = (listener: () => void) => {
@@ -43,7 +45,7 @@ export function mountSearch({ trigger, signedIn, initialScope }: MountOptions): 
   const returnFocusRef = { current: trigger };
 
   function Host() {
-    const open = useSyncExternalStore(subscribe, () => isOpen);
+    const { open, seedQuery } = useSyncExternalStore(subscribe, () => state);
     const [helpEntries, setHelpEntries] = useState<HelpEntry[]>([]);
     useEffect(() => {
       void helpEntriesPromise.then(setHelpEntries);
@@ -51,11 +53,12 @@ export function mountSearch({ trigger, signedIn, initialScope }: MountOptions): 
     return (
       <SearchPalette
         open={open}
-        onClose={() => setOpen(false)}
+        onClose={() => setState(false)}
         returnFocusRef={returnFocusRef}
         helpEntries={helpEntries}
         signedIn={signedIn}
         initialScope={initialScope}
+        seedQuery={seedQuery}
       />
     );
   }
@@ -66,7 +69,7 @@ export function mountSearch({ trigger, signedIn, initialScope }: MountOptions): 
   flushSync(() => root.render(<Host />));
 
   return {
-    open: () => flushSync(() => setOpen(true)),
-    toggle: () => flushSync(() => setOpen(!isOpen)),
+    open: (seedQuery) => flushSync(() => setState(true, seedQuery)),
+    toggle: () => flushSync(() => setState(!state.open)),
   };
 }

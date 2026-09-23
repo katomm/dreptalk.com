@@ -58,9 +58,12 @@ const { signedIn = false, initialScope = 'all' } = Astro.props;
     // Mobile browsers raise the software keyboard only for a focus() inside the
     // user's gesture, and the first open has to wait for the chunk. Holding focus
     // on an invisible input meanwhile keeps the keyboard up, and the palette's
-    // input then takes the focus over from it.
-    function holdKeyboard(): HTMLInputElement {
-      const proxy = document.createElement('input');
+    // input then takes the focus over from it, along with anything typed so far.
+    let proxy: HTMLInputElement | null = null;
+
+    function holdKeyboard() {
+      if (proxy) return;
+      proxy = document.createElement('input');
       proxy.type = 'text';
       proxy.tabIndex = -1;
       proxy.setAttribute('aria-hidden', 'true');
@@ -68,8 +71,19 @@ const { signedIn = false, initialScope = 'all' } = Astro.props;
       Object.assign(proxy.style, { position: 'fixed', top: '0', left: '0', width: '1px', height: '1px', opacity: '0', fontSize: '16px', border: '0', padding: '0' });
       document.body.appendChild(proxy);
       proxy.focus({ preventScroll: true });
-      return proxy;
     }
+
+    /** Drops the proxy and returns what was typed into it. */
+    function releaseKeyboard(): string {
+      const typed = proxy?.value ?? '';
+      proxy?.remove();
+      proxy = null;
+      return typed;
+    }
+
+    // Whether the visitor still wants the palette once the first load finishes:
+    // a second Cmd/Ctrl+K or an Escape while it loads cancels the open.
+    let wantOpen = false;
 
     function show(toggle: boolean) {
       if (host) {
@@ -77,13 +91,32 @@ const { signedIn = false, initialScope = 'all' } = Astro.props;
         else host.open();
         return;
       }
-      const proxy = holdKeyboard();
+      wantOpen = toggle ? !wantOpen : true;
+      if (!wantOpen) {
+        cancelPending();
+        return;
+      }
+      holdKeyboard();
       void load().then((h) => {
-        if (h) h.open();
-        proxy.remove();
+        if (!wantOpen) return;
+        wantOpen = false;
+        if (h) {
+          // Open first so the palette input holds the focus before the proxy goes.
+          const typed = proxy?.value ?? '';
+          h.open(typed);
+          releaseKeyboard();
+          return;
+        }
+        releaseKeyboard();
         // Without the palette the results page still offers the whole search.
-        if (!h) window.location.assign('/search/');
+        window.location.assign('/search/');
       });
+    }
+
+    function cancelPending() {
+      wantOpen = false;
+      releaseKeyboard();
+      btn.focus({ preventScroll: true });
     }
 
     // Warm the chunk as soon as the visitor heads for the button, so a first
@@ -94,6 +127,10 @@ const { signedIn = false, initialScope = 'all' } = Astro.props;
     btn.addEventListener('click', () => show(false));
 
     window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && wantOpen) {
+        cancelPending();
+        return;
+      }
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         show(true);
