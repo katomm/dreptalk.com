@@ -5,6 +5,7 @@ import { defineConfig } from 'astro/config';
 import cloudflare from '@astrojs/cloudflare';
 import react from '@astrojs/react';
 import { remarkReviewCharts } from './src/lib/review/chartBlocks.ts';
+import { remarkGlossaryLinks } from './src/lib/review/glossaryLinks.ts';
 
 // The theme-init script is inlined into <head> via set:html (see Layout.astro)
 // so it runs before first paint without a render-blocking network request.
@@ -82,7 +83,7 @@ export default defineConfig({
   }),
   integrations: [react()],
   markdown: {
-    remarkPlugins: [remarkReviewCharts],
+    remarkPlugins: [remarkReviewCharts, remarkGlossaryLinks],
   },
   // The registration page moved from /drep (too close to /dreps and the on-chain
   // /drep/<hash>.json documents) to /register-drep. Redirect so old links hold.
