@@ -2,12 +2,12 @@ import type { KeyboardEvent } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type React from 'react';
-import { matchStaticEntries, matchEntries, type HelpEntry } from '@/lib/search/staticEntries.js';
+import { matchStaticEntries } from '@/lib/search/staticEntries.js';
 import { readableType, statusBadge, TONE_COLORS, formatAda } from '@/lib/governance/view.js';
 import { truncateId } from '@/lib/forum/view.js';
 import type { SearchResponseBody } from '@/lib/search/handler.js';
 import { SCOPES, SCOPE_LABELS, searchPageHref, type Scope } from '@/lib/search/scopes.js';
-import { filterRowsByScope } from '@/lib/search/paletteFilter.js';
+import { filterRowsByScope, type RowScope } from '@/lib/search/paletteFilter.js';
 import { otherScopesWithRows } from '@/lib/search/emptyHint.js';
 import { avatarUrl } from '@/lib/identity/avatarUrl.js';
 import { SnippetText } from './SnippetText.js';
@@ -16,7 +16,6 @@ interface PaletteProps {
   open: boolean;
   onClose: () => void;
   returnFocusRef?: React.RefObject<HTMLButtonElement | null>;
-  helpEntries: HelpEntry[];
   /** Whether a session exists, so the personal pages can be offered. */
   signedIn?: boolean;
   /** Scope pill preselected each time the palette opens (defaults to "all").
@@ -30,6 +29,9 @@ interface PaletteProps {
 interface Row {
   key: string;
   href: string;
+  /** Filter pill the row belongs to, see RowScope. */
+  scope: RowScope;
+  /** Group header shown above the first row of each run. */
   group: string;
   label: string;
   badge?: string;
@@ -44,12 +46,13 @@ interface Row {
 const DEBOUNCE_MS = 250;
 const MIN_QUERY = 2;
 
-function buildRows(q: string, data: SearchResponseBody | null, helpEntries: HelpEntry[], signedIn: boolean): Row[] {
+function buildRows(q: string, data: SearchResponseBody | null, signedIn: boolean): Row[] {
   const rows: Row[] = [];
   if (data?.exact) {
     rows.push({
       key: 'exact',
       href: data.exact.href,
+      scope: null,
       group: 'Exact match',
       label: data.exact.label,
       badge: data.exact.kind === 'governance-action' ? 'Governance Action' : 'DRep',
@@ -60,7 +63,8 @@ function buildRows(q: string, data: SearchResponseBody | null, helpEntries: Help
     rows.push({
       key: `ga-${ga.href}`,
       href: ga.href,
-      group: 'Governance Actions',
+      scope: 'governance',
+      group: SCOPE_LABELS.governance,
       label: ga.title,
       badge: readableType(ga.type),
       status: badge.label,
@@ -73,7 +77,8 @@ function buildRows(q: string, data: SearchResponseBody | null, helpEntries: Help
     rows.push({
       key: `topic-${t.href}`,
       href: t.href,
-      group: 'Discussions',
+      scope: 'forum',
+      group: SCOPE_LABELS.forum,
       label: t.title,
       detail: `${t.categorySlug} · ${t.postCount} posts`,
       snippet: t.snippet,
@@ -83,7 +88,8 @@ function buildRows(q: string, data: SearchResponseBody | null, helpEntries: Help
     rows.push({
       key: `drep-${d.drepId}`,
       href: d.href,
-      group: 'DReps',
+      scope: 'dreps',
+      group: SCOPE_LABELS.dreps,
       label: d.name ?? truncateId(d.drepId),
       detail: formatAda(d.votingPower) ?? undefined,
       status: d.status,
@@ -95,7 +101,8 @@ function buildRows(q: string, data: SearchResponseBody | null, helpEntries: Help
     rows.push({
       key: `rat-${r.href}`,
       href: r.href,
-      group: 'Rationales',
+      scope: 'rationales',
+      group: SCOPE_LABELS.rationales,
       label: r.name ?? truncateId(r.voterId),
       badge: r.vote,
       detail: r.actionTitle,
@@ -104,15 +111,26 @@ function buildRows(q: string, data: SearchResponseBody | null, helpEntries: Help
     });
   }
   for (const e of matchStaticEntries(q, signedIn)) {
-    rows.push({ key: `static-${e.href}`, href: e.href, group: e.group, label: e.label });
+    rows.push({ key: `static-${e.href}`, href: e.href, scope: 'all', group: 'Pages', label: e.label });
   }
-  for (const e of matchEntries(helpEntries, q)) {
-    rows.push({ key: `help-${e.href}`, href: e.href, group: 'Help', label: e.label, description: e.description });
+  for (const scope of ['reviews', 'help'] as const) {
+    for (const h of data?.[scope] ?? []) {
+      rows.push({
+        key: `content-${h.href}`,
+        href: h.href,
+        scope,
+        group: SCOPE_LABELS[scope],
+        label: h.title,
+        detail: h.detail ?? undefined,
+        snippet: h.snippet,
+        description: h.description ?? undefined,
+      });
+    }
   }
   return rows;
 }
 
-export default function SearchPalette({ open, onClose, returnFocusRef, helpEntries, signedIn = false, initialScope = 'all', seedQuery = '' }: PaletteProps) {
+export default function SearchPalette({ open, onClose, returnFocusRef, signedIn = false, initialScope = 'all', seedQuery = '' }: PaletteProps) {
   const [q, setQ] = useState('');
   const [data, setData] = useState<SearchResponseBody | null>(null);
   const [error, setError] = useState(false);
@@ -125,7 +143,7 @@ export default function SearchPalette({ open, onClose, returnFocusRef, helpEntri
   const hasQuery = trimmed.length >= MIN_QUERY;
 
   // Build all rows, then narrow to the active scope pill (pure client filter).
-  const allRows = useMemo(() => buildRows(q, hasQuery ? data : null, helpEntries, signedIn), [q, hasQuery, data, helpEntries, signedIn]);
+  const allRows = useMemo(() => buildRows(q, hasQuery ? data : null, signedIn), [q, hasQuery, data, signedIn]);
   const rows = useMemo(() => filterRowsByScope(allRows, scope), [allRows, scope]);
   const clampedActive = Math.min(active, Math.max(rows.length - 1, 0));
 
@@ -270,7 +288,7 @@ export default function SearchPalette({ open, onClose, returnFocusRef, helpEntri
             setQ(e.target.value);
             setActive(0);
           }}
-          placeholder="Search governance actions, discussions, DReps..."
+          placeholder="Search governance actions, discussions, DReps, reviews..."
           style={{ width: '100%', padding: '0.9rem 1rem', border: 'none', borderBottom: '1px solid var(--border)', background: 'transparent', color: 'inherit', font: 'inherit', outline: 'none', boxSizing: 'border-box' }}
         />
         <div
@@ -377,7 +395,10 @@ export default function SearchPalette({ open, onClose, returnFocusRef, helpEntri
                     <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.label}</span>
                     {row.badge && <span style={{ flexShrink: 0, fontSize: '0.6875rem', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '0 0.3rem' }}>{row.badge}</span>}
                     {row.status && <span style={{ flexShrink: 0, fontSize: '0.6875rem', color: row.statusColor ?? 'var(--muted)' }}>{row.status}</span>}
-                    {row.detail && <span style={{ flexShrink: 0, marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--muted)' }}>{row.detail}</span>}
+                    {row.detail && (
+                      // Capped so a long detail (an action title on a rationale) cannot squeeze the label away on a phone.
+                      <span style={{ flexShrink: 0, maxWidth: '45%', marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.detail}</span>
+                    )}
                   </span>
                   {row.snippet && <SnippetText raw={row.snippet} />}
                   {!row.snippet && row.description && (

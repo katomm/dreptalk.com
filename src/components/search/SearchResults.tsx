@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { SCOPES, SCOPE_LABELS, PAGE_SIZE, searchPageHref, type Scope, type ApiScope } from '@/lib/search/scopes.js';
-import { searchHelp, type HelpDoc, type HelpHit } from '@/lib/search/help.js';
+import { useEffect, useRef, useState } from 'react';
+import { SCOPES, SCOPE_LABELS, PAGE_SIZE, searchPageHref, type Scope } from '@/lib/search/scopes.js';
+import type { ContentHit } from '@/lib/search/content.js';
 import { otherScopesWithCounts } from '@/lib/search/emptyHint.js';
 import { readableType, statusBadge, TONE_COLORS, formatAda } from '@/lib/governance/view.js';
 import { truncateId } from '@/lib/forum/view.js';
@@ -20,10 +20,6 @@ interface Props {
 const DEBOUNCE_MS = 250;
 const MIN_QUERY = 2;
 const ALL_PREVIEW = 4; // rows per group shown under the "All" scope
-
-function apiScopeFor(scope: Scope): ApiScope {
-  return scope === 'help' ? 'all' : scope;
-}
 
 function GaRow({ ga }: { ga: GaHit }) {
   const badge = statusBadge(ga.status);
@@ -70,14 +66,16 @@ function DrepRow({ d }: { d: DrepHit }) {
   );
 }
 
-function HelpRow({ h }: { h: HelpHit }) {
+/** A help guide, glossary term or Governance Review edition. */
+function ContentRow({ h }: { h: ContentHit }) {
   return (
     <a className="search-hit" href={h.href}>
       <span className="search-hit__head">
         <span className="search-hit__title">{h.title}</span>
-        <span className="search-hit__badge">Help</span>
+        {h.detail && <span className="search-hit__detail">{h.detail}</span>}
       </span>
       {h.snippet && <SnippetText raw={h.snippet} />}
+      {!h.snippet && h.description && <span className="search-hit__desc">{h.description}</span>}
     </a>
   );
 }
@@ -145,7 +143,6 @@ export default function SearchResults({ initialQuery, initialScope, initialPage,
   const [scope, setScope] = useState<Scope>(initialScope);
   const [page, setPage] = useState(initialPage);
   const [data, setData] = useState<SearchResponseBody>(initialData);
-  const [helpDocs, setHelpDocs] = useState<HelpDoc[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const didMount = useRef(false);
@@ -153,21 +150,7 @@ export default function SearchResults({ initialQuery, initialScope, initialPage,
   const trimmed = q.trim();
   const hasQuery = trimmed.length >= MIN_QUERY;
 
-  // Load the static help index once; failure just hides the Help facet.
-  useEffect(() => {
-    let alive = true;
-    fetch('/help-search-index.json')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((docs) => {
-        if (alive && Array.isArray(docs)) setHelpDocs(docs as HelpDoc[]);
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  // Fetch D1 data on query/scope/page change. The first render already has
+  // Fetch results on query/scope/page change. The first render already has
   // server data, so skip that pass; only sync the URL from then on.
   useEffect(() => {
     if (!didMount.current) {
@@ -177,7 +160,8 @@ export default function SearchResults({ initialQuery, initialScope, initialPage,
     window.history.replaceState(null, '', searchPageHref(trimmed, scope, page));
 
     if (!hasQuery) {
-      setData((d) => ({ ...d, query: trimmed, governanceActions: [], discussions: [], dreps: [], exact: null, total: 0, counts: null }));
+      // Results only render with a query, so clearing the facet counts is enough.
+      setData((d) => ({ ...d, query: trimmed, counts: null }));
       return;
     }
     const ctrl = new AbortController();
@@ -185,7 +169,7 @@ export default function SearchResults({ initialQuery, initialScope, initialPage,
     const t = setTimeout(async () => {
       try {
         const res = await fetch(
-          `/api/search?q=${encodeURIComponent(trimmed)}&scope=${apiScopeFor(scope)}&page=${page}&counts=1`,
+          `/api/search?q=${encodeURIComponent(trimmed)}&scope=${scope}&page=${page}&counts=1`,
           { signal: ctrl.signal },
         );
         if (!res.ok) throw new Error('bad status');
@@ -205,29 +189,30 @@ export default function SearchResults({ initialQuery, initialScope, initialPage,
     };
   }, [trimmed, scope, page, hasQuery]);
 
-  const helpHits = useMemo(() => (helpDocs && hasQuery ? searchHelp(helpDocs, trimmed) : []), [helpDocs, hasQuery, trimmed]);
-
   const counts = data.counts;
   const facetCount = (s: Scope): number | null => {
-    if (s === 'help') return helpDocs ? helpHits.length : null;
     if (!counts) return null;
-    if (s === 'forum') return counts.forum;
-    if (s === 'governance') return counts.governance;
-    if (s === 'dreps') return counts.dreps;
-    if (s === 'rationales') return counts.rationales;
-    // all
-    return counts.forum + counts.governance + counts.dreps + counts.rationales + (helpDocs ? helpHits.length : 0);
+    return s === 'all' ? Object.values(counts).reduce((a, b) => a + b, 0) : counts[s];
   };
+
+  // Result rows per scope, in the order the "All" view stacks its groups.
+  const rowsByScope: Record<Exclude<Scope, 'all'>, ReactNode[]> = {
+    governance: data.governanceActions.map((ga) => <GaRow key={ga.href} ga={ga} />),
+    forum: data.discussions.map((t) => <TopicRow key={t.href} t={t} />),
+    dreps: data.dreps.map((d) => <DrepRow key={d.drepId} d={d} />),
+    rationales: data.rationales.map((r) => <RationaleRow key={r.href} r={r} />),
+    reviews: data.reviews.map((h) => <ContentRow key={h.href} h={h} />),
+    help: data.help.map((h) => <ContentRow key={h.href} h={h} />),
+  };
+  const groups = Object.entries(rowsByScope) as Array<[Exclude<Scope, 'all'>, ReactNode[]]>;
 
   const changeScope = (s: Scope) => {
     setScope(s);
     setPage(1);
   };
 
-  // Total + page count for the active single scope.
-  const total = scope === 'help' ? helpHits.length : (data.total ?? 0);
-  const totalPages = scope === 'all' ? 1 : Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const helpPageSlice = helpHits.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  // Page count for the active single scope.
+  const totalPages = scope === 'all' ? 1 : Math.max(1, Math.ceil((data.total ?? 0) / PAGE_SIZE));
 
   return (
     <div className="search-layout">
@@ -239,7 +224,7 @@ export default function SearchResults({ initialQuery, initialScope, initialPage,
           setQ(e.target.value);
           setPage(1);
         }}
-        placeholder="Search governance actions, discussions, DReps, help..."
+        placeholder="Search governance actions, discussions, DReps, reviews, help..."
         aria-label="Search"
         // biome-ignore lint/a11y/noAutofocus: dedicated search page, the input is the primary control
         autoFocus
@@ -283,47 +268,15 @@ export default function SearchResults({ initialQuery, initialScope, initialPage,
 
           {hasQuery && !error && scope === 'all' && (
             <>
-              {data.governanceActions.length > 0 && (
-                <Group title="Governance Actions" count={facetCount('governance')} onMore={() => changeScope('governance')}>
-                  {data.governanceActions.slice(0, ALL_PREVIEW).map((ga) => (
-                    <GaRow key={ga.href} ga={ga} />
-                  ))}
-                </Group>
+              {groups.map(
+                ([s, rows]) =>
+                  rows.length > 0 && (
+                    <Group key={s} title={SCOPE_LABELS[s]} count={facetCount(s)} onMore={() => changeScope(s)}>
+                      {rows.slice(0, ALL_PREVIEW)}
+                    </Group>
+                  ),
               )}
-              {data.discussions.length > 0 && (
-                <Group title="Discussions" count={facetCount('forum')} onMore={() => changeScope('forum')}>
-                  {data.discussions.slice(0, ALL_PREVIEW).map((t) => (
-                    <TopicRow key={t.href} t={t} />
-                  ))}
-                </Group>
-              )}
-              {data.dreps.length > 0 && (
-                <Group title="DReps" count={facetCount('dreps')} onMore={() => changeScope('dreps')}>
-                  {data.dreps.slice(0, ALL_PREVIEW).map((d) => (
-                    <DrepRow key={d.drepId} d={d} />
-                  ))}
-                </Group>
-              )}
-              {data.rationales.length > 0 && (
-                <Group title="Rationales" count={facetCount('rationales')} onMore={() => changeScope('rationales')}>
-                  {data.rationales.slice(0, ALL_PREVIEW).map((r) => (
-                    <RationaleRow key={r.href} r={r} />
-                  ))}
-                </Group>
-              )}
-              {helpHits.length > 0 && (
-                <Group title="Help" count={facetCount('help')} onMore={() => changeScope('help')}>
-                  {helpHits.slice(0, ALL_PREVIEW).map((h) => (
-                    <HelpRow key={h.href} h={h} />
-                  ))}
-                </Group>
-              )}
-              {!data.exact &&
-                data.governanceActions.length === 0 &&
-                data.discussions.length === 0 &&
-                data.dreps.length === 0 &&
-                data.rationales.length === 0 &&
-                helpHits.length === 0 && <p className="search-note">No results for "{trimmed}".</p>}
+              {!data.exact && groups.every(([, rows]) => rows.length === 0) && <p className="search-note">No results for "{trimmed}".</p>}
             </>
           )}
 
@@ -331,17 +284,9 @@ export default function SearchResults({ initialQuery, initialScope, initialPage,
             !error &&
             scope !== 'all' &&
             (() => {
-              // One data-driven scoped list. Each scope maps to its result rows.
-              const rows: Record<Exclude<Scope, 'all'>, ReactNode[]> = {
-                governance: data.governanceActions.map((ga) => <GaRow key={ga.href} ga={ga} />),
-                forum: data.discussions.map((t) => <TopicRow key={t.href} t={t} />),
-                dreps: data.dreps.map((d) => <DrepRow key={d.drepId} d={d} />),
-                rationales: data.rationales.map((r) => <RationaleRow key={r.href} r={r} />),
-                help: helpPageSlice.map((h) => <HelpRow key={h.href} h={h} />),
-              };
-              const list = rows[scope];
+              const list = rowsByScope[scope];
               if (list.length > 0) return <div className="search-group">{list}</div>;
-              const others = otherScopesWithCounts(counts, facetCount('help'), scope);
+              const others = otherScopesWithCounts(counts, scope);
               if (others.length > 0) {
                 return (
                   <p className="search-note">

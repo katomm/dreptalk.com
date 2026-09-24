@@ -1,10 +1,7 @@
 // Scope vocabulary shared by the palette, the /search page, and the API.
-// Help is not an API scope: help content lives in a build-time static index
-// and is searched entirely on the client.
-export type Scope = 'all' | 'forum' | 'governance' | 'dreps' | 'rationales' | 'help';
-export type ApiScope = 'all' | 'forum' | 'governance' | 'dreps' | 'rationales';
+export type Scope = 'all' | 'forum' | 'governance' | 'dreps' | 'rationales' | 'reviews' | 'help';
 
-export const SCOPES: readonly Scope[] = ['all', 'forum', 'governance', 'dreps', 'rationales', 'help'];
+export const SCOPES: readonly Scope[] = ['all', 'forum', 'governance', 'dreps', 'rationales', 'reviews', 'help'];
 
 /** URL of the /search results page for a query, scope and page. */
 export function searchPageHref(q: string, scope: Scope = 'all', page = 1): string {
@@ -15,46 +12,26 @@ export function searchPageHref(q: string, scope: Scope = 'all', page = 1): strin
 // browser island can import it without pulling in the D1 query module.
 export const PAGE_SIZE = 20;
 
-// Display labels. The forum scope is shown as "Discussions" to match the site's
-// nav and the palette's group header; the scope key stays `forum`.
+// Display labels, also the palette's group headers and the /search group
+// titles. The forum scope is shown as "Discussions" to match the site's nav;
+// the scope key stays `forum`.
 export const SCOPE_LABELS: Record<Scope, string> = {
   all: 'All',
   forum: 'Discussions',
   governance: 'Governance Actions',
   dreps: 'DReps',
   rationales: 'Rationales',
+  reviews: 'Reviews',
   help: 'Help',
 };
-
-const API_SCOPES: readonly ApiScope[] = ['all', 'forum', 'governance', 'dreps', 'rationales'];
 
 export function isScope(raw: string | null): raw is Scope {
   return raw != null && (SCOPES as readonly string[]).includes(raw);
 }
 
-/** Unknown, absent, or the client-only "help" scope collapse to "all". */
-export function parseApiScope(raw: string | null): ApiScope {
-  return raw != null && (API_SCOPES as readonly string[]).includes(raw) ? (raw as ApiScope) : 'all';
-}
-
-/** Maps a palette result group to the scope its rows belong to. The group
- *  strings must match the group labels used in SearchPalette's buildRows; if a
- *  group's display text changes there, update this switch too. */
-export function groupToScope(group: string): Scope {
-  switch (group) {
-    case 'Governance Actions':
-      return 'governance';
-    case 'Discussions':
-      return 'forum';
-    case 'DReps':
-      return 'dreps';
-    case 'Rationales':
-      return 'rationales';
-    case 'Help':
-      return 'help';
-    default:
-      return 'all';
-  }
+/** Unknown or absent scopes collapse to "all". */
+export function parseScope(raw: string | null): Scope {
+  return isScope(raw) ? raw : 'all';
 }
 
 /** The search filter a page pre-selects when its palette opens. Listing pages
@@ -65,6 +42,7 @@ export function groupToScope(group: string): Scope {
 export function scopeForPath(pathname: string): Scope {
   const p = pathname.endsWith('/') ? pathname : `${pathname}/`;
   if (p.startsWith('/help/') || p.startsWith('/glossary/')) return 'help';
+  if (p.startsWith('/governance-review/')) return 'reviews';
   if (p.startsWith('/discussions/')) return 'forum';
   if (p === '/dreps/' || p === '/dreps/movers/') return 'dreps';
   if (p.startsWith('/c/')) {

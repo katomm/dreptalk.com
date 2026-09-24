@@ -33,7 +33,6 @@ const { signedIn = false, initialScope = 'all' } = Astro.props;
 
 <script>
   import { SCOPES, searchPageHref, type Scope } from '@/lib/search/scopes.js';
-  import type { HelpEntry } from '@/lib/search/staticEntries.js';
   import type { SearchHost } from './searchHost';
 
   const btn = document.querySelector<HTMLButtonElement>('[data-search-trigger]');
@@ -45,17 +44,12 @@ const { signedIn = false, initialScope = 'all' } = Astro.props;
     let host: SearchHost | null = null;
     let loading: Promise<SearchHost | null> | null = null;
 
-    // The Help list and the chunk load side by side. A failed fetch only leaves
-    // the Help group empty. A failed chunk load (e.g. stale HTML after a deploy)
-    // resets, so a later attempt can retry instead of sticking on the broken
-    // promise.
+    // A failed chunk load (e.g. stale HTML after a deploy) resets, so a later
+    // attempt can retry instead of sticking on the broken promise.
     const load = () => {
       if (loading) return loading;
-      const helpEntries: Promise<HelpEntry[]> = fetch('/search-help-entries.json')
-        .then((res) => (res.ok ? (res.json() as Promise<HelpEntry[]>) : []))
-        .catch(() => []);
       loading = import('./searchHost')
-        .then((m) => (host = m.mountSearch({ trigger: btn, signedIn, initialScope, helpEntries })))
+        .then((m) => (host = m.mountSearch({ trigger: btn, signedIn, initialScope })))
         .catch(() => {
           loading = null;
           return null;

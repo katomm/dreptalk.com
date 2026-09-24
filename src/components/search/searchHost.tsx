@@ -1,7 +1,6 @@
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useSyncExternalStore } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import type { HelpEntry } from '@/lib/search/staticEntries.js';
 import type { Scope } from '@/lib/search/scopes.js';
 import SearchPalette from './SearchPalette';
 
@@ -19,11 +18,9 @@ interface MountOptions {
   trigger: HTMLButtonElement;
   signedIn: boolean;
   initialScope: Scope;
-  /** The palette's Help group, fetched by the trigger alongside this chunk. */
-  helpEntries: Promise<HelpEntry[]>;
 }
 
-export function mountSearch({ trigger, signedIn, initialScope, helpEntries: helpEntriesPromise }: MountOptions): SearchHost {
+export function mountSearch({ trigger, signedIn, initialScope }: MountOptions): SearchHost {
   // Open state lives outside React so the trigger script can flip it
   // synchronously: flushSync commits the palette inside the tap, which lets the
   // input's autoFocus raise the mobile keyboard.
@@ -42,16 +39,11 @@ export function mountSearch({ trigger, signedIn, initialScope, helpEntries: help
 
   function Host() {
     const { open, seedQuery } = useSyncExternalStore(subscribe, () => state);
-    const [helpEntries, setHelpEntries] = useState<HelpEntry[]>([]);
-    useEffect(() => {
-      void helpEntriesPromise.then(setHelpEntries);
-    }, []);
     return (
       <SearchPalette
         open={open}
         onClose={() => setState(false)}
         returnFocusRef={returnFocusRef}
-        helpEntries={helpEntries}
         signedIn={signedIn}
         initialScope={initialScope}
         seedQuery={seedQuery}
