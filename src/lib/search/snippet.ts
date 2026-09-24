@@ -9,8 +9,10 @@ export interface SnippetSegment {
   match: boolean;
 }
 
-const MATCH_START = '\u0001';
-const MATCH_END = '\u0002';
+// Also written by the in-memory content search (content.ts), so the writer and
+// this reader share one definition.
+export const MATCH_START = '\u0001';
+export const MATCH_END = '\u0002';
 
 /** Splits marked snippet text into ordered segments for rendering. */
 export function parseSnippet(snippet: string): SnippetSegment[] {

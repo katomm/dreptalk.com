@@ -1,20 +1,11 @@
-// Static palette entries: top-level pages. Help entries are passed in from the
-// server (they come from the guides content collection, which is server-only).
+// Static palette entries: top-level pages. Help guides, glossary terms and
+// Governance Review editions come from the search API (lib/search/content.ts).
 import { NAV_LINKS } from '../config/nav.js';
 
 export interface StaticEntry {
-  group: 'Pages' | 'Help';
   label: string;
   href: string;
   keywords: string;
-}
-
-export interface HelpEntry {
-  label: string;
-  href: string;
-  keywords: string;
-  // Short guide description, shown as a secondary line under the help title.
-  description: string;
 }
 
 const PAGE_KEYWORDS: Record<string, string> = {
@@ -26,16 +17,16 @@ const PAGE_KEYWORDS: Record<string, string> = {
 };
 
 export const STATIC_ENTRIES: readonly StaticEntry[] = [
-  { group: 'Pages', label: 'Home', href: '/', keywords: 'home start dreptalk' },
-  ...NAV_LINKS.map((l): StaticEntry => ({ group: 'Pages', label: l.label, href: l.href, keywords: PAGE_KEYWORDS[l.href.split('?')[0]] ?? '' })),
+  { label: 'Home', href: '/', keywords: 'home start dreptalk' },
+  ...NAV_LINKS.map((l): StaticEntry => ({ label: l.label, href: l.href, keywords: PAGE_KEYWORDS[l.href.split('?')[0]] ?? '' })),
   // The Treasury nav link points at the budget category (the discussion). This
   // is the overview page itself, which is otherwise reachable only from a topic
   // sidebar or a glossary entry.
-  { group: 'Pages', label: 'Net Change Limit', href: '/treasury/', keywords: 'treasury ncl budget withdrawals ceiling limit' },
-  { group: 'Pages', label: 'Help', href: '/help/', keywords: 'documentation guide faq guides' },
-  { group: 'Pages', label: 'Glossary', href: '/glossary/', keywords: 'definitions terms vocabulary governance glossary' },
-  { group: 'Pages', label: 'Find your DRep', href: '/match/', keywords: 'match quiz find a drep delegate voting compare' },
-  { group: 'Pages', label: 'Badges', href: '/badges/', keywords: 'badges achievements tiers gallery' },
+  { label: 'Net Change Limit', href: '/treasury/', keywords: 'treasury ncl budget withdrawals ceiling limit' },
+  { label: 'Help', href: '/help/', keywords: 'documentation guide faq guides' },
+  { label: 'Glossary', href: '/glossary/', keywords: 'definitions terms vocabulary governance glossary' },
+  { label: 'Find your DRep', href: '/match/', keywords: 'match quiz find a drep delegate voting compare' },
+  { label: 'Badges', href: '/badges/', keywords: 'badges achievements tiers gallery' },
 ];
 
 /**
@@ -44,27 +35,19 @@ export const STATIC_ENTRIES: readonly StaticEntry[] = [
  * that can only bounce you to the login screen is noise, not a shortcut.
  */
 export const PERSONAL_ENTRIES: readonly StaticEntry[] = [
-  { group: 'Pages', label: 'My DRep', href: '/my-drep/', keywords: 'my drep delegation dashboard delegator record since' },
-  { group: 'Pages', label: 'Voting power origins', href: '/voting-power-origins/', keywords: 'voting power origins where came from delegators previous' },
-  { group: 'Pages', label: 'Your governance record', href: '/my-governance-record/', keywords: 'my governance record percentile rank timing missed rationale' },
-  { group: 'Pages', label: 'Notifications', href: '/notifications/', keywords: 'notifications inbox alerts push telegram unread' },
-  { group: 'Pages', label: 'Settings', href: '/settings/', keywords: 'settings account profile metadata devices preferences' },
+  { label: 'My DRep', href: '/my-drep/', keywords: 'my drep delegation dashboard delegator record since' },
+  { label: 'Voting power origins', href: '/voting-power-origins/', keywords: 'voting power origins where came from delegators previous' },
+  { label: 'Your governance record', href: '/my-governance-record/', keywords: 'my governance record percentile rank timing missed rationale' },
+  { label: 'Notifications', href: '/notifications/', keywords: 'notifications inbox alerts push telegram unread' },
+  { label: 'Settings', href: '/settings/', keywords: 'settings account profile metadata devices preferences' },
 ];
 
-/** Case-insensitive label/keyword/description filter; empty query returns everything. */
-export function matchEntries<T extends { label: string; keywords: string; description?: string }>(entries: readonly T[], q: string): T[] {
-  const needle = q.trim().toLowerCase();
-  if (!needle) return [...entries];
-  return entries.filter(
-    (e) =>
-      e.label.toLowerCase().includes(needle) ||
-      e.keywords.toLowerCase().includes(needle) ||
-      (e.description?.toLowerCase().includes(needle) ?? false),
-  );
-}
-
-/** Pages-group static entries matching the query. Personal pages are included
- *  only for a signed-in visitor, for whom they are not a redirect to /login/. */
+/** Page entries whose label or keywords contain the query, case-insensitive.
+ *  An empty query returns every page. Personal pages are included only for a
+ *  signed-in visitor, for whom they are not a redirect to /login/. */
 export function matchStaticEntries(q: string, signedIn = false): StaticEntry[] {
-  return matchEntries(signedIn ? [...STATIC_ENTRIES, ...PERSONAL_ENTRIES] : STATIC_ENTRIES, q);
+  const entries = signedIn ? [...STATIC_ENTRIES, ...PERSONAL_ENTRIES] : [...STATIC_ENTRIES];
+  const needle = q.trim().toLowerCase();
+  if (!needle) return entries;
+  return entries.filter((e) => e.label.toLowerCase().includes(needle) || e.keywords.toLowerCase().includes(needle));
 }

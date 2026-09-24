@@ -3,6 +3,8 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { handleSearch } from './handler.js';
+import { indexContent } from './content.js';
+import { PAGE_SIZE } from './scopes.js';
 
 const db = () => env.DB;
 const NOW = 1_749_000_000_000;
@@ -86,5 +88,44 @@ describe('handleSearch scoped', () => {
     expect(body.discussions.length).toBeGreaterThanOrEqual(1);
     expect(body.counts).toBeNull();
     expect(body.total).toBeNull();
+  });
+
+  describe('content scopes', () => {
+    // More editions than one page holds, so the reviews scope has to paginate.
+    const content = indexContent([
+      ...Array.from({ length: PAGE_SIZE + 3 }, (_, i) => ({
+        kind: 'reviews' as const,
+        title: `Edition ${i + 1}`,
+        href: `/governance-review/e${i + 1}/`,
+        headings: [],
+        text: 'the kappa window',
+        order: i + 1,
+      })),
+      { kind: 'help' as const, title: 'Kappa guide', href: '/help/kappa/', headings: [], text: 'about kappa' },
+    ]);
+
+    it('reviews scope paginates the editions and reports their total', async () => {
+      const first = await handleSearch(db(), 'kappa', { scope: 'reviews', page: 1, content });
+      expect(first.reviews).toHaveLength(PAGE_SIZE);
+      expect(first.reviews[0].href).toBe(`/governance-review/e${PAGE_SIZE + 3}/`); // newest first
+      expect(first.help).toEqual([]);
+      expect(first.total).toBe(PAGE_SIZE + 3);
+      const second = await handleSearch(db(), 'kappa', { scope: 'reviews', page: 2, content });
+      expect(second.reviews).toHaveLength(3);
+    });
+
+    it('facet counts include help and reviews next to the D1 scopes', async () => {
+      await seedTopic({ id: 'fk', title: 'kappa thread', slug: 'fk' });
+      const body = await handleSearch(db(), 'kappa', { scope: 'help', counts: true, content });
+      expect(body.help.map((h) => h.href)).toEqual(['/help/kappa/']);
+      expect(body.total).toBe(1);
+      expect(body.counts).toEqual({ forum: 1, governance: 0, dreps: 0, rationales: 0, reviews: PAGE_SIZE + 3, help: 1 });
+    });
+
+    it('palette mode caps each content group', async () => {
+      const body = await handleSearch(db(), 'kappa', { content });
+      expect(body.reviews).toHaveLength(5);
+      expect(body.help).toHaveLength(1);
+    });
   });
 });
