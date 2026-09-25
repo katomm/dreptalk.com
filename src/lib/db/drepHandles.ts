@@ -71,6 +71,32 @@ export async function listDrepHandles(db: D1Database, drepId: string, now: numbe
   return rows.map(toRow);
 }
 
+/**
+ * Live primary handles of DReps signed in since `cutoffMs` (unix ms), newest
+ * first. The same "recently active" set the site's landing page shows as faces.
+ */
+export async function listRecentDrepHandles(
+  db: D1Database,
+  cutoffMs: number,
+  limit: number,
+  now: number,
+): Promise<string[]> {
+  const rows =
+    (
+      await db
+        .prepare(
+          `SELECT h.handle FROM users u
+           JOIN drep_handles h ON h.drep_id = u.drep_id AND h.is_primary = 1 AND ${LIVE}
+           WHERE u.is_drep = 1 AND u.status = 'active' AND u.last_seen > ?
+           ORDER BY u.last_seen DESC, u.id ASC
+           LIMIT ?`,
+        )
+        .bind(now, cutoffMs, limit)
+        .all<{ handle: string }>()
+    ).results ?? [];
+  return rows.map((r) => r.handle);
+}
+
 export async function getPrimaryHandle(db: D1Database, drepId: string, now: number): Promise<string | null> {
   const r = await db
     .prepare(`SELECT handle FROM drep_handles WHERE drep_id = ? AND is_primary = 1 AND ${LIVE}`)

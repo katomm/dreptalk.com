@@ -5,8 +5,9 @@
 // currentColor like the site header. Keep the two in sync.
 const LOGO_MARK = `<svg viewBox="0 0 72 72" width="38" height="38" fill="currentColor" aria-hidden="true"><g stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="36" y1="27.5" x2="36" y2="19.5" /><line x1="42" y1="30" x2="47.7" y2="24.3" /><line x1="44.5" y1="36" x2="52.5" y2="36" /><line x1="42" y1="42" x2="47.7" y2="47.7" /><line x1="36" y1="44.5" x2="36" y2="52.5" /><line x1="30" y1="42" x2="24.3" y2="47.7" /><line x1="27.5" y1="36" x2="19.5" y2="36" /><line x1="30" y1="30" x2="24.3" y2="24.3" /></g><circle cx="36" cy="15" r="4" /><circle cx="50.85" cy="21.15" r="4" /><circle cx="57" cy="36" r="4" /><circle cx="50.85" cy="50.85" r="4" /><circle cx="36" cy="57" r="4" /><circle cx="21.15" cy="50.85" r="4" /><circle cx="15" cy="36" r="4" /><circle cx="21.15" cy="21.15" r="4" /><circle cx="47.1" cy="9.2" r="2" /><circle cx="62.8" cy="24.9" r="2" /><circle cx="62.8" cy="47.1" r="2" /><circle cx="47.1" cy="62.8" r="2" /><circle cx="24.9" cy="62.8" r="2" /><circle cx="9.2" cy="47.1" r="2" /><circle cx="9.2" cy="24.9" r="2" /><circle cx="24.9" cy="9.2" r="2" /><circle cx="36" cy="36" r="7" /></svg>`;
 
-export function renderLanding(o: { siteOrigin: string; linkOrigin: string }): string {
-  const { siteOrigin, linkOrigin } = o;
+/** `example` must be a validated handle, it goes into the page unescaped. */
+export function renderLanding(o: { siteOrigin: string; linkOrigin: string; example: string }): string {
+  const { siteOrigin, linkOrigin, example } = o;
   const host = new URL(linkOrigin).host;
   return `<!doctype html>
 <html lang="en">
@@ -69,7 +70,7 @@ footer{margin-top:3rem;font-size:.9rem;color:var(--muted)}
 <input id="h" name="h" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="yourname" maxlength="64" aria-label="DRep name">
 <button type="submit">Open</button>
 </form>
-<p class="example">Example: <a href="/adatainment"><code>${host}/adatainment</code></a></p>
+<p class="example">Example: <a href="/${example}"><code>${host}/${example}</code></a></p>
 <section class="card">
 <h2>Get your free drep.link</h2>
 <p>If your DRep metadata has a name, your link already exists and is built from that name. You can pick a different one after logging in on DRepTalk with your DRep key.</p>

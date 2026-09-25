@@ -2,11 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import {
   isSeeded, resolveHandle, listDrepHandles, getPrimaryHandle, writeClaim,
-  insertAutoHandles, listAutoCandidates, runHandleLifecycle,
+  insertAutoHandles, listAutoCandidates, runHandleLifecycle, listRecentDrepHandles,
 } from './drepHandles.js';
 import { upsertDrep } from './dreps.js';
 import { GRACE_SEC } from '../drepLink/handle.js';
-import { drepArgs, insertHandle as row, markSeeded } from '../drepLink/__fixtures__/drepHandles.js';
+import { drepArgs, insertHandle as row, insertUser, markSeeded } from '../drepLink/__fixtures__/drepHandles.js';
 
 const NOW = 1_800_000_000;
 const A = 'drep1handleaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaqqqqq';
@@ -131,5 +131,21 @@ describe('runHandleLifecycle', () => {
     await env.DB.prepare(`UPDATE dreps SET status = 'registered' WHERE drep_id = ?`).bind(A).run();
     expect(await runHandleLifecycle(env.DB, NOW + 10)).toEqual({ released: 0, restored: 1, deleted: 0 });
     expect((await listDrepHandles(env.DB, A, NOW + 10))[0]).toMatchObject({ handle: 'alice', releasedAt: null });
+  });
+});
+
+describe('listRecentDrepHandles', () => {
+  it('returns the live primary handles of recently seen DReps, newest first', async () => {
+    const C = 'drep1handlecccccccccccccccccccccccccccccccccccccccccqqqqq';
+    const nowMs = NOW * 1000;
+    await insertUser(env.DB, 'u-a', { drepId: A, lastSeen: nowMs - 1000 });
+    await insertUser(env.DB, 'u-b', { drepId: B, lastSeen: nowMs - 500 });
+    await insertUser(env.DB, 'u-c', { drepId: C, lastSeen: nowMs - 40 * 86400 * 1000 }); // outside the window
+    await insertUser(env.DB, 'u-member', { lastSeen: nowMs });
+    await row(env.DB, 'alice', A);
+    await row(env.DB, 'alice-old', A, { primary: false, releasedAt: NOW + 100 });
+    await row(env.DB, 'bob', B);
+    await row(env.DB, 'carol', C);
+    expect(await listRecentDrepHandles(env.DB, nowMs - 30 * 86400 * 1000, 20, NOW)).toEqual(['bob', 'alice']);
   });
 });

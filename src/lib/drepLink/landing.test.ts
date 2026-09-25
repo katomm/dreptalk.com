@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { renderLanding } from './landing.js';
 
 describe('renderLanding', () => {
-  const html = renderLanding({ siteOrigin: 'https://dreptalk.com', linkOrigin: 'https://drep.link' });
+  const html = renderLanding({ siteOrigin: 'https://dreptalk.com', linkOrigin: 'https://drep.link', example: 'some-drep' });
   it('is a complete page with canonical, OG tags and the lookup form', () => {
     expect(html).toMatch(/^<!doctype html>/i);
     expect(html).toContain('<link rel="canonical" href="https://drep.link/">');
@@ -10,6 +10,9 @@ describe('renderLanding', () => {
     expect(html).toContain('<form action="/" method="get"');
     expect(html).toContain('name="h"');
     expect(html).toContain('href="https://dreptalk.com/settings/profile/"');
+  });
+  it('shows the given handle as the example', () => {
+    expect(html).toContain('<a href="/some-drep"><code>drep.link/some-drep</code></a>');
   });
   it('makes clear that the link is free', () => {
     expect(html).toContain('Every DRep gets a free short link');
