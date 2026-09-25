@@ -48,18 +48,20 @@ function header(rightPill: string): string {
   </div>`;
 }
 
-function pill(text: string, color: string): string {
-  return `<span style="display:flex;font-size:24px;font-weight:600;color:${color};background:${tint(color)};padding:10px 22px;border-radius:999px;text-transform:uppercase;letter-spacing:0.5px;">${esc(text)}</span>`;
+// Pills are set in capitals, except where the text is a domain name.
+function pill(text: string, color: string, uppercase = true): string {
+  const caps = uppercase ? 'text-transform:uppercase;letter-spacing:0.5px;' : '';
+  return `<span style="display:flex;font-size:24px;font-weight:600;color:${color};background:${tint(color)};padding:10px 22px;border-radius:999px;${caps}">${esc(text)}</span>`;
 }
 
 // The shared frame for every card: white canvas, padded content column with
 // the brand header on top and the card-specific body below, and a full-width
 // accent bar along the bottom edge. Each builder feeds its own pill label and
 // body; the accent both tints the pill and paints the bottom bar.
-function cardShell(accent: string, pillText: string, body: string): string {
+function cardShell(accent: string, pillText: string, body: string, pillUppercase = true): string {
   return compact(`<div style="display:flex;flex-direction:column;width:1200px;height:${OG_HEIGHT}px;background:${CARD_BG};font-family:'Plus Jakarta Sans','Ada';color:${INK};">
     <div style="display:flex;flex-direction:column;justify-content:space-between;flex:1;padding:40px 48px;">
-      ${header(pill(pillText, accent))}
+      ${header(pill(pillText, accent, pillUppercase))}
       ${body}
     </div>
     <div style="display:flex;width:1200px;height:12px;background:${accent};"></div>
@@ -478,4 +480,18 @@ export function voteCardHtml(m: VoteCardModel): string {
       ${rationale}
     </div>`;
   return cardShell(BRAND_ACCENT, m.roleLabel, body);
+}
+
+// The drep.link landing card: one static card, no model. The address pattern is
+// the visual centre, with the "yourname" part in the brand gradient.
+export function drepLinkCardHtml(): string {
+  const body = `<div style="display:flex;flex-direction:column;justify-content:center;flex:1;">
+    ${title('Short links for Cardano DReps')}
+    <div style="display:flex;align-items:baseline;font-size:84px;font-weight:800;letter-spacing:-2px;margin-top:28px;">
+      <span style="color:${SUBTLE};">drep.link/</span>
+      <span style="background-image:${GRAD};-webkit-background-clip:text;background-clip:text;color:transparent;">yourname</span>
+    </div>
+    <div style="display:flex;font-size:30px;font-weight:500;color:${MUTED};margin-top:28px;">Free for every DRep. Votes, rationales and discussions behind one link.</div>
+  </div>`;
+  return cardShell(BRAND_ACCENT, 'drep.link', body, false);
 }
