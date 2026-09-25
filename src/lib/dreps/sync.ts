@@ -12,7 +12,7 @@ import type { Drep } from '../db/dreps.js';
 import {
   getDrepsByIds, upsertDrep, listDrepIdsMissingRegisteredEpoch, setRegistrationDates,
   listDrepsMissingSlug, listAssignedSlugs, setDrepSlugs,
-  listActiveDrepIds, deactivateDreps,
+  listRegisteredDrepIds, deactivateDreps,
 } from '../db/dreps.js';
 import { assignSlugs } from './slug.js';
 import { SPECIAL_DREP_IDS } from './special.js';
@@ -509,8 +509,8 @@ export async function syncDreps(deps: DrepSyncDeps): Promise<DrepSyncResult> {
   const specialsResult = await syncSpecialDreps(deps, observedDelegatorCounts, now);
   failed += specialsResult.failed;
 
-  // Deactivate rows that still claim active voting power but are no longer in the
-  // registered enumeration: the DRep deregistered (deposit returned). Koios drops
+  // Deactivate rows still marked registered (active or not) that are no longer in
+  // the registered enumeration: the DRep deregistered (deposit returned). Koios drops
   // them from the registered set yet still answers drep_info with the deregistered
   // state, so a frozen "active" row would otherwise keep showing stale power
   // forever. Only the chain-derived columns are refreshed; the profile is kept so
@@ -520,15 +520,16 @@ export async function syncDreps(deps: DrepSyncDeps): Promise<DrepSyncResult> {
   // re-enumerates it).
   let deactivated = 0;
   if (ids.length > 0) {
-    const staleIds = (await listActiveDrepIds(db)).filter((id) => !registeredIds.has(id));
+    const staleIds = (await listRegisteredDrepIds(db)).filter((id) => !registeredIds.has(id));
     if (staleIds.length > 0) {
       // drepInfoBatch sub-batches internally (DREP_INFO_MAX), so one call is fine.
       const infoById = new Map((await koios.drepInfoBatch(staleIds)).map((r) => [r.drep_id, r]));
       const rows = staleIds.flatMap((drepId) => {
         const info = infoById.get(drepId);
-        // A re-registration that landed between enumeration and this lookup: leave
-        // it for the next full sync, which re-enumerates and refreshes the profile.
-        if (info?.active) return [];
+        // Still active or still registered on chain (a re-registration between
+        // enumeration and this lookup, or a missed enumeration): leave it for the
+        // next full sync, which re-enumerates and refreshes the profile.
+        if (info?.active || info?.drep_status === 'registered') return [];
         return [{
           drepId,
           status: info?.drep_status ?? 'deregistered',
