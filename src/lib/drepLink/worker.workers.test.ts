@@ -3,7 +3,7 @@ import { env } from 'cloudflare:test';
 import { handleRequest } from './worker.js';
 import { resolveNetwork } from '../config/network.js';
 import { upsertDrep } from '../db/dreps.js';
-import { drepArgs, insertHandle } from './__fixtures__/drepHandles.js';
+import { drepArgs, insertHandle, insertUser } from './__fixtures__/drepHandles.js';
 
 const NOW = 1_800_000_000;
 const cfg = resolveNetwork(null);
@@ -61,13 +61,23 @@ describe('handleRequest', () => {
     expect((await go('/p', { method: 'HEAD' })).status).toBe(302);
     expect((await go('/p', { method: 'POST' })).status).toBe(405);
   });
-  it('caches the landing page and answers HEAD without a body', async () => {
+  it('uses a recently active DRep as the landing example and caches only the candidate list', async () => {
+    await insertUser(env.DB, 'u-a', { drepId: A, lastSeen: NOW * 1000 - 1000 });
+    await insertHandle(env.DB, 'p', A);
     const { cache, store } = fakeCache();
-    await go('/', undefined, cache);
-    expect(store.has('https://drep.link/')).toBe(true);
+    const res = await go('/', undefined, cache);
+    expect(await res.text()).toContain('<code>drep.link/p</code>');
+    expect(res.headers.get('cache-control')).toBe('public, max-age=300');
+    expect([...store.keys()]).toEqual(['https://drep.link/__examples']);
+    // Served from the cached list even after the handle is gone from D1.
+    await env.DB.prepare('DELETE FROM drep_handles').run();
+    expect(await (await go('/', undefined, cache)).text()).toContain('<code>drep.link/p</code>');
     const head = await go('/', { method: 'HEAD' }, cache);
     expect(head.status).toBe(200);
     expect(await head.text()).toBe('');
+  });
+  it('falls back to a fixed example when no recent DRep has a handle', async () => {
+    expect(await (await go('/')).text()).toContain('<code>drep.link/adatainment</code>');
   });
   it('answers a handle from the cache without touching D1', async () => {
     const { cache } = fakeCache();

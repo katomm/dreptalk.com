@@ -3,10 +3,11 @@
 import type { NetworkConfig } from '../config/network.js';
 import { drepPath } from '../dreps/profile.js';
 import { searchPageHref } from '../search/scopes.js';
-import { resolveHandle } from '../db/drepHandles.js';
+import { listRecentDrepHandles, resolveHandle } from '../db/drepHandles.js';
+import { ACTIVE_WINDOW_MS, CARD_FACE_LIMIT } from '../forum/view.js';
 import { routeFor } from './resolve.js';
 import { renderLanding } from './landing.js';
-import { DREP_LINK_ORIGIN } from './handle.js';
+import { DREP_LINK_ORIGIN, isRoutableHandle } from './handle.js';
 
 // A found handle changes rarely (90-day cooldown, old links keep redirecting),
 // so it may stay cached for an hour. Everything else stays short, so a freshly
@@ -14,6 +15,11 @@ import { DREP_LINK_ORIGIN } from './handle.js';
 const HIT_TTL = 3600;
 const REDIRECT_TTL = 300;
 const LANDING_TTL = 3600;
+// The landing page picks a fresh example per request, so browsers keep it only
+// briefly. The candidate list behind it is cached for an hour.
+const LANDING_BROWSER_TTL = 300;
+const EXAMPLES_TTL = 3600;
+const FALLBACK_EXAMPLE = 'adatainment';
 
 function redirect(location: string, ttl = REDIRECT_TTL): Response {
   return new Response(null, { status: 302, headers: { location, 'cache-control': `public, max-age=${ttl}` } });
@@ -39,6 +45,26 @@ function store(deps: ResolverDeps, key: Request, res: Response): Promise<void> {
   return put;
 }
 
+/**
+ * Handles of recently signed-in DReps for the landing example, cached for an
+ * hour so a page view costs no D1 read. Entries are re-checked for shape since
+ * they go into the page unescaped.
+ */
+async function recentExamples(deps: ResolverDeps): Promise<string[]> {
+  const key = new Request(`${DREP_LINK_ORIGIN}/__examples`);
+  const hit = deps.cache ? await deps.cache.match(key) : undefined;
+  if (hit) return ((await hit.json()) as string[]).filter(isRoutableHandle);
+  const list = await listRecentDrepHandles(deps.db, deps.now * 1000 - ACTIVE_WINDOW_MS, CARD_FACE_LIMIT, deps.now);
+  await store(
+    deps,
+    key,
+    new Response(JSON.stringify(list), {
+      headers: { 'content-type': 'application/json', 'cache-control': `public, max-age=${EXAMPLES_TTL}` },
+    }),
+  );
+  return list.filter(isRoutableHandle);
+}
+
 export async function handleRequest(req: Request, deps: ResolverDeps): Promise<Response> {
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     return new Response('Method not allowed', { status: 405, headers: { allow: 'GET, HEAD' } });
@@ -48,15 +74,11 @@ export async function handleRequest(req: Request, deps: ResolverDeps): Promise<R
 
   switch (route.kind) {
     case 'landing': {
-      const key = new Request(`${DREP_LINK_ORIGIN}/`);
-      let res = deps.cache ? await deps.cache.match(key) : undefined;
-      if (!res) {
-        res = new Response(renderLanding({ siteOrigin: site, linkOrigin: DREP_LINK_ORIGIN }), {
-          headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': `public, max-age=${LANDING_TTL}` },
-        });
-        await store(deps, key, res);
-      }
-      return req.method === 'HEAD' ? new Response(null, { headers: res.headers }) : res;
+      const examples = await recentExamples(deps);
+      const example = examples.length ? examples[Math.floor(Math.random() * examples.length)] : FALLBACK_EXAMPLE;
+      const headers = { 'content-type': 'text/html; charset=utf-8', 'cache-control': `public, max-age=${LANDING_BROWSER_TTL}` };
+      if (req.method === 'HEAD') return new Response(null, { headers });
+      return new Response(renderLanding({ siteOrigin: site, linkOrigin: DREP_LINK_ORIGIN, example }), { headers });
     }
     case 'robots':
       return new Response('User-agent: *\nAllow: /\n', {
