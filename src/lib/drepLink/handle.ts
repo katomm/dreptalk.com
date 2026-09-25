@@ -12,9 +12,9 @@ export const COOLDOWN_SEC = 90 * 86400;
 export const DREP_LINK_ORIGIN = 'https://drep.link';
 
 const SHAPE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
-// drep1… ids resolve as ids. drep- guards the hyphenated forms slugBase would
-// produce from names like "drep_vkh…" (underscores never pass SHAPE).
-const ID_NAMESPACE = /^(drep1|drep-)/;
+// drep1… paths resolve as DRep ids first, so no handle may start that way. A
+// hyphen never occurs in bech32, so names like "drep-collective" stay free.
+const ID_NAMESPACE = /^drep1/;
 
 // Existing DReps whose names are shorter than the minimum keep them (Tommy,
 // 2026-09-25). No other handle below HANDLE_MIN can exist.

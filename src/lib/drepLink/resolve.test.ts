@@ -19,6 +19,9 @@ describe('routeFor', () => {
     expect(routeFor(u('/ADAtainment/'))).toEqual({ kind: 'handle', handle: 'adatainment' });
     expect(routeFor(u('/adatainment?utm_source=x'))).toEqual({ kind: 'handle', handle: 'adatainment' });
   });
+  it('treats names starting with drep- as handles', () => {
+    expect(routeFor(u('/drep-collective'))).toEqual({ kind: 'handle', handle: 'drep-collective' });
+  });
   it('resolves CIP-129 and CIP-105 key ids to the CIP-129 id', () => {
     expect(routeFor(u(`/${ID}`))).toEqual({ kind: 'id', drepId: ID });
     expect(routeFor(u(`/${VKH}`))).toEqual({ kind: 'id', drepId: ID });

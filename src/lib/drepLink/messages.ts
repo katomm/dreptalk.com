@@ -14,7 +14,7 @@ export function claimErrorMessage(error: string, until: number | null): string {
     case 'shape':
       return 'Use lowercase letters, digits and single hyphens.';
     case 'id_namespace':
-      return 'Links starting with "drep" are kept for DRep ids.';
+      return 'Links starting with "drep1" are kept for DRep ids.';
     case 'unchanged':
       return 'That is already your drep.link.';
     case 'cooldown':

@@ -35,9 +35,11 @@ describe('validateHandle', () => {
     expect(validateHandle('42', null)).toEqual({ ok: false, reason: 'length' });
   });
   it('rejects the id namespace', () => {
-    for (const h of ['drep1abc', 'drep-vkh1abc', 'drep-script'])
-      expect(validateHandle(h, null)).toEqual({ ok: false, reason: 'id_namespace' });
-    expect(validateHandle('drepper', null)).toEqual({ ok: true });
+    expect(validateHandle('drep1abc', null)).toEqual({ ok: false, reason: 'id_namespace' });
+    // Real DReps are named "DRep Collective", "DRep One": a hyphen can never be
+    // part of a bech32 id, so these stay valid handles.
+    for (const h of ['drepper', 'drep-collective', 'drep-one', 'drep-vkh1abc'])
+      expect(validateHandle(h, null)).toEqual({ ok: true });
   });
   it('rejects reserved handles', () => {
     expect(validateHandle('emurgo', null)).toEqual({ ok: false, reason: 'reserved' });

@@ -21,6 +21,7 @@
     "db:migrate:list:mainnet": "wrangler d1 migrations list DB --remote",
     "db:seed:local": "wrangler d1 execute DB --local --persist-to .wrangler/state --file scripts/seed-dev.sql",
     "db:seed:from-main": "bash scripts/seed-local-d1.sh",
+    "drep-link:seed": "esbuild scripts/drep-link-seed.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/drep-link-seed.mjs --log-level=warning && node node_modules/.cache/drep-link-seed.mjs",
     "typecheck": "astro check",
     "lint": "biome lint .",
     "lint:fix": "biome lint --write .",

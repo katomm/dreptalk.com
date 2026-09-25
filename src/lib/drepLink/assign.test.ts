@@ -56,6 +56,11 @@ describe('planSeed', () => {
     expect(plan.flags).toContainEqual({ handle: 'zed', kind: 'missing_registered_at', drepIds: ['Z'] });
     expect(plan.flags).toContainEqual({ handle: 'zed', kind: 'not_in_baseline', drepIds: ['Z'] });
   });
+  it('flags every skipped candidate so nothing disappears silently from the report', () => {
+    const plan = planSeed([c('A', 'ab', 1), c('B', 'drep1xyz', 2)], { bases: {} }, { assign: {}, skip: [] });
+    expect(plan.flags).toContainEqual({ handle: 'ab', kind: 'skipped', reason: 'length', drepIds: ['A'] });
+    expect(plan.flags).toContainEqual({ handle: 'drep1xyz', kind: 'skipped', reason: 'id_namespace', drepIds: ['B'] });
+  });
   it('lists every candidate as decided so the auto path never revisits them', () => {
     const plan = planSeed([c('A', '忠実', 1), c('T', 'ADAtainment', 5)], baseline, { assign: {}, skip: [] });
     expect(plan.decided.sort()).toEqual(['A', 'T']);

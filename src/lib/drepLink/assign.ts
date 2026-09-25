@@ -44,11 +44,13 @@ export function assignHandles(rows: HandleCandidate[], taken: Set<string>): Assi
 
 export interface Baseline { bases: Record<string, string[]> }
 export interface SeedOverrides { assign: Record<string, string>; skip: string[] }
-export type SeedFlag = {
-  handle: string;
-  kind: 'collision' | 'owner_changed' | 'not_in_baseline' | 'reserved' | 'missing_registered_at' | 'override';
-  drepIds: string[];
-};
+export type SeedFlag =
+  | {
+      handle: string;
+      kind: 'collision' | 'owner_changed' | 'not_in_baseline' | 'reserved' | 'missing_registered_at' | 'override';
+      drepIds: string[];
+    }
+  | { handle: string; kind: 'skipped'; reason: SkipReason; drepIds: string[] };
 export interface SeedPlan {
   assigned: { drepId: string; handle: string; source: 'seed' | 'manual' }[];
   decided: string[];
@@ -90,8 +92,11 @@ export function planSeed(rows: HandleCandidate[], baseline: Baseline, overrides:
   }
 
   const auto = assignHandles(winners, new Set());
+  // Every skipped winner shows up in the report. Reserved names get their own
+  // kind because they are the ones Tommy may assign by hand.
   for (const s of auto.skipped) {
     if (s.reason === 'reserved') flags.push({ handle: s.base, kind: 'reserved', drepIds: [s.drepId] });
+    else flags.push({ handle: s.base, kind: 'skipped', reason: s.reason, drepIds: [s.drepId] });
   }
 
   const skip = new Set(overrides.skip);
