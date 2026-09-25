@@ -1,0 +1,24 @@
+# drep.link resolver: 302s drep.link/<handle> to the DRep's DRepTalk profile and
+# serves the landing page. Mainnet only, reads D1 only. For local dev,
+# `npm run dev:link` sets CARDANO_NETWORK=preprod and uses the local D1 state.
+# Never run it with --remote: the binding below is the mainnet database.
+name = "drep-link"
+main = "src/index.ts"
+compatibility_date = "2026-07-01"
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
+
+[[routes]]
+pattern = "drep.link"
+custom_domain = true
+
+# Logo, font and favicons, served before the worker runs.
+[assets]
+directory = "./public"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "dreptalk"
+database_id = "4a84966c-9fde-49f7-bfed-9c3c927e5db3"

@@ -9,6 +9,7 @@
   },
   "scripts": {
     "dev": "astro dev",
+    "dev:link": "wrangler dev -c workers/drep-link/wrangler.toml --var CARDANO_NETWORK:preprod --persist-to .wrangler/state --port 8787",
     "build": "astro build",
     "preview": "astro build && wrangler dev",
     "check:chunks": "node scripts/check-chunk-cycles.mjs",
@@ -36,6 +37,7 @@
     "deploy:app:preprod": "node scripts/preprod-config.mjs && wrangler deploy -c dist/server/wrangler.preprod.json",
     "deploy:sync": "CONFIRM_PROD_SOFT=1 bash scripts/confirm-prod.sh 'gov-sync worker deploy (mainnet)' && wrangler deploy -c workers/gov-sync/wrangler.toml",
     "deploy:sync:preprod": "wrangler deploy -c workers/gov-sync/wrangler.toml --env preprod",
+    "deploy:link": "CONFIRM_PROD_SOFT=1 bash scripts/confirm-prod.sh 'drep.link worker deploy (mainnet)' && wrangler deploy -c workers/drep-link/wrangler.toml",
     "deploy:mainnet": "CONFIRM_PROD_SOFT=1 bash scripts/confirm-prod.sh 'mainnet deploy (app + gov-sync)' && CONFIRM_PROD_OK=1 npm run deploy:app && CONFIRM_PROD_OK=1 npm run deploy:sync",
     "deploy:preprod": "npm run deploy:app:preprod && npm run deploy:sync:preprod",
     "deploy:all": "npm run deploy:mainnet && npm run deploy:preprod",
