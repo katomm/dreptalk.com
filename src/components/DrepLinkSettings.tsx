@@ -6,6 +6,7 @@ import { CopyButton } from './CopyButton';
 import { inputStyle, labelStyle } from './drepFormStyles';
 import { DREP_LINK_HOST, DREP_LINK_ORIGIN, normalizeHandleInput, validateHandle } from '@/lib/drepLink/handle';
 import { claimErrorMessage, formatLinkDate } from '@/lib/drepLink/messages';
+import { nextNewHandleAt } from '@/lib/drepLink/claim';
 
 interface Props {
   current: string | null;
@@ -29,6 +30,10 @@ export default function DrepLinkSettings({ current: initialCurrent, previous: in
 
   const now = Math.floor(Date.now() / 1000);
   const onCooldown = cooldownUntil !== null && cooldownUntil > now;
+  // A new name also waits for the previous link to expire. Switching back to it
+  // is possible as soon as the cooldown is over.
+  const newNameAt = nextNewHandleAt(cooldownUntil, previous?.until ?? null);
+  const onlyTakeBack = !onCooldown && previous !== null && newNameAt !== null && newNameAt > now;
   const candidate = normalizeHandleInput(input);
   const check = candidate ? validateHandle(candidate, drepId) : null;
   const inlineError = check && !check.ok ? claimErrorMessage(check.reason, null) : null;
@@ -99,7 +104,11 @@ export default function DrepLinkSettings({ current: initialCurrent, previous: in
       )}
 
       {onCooldown ? (
-        <p style={mutedStyle}>You can change your drep.link again on {formatLinkDate(cooldownUntil as number)}.</p>
+        <p style={mutedStyle}>
+          {previous
+            ? `You can pick a new drep.link on ${formatLinkDate(newNameAt as number)}. From ${formatLinkDate(cooldownUntil as number)} on, you can switch back to ${DREP_LINK_HOST}/${previous.handle}.`
+            : `You can change your drep.link again on ${formatLinkDate(cooldownUntil as number)}.`}
+        </p>
       ) : (
         <form
           onSubmit={(e) => {
@@ -110,6 +119,11 @@ export default function DrepLinkSettings({ current: initialCurrent, previous: in
           }}
           style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}
         >
+          {onlyTakeBack && previous && (
+            <p style={mutedStyle}>
+              Until {formatLinkDate(previous.until)} you can only switch back to {DREP_LINK_HOST}/{previous.handle}.
+            </p>
+          )}
           <label htmlFor="drep-link-input" style={labelStyle}>{current ? 'Change your link' : 'Pick your link'}</label>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
             <span style={{ color: 'var(--muted)', whiteSpace: 'nowrap' }}>{DREP_LINK_HOST}/</span>
@@ -140,7 +154,7 @@ export default function DrepLinkSettings({ current: initialCurrent, previous: in
           {confirming && (
             <div className="callout callout--warning" role="note">
               <div className="callout__body">
-                You can change your drep.link once every 90 days. Your old link keeps working for 180 days, then it becomes free for others.
+                Your old link keeps working for 180 days, then it becomes free for others. You can pick a new drep.link again once it has expired, and switch back to it after 90 days.
               </div>
             </div>
           )}

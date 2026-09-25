@@ -13,6 +13,18 @@ export function cooldownUntil(primary: HandleRow | null): number | null {
   return primary.createdAt + COOLDOWN_SEC;
 }
 
+/**
+ * When the DRep may pick a NEW handle: after the cooldown and once its previous
+ * handle has expired. Switching back to that previous handle is possible from
+ * the cooldown end on. With a 90-day cooldown and 180-day grace, a new name is
+ * possible 180 days after a change.
+ */
+export function nextNewHandleAt(cooldownEnd: number | null, previousUntil: number | null): number | null {
+  if (cooldownEnd === null) return previousUntil;
+  if (previousUntil === null) return cooldownEnd;
+  return Math.max(cooldownEnd, previousUntil);
+}
+
 export function checkClaimPolicy(a: {
   handle: string;
   drepId: string;

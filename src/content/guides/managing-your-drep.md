@@ -11,7 +11,7 @@ faqs:
   - q: "How do I change my DRep metadata?"
     a: "Sign in as a DRep, edit the prefilled form in Settings and sign the update certificate in your wallet."
   - q: "What is my drep.link?"
-    a: "A short link to your DRepTalk profile, like drep.link/yourname. It is built from your on-chain name, and you can pick a different one in Settings once every 90 days."
+    a: "A short link to your DRepTalk profile, like drep.link/yourname. It is built from your on-chain name, and you can pick a different one in Settings. After a change, the next new name is possible after 180 days."
   - q: "How much does it cost to update my DRep metadata?"
     a: "Only the network fee. Updates need no deposit."
   - q: "How do I get my 500 ada DRep deposit back?"
@@ -60,9 +60,10 @@ slides. It is built from your name when you first appear with one, and it keeps
 working when you rename yourself later.
 
 To pick a different one, sign in as a DRep and open
-[Settings](/settings/profile/). You can change it once every 90 days. Your old
-link keeps redirecting for 180 days, then it becomes free for others. DReps
-without a name can always use `drep.link/` followed by their DRep id.
+[Settings](/settings/profile/). Your old link keeps redirecting for 180 days,
+then it becomes free for others. You can pick the next new name once it has
+expired, and switch back to it after 90 days. DReps without a name can always
+use `drep.link/` followed by their DRep id.
 
 ## Get your 500 ada deposit back
 
