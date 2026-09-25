@@ -479,3 +479,17 @@ export function voteCardHtml(m: VoteCardModel): string {
     </div>`;
   return cardShell(BRAND_ACCENT, m.roleLabel, body);
 }
+
+// The drep.link landing card: one static card, no model. The address pattern is
+// the visual centre, with the "yourname" part in the brand gradient.
+export function drepLinkCardHtml(): string {
+  const body = `<div style="display:flex;flex-direction:column;justify-content:center;flex:1;">
+    ${title('Short links for Cardano DReps')}
+    <div style="display:flex;align-items:baseline;font-size:84px;font-weight:800;letter-spacing:-2px;margin-top:28px;">
+      <span style="color:${SUBTLE};">drep.link/</span>
+      <span style="background-image:${GRAD};-webkit-background-clip:text;background-clip:text;color:transparent;">yourname</span>
+    </div>
+    <div style="display:flex;font-size:30px;font-weight:500;color:${MUTED};margin-top:28px;">Free for every DRep. Votes, rationales and discussions behind one link.</div>
+  </div>`;
+  return cardShell(BRAND_ACCENT, 'drep.link', body);
+}

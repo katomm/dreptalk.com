@@ -5,6 +5,10 @@
 // currentColor like the site header. Keep the two in sync.
 const LOGO_MARK = `<svg viewBox="0 0 72 72" width="38" height="38" fill="currentColor" aria-hidden="true"><g stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="36" y1="27.5" x2="36" y2="19.5" /><line x1="42" y1="30" x2="47.7" y2="24.3" /><line x1="44.5" y1="36" x2="52.5" y2="36" /><line x1="42" y1="42" x2="47.7" y2="47.7" /><line x1="36" y1="44.5" x2="36" y2="52.5" /><line x1="30" y1="42" x2="24.3" y2="47.7" /><line x1="27.5" y1="36" x2="19.5" y2="36" /><line x1="30" y1="30" x2="24.3" y2="24.3" /></g><circle cx="36" cy="15" r="4" /><circle cx="50.85" cy="21.15" r="4" /><circle cx="57" cy="36" r="4" /><circle cx="50.85" cy="50.85" r="4" /><circle cx="36" cy="57" r="4" /><circle cx="21.15" cy="50.85" r="4" /><circle cx="15" cy="36" r="4" /><circle cx="21.15" cy="21.15" r="4" /><circle cx="47.1" cy="9.2" r="2" /><circle cx="62.8" cy="24.9" r="2" /><circle cx="62.8" cy="47.1" r="2" /><circle cx="47.1" cy="62.8" r="2" /><circle cx="24.9" cy="62.8" r="2" /><circle cx="9.2" cy="47.1" r="2" /><circle cx="9.2" cy="24.9" r="2" /><circle cx="24.9" cy="9.2" r="2" /><circle cx="36" cy="36" r="7" /></svg>`;
 
+// The share card, rendered by the site's OG route. Bump v after a design change
+// so platforms that cache by URL fetch the new card.
+const OG_IMAGE_PATH = '/og/drep-link.png?v=1';
+
 /** `example` must be a validated handle, it goes into the page unescaped. */
 export function renderLanding(o: { siteOrigin: string; linkOrigin: string; example: string }): string {
   const { siteOrigin, linkOrigin, example } = o;
@@ -21,8 +25,12 @@ export function renderLanding(o: { siteOrigin: string; linkOrigin: string; examp
 <meta property="og:url" content="${linkOrigin}/">
 <meta property="og:title" content="drep.link">
 <meta property="og:description" content="Free short links to Cardano DRep profiles on DRepTalk.">
-<meta property="og:image" content="${siteOrigin}/og.jpg">
+<meta property="og:image" content="${siteOrigin}${OG_IMAGE_PATH}">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="drep.link: short links for Cardano DReps">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="${siteOrigin}${OG_IMAGE_PATH}">
 <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0c0a12" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">

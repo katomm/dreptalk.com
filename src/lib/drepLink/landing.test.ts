@@ -6,7 +6,9 @@ describe('renderLanding', () => {
   it('is a complete page with canonical, OG tags and the lookup form', () => {
     expect(html).toMatch(/^<!doctype html>/i);
     expect(html).toContain('<link rel="canonical" href="https://drep.link/">');
-    expect(html).toContain('<meta property="og:image" content="https://dreptalk.com/og.jpg">');
+    expect(html).toContain('<meta property="og:image" content="https://dreptalk.com/og/drep-link.png?v=1">');
+    expect(html).toContain('<meta property="og:image:width" content="1200">');
+    expect(html).toContain('<meta name="twitter:image" content="https://dreptalk.com/og/drep-link.png?v=1">');
     expect(html).toContain('<form action="/" method="get"');
     expect(html).toContain('name="h"');
     expect(html).toContain('href="https://dreptalk.com/settings/profile/"');
