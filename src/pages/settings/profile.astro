@@ -13,7 +13,7 @@ import { getSelfDrepId } from '@/lib/db/users';
 import { getDrepById } from '@/lib/db/dreps';
 import { requireGrantManager } from '@/lib/auth/coProposerManage';
 import { listDrepHandles, isSeeded } from '@/lib/db/drepHandles';
-import { COOLDOWN_SEC, DREP_LINK_ORIGIN } from '@/lib/drepLink/handle';
+import { cooldownUntil as handleCooldownUntil } from '@/lib/drepLink/claim';
 
 const user = Astro.locals.user;
 if (!user) {
@@ -50,24 +50,21 @@ const initialDoNotList = drep?.doNotList ?? false;
 
 // drep.link: the section only renders once the launch seed has opened it
 // (never on preprod, which is not seeded).
-const nowSec = Math.floor(Date.now() / 1000);
-const linkOpen = db ? await isSeeded(db) : false;
-const handleRows = db && linkOpen ? await listDrepHandles(db, drepId, nowSec) : [];
+// The two reads are independent: the handle table is empty before the seed.
+const [linkOpen, handleRows] = db
+  ? await Promise.all([isSeeded(db), listDrepHandles(db, drepId, Math.floor(Date.now() / 1000))])
+  : [false, []];
 const primaryRow = handleRows.find((r) => r.isPrimary) ?? null;
 const previousRow = handleRows.find((r) => !r.isPrimary) ?? null;
-const cooldownUntil = primaryRow && (primaryRow.source === 'claim' || primaryRow.source === 'manual')
-  ? primaryRow.createdAt + COOLDOWN_SEC
-  : null;
 ---
 <SettingsShell active="profile" isDrep={true} isProposer={isProposer}>
   {linkOpen && (
     <DrepLinkSettings
-      linkOrigin={DREP_LINK_ORIGIN}
       current={primaryRow?.handle ?? null}
       previous={previousRow?.releasedAt ? { handle: previousRow.handle, until: previousRow.releasedAt } : null}
       drepId={drepId}
       hasName={Boolean(drep?.name)}
-      cooldownUntil={cooldownUntil}
+      cooldownUntil={handleCooldownUntil(primaryRow)}
       client:visible
     />
   )}

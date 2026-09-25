@@ -6,7 +6,7 @@ import {
 } from './drepHandles.js';
 import { upsertDrep } from './dreps.js';
 import { GRACE_SEC } from '../drepLink/handle.js';
-import { drepArgs, insertHandle as row, markSeeded } from '../drepLink/testHelpers.js';
+import { drepArgs, insertHandle as row, markSeeded } from '../drepLink/__fixtures__/drepHandles.js';
 
 const NOW = 1_800_000_000;
 const A = 'drep1handleaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaqqqqq';
@@ -93,7 +93,7 @@ describe('writeClaim', () => {
 describe('auto assignment helpers', () => {
   it('lists registered named DReps not yet decided, and stamps decided ones', async () => {
     await upsertDrep(env.DB, drepArgs(A, 'Alice'));
-    await upsertDrep(env.DB, drepArgs(B, 'Bob', 'retired'));
+    await upsertDrep(env.DB, drepArgs(B, 'Bob', 'deregistered'));
     await env.DB.prepare('UPDATE dreps SET registered_at = 5').run();
     expect(await listAutoCandidates(env.DB)).toEqual([{ drepId: A, name: 'Alice', registeredAt: 5, hasHandle: false }]);
     expect(await insertAutoHandles(env.DB, [{ drepId: A, handle: 'alice' }], [A], NOW)).toBe(1);
@@ -118,7 +118,7 @@ describe('auto assignment helpers', () => {
 
 describe('runHandleLifecycle', () => {
   it('starts grace on deregistration, restores on re-registration, deletes expired rows', async () => {
-    await upsertDrep(env.DB, drepArgs(A, 'Alice', 'retired'));
+    await upsertDrep(env.DB, drepArgs(A, 'Alice', 'deregistered'));
     await row(env.DB, 'alice', A);
     await row(env.DB, 'alice-old', A, { primary: false, releasedAt: NOW + 50 });
     await row(env.DB, 'gone', B, { releasedAt: NOW - 1 });

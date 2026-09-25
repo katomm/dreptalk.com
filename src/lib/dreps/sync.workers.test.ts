@@ -535,6 +535,25 @@ describe('deregistration', () => {
     expect((await getDrepById(env.DB, stay))!.status).toBe('registered');
   });
 
+  it('leaves an inactive DRep alone when Koios still reports it registered', async () => {
+    const stay = 'drep1-dereg-miss-stay';
+    const missed = 'drep1-dereg-miss-missed';
+    const r1 = fakeKoios({
+      pages: [[listRow(stay), listRow(missed)]],
+      infoById: new Map([[stay, infoRow(stay)], [missed, infoRow(missed, { active: false })]]),
+    });
+    await syncDreps({ koios: r1.koios, db: env.DB, fetchImpl: countingProfileFetch().fetchImpl, now: NOW });
+
+    // One enumeration misses `missed`, but drep_info still says registered.
+    const r2 = fakeKoios({
+      pages: [[listRow(stay)]],
+      infoById: new Map([[stay, infoRow(stay)], [missed, infoRow(missed, { active: false })]]),
+    });
+    const res = await syncDreps({ koios: r2.koios, db: env.DB, fetchImpl: countingProfileFetch().fetchImpl, now: NOW + 1 });
+    expect(res.deactivated).toBe(0);
+    expect((await getDrepById(env.DB, missed))!.lastSyncedAt).toBe(NOW);
+  });
+
   it('does not deactivate active rows when the enumeration is empty', async () => {
     const id = 'drep1-dereg-empty';
     const r1 = fakeKoios({ pages: [[listRow(id)]], infoById: new Map([[id, infoRow(id)]]) });

@@ -69,7 +69,9 @@ export function planSeed(rows: HandleCandidate[], baseline: Baseline, overrides:
   for (const row of rows) {
     const base = row.name ? slugBase(row.name) : '';
     if (!base) continue;
-    byBase.set(base, [...(byBase.get(base) ?? []), row]);
+    const group = byBase.get(base);
+    if (group) group.push(row);
+    else byBase.set(base, [row]);
   }
 
   // Pre-pick the winner per base, then let assignHandles apply the handle rules.

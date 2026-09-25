@@ -9,7 +9,8 @@ export const GRACE_SEC = 180 * 86400;
 export const COOLDOWN_SEC = 90 * 86400;
 
 // drep.link serves mainnet only (no preprod host).
-export const DREP_LINK_ORIGIN = 'https://drep.link';
+export const DREP_LINK_HOST = 'drep.link';
+export const DREP_LINK_ORIGIN = `https://${DREP_LINK_HOST}`;
 
 const SHAPE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 // drep1… paths resolve as DRep ids first, so no handle may start that way. A
@@ -26,6 +27,15 @@ export const GRANDFATHERED: ReadonlyMap<string, string> = new Map([
 export type HandleCheck =
   | { ok: true }
   | { ok: false; reason: 'shape' | 'length' | 'id_namespace' | 'reserved' };
+
+/**
+ * True when a path segment can be a handle at all: the shape, the length cap
+ * and the id namespace. The resolver routes on this, so reserved and
+ * grandfathered handles (valid by assignment, not by claim) still resolve.
+ */
+export function isRoutableHandle(raw: string): boolean {
+  return raw.length <= HANDLE_MAX && SHAPE.test(raw) && !ID_NAMESPACE.test(raw);
+}
 
 /** Lowercased, trimmed form of what a DRep typed, with a pasted drep.link/ prefix removed. */
 export function normalizeHandleInput(raw: string): string {

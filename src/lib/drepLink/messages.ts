@@ -1,7 +1,8 @@
 // User-facing texts for drep.link claim refusals. Shared by the settings island
 // for client-side validation and for API answers.
-const date = (sec: number) =>
-  new Date(sec * 1000).toLocaleDateString('en', { year: 'numeric', month: 'long', day: 'numeric' });
+/** Unix seconds as "March 24, 2027", in UTC so server render and hydration agree. */
+export const formatLinkDate = (sec: number) =>
+  new Date(sec * 1000).toLocaleDateString('en', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
 
 export function claimErrorMessage(error: string, until: number | null): string {
   switch (error) {
@@ -18,10 +19,10 @@ export function claimErrorMessage(error: string, until: number | null): string {
     case 'unchanged':
       return 'That is already your drep.link.';
     case 'cooldown':
-      return until ? `You can change your drep.link again on ${date(until)}.` : 'You changed your drep.link recently.';
+      return until ? `You can change your drep.link again on ${formatLinkDate(until)}.` : 'You changed your drep.link recently.';
     case 'previous_pending':
       return until
-        ? `Not yet: your previous link still redirects until ${date(until)}. You can take that one back now.`
+        ? `Not yet: your previous link still redirects until ${formatLinkDate(until)}. You can take that one back now.`
         : 'Your previous link is still active.';
     case 'stale':
       return 'Your link changed in the meantime. Reload the page and try again.';

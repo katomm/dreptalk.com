@@ -3,7 +3,7 @@ import { env } from 'cloudflare:test';
 import { syncDrepHandles } from './sync.js';
 import { upsertDrep } from '../db/dreps.js';
 import { getPrimaryHandle } from '../db/drepHandles.js';
-import { drepArgs, insertHandle, markSeeded } from './testHelpers.js';
+import { drepArgs, insertHandle, markSeeded } from './__fixtures__/drepHandles.js';
 
 const NOW = 1_800_000_000;
 const A = 'drep1phaseaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaqqqqq';

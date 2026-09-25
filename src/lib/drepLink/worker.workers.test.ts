@@ -3,7 +3,7 @@ import { env } from 'cloudflare:test';
 import { handleRequest } from './worker.js';
 import { resolveNetwork } from '../config/network.js';
 import { upsertDrep } from '../db/dreps.js';
-import { drepArgs, insertHandle } from './testHelpers.js';
+import { drepArgs, insertHandle } from './__fixtures__/drepHandles.js';
 
 const NOW = 1_800_000_000;
 const cfg = resolveNetwork(null);
@@ -32,17 +32,19 @@ describe('handleRequest', () => {
     const res = await go('/P/');
     expect(res.status).toBe(302);
     expect(res.headers.get('location')).toBe('https://dreptalk.com/dreps/p-rysud/');
-    expect(res.headers.get('cache-control')).toBe('public, max-age=300');
+    // Handles change rarely (90-day cooldown), so a hit may be kept for an hour.
+    expect(res.headers.get('cache-control')).toBe('public, max-age=3600');
   });
   it('falls back to the id path when the DRep has no slug', async () => {
     await upsertDrep(env.DB, drepArgs(A, null));
     await insertHandle(env.DB, 'p', A);
     expect((await go('/p')).headers.get('location')).toBe(`https://dreptalk.com/dreps/${A}/`);
   });
-  it('sends an unknown handle to the DRep search', async () => {
-    expect((await go('/nobody-here')).headers.get('location')).toBe(
-      'https://dreptalk.com/search/?q=nobody-here&scope=dreps',
-    );
+  it('sends an unknown handle to the DRep search, cached only briefly', async () => {
+    const res = await go('/nobody-here');
+    expect(res.headers.get('location')).toBe('https://dreptalk.com/search/?q=nobody-here&scope=dreps');
+    // A freshly claimed handle must not stay hidden behind a cached miss for long.
+    expect(res.headers.get('cache-control')).toBe('public, max-age=300');
   });
   it('sends an expired handle to search', async () => {
     await insertHandle(env.DB, 'old', A, { releasedAt: NOW - 1 });

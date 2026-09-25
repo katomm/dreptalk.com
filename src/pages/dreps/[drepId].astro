@@ -34,7 +34,7 @@ import { buildRecentActivity } from '@/lib/dreps/recentActivity.js';
 import { voteChangeStat, voteTimingStat } from '@/lib/dreps/voteStatsView.js';
 import { getReportCard } from '@/lib/db/drepReportCard.js';
 import { getPrimaryHandle } from '@/lib/db/drepHandles.js';
-import { DREP_LINK_ORIGIN } from '@/lib/drepLink/handle.js';
+import { DREP_LINK_HOST, DREP_LINK_ORIGIN } from '@/lib/drepLink/handle.js';
 import { formatEpochDate } from '@/lib/governance/view.js';
 import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
 import { ogCardVersion } from '@/lib/og/version.js';
@@ -331,7 +331,7 @@ const profileSummary = drep
         </div>
         <div class="drep-hd__id"><span title={drep.drepId}>{truncateIdMiddle(drep.drepId)}</span><CopyButton value={drep.drepId} label="Copy DRep id" /></div>
         {drepLinkUrl && (
-          <div class="drep-hd__link"><a href={drepLinkUrl}>{drepLinkUrl.replace(/^https:\/\//, '')}</a><CopyButton value={drepLinkUrl} label="Copy drep.link" /></div>
+          <div class="drep-hd__link"><a href={drepLinkUrl}>{DREP_LINK_HOST}/{drepLinkHandle}</a><CopyButton value={drepLinkUrl} label="Copy drep.link" /></div>
         )}
         <p class="drep-hd__power">
           <span class="drep-hd__powerval drep-hd__value--full">{formatAda(drep.votingPower)}</span>

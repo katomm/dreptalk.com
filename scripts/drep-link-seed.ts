@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { planSeed, type Baseline, type SeedOverrides } from '../src/lib/drepLink/assign.js';
 import { validateHandle } from '../src/lib/drepLink/handle.js';
+import { parseDrepId } from '../src/lib/cardano/identity.js';
 
 const { values } = parseArgs({
   options: {
@@ -46,16 +47,16 @@ const overrides: SeedOverrides = values.overrides
 const plan = planSeed(rows, network === 'mainnet' ? baseline : { bases: {} }, overrides);
 
 // Everything that goes into the SQL is re-checked here: handles against the
-// rules (overrides may take reserved names), ids against the bech32 charset.
-const ID_RE = /^drep1[02-9ac-hj-np-z]{50,60}$/;
+// rules (overrides may take reserved names), ids as checksummed CIP-129 drep1.
+const isDrepId = (id: string) => id.startsWith('drep1') && parseDrepId(id) !== null;
 for (const a of plan.assigned) {
-  if (!ID_RE.test(a.drepId)) throw new Error(`bad drep id ${a.drepId}`);
+  if (!isDrepId(a.drepId)) throw new Error(`bad drep id ${a.drepId}`);
   const check = validateHandle(a.handle, a.drepId);
   if (!check.ok && !(a.source === 'manual' && check.reason === 'reserved')) {
     throw new Error(`bad handle ${a.handle}: ${check.reason}`);
   }
 }
-for (const id of plan.decided) if (!ID_RE.test(id)) throw new Error(`bad drep id ${id}`);
+for (const id of plan.decided) if (!isDrepId(id)) throw new Error(`bad drep id ${id}`);
 
 const now = Math.floor(Date.now() / 1000);
 const lines = [

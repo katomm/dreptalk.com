@@ -526,9 +526,10 @@ export async function syncDreps(deps: DrepSyncDeps): Promise<DrepSyncResult> {
       const infoById = new Map((await koios.drepInfoBatch(staleIds)).map((r) => [r.drep_id, r]));
       const rows = staleIds.flatMap((drepId) => {
         const info = infoById.get(drepId);
-        // A re-registration that landed between enumeration and this lookup: leave
-        // it for the next full sync, which re-enumerates and refreshes the profile.
-        if (info?.active) return [];
+        // Still active or still registered on chain (a re-registration between
+        // enumeration and this lookup, or a missed enumeration): leave it for the
+        // next full sync, which re-enumerates and refreshes the profile.
+        if (info?.active || info?.drep_status === 'registered') return [];
         return [{
           drepId,
           status: info?.drep_status ?? 'deregistered',

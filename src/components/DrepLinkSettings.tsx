@@ -4,11 +4,10 @@
 import { useState } from 'react';
 import { CopyButton } from './CopyButton';
 import { inputStyle, labelStyle } from './drepFormStyles';
-import { COOLDOWN_SEC, GRACE_SEC, normalizeHandleInput, validateHandle } from '@/lib/drepLink/handle';
-import { claimErrorMessage } from '@/lib/drepLink/messages';
+import { DREP_LINK_HOST, DREP_LINK_ORIGIN, normalizeHandleInput, validateHandle } from '@/lib/drepLink/handle';
+import { claimErrorMessage, formatLinkDate } from '@/lib/drepLink/messages';
 
 interface Props {
-  linkOrigin: string;
   current: string | null;
   previous: { handle: string; until: number } | null;
   drepId: string;
@@ -16,13 +15,9 @@ interface Props {
   cooldownUntil: number | null;
 }
 
-const date = (sec: number) =>
-  new Date(sec * 1000).toLocaleDateString('en', { year: 'numeric', month: 'long', day: 'numeric' });
-
 const mutedStyle = { margin: 0, fontSize: '0.875rem', color: 'var(--muted)' } as const;
 
-export default function DrepLinkSettings({ linkOrigin, current: initialCurrent, previous: initialPrevious, drepId, hasName, cooldownUntil: initialCooldown }: Props) {
-  const host = linkOrigin.replace(/^https?:\/\//, '');
+export default function DrepLinkSettings({ current: initialCurrent, previous: initialPrevious, drepId, hasName, cooldownUntil: initialCooldown }: Props) {
   const [current, setCurrent] = useState(initialCurrent);
   const [previous, setPrevious] = useState(initialPrevious);
   const [cooldownUntil, setCooldownUntil] = useState(initialCooldown);
@@ -37,7 +32,7 @@ export default function DrepLinkSettings({ linkOrigin, current: initialCurrent, 
   const candidate = normalizeHandleInput(input);
   const check = candidate ? validateHandle(candidate, drepId) : null;
   const inlineError = check && !check.ok ? claimErrorMessage(check.reason, null) : null;
-  const shownUrl = `${linkOrigin}/${current ?? drepId}`;
+  const shownSlug = current ?? drepId;
 
   async function submit() {
     setBusy(true);
@@ -49,15 +44,19 @@ export default function DrepLinkSettings({ linkOrigin, current: initialCurrent, 
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ handle: candidate, expectedCurrent: current }),
       });
-      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; handle?: string; error?: string; until?: number | null };
+      const body = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        handle?: string;
+        previous?: { handle: string; until: number } | null;
+        cooldownUntil?: number;
+        error?: string;
+        until?: number | null;
+      };
       if (res.ok && body.ok && body.handle) {
-        const nowSec = Math.floor(Date.now() / 1000);
-        if (current && current !== body.handle) setPrevious({ handle: current, until: nowSec + GRACE_SEC });
-        else setPrevious(null);
+        // Show what the server stored. The cooldown hides the form from here on.
         setCurrent(body.handle);
-        setCooldownUntil(nowSec + COOLDOWN_SEC);
-        setInput('');
-        setConfirming(false);
+        setPrevious(body.previous ?? null);
+        setCooldownUntil(body.cooldownUntil ?? null);
         setSaved(true);
       } else {
         setError(claimErrorMessage(body.error ?? '', body.until ?? null));
@@ -75,8 +74,10 @@ export default function DrepLinkSettings({ linkOrigin, current: initialCurrent, 
       <h2 id="drep-link-heading" style={{ margin: 0, fontSize: '1.125rem' }}>Your drep.link</h2>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-        <a href={shownUrl} style={{ fontWeight: 600, wordBreak: 'break-all' }}>{shownUrl.replace(/^https?:\/\//, '')}</a>
-        <CopyButton value={shownUrl} label="Copy drep.link" />
+        <a href={`${DREP_LINK_ORIGIN}/${shownSlug}`} style={{ fontWeight: 600, wordBreak: 'break-all' }}>
+          {DREP_LINK_HOST}/{shownSlug}
+        </a>
+        <CopyButton value={`${DREP_LINK_ORIGIN}/${shownSlug}`} label="Copy drep.link" />
       </div>
 
       {!current && (
@@ -88,7 +89,7 @@ export default function DrepLinkSettings({ linkOrigin, current: initialCurrent, 
       )}
       {previous && (
         <p style={mutedStyle}>
-          Your previous link {host}/{previous.handle} keeps working until {date(previous.until)}.
+          Your previous link {DREP_LINK_HOST}/{previous.handle} keeps working until {formatLinkDate(previous.until)}.
         </p>
       )}
       {saved && (
@@ -98,7 +99,7 @@ export default function DrepLinkSettings({ linkOrigin, current: initialCurrent, 
       )}
 
       {onCooldown ? (
-        <p style={mutedStyle}>You can change your drep.link again on {date(cooldownUntil as number)}.</p>
+        <p style={mutedStyle}>You can change your drep.link again on {formatLinkDate(cooldownUntil as number)}.</p>
       ) : (
         <form
           onSubmit={(e) => {
@@ -111,7 +112,7 @@ export default function DrepLinkSettings({ linkOrigin, current: initialCurrent, 
         >
           <label htmlFor="drep-link-input" style={labelStyle}>{current ? 'Change your link' : 'Pick your link'}</label>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
-            <span style={{ color: 'var(--muted)', whiteSpace: 'nowrap' }}>{host}/</span>
+            <span style={{ color: 'var(--muted)', whiteSpace: 'nowrap' }}>{DREP_LINK_HOST}/</span>
             <input
               id="drep-link-input"
               type="text"
@@ -120,7 +121,6 @@ export default function DrepLinkSettings({ linkOrigin, current: initialCurrent, 
                 setInput(e.target.value.toLowerCase());
                 setConfirming(false);
                 setError(null);
-                setSaved(false);
               }}
               placeholder={current ?? 'yourname'}
               autoComplete="off"

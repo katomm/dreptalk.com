@@ -2,7 +2,7 @@
 // worker does the D1 lookup and builds the response.
 import { decodeBech32 } from '../crypto/bech32.js';
 import { cip105ToCip129, DREP_KEY_HEADER, DREP_SCRIPT_HEADER } from '../cardano/identity.js';
-import { HANDLE_MAX, normalizeHandleInput } from './handle.js';
+import { isRoutableHandle, normalizeHandleInput } from './handle.js';
 
 export type Route =
   | { kind: 'landing' }
@@ -12,7 +12,6 @@ export type Route =
   | { kind: 'handle'; handle: string }
   | { kind: 'search'; q: string };
 
-const HANDLE_SHAPE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const SEARCH_MAX = 64;
 
 // CIP-129 drep1 ids pass through, CIP-105 drep_vkh1 key ids are converted.
@@ -52,9 +51,7 @@ export function routeFor(url: URL): Route {
       const id = asDrepId(raw);
       if (id) return { kind: 'id', drepId: id };
     }
-    if (raw.length <= HANDLE_MAX && HANDLE_SHAPE.test(raw) && !raw.startsWith('drep1')) {
-      return { kind: 'handle', handle: raw };
-    }
+    if (isRoutableHandle(raw)) return { kind: 'handle', handle: raw };
   }
   return { kind: 'search', q: segments.join(' ').slice(0, SEARCH_MAX) };
 }

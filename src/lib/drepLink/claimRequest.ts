@@ -1,6 +1,6 @@
 // Request logic behind POST /api/drep/handle, separate from the Astro route so
 // the workers tests can drive it with a real D1.
-import { normalizeHandleInput } from './handle.js';
+import { COOLDOWN_SEC, GRACE_SEC, normalizeHandleInput } from './handle.js';
 import { checkClaimPolicy } from './claim.js';
 import { isSeeded, listDrepHandles, writeClaim } from '../db/drepHandles.js';
 import { getSelfDrepId } from '../db/users.js';
@@ -24,15 +24,17 @@ export async function claimHandleRequest(a: {
   if (user.grantId) return { status: 403, body: { ok: false, error: 'forbidden' } };
   const drepId = await getSelfDrepId(db, user);
   if (!drepId) return { status: 403, body: { ok: false, error: 'forbidden' } };
-  if (!(await isSeeded(db))) return { status: 503, body: { ok: false, error: 'not_open' } };
-  const drep = await getDrepById(db, drepId);
-  if (!drep) return { status: 409, body: { ok: false, error: 'not_synced' } };
-  if (drep.status !== 'registered') return { status: 403, body: { ok: false, error: 'not_registered' } };
 
+  // Shape first, so a malformed request costs no D1 read.
   const b = (body ?? null) as { handle?: unknown; expectedCurrent?: unknown } | null;
   if (!b || typeof b.handle !== 'string') return { status: 400, body: { ok: false, error: 'bad_request' } };
   const expected = b.expectedCurrent ?? null;
   if (expected !== null && typeof expected !== 'string') return { status: 400, body: { ok: false, error: 'bad_request' } };
+
+  if (!(await isSeeded(db))) return { status: 503, body: { ok: false, error: 'not_open' } };
+  const drep = await getDrepById(db, drepId);
+  if (!drep) return { status: 409, body: { ok: false, error: 'not_synced' } };
+  if (drep.status !== 'registered') return { status: 403, body: { ok: false, error: 'not_registered' } };
 
   const handle = normalizeHandleInput(b.handle);
   const rows = await listDrepHandles(db, drepId, now);
@@ -45,5 +47,14 @@ export async function claimHandleRequest(a: {
 
   const outcome = await writeClaim(db, { drepId, handle, expectedCurrent: current, now });
   if (!outcome.ok) return { status: 409, body: { ok: false, error: outcome.error } };
-  return { status: 200, body: { ok: true, handle } };
+  // The stored state, so the form shows what D1 holds instead of recomputing it.
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      handle,
+      previous: current ? { handle: current, until: now + GRACE_SEC } : null,
+      cooldownUntil: now + COOLDOWN_SEC,
+    },
+  };
 }

@@ -2,9 +2,11 @@
 // later than now. Every read and write here uses that one predicate, so an
 // expired row that cleanup has not deleted yet already counts as free.
 import { GRACE_SEC } from '../drepLink/handle.js';
-import { sqlPlaceholders } from './sql.js';
+import { chunked, D1_MAX_BINDS, sqlPlaceholders } from './sql.js';
 
+// The two halves of the one expiry predicate. Each takes `now` as its bind.
 const LIVE = '(released_at IS NULL OR released_at > ?)';
+const EXPIRED = '(released_at IS NOT NULL AND released_at <= ?)';
 
 export interface HandleRow {
   handle: string;
@@ -47,7 +49,7 @@ export async function resolveHandle(
   const r = await db
     .prepare(
       `SELECT h.drep_id, d.slug FROM drep_handles h LEFT JOIN dreps d ON d.drep_id = h.drep_id
-       WHERE h.handle = ? AND (h.released_at IS NULL OR h.released_at > ?)`,
+       WHERE h.handle = ? AND ${LIVE}`,
     )
     .bind(handle, now)
     .first<{ drep_id: string; slug: string | null }>();
@@ -96,12 +98,11 @@ export async function writeClaim(
   const stmts = [
     // Own expired rows would still trip the one-primary index before cleanup.
     db
-      .prepare('DELETE FROM drep_handles WHERE drep_id = ? AND released_at IS NOT NULL AND released_at <= ?')
+      .prepare(`DELETE FROM drep_handles WHERE drep_id = ? AND ${EXPIRED}`)
       .bind(drepId, now),
     db
       .prepare(
-        `DELETE FROM drep_handles WHERE handle = ?
-           AND ((released_at IS NOT NULL AND released_at <= ?) OR (drep_id = ? AND is_primary = 0))`,
+        `DELETE FROM drep_handles WHERE handle = ? AND (${EXPIRED} OR (drep_id = ? AND is_primary = 0))`,
       )
       .bind(handle, now, drepId),
   ];
@@ -127,9 +128,12 @@ export async function writeClaim(
     await db.batch(stmts);
     return { ok: true };
   } catch (err) {
-    const msg = String((err as Error)?.message ?? err);
-    if (msg.includes('drep_handles.handle')) return { ok: false, error: 'taken' };
-    if (msg.includes('drep_handles.drep_id')) return { ok: false, error: 'stale' };
+    // The batch rolled back. Ask D1 which constraint won instead of parsing the
+    // error text: a live foreign holder means 'taken', a primary other than the
+    // expected one means 'stale'. Anything else is a real failure.
+    const holder = await resolveHandle(db, handle, now);
+    if (holder && holder.drepId !== drepId) return { ok: false, error: 'taken' };
+    if ((await getPrimaryHandle(db, drepId, now)) !== expectedCurrent) return { ok: false, error: 'stale' };
     throw err;
   }
 }
@@ -163,14 +167,11 @@ export async function listAutoCandidates(
   }));
 }
 
-// 99 binds max per statement here: the handles plus `now`.
-const LIVE_CHUNK = 98;
-
 /** Handles among `handles` that are live right now (the taken set for the auto path). */
 export async function listLiveHandles(db: D1Database, handles: string[], now: number): Promise<Set<string>> {
   const out = new Set<string>();
-  for (let i = 0; i < handles.length; i += LIVE_CHUNK) {
-    const chunk = handles.slice(i, i + LIVE_CHUNK);
+  // One bind per statement goes to `now`.
+  for (const chunk of chunked(handles, D1_MAX_BINDS - 1)) {
     const rows =
       (
         await db
@@ -186,7 +187,8 @@ export async function listLiveHandles(db: D1Database, handles: string[], now: nu
 /**
  * Inserts automatic handles and stamps every decided DRep. Expired rows for the
  * same handles are cleared first. INSERT OR IGNORE skips a handle claimed in the
- * meantime and a DRep that already has a primary. Returns rows inserted.
+ * meantime and a DRep that already has a primary. One batch per chunk: deletes,
+ * then inserts, then stamps. Returns rows inserted.
  */
 export async function insertAutoHandles(
   db: D1Database,
@@ -194,29 +196,29 @@ export async function insertAutoHandles(
   decided: string[],
   now: number,
 ): Promise<number> {
-  const stmts: D1PreparedStatement[] = [];
-  for (const r of rows) {
-    stmts.push(
-      db
-        .prepare('DELETE FROM drep_handles WHERE handle = ? AND released_at IS NOT NULL AND released_at <= ?')
-        .bind(r.handle, now),
-      db
-        .prepare(
-          `INSERT OR IGNORE INTO drep_handles (handle, drep_id, source, is_primary, released_at, created_at, updated_at)
-           VALUES (?, ?, 'auto', 1, NULL, ?, ?)`,
-        )
-        .bind(r.handle, r.drepId, now, now),
-    );
-  }
-  for (const id of decided) {
-    stmts.push(db.prepare('UPDATE dreps SET handle_auto_at = ? WHERE drep_id = ?').bind(now, id));
-  }
-  if (stmts.length === 0) return 0;
-  const results = await db.batch(stmts);
   let inserted = 0;
-  for (let i = 1; i < rows.length * 2; i += 2) inserted += results[i].meta.changes ?? 0;
+  for (const chunk of chunked(rows, AUTO_CHUNK)) {
+    const results = await db.batch([
+      ...chunk.map((r) => db.prepare(`DELETE FROM drep_handles WHERE handle = ? AND ${EXPIRED}`).bind(r.handle, now)),
+      ...chunk.map((r) =>
+        db
+          .prepare(
+            `INSERT OR IGNORE INTO drep_handles (handle, drep_id, source, is_primary, released_at, created_at, updated_at)
+             VALUES (?, ?, 'auto', 1, NULL, ?, ?)`,
+          )
+          .bind(r.handle, r.drepId, now, now),
+      ),
+    ]);
+    for (const r of results.slice(chunk.length)) inserted += r.meta.changes ?? 0;
+  }
+  for (const chunk of chunked(decided, AUTO_CHUNK)) {
+    await db.batch(chunk.map((id) => db.prepare('UPDATE dreps SET handle_auto_at = ? WHERE drep_id = ?').bind(now, id)));
+  }
   return inserted;
 }
+
+// Rows per batch in insertAutoHandles. Only the launch-sized first run needs more than one.
+const AUTO_CHUNK = 50;
 
 /** Grace on deregistration, restore on re-registration, delete expired rows. */
 export async function runHandleLifecycle(
@@ -237,7 +239,7 @@ export async function runHandleLifecycle(
            AND drep_id IN (SELECT drep_id FROM dreps WHERE status = 'registered')`,
       )
       .bind(now, now),
-    db.prepare('DELETE FROM drep_handles WHERE released_at IS NOT NULL AND released_at <= ?').bind(now),
+    db.prepare(`DELETE FROM drep_handles WHERE ${EXPIRED}`).bind(now),
   ]);
   return {
     released: released.meta.changes ?? 0,

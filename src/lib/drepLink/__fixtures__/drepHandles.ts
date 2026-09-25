@@ -1,6 +1,6 @@
 // Shared fixtures for the drep.link workers tests. Test-only, never imported by
 // production code.
-export function drepArgs(drepId: string, name: string | null, status = 'registered') {
+export function drepArgs(drepId: string, name: string | null, status: 'registered' | 'deregistered' = 'registered') {
   return {
     drepId, hex: null, hasScript: false, status, active: true, deposit: null,
     votingPower: null, expiresEpochNo: null, name, bio: null, imageUrl: null,

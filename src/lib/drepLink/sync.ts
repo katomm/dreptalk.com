@@ -7,8 +7,6 @@ import {
   isSeeded, listAutoCandidates, listLiveHandles, insertAutoHandles, runHandleLifecycle,
 } from '../db/drepHandles.js';
 
-const WRITE_CHUNK = 50;
-
 export interface DrepHandlesSyncResult {
   seeded: boolean;
   assigned: number;
@@ -34,15 +32,7 @@ export async function syncDrepHandles(db: D1Database, now: number): Promise<Drep
     const taken = await listLiveHandles(db, bases, now);
     const result = assignHandles(open, taken);
     skipped = result.skipped.length;
-    const decided = candidates.map((c) => c.drepId);
-    for (let i = 0; i < Math.max(result.assigned.length, decided.length); i += WRITE_CHUNK) {
-      assigned += await insertAutoHandles(
-        db,
-        result.assigned.slice(i, i + WRITE_CHUNK),
-        decided.slice(i, i + WRITE_CHUNK),
-        now,
-      );
-    }
+    assigned = await insertAutoHandles(db, result.assigned, candidates.map((c) => c.drepId), now);
   }
   const life = await runHandleLifecycle(db, now);
   return { seeded: true, assigned, skipped, ...life };

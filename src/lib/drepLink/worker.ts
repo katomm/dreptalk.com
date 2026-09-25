@@ -8,14 +8,15 @@ import { routeFor } from './resolve.js';
 import { renderLanding } from './landing.js';
 import { DREP_LINK_ORIGIN } from './handle.js';
 
+// A found handle changes rarely (90-day cooldown, old links keep redirecting),
+// so it may stay cached for an hour. Everything else stays short, so a freshly
+// claimed handle is not hidden behind a cached search redirect for long.
+const HIT_TTL = 3600;
 const REDIRECT_TTL = 300;
 const LANDING_TTL = 3600;
 
-function redirect(location: string): Response {
-  return new Response(null, {
-    status: 302,
-    headers: { location, 'cache-control': `public, max-age=${REDIRECT_TTL}` },
-  });
+function redirect(location: string, ttl = REDIRECT_TTL): Response {
+  return new Response(null, { status: 302, headers: { location, 'cache-control': `public, max-age=${ttl}` } });
 }
 
 export interface ResolverDeps {
@@ -24,6 +25,18 @@ export interface ResolverDeps {
   /** Unix seconds. */
   now: number;
   cache: Cache | null;
+  /** Lets cache writes finish after the response is sent. Awaited inline when absent. */
+  waitUntil?: (p: Promise<unknown>) => void;
+}
+
+function store(deps: ResolverDeps, key: Request, res: Response): Promise<void> {
+  if (!deps.cache) return Promise.resolve();
+  const put = deps.cache.put(key, res.clone());
+  if (deps.waitUntil) {
+    deps.waitUntil(put);
+    return Promise.resolve();
+  }
+  return put;
 }
 
 export async function handleRequest(req: Request, deps: ResolverDeps): Promise<Response> {
@@ -41,7 +54,7 @@ export async function handleRequest(req: Request, deps: ResolverDeps): Promise<R
         res = new Response(renderLanding({ siteOrigin: site, linkOrigin: DREP_LINK_ORIGIN }), {
           headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': `public, max-age=${LANDING_TTL}` },
         });
-        if (deps.cache) await deps.cache.put(key, res.clone());
+        await store(deps, key, res);
       }
       return req.method === 'HEAD' ? new Response(null, { headers: res.headers }) : res;
     }
@@ -61,12 +74,10 @@ export async function handleRequest(req: Request, deps: ResolverDeps): Promise<R
       const hit = deps.cache ? await deps.cache.match(key) : undefined;
       if (hit) return hit;
       const found = await resolveHandle(deps.db, route.handle, deps.now);
-      const res = redirect(
-        found
-          ? `${site}${drepPath({ drepId: found.drepId, slug: found.slug })}`
-          : `${site}${searchPageHref(route.handle, 'dreps')}`,
-      );
-      if (deps.cache) await deps.cache.put(key, res.clone());
+      const res = found
+        ? redirect(`${site}${drepPath({ drepId: found.drepId, slug: found.slug })}`, HIT_TTL)
+        : redirect(`${site}${searchPageHref(route.handle, 'dreps')}`);
+      await store(deps, key, res);
       return res;
     }
   }

@@ -3,7 +3,8 @@ import { env } from 'cloudflare:test';
 import { claimHandleRequest } from './claimRequest.js';
 import { upsertDrep } from '../db/dreps.js';
 import { getPrimaryHandle } from '../db/drepHandles.js';
-import { drepArgs, insertHandle, markSeeded } from './testHelpers.js';
+import { drepArgs, insertHandle, markSeeded } from './__fixtures__/drepHandles.js';
+import { COOLDOWN_SEC, GRACE_SEC } from './handle.js';
 
 const NOW = 1_800_000_000;
 const A = 'drep1claimaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaqqqqq';
@@ -32,7 +33,10 @@ describe('claimHandleRequest', () => {
   it('claims, normalizes input, and then enforces the cooldown', async () => {
     await markSeeded(env.DB);
     await upsertDrep(env.DB, drepArgs(A, 'Alice'));
-    expect(await call(drepUser, { handle: ' drep.link/Alice-Two ', expectedCurrent: null })).toEqual({ status: 200, body: { ok: true, handle: 'alice-two' } });
+    expect(await call(drepUser, { handle: ' drep.link/Alice-Two ', expectedCurrent: null })).toEqual({
+      status: 200,
+      body: { ok: true, handle: 'alice-two', previous: null, cooldownUntil: NOW + COOLDOWN_SEC },
+    });
     expect(await getPrimaryHandle(env.DB, A, NOW)).toBe('alice-two');
     expect(await call(drepUser, { handle: 'alice-three', expectedCurrent: 'alice-two' })).toMatchObject({ status: 409, body: { error: 'cooldown' } });
   });
@@ -42,6 +46,10 @@ describe('claimHandleRequest', () => {
     await insertHandle(env.DB, 'old', A);
     expect(await call(drepUser, { handle: 'two', expectedCurrent: 'one' })).toMatchObject({ status: 409, body: { error: 'stale' } });
     expect(await getPrimaryHandle(env.DB, A, NOW)).toBe('old');
+    expect(await call(drepUser, { handle: 'two', expectedCurrent: 'old' })).toMatchObject({
+      status: 200,
+      body: { previous: { handle: 'old', until: NOW + GRACE_SEC } },
+    });
   });
   it('reports a handle live for someone else as taken', async () => {
     await markSeeded(env.DB);

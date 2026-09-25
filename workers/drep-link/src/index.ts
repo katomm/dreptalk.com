@@ -8,12 +8,13 @@ interface Env {
 }
 
 export default {
-  fetch(request, env): Promise<Response> {
+  fetch(request, env, ctx): Promise<Response> {
     return handleRequest(request, {
       db: env.DB,
       cfg: resolveNetwork(env.CARDANO_NETWORK ?? null),
       now: Math.floor(Date.now() / 1000),
       cache: (caches as CacheStorage & { default: Cache }).default,
+      waitUntil: (p) => ctx.waitUntil(p),
     });
   },
 } satisfies ExportedHandler<Env>;
