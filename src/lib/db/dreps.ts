@@ -517,17 +517,17 @@ export async function getDrepMoverStanding(
 }
 
 /**
- * Drep ids currently marked active. The sync diffs this against the registered
- * enumeration to find rows that still claim active voting power but have left the
- * registered set (the DRep deregistered). Excludes the pseudo-DReps, which are
- * standing options, never real voters.
+ * Drep ids still marked registered, active or not. The sync diffs this against
+ * the registered enumeration to find every DRep that deregistered, including
+ * inactive ones, which an active-only check never looked at. Excludes the
+ * pseudo-DReps, which are standing options, never real voters.
  */
-export async function listActiveDrepIds(db: D1Database): Promise<string[]> {
+export async function listRegisteredDrepIds(db: D1Database): Promise<string[]> {
   const rows = (
     await db
       .prepare(
         `SELECT drep_id FROM dreps
-         WHERE active = 1 AND drep_id NOT IN (${sqlPlaceholders(SPECIAL_DREP_IDS)})`,
+         WHERE status = 'registered' AND drep_id NOT IN (${sqlPlaceholders(SPECIAL_DREP_IDS)})`,
       )
       .bind(...SPECIAL_DREP_IDS)
       .all<{ drep_id: string }>()

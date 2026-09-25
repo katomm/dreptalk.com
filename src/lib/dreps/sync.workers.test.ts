@@ -80,7 +80,7 @@ function infoRow(id: string, over: Partial<DrepInfoRow> = {}): DrepInfoRow {
     drep_id: id,
     hex: `${id}-hex`,
     has_script: false,
-    drep_status: 'active',
+    drep_status: 'registered',
     deposit: '500000000',
     active: true,
     expires_epoch_no: 400,
@@ -117,7 +117,7 @@ describe('syncDreps', () => {
     expect(stored!.paymentAddress).toBe(`addr_test1qz${'a'.repeat(40)}`);
     expect(stored!.anchorStatus).toBe('ok');
     expect(stored!.anchorHash).toBe(profileHash);
-    expect(stored!.status).toBe('active');
+    expect(stored!.status).toBe('registered');
     expect(stored!.votingPower).toBe('1000000000');
     expect(stored!.lastSyncedAt).toBe(NOW);
     expect(stored!.createdAt).toBe(NOW);
@@ -504,6 +504,35 @@ describe('deregistration', () => {
 
     // The still-registered DRep is untouched.
     expect((await getDrepById(env.DB, stay))!.active).toBe(true);
+  });
+
+  it('marks an inactive registered DRep as deregistered once it leaves the registered set', async () => {
+    const stay = 'drep1-dereg-inactive-stay';
+    const gone = 'drep1-dereg-inactive-gone';
+
+    // Run 1: both registered, `gone` already inactive (no recent vote).
+    const r1 = fakeKoios({
+      pages: [[listRow(stay), listRow(gone)]],
+      infoById: new Map([
+        [stay, infoRow(stay, { drep_status: 'registered' })],
+        [gone, infoRow(gone, { drep_status: 'registered', active: false })],
+      ]),
+    });
+    await syncDreps({ koios: r1.koios, db: env.DB, fetchImpl: countingProfileFetch().fetchImpl, now: NOW });
+    expect((await getDrepById(env.DB, gone))!.status).toBe('registered');
+
+    // Run 2: `gone` deregistered. The old active-only check never looked at it.
+    const r2k = fakeKoios({
+      pages: [[listRow(stay, true), listRow(gone, false)]],
+      infoById: new Map([
+        [stay, infoRow(stay, { drep_status: 'registered' })],
+        [gone, infoRow(gone, { drep_status: 'deregistered', active: false, amount: '0', deposit: null })],
+      ]),
+    });
+    const r2 = await syncDreps({ koios: r2k.koios, db: env.DB, fetchImpl: countingProfileFetch().fetchImpl, now: NOW + 1 });
+    expect(r2.deactivated).toBe(1);
+    expect((await getDrepById(env.DB, gone))!.status).toBe('deregistered');
+    expect((await getDrepById(env.DB, stay))!.status).toBe('registered');
   });
 
   it('does not deactivate active rows when the enumeration is empty', async () => {
