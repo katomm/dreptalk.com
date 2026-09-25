@@ -9,6 +9,9 @@ describe('drepLinkCardHtml', () => {
     expect(html).toContain('yourname');
     expect(html).toContain('Free for every DRep');
   });
+  it('keeps the domain in the pill lowercase, unlike the other cards', () => {
+    expect(html).not.toContain('text-transform:uppercase');
+  });
   it('is a 1200 wide card on the shared frame with the bottom accent bar', () => {
     expect(html).toContain('width:1200px');
     expect(html).toContain('height:12px');
