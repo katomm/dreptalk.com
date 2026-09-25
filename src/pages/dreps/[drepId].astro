@@ -33,6 +33,8 @@ import { isIndexableProfile, influencePct, formatSharePct, drepPath, isCanonical
 import { buildRecentActivity } from '@/lib/dreps/recentActivity.js';
 import { voteChangeStat, voteTimingStat } from '@/lib/dreps/voteStatsView.js';
 import { getReportCard } from '@/lib/db/drepReportCard.js';
+import { getPrimaryHandle } from '@/lib/db/drepHandles.js';
+import { DREP_LINK_ORIGIN } from '@/lib/drepLink/handle.js';
 import { formatEpochDate } from '@/lib/governance/view.js';
 import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
 import { ogCardVersion } from '@/lib/og/version.js';
@@ -89,7 +91,7 @@ const isOwner =
 
 // Forum activity + total active power + voting history load together (independent reads).
 const drepUser = drep && db ? await getUserByDrepId(db, drep.drepId) : null;
-const [posts, activeStake, votingHistory, votesCast, voteBreakdown, rationaleStats, participation, earnedBadges, holderCounts, powerSeries, voteHistoryMap, reportCard, timingRows] =
+const [posts, activeStake, votingHistory, votesCast, voteBreakdown, rationaleStats, participation, earnedBadges, holderCounts, powerSeries, voteHistoryMap, reportCard, timingRows, drepLinkHandle] =
   await Promise.all([
     drepUser && db ? getPostsByAuthor(db, drepUser.id, { limit: 20 }) : Promise.resolve([]),
     db ? getActiveDrepStake(db) : Promise.resolve({ total: 0, asOf: null }),
@@ -111,7 +113,10 @@ const [posts, activeStake, votingHistory, votesCast, voteBreakdown, rationaleSta
     drep && db ? getVoterVoteHistory(db, drep.drepId) : Promise.resolve(new Map()),
     drep && db ? getReportCard(db, drep.drepId) : Promise.resolve(null),
     drep && db ? listDrepVoteTimings(db, drep.drepId) : Promise.resolve([]),
+    drep && db ? getPrimaryHandle(db, drep.drepId, Math.floor(Date.now() / 1000)) : Promise.resolve(null),
   ]);
+// The DRep's short link, shown under its id. Absent until the drep.link seed ran.
+const drepLinkUrl = drepLinkHandle ? `${DREP_LINK_ORIGIN}/${drepLinkHandle}` : null;
 
 const timingStat = voteTimingStat(timingRows);
 
@@ -325,6 +330,9 @@ const profileSummary = drep
           <ShareButton url={new URL(Astro.url.pathname, Astro.url.origin).href} title={`${displayName} on DRepTalk`} ariaLabel="Share this profile" />
         </div>
         <div class="drep-hd__id"><span title={drep.drepId}>{truncateIdMiddle(drep.drepId)}</span><CopyButton value={drep.drepId} label="Copy DRep id" /></div>
+        {drepLinkUrl && (
+          <div class="drep-hd__link"><a href={drepLinkUrl}>{drepLinkUrl.replace(/^https:\/\//, '')}</a><CopyButton value={drepLinkUrl} label="Copy drep.link" /></div>
+        )}
         <p class="drep-hd__power">
           <span class="drep-hd__powerval drep-hd__value--full">{formatAda(drep.votingPower)}</span>
           <span class="drep-hd__powerval drep-hd__value--compact">{formatAdaCompact(drep.votingPower)}</span>
@@ -594,6 +602,8 @@ const profileSummary = drep
   .drep-hd__titlerow { display: flex; align-items: center; gap: 0.85rem; flex-wrap: wrap; margin: 0 0 0.2rem; }
   .drep-hd__name { margin: 0; font-size: 2rem; line-height: 1.1; overflow-wrap: anywhere; }
   .drep-hd__id { font-size: 0.8125rem; color: var(--muted); margin-bottom: 0.65rem; }
+  .drep-hd__link { font-size: 0.8125rem; color: var(--muted); margin: -0.4rem 0 0.65rem; }
+  .drep-hd__link a { color: inherit; font-weight: 600; }
 
   /* Voting power as the header's one prominent figure, delegators and share as
      a muted secondary line: correct, but not staged as a heroic KPI wall. */
