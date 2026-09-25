@@ -4,12 +4,14 @@ description: "How to register as a Cardano DRep, change your on-chain metadata (
 cardLabel: "Managing your DRep"
 category: "For DReps"
 order: 1
-updated: 2026-09-18
+updated: 2026-09-25
 faqs:
   - q: "How do I register as a DRep on Cardano?"
     a: "Use Register as a DRep with a CIP-95 capable wallet. It locks a refundable 500 ada deposit plus a network fee."
   - q: "How do I change my DRep metadata?"
     a: "Sign in as a DRep, edit the prefilled form in Settings and sign the update certificate in your wallet."
+  - q: "What is my drep.link?"
+    a: "A short link to your DRepTalk profile, like drep.link/yourname. It is built from your on-chain name, and you can pick a different one in Settings once every 90 days."
   - q: "How much does it cost to update my DRep metadata?"
     a: "Only the network fee. Updates need no deposit."
   - q: "How do I get my 500 ada DRep deposit back?"
@@ -49,6 +51,18 @@ The change is on the chain as soon as the transaction confirms. When you submit
 it through DRepTalk, your profile here updates right away. Wallets and explorers
 show it after their next sync. A profile you change with another tool reaches
 DRepTalk with the next metadata re-read, which runs every six hours.
+
+## Your drep.link
+
+Every DRep with a name in its metadata gets a short link to its DRepTalk
+profile, like `drep.link/yourname`. Share it in your bio, your posts or your
+slides. It is built from your name when you first appear with one, and it keeps
+working when you rename yourself later.
+
+To pick a different one, sign in as a DRep and open
+[Settings](/settings/profile/). You can change it once every 90 days. Your old
+link keeps redirecting for 180 days, then it becomes free for others. DReps
+without a name can always use `drep.link/` followed by their DRep id.
 
 ## Get your 500 ada deposit back
 

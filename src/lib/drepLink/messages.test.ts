@@ -17,6 +17,6 @@ describe('claimErrorMessage', () => {
     for (const e of ALL) expect(claimErrorMessage(e, 1_800_000_000)).not.toBe('Something went wrong. Please try again.');
   });
   it('follows the copy rules', () => {
-    for (const e of ALL) expect(claimErrorMessage(e, 1_800_000_000)).not.toMatch(/[;–—]/);
+    for (const e of ALL) expect(claimErrorMessage(e, 1_800_000_000)).not.toMatch(/[;\u2013\u2014]/);
   });
 });

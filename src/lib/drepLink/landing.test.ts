@@ -12,7 +12,7 @@ describe('renderLanding', () => {
     expect(html).toContain('href="https://dreptalk.com/settings/profile/"');
   });
   it('follows the copy rules', () => {
-    expect(html).not.toMatch(/[–—―]|&mdash;|&ndash;/);
+    expect(html).not.toMatch(/[\u2013\u2014\u2015]|&mdash;|&ndash;/);
     expect(html).not.toMatch(/ADA\b/);
   });
   it('supports dark mode and phone widths', () => {
