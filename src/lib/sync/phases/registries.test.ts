@@ -139,7 +139,7 @@ describe('drepPhases', () => {
     expect(activePhaseNames(drepPhases, drepCtx())).toEqual([
       'dreps', 'voting-power-history', 'drep-stats-digest', 'drep-report-card', 'voting-timing-snapshot', 'vote-history-sweep',
       'epoch-stats', 'epoch-stats-backfill',
-      'registered-epochs', 'slugs', 'pool-slugs', 'pools', 'avatars', 'avatar-refit',
+      'registered-epochs', 'slugs', 'drep-handles', 'pool-slugs', 'pools', 'avatars', 'avatar-refit',
     ]);
     const withoutBucket = activePhaseNames(drepPhases, drepCtx({ avatars: false }));
     expect(withoutBucket).not.toContain('avatars');
