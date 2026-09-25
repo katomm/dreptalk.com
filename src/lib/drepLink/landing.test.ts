@@ -11,6 +11,10 @@ describe('renderLanding', () => {
     expect(html).toContain('name="h"');
     expect(html).toContain('href="https://dreptalk.com/settings/profile/"');
   });
+  it('makes clear that the link is free', () => {
+    expect(html).toContain('Every DRep gets a free short link');
+    expect(html).toContain('Get your free drep.link');
+  });
   it('follows the copy rules', () => {
     expect(html).not.toMatch(/[\u2013\u2014\u2015]|&mdash;|&ndash;/);
     expect(html).not.toMatch(/ADA\b/);
