@@ -1,8 +1,7 @@
-/// <reference types="@cloudflare/workers-types" />
 // The metric contract for governance_epoch_stats: the single source of truth
 // for what every column means, where its data comes from, and from which epoch
-// its series is reliable. Charts MUST use seriesStartEpoch instead of assuming
-// history exists, so a NULL never gets rendered as a zero.
+// its series is reliable. Charts MUST clip to seriesStartFromRows instead of
+// assuming history exists, so a NULL never gets rendered as a zero.
 //
 // Two-layer convention (see src/lib/dreps/special.ts): representative metrics
 // exclude the special auto-voting ids, the specials form the default
@@ -189,33 +188,11 @@ export const EPOCH_STATS_METRICS: Record<EpochStatsMetricKey, EpochStatsMetric> 
 };
 
 /**
- * First epoch from which the metric's stored series is reliable, or null when
- * nothing usable is stored yet. Column names come from the static contract
- * above, never from user input.
- */
-export async function seriesStartEpoch(
-  db: D1Database,
-  key: EpochStatsMetricKey,
-): Promise<number | null> {
-  const metric = EPOCH_STATS_METRICS[key];
-  let sql: string;
-  if (metric.start === 'first-non-null') {
-    sql = `SELECT MIN(epoch) AS e FROM governance_epoch_stats WHERE ${metric.column} IS NOT NULL`;
-  } else if (metric.start === 'first-complete') {
-    sql = 'SELECT MIN(epoch) AS e FROM governance_epoch_stats WHERE vote_data_complete = 1';
-  } else {
-    sql = 'SELECT MIN(epoch) AS e FROM governance_epoch_stats';
-  }
-  const row = await db.prepare(sql).first<{ e: number | null }>();
-  return row?.e ?? null;
-}
-
-/**
- * Pure, in-memory equivalent of seriesStartEpoch for callers that already
- * hold the full stats series (epoch ascending, as listEpochStats returns it),
- * so they can resolve every metric's start without one DB round-trip each.
- * Implements the same three start rules as seriesStartEpoch, over rows
- * already in memory. Keep seriesStartEpoch too, not every consumer holds rows.
+ * First epoch from which the metric's series is reliable, or null when
+ * nothing usable is stored yet. Works on the full stats series already in
+ * memory (epoch ascending, as listEpochStats returns it), so callers resolve
+ * every metric's start without one DB round-trip each. Implements the three
+ * start rules of the contract: oldest-row, first-non-null, first-complete.
  *
  * The metric key doubles as the EpochStatsRow field name for every chartable
  * metric (asserted by a test), so no separate name table is needed here, the

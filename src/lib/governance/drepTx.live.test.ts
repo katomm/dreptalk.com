@@ -1,8 +1,12 @@
-// LIVE preprod e2e (gated). Skipped unless DREPTALK_LIVE=1, because it needs
-// outbound network to preprod Koios and the preprod test wallet (mnemonic at
-// ~/Sites/dreptalk-planning/test-wallet/wallet.json, outside this repo). It is
-// NOT a CI test; the deterministic guards live in drepTx.test.ts and the auth
-// handler tests. Run it with: DREPTALK_LIVE=1 npx vitest run src/lib/governance/drepTx.live.test.ts
+// LIVE preprod e2e (gated). Skipped unless DREPTALK_LIVE=1 and
+// PREPROD_TEST_WALLET_MNEMONIC is set, because it needs outbound network to
+// preprod Koios and the preprod test wallet, whose account 0 DRep key (role 3)
+// is registered on preprod. The mnemonic comes from the environment only and
+// must never be committed or logged. It is NOT a CI test, the deterministic
+// guards live in drepTx.test.ts and the auth handler tests. Nothing is
+// submitted, it only queries Koios and builds transactions. Run it with
+// `npm run test:live`, which loads ~/.config/cardano/preprod-test-wallet.env
+// when that file exists.
 //
 // It proves the two real-world things offline tests cannot:
 //   1. A real DRep login: a CIP-8 COSE signed with the actual DRep key verifies
@@ -11,12 +15,11 @@
 //      preprod protocol params, the fee WITH addSigner exceeds the fee WITHOUT
 //      it by ~one vkey witness (the "Insufficient fee" bug this guards).
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { mnemonicToEntropy } from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english.js';
 import { encode } from 'cborg';
 import * as E from '@evolution-sdk/evolution';
+import { addressFromSeed } from '@evolution-sdk/evolution/sdk/wallet/Derivation';
 import { Address, Anchor, Client, Credential, DRep, KeyHash, Transaction, Url, VotingProcedures, preprod } from '@evolution-sdk/evolution';
 import { blake2b224 } from '../crypto/blake.js';
 import { bytesToHex } from '../crypto/hex.js';
@@ -27,19 +30,20 @@ import { resolveDRep } from '../auth/resolveRole.js';
 import { buildGovActionId, queueRegisterDrepOps, queueVotesOps } from './drepTx.js';
 import { DREPTALK_CIP20_LABEL, dreptalkCip20Metadatum } from '../cardano/tx.js';
 
-const LIVE = process.env.DREPTALK_LIVE === '1';
+const MNEMONIC = process.env.PREPROD_TEST_WALLET_MNEMONIC ?? '';
+const LIVE = process.env.DREPTALK_LIVE === '1' && MNEMONIC !== '';
 const KOIOS = 'https://preprod.koios.rest/api/v1';
-const WALLET_PATH = `${homedir()}/Sites/dreptalk-planning/test-wallet/wallet.json`;
 
-// Derive the DRep signing material from the test wallet (role 3, index 0).
+// Derive the DRep signing material (account 0, role 3, index 0) and the
+// account 0 base payment address from the test wallet mnemonic.
 function loadDrepKey() {
-  const w = JSON.parse(readFileSync(WALLET_PATH, 'utf8')) as { mnemonic: string; paymentAddress: string };
-  const entropy = mnemonicToEntropy(w.mnemonic, wordlist);
+  const entropy = mnemonicToEntropy(MNEMONIC, wordlist);
   const root = E.Bip32PrivateKey.fromBip39Entropy(entropy, '');
   const prv = E.Bip32PrivateKey.toPrivateKey(E.Bip32PrivateKey.derivePath(root, "1852'/1815'/0'/3/0"));
   const pubKey = E.VKey.toBytes(E.PrivateKey.toPublicKey(prv));
   const sign = (msg: Uint8Array) => E.Ed25519Signature.toBytes(E.PrivateKey.sign(prv, msg));
-  return { paymentAddress: w.paymentAddress, pubKey, keyHash: blake2b224(pubKey), sign };
+  const paymentAddress = Address.toBech32(addressFromSeed(MNEMONIC, { networkId: 0 }).address);
+  return { paymentAddress, pubKey, keyHash: blake2b224(pubKey), sign };
 }
 
 // Builds a CIP-8 COSE_Sign1 + COSE_Key signed with the real DRep key over a

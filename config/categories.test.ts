@@ -39,20 +39,11 @@ describe('categories config', () => {
     expect(getCategory('nope')).toBeUndefined();
   });
 
-  it('isDiscussion returns false for governance-actions', () => {
-    expect(isDiscussion('governance-actions')).toBe(false);
-  });
-
-  it('isDiscussion returns true for general', () => {
-    expect(isDiscussion('general')).toBe(true);
-  });
-
   it('proposal drafts is a discussion category listed right after governance actions', () => {
     const drafts = getCategory(PROPOSAL_DRAFTS_CATEGORY_SLUG);
     expect(drafts).toMatchObject({
       slug: 'proposal-drafts',
       name: 'Proposal Drafts',
-      description: 'Governance action ideas and drafts, discussed before they go on-chain.',
       kind: 'discussion',
     });
     const order = getCategories({ surveys: true }).map((c) => c.slug);

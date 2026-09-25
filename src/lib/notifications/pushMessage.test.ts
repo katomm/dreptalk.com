@@ -62,6 +62,12 @@ describe('formatSummary', () => {
     );
   });
 
+  it('renders a phrase for each non-zero delegator term (drep activity, drep status, delegation change)', () => {
+    expect(formatSummary(counts({ drepActivity: 2, drepStatus: 1, myDelegation: 1 }))).toBe(
+      '2 DRep vote updates, 1 DRep status change, 1 delegation change',
+    );
+  });
+
   it('summarizes pending DRep stats digests', () => {
     expect(formatSummary(counts({ drepStats: 1 }))).toBe('1 DRep stats update');
     expect(formatSummary(counts({ drepStats: 2, replies: 1 }))).toBe('1 new reply, 2 DRep stats updates');

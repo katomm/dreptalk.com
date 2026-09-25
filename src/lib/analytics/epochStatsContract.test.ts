@@ -1,6 +1,5 @@
-// Pure-logic tests for seriesStartFromRows, the in-memory equivalent of
-// seriesStartEpoch. Cases mirror epochStatsContract.workers.test.ts so the
-// two implementations stay behaviorally identical.
+// Pure-logic tests for seriesStartFromRows, one case per start rule of the
+// metric contract.
 import { describe, it, expect } from 'vitest';
 import { EPOCH_STATS_METRICS, seriesStartFromRows } from './epochStatsContract.js';
 import type { EpochStatsRow } from './epochStats.js';

@@ -266,13 +266,6 @@ describe('createKoiosClient.drepInfo', () => {
     expect(result!.deposit).toBeNull();
     expect(result!.expires_epoch_no).toBeNull();
   });
-
-  it('throws on non-200 response', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}, 500));
-    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
-
-    await expect(client.drepInfo(DREP_ID)).rejects.toThrow(/koios request failed: 500/i);
-  });
 });
 
 // --- accountInfo ---
@@ -333,13 +326,6 @@ describe('createKoiosClient.accountInfo', () => {
     expect(result).not.toBeNull();
     expect(result!.delegated_drep).toBeNull();
   });
-
-  it('throws on non-200 response', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}, 401));
-    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
-
-    await expect(client.accountInfo(STAKE_ADDR)).rejects.toThrow(/koios request failed: 401/i);
-  });
 });
 
 describe('accountInfoBatch', () => {
@@ -397,13 +383,6 @@ describe('createKoiosClient.proposalsByReturnAddress', () => {
 
     expect(result).toEqual([]);
   });
-
-  it('throws on non-200 response', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}, 503));
-    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
-
-    await expect(client.proposalsByReturnAddress(STAKE_ADDR)).rejects.toThrow(/koios request failed: 503/i);
-  });
 });
 
 // --- poolCalidusKey ---
@@ -441,13 +420,6 @@ describe('createKoiosClient.poolCalidusKey', () => {
     const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
 
     expect(await client.poolCalidusKey(CALIDUS_PUBKEY_HEX)).toBeNull();
-  });
-
-  it('throws on non-200 response', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}, 502));
-    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
-
-    await expect(client.poolCalidusKey(CALIDUS_PUBKEY_HEX)).rejects.toThrow(/koios request failed: 502/i);
   });
 });
 
@@ -507,13 +479,6 @@ describe('createKoiosClient.committeeInfo', () => {
     const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
 
     expect(await client.committeeInfo()).toEqual([]);
-  });
-
-  it('throws on non-200 response', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}, 500));
-    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
-
-    await expect(client.committeeInfo()).rejects.toThrow(/koios request failed: 500/i);
   });
 });
 

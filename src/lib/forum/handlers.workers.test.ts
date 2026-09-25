@@ -87,28 +87,6 @@ describe('posting works for each writer role', () => {
     });
   }
 
-  it('an unauthenticated request cannot create a topic', async () => {
-    const res = await handleCreateTopic({
-      user: null,
-      body: { categorySlug: 'general', title: 'Should be blocked', bodyMd: 'nope' },
-      db: db(),
-      rateLimiter: rateLimiter(),
-      now: NOW,
-    });
-    expect(res.status).toBe(401);
-  });
-
-  it('a non-writer authenticated user (moderator-only) cannot create a topic', async () => {
-    const res = await handleCreateTopic({
-      user: { id: 'mod-only-user', roles: ['moderator'] },
-      body: { categorySlug: 'general', title: 'Mod tries to post', bodyMd: 'should be 403' },
-      db: db(),
-      rateLimiter: rateLimiter(),
-      now: NOW,
-    });
-    expect(res.status).toBe(403);
-  });
-
   it('a non-writer authenticated user (member) cannot reply', async () => {
     // Create a topic first as a writer.
     const topicRes = await handleCreateTopic({

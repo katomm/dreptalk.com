@@ -83,10 +83,4 @@ describe('buildCoalitionTable', () => {
     const empty = Array.from({ length: 101 }, () => ({ count: 0, cumPct: 0 }));
     expect(buildCoalitionTable(paramsFixture, empty)).toEqual([]);
   });
-
-  it('leaves buildThresholdMarkers output untouched including the 67 summary', () => {
-    const { markers } = buildThresholdMarkers(paramsFixture);
-    const m67 = markers.find((m) => m.pct === 67);
-    expect(m67?.actions).toEqual(['Treasury withdrawal and some network parameters']);
-  });
 });

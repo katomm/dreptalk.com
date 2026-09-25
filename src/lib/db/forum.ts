@@ -426,31 +426,6 @@ export async function getTopicBySlug(db: D1Database, slug: string): Promise<Topi
 }
 
 /**
- * Returns non-deleted topics for the given category, ordered pinned-first then
- * by last_post_at descending. Default limit 30, capped at 100. offset >= 0.
- */
-export async function getTopicsByCategory(
-  db: D1Database,
-  categorySlug: string,
-  opts?: { limit?: number; offset?: number },
-): Promise<Topic[]> {
-  const limit = Math.min(Math.max(opts?.limit ?? 30, 1), 100);
-  const offset = Math.max(opts?.offset ?? 0, 0);
-
-  const rows = await db
-    .prepare(
-      `SELECT * FROM topics
-       WHERE category_slug = ? AND deleted = 0
-       ORDER BY pinned DESC, last_post_at DESC
-       LIMIT ? OFFSET ?`,
-    )
-    .bind(categorySlug, limit, offset)
-    .all<TopicRow>();
-
-  return (rows.results ?? []).map(rowToTopic);
-}
-
-/**
  * Returns ALL non-deleted topics in a category (no pagination). Bounded to low-volume
  * categories: the gov-sync cron uses it (with getAllGovernanceActions) to recompute the
  * governance trending scores off the hot path. Do not use for high-volume categories.
@@ -476,31 +451,6 @@ export async function getTopicsByIds(db: D1Database, ids: readonly string[]): Pr
   const map = new Map<string, Topic>();
   for (const row of rows.results ?? []) map.set(row.id, rowToTopic(row));
   return map;
-}
-
-/**
- * Returns the newest non-deleted topics across ALL categories, ordered by last
- * activity. Powers the forum overview's "latest activity" column. Uses the
- * idx_topics_last_post index. Default limit 20, capped at 50.
- */
-export async function getLatestTopicsAcrossCategories(
-  db: D1Database,
-  opts?: { limit?: number; offset?: number },
-): Promise<Topic[]> {
-  const limit = Math.min(Math.max(opts?.limit ?? 20, 1), 50);
-  const offset = Math.max(opts?.offset ?? 0, 0);
-
-  const rows = await db
-    .prepare(
-      `SELECT * FROM topics
-       WHERE deleted = 0
-       ORDER BY last_post_at DESC
-       LIMIT ? OFFSET ?`,
-    )
-    .bind(limit, offset)
-    .all<TopicRow>();
-
-  return (rows.results ?? []).map(rowToTopic);
 }
 
 /**

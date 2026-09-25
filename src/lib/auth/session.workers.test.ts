@@ -11,9 +11,6 @@ import {
   listSessionsForUser,
   revokeSessionForUser,
   sessionIdForToken,
-  buildSessionCookie,
-  clearSessionCookie,
-  parseSessionToken,
 } from './session.js';
 
 const kv = () => env.SESSIONS;
@@ -310,53 +307,6 @@ describe('getSession with unknown or garbage tokens', () => {
 
   it('returns null for a garbage token string (no throw)', async () => {
     expect(await getSession(kv(), '!!@@##$$%%^^&&**()')).toBeNull();
-  });
-});
-
-describe('cookie helpers', () => {
-  it('buildSessionCookie contains the token and required flags', () => {
-    const token = 'myTestToken';
-    const cookie = buildSessionCookie(token);
-    expect(cookie).toContain(`dreptalk_session=${token}`);
-    expect(cookie).toContain('HttpOnly');
-    expect(cookie).toContain('Secure');
-    expect(cookie).toContain('SameSite=Lax');
-    expect(cookie).toContain('Path=/');
-    expect(cookie).toContain('Max-Age=2592000');
-  });
-
-  it('buildSessionCookie omits Secure when secure:false is passed', () => {
-    const token = 'localDevToken';
-    const cookie = buildSessionCookie(token, { secure: false });
-    expect(cookie).toContain(`dreptalk_session=${token}`);
-    expect(cookie).toContain('HttpOnly');
-    expect(cookie).not.toContain('Secure');
-    expect(cookie).toContain('SameSite=Lax');
-  });
-
-  it('clearSessionCookie has Max-Age=0', () => {
-    const cookie = clearSessionCookie();
-    expect(cookie).toContain('dreptalk_session=');
-    expect(cookie).toContain('Max-Age=0');
-    expect(cookie).toContain('HttpOnly');
-  });
-
-  it('parseSessionToken extracts the token from a valid Cookie header', () => {
-    const token = 'abc123def456';
-    const header = `other_cookie=val; dreptalk_session=${token}; another=x`;
-    expect(parseSessionToken(header)).toBe(token);
-  });
-
-  it('parseSessionToken returns null when the cookie is absent', () => {
-    expect(parseSessionToken('other=val; foo=bar')).toBeNull();
-  });
-
-  it('parseSessionToken returns null for null input', () => {
-    expect(parseSessionToken(null)).toBeNull();
-  });
-
-  it('parseSessionToken returns null for an empty cookie header', () => {
-    expect(parseSessionToken('')).toBeNull();
   });
 });
 

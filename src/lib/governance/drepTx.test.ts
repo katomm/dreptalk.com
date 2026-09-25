@@ -51,48 +51,17 @@ function addSignerKeyHashHex(calls: Array<{ op: string; arg: unknown }>): string
 }
 
 describe('buildRegisterDrepParts', () => {
-  it('returns a Credential and Anchor without throwing', () => {
+  it('builds a KeyHash credential and an anchor carrying the url and hash', () => {
     const { drepCredential, anchor } = buildRegisterDrepParts({
       drepKeyHash: DREP_KEY_HASH,
       anchorUrl: ANCHOR_URL,
       anchorHashHex: ANCHOR_HASH_HEX,
     });
 
-    expect(drepCredential).toBeDefined();
-    expect(anchor).toBeDefined();
-  });
-
-  it('constructs a KeyHash credential with the correct tag', () => {
-    const { drepCredential } = buildRegisterDrepParts({
-      drepKeyHash: DREP_KEY_HASH,
-      anchorUrl: ANCHOR_URL,
-      anchorHashHex: ANCHOR_HASH_HEX,
-    });
-
-    // Evolution SDK KeyHash has _tag "KeyHash".
     expect((drepCredential as { _tag: string })._tag).toBe('KeyHash');
-  });
-
-  it('round-trips the anchor URL via toJSON', () => {
-    const { anchor } = buildRegisterDrepParts({
-      drepKeyHash: DREP_KEY_HASH,
-      anchorUrl: ANCHOR_URL,
-      anchorHashHex: ANCHOR_HASH_HEX,
-    });
-
     // Anchor.toJSON returns { _tag, anchorUrl: string, anchorDataHash: hex }.
     const json = anchor.toJSON();
     expect(json.anchorUrl).toBe(ANCHOR_URL);
-  });
-
-  it('round-trips the anchor hash via toJSON', () => {
-    const { anchor } = buildRegisterDrepParts({
-      drepKeyHash: DREP_KEY_HASH,
-      anchorUrl: ANCHOR_URL,
-      anchorHashHex: ANCHOR_HASH_HEX,
-    });
-
-    const json = anchor.toJSON();
     expect(json.anchorDataHash).toBe(ANCHOR_HASH_HEX);
   });
 

@@ -1,10 +1,10 @@
-// Equivalence pin for the registry refactor: for every cron kind and gate case,
-// the active phase names in order must match what the hand-wired run functions
-// executed before. The `when` predicates read only gates and optional bindings,
-// so stand-in contexts exercise them without a Workers runtime. The contexts
-// are built field-by-field (casts only on opaque runtime handles) so that a new
-// context field breaks this file at compile time instead of silently pinning a
-// phase list computed from undefined gates.
+// Gating rules of the three phase registries. The `when` predicates read only
+// gates and optional bindings, so stand-in contexts exercise them without a
+// Workers runtime. The tests assert the rules (which gate enables which phase,
+// the orderings that matter) instead of full phase lists, so adding an
+// ungated phase needs no edit here. The contexts are built field-by-field
+// (casts only on opaque runtime handles) so that a new context field breaks
+// this file at compile time instead of silently evaluating undefined gates.
 import { describe, it, expect } from 'vitest';
 import type { NetworkConfig } from '../../config/network.js';
 import type { CoreSyncContext, GovSyncKoios } from './context.js';
@@ -65,36 +65,50 @@ function expectUniqueNames(defs: readonly { name: string }[]) {
   expect(new Set(all).size).toBe(all.length);
 }
 
+function expectBefore(names: string[], first: string, later: string) {
+  expect(names, `${first} is active`).toContain(first);
+  expect(names, `${later} is active`).toContain(later);
+  expect(names.indexOf(first), `${first} runs before ${later}`).toBeLessThan(names.indexOf(later));
+}
+
+const DISPATCH = ['delegation-fanout', 'webpush', 'telegram'];
+
 describe('governancePhases', () => {
-  it('runs only discovery, notification dispatch, and cleanup phases on a light tick', () => {
-    expect(activePhaseNames(governancePhases, govCtx(false))).toEqual([
-      'discovery', 'gov-deferred-topics', 'delegation-fanout', 'webpush', 'telegram', 'post-erasure', 'cip100',
-    ]);
+  const allGates = govCtx(true, { tessera: true, pinGc: true, site: true });
+
+  it('reaches every registered phase when all gates are open', () => {
+    expect(activePhaseNames(governancePhases, allGates)).toEqual(governancePhases.map((d) => d.name));
   });
 
-  it('announces review editions right before the dispatch phases, on heavy ticks with the app binding', () => {
+  it('runs discovery and notification dispatch on every tick, the heavy phases only on a heavy tick', () => {
+    const light = activePhaseNames(governancePhases, govCtx(false));
+    const heavy = activePhaseNames(governancePhases, govCtx(true));
+    for (const name of ['discovery', ...DISPATCH]) expect(light).toContain(name);
+    // A heavy tick only adds phases, it never drops one the light tick runs.
+    for (const name of light) expect(heavy).toContain(name);
+    for (const name of ['tallies', 'metadata', 'params', 'delegation-refresh']) {
+      expect(light).not.toContain(name);
+      expect(heavy).toContain(name);
+    }
+  });
+
+  it('drains the delegation fan-out before the webpush and telegram dispatch', () => {
+    const names = activePhaseNames(governancePhases, govCtx(false));
+    expectBefore(names, 'delegation-fanout', 'webpush');
+    expectBefore(names, 'delegation-fanout', 'telegram');
+  });
+
+  it('announces review editions before the dispatch phases, on heavy ticks with the app binding', () => {
     const heavy = activePhaseNames(governancePhases, govCtx(true, { site: true }));
-    expect(heavy.slice(heavy.indexOf('review-announce'), heavy.indexOf('review-announce') + 3)).toEqual([
-      'review-announce', 'delegation-fanout', 'webpush',
-    ]);
+    for (const name of DISPATCH) expectBefore(heavy, 'review-announce', name);
     expect(activePhaseNames(governancePhases, govCtx(false, { site: true }))).not.toContain('review-announce');
     expect(activePhaseNames(governancePhases, govCtx(true))).not.toContain('review-announce');
   });
 
-  it('adds the tally/backfill/params phases in order on a heavy tick', () => {
-    expect(activePhaseNames(governancePhases, govCtx(true))).toEqual([
-      'discovery', 'gov-deferred-topics', 'tallies', 'gov-status-times', 'voted-power',
-      'threshold-backfill', 'metadata', 'gov-titles', 'post-dates', 'trending', 'params',
-      'delegation-fanout', 'webpush', 'telegram', 'delegation-refresh', 'post-erasure', 'cip100',
-    ]);
-  });
-
   it('runs the surveys mirror only when the Tessera client is configured', () => {
     expect(activePhaseNames(governancePhases, govCtx(false))).not.toContain('surveys');
-    expect(activePhaseNames(governancePhases, govCtx(false, { tessera: true }))).toEqual([
-      'discovery', 'gov-deferred-topics', 'surveys', 'delegation-fanout', 'webpush', 'telegram', 'post-erasure',
-      'cip100',
-    ]);
+    expect(activePhaseNames(governancePhases, govCtx(true))).not.toContain('surveys');
+    expect(activePhaseNames(governancePhases, govCtx(false, { tessera: true }))).toContain('surveys');
   });
 
   it('runs the pin collector only on a heavy tick with a group and token configured', () => {
@@ -102,51 +116,52 @@ describe('governancePhases', () => {
     // from the ordinary heavy tick rather than present and self-skipping.
     expect(activePhaseNames(governancePhases, govCtx(true))).not.toContain('pin-gc');
     expect(activePhaseNames(governancePhases, govCtx(false, { pinGc: true }))).not.toContain('pin-gc');
-    expect(activePhaseNames(governancePhases, govCtx(true, { pinGc: true }))).toEqual([
-      'discovery', 'gov-deferred-topics', 'tallies', 'gov-status-times', 'voted-power',
-      'threshold-backfill', 'metadata', 'gov-titles', 'pin-gc', 'post-dates', 'trending', 'params',
-      'delegation-fanout', 'webpush', 'telegram', 'delegation-refresh', 'post-erasure', 'cip100',
-    ]);
+    expect(activePhaseNames(governancePhases, govCtx(true, { pinGc: true }))).toContain('pin-gc');
   });
 
   it('marks exactly discovery as primary and keeps names unique', () => {
+    expect(governancePhases[0].name).toBe('discovery');
     expectSinglePrimaryFirst(governancePhases);
     expectUniqueNames(governancePhases);
   });
 });
 
 describe('votePhases', () => {
-  it('runs the vote refresh pipeline every tick, badges only hourly', () => {
-    expect(activePhaseNames(votePhases, voteCtx())).toEqual([
-      'votes', 'pools', 'pool-avatars', 'rationales', 'committee-meta', 'finalized-backfill',
-      'committee-pct', 'meta-hash-backfill', 'rationale-text-backfill', 'reconcile-pending', 'expire-multisig',
-    ]);
+  it('reaches every registered phase on an hourly tick with the R2 binding', () => {
+    expect(activePhaseNames(votePhases, voteCtx({ hourly: true }))).toEqual(votePhases.map((d) => d.name));
+  });
+
+  it('runs badges only on the hourly tick', () => {
+    expect(activePhaseNames(votePhases, voteCtx())).not.toContain('badges');
     expect(activePhaseNames(votePhases, voteCtx({ hourly: true }))).toContain('badges');
   });
 
   it('skips the pool-avatar mirror when the R2 binding is missing', () => {
+    expect(activePhaseNames(votePhases, voteCtx())).toContain('pool-avatars');
     expect(activePhaseNames(votePhases, voteCtx({ avatars: false }))).not.toContain('pool-avatars');
   });
 
   it('marks exactly votes as primary and keeps names unique', () => {
+    expect(votePhases[0].name).toBe('votes');
     expectSinglePrimaryFirst(votePhases);
     expectUniqueNames(votePhases);
   });
 });
 
 describe('drepPhases', () => {
-  it('runs the profile pipeline in order, avatar phases only with the R2 binding', () => {
-    expect(activePhaseNames(drepPhases, drepCtx())).toEqual([
-      'dreps', 'voting-power-history', 'drep-stats-digest', 'drep-report-card', 'voting-timing-snapshot', 'vote-history-sweep',
-      'epoch-stats', 'epoch-stats-backfill',
-      'registered-epochs', 'slugs', 'pool-slugs', 'pools', 'avatars', 'avatar-refit',
-    ]);
+  it('reaches every registered phase with the R2 binding', () => {
+    expect(activePhaseNames(drepPhases, drepCtx())).toEqual(drepPhases.map((d) => d.name));
+  });
+
+  it('skips every avatar phase when the R2 binding is missing', () => {
     const withoutBucket = activePhaseNames(drepPhases, drepCtx({ avatars: false }));
-    expect(withoutBucket).not.toContain('avatars');
-    expect(withoutBucket).not.toContain('avatar-refit');
+    expect(activePhaseNames(drepPhases, drepCtx())).toContain('avatars');
+    expect(withoutBucket.filter((name) => name.startsWith('avatar'))).toEqual([]);
+    expect(withoutBucket).toContain('dreps');
   });
 
   it('marks exactly dreps as primary and keeps names unique', () => {
+    expect(drepPhases[0].name).toBe('dreps');
     expectSinglePrimaryFirst(drepPhases);
     expectUniqueNames(drepPhases);
   });

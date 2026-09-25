@@ -1,8 +1,10 @@
-// LIVE preprod e2e (gated). Skipped unless DREPTALK_LIVE=1, because it needs
-// outbound network to preprod Koios and the preprod test wallet (mnemonic at
-// ~/Sites/dreptalk-planning/test-wallet/wallet.json, outside this repo). It is
-// NOT a CI test; the deterministic conversion guard lives in scriptVoteTx.test.ts.
-// Run it with: DREPTALK_LIVE=1 npx vitest run src/lib/governance/scriptVoteTx.live.test.ts
+// LIVE preprod e2e (gated). Skipped unless DREPTALK_LIVE=1 and
+// PREPROD_TEST_WALLET_MNEMONIC is set, because it needs outbound network to
+// preprod Koios and the preprod test wallet. The mnemonic comes from the
+// environment only and must never be committed or logged. It is NOT a CI test,
+// the deterministic conversion guard lives in scriptVoteTx.test.ts. This test
+// SUBMITS a real vote transaction on preprod. Run it with `npm run test:live:submit`,
+// which loads ~/.config/cardano/preprod-test-wallet.env when that file exists.
 //
 // It reproduces the proven native-script vote flow (preprod tx d20239...):
 //   1. Build a native-script DRep vote tx where the voter credential is a script
@@ -15,11 +17,10 @@
 // so the script hash defines the scriptDrepId and the single member witness
 // satisfies it. This needs no external script fixture.
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { mnemonicToEntropy } from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english.js';
 import * as E from '@evolution-sdk/evolution';
+import { addressFromSeed } from '@evolution-sdk/evolution/sdk/wallet/Derivation';
 import {
   Address,
   DRep,
@@ -35,20 +36,21 @@ import type { NativeScript } from '../cardano/nativeScript.js';
 import type { WalletApi } from './drepTx.js';
 import { assembleScriptVoteTx, buildScriptDRepVoteTx } from './scriptVoteTx.js';
 
-const LIVE = process.env.DREPTALK_LIVE === '1';
+const MNEMONIC = process.env.PREPROD_TEST_WALLET_MNEMONIC ?? '';
+const LIVE = process.env.DREPTALK_LIVE === '1' && MNEMONIC !== '';
 const KOIOS = 'https://preprod.koios.rest/api/v1';
 const ORIGIN = 'https://preprod.dreptalk.com';
-const WALLET_PATH = `${homedir()}/Sites/dreptalk-planning/test-wallet/wallet.json`;
 
-// Derive the DRep signing material from the test wallet (role 3, index 0).
+// Derive the DRep signing material (account 0, role 3, index 0) and the
+// account 0 base payment address from the test wallet mnemonic.
 function loadDrepKey() {
-  const w = JSON.parse(readFileSync(WALLET_PATH, 'utf8')) as { mnemonic: string; paymentAddress: string };
-  const entropy = mnemonicToEntropy(w.mnemonic, wordlist);
+  const entropy = mnemonicToEntropy(MNEMONIC, wordlist);
   const root = E.Bip32PrivateKey.fromBip39Entropy(entropy, '');
   const prv = E.Bip32PrivateKey.toPrivateKey(E.Bip32PrivateKey.derivePath(root, "1852'/1815'/0'/3/0"));
   const pubKey = E.VKey.toBytes(E.PrivateKey.toPublicKey(prv));
   const sign = (msg: Uint8Array) => E.Ed25519Signature.toBytes(E.PrivateKey.sign(prv, msg));
-  return { paymentAddress: w.paymentAddress, pubKey, keyHash: blake2b224(pubKey), sign };
+  const paymentAddress = Address.toBech32(addressFromSeed(MNEMONIC, { networkId: 0 }).address);
+  return { paymentAddress, pubKey, keyHash: blake2b224(pubKey), sign };
 }
 
 // A read-only wallet adapter over the test wallet: getUtxos/getUsedAddresses for

@@ -129,34 +129,22 @@ describe('submitVote orchestration', () => {
 });
 
 describe('expiredActionMessage', () => {
-  it('returns a friendly message when the error mentions voting + expired', () => {
-    const result = expiredActionMessage(new Error('The voting period has expired for this proposal'));
-    expect(result).toBe('This governance action is no longer accepting votes (it may have expired). Please refresh the page.');
+  const FRIENDLY = 'This governance action is no longer accepting votes (it may have expired). Please refresh the page.';
+
+  it.each([
+    ['voting + expired', 'The voting period has expired for this proposal'],
+    ['gov action not active', 'Error: gov action not active'],
+    ['governance action not active', 'Rejected: Governance action not active'],
+    ['expired proposal', 'expired proposal'],
+  ])('returns the friendly message for a %s ledger error', (_label, message) => {
+    expect(expiredActionMessage(new Error(message))).toBe(FRIENDLY);
   });
 
-  it('returns a friendly message for gov action not active ledger error', () => {
-    const result = expiredActionMessage(new Error('Error: gov action not active'));
-    expect(result).toBe('This governance action is no longer accepting votes (it may have expired). Please refresh the page.');
-  });
-
-  it('returns a friendly message for governance action not active ledger error', () => {
-    const result = expiredActionMessage(new Error('Rejected: Governance action not active'));
-    expect(result).toBe('This governance action is no longer accepting votes (it may have expired). Please refresh the page.');
-  });
-
-  it('returns a friendly message for expired proposal', () => {
-    const result = expiredActionMessage(new Error('expired proposal'));
-    expect(result).toBe('This governance action is no longer accepting votes (it may have expired). Please refresh the page.');
-  });
-
-  it('returns null for an unrelated error', () => {
-    const result = expiredActionMessage(new Error('insufficient funds'));
-    expect(result).toBeNull();
-  });
-
-  it('returns null for a generic connection error', () => {
-    const result = expiredActionMessage(new Error('fetch failed: connection refused'));
-    expect(result).toBeNull();
+  it.each([
+    ['an unrelated error', 'insufficient funds'],
+    ['a generic connection error', 'fetch failed: connection refused'],
+  ])('returns null for %s', (_label, message) => {
+    expect(expiredActionMessage(new Error(message))).toBeNull();
   });
 });
 

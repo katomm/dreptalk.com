@@ -34,7 +34,7 @@ import {
   type NewGovernanceAction,
 } from './governance.js';
 import { getAllTopicsByCategory } from './forum.js';
-import { sortGovActionTopics, trendingOrderKey, type GovActionTopic } from '../governance/sort.js';
+import { trendingOrderKey, type GovActionTopic } from '../governance/sort.js';
 import { THRESHOLD_SNAPSHOT_VERSION } from '../governance/thresholds.js';
 import type { ProposalListRow } from '../koios/client.js';
 
@@ -397,11 +397,6 @@ describe('getGovernanceActionsByTopicIds', () => {
     expect(map.size).toBe(2);
     expect(map.get(a.topicId)!.id).toBe(a.id);
     expect(map.get(b.topicId)!.id).toBe(b.id);
-  });
-
-  it('returns an empty map for empty input', async () => {
-    const map = await getGovernanceActionsByTopicIds(db(), []);
-    expect(map.size).toBe(0);
   });
 });
 
@@ -942,9 +937,9 @@ describe('getGovernanceActionTopicIdsPage', () => {
     expect(total).toBe(1);
   });
 
-  it('trending order matches the in-memory sortGovActionTopics oracle', async () => {
+  it('trending order from the materialized trendingOrderKey scores', async () => {
     // A representative mixed set: whale (old, vote-heavy), fresh, hot discussion, a
-    // terminal action, and a quiet older one. Distinct scores, so the equivalence is
+    // terminal action, and a quiet older one. Distinct scores, so the order is
     // unambiguous.
     await seedGovRow({ topicId: 't-whale', actionId: 'w', status: 'active', postCount: 1, drepYes: 2000, lastPostAt: NOW - 40 * DAY, submittedEpoch: 500 });
     await seedGovRow({ topicId: 't-fresh', actionId: 'f', status: 'active', postCount: 1, drepYes: 0, lastPostAt: NOW - 2 * DAY, submittedEpoch: 540 });
@@ -952,20 +947,23 @@ describe('getGovernanceActionTopicIdsPage', () => {
     await seedGovRow({ topicId: 't-enacted', actionId: 'e', status: 'enacted', postCount: 3, drepYes: 10, lastPostAt: NOW - 3 * DAY, submittedEpoch: 520 });
     await seedGovRow({ topicId: 't-quiet', actionId: 'q', status: 'active', postCount: 1, drepYes: 0, lastPostAt: NOW - 20 * DAY, submittedEpoch: 510 });
 
-    // Oracle = the old page path: load all, join, sort in memory.
+    // Join topics and actions the way the gov-sync cron does before scoring.
     const topics = await getAllTopicsByCategory(db(), GOV);
     const actions = await getAllGovernanceActions(db());
     const byTopic = new Map(actions.filter((a) => a.topicId).map((a) => [a.topicId!, a]));
     const rows = topics
       .map((t) => ({ topic: t, action: byTopic.get(t.id) }))
       .filter((r): r is GovActionTopic => !!r.action);
-    const expected = sortGovActionTopics(rows, 'trending', NOW).map((r) => r.topic.id);
 
     // Materialize the scores exactly as the cron will, then read the paged order back.
     await batchUpdateTrendingScores(db(), rows.map((r) => ({ id: r.action.id, score: trendingOrderKey(r) })));
     const { topicIds } = await getGovernanceActionTopicIdsPage(db(), { categorySlug: GOV, sort: 'trending', limit: 100, offset: 0 });
 
-    expect(topicIds).toEqual(expected);
+    // Keys relative to NOW (log2(1 + engagement) minus age in half-lives):
+    // hot 3.51, enacted 0.22 after the terminal penalty, fresh -0.29,
+    // whale -2.13, quiet -2.86. Replies outweigh raw vote volume, and the
+    // penalty still leaves a busy recent decided action above quiet open ones.
+    expect(topicIds).toEqual(['t-hot', 't-enacted', 't-fresh', 't-whale', 't-quiet']);
   });
 
   it('type filter: restricts the page and the count to the given type', async () => {
@@ -1043,12 +1041,6 @@ describe('batchUpdateTrendingScores', () => {
 
     expect((await getGovernanceActionByTopicId(db(), 't1'))!.trendingScore).toBe(2893.5);
     expect((await getGovernanceActionByTopicId(db(), 't2'))!.trendingScore).toBe(1234.0625);
-  });
-
-  it('is a no-op for an empty update list', async () => {
-    await seedGovRow({ topicId: 't1', actionId: 'a1', trendingScore: 5 });
-    await batchUpdateTrendingScores(db(), []);
-    expect((await getGovernanceActionByTopicId(db(), 't1'))!.trendingScore).toBe(5);
   });
 });
 
@@ -1270,46 +1262,18 @@ describe('getCompareCandidates', () => {
     await seedVote('gone#0');
   }
 
-  it('lists same-type candidates before other types, newest first within each group', async () => {
+  it('admits only drawable, terminal, other actions, same type first, newest first within each group', async () => {
     await seedCompareFixtures();
-    const rows = await getCompareCandidates(db(), { excludeId: 'self#0', type: 'TreasuryWithdrawals', limit: 6 });
+    const rows = await getCompareCandidates(db(), { excludeId: 'self#0', type: 'TreasuryWithdrawals', limit: 20 });
+    // Same type (cconly 617, same 607) before the newer other-type action (647).
+    // cconly qualifies on CC votes alone. Never listed: the action being viewed
+    // (self), open actions (active), unusable vote rows (nopower, failed, notime),
+    // an action whose only vote is a No (noyes), one with no stored final pct on any
+    // body (nopct) and a deleted topic (gone). The picker is a curated list, so an
+    // entry that renders nothing on click would be a dead end.
     expect(rows.map((r) => r.id)).toEqual(['cconly#0', 'same#0', 'other#0']);
-  });
-
-  it('never offers the action being viewed', async () => {
-    await seedCompareFixtures();
-    const rows = await getCompareCandidates(db(), { excludeId: 'self#0', type: 'TreasuryWithdrawals', limit: 6 });
-    expect(rows.some((r) => r.id === 'self#0')).toBe(false);
-  });
-
-  it('skips open actions, unusable vote rows, and deleted topics', async () => {
-    await seedCompareFixtures();
-    const ids = (await getCompareCandidates(db(), { excludeId: 'self#0', type: 'TreasuryWithdrawals', limit: 6 })).map((r) => r.id);
-    expect(ids).not.toContain('active#0');
-    expect(ids).not.toContain('nopower#0');
-    expect(ids).not.toContain('failed#0');
-    expect(ids).not.toContain('notime#0');
-    expect(ids).not.toContain('gone#0');
-  });
-
-  // The picker is a curated list, so an entry that renders nothing on click is a
-  // dead end. Both of these pass every other half of the gate.
-  it('skips an action whose only vote is a No', async () => {
-    await seedCompareFixtures();
-    const ids = (await getCompareCandidates(db(), { excludeId: 'self#0', type: 'TreasuryWithdrawals', limit: 20 })).map((r) => r.id);
-    expect(ids).not.toContain('noyes#0');
-  });
-
-  it('skips an action with votes but no stored final pct on any body', async () => {
-    await seedCompareFixtures();
-    const ids = (await getCompareCandidates(db(), { excludeId: 'self#0', type: 'TreasuryWithdrawals', limit: 20 })).map((r) => r.id);
-    expect(ids).not.toContain('nopct#0');
-  });
-
-  it('admits an action whose only votes are CC votes', async () => {
-    await seedCompareFixtures();
-    const ids = (await getCompareCandidates(db(), { excludeId: 'self#0', type: 'TreasuryWithdrawals', limit: 6 })).map((r) => r.id);
-    expect(ids).toContain('cconly#0');
+    // The slug the picker links to.
+    expect(rows.find((r) => r.id === 'same#0')?.topic_slug).toBe('slug-same');
   });
 
   it('honours the limit', async () => {
@@ -1317,12 +1281,6 @@ describe('getCompareCandidates', () => {
     const rows = await getCompareCandidates(db(), { excludeId: 'self#0', type: 'TreasuryWithdrawals', limit: 1 });
     expect(rows).toHaveLength(1);
     expect(rows[0].id).toBe('cconly#0');
-  });
-
-  it('returns the topic slug the picker links to', async () => {
-    await seedCompareFixtures();
-    const rows = await getCompareCandidates(db(), { excludeId: 'self#0', type: 'TreasuryWithdrawals', limit: 6 });
-    expect(rows.map((r) => r.topic_slug)).toContain('slug-same');
   });
 });
 

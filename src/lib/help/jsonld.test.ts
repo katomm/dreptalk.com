@@ -1,24 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildArticleLd, buildFaqLd } from './jsonld.js';
-
-const ORIGIN = 'https://dreptalk.com';
-
-describe('buildArticleLd', () => {
-  it('builds an Article with url and headline', () => {
-    const ld = buildArticleLd(ORIGIN, 'open-source', 'Open source - DRepTalk', 'Desc');
-    expect(ld['@type']).toBe('Article');
-    expect(ld.headline).toBe('Open source - DRepTalk');
-    expect(ld.description).toBe('Desc');
-    expect(ld.url).toBe('https://dreptalk.com/help/open-source/');
-    expect(ld.inLanguage).toBe('en');
-    expect('dateModified' in ld).toBe(false);
-  });
-
-  it('includes dateModified when updated is given', () => {
-    const ld = buildArticleLd(ORIGIN, 'x', 'T', 'D', new Date('2026-06-23T00:00:00Z'));
-    expect(ld.dateModified).toBe('2026-06-23');
-  });
-});
+import { buildFaqLd } from './jsonld.js';
 
 describe('buildFaqLd', () => {
   it('returns null for empty input', () => {

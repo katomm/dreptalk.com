@@ -1,75 +1,12 @@
-// How often each on-chain value is refreshed. On-chain values are synced on
-// crons (lean and cheap): they are cached, not live, and every place they
-// appear shows an explicit "as of" time.
+// Cron cadences of the gov-sync worker. On-chain values are synced on crons
+// (lean and cheap): they are cached, not live, and every place they appear
+// shows an explicit "as of" time.
 //
-// The cadences live in TWO hand-maintained places that must stay in sync:
-//   1. The FRESHNESS array below (rendered by /debug/sync).
-//   2. The markdown table in src/content/guides/data-freshness.md (the public
-//      /help/data-freshness page).
-// Editing one means editing the other. freshness.table.test.ts is a drift guard:
-// it reads the markdown table and fails CI if it no longer matches FRESHNESS, so
-// the two copies cannot silently diverge.
-
-export interface FreshnessRow {
-  key: string;
-  label: string;
-  refresh: string;
-  notes: string;
-}
-
-export const FRESHNESS: readonly FreshnessRow[] = [
-  {
-    key: 'posts',
-    label: 'Forum posts and topics',
-    refresh: 'Immediate',
-    notes: 'Real forum activity is not delayed. Signed-out visitors may see a page up to a minute old, and for ten minutes after that a cached copy is served while a fresh one renders.',
-  },
-  {
-    key: 'ga-discovery',
-    label: 'Governance actions (new threads)',
-    refresh: 'About every 5 minutes',
-    notes: 'A discovery cron opens one thread per new on-chain action.',
-  },
-  {
-    key: 'surveys',
-    label: 'CIP-179 surveys (definitions and response counts)',
-    refresh: 'About every 5 minutes',
-    notes:
-      'Mirrored from the Tessera index on the discovery cron, on both mainnet and preprod. A submitted answer is counted once the index has confirmed its transaction, usually under ten minutes.',
-  },
-  {
-    key: 'ga-tallies',
-    label: 'Governance tallies and status (DRep, SPO, CC)',
-    refresh: 'About every 15 minutes, active actions only',
-    notes: 'Frozen once an action is ratified, enacted, expired, dropped, or closed. Shown with an "as of" time.',
-  },
-  {
-    key: 'vote-badges',
-    label: 'Per-post vote badges',
-    refresh: 'About every 20 minutes, active actions only',
-    notes: 'Vote lists are larger than the tallies but still refresh on a short cycle.',
-  },
-  {
-    key: 'drep-profiles',
-    label: 'DRep profiles (name, bio, avatar) and status',
-    refresh: 'Every 6 hours',
-    notes: 'The drep-sync cron keeps every DRep profile current.',
-  },
-  {
-    key: 'role-recheck',
-    label: 'DRep role re-check (write access)',
-    refresh: 'Every 6 hours (with the DRep sync)',
-    notes: 'Every post is checked against the synced DRep status, independent of the login session.',
-  },
-] as const;
-
-// Cron expressions for the gov-sync worker, documented alongside the cadences.
-// Changing one of these means changing the matching FRESHNESS row above AND its
-// copy in the markdown table: the drift guard only compares those two against
-// each other, so a stale cadence claim here passes CI unnoticed.
 // These MUST match the `crons` array in workers/gov-sync/wrangler.toml: the worker
 // dispatches on event.cron via resolveCronKind, and an unmatched expression runs
-// nothing and logs an error (freshness.cron.test.ts guards the toml against drift).
+// nothing and logs an error (freshness.test.ts guards the toml against drift).
+// The public /help/data-freshness page (src/content/guides/data-freshness.md)
+// describes the cadences in a hand-kept table, update it when one changes.
 export const CRON_GOVERNANCE = '*/5 * * * *'; // discovery + notification dispatch every 5 min; heavy tallies gated to every 15 (minute % 15)
 export const CRON_VOTE_SYNC = '*/20 * * * *'; // per-post vote lists (every 20 min, active only)
 export const CRON_DREP_SYNC = '0 */6 * * *'; // DRep profile sync

@@ -13,11 +13,6 @@ It also means these values are **cached, not live**: each one is shown with an
 explicit "as of" time, and we never claim it is live. Forum posts themselves
 are never delayed. Here is how often each thing updates.
 
-<!-- This table is one of two hand-maintained copies of the cadences. The other
-is the FRESHNESS array in src/lib/freshness.ts (rendered by /debug/sync). Keep
-both in sync when a cadence changes. freshness.table.test.ts fails CI if the rows
-below no longer match FRESHNESS (label, refresh, and notes columns, in order). -->
-
 | Data | Refresh | Notes |
 |------|---------|-------|
 | Forum posts and topics | Immediate | Real forum activity is not delayed. Signed-out visitors may see a page up to a minute old, and for ten minutes after that a cached copy is served while a fresh one renders. |

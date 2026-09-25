@@ -74,16 +74,12 @@ describe('parseDrepEventPayload', () => {
     expect(parseDrepEventPayload(JSON.stringify({}))).toBeNull();
   });
 
-  it('drops syntactically invalid JSON', () => {
-    expect(parseDrepEventPayload('not json')).toBeNull();
-  });
-
-  it('drops a null payload', () => {
-    expect(parseDrepEventPayload(null)).toBeNull();
-  });
-
-  it('drops an empty string payload', () => {
-    expect(parseDrepEventPayload('')).toBeNull();
+  it.each([
+    ['syntactically invalid JSON', 'not json'],
+    ['a null payload', null],
+    ['an empty string payload', ''],
+  ])('drops %s', (_label, raw) => {
+    expect(parseDrepEventPayload(raw)).toBeNull();
   });
 
   it('never throws on odd top-level shapes (fuzz)', () => {

@@ -80,7 +80,7 @@ const MAX_AUTHORS = 10;
 export const MAX_REFERENCES = REFERENCES_READ_MAX;
 
 /** How the read path bounds the references of someone else's CIP-108 document. */
-const CIP108_REFERENCE_POLICY: ReferenceListPolicy = {
+export const CIP108_REFERENCE_POLICY: ReferenceListPolicy = {
   maxItems: MAX_REFERENCES,
   maxLabelLen: REFERENCE_LABEL_MAX,
   maxUriLen: REFERENCE_URI_MAX,
@@ -404,12 +404,20 @@ const MAX_PROFILE_IMAGE_URL_LEN = 2_048;
 // enforces the real byte limit on the decoded result. Bounds memory so a
 // pathological multi-MB string never rides along in the resolved profile.
 const MAX_PROFILE_IMAGE_DATA_LEN = 14_000_000;
-const MAX_PROFILE_LINK_LABEL_LEN = 100;
-const MAX_PROFILE_LINK_URI_LEN = 2_048;
-const MAX_PROFILE_LINKS = 10;
 const MAX_PROFILE_MOTIVATIONS_LEN = 1_000;
 const MAX_PROFILE_QUALIFICATIONS_LEN = 1_000;
 const MAX_PROFILE_PAYMENT_ADDR_LEN = 150;
+
+/** How the read path bounds the body.references links of a CIP-119 DRep profile. */
+export const CIP119_REFERENCE_POLICY: ReferenceListPolicy = {
+  maxItems: 10,
+  maxLabelLen: 100,
+  maxUriLen: 2_048,
+  allowIpfs: false,
+  // CIP-119 docs commonly carry an @type ("Link", "Identity") and no label at
+  // all, so the profile path falls back to it where the CIP-108 path does not.
+  labelKeys: ['label', 'name', '@type'],
+};
 
 export interface Cip119Profile {
   name: string | null;
@@ -485,15 +493,7 @@ export function extractCip119Profile(doc: unknown): Cip119Profile {
 
   // links: body.references, http(s) only. Duplicates are left in place. The
   // profile page collapses them at render, where it also picks the best label.
-  const links = readReferenceList(body.references, {
-    maxItems: MAX_PROFILE_LINKS,
-    maxLabelLen: MAX_PROFILE_LINK_LABEL_LEN,
-    maxUriLen: MAX_PROFILE_LINK_URI_LEN,
-    allowIpfs: false,
-    // CIP-119 docs commonly carry an @type ("Link", "Identity") and no label at
-    // all, so the profile path falls back to it where the CIP-108 path does not.
-    labelKeys: ['label', 'name', '@type'],
-  });
+  const links = readReferenceList(body.references, CIP119_REFERENCE_POLICY);
 
   const motivations =
     sanitizeExternalMultiline(jsonLdString(body.motivations), MAX_PROFILE_MOTIVATIONS_LEN) || null;

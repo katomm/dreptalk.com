@@ -11,10 +11,6 @@ describe('matchStaticEntries', () => {
     expect(hits.some((e) => e.href === '/dreps/')).toBe(true);
   });
 
-  it('only contains Pages entries now', () => {
-    expect(STATIC_ENTRIES.every((e) => e.group === 'Pages')).toBe(true);
-  });
-
   it('no match returns empty', () => {
     expect(matchStaticEntries('zzzzzz')).toEqual([]);
   });

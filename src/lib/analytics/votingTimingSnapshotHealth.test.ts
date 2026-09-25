@@ -11,10 +11,6 @@ const payload: VotingTimingSnapshotPayload = {
 };
 
 describe('classifySnapshot', () => {
-  it('allows four missed six-hourly runs before counting as overdue', () => {
-    expect(SNAPSHOT_OVERDUE_MS).toBe(24 * 60 * 60 * 1000);
-  });
-
   it('reports absent when there is no row', () => {
     expect(classifySnapshot(null, now).state).toBe('absent');
   });

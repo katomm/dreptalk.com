@@ -89,25 +89,6 @@ describe('buildEffRep', () => {
     expect(view.skipped).toBe(0);
   });
 
-  it('builds href from the topic slug, and leaves it null without one', () => {
-    const view = buildEffRep([
-      a('g1', 540, { topicSlug: 'treasury-withdrawals' }),
-      a('g2', 539, { topicSlug: null }),
-    ]);
-    expect(view.rows[0].href).toBe('/t/treasury-withdrawals/');
-    expect(view.rows[1].href).toBeNull();
-  });
-
-  it('falls back the title to the action type when the title is null', () => {
-    const view = buildEffRep([a('g1', 540, { title: null, type: 'TreasuryWithdrawals' })]);
-    expect(view.rows[0].title).toBe('TreasuryWithdrawals');
-  });
-
-  it('carries id, type and decidedEpoch through unchanged', () => {
-    const view = buildEffRep([a('g1', 540, { type: 'ParameterChange' })]);
-    expect(view.rows[0]).toMatchObject({ id: 'g1', type: 'ParameterChange', decidedEpoch: 540 });
-  });
-
   describe('concentration extension', () => {
     it('attaches halfCount from the powers map and computes the median', () => {
       const actions = [

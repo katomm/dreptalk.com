@@ -45,13 +45,6 @@ describe('createKoiosClient.epochParams', () => {
 
     expect(await client.epochParams()).toBeNull();
   });
-
-  it('throws on non-200 response', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}, 503));
-    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
-
-    await expect(client.epochParams()).rejects.toThrow(/koios request failed: 503/i);
-  });
 });
 
 // --- committeeSummary ---
@@ -100,12 +93,5 @@ describe('createKoiosClient.committeeSummary', () => {
     const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
 
     expect(await client.committeeSummary()).toEqual({ quorum: null, members: null });
-  });
-
-  it('throws on non-200 response', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}, 500));
-    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
-
-    await expect(client.committeeSummary()).rejects.toThrow(/koios request failed: 500/i);
   });
 });

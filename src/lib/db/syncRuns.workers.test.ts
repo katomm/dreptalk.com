@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { startSyncRun, finishSyncRun, listSyncRuns, latestSyncRunByKind, pruneSyncRuns, reapStaleSyncRuns, STALE_RUN_MS } from './syncRuns.js';
+import { startSyncRun, finishSyncRun, listSyncRuns, latestSyncRunByKind, reapStaleSyncRuns, STALE_RUN_MS } from './syncRuns.js';
 
 const NOW = 1_748_000_000_000;
 
@@ -31,7 +31,7 @@ describe('sync_runs', () => {
     expect(done!.phases[1]).toMatchObject({ phase: 'avatars', ok: false });
   });
 
-  it('lists most recent runs first and prunes old ones', async () => {
+  it('lists most recent runs first, and finishing a run prunes the old ones in the same batch', async () => {
     const oldId = await startSyncRun(env.DB, 'governance', NOW - 100_000);
     const newId = await startSyncRun(env.DB, 'governance', NOW + 100_000);
 
@@ -41,11 +41,14 @@ describe('sync_runs', () => {
     expect(newIdx).toBeGreaterThanOrEqual(0);
     expect(newIdx).toBeLessThan(oldIdx);
 
-    const pruned = await pruneSyncRuns(env.DB, NOW);
-    expect(pruned).toBeGreaterThanOrEqual(1);
+    // The run recorder passes pruneOlderThanMs on every finish.
+    await finishSyncRun(env.DB, newId, {
+      status: 'ok', items: 0, failed: 0, error: null, phases: [],
+      finishedAt: NOW + 101_000, pruneOlderThanMs: NOW,
+    });
     const after = await listSyncRuns(env.DB, 50);
     expect(after.find((r) => r.id === oldId)).toBeUndefined();
-    expect(after.find((r) => r.id === newId)).toBeDefined();
+    expect(after.find((r) => r.id === newId)).toMatchObject({ status: 'ok', finishedAt: NOW + 101_000 });
   });
 
   it('returns the latest run per kind even when another kind logs many runs after it', async () => {

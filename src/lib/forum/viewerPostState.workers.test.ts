@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { createTopic } from '../db/forum.js';
 import { flagPost } from '../db/postFlags.js';
-import { setReaction } from '../db/postReactions.js';
+import { setReaction, getViewerReactions } from '../db/postReactions.js';
 import { bindCountingDb } from '../db/__tests__/bindCountingDb.js';
 import { loadViewerPostState, emptyViewerPostState } from './viewerPostState.js';
 
@@ -29,10 +29,41 @@ async function newPostId(): Promise<string> {
   return firstPost.id;
 }
 
+describe('getViewerReactions', () => {
+  it('returns the viewer\'s reactions for the given posts only', async () => {
+    const viewer = 'viewer-reactions';
+    const a = await newPostId();
+    const b = await newPostId();
+    const c = await newPostId();
+    await setReaction(db(), { postId: a, reactorId: viewer, reaction: 'up', now: NOW });
+    await setReaction(db(), { postId: b, reactorId: viewer, reaction: 'down', now: NOW });
+    await setReaction(db(), { postId: c, reactorId: 'viewer-other', reaction: 'up', now: NOW });
+
+    const map = await getViewerReactions(db(), viewer, [a, b, c]);
+    expect(map.get(a)).toBe('up');
+    expect(map.get(b)).toBe('down');
+    expect(map.has(c)).toBe(false);
+  });
+});
+
 describe('loadViewerPostState', () => {
   it('returns empty state for an empty post list', async () => {
     const state = await loadViewerPostState(db(), 'viewer-1', []);
     expect(state).toEqual(emptyViewerPostState());
+  });
+
+  it('returns flags and reactions for the viewer in one batch', async () => {
+    const viewer = 'viewer-batch';
+    const a = await newPostId();
+    const b = await newPostId();
+    await setReaction(db(), { postId: a, reactorId: viewer, reaction: 'up', now: NOW });
+    await flagPost(db(), { postId: b, flaggerId: viewer, now: NOW });
+
+    const state = await loadViewerPostState(db(), viewer, [a, b]);
+    expect(state.reactions.get(a)).toBe('up');
+    expect(state.reactions.has(b)).toBe(false);
+    expect(state.flaggedPostIds.has(b)).toBe(true);
+    expect(state.flaggedPostIds.has(a)).toBe(false);
   });
 
   it('stays under the D1 100-bind cap and merges results across chunks', async () => {
