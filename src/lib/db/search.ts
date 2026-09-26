@@ -49,7 +49,8 @@ export interface SearchGroups {
   rationales: RationaleHit[];
 }
 
-const GROUP_LIMIT = 5;
+/** Rows per group in the palette's typeahead. */
+export const GROUP_LIMIT = 5;
 
 function toHex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');

@@ -4,7 +4,8 @@ export const prerender = false;
 import Layout from '@/layouts/Layout.astro';
 import SearchResults from '@/components/search/SearchResults';
 import { handleSearch, normalizeQuery } from '@/lib/search/handler';
-import { parseApiScope, isScope, SCOPES, SCOPE_LABELS, searchPageHref, type Scope } from '@/lib/search/scopes';
+import { getContentIndex } from '@/lib/search/contentIndex';
+import { parseScope, SCOPES, SCOPE_LABELS, searchPageHref } from '@/lib/search/scopes';
 import { parsePage } from '@/lib/forum/view';
 import { env } from 'cloudflare:workers';
 
@@ -13,16 +14,13 @@ const db = env.DB as D1Database | undefined;
 const url = Astro.url;
 const rawQuery = url.searchParams.get('q');
 const query = normalizeQuery(rawQuery);
-const scopeParam = url.searchParams.get('scope');
-const scope: Scope = isScope(scopeParam) ? scopeParam : 'all';
+const scope = parseScope(url.searchParams.get('scope'));
 const page = parsePage(url.searchParams.get('page'));
 
-// Server-render the initial D1 results so the page is useful on first paint and
-// without JavaScript. Help results are client-only (build-time index), so they
-// join once the island hydrates.
-const initialData = db
-  ? await handleSearch(db, query, { scope: parseApiScope(scope), page, counts: true })
-  : { query, scope: parseApiScope(scope), page, exact: null, governanceActions: [], discussions: [], dreps: [], rationales: [], total: null, counts: null };
+// Server-render the initial results so the page is useful on first paint and
+// without JavaScript.
+// An empty query returns before any search, so it skips building the index.
+const initialData = await handleSearch(db, query, { scope, page, counts: true, content: query ? await getContentIndex() : [] });
 
 // Search pages are public; cache briefly at the edge like the API.
 Astro.response.headers.set('Cache-Control', 'public, max-age=30, s-maxage=60');
@@ -30,7 +28,7 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=30, s-maxage=60');
 const title = query ? `Search: ${query} - DRepTalk` : 'Search - DRepTalk';
 ---
 
-<Layout title={title} description="Search governance actions, forum discussions, DReps, and help on DRepTalk.">
+<Layout title={title} description="Search governance actions, forum discussions, DReps, the Governance Review, and help on DRepTalk.">
   <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
     <a href="/">DRepTalk</a>
     <span style="margin:0 0.375rem;">/</span>
@@ -45,7 +43,7 @@ const title = query ? `Search: ${query} - DRepTalk` : 'Search - DRepTalk';
         type="search"
         name="q"
         value={query}
-        placeholder="Search governance actions, discussions, DReps, help..."
+        placeholder="Search governance actions, discussions, DReps, reviews, help..."
         style="flex:1;padding:0.6rem 0.8rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:transparent;color:inherit;font:inherit;"
       />
       <button type="submit" style="padding:0.6rem 1rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:inherit;cursor:pointer;">Search</button>
@@ -199,9 +197,13 @@ const title = query ? `Search: ${query} - DRepTalk` : 'Search - DRepTalk';
   }
   .search-hit__detail {
     flex-shrink: 0;
+    max-width: 45%;
     margin-left: auto;
     font-size: 0.75rem;
     color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .search-more {
     display: inline-block;
@@ -214,6 +216,14 @@ const title = query ? `Search: ${query} - DRepTalk` : 'Search - DRepTalk';
     font-size: 0.8125rem;
     font-weight: 600;
     cursor: pointer;
+  }
+  .search-hit__desc {
+    display: block;
+    font-size: 0.8125rem;
+    color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .search-note {
     color: var(--muted);

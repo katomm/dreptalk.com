@@ -5,6 +5,7 @@
 // in an explicitly typed per-run state rather than ad-hoc locals.
 
 import { syncDreps, backfillRegisteredEpochs, backfillDrepSlugs } from '../../dreps/sync.js';
+import { syncDrepHandles } from '../../drepLink/sync.js';
 import { syncDrepVotingPowerHistory } from '../../dreps/votingPowerHistorySync.js';
 import { runDrepStatsDigest } from '../../db/drepStatsDigest.js';
 import { backfillVoteHistorySweep } from '../../governance/voteHistoryBackfill.js';
@@ -287,6 +288,21 @@ export const drepPhases: readonly SyncPhaseDef<DrepSyncContext>[] = [
       const slugs = await backfillDrepSlugs(ctx.db);
       if (slugs.missing > 0) console.log(`[drep-slugs] missing=${slugs.missing} assigned=${slugs.assigned}`);
       return { items: slugs.assigned };
+    },
+  },
+  {
+    // drep.link handles for DReps the launch seed never saw, plus the grace
+    // lifecycle. Pure D1, idle until the seed marker exists. Runs after
+    // registered-epochs so registration order is known.
+    name: 'drep-handles',
+    run: async (ctx) => {
+      const r = await syncDrepHandles(ctx.db, Math.floor(ctx.now / 1000));
+      if (r.assigned || r.skipped || r.released || r.restored || r.deleted) {
+        console.log(
+          `[drep-handles] assigned=${r.assigned} skipped=${r.skipped} released=${r.released} restored=${r.restored} deleted=${r.deleted}`,
+        );
+      }
+      return { items: r.assigned + r.released + r.deleted };
     },
   },
   {
