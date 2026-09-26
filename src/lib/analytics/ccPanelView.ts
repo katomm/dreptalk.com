@@ -82,11 +82,21 @@ export function interimCommittee(members: CommitteeMemberTerm[]): { end: number 
   return { end, carryOver: carried.size };
 }
 
-/** Selects the best and worst n rows from an already best-first sorted list. Under 2n rows, everything is "top" and there is no bottom. */
-export function selectExtremes<T>(rows: T[], n: number): { top: T[]; bottom: T[]; total: number } {
+/**
+ * Selects the best and worst n rows from an already best-first sorted list.
+ * A list extends past n to every row tied on `score` with its cutoff row, so
+ * a tie never hides a member behind the name tiebreak. When the two lists
+ * would meet or overlap, everything is "top" and there is no bottom.
+ */
+export function selectExtremes<T>(rows: T[], n: number, score: (row: T) => number): { top: T[]; bottom: T[]; total: number } {
   const total = rows.length;
   if (total <= 2 * n) return { top: [...rows], bottom: [], total };
-  return { top: rows.slice(0, n), bottom: rows.slice(total - n), total };
+  let topEnd = n;
+  while (topEnd < total && score(rows[topEnd]) === score(rows[n - 1])) topEnd += 1;
+  let bottomStart = total - n;
+  while (bottomStart > 0 && score(rows[bottomStart - 1]) === score(rows[total - n])) bottomStart -= 1;
+  if (topEnd > bottomStart) return { top: [...rows], bottom: [], total };
+  return { top: rows.slice(0, topEnd), bottom: rows.slice(bottomStart), total };
 }
 
 /**

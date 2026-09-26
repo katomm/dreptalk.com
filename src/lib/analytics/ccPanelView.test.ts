@@ -169,20 +169,44 @@ describe('buildCcPanel', () => {
 });
 
 describe('selectExtremes', () => {
+  // Best-first scores, the value itself is the score.
+  const score = (x: number) => x;
+
   it('splits a longer list into top n and the last n, both in original order', () => {
-    const rows = Array.from({ length: 12 }, (_, i) => i);
-    const { top, bottom, total } = selectExtremes(rows, 5);
-    expect(top).toEqual([0, 1, 2, 3, 4]);
-    expect(bottom).toEqual([7, 8, 9, 10, 11]);
+    const rows = Array.from({ length: 12 }, (_, i) => 100 - i);
+    const { top, bottom, total } = selectExtremes(rows, 5, score);
+    expect(top).toEqual([100, 99, 98, 97, 96]);
+    expect(bottom).toEqual([93, 92, 91, 90, 89]);
     expect(total).toBe(12);
   });
 
   it('keeps everything as top with an empty bottom when the list is 2n or smaller', () => {
-    const rows = Array.from({ length: 8 }, (_, i) => i);
-    const { top, bottom, total } = selectExtremes(rows, 5);
+    const rows = Array.from({ length: 8 }, (_, i) => 100 - i);
+    const { top, bottom, total } = selectExtremes(rows, 5, score);
     expect(top).toEqual(rows);
     expect(bottom).toEqual([]);
     expect(total).toBe(8);
+  });
+
+  it('extends the top list to every row tied with its last entry', () => {
+    const rows = [100, 100, 100, 100, 100, 100, 100, 95, 90, 85, 80, 75, 70, 65, 60];
+    const { top, bottom } = selectExtremes(rows, 5, score);
+    expect(top).toEqual([100, 100, 100, 100, 100, 100, 100]);
+    expect(bottom).toEqual([80, 75, 70, 65, 60]);
+  });
+
+  it('extends the bottom list to every row tied with its first entry', () => {
+    const rows = [100, 95, 90, 85, 80, 75, 70, 50, 50, 50, 40, 30, 20];
+    const { top, bottom } = selectExtremes(rows, 5, score);
+    expect(top).toEqual([100, 95, 90, 85, 80]);
+    expect(bottom).toEqual([50, 50, 50, 40, 30, 20]);
+  });
+
+  it('shows everything as top when the extended lists would overlap', () => {
+    const rows = [100, 100, 100, 100, 100, 100, 100, 100, 90, 80, 70];
+    const { top, bottom } = selectExtremes(rows, 5, score);
+    expect(top).toEqual(rows);
+    expect(bottom).toEqual([]);
   });
 });
 

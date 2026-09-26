@@ -187,9 +187,10 @@ const ccPanel = buildCcPanel({
   currentEpoch: params?.epoch ?? null,
 });
 const shortCold = (hex: string): string => `${hex.slice(0, 10)}...`;
-// Best and worst five members by participation share. Under ten members
-// everything is "top" and there is no separate bottom list.
-const ccExtremes = selectExtremes(ccPanel.members, 5);
+// Best and worst five members by participation share, each list extended to
+// every member tied at its cutoff. Under ten members everything is "top" and
+// there is no separate bottom list.
+const ccExtremes = selectExtremes(ccPanel.members, 5, (m) => m.pct);
 // Grouped for the template so both lists render from one map instead of two
 // near-identical blocks. The empty bottom list drops out on its own.
 const ccMemberLists = [
