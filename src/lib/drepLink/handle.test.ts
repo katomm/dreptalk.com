@@ -44,4 +44,16 @@ describe('validateHandle', () => {
   it('rejects reserved handles', () => {
     expect(validateHandle('emurgo', null)).toEqual({ ok: false, reason: 'reserved' });
   });
+  it('rejects reserved names written with or without hyphens', () => {
+    for (const h of ['cardanofoundation', 'cardano-foundation', 'car-dano', 'charleshoskinson', 'charles-hoskinson', 'intersect-mbo'])
+      expect(validateHandle(h, null)).toEqual({ ok: false, reason: 'reserved' });
+  });
+  it('reserves the founder and the main ecosystem names', () => {
+    for (const h of ['charles', 'hoskinson', 'intersectmbo', 'input-output-global', 'ioe', 'project-catalyst', 'cardano-org', 'sundaeswap', 'minswap', 'liqwid', 'gimbalabs', 'gimba-labs'])
+      expect(validateHandle(h, null)).toEqual({ ok: false, reason: 'reserved' });
+  });
+  it('leaves longer names that merely contain a reserved word alone', () => {
+    for (const h of ['gocharles', 'yoroi-w-llet', 'eternl-drep-committee', 'latam-cardano'])
+      expect(validateHandle(h, null)).toEqual({ ok: true });
+  });
 });

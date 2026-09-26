@@ -1,7 +1,19 @@
 import { describe, it, expect } from 'vitest';
-import { assignHandles, planSeed, type HandleCandidate } from './assign.js';
+import { assignHandles, handleBase, planSeed, type HandleCandidate } from './assign.js';
 
 const c = (drepId: string, name: string | null, registeredAt: number | null): HandleCandidate => ({ drepId, name, registeredAt });
+
+describe('handleBase', () => {
+  it('keeps names up to 40 characters as they are', () => {
+    expect(handleBase('Jose Martinez Atlas Network Transmission')).toBe('jose-martinez-atlas-network-transmission');
+  });
+  it('cuts a longer name at the last word boundary instead of mid-word', () => {
+    expect(handleBase('Porto Cripto DRep Atico Bosco from Cardano Portugal')).toBe('porto-cripto-drep-atico-bosco-from');
+  });
+  it('falls back to a hard cut when the first word alone is too long', () => {
+    expect(handleBase('a'.repeat(50))).toBe('a'.repeat(40));
+  });
+});
 
 describe('assignHandles', () => {
   it('orders by registration, the earlier DRep wins a collision', () => {

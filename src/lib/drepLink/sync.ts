@@ -1,8 +1,7 @@
 // gov-sync work for drep.link: hand out handles to DReps the seed never saw
 // (new registrations, names added later) and run the grace lifecycle. Idle until
 // the reviewed launch seed has written its marker row.
-import { assignHandles } from './assign.js';
-import { slugBase } from '../slug.js';
+import { assignHandles, handleBase } from './assign.js';
 import {
   isSeeded, listAutoCandidates, listLiveHandles, insertAutoHandles, runHandleLifecycle,
 } from '../db/drepHandles.js';
@@ -28,7 +27,7 @@ export async function syncDrepHandles(db: D1Database, now: number): Promise<Drep
     // stamped. Letting them into the assignment would reserve a name they
     // cannot receive and push the next DRep with that name out.
     const open = candidates.filter((c) => !c.hasHandle);
-    const bases = [...new Set(open.map((c) => (c.name ? slugBase(c.name) : '')).filter(Boolean))];
+    const bases = [...new Set(open.map((c) => (c.name ? handleBase(c.name) : '')).filter(Boolean))];
     const taken = await listLiveHandles(db, bases, now);
     const result = assignHandles(open, taken);
     skipped = result.skipped.length;
