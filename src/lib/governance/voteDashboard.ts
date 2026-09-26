@@ -4,7 +4,7 @@
 // closing-soon count and the highlighted rows can never disagree.
 
 /** An action expiring within this many wall-clock days counts as "closing soon". */
-export const CLOSING_SOON_DAYS = 2;
+const CLOSING_SOON_DAYS = 2;
 
 /**
  * True when an action closes within CLOSING_SOON_DAYS. daysLeft is the wall-clock

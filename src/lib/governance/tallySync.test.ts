@@ -1,17 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { votePowers, enrichVotedPower, deriveStatus } from './tallySync.js';
 import type { VoteInput } from '../db/drepVotes.js';
-import type { ProposalListRow } from '../koios/client.js';
-
-function lifeRow(txHash: string, over: Partial<ProposalListRow> = {}): ProposalListRow {
-  return {
-    proposal_id: `gov_${txHash}`,
-    proposal_tx_hash: txHash,
-    proposal_index: 0,
-    proposal_type: 'TreasuryWithdrawals',
-    ...over,
-  } as ProposalListRow;
-}
+import { lifeRow } from './__fixtures__/proposalListRow.js';
 
 function fakeDb(drepPower: Record<string, string>) {
   return {

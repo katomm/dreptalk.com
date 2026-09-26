@@ -28,7 +28,7 @@ export type MetricSeriesStart = 'oldest-row' | 'first-non-null' | 'first-complet
 export type MetricSource = 'koios-history' | 'live-observation' | 'local-votes' | 'koios-totals';
 
 export interface EpochStatsMetric {
-  /** Column name in governance_epoch_stats. Static, never user input. */
+  /** Column name in governance_epoch_stats, checked against the table by epochStatsContract.workers.test.ts. */
   column: string;
   reliability: MetricReliability;
   start: MetricSeriesStart;

@@ -1,10 +1,8 @@
-// LIVE preprod e2e (gated). Skipped unless DREPTALK_LIVE=1 and
-// PREPROD_TEST_WALLET_MNEMONIC is set, because it needs outbound network to
-// preprod Koios and the preprod test wallet. The mnemonic comes from the
-// environment only and must never be committed or logged. It is NOT a CI test,
+// LIVE preprod e2e (gated, see __fixtures__/liveWallet.ts for the wallet it
+// needs). It needs outbound network to preprod Koios, so it is NOT a CI test,
 // the deterministic conversion guard lives in scriptVoteTx.test.ts. This test
-// SUBMITS a real vote transaction on preprod. Run it with `npm run test:live:submit`,
-// which loads ~/.config/cardano/preprod-test-wallet.env when that file exists.
+// SUBMITS a real vote transaction on preprod. Run it with
+// `npm run test:live:submit`.
 //
 // It reproduces the proven native-script vote flow (preprod tx d20239...):
 //   1. Build a native-script DRep vote tx where the voter credential is a script
@@ -17,10 +15,6 @@
 // so the script hash defines the scriptDrepId and the single member witness
 // satisfies it. This needs no external script fixture.
 import { describe, it, expect } from 'vitest';
-import { mnemonicToEntropy } from '@scure/bip39';
-import { wordlist } from '@scure/bip39/wordlists/english.js';
-import * as E from '@evolution-sdk/evolution';
-import { addressFromSeed } from '@evolution-sdk/evolution/sdk/wallet/Derivation';
 import {
   Address,
   DRep,
@@ -30,28 +24,14 @@ import {
   TransactionWitnessSet,
   VKey,
 } from '@evolution-sdk/evolution';
-import { blake2b224 } from '../crypto/blake.js';
+import { LIVE, PREPROD_KOIOS, loadDrepKey } from './__fixtures__/liveWallet.js';
 import { bytesToHex } from '../crypto/hex.js';
 import type { NativeScript } from '../cardano/nativeScript.js';
 import type { WalletApi } from './drepTx.js';
 import { assembleScriptVoteTx, buildScriptDRepVoteTx } from './scriptVoteTx.js';
 
-const MNEMONIC = process.env.PREPROD_TEST_WALLET_MNEMONIC ?? '';
-const LIVE = process.env.DREPTALK_LIVE === '1' && MNEMONIC !== '';
-const KOIOS = 'https://preprod.koios.rest/api/v1';
 const ORIGIN = 'https://preprod.dreptalk.com';
 
-// Derive the DRep signing material (account 0, role 3, index 0) and the
-// account 0 base payment address from the test wallet mnemonic.
-function loadDrepKey() {
-  const entropy = mnemonicToEntropy(MNEMONIC, wordlist);
-  const root = E.Bip32PrivateKey.fromBip39Entropy(entropy, '');
-  const prv = E.Bip32PrivateKey.toPrivateKey(E.Bip32PrivateKey.derivePath(root, "1852'/1815'/0'/3/0"));
-  const pubKey = E.VKey.toBytes(E.PrivateKey.toPublicKey(prv));
-  const sign = (msg: Uint8Array) => E.Ed25519Signature.toBytes(E.PrivateKey.sign(prv, msg));
-  const paymentAddress = Address.toBech32(addressFromSeed(MNEMONIC, { networkId: 0 }).address);
-  return { paymentAddress, pubKey, keyHash: blake2b224(pubKey), sign };
-}
 
 // A read-only wallet adapter over the test wallet: getUtxos/getUsedAddresses for
 // funding, submitTx for submission. signTx/signData are unused on the native-script
@@ -83,7 +63,7 @@ function makeReadWallet(paymentAddress: string): WalletApi {
     async submitTx(txCborHex: string) {
       // Submit the assembled tx straight to Koios (the read client has no submit;
       // a real flow submits via the CIP-30 wallet). Koios returns the tx hash.
-      const res = await fetch(`${KOIOS}/submittx`, {
+      const res = await fetch(`${PREPROD_KOIOS}/submittx`, {
         method: 'POST',
         headers: { 'content-type': 'application/cbor' },
         body: hexBytes(txCborHex) as BodyInit,
@@ -130,7 +110,7 @@ describe.skipIf(!LIVE)('LIVE preprod script-vote e2e', () => {
     const scriptDrepId = DRep.toBech32(DRep.fromScriptHash(scriptHash));
 
     // Pick a currently-votable preprod governance action.
-    const list = (await (await fetch(`${KOIOS}/proposal_list?limit=200`)).json()) as Array<{
+    const list = (await (await fetch(`${PREPROD_KOIOS}/proposal_list?limit=200`)).json()) as Array<{
       proposal_tx_hash: string;
       proposal_index: number;
       ratified_epoch: number | null;

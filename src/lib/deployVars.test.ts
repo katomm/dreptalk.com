@@ -89,9 +89,9 @@ describe('deploy vars lockstep', () => {
 // derives its date from the app wrangler.toml, so keeping the two tomls equal
 // keeps deploys and tests on one runtime behavior.
 function compatDateOf(path: string): string {
-  const match = read(path).match(/^compatibility_date\s*=\s*"(\d{4}-\d{2}-\d{2})"/m);
-  if (!match) throw new Error(`compatibility_date not found in ${path}`);
-  return match[1];
+  const date = tomlVar(path, '', 'compatibility_date');
+  if (!date) throw new Error(`compatibility_date not found in ${path}`);
+  return date;
 }
 
 describe('compatibility date lockstep', () => {

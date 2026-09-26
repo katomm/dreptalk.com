@@ -23,7 +23,7 @@ function parseBodyHash(hex: string): { ok: true; bytes: Uint8Array } | { ok: fal
 }
 
 /**
- * Layers 2 + 3: decodes a wallet `signData` COSE_Key to a raw public key, then
+ * Decodes a wallet `signData` COSE_Key to a raw public key, then
  * verifies strictly (no `hashed=true` tolerance) and enforces the production
  * author-witness policy: the signed address must be a reward address on the
  * expected network. Rejects the official CIP-108 vector, which is signed over
@@ -38,12 +38,12 @@ export async function verifyWalletAuthorWitness(input: {
   const parsed = parseBodyHash(input.bodyHashHex);
   if (!parsed.ok) return { ok: false, reason: parsed.reason };
 
-  // Layer 2: decode + validate the wallet COSE_Key -> raw ed25519 public key.
+  // Decode and validate the wallet COSE_Key to a raw ed25519 public key.
   const decoded = decodeCoseKeyPubKey(input.keyHex);
   if (!decoded.ok) return { ok: false, reason: decoded.reason };
   const pub = decoded.pubKey;
 
-  // Layer 3: strict verify (no hashed=true) + address policy.
+  // Strict verify (no hashed=true) plus the address policy.
   const res = await verifyCoseSign1({
     signatureHex: input.signatureHex,
     publicKey: pub,

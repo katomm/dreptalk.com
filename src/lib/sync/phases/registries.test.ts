@@ -105,6 +105,17 @@ describe('governancePhases', () => {
     expect(activePhaseNames(governancePhases, govCtx(true))).not.toContain('review-announce');
   });
 
+  it('keeps the documented data dependencies in order', () => {
+    const names = activePhaseNames(governancePhases, govCtx(true, { pinGc: true }));
+    // A title recovered by metadata this run reaches its topic in the same run.
+    expectBefore(names, 'metadata', 'gov-titles');
+    // A document confirmed by metadata this run is never a pin-gc candidate.
+    expectBefore(names, 'metadata', 'pin-gc');
+    // Trending folds in the tallies and post dates written this run.
+    expectBefore(names, 'tallies', 'trending');
+    expectBefore(names, 'post-dates', 'trending');
+  });
+
   it('runs the surveys mirror only when the Tessera client is configured', () => {
     expect(activePhaseNames(governancePhases, govCtx(false))).not.toContain('surveys');
     expect(activePhaseNames(governancePhases, govCtx(true))).not.toContain('surveys');
@@ -153,11 +164,18 @@ describe('drepPhases', () => {
     expect(activePhaseNames(drepPhases, drepCtx())).toEqual(drepPhases.map((d) => d.name));
   });
 
-  it('skips every avatar phase when the R2 binding is missing', () => {
+  it('skips the R2-backed avatar phases when the binding is missing', () => {
+    const withBucket = activePhaseNames(drepPhases, drepCtx());
     const withoutBucket = activePhaseNames(drepPhases, drepCtx({ avatars: false }));
-    expect(activePhaseNames(drepPhases, drepCtx())).toContain('avatars');
-    expect(withoutBucket.filter((name) => name.startsWith('avatar'))).toEqual([]);
+    for (const name of ['avatars', 'avatar-refit']) {
+      expect(withBucket).toContain(name);
+      expect(withoutBucket).not.toContain(name);
+    }
     expect(withoutBucket).toContain('dreps');
+  });
+
+  it('computes the epoch stats after the vote-history sweep of the same run', () => {
+    expectBefore(activePhaseNames(drepPhases, drepCtx()), 'vote-history-sweep', 'epoch-stats');
   });
 
   it('marks exactly dreps as primary and keeps names unique', () => {

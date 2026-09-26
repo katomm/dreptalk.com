@@ -463,56 +463,34 @@ describe('fetchAnchorMetadata', () => {
   });
 });
 
-const PROFILE_POLICY = CIP119_REFERENCE_POLICY;
-const ACTION_POLICY = CIP108_REFERENCE_POLICY;
-
 describe('readReferenceList', () => {
-  // Pins the caps the two production paths pass to the shared reader, so any
-  // change to either policy is a deliberate test update. The cases below run
-  // against the real policy objects.
-  it('serves the CIP-119 profile and CIP-108 action policies', () => {
-    expect(PROFILE_POLICY).toEqual({
-      maxItems: 10,
-      maxLabelLen: 100,
-      maxUriLen: 2_048,
-      allowIpfs: false,
-      labelKeys: ['label', 'name', '@type'],
-    });
-    expect(ACTION_POLICY).toEqual({
-      maxItems: 20,
-      maxLabelLen: 200,
-      maxUriLen: 2_048,
-      allowIpfs: true,
-      labelKeys: ['label', 'name'],
-      dedupe: true,
-    });
-  });
-
+  // The cases run against the real policies the profile (CIP-119) and action
+  // (CIP-108) paths pass to the shared reader.
   it('drops an over-long uri instead of slicing it, under both policies', () => {
     const longUri = `https://example.com/${'p'.repeat(2_100)}`;
-    expect(readReferenceList([{ label: 'Too long', uri: longUri }], PROFILE_POLICY)).toBeNull();
-    expect(readReferenceList([{ label: 'Too long', uri: longUri }], ACTION_POLICY)).toBeNull();
+    expect(readReferenceList([{ label: 'Too long', uri: longUri }], CIP119_REFERENCE_POLICY)).toBeNull();
+    expect(readReferenceList([{ label: 'Too long', uri: longUri }], CIP108_REFERENCE_POLICY)).toBeNull();
   });
 
   it('keeps a uri exactly at the cap', () => {
     const prefix = 'https://example.com/';
     const uri = prefix + 'p'.repeat(2_048 - prefix.length);
     expect(uri).toHaveLength(2_048);
-    expect(readReferenceList([{ label: 'Edge', uri }], PROFILE_POLICY)).toEqual([
+    expect(readReferenceList([{ label: 'Edge', uri }], CIP119_REFERENCE_POLICY)).toEqual([
       { label: 'Edge', uri },
     ]);
   });
 
   it('caps the label per policy', () => {
     const refs = [{ label: 'L'.repeat(300), uri: 'https://example.com' }];
-    expect(readReferenceList(refs, PROFILE_POLICY)![0].label).toHaveLength(100);
-    expect(readReferenceList(refs, ACTION_POLICY)![0].label).toHaveLength(200);
+    expect(readReferenceList(refs, CIP119_REFERENCE_POLICY)![0].label).toHaveLength(100);
+    expect(readReferenceList(refs, CIP108_REFERENCE_POLICY)![0].label).toHaveLength(200);
   });
 
   it('caps the entry count per policy, keeping document order', () => {
     const refs = Array.from({ length: 25 }, (_, i) => ({ label: `L${i}`, uri: `https://e.example/${i}` }));
-    expect(readReferenceList(refs, PROFILE_POLICY)).toHaveLength(10);
-    const action = readReferenceList(refs, ACTION_POLICY);
+    expect(readReferenceList(refs, CIP119_REFERENCE_POLICY)).toHaveLength(10);
+    const action = readReferenceList(refs, CIP108_REFERENCE_POLICY);
     expect(action).toHaveLength(20);
     expect(action?.[19]?.uri).toBe('https://e.example/19');
   });
@@ -522,8 +500,8 @@ describe('readReferenceList', () => {
       { label: 'Doc', uri: 'ipfs://QmSomeHash/doc.json' },
       { label: 'Site', uri: 'https://ok.example' },
     ];
-    expect(readReferenceList(refs, PROFILE_POLICY)).toEqual([{ label: 'Site', uri: 'https://ok.example' }]);
-    expect(readReferenceList(refs, ACTION_POLICY)).toEqual([
+    expect(readReferenceList(refs, CIP119_REFERENCE_POLICY)).toEqual([{ label: 'Site', uri: 'https://ok.example' }]);
+    expect(readReferenceList(refs, CIP108_REFERENCE_POLICY)).toEqual([
       { label: 'Doc', uri: 'ipfs://QmSomeHash/doc.json' },
       { label: 'Site', uri: 'https://ok.example' },
     ]);
@@ -536,28 +514,28 @@ describe('readReferenceList', () => {
       { label: 'File', uri: 'file:///etc/passwd' },
       { label: 'Nothing' },
     ];
-    expect(readReferenceList(refs, PROFILE_POLICY)).toBeNull();
-    expect(readReferenceList(refs, ACTION_POLICY)).toBeNull();
+    expect(readReferenceList(refs, CIP119_REFERENCE_POLICY)).toBeNull();
+    expect(readReferenceList(refs, CIP108_REFERENCE_POLICY)).toBeNull();
   });
 
   it('falls back to @type only where the policy lists it', () => {
     const refs = [{ '@type': 'Link', uri: 'https://example.com' }];
-    expect(readReferenceList(refs, PROFILE_POLICY)).toEqual([{ label: 'Link', uri: 'https://example.com' }]);
-    expect(readReferenceList(refs, ACTION_POLICY)).toEqual([{ label: '', uri: 'https://example.com' }]);
+    expect(readReferenceList(refs, CIP119_REFERENCE_POLICY)).toEqual([{ label: 'Link', uri: 'https://example.com' }]);
+    expect(readReferenceList(refs, CIP108_REFERENCE_POLICY)).toEqual([{ label: '', uri: 'https://example.com' }]);
   });
 
   it('keeps an explicit empty label rather than falling through to the next key', () => {
     const refs = [{ label: '', name: 'Fallback', '@type': 'Link', uri: 'https://example.com' }];
-    expect(readReferenceList(refs, PROFILE_POLICY)).toEqual([{ label: '', uri: 'https://example.com' }]);
+    expect(readReferenceList(refs, CIP119_REFERENCE_POLICY)).toEqual([{ label: '', uri: 'https://example.com' }]);
   });
 
   it('unwraps the JSON-LD @value form on both uri and label', () => {
     const refs = [{ label: { '@value': 'Site' }, uri: { '@value': 'https://example.com' } }];
-    expect(readReferenceList(refs, PROFILE_POLICY)).toEqual([{ label: 'Site', uri: 'https://example.com' }]);
+    expect(readReferenceList(refs, CIP119_REFERENCE_POLICY)).toEqual([{ label: 'Site', uri: 'https://example.com' }]);
   });
 
   it('reads url as well as uri', () => {
-    expect(readReferenceList([{ label: 'Site', url: 'https://example.com' }], PROFILE_POLICY)).toEqual([
+    expect(readReferenceList([{ label: 'Site', url: 'https://example.com' }], CIP119_REFERENCE_POLICY)).toEqual([
       { label: 'Site', uri: 'https://example.com' },
     ]);
   });
@@ -569,24 +547,24 @@ describe('readReferenceList', () => {
     ];
     // Deduping first leaves room for the distinct link. Without it the repeats
     // fill the cap and the distinct one is never reached.
-    expect(readReferenceList(refs, { ...ACTION_POLICY, maxItems: 3 })).toEqual([
+    expect(readReferenceList(refs, { ...CIP108_REFERENCE_POLICY, maxItems: 3 })).toEqual([
       { label: 'Same', uri: 'https://same.example' },
       { label: 'Other', uri: 'https://other.example' },
     ]);
-    expect(readReferenceList(refs, { ...PROFILE_POLICY, maxItems: 3 })).toEqual(
+    expect(readReferenceList(refs, { ...CIP119_REFERENCE_POLICY, maxItems: 3 })).toEqual(
       Array.from({ length: 3 }, () => ({ label: 'Same', uri: 'https://same.example' })),
     );
   });
 
   it('returns null for a non-array field and for an empty array', () => {
-    expect(readReferenceList(undefined, PROFILE_POLICY)).toBeNull();
-    expect(readReferenceList({ uri: 'https://example.com' }, PROFILE_POLICY)).toBeNull();
-    expect(readReferenceList([], PROFILE_POLICY)).toBeNull();
+    expect(readReferenceList(undefined, CIP119_REFERENCE_POLICY)).toBeNull();
+    expect(readReferenceList({ uri: 'https://example.com' }, CIP119_REFERENCE_POLICY)).toBeNull();
+    expect(readReferenceList([], CIP119_REFERENCE_POLICY)).toBeNull();
   });
 
   it('survives junk entries without throwing', () => {
     const refs = [42, null, undefined, [], 'https://example.com', { uri: 'https://ok.example' }];
-    expect(readReferenceList(refs, PROFILE_POLICY)).toEqual([{ label: '', uri: 'https://ok.example' }]);
+    expect(readReferenceList(refs, CIP119_REFERENCE_POLICY)).toEqual([{ label: '', uri: 'https://ok.example' }]);
   });
 
   it('stops scanning a pathologically long array', () => {
@@ -596,7 +574,7 @@ describe('readReferenceList', () => {
       ...Array.from({ length: 50_000 }, () => ({ label: 'Junk', uri: 'javascript:void(0)' })),
       { label: 'Real', uri: 'https://real.example' },
     ];
-    expect(readReferenceList(refs, PROFILE_POLICY)).toBeNull();
+    expect(readReferenceList(refs, CIP119_REFERENCE_POLICY)).toBeNull();
   });
 });
 

@@ -13,6 +13,7 @@ import { upsertCommitteeMembers, upsertCommitteeHotKeys, recomputeCommitteePct }
 import { readThresholdSnapshot } from './thresholds.js';
 import type { ProposalListRow, VotingSummary, ProposalVoteRow, VoteListRow, EpochParamsRow } from '../koios/client.js';
 import { epochStartMs, resolveNetwork } from '../config/network.js';
+import { lifeRow } from './__fixtures__/proposalListRow.js';
 
 const db = () => env.DB;
 const NOW = 1_754_000_000_000;
@@ -32,16 +33,6 @@ async function insertActive(expiryEpoch: number | null) {
     }),
   ]);
   return { id, proposalId, topicId, txHash: `gtx${seq}` };
-}
-
-function lifeRow(txHash: string, over: Partial<ProposalListRow> = {}): ProposalListRow {
-  return {
-    proposal_id: `gov_${txHash}`,
-    proposal_tx_hash: txHash,
-    proposal_index: 0,
-    proposal_type: 'TreasuryWithdrawals',
-    ...over,
-  } as ProposalListRow;
 }
 
 const summary: VotingSummary = {

@@ -38,23 +38,21 @@ describe('GET /api/posts/[id]/history', () => {
     expect(body.versions.length).toBeGreaterThan(0);
   });
 
-  it.each([
-    ['an anonymous viewer', null],
-    ['another writer', { id: 'drep-b', roles: ['drep'] }],
-  ])('answers 404 for a hidden post to %s', async (_label, user) => {
+  it('shows a hidden post only to its author and moderators', async () => {
+    // One hidden post, four viewers: the gate is per viewer, so one fixture serves all.
     const postId = await newPost('drep-a', true);
-    const res = await callGet(postId, user);
-    expect(res.status).toBe(404);
-    expect(await res.json()).toEqual({ ok: false, error: 'post_not_found' });
-  });
-
-  it.each([
-    ['its author', { id: 'drep-a', roles: ['drep'] }],
-    ['a moderator', { id: 'mod-1', roles: ['moderator'] }],
-  ])('serves a hidden post to %s', async (_label, user) => {
-    const postId = await newPost('drep-a', true);
-    const res = await callGet(postId, user);
-    expect(res.status).toBe(200);
-    expect((await res.json() as { ok: boolean }).ok).toBe(true);
+    const cases: [string, { id: string; roles: string[] } | null, number][] = [
+      ['an anonymous viewer', null, 404],
+      ['another writer', { id: 'drep-b', roles: ['drep'] }, 404],
+      ['its author', { id: 'drep-a', roles: ['drep'] }, 200],
+      ['a moderator', { id: 'mod-1', roles: ['moderator'] }, 200],
+    ];
+    for (const [label, user, status] of cases) {
+      const res = await callGet(postId, user);
+      expect(res.status, label).toBe(status);
+      const body = await res.json() as { ok: boolean; error?: string };
+      if (status === 404) expect(body, label).toEqual({ ok: false, error: 'post_not_found' });
+      else expect(body.ok, label).toBe(true);
+    }
   });
 });

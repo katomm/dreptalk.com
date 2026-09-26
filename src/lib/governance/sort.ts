@@ -79,8 +79,7 @@ function engagementOf(row: GovActionTopic): number {
 /**
  * Canonical, time-invariant trending key. Stored on the row by the gov-sync cron so the
  * list can be ordered and paged in the database instead of after loading every action.
- * This is the single source of truth for trending order; trendingScore below is derived
- * from it, so the live score and the materialized DB order cannot disagree.
+ * This is the single source of truth for trending order.
  *
  * Blends engagement with recency and penalises terminal (decided) actions so they sink.
  * With no replies and no votes the key is just the recency term, so a brand-new action
@@ -100,13 +99,3 @@ export function trendingOrderKey(row: GovActionTopic): number {
   return isTerminalStatus(row.action.status) ? key + Math.log2(TERMINAL_PENALTY) : key;
 }
 
-/**
- * Live trending score at a given clock, the inverse of trendingOrderKey's log transform:
- * the stored key is log2(score) + now/HALF_LIFE_MS, so the score is 2^(key - now/H).
- * Derived from the one ordering definition, so tests can compare the two.
- * Exact while last_post_at <= now (the contract: submission epochs are past, replies use
- * the wall clock), so the old max(0, ageDays) recency clamp is neither possible nor needed.
- */
-export function trendingScore(row: GovActionTopic, now: number): number {
-  return 2 ** (trendingOrderKey(row) - now / HALF_LIFE_MS);
-}

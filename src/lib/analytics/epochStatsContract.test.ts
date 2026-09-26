@@ -61,3 +61,13 @@ describe('seriesStartFromRows', () => {
     }
   });
 });
+
+describe('metric contract', () => {
+  it('has a definition, reliability and start rule on every metric', () => {
+    for (const m of Object.values(EPOCH_STATS_METRICS)) {
+      expect(m.definition.length).toBeGreaterThan(20);
+      expect(['exact', 'forward-only', 'flagged']).toContain(m.reliability);
+      expect(['oldest-row', 'first-non-null', 'first-complete']).toContain(m.start);
+    }
+  });
+});
