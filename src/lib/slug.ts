@@ -9,14 +9,14 @@ const BASE_MAX = 40;
  * non-alphanumeric runs collapsed to single hyphens, trimmed and capped.
  * Returns '' when nothing slug-safe remains (e.g. a fully non-Latin name).
  */
-export function slugBase(name: string): string {
+export function slugBase(name: string, max: number = BASE_MAX): string {
   return name
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
-    .slice(0, BASE_MAX)
+    .slice(0, max)
     .replace(/-+$/, '');
 }
 
