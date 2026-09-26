@@ -44,11 +44,21 @@ const { signedIn = false, initialScope = 'all' } = Astro.props;
     let host: SearchHost | null = null;
     let loading: Promise<SearchHost | null> | null = null;
 
+    // Under astro dev, React modules call Fast Refresh hooks that Astro installs
+    // right before it hydrates an island. Pages without an island never run that
+    // setup, so without it the palette chunk throws on import and every open
+    // falls back to /search. Loading the same setup first mirrors what an island
+    // does. Builds carry no refresh hooks and drop this branch.
+    const importHost = async () => {
+      if (import.meta.env.DEV) await import('astro:scripts/before-hydration.js');
+      return import('./searchHost');
+    };
+
     // A failed chunk load (e.g. stale HTML after a deploy) resets, so a later
     // attempt can retry instead of sticking on the broken promise.
     const load = () => {
       if (loading) return loading;
-      loading = import('./searchHost')
+      loading = importHost()
         .then((m) => (host = m.mountSearch({ trigger: btn, signedIn, initialScope })))
         .catch(() => {
           loading = null;

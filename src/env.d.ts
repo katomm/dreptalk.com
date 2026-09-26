@@ -110,3 +110,8 @@ declare namespace Cloudflare {
     PINATA_GOV_GROUP_ID?: string;
   }
 }
+
+// Astro's virtual module holding the scripts integrations run before an island
+// hydrates (under astro dev, React's Fast Refresh setup). SearchTrigger.astro
+// loads it ahead of the lazily imported palette.
+declare module 'astro:scripts/before-hydration.js' {}
