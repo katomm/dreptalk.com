@@ -1,6 +1,6 @@
-import { waitUntil } from 'cloudflare:workers';
 import type { APIRoute } from 'astro';
 import { jsonResponse, runtimeEnv } from '@/lib/api/response';
+import { withEdgeCache } from '@/lib/http/edgeCache';
 import { handleSearch, normalizeQuery } from '@/lib/search/handler';
 import { getContentIndex } from '@/lib/search/contentIndex';
 import { parseScope } from '@/lib/search/scopes';
@@ -24,21 +24,19 @@ export const GET: APIRoute = async ({ request, locals }) => {
   const page = parsePage(url.searchParams.get('page'));
   const counts = url.searchParams.get('counts') === '1';
 
-  const cache = (caches as CacheStorage & { default: Cache }).default;
-  const keyUrl = `${url.origin}/api/search?q=${encodeURIComponent(q)}&scope=${scope}&page=${page}&counts=${counts ? 1 : 0}`;
-  const cacheKey = new Request(keyUrl, { method: 'GET' });
-  const cached = await cache.match(cacheKey);
-  // A Response from the Cache API carries immutable headers. The security
-  // middleware sets headers on every response, so returning the cached Response
-  // directly throws "Can't modify immutable headers" and the client sees the
-  // search fail. Return a fresh, mutable copy so the middleware can decorate it.
-  if (cached) return new Response(cached.body, cached);
-
-  const body = await handleSearch(db, q, { scope, page, counts, content: await getContentIndex() });
-  const response = jsonResponse(body, 200, {
-    'Cache-Control': `public, max-age=30, s-maxage=${CACHE_TTL_SECONDS}`,
-  });
-  // Cache write happens after the response is sent; a miss must not pay for the put.
-  waitUntil(cache.put(cacheKey, response.clone()));
-  return response;
+  return withEdgeCache(
+    request,
+    async () => {
+      const body = await handleSearch(db, q, {
+        scope,
+        page,
+        counts,
+        content: await getContentIndex(),
+      });
+      return jsonResponse(body, 200, {
+        'Cache-Control': `public, max-age=30, s-maxage=${CACHE_TTL_SECONDS}`,
+      });
+    },
+    `/api/search?q=${encodeURIComponent(q)}&scope=${scope}&page=${page}&counts=${counts ? 1 : 0}`,
+  );
 };
