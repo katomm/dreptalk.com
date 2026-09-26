@@ -164,13 +164,10 @@ describe('drepPhases', () => {
     expect(activePhaseNames(drepPhases, drepCtx())).toEqual(drepPhases.map((d) => d.name));
   });
 
-  it('skips the R2-backed avatar phases when the binding is missing', () => {
-    const withBucket = activePhaseNames(drepPhases, drepCtx());
+  it('skips the R2-backed avatar phase when the binding is missing', () => {
     const withoutBucket = activePhaseNames(drepPhases, drepCtx({ avatars: false }));
-    for (const name of ['avatars', 'avatar-refit']) {
-      expect(withBucket).toContain(name);
-      expect(withoutBucket).not.toContain(name);
-    }
+    expect(activePhaseNames(drepPhases, drepCtx())).toContain('avatars');
+    expect(withoutBucket).not.toContain('avatars');
     expect(withoutBucket).toContain('dreps');
   });
 
