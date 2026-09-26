@@ -13,6 +13,10 @@ export const DREP_LINK_HOST = 'drep.link';
 export const DREP_LINK_ORIGIN = `https://${DREP_LINK_HOST}`;
 
 const SHAPE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+// Reserved names compared without hyphens (see config/drepLinkReserved.ts).
+const unhyphen = (h: string) => h.replace(/-/g, '');
+const RESERVED_FLAT: ReadonlySet<string> = new Set([...RESERVED_HANDLES].map(unhyphen));
 // drep1… paths resolve as DRep ids first, so no handle may start that way. A
 // hyphen never occurs in bech32, so names like "drep-collective" stay free.
 const ID_NAMESPACE = /^drep1/;
@@ -56,6 +60,6 @@ export function validateHandle(handle: string, drepId: string | null): HandleChe
   }
   if (handle.length > HANDLE_MAX) return { ok: false, reason: 'length' };
   if (ID_NAMESPACE.test(handle)) return { ok: false, reason: 'id_namespace' };
-  if (RESERVED_HANDLES.has(handle)) return { ok: false, reason: 'reserved' };
+  if (RESERVED_FLAT.has(unhyphen(handle))) return { ok: false, reason: 'reserved' };
   return { ok: true };
 }
