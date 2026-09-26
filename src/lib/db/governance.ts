@@ -657,7 +657,7 @@ function govPageOrderBy(sort: GovSort): { orderBy: string; orderBinds: string[] 
       // Reverse of 'new': oldest submission first. submitted_at IS NULL still puts
       // not-yet-backfilled rows last, where they fall back to ascending epoch order.
       // Under ASC, SQLite sorts NULL epochs first, so an explicit IS NULL keeps
-      // not-yet-known epochs at the bottom (matching the in-memory sort's nulls-last).
+      // not-yet-known epochs at the bottom.
       return { orderBy: 'ga.submitted_at IS NULL, ga.submitted_at ASC, ga.submitted_epoch IS NULL, ga.submitted_epoch ASC, ga.topic_id ASC', orderBinds: [] };
     case 'closing':
       // Open actions first (terminal ones have no time left), then soonest expiry, nulls

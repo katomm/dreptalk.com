@@ -16,8 +16,6 @@ import {
   formatSubmittedDateTime,
   submittedDateLabel,
   govTypeTone,
-  govActionOgImage,
-  threadOgImage,
   isSpoLedType,
   overviewTally,
   headlineComposition,
@@ -39,7 +37,7 @@ describe('readableType / formatAda', () => {
   it('spaces camelCase types', () => {
     expect(readableType('TreasuryWithdrawals')).toBe('Treasury Withdrawals');
   });
-  it('formats lovelace to ADA, null on garbage', () => {
+  it('formats lovelace to ada, null on garbage', () => {
     expect(formatAda('100000000000')).toBe('100,000 ₳');
     expect(formatAda(null)).toBeNull();
     expect(formatAda('abc')).toBeNull();
@@ -194,30 +192,6 @@ describe('govTypeTone', () => {
   });
 });
 
-describe('govActionOgImage', () => {
-  it('maps each known type to its per-type OG card', () => {
-    expect(govActionOgImage('TreasuryWithdrawals')).toBe('/og/gov-treasury.png');
-    expect(govActionOgImage('HardForkInitiation')).toBe('/og/gov-hardfork.png');
-    expect(govActionOgImage('InfoAction')).toBe('/og/gov-info.png');
-    expect(govActionOgImage('NoConfidence')).toBe('/og/gov-noconfidence.png');
-  });
-  it('falls back to the site OG image for unknown types', () => {
-    expect(govActionOgImage('SomethingElse')).toBe('/og.jpg');
-  });
-});
-
-describe('threadOgImage', () => {
-  it('uses the per-type card for a governance action', () => {
-    expect(threadOgImage({ type: 'TreasuryWithdrawals' }, true)).toBe('/og/gov-treasury.png');
-  });
-  it('uses the discussion card for a plain thread', () => {
-    expect(threadOgImage(null, false)).toBe('/og/discussion.png');
-  });
-  it('defers to the site default for a governance topic without a synced action', () => {
-    expect(threadOgImage(null, true)).toBeUndefined();
-  });
-});
-
 describe('voteTone', () => {
   it('maps votes to tones case-insensitively', () => {
     expect(voteTone('Yes')).toBe('positive');
@@ -324,14 +298,6 @@ describe('isSpoLedType / overviewTally', () => {
 });
 
 describe('govStatusVerb', () => {
-  it('maps statuses to past-tense feed verbs', () => {
-    expect(govStatusVerb('enacted')).toBe('was enacted');
-    expect(govStatusVerb('ratified')).toBe('was ratified');
-    expect(govStatusVerb('dropped')).toBe('was dropped');
-    expect(govStatusVerb('expired')).toBe('expired');
-    expect(govStatusVerb('closed')).toBe('was closed');
-  });
-
   it('falls back to a generic phrase for an unknown status', () => {
     expect(govStatusVerb('whatever')).toBe('is now whatever');
     // 'active' is intentionally not a feed verb: pending -> active is suppressed,

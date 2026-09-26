@@ -42,13 +42,6 @@ const fullDraft: InfoActionDraft = {
   surveyRef: '',
 };
 
-describe('infoActionDraftKey', () => {
-  it('scopes the key by network', () => {
-    expect(infoActionDraftKey('preprod')).toBe('dreptalk:ga-new-draft:preprod');
-    expect(infoActionDraftKey('mainnet')).toBe('dreptalk:ga-new-draft:mainnet');
-  });
-});
-
 describe('saveInfoActionDraft / loadInfoActionDraft round trip', () => {
   it('round-trips every field, including references', () => {
     const storage = makeFakeStorage();
@@ -67,29 +60,15 @@ describe('saveInfoActionDraft / loadInfoActionDraft round trip', () => {
 });
 
 describe('loadInfoActionDraft defensive parsing', () => {
-  it('returns null for a missing key', () => {
-    const storage = makeFakeStorage();
-    expect(loadInfoActionDraft(storage, infoActionDraftKey('preprod'))).toBeNull();
-  });
-
-  it('returns null for invalid JSON', () => {
-    const storage = makeFakeStorage();
-    const key = infoActionDraftKey('preprod');
-    storage.setItem(key, '{not valid json');
-    expect(loadInfoActionDraft(storage, key)).toBeNull();
-  });
-
-  it('returns null for a wrong-shape value (e.g. a JSON array)', () => {
+  it.each([
+    ['a missing key', null],
+    ['invalid JSON', '{not valid json'],
+    ['a wrong-shape value (a JSON array)', JSON.stringify([1, 2, 3])],
+    ['a JSON primitive', JSON.stringify('just a string')],
+  ])('returns null for %s', (_label, stored) => {
     const storage = makeFakeStorage();
     const key = infoActionDraftKey('preprod');
-    storage.setItem(key, JSON.stringify([1, 2, 3]));
-    expect(loadInfoActionDraft(storage, key)).toBeNull();
-  });
-
-  it('returns null for a JSON primitive', () => {
-    const storage = makeFakeStorage();
-    const key = infoActionDraftKey('preprod');
-    storage.setItem(key, JSON.stringify('just a string'));
+    if (stored !== null) storage.setItem(key, stored);
     expect(loadInfoActionDraft(storage, key)).toBeNull();
   });
 
@@ -139,12 +118,6 @@ describe('loadInfoActionDraft defensive parsing', () => {
     storage.setItem(key, JSON.stringify({ ...fullDraft, references: 'nope' }));
     expect(loadInfoActionDraft(storage, key)).toEqual({ ...fullDraft, references: [] });
   });
-
-  it('never throws when storage.getItem throws', () => {
-    const storage = makeFakeStorage({ throwOn: 'getItem' });
-    expect(() => loadInfoActionDraft(storage, infoActionDraftKey('preprod'))).not.toThrow();
-    expect(loadInfoActionDraft(storage, infoActionDraftKey('preprod'))).toBeNull();
-  });
 });
 
 describe('clearInfoActionDraft', () => {
@@ -155,17 +128,18 @@ describe('clearInfoActionDraft', () => {
     clearInfoActionDraft(storage, key);
     expect(loadInfoActionDraft(storage, key)).toBeNull();
   });
-
-  it('never throws when storage.removeItem throws', () => {
-    const storage = makeFakeStorage({ throwOn: 'removeItem' });
-    expect(() => clearInfoActionDraft(storage, infoActionDraftKey('preprod'))).not.toThrow();
-  });
 });
 
-describe('saveInfoActionDraft resilience', () => {
-  it('never throws when storage.setItem throws (quota / blocked storage)', () => {
-    const storage = makeFakeStorage({ throwOn: 'setItem' });
-    expect(() => saveInfoActionDraft(storage, infoActionDraftKey('preprod'), fullDraft)).not.toThrow();
+describe('storage failures (quota, blocked storage)', () => {
+  type Store = ReturnType<typeof makeFakeStorage>;
+  // Calling without a throw is the assertion. A failed read reports no draft.
+  it.each([
+    ['getItem', (st: Store, key: string) => loadInfoActionDraft(st, key), null],
+    ['setItem', (st: Store, key: string) => saveInfoActionDraft(st, key, fullDraft), undefined],
+    ['removeItem', (st: Store, key: string) => clearInfoActionDraft(st, key), undefined],
+  ] as const)('never throws when storage.%s throws', (method, call, expected) => {
+    const storage = makeFakeStorage({ throwOn: method });
+    expect(call(storage, infoActionDraftKey('preprod'))).toBe(expected);
   });
 });
 

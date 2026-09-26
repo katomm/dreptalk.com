@@ -1,11 +1,8 @@
 /**
- * Workers-runtime tests for renderMarkdown.
+ * Tests for renderMarkdown and the stored-HTML helpers.
  *
  * Negative cases assert that no dangerous artifact survives sanitization.
  * Positive cases assert that safe Markdown is rendered correctly.
- *
- * Running in the workerd pool proves that both `marked` and `xss` load and
- * execute inside the Cloudflare Workers runtime.
  */
 
 import { describe, it, expect } from 'vitest';

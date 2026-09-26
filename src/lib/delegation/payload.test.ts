@@ -33,16 +33,12 @@ describe('parseDelegationChangePayload', () => {
     expect(parseDelegationChangePayload(JSON.stringify({ to: { type: 'drep' } }))).toBeNull();
   });
 
-  it('drops syntactically invalid JSON', () => {
-    expect(parseDelegationChangePayload('not json')).toBeNull();
-  });
-
-  it('drops a null payload', () => {
-    expect(parseDelegationChangePayload(null)).toBeNull();
-  });
-
-  it('drops an empty string payload', () => {
-    expect(parseDelegationChangePayload('')).toBeNull();
+  it.each([
+    ['syntactically invalid JSON', 'not json'],
+    ['a null payload', null],
+    ['an empty string payload', ''],
+  ])('drops %s', (_label, raw) => {
+    expect(parseDelegationChangePayload(raw)).toBeNull();
   });
 
   it('falls back to from: null when `from` is present but malformed', () => {

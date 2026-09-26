@@ -42,19 +42,9 @@ describe('heroRingSlots', () => {
     }
   });
 
-  it('is deterministic', () => {
-    expect(heroRingSlots(8, 4)).toEqual(heroRingSlots(8, 4));
-  });
-
   it('handles a reduced active count with no ghosts', () => {
     const slots = heroRingSlots(8, 0);
     expect(slots).toHaveLength(8);
     expect(slots.every((s) => s.kind === 'active')).toBe(true);
-  });
-
-  it('exposes ring radii with ghosts outside the active ring', () => {
-    expect(HERO_RING_RADII.active.rx).toBeGreaterThan(HERO_RING_RADII.active.ry);
-    expect(HERO_RING_RADII.ghost.rx).toBeGreaterThan(HERO_RING_RADII.active.rx);
-    expect(HERO_RING_RADII.ghost.ry).toBeGreaterThan(HERO_RING_RADII.active.ry);
   });
 });

@@ -103,19 +103,3 @@ export function viewerReactionsStmts(
   );
 }
 
-/**
- * Returns reactorId's current reaction for each of postIds, in one batched
- * round-trip (no N+1). Used to render each post's reaction buttons in the
- * correct state.
- */
-export async function getViewerReactions(
-  db: D1Database,
-  reactorId: string,
-  postIds: string[],
-): Promise<Map<string, Reaction>> {
-  if (postIds.length === 0) return new Map();
-  const batched = await db.batch<{ post_id: string; reaction: Reaction }>(
-    viewerReactionsStmts(db, reactorId, postIds),
-  );
-  return new Map(batched.flatMap((r) => (r.results ?? []).map((row) => [row.post_id, row.reaction] as const)));
-}

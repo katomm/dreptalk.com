@@ -137,6 +137,15 @@ export function computeSurveyTally(args: ComputeArgs): ComputedTally {
       ? [...artifact.role.questions]
       : toArtifactQuestions(weightedTallySurvey(definition, weightedResponders));
 
+  // What these figures may be called on the card. matchedCount includes zero
+  // weight (a registered DRep with no power), so it is never "the responses that
+  // carry voting power". On the artifact path it also requires DRep membership
+  // at the end epoch and is normally lower than counted. answeredPower may
+  // legitimately be zero. totalPower on the live path excludes the two
+  // auto-voting special ids and is null, never zero, when the epoch has no
+  // stats row. On the artifact path it is the artifact's own electorate total,
+  // whose treatment of the special ids this site does not know and must not
+  // assert.
   const answeredPower =
     artifact !== null
       ? artifact.role.responders.reduce((sum, r) => sum + BigInt(r.weight), 0n)

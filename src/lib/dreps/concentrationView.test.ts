@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { coalitionAt, snapThreshold, buildSegments, summarySentence } from './concentrationView.js';
+import { coalitionAt, snapThreshold, buildSegments } from './concentrationView.js';
 import type { ConcentrationPoint, ConcentrationTop } from './concentration.js';
 
 describe('snapThreshold', () => {
@@ -40,11 +40,5 @@ describe('buildSegments', () => {
       { pct: 15, kind: 'coalitionRest' },
       { pct: 10, kind: 'remainder' },
     ]);
-  });
-});
-
-describe('summarySentence', () => {
-  it('formats count and percent', () => {
-    expect(summarySentence(7, 67)).toBe('Top 7 DReps hold 67% of active DRep voting power');
   });
 });

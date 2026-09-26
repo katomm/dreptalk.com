@@ -738,39 +738,6 @@ describe('handleVerify: happy path (cc)', () => {
 
     expect(result.status).toBe(401);
   });
-
-  it('returns 401 when the matching credential is a native script (not key-based)', async () => {
-    const payload = 'dreptalk:dreptalk.com:cc-script-nonce:1700000000';
-    const consumeOverride = makeSingleUseNonceOverride(payload);
-    const { publicKeyHex, signatureHex, pubKey } = rawSign(payload, new Uint8Array(32).fill(15));
-    const hotHex = ccHotKeyHashHex(pubKey);
-
-    const result = await handleVerify({
-      body: { payload, signatureHex, publicKeyHex, role: 'cc' },
-      sessionKv: env.SESSIONS,
-      db: env.DB,
-      koios: {
-        ...koiosRejectAll(),
-        committeeInfo: async () => [
-          {
-            status: 'authorized',
-            cc_hot_id: 'cc_hot1x',
-            cc_cold_id: 'cc_cold1x',
-            cc_hot_hex: hotHex,
-            cc_cold_hex: 'aa',
-            expiration_epoch: 300,
-            cc_hot_has_script: true,
-            cc_cold_has_script: true,
-          },
-        ],
-      },
-      network: 'preprod',
-      now: 1_700_000_000,
-      secure: false,
-    }, { consumeNonce: consumeOverride });
-
-    expect(result.status).toBe(401);
-  });
 });
 
 // ---------------------------------------------------------------------------

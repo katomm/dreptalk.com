@@ -2,10 +2,20 @@
 // Activity event log tests, run in real workerd via vitest-pool-workers.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { activityInsert, getRecentActivity, getActivityPage, insertGovStatusEventIfNew } from './activity.js';
+import { activityInsert, getActivityPage, insertGovStatusEventIfNew, type ActivityRow } from './activity.js';
 import { createTopic, createPost } from './forum.js';
 
 const db = () => env.DB;
+
+// Raw read of one topic's events, oldest first. getActivityPage collapses
+// governance lifecycle rows, so the write-path cases read the table directly.
+async function eventsFor(topicId: string): Promise<ActivityRow[]> {
+  const rows = await db()
+    .prepare('SELECT * FROM activity WHERE topic_id = ? ORDER BY created_at ASC, id ASC')
+    .bind(topicId)
+    .all<ActivityRow>();
+  return rows.results ?? [];
+}
 
 describe('insertGovStatusEventIfNew', () => {
   it('records a transition once and dedups a repeat of the same (topic, target status)', async () => {
@@ -13,39 +23,19 @@ describe('insertGovStatusEventIfNew', () => {
     // Overlapping cron run (or re-run) reports the same transition: must not duplicate.
     await insertGovStatusEventIfNew(db(), { topicId: 'gtopic', from: 'active', to: 'enacted', createdAt: 200 });
 
-    const gov = (await getRecentActivity(db(), { limit: 10 })).filter((r) => r.type === 'gov_status' && r.topic_id === 'gtopic');
+    const gov = await eventsFor('gtopic');
     expect(gov.length).toBe(1);
     expect(gov[0].created_at).toBe(100); // the first-recorded event stands
 
     // A different target status is a distinct milestone and is recorded.
     await insertGovStatusEventIfNew(db(), { topicId: 'gtopic', from: 'ratified', to: 'expired', createdAt: 300 });
-    const after = (await getRecentActivity(db(), { limit: 10 })).filter((r) => r.type === 'gov_status' && r.topic_id === 'gtopic');
+    const after = await eventsFor('gtopic');
     expect(after.length).toBe(2);
   });
 });
 
-describe('activityInsert + getRecentActivity', () => {
-  it('inserts a row and reads it back', async () => {
-    await activityInsert(db(), {
-      type: 'topic_created',
-      topicId: 'topic-1',
-      actorId: 'author-1',
-      createdAt: 1000,
-    }).run();
-
-    const rows = await getRecentActivity(db(), { limit: 10 });
-    expect(rows.length).toBe(1);
-    expect(rows[0]).toMatchObject({
-      type: 'topic_created',
-      topic_id: 'topic-1',
-      actor_id: 'author-1',
-      ref_post_id: null,
-      payload: null,
-      created_at: 1000,
-    });
-  });
-
-  it('serializes payload as JSON and leaves system actor null', async () => {
+describe('activityInsert', () => {
+  it('serializes the payload as JSON and leaves a system actor and ref post null', async () => {
     await activityInsert(db(), {
       type: 'gov_status',
       topicId: 'topic-2',
@@ -53,21 +43,9 @@ describe('activityInsert + getRecentActivity', () => {
       createdAt: 2000,
     }).run();
 
-    const rows = await getRecentActivity(db(), { limit: 10 });
-    const row = rows.find((r) => r.topic_id === 'topic-2')!;
-    expect(row.actor_id).toBeNull();
+    const [row] = await eventsFor('topic-2');
+    expect(row).toMatchObject({ type: 'gov_status', actor_id: null, ref_post_id: null, created_at: 2000 });
     expect(JSON.parse(row.payload as string)).toEqual({ from: 'active', to: 'enacted' });
-  });
-
-  it('orders newest first and respects the limit', async () => {
-    await activityInsert(db(), { type: 'reply_created', topicId: 't', createdAt: 100 }).run();
-    await activityInsert(db(), { type: 'reply_created', topicId: 't', createdAt: 300 }).run();
-    await activityInsert(db(), { type: 'reply_created', topicId: 't', createdAt: 200 }).run();
-
-    const rows = await getRecentActivity(db(), { limit: 2 });
-    expect(rows.length).toBe(2);
-    expect(rows[0].created_at).toBe(300);
-    expect(rows[1].created_at).toBe(200);
   });
 });
 
@@ -83,8 +61,7 @@ describe('forum write paths emit activity', () => {
       rand: 'act1',
     });
 
-    const rows = await getRecentActivity(db(), { limit: 10 });
-    const mine = rows.filter((r) => r.topic_id === topic.id);
+    const mine = await eventsFor(topic.id);
     expect(mine.length).toBe(1);
     expect(mine[0]).toMatchObject({
       type: 'topic_created',
@@ -106,8 +83,7 @@ describe('forum write paths emit activity', () => {
       rand: 'act2',
     });
 
-    const rows = await getRecentActivity(db(), { limit: 10 });
-    expect(rows.filter((r) => r.topic_id === topic.id).length).toBe(0);
+    expect(await eventsFor(topic.id)).toEqual([]);
   });
 
   it('createPost emits one reply_created with the post id', async () => {
@@ -128,8 +104,7 @@ describe('forum write paths emit activity', () => {
       now: 8000,
     });
 
-    const rows = await getRecentActivity(db(), { limit: 10 });
-    const replies = rows.filter((r) => r.topic_id === topic.id && r.type === 'reply_created');
+    const replies = (await eventsFor(topic.id)).filter((r) => r.type === 'reply_created');
     expect(replies.length).toBe(1);
     expect(replies[0]).toMatchObject({
       actor_id: 'user-b',

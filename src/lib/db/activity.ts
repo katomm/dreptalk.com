@@ -117,23 +117,6 @@ export async function insertGovStatusEventIfNew(
     .run();
 }
 
-/**
- * Returns the newest activity events, newest first. The id DESC tiebreaker keeps
- * the order deterministic when two events share a created_at (backfilled rows
- * commonly do). Default limit 30, capped at 50.
- */
-export async function getRecentActivity(
-  db: D1Database,
-  opts?: { limit?: number },
-): Promise<ActivityRow[]> {
-  const limit = Math.min(Math.max(opts?.limit ?? 30, 1), 50);
-  const rows = await db
-    .prepare('SELECT * FROM activity ORDER BY created_at DESC, id DESC LIMIT ?')
-    .bind(limit)
-    .all<ActivityRow>();
-  return rows.results ?? [];
-}
-
 // Activity types each feed filter includes. 'all' is handled by skipping the type
 // clause entirely. Constant per filter (never user input). 'comments' is all human
 // forum activity: a new topic by a person counts like a reply, so it is included

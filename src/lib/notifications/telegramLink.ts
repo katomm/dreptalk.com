@@ -6,7 +6,7 @@
 
 import { toBase64Url } from '../crypto/base64url.js';
 
-export const LINK_CODE_TTL_SECONDS = 900; // 15 minutes
+const LINK_CODE_TTL_SECONDS = 900; // 15 minutes
 
 const keyFor = (code: string) => `tglink:${code}`;
 

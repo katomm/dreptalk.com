@@ -4,8 +4,6 @@ import {
   type TrendSeries,
   computeVoteTrendSeries,
   type TrendBodyInput,
-  toRelativeSeries,
-  sharedTrendBodies,
   buildCompareView,
   sampleSeriesAt,
   buildHoverBands,
@@ -138,91 +136,7 @@ describe('computeVoteTrendSeries', () => {
   });
 });
 
-describe('toRelativeSeries', () => {
-  it('shifts every point so the origin becomes t = 0', () => {
-    const s = series({ points: [{ t: 1000, pct: 0 }, { t: 1600, pct: 50 }] });
-    const out = toRelativeSeries([s], 1000);
-    expect(out[0].points.map((p) => p.t)).toEqual([0, 600]);
-    expect(out[0].points.map((p) => p.pct)).toEqual([0, 50]);
-  });
-
-  it('keeps key, threshold, label and dashed flag intact', () => {
-    const s = series({ dashed: true });
-    const out = toRelativeSeries([s], 0);
-    expect(out[0].key).toBe('DRep');
-    expect(out[0].thresholdPct).toBe(67);
-    expect(out[0].finalLabel).toBe('80%');
-    expect(out[0].dashed).toBe(true);
-  });
-
-  it('does not mutate the input series', () => {
-    const s = series({ points: [{ t: 500, pct: 0 }, { t: 900, pct: 10 }] });
-    toRelativeSeries([s], 500);
-    expect(s.points[0].t).toBe(500);
-  });
-});
-
-describe('sharedTrendBodies', () => {
-  it('keeps only the bodies both sides have, on both sides', () => {
-    const own = [series({ key: 'DRep' }), series({ key: 'SPO' })];
-    const cmp = [series({ key: 'SPO' }), series({ key: 'CC' })];
-    const out = sharedTrendBodies(own, cmp);
-    expect(out.own.map((s) => s.key)).toEqual(['SPO']);
-    expect(out.compare.map((s) => s.key)).toEqual(['SPO']);
-  });
-
-  it('returns two empty lists when the sides have no body in common', () => {
-    const out = sharedTrendBodies([series({ key: 'DRep' })], [series({ key: 'SPO' })]);
-    expect(out.own).toEqual([]);
-    expect(out.compare).toEqual([]);
-  });
-
-  it('preserves the input order of the surviving series', () => {
-    const own = [series({ key: 'CC' }), series({ key: 'DRep' })];
-    const cmp = [series({ key: 'DRep' }), series({ key: 'CC' })];
-    expect(sharedTrendBodies(own, cmp).own.map((s) => s.key)).toEqual(['CC', 'DRep']);
-  });
-
-  it('is a no-op when both sides carry the same bodies', () => {
-    const own = [series({ key: 'DRep' }), series({ key: 'SPO' })];
-    const out = sharedTrendBodies(own, [series({ key: 'DRep' }), series({ key: 'SPO' })]);
-    expect(out.own).toHaveLength(2);
-  });
-});
-
-describe('computeVoteTrendSeries dashed', () => {
-  it('carries the dashed flag from the body input onto the series', () => {
-    const input: TrendBodyInput = {
-      key: 'DRep',
-      yesVotes: [{ blockTime: 50, weight: 10 }],
-      finalPct: 60,
-      thresholdPct: null,
-      finalLabel: '60%',
-      dashed: true,
-    };
-    const out = computeVoteTrendSeries([input], { start: 0, end: 100 });
-    expect(out[0].dashed).toBe(true);
-  });
-
-  it('leaves dashed undefined when the input does not set it', () => {
-    const input: TrendBodyInput = {
-      key: 'DRep',
-      yesVotes: [{ blockTime: 50, weight: 10 }],
-      finalPct: 60,
-      thresholdPct: null,
-      finalLabel: '60%',
-    };
-    expect(computeVoteTrendSeries([input], { start: 0, end: 100 })[0].dashed).toBeUndefined();
-  });
-});
-
 describe('buildTrendChart compare support', () => {
-  it('defaults dashed to false and carries an explicit true through', () => {
-    const c = buildTrendChart([series(), series({ key: 'SPO', dashed: true })], { domain: [0, 100] })!;
-    expect(c.series[0].dashed).toBe(false);
-    expect(c.series[1].dashed).toBe(true);
-  });
-
   it('maps requested markers onto the same x scale as the series', () => {
     const c = buildTrendChart([series()], {
       width: 200, height: 100, padLeft: 0, padRight: 0, padTop: 0, padBottom: 0,
@@ -280,6 +194,8 @@ describe('buildCompareView', () => {
     expect(v.series[0].points[0].t).toBe(0);
     expect(v.compareSeries[0].points[0].t).toBe(0);
     expect(v.compareSeries[0].points[1].t).toBe(4 * DAY);
+    // Re-basing moves only the points, the series identity rides along.
+    expect(v.compareSeries[0]).toMatchObject({ key: 'DRep', thresholdPct: 67, finalLabel: '80%', dashed: true });
   });
 
   it('spans the axis across the longer action so neither is clipped', () => {
@@ -335,15 +251,20 @@ describe('buildCompareView', () => {
     expect(v.droppedKeys).toEqual([]);
   });
 
-  it('reports the own bodies the intersection removed', () => {
-    const v = buildCompareView([ownDrep, ownSpo], [cmpDrep], opts);
+  it('keeps only the bodies both sides have and reports the own ones it removed', () => {
+    const cmpCc = series({ key: 'CC', dashed: true, points: [{ t: 500_000, pct: 0 }, { t: 500_000 + DAY, pct: 20 }] });
+    const v = buildCompareView([ownDrep, ownSpo], [cmpDrep, cmpCc], opts);
     expect(v.series.map((s) => s.key)).toEqual(['DRep']);
+    expect(v.compareSeries.map((s) => s.key)).toEqual(['DRep']);
     expect(v.droppedKeys).toEqual(['SPO']);
   });
 
-  it('reports no dropped bodies when both sides carry the same ones', () => {
+  it('reports no dropped bodies when both sides carry the same ones, keeping each side in its own order', () => {
     const cmpSpo = series({ key: 'SPO', dashed: true, points: [{ t: 500_000, pct: 0 }, { t: 500_000 + DAY, pct: 20 }] });
-    expect(buildCompareView([ownDrep, ownSpo], [cmpDrep, cmpSpo], opts).droppedKeys).toEqual([]);
+    const v = buildCompareView([ownDrep, ownSpo], [cmpSpo, cmpDrep], opts);
+    expect(v.droppedKeys).toEqual([]);
+    expect(v.series.map((s) => s.key)).toEqual(['DRep', 'SPO']);
+    expect(v.compareSeries.map((s) => s.key)).toEqual(['SPO', 'DRep']);
   });
 
   it('does not mutate the input series', () => {
@@ -362,17 +283,6 @@ describe('sampleSeriesAt', () => {
       { t: 100, pct: 30 },
       { t: 200, pct: 75 },
     ],
-  });
-
-  it('returns the value the curve has already reached, never an interpolation', () => {
-    // Half way between the 30 and 75 jumps the curve is still flat at 30. An
-    // interpolating implementation would answer 52.5 here, which the chart never draws.
-    expect(sampleSeriesAt(step(), 150)).toBe(30);
-  });
-
-  it('takes the new value exactly at a jump', () => {
-    expect(sampleSeriesAt(step(), 100)).toBe(30);
-    expect(sampleSeriesAt(step(), 200)).toBe(75);
   });
 
   it('returns the first point before the series starts', () => {

@@ -83,3 +83,19 @@ describe('deploy vars lockstep', () => {
     },
   );
 });
+
+// The app worker and the gov-sync worker bundle the same src/lib code, so they
+// must run under the same runtime compatibility date. The vitest workers pool
+// derives its date from the app wrangler.toml, so keeping the two tomls equal
+// keeps deploys and tests on one runtime behavior.
+function compatDateOf(path: string): string {
+  const date = tomlVar(path, '', 'compatibility_date');
+  if (!date) throw new Error(`compatibility_date not found in ${path}`);
+  return date;
+}
+
+describe('compatibility date lockstep', () => {
+  it('app and gov-sync workers declare the same compatibility date', () => {
+    expect(compatDateOf('workers/gov-sync/wrangler.toml')).toBe(compatDateOf('wrangler.toml'));
+  });
+});

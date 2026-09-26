@@ -332,66 +332,28 @@ describe('getPendingCounts', () => {
     });
   });
 
-  it('counts drep_activity for both delegator_drep_voted and delegator_drep_re_voted, gated by its pref', async () => {
+  // Each delegator-facing type counts rows past the cursor into its own key and
+  // drops to zero when its pref is off. drep_activity covers two notification types.
+  it.each([
+    { pref: 'drep_activity', key: 'drepActivity', types: ['delegator_drep_voted', 'delegator_drep_re_voted'] },
+    { pref: 'drep_status', key: 'drepStatus', types: ['delegator_drep_status_changed'] },
+    { pref: 'my_delegation', key: 'myDelegation', types: ['delegation_changed'] },
+    { pref: 'rationale_ready', key: 'rationaleReady', types: ['rationale_ready'] },
+  ] as const)('counts $pref past the cursor, gated by its pref', async ({ pref, key, types }) => {
     await insertNotifications(db(), [
-      { recipientId: 'alice', type: 'delegator_drep_voted', actorId: null, topicId: null, postId: null, createdAt: 200 },
-      { recipientId: 'alice', type: 'delegator_drep_re_voted', actorId: null, topicId: null, postId: null, createdAt: 300 },
-      { recipientId: 'alice', type: 'delegator_drep_voted', actorId: null, topicId: null, postId: null, createdAt: 50 }, // before cursor
+      ...types.map((type, i) => ({ recipientId: 'alice', type, actorId: null, topicId: null, postId: null, createdAt: 200 + i * 100 })),
+      { recipientId: 'alice', type: types[0], actorId: null, topicId: null, postId: null, createdAt: 50 }, // before cursor
     ]);
 
     const enabledCounts = await getPendingCounts(db(), row(), allEnabled);
-    expect(enabledCounts.drepActivity).toBe(2);
-    expect(enabledCounts.total).toBe(2);
+    expect(enabledCounts[key]).toBe(types.length);
+    expect(enabledCounts.total).toBe(types.length);
 
-    const disabledCounts = await getPendingCounts(db(), row(), { ...allEnabled, drep_activity: false });
-    expect(disabledCounts.drepActivity).toBe(0);
+    const disabledCounts = await getPendingCounts(db(), row(), { ...allEnabled, [pref]: false });
+    expect(disabledCounts[key]).toBe(0);
     expect(disabledCounts.total).toBe(0);
   });
 
-  it('counts drep_status for delegator_drep_status_changed, gated by its pref', async () => {
-    await insertNotifications(db(), [
-      { recipientId: 'alice', type: 'delegator_drep_status_changed', actorId: null, topicId: null, postId: null, createdAt: 200 },
-      { recipientId: 'alice', type: 'delegator_drep_status_changed', actorId: null, topicId: null, postId: null, createdAt: 50 }, // before cursor
-    ]);
-
-    const enabledCounts = await getPendingCounts(db(), row(), allEnabled);
-    expect(enabledCounts.drepStatus).toBe(1);
-    expect(enabledCounts.total).toBe(1);
-
-    const disabledCounts = await getPendingCounts(db(), row(), { ...allEnabled, drep_status: false });
-    expect(disabledCounts.drepStatus).toBe(0);
-    expect(disabledCounts.total).toBe(0);
-  });
-
-  it('counts my_delegation for delegation_changed, gated by its pref', async () => {
-    await insertNotifications(db(), [
-      { recipientId: 'alice', type: 'delegation_changed', actorId: null, topicId: null, postId: null, createdAt: 200 },
-      { recipientId: 'alice', type: 'delegation_changed', actorId: null, topicId: null, postId: null, createdAt: 50 }, // before cursor
-    ]);
-
-    const enabledCounts = await getPendingCounts(db(), row(), allEnabled);
-    expect(enabledCounts.myDelegation).toBe(1);
-    expect(enabledCounts.total).toBe(1);
-
-    const disabledCounts = await getPendingCounts(db(), row(), { ...allEnabled, my_delegation: false });
-    expect(disabledCounts.myDelegation).toBe(0);
-    expect(disabledCounts.total).toBe(0);
-  });
-
-  it('counts rationale_ready for a shareable own-vote rationale, gated by its pref', async () => {
-    await insertNotifications(db(), [
-      { recipientId: 'alice', type: 'rationale_ready', actorId: null, topicId: null, postId: null, createdAt: 200 },
-      { recipientId: 'alice', type: 'rationale_ready', actorId: null, topicId: null, postId: null, createdAt: 50 }, // before cursor
-    ]);
-
-    const enabledCounts = await getPendingCounts(db(), row(), allEnabled);
-    expect(enabledCounts.rationaleReady).toBe(1);
-    expect(enabledCounts.total).toBe(1);
-
-    const disabledCounts = await getPendingCounts(db(), row(), { ...allEnabled, rationale_ready: false });
-    expect(disabledCounts.rationaleReady).toBe(0);
-    expect(disabledCounts.total).toBe(0);
-  });
   it('counts Governance Review announcements past the cursor, never the seed, gated by its pref', async () => {
     const ed = (edition: number) => ({ edition, slug: `epochs-${edition}`, title: `Edition ${edition}` });
     await db().prepare("INSERT INTO users (id, created_at, last_verified_at) VALUES ('alice', 1, 1)").run();

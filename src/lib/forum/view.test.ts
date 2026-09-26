@@ -35,25 +35,14 @@ describe('serializeJsonLd', () => {
 // ---------------------------------------------------------------------------
 
 describe('truncateId', () => {
-  it('returns the id unchanged when it is shorter than len', () => {
-    expect(truncateId('abc', 16)).toBe('abc');
-  });
-
-  it('returns the id unchanged when it equals len exactly', () => {
-    expect(truncateId('1234567890123456', 16)).toBe('1234567890123456');
-  });
-
-  it('truncates and appends "..." when id is longer than len', () => {
-    expect(truncateId('12345678901234567', 16)).toBe('1234567890123456...');
-  });
-
-  it('uses default len of 16', () => {
-    const long = 'a'.repeat(20);
-    expect(truncateId(long)).toBe(`${'a'.repeat(16)}...`);
-  });
-
-  it('respects a custom len', () => {
-    expect(truncateId('hello world', 5)).toBe('hello...');
+  it.each([
+    ['shorter than len', 'abc', 16, 'abc'],
+    ['exactly len', '1234567890123456', 16, '1234567890123456'],
+    ['one past len', '12345678901234567', 16, '1234567890123456...'],
+    ['default len of 16', 'a'.repeat(20), undefined, `${'a'.repeat(16)}...`],
+    ['custom len', 'hello world', 5, 'hello...'],
+  ])('%s', (_label, id, len, expected) => {
+    expect(truncateId(id, len)).toBe(expected);
   });
 });
 
@@ -87,45 +76,19 @@ describe('truncateIdMiddle', () => {
 // ---------------------------------------------------------------------------
 
 describe('parsePage', () => {
-  it('returns 1 for null', () => {
-    expect(parsePage(null)).toBe(1);
-  });
-
-  it('returns 1 for empty string', () => {
-    expect(parsePage('')).toBe(1);
-  });
-
-  it('returns 1 for non-numeric string', () => {
-    expect(parsePage('abc')).toBe(1);
-  });
-
-  it('returns 1 for zero', () => {
-    expect(parsePage('0')).toBe(1);
-  });
-
-  it('returns 1 for negative number', () => {
-    expect(parsePage('-5')).toBe(1);
-  });
-
-  it('returns truncated integer for float string (2.7 -> 2)', () => {
-    // parseInt('2.7', 10) yields 2, which is a valid page number.
-    expect(parsePage('2.7')).toBe(2);
-  });
-
-  it('returns the parsed page for "1"', () => {
-    expect(parsePage('1')).toBe(1);
-  });
-
-  it('returns the parsed page for "3"', () => {
-    expect(parsePage('3')).toBe(3);
-  });
-
-  it('returns the parsed page for a large number', () => {
-    expect(parsePage('999')).toBe(999);
-  });
-
-  it('returns 1 for "0001" (leading zeros parsed correctly)', () => {
-    expect(parsePage('0001')).toBe(1);
+  // parseInt('2.7', 10) yields 2, which is a valid page number.
+  it.each([
+    [null, 1],
+    ['', 1],
+    ['abc', 1],
+    ['0', 1],
+    ['-5', 1],
+    ['2.7', 2],
+    ['1', 1],
+    ['999', 999],
+    ['0001', 1],
+  ])('parsePage(%j) is %i', (param, expected) => {
+    expect(parsePage(param)).toBe(expected);
   });
 });
 
@@ -134,20 +97,12 @@ describe('parsePage', () => {
 // ---------------------------------------------------------------------------
 
 describe('pageToOffset', () => {
-  it('returns 0 for page 1', () => {
-    expect(pageToOffset(1, 30)).toBe(0);
-  });
-
-  it('returns pageSize for page 2', () => {
-    expect(pageToOffset(2, 30)).toBe(30);
-  });
-
-  it('returns 2*pageSize for page 3', () => {
-    expect(pageToOffset(3, 30)).toBe(60);
-  });
-
-  it('works with a different pageSize', () => {
-    expect(pageToOffset(2, 50)).toBe(50);
+  it.each([
+    [1, 30, 0],
+    [3, 30, 60],
+    [2, 50, 50],
+  ])('page %i with size %i starts at offset %i', (page, size, expected) => {
+    expect(pageToOffset(page, size)).toBe(expected);
   });
 });
 
@@ -183,68 +138,21 @@ const YEAR = 365 * DAY;
 describe('formatRelativeTime', () => {
   const NOW = 1_750_000_000_000;
 
-  it('shows "just now" for 0 seconds ago', () => {
-    expect(formatRelativeTime(NOW, NOW)).toBe('just now');
-  });
-
-  it('shows "just now" for 30 seconds ago', () => {
-    expect(formatRelativeTime(NOW - 30 * SEC, NOW)).toBe('just now');
-  });
-
-  it('shows "1m ago" for 90 seconds ago', () => {
-    expect(formatRelativeTime(NOW - 90 * SEC, NOW)).toBe('1m ago');
-  });
-
-  it('shows "5m ago" for 5 minutes ago', () => {
-    expect(formatRelativeTime(NOW - 5 * MIN, NOW)).toBe('5m ago');
-  });
-
-  it('shows "59m ago" for 59 minutes ago', () => {
-    expect(formatRelativeTime(NOW - 59 * MIN, NOW)).toBe('59m ago');
-  });
-
-  it('shows "1h ago" for 1 hour ago', () => {
-    expect(formatRelativeTime(NOW - HOUR, NOW)).toBe('1h ago');
-  });
-
-  it('shows "2h ago" for 2 hours ago', () => {
-    expect(formatRelativeTime(NOW - 2 * HOUR, NOW)).toBe('2h ago');
-  });
-
-  it('shows "23h ago" for 23 hours ago', () => {
-    expect(formatRelativeTime(NOW - 23 * HOUR, NOW)).toBe('23h ago');
-  });
-
-  it('shows "1d ago" for 1 day ago', () => {
-    expect(formatRelativeTime(NOW - DAY, NOW)).toBe('1d ago');
-  });
-
-  it('shows "3d ago" for 3 days ago', () => {
-    expect(formatRelativeTime(NOW - 3 * DAY, NOW)).toBe('3d ago');
-  });
-
-  it('shows "29d ago" for 29 days ago', () => {
-    expect(formatRelativeTime(NOW - 29 * DAY, NOW)).toBe('29d ago');
-  });
-
-  it('shows "1mo ago" for 30 days ago', () => {
-    expect(formatRelativeTime(NOW - MONTH, NOW)).toBe('1mo ago');
-  });
-
-  it('shows "6mo ago" for 6 months ago', () => {
-    expect(formatRelativeTime(NOW - 6 * MONTH, NOW)).toBe('6mo ago');
-  });
-
-  it('shows "11mo ago" for 11 months ago', () => {
-    expect(formatRelativeTime(NOW - 11 * MONTH, NOW)).toBe('11mo ago');
-  });
-
-  it('shows "1y ago" for 1 year ago', () => {
-    expect(formatRelativeTime(NOW - YEAR, NOW)).toBe('1y ago');
-  });
-
-  it('shows "2y ago" for 2 years ago', () => {
-    expect(formatRelativeTime(NOW - 2 * YEAR, NOW)).toBe('2y ago');
+  it.each([
+    [0, 'just now'],
+    [30 * SEC, 'just now'],
+    [90 * SEC, '1m ago'],
+    [59 * MIN, '59m ago'],
+    [HOUR, '1h ago'],
+    [23 * HOUR, '23h ago'],
+    [DAY, '1d ago'],
+    [29 * DAY, '29d ago'],
+    [MONTH, '1mo ago'],
+    [11 * MONTH, '11mo ago'],
+    [YEAR, '1y ago'],
+    [2 * YEAR, '2y ago'],
+  ])('%i ms ago shows "%s"', (ago, expected) => {
+    expect(formatRelativeTime(NOW - ago, NOW)).toBe(expected);
   });
 });
 
@@ -302,7 +210,7 @@ describe('excerptFromHtml', () => {
 // ---------------------------------------------------------------------------
 
 describe('formatAda', () => {
-  it('formats lovelace as whole ADA with a symbol and thousands separators', () => {
+  it('formats lovelace as whole ada with a symbol and thousands separators', () => {
     expect(formatAda('5000000000')).toBe('5,000 ₳');
   });
   it('treats null as zero', () => {

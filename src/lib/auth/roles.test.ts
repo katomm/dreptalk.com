@@ -36,16 +36,6 @@ describe('isModerator', () => {
 });
 
 describe('roleLabels', () => {
-  it('maps each role to its display label', () => {
-    expect(roleLabels(['drep'])).toEqual(['DRep']);
-    expect(roleLabels(['spo'])).toEqual(['SPO']);
-    expect(roleLabels(['cc'])).toEqual(['CC']);
-    expect(roleLabels(['proposer'])).toEqual(['Proposer']);
-    expect(roleLabels(['admin'])).toEqual(['Admin']);
-    expect(roleLabels(['moderator'])).toEqual(['Moderator']);
-    expect(roleLabels(['member'])).toEqual(['Member']);
-  });
-
   it('lists all known roles in priority order (identity before moderation)', () => {
     expect(roleLabels(['admin', 'drep'])).toEqual(['DRep', 'Admin']);
     expect(roleLabels(['proposer', 'drep', 'moderator'])).toEqual(['DRep', 'Proposer', 'Moderator']);

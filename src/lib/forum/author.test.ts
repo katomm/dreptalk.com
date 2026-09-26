@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { describeAuthor, voterDescriptor } from './author.js';
+import { authorProfileHref, describeAuthor, voterDescriptor, type AuthorDescriptor } from './author.js';
 import type { User } from '../db/users.js';
 import type { Drep } from '../db/dreps.js';
 import type { Pool } from '../db/pools.js';
@@ -86,5 +86,26 @@ describe('voterDescriptor SPO resolution', () => {
     const v = { voter_id: 'drep1', vote: 'Yes', voting_power: null, hex: 'h', voter_hex: 'h', image_url: null, block_time: null };
     const d = voterDescriptor(v, new Map(), new Map());
     expect(d.drepId).toBe('drep1');
+  });
+});
+
+describe('authorProfileHref', () => {
+  const base: AuthorDescriptor = { authorId: 'u1', displayName: 'x' };
+
+  it('links a DRep to its profile', () => {
+    expect(authorProfileHref({ ...base, drepId: 'drep1abc', drepSlug: 'lisa-abcde' })).toBe('/dreps/lisa-abcde/');
+  });
+
+  it('links an SPO to its pool profile', () => {
+    expect(authorProfileHref({ ...base, poolId: 'pool1abc', poolSlug: 'hype-4x9k2' })).toBe('/spos/hype-4x9k2/');
+  });
+
+  it('prefers the DRep link when an account is both', () => {
+    expect(authorProfileHref({ ...base, drepId: 'drep1abc', drepSlug: null, poolId: 'pool1abc', poolSlug: 'hype-4x9k2' })).toBe('/dreps/drep1abc/');
+  });
+
+  it('returns null when neither role has a profile and for system authors', () => {
+    expect(authorProfileHref(base)).toBeNull();
+    expect(authorProfileHref({ ...base, isSystem: true, poolId: 'pool1abc' })).toBeNull();
   });
 });

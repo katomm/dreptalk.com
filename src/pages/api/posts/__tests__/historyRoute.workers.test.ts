@@ -1,50 +1,58 @@
 /// <reference types="@cloudflare/workers-types" />
-// Exercises the GET history handler logic via getPostHistory + the gate. The
-// route file is a thin wrapper; here we assert the gate decision and payload.
+// Workers-runtime tests for GET /api/posts/[id]/history. getPostHistory itself
+// is covered in src/lib/db/postHistory.workers.test.ts, here we drive the real
+// route and assert its hidden-post gate (author and moderators only).
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { createTopic, getPostHistory } from '@/lib/db/forum';
-import { isModerator } from '@/lib/auth/roles';
+import { createTopic } from '@/lib/db/forum';
+import { GET } from '../[id]/history';
 
-const db = () => env.DB;
 const NOW = 1_752_000_000_000;
 
 let seq = 0;
-async function newPost(authorId: string): Promise<string> {
+async function newPost(authorId: string, hidden: boolean): Promise<string> {
   seq++;
-  const { firstPost } = await createTopic(db(), {
+  const { firstPost } = await createTopic(env.DB, {
     categorySlug: 'general', authorId, title: `Hist route ${seq}`,
     bodyMd: 'b', bodyHtml: '<p>b</p>', now: NOW, rand: `hr${seq}`,
   });
+  if (hidden) {
+    await env.DB.prepare('UPDATE posts SET hidden = 1 WHERE id = ?').bind(firstPost.id).run();
+  }
   return firstPost.id;
 }
 
-// Mirror of the route's gate, kept tiny so the rule is unit-tested.
-function canSee(history: { hidden: boolean; authorId: string }, user: { id: string; roles: string[] } | null) {
-  if (!history.hidden) return true;
-  return !!user && (user.id === history.authorId || isModerator(user.roles));
+function callGet(postId: string, user: { id: string; roles: string[] } | null) {
+  const request = new Request(`https://dreptalk.com/api/posts/${postId}/history`);
+  const locals = { user } as unknown as App.Locals;
+  return GET({ request, locals, params: { id: postId } } as unknown as Parameters<typeof GET>[0]);
 }
 
-describe('post history visibility gate', () => {
-  it('a visible post is public', async () => {
-    const postId = await newPost('drep-a');
-    const h = await getPostHistory(db(), postId);
-    expect(h).not.toBeNull();
-    expect(canSee(h!, null)).toBe(true);
+describe('GET /api/posts/[id]/history', () => {
+  it('serves a visible post to an anonymous viewer', async () => {
+    const postId = await newPost('drep-a', false);
+    const res = await callGet(postId, null);
+    expect(res.status).toBe(200);
+    const body = await res.json() as { ok: boolean; versions: unknown[] };
+    expect(body.ok).toBe(true);
+    expect(body.versions.length).toBeGreaterThan(0);
   });
 
-  it('a hidden post is not visible to anonymous or other writers', async () => {
-    const postId = await newPost('drep-a');
-    await db().prepare('UPDATE posts SET hidden = 1 WHERE id = ?').bind(postId).run();
-    const h = await getPostHistory(db(), postId);
-    expect(canSee(h!, null)).toBe(false);
-    expect(canSee(h!, { id: 'drep-b', roles: ['drep'] })).toBe(false);
-  });
-
-  it('a hidden post is visible to its author', async () => {
-    const postId = await newPost('drep-a');
-    await db().prepare('UPDATE posts SET hidden = 1 WHERE id = ?').bind(postId).run();
-    const h = await getPostHistory(db(), postId);
-    expect(canSee(h!, { id: 'drep-a', roles: ['drep'] })).toBe(true);
+  it('shows a hidden post only to its author and moderators', async () => {
+    // One hidden post, four viewers: the gate is per viewer, so one fixture serves all.
+    const postId = await newPost('drep-a', true);
+    const cases: [string, { id: string; roles: string[] } | null, number][] = [
+      ['an anonymous viewer', null, 404],
+      ['another writer', { id: 'drep-b', roles: ['drep'] }, 404],
+      ['its author', { id: 'drep-a', roles: ['drep'] }, 200],
+      ['a moderator', { id: 'mod-1', roles: ['moderator'] }, 200],
+    ];
+    for (const [label, user, status] of cases) {
+      const res = await callGet(postId, user);
+      expect(res.status, label).toBe(status);
+      const body = await res.json() as { ok: boolean; error?: string };
+      if (status === 404) expect(body, label).toEqual({ ok: false, error: 'post_not_found' });
+      else expect(body.ok, label).toBe(true);
+    }
   });
 });

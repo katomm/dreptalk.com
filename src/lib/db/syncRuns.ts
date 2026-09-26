@@ -129,12 +129,6 @@ export async function latestSyncRunByKind(db: D1Database): Promise<SyncRun[]> {
   return res.results.map(fromRow);
 }
 
-/** Deletes run rows older than the cutoff; returns how many were removed. */
-export async function pruneSyncRuns(db: D1Database, olderThanMs: number): Promise<number> {
-  const res = await db.prepare(`DELETE FROM sync_runs WHERE started_at < ?`).bind(olderThanMs).run();
-  return res.meta.changes ?? 0;
-}
-
 /**
  * Finalizes orphaned runs: any row still 'running' but older than STALE_RUN_MS
  * was killed mid-flight before it could record an outcome, so mark it 'killed'

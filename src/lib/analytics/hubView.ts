@@ -58,7 +58,7 @@ export type ChartableMetric =
 
 /**
  * Chart points for one metric, clipped to its reliable series start
- * (seriesStartEpoch resolved by the caller against the DB). Values become JS
+ * (seriesStartFromRows resolved by the caller over the same rows). Values become JS
  * numbers for chart geometry only, lovelace precision above 2^53 is
  * deliberately approximate here.
  */

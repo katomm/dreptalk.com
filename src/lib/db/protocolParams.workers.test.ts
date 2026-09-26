@@ -13,28 +13,24 @@ const PARAMS = {
 };
 
 describe('protocol_params', () => {
-  it('upserts a single row and reads it back', async () => {
-    await upsertProtocolParams(env.DB, PARAMS);
+  it('upserts the single row, reads it back, and overwrites it in place', async () => {
+    await upsertProtocolParams(env.DB, { ...PARAMS, rawJson: '{"gov_action_deposit":100000000000}' });
     const p = await getProtocolParams(env.DB);
+    expect(p!.epoch).toBe(540);
     expect(p!.dvtTreasuryWithdrawal).toBe(0.67);
     expect(p!.ccThreshold).toBe(0.67);
     expect(p!.committeeMinSize).toBe(7);
     expect(p!.committeeSize).toBe(8);
-  });
-  it('round-trips a null committee size', async () => {
-    await upsertProtocolParams(env.DB, { ...PARAMS, committeeSize: null });
-    const p = await getProtocolParams(env.DB);
-    expect(p!.committeeSize).toBeNull();
-  });
-  it('upsert overwrites the single row (id=1)', async () => {
-    await upsertProtocolParams(env.DB, { ...PARAMS, epoch: 541, dvtTreasuryWithdrawal: 0.6 });
-    const p = await getProtocolParams(env.DB);
-    expect(p!.epoch).toBe(541);
-    expect(p!.dvtTreasuryWithdrawal).toBe(0.6);
-  });
-  it('round-trips raw_json', async () => {
-    await upsertProtocolParams(env.DB, { ...PARAMS, rawJson: '{"gov_action_deposit":100000000000}' });
-    const p = await getProtocolParams(env.DB);
     expect(p!.rawJson).toBe('{"gov_action_deposit":100000000000}');
+
+    // The second upsert replaces the same row (id=1), including a null committee size.
+    await upsertProtocolParams(env.DB, { ...PARAMS, epoch: 541, dvtTreasuryWithdrawal: 0.6, committeeSize: null });
+    const next = await getProtocolParams(env.DB);
+    expect(next!.epoch).toBe(541);
+    expect(next!.dvtTreasuryWithdrawal).toBe(0.6);
+    expect(next!.committeeSize).toBeNull();
+    expect(next!.rawJson).toBeNull();
+    const { n } = (await env.DB.prepare('SELECT COUNT(*) AS n FROM protocol_params').first<{ n: number }>())!;
+    expect(n).toBe(1);
   });
 });

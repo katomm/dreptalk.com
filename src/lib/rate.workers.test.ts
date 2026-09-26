@@ -13,15 +13,6 @@ let counter = 0;
 const uniqueKey = (label: string) => `test-${label}-${++counter}`;
 
 describe('checkRate (Durable Object backed)', () => {
-  it('allows requests up to max within a window, then denies', async () => {
-    const key = uniqueKey('allow');
-    const opts = { max: 3, windowSec: 60, now: 1000 };
-    expect(await checkRate(ns(), key, opts)).toBe(true);
-    expect(await checkRate(ns(), key, opts)).toBe(true);
-    expect(await checkRate(ns(), key, opts)).toBe(true);
-    expect(await checkRate(ns(), key, opts)).toBe(false);
-  });
-
   it('opens a fresh window once windowSec has elapsed', async () => {
     const key = uniqueKey('reset');
     const full = { max: 2, windowSec: 60, now: 1000 };

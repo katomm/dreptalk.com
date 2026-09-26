@@ -255,8 +255,8 @@ export async function listLatestEpochStats(db: D1Database, limit: number): Promi
 
 /**
  * The stored stats series, epoch ascending, for the analytics hub. Callers
- * clip each metric to its seriesStartEpoch before charting, this read is
- * deliberately raw. The whole table is ~150 rows per network.
+ * clip each metric to its seriesStartFromRows start before charting, this
+ * read is deliberately raw. The whole table is ~150 rows per network.
  */
 export async function listEpochStats(
   db: D1Database,

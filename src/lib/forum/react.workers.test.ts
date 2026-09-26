@@ -5,10 +5,8 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { createTopic, getPostById } from '../db/forum.js';
-import { getViewerReactions } from '../db/postReactions.js';
-import { loadViewerPostState } from './viewerPostState.js';
 import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
-import { handleReactToPost, handleClearReaction, handleFlagPost } from './handlers.js';
+import { handleReactToPost, handleClearReaction } from './handlers.js';
 
 const db = () => env.DB;
 const rateLimiter = () => env.RATE_LIMITER;
@@ -173,45 +171,6 @@ describe('handleClearReaction', () => {
     const r = await handleClearReaction(reactInput(WRITER, postId));
     expect(r.status).toBe(200);
     expect(r.json).toMatchObject({ ok: true, upCount: 0, downCount: 0 });
-  });
-});
-
-describe('getViewerReactions', () => {
-  it('returns the viewer\'s reactions for the given posts only', async () => {
-    const a = await newPost('someone-else');
-    const b = await newPost('someone-else');
-    const c = await newPost('someone-else');
-
-    await handleReactToPost(reactInput(WRITER, a), 'up');
-    await handleReactToPost(reactInput(WRITER, b), 'down');
-    await handleReactToPost(reactInput({ id: 'drep-other', roles: ['drep'] }, c), 'up');
-
-    const map = await getViewerReactions(db(), WRITER.id, [a, b, c]);
-    expect(map.get(a)).toBe('up');
-    expect(map.get(b)).toBe('down');
-    expect(map.has(c)).toBe(false);
-  });
-});
-
-describe('loadViewerPostState', () => {
-  it('returns flags and reactions for the viewer in one batch', async () => {
-    const a = await newPost('someone-else');
-    const b = await newPost('someone-else');
-
-    await handleReactToPost(reactInput(WRITER, a), 'up');
-    await handleFlagPost(reactInput(WRITER, b));
-
-    const state = await loadViewerPostState(db(), WRITER.id, [a, b]);
-    expect(state.reactions.get(a)).toBe('up');
-    expect(state.reactions.has(b)).toBe(false);
-    expect(state.flaggedPostIds.has(b)).toBe(true);
-    expect(state.flaggedPostIds.has(a)).toBe(false);
-  });
-
-  it('is empty for no posts', async () => {
-    const state = await loadViewerPostState(db(), WRITER.id, []);
-    expect(state.flaggedPostIds.size).toBe(0);
-    expect(state.reactions.size).toBe(0);
   });
 });
 

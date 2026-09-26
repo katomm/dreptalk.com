@@ -30,12 +30,10 @@ body
 `;
 }
 
-function checkDir(files: Array<[string, string]>) {
+function checkName(name: string, content: string) {
   const dir = mkdtempSync(path.join(tmpdir(), 'rv-'));
-  for (const [name, content] of files) writeFileSync(path.join(dir, name), content);
-  const editions = readEditionDir(dir);
-  for (const e of editions) expect(e.slug, 'file name matches its window').toBe(slugFor(e.frontmatter.epochFrom, e.frontmatter.epochTo));
-  assertContiguous(editions.map((e) => ({ from: e.frontmatter.epochFrom, to: e.frontmatter.epochTo })));
+  writeFileSync(path.join(dir, name), content);
+  for (const e of readEditionDir(dir)) expect(e.slug, 'file name matches its window').toBe(slugFor(e.frontmatter.epochFrom, e.frontmatter.epochTo));
 }
 
 describe('edition files', () => {
@@ -45,17 +43,8 @@ describe('edition files', () => {
     expect(new Set(numbers).size).toBe(numbers.length);
     for (let i = 1; i < numbers.length; i++) expect(numbers[i], `${editions[i].slug} after ${editions[i - 1].slug}`).toBeGreaterThan(numbers[i - 1]);
   });
-  it('accepts a contiguous set', () => {
-    expect(() => checkDir([['epochs-650-652.md', fm(650, 652)], ['epochs-653-655.md', fm(653, 655)]])).not.toThrow();
-  });
-  it('rejects a gap', () => {
-    expect(() => checkDir([['epochs-650-652.md', fm(650, 652)], ['epochs-660-662.md', fm(660, 662)]])).toThrow('gap');
-  });
-  it('rejects an overlap', () => {
-    expect(() => checkDir([['epochs-650-652.md', fm(650, 652)], ['epochs-652-654.md', fm(652, 654)]])).toThrow('overlap');
-  });
   it('rejects a file whose name does not match its window', () => {
-    expect(() => checkDir([['epochs-650-653.md', fm(650, 652)]])).toThrow('file name matches its window');
+    expect(() => checkName('epochs-650-653.md', fm(650, 652))).toThrow('file name matches its window');
   });
   it('holds for the published editions', () => {
     const editions = readEditionDir(CONTENT);

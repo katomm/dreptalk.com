@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { submitComposer } from './composer.js';
+import { submitComposer, submitEdit, type ComposerPayload } from './composer.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -104,48 +104,24 @@ describe('submitComposer: post mode, happy path', () => {
 // Error responses
 // ---------------------------------------------------------------------------
 
-describe('submitComposer: 401 unauthorized', () => {
-  it('returns ok:false with the server error message', async () => {
-    const fetch = fakeFetch(401, { ok: false, error: 'unauthorized' });
+describe('submitComposer: non-2xx with a JSON error body', () => {
+  const TOPIC: ComposerPayload = { categorySlug: 'general', title: 'X', bodyMd: 'body' };
+  const REPLY: ComposerPayload = { topicId: 'tid', bodyMd: 'body' };
+
+  it.each([
+    [401, 'topic' as const, TOPIC, 'unauthorized'],
+    [400, 'topic' as const, TOPIC, 'title must be 3 to 200 characters'],
+    [429, 'post' as const, REPLY, 'rate_limited'],
+  ])('%i in %s mode returns ok:false with the server error message', async (status, mode, payload, error) => {
+    const fetch = fakeFetch(status, { ok: false, error });
 
     const result = await submitComposer({
-      mode: 'topic',
-      payload: { categorySlug: 'general', title: 'X', bodyMd: 'body' },
+      mode,
+      payload,
       fetchImpl: fetch as unknown as typeof globalThis.fetch,
     });
 
-    expect(result.ok).toBe(false);
-    expect(result.error).toBe('unauthorized');
-  });
-});
-
-describe('submitComposer: 400 bad request', () => {
-  it('returns ok:false with the server error message', async () => {
-    const fetch = fakeFetch(400, { ok: false, error: 'title must be 3 to 200 characters' });
-
-    const result = await submitComposer({
-      mode: 'topic',
-      payload: { categorySlug: 'general', title: 'ab', bodyMd: 'body' },
-      fetchImpl: fetch as unknown as typeof globalThis.fetch,
-    });
-
-    expect(result.ok).toBe(false);
-    expect(result.error).toBe('title must be 3 to 200 characters');
-  });
-});
-
-describe('submitComposer: 429 rate limited', () => {
-  it('returns ok:false with rate_limited error', async () => {
-    const fetch = fakeFetch(429, { ok: false, error: 'rate_limited' });
-
-    const result = await submitComposer({
-      mode: 'post',
-      payload: { topicId: 'tid', bodyMd: 'body' },
-      fetchImpl: fetch as unknown as typeof globalThis.fetch,
-    });
-
-    expect(result.ok).toBe(false);
-    expect(result.error).toBe('rate_limited');
+    expect(result).toEqual({ ok: false, error });
   });
 });
 
@@ -184,5 +160,31 @@ describe('submitComposer: network error', () => {
 
     expect(result.ok).toBe(false);
     expect(result.error).toBe('Failed to fetch');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// submitEdit
+// ---------------------------------------------------------------------------
+
+describe('submitEdit', () => {
+  it('POSTs the body to the edit endpoint and resolves ok on 200', async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(JSON.stringify({ ok: true, edited: true }), { status: 200 }),
+    ) as unknown as typeof fetch;
+    const res = await submitEdit({ postId: 'p1', bodyMd: 'new body', fetchImpl });
+    expect(res.ok).toBe(true);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      '/api/posts/p1/edit',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('resolves the server error message on a non-2xx response', async () => {
+    const fetchImpl = vi.fn(async () =>
+      new Response(JSON.stringify({ ok: false, error: 'topic_locked' }), { status: 403 }),
+    ) as unknown as typeof fetch;
+    const res = await submitEdit({ postId: 'p1', bodyMd: 'x', fetchImpl });
+    expect(res).toEqual({ ok: false, error: 'topic_locked' });
   });
 });

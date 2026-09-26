@@ -1,13 +1,12 @@
 /// <reference types="@cloudflare/workers-types" />
 // Post-flag tests -- run in real workerd via @cloudflare/vitest-pool-workers.
-// Exercise flagPost / unflagPost / getFlaggedPostIds against the real D1 binding.
+// Exercise flagPost / unflagPost / flaggedPostIdsStmts against the real D1 binding.
 // Focus: per-writer dedup, the hide threshold, un-hiding on withdrawal, and the
-// batched flagged-id lookup.
+// per-flagger flagged-id lookup.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { createTopic, getPostById } from './forum.js';
-import { flagPost, unflagPost, getFlaggedPostIds, FLAG_HIDE_THRESHOLD } from './postFlags.js';
-import { bindCountingDb } from './__tests__/bindCountingDb.js';
+import { flagPost, unflagPost, flaggedPostIdsStmts, FLAG_HIDE_THRESHOLD } from './postFlags.js';
 
 const db = () => env.DB;
 const NOW = 1_751_000_000_000;
@@ -86,8 +85,10 @@ describe('unflagPost', () => {
   });
 });
 
-describe('getFlaggedPostIds', () => {
-  it('returns only the posts the flagger flagged, batched', async () => {
+describe('flaggedPostIdsStmts', () => {
+  // The chunking and the 100-bind cap are covered through the thread view in
+  // forum/viewerPostState.workers.test.ts. This case pins the per-flagger filter.
+  it('selects only the posts this flagger flagged', async () => {
     const p1 = await newPostId();
     const p2 = await newPostId();
     const p3 = await newPostId();
@@ -96,33 +97,8 @@ describe('getFlaggedPostIds', () => {
     // A different flagger on p2 must not leak into drep-z's set.
     await flagPost(db(), { postId: p2, flaggerId: 'drep-other', now: NOW });
 
-    const set = await getFlaggedPostIds(db(), 'drep-z', [p1, p2, p3]);
-    expect(set.has(p1)).toBe(true);
-    expect(set.has(p2)).toBe(false);
-    expect(set.has(p3)).toBe(true);
-    expect(set.size).toBe(2);
-  });
-
-  it('returns an empty set for empty input without querying', async () => {
-    const set = await getFlaggedPostIds(db(), 'drep-z', []);
-    expect(set.size).toBe(0);
-  });
-});
-
-describe('getFlaggedPostIds bind cap', () => {
-  it('stays under the D1 100-bind cap for a lookup of more than 100 post ids', async () => {
-    // flaggerId occupies one bind, so 150 post ids would put a single statement
-    // at 151 binds: over production D1's cap (unenforced in miniflare).
-    const flagged = [await newPostId(), await newPostId(), await newPostId()];
-    for (const id of flagged) {
-      await flagPost(db(), { postId: id, flaggerId: 'drep-bindcap', now: NOW });
-    }
-    const ids = [...Array.from({ length: 150 }, (_, i) => `missing-post-${i}`), ...flagged];
-
-    const counted = bindCountingDb(db());
-    const got = await getFlaggedPostIds(counted.db, 'drep-bindcap', ids);
-
-    expect(got).toEqual(new Set(flagged));
-    expect(counted.maxBinds()).toBeLessThanOrEqual(100);
+    const batched = await db().batch<{ post_id: string }>(flaggedPostIdsStmts(db(), 'drep-z', [p1, p2, p3]));
+    const ids = new Set(batched.flatMap((r) => (r.results ?? []).map((row) => row.post_id)));
+    expect(ids).toEqual(new Set([p1, p3]));
   });
 });

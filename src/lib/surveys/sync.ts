@@ -13,8 +13,8 @@
 // voting-power row could be found for. Where a survey has a finalized tally
 // artifact, the weighted figures come from that artifact instead of our own
 // recomputation.
-// ./surveyTallyContract.ts defines the numeric figures and each question
-// kind's bar basis, read that next.
+// ./tallyCompute.ts documents what each numeric figure means and
+// ./surveyTallyContract.ts each question kind's bar basis, read those next.
 //
 // The mirror is Tessera's change selection: every run asks once for what
 // moved since its cursor: each survey whose projection changed (a new

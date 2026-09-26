@@ -35,6 +35,25 @@ describe('loadViewerPostState', () => {
     expect(state).toEqual(emptyViewerPostState());
   });
 
+  it('returns flags and reactions for the viewer in one batch', async () => {
+    const viewer = 'viewer-batch';
+    const a = await newPostId();
+    const b = await newPostId();
+    const c = await newPostId();
+    await setReaction(db(), { postId: a, reactorId: viewer, reaction: 'up', now: NOW });
+    await setReaction(db(), { postId: c, reactorId: viewer, reaction: 'down', now: NOW });
+    // Another viewer's reaction never leaks into this viewer's state.
+    await setReaction(db(), { postId: b, reactorId: 'viewer-other', reaction: 'up', now: NOW });
+    await flagPost(db(), { postId: b, flaggerId: viewer, now: NOW });
+
+    const state = await loadViewerPostState(db(), viewer, [a, b, c]);
+    expect(state.reactions.get(a)).toBe('up');
+    expect(state.reactions.get(c)).toBe('down');
+    expect(state.reactions.has(b)).toBe(false);
+    expect(state.flaggedPostIds.has(b)).toBe(true);
+    expect(state.flaggedPostIds.has(a)).toBe(false);
+  });
+
   it('stays under the D1 100-bind cap and merges results across chunks', async () => {
     // The real posts sit at the END of a 150-id list, so their rows come from
     // the second chunk. viewerId occupies one bind per statement; a single

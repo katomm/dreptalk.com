@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { buildInsertGovernanceAction, getGovernanceActionByTopicId, getActionsNeedingVotedPower, markBackfillAttempt, markVotesSynced } from '../db/governance.js';
 import { getVotesByGaId, recordLocalVote, getViewerVote, upsertVotes } from '../db/drepVotes.js';
-import { syncGovernanceTallies, syncGovernanceVotes, deriveStatus, backfillVotedPower, BACKFILL_RETRY_MS, backfillFinalizedVotes, backfillGovStatusTimes, reconcilePendingVotes, backfillVoteMetaHashes, backfillThresholdSnapshots } from './tallySync.js';
+import { syncGovernanceTallies, syncGovernanceVotes, backfillVotedPower, BACKFILL_RETRY_MS, backfillFinalizedVotes, backfillGovStatusTimes, reconcilePendingVotes, backfillVoteMetaHashes, backfillThresholdSnapshots } from './tallySync.js';
 import { activityInsert } from '../db/activity.js';
 import { getActionsNeedingVoteBackfill } from '../db/governance.js';
 import { getDrepVotingHistory, getVotesNeedingMetaHash } from '../db/drepVotes.js';
@@ -13,6 +13,7 @@ import { upsertCommitteeMembers, upsertCommitteeHotKeys, recomputeCommitteePct }
 import { readThresholdSnapshot } from './thresholds.js';
 import type { ProposalListRow, VotingSummary, ProposalVoteRow, VoteListRow, EpochParamsRow } from '../koios/client.js';
 import { epochStartMs, resolveNetwork } from '../config/network.js';
+import { lifeRow } from './__fixtures__/proposalListRow.js';
 
 const db = () => env.DB;
 const NOW = 1_754_000_000_000;
@@ -32,16 +33,6 @@ async function insertActive(expiryEpoch: number | null) {
     }),
   ]);
   return { id, proposalId, topicId, txHash: `gtx${seq}` };
-}
-
-function lifeRow(txHash: string, over: Partial<ProposalListRow> = {}): ProposalListRow {
-  return {
-    proposal_id: `gov_${txHash}`,
-    proposal_tx_hash: txHash,
-    proposal_index: 0,
-    proposal_type: 'TreasuryWithdrawals',
-    ...over,
-  } as ProposalListRow;
 }
 
 const summary: VotingSummary = {
@@ -189,49 +180,6 @@ describe('syncGovernanceTallies committee override', () => {
     const got = await getGovernanceActionByTopicId(db(), a.topicId);
     expect(got!.ccYes).toBe(2);
     expect(got!.ccYesPct).toBe(66.67);
-  });
-});
-
-describe('deriveStatus', () => {
-  const ga = { expiryEpoch: 294 } as never;
-  it('prefers terminal lifecycle epochs', () => {
-    expect(deriveStatus(lifeRow('x', { enacted_epoch: 300 }), ga, 290)).toBe('enacted');
-    expect(deriveStatus(lifeRow('x', { ratified_epoch: 300 }), ga, 290)).toBe('ratified');
-    expect(deriveStatus(lifeRow('x', { dropped_epoch: 300 }), ga, 290)).toBe('dropped');
-  });
-  it('resolves enacted once enacted_epoch has passed, even with ratified_epoch also set', () => {
-    // The real stuck-on-ratified scenario: an action carries BOTH ratified_epoch
-    // and (a later) enacted_epoch, with the current epoch past enacted_epoch.
-    // enacted wins over ratified, so the row is 'enacted', not 'ratified'.
-    expect(deriveStatus(lifeRow('x', { ratified_epoch: 637, enacted_epoch: 638 }), ga, 639)).toBe('enacted');
-  });
-  it('labels an expired-then-dropped action as expired (expiry is the real outcome)', () => {
-    // The chain marks a timed-out action expired, then drops it the next epoch,
-    // so both epochs are set; expiry must win over the dropped bookkeeping.
-    expect(deriveStatus(lifeRow('x', { expired_epoch: 300, dropped_epoch: 301 }), ga, 305)).toBe('expired');
-  });
-  it('closes an info action instead of expiring/dropping it (it can never enact)', () => {
-    const info = { type: 'InfoAction', expiryEpoch: 294 } as never;
-    expect(deriveStatus(lifeRow('x', { expired_epoch: 300, dropped_epoch: 301 }), info, 305)).toBe('closed');
-    expect(deriveStatus(lifeRow('x'), info, 295)).toBe('closed'); // expiry fallback
-    expect(deriveStatus(lifeRow('x'), info, 290)).toBe('active'); // still open
-  });
-  it('expires by epoch when no terminal epoch', () => {
-    expect(deriveStatus(lifeRow('x'), ga, 295)).toBe('expired');
-    expect(deriveStatus(lifeRow('x'), ga, 290)).toBe('active');
-  });
-  it('treats currentEpoch === expiry as decided (voting ends entering the expiry epoch)', () => {
-    // On-chain an action expires AT the start of its expiration epoch
-    // (expired_epoch === expiration), so currentEpoch === expiry is already over.
-    // The explicit lifecycle checks usually catch this first; this fallback only
-    // fires when Koios lags the boundary and has not yet set a terminal epoch.
-    expect(deriveStatus(lifeRow('x'), ga, 294)).toBe('expired'); // via ga.expiryEpoch
-    // Same boundary via the Koios proposal_list expiration field.
-    const noExpiry = { type: 'TreasuryWithdrawals' } as never;
-    expect(deriveStatus(lifeRow('x', { expiration: 294 }), noExpiry, 294)).toBe('expired');
-    // Info actions close rather than expire at the boundary.
-    const info = { type: 'InfoAction', expiryEpoch: 294 } as never;
-    expect(deriveStatus(lifeRow('x'), info, 294)).toBe('closed');
   });
 });
 

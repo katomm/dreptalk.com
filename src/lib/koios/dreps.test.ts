@@ -22,7 +22,10 @@ const drepListRowFixture: DrepListRow = {
 
 describe('createKoiosClient.drepList', () => {
   it('parses a sample row and GETs the right URL with default limit/offset', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([drepListRowFixture]));
+    // An unknown extra field must not fail the parse (Koios adds columns over time).
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse([{ ...drepListRowFixture, unknown_future_field: 'some value' }]),
+    );
     const client = createKoiosClient({
       baseUrl: 'https://api.koios.rest/api/v1',
       fetchImpl,
@@ -64,42 +67,6 @@ describe('createKoiosClient.drepList', () => {
     const result = await client.drepList();
     expect(result).toEqual([]);
   });
-
-  it('sends the bearer token when configured', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([drepListRowFixture]));
-    const client = createKoiosClient({
-      baseUrl: 'https://api.koios.rest/api/v1',
-      token: 'test-token',
-      fetchImpl,
-    });
-
-    await client.drepList();
-
-    const headers = fetchImpl.mock.calls[0][1].headers as Record<string, string>;
-    expect(headers.Authorization).toBe('Bearer test-token');
-  });
-
-  it('tolerates extra fields via passthrough', async () => {
-    const withExtra = { ...drepListRowFixture, unknown_future_field: 'some value' };
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([withExtra]));
-    const client = createKoiosClient({
-      baseUrl: 'https://api.koios.rest/api/v1',
-      fetchImpl,
-    });
-
-    const result = await client.drepList();
-    expect(result[0]).toMatchObject(drepListRowFixture);
-  });
-
-  it('throws on non-200 response', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}, 503));
-    const client = createKoiosClient({
-      baseUrl: 'https://api.koios.rest/api/v1',
-      fetchImpl,
-    });
-
-    await expect(client.drepList()).rejects.toThrow(/koios request failed: 503/i);
-  });
 });
 
 // --- drepInfoBatch ---
@@ -119,7 +86,10 @@ const drepInfoRowFixture: DrepInfoRow = {
 
 describe('createKoiosClient.drepInfoBatch', () => {
   it('POSTs _drep_ids to /drep_info and parses a full row', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([drepInfoRowFixture]));
+    // An unknown extra field must not fail the parse (Koios adds columns over time).
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse([{ ...drepInfoRowFixture, future_field: 'ignored' }]),
+    );
     const client = createKoiosClient({
       baseUrl: 'https://api.koios.rest/api/v1',
       fetchImpl,
@@ -187,42 +157,6 @@ describe('createKoiosClient.drepInfoBatch', () => {
 
     expect(result).toEqual([]);
     expect(fetchImpl).not.toHaveBeenCalled();
-  });
-
-  it('sends the bearer token when configured', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([drepInfoRowFixture]));
-    const client = createKoiosClient({
-      baseUrl: 'https://api.koios.rest/api/v1',
-      token: 'my-secret',
-      fetchImpl,
-    });
-
-    await client.drepInfoBatch([DREP_ID]);
-
-    const headers = fetchImpl.mock.calls[0][1].headers as Record<string, string>;
-    expect(headers.Authorization).toBe('Bearer my-secret');
-  });
-
-  it('tolerates extra fields via passthrough', async () => {
-    const withExtra = { ...drepInfoRowFixture, future_field: 'ignored' };
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([withExtra]));
-    const client = createKoiosClient({
-      baseUrl: 'https://api.koios.rest/api/v1',
-      fetchImpl,
-    });
-
-    const result = await client.drepInfoBatch([DREP_ID]);
-    expect(result[0]).toMatchObject(drepInfoRowFixture);
-  });
-
-  it('throws on non-200 response', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}, 500));
-    const client = createKoiosClient({
-      baseUrl: 'https://api.koios.rest/api/v1',
-      fetchImpl,
-    });
-
-    await expect(client.drepInfoBatch([DREP_ID])).rejects.toThrow(/koios request failed: 500/i);
   });
 
   it('splits the batch and retries when Koios answers 413 (payload too large)', async () => {

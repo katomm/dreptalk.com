@@ -3,7 +3,7 @@
 // real miniflare D1 binding with all migrations applied.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { getDrepById, getDrepsByIds, listIndexableDrepIds, listDreps, upsertDrep, deactivateDreps, effectiveDrepStatus, listDrepsForConcentration, listDrepsNeedingAvatar, setDrepImageStored, markDrepImageFetchFailed, clearOrphanedImageStore, listReferencedImageHashes } from './dreps.js';
+import { getDrepById, getDrepsByIds, listIndexableDrepIds, listDreps, upsertDrep, deactivateDreps, listDrepsForConcentration, listDrepsNeedingAvatar, setDrepImageStored, markDrepImageFetchFailed, clearOrphanedImageStore, listReferencedImageHashes } from './dreps.js';
 import { createTopic } from './forum.js';
 import { bindCountingDb } from './__tests__/bindCountingDb.js';
 import { SPECIAL_DREP_IDS } from '../dreps/special.js';
@@ -50,7 +50,11 @@ const BASE_ARGS = {
 
 describe('upsertDrep + getDrepById', () => {
   it('inserts a row and reads it back with all fields intact', async () => {
-    await upsertDrep(db(), BASE_ARGS);
+    await upsertDrep(db(), {
+      ...BASE_ARGS,
+      imageContentHash: 'c'.repeat(64),
+      imageStoredUrl: 'https://example.com/stored.png',
+    });
 
     const result = await getDrepById(db(), DREP_A);
 
@@ -66,93 +70,46 @@ describe('upsertDrep + getDrepById', () => {
     expect(result!.name).toBe('Test DRep');
     expect(result!.bio).toBe('A DRep for testing purposes.');
     expect(result!.imageUrl).toBe('https://example.com/avatar.png');
+    expect(result!.imageContentHash).toBe('c'.repeat(64));
+    expect(result!.imageStoredUrl).toBe('https://example.com/stored.png');
+    expect(result!.imageFetchFailedAt).toBeNull();
+    // Links come back as a parsed array, not the stored JSON text.
+    expect(result!.links).toEqual(BASE_ARGS.links);
     expect(result!.anchorUrl).toBe('https://example.com/drep.json');
     expect(result!.anchorHash).toBe('a'.repeat(64));
     expect(result!.anchorStatus).toBe('fetched');
     expect(result!.lastSyncedAt).toBe(NOW);
     expect(result!.createdAt).toBe(NOW);
-    expect(result!.imageFetchFailedAt).toBeNull();
+    // Backfill-owned registration dates are not written by the profile upsert.
+    expect(result!.registeredAt).toBeNull();
+    expect(result!.metadataLastUpdatedAt).toBeNull();
+
+    expect(await getDrepById(db(), 'drep1-definitely-does-not-exist-xyz')).toBeNull();
   });
 
-  it('round-trips links as a parsed array', async () => {
-    await upsertDrep(db(), { ...BASE_ARGS, drepId: `${DREP_A}-links` });
-
-    const result = await getDrepById(db(), `${DREP_A}-links`);
-    expect(result).not.toBeNull();
-    expect(result!.links).toEqual([
-      { label: 'Website', uri: 'https://example.com' },
-      { label: 'Twitter', uri: 'https://twitter.com/testdrep' },
-    ]);
-  });
-
-  it('stores null links and reads them back as null', async () => {
-    await upsertDrep(db(), { ...BASE_ARGS, drepId: `${DREP_A}-nulllinks`, links: null });
-
-    const result = await getDrepById(db(), `${DREP_A}-nulllinks`);
-    expect(result).not.toBeNull();
-    expect(result!.links).toBeNull();
-  });
-
-  it('registration date columns round-trip and default to null', async () => {
-    const drepId = `${DREP_A}-regdates`;
-    await upsertDrep(db(), { ...BASE_ARGS, drepId });
-
-    // Backfill-owned columns: written directly, not via the profile upsert.
-    await db()
-      .prepare('UPDATE dreps SET registered_at = ?, metadata_last_updated_at = ? WHERE drep_id = ?')
-      .bind(1_678_617_600, 1_754_236_800, drepId)
-      .run();
-
-    const result = await getDrepById(db(), drepId);
-    expect(result!.registeredAt).toBe(1_678_617_600);
-    expect(result!.metadataLastUpdatedAt).toBe(1_754_236_800);
-
-    await upsertDrep(db(), { ...BASE_ARGS, drepId: `${DREP_A}-regbare` });
-    const bare = await getDrepById(db(), `${DREP_A}-regbare`);
-    expect(bare!.registeredAt).toBeNull();
-    expect(bare!.metadataLastUpdatedAt).toBeNull();
-  });
-
-  it('booleans round-trip correctly (false hasScript, true active)', async () => {
-    await upsertDrep(db(), { ...BASE_ARGS, drepId: `${DREP_A}-bools`, hasScript: true, active: false });
-
-    const result = await getDrepById(db(), `${DREP_A}-bools`);
-    expect(result).not.toBeNull();
-    expect(result!.hasScript).toBe(true);
-    expect(typeof result!.hasScript).toBe('boolean');
-    expect(result!.active).toBe(false);
-    expect(typeof result!.active).toBe('boolean');
-  });
-
-  it('upsert overwrites an existing row', async () => {
+  it('upsert overwrites an existing row, including flipped booleans and null links', async () => {
     const drepId = `${DREP_A}-replace`;
     await upsertDrep(db(), { ...BASE_ARGS, drepId });
 
-    const updated = { ...BASE_ARGS, drepId, name: 'Updated Name', votingPower: '9999', lastSyncedAt: NOW + 3600 };
-    await upsertDrep(db(), updated);
+    await upsertDrep(db(), {
+      ...BASE_ARGS,
+      drepId,
+      name: 'Updated Name',
+      votingPower: '9999',
+      hasScript: true,
+      active: false,
+      links: null,
+      lastSyncedAt: NOW + 3600,
+    });
 
     const result = await getDrepById(db(), drepId);
     expect(result).not.toBeNull();
     expect(result!.name).toBe('Updated Name');
     expect(result!.votingPower).toBe('9999');
+    expect(result!.hasScript).toBe(true);
+    expect(result!.active).toBe(false);
+    expect(result!.links).toBeNull();
     expect(result!.lastSyncedAt).toBe(NOW + 3600);
-  });
-
-  it('returns null for an unknown drep id', async () => {
-    const result = await getDrepById(db(), 'drep1-definitely-does-not-exist-xyz');
-    expect(result).toBeNull();
-  });
-
-  it('round-trips the stored-avatar columns', async () => {
-    await upsertDrep(db(), {
-      ...BASE_ARGS,
-      drepId: `${DREP_A}-stored`,
-      imageContentHash: 'a'.repeat(64),
-      imageStoredUrl: 'https://example.com/avatar.png',
-    });
-    const result = await getDrepById(db(), `${DREP_A}-stored`);
-    expect(result!.imageContentHash).toBe('a'.repeat(64));
-    expect(result!.imageStoredUrl).toBe('https://example.com/avatar.png');
   });
 });
 
@@ -170,18 +127,6 @@ describe('getDrepsByIds', () => {
     expect(result.has('drep1-not-found')).toBe(false);
     expect(result.get(DREP_A)!.name).toBe('Test DRep');
     expect(result.get(DREP_B)!.name).toBe('DRep B');
-  });
-
-  it('returns an empty Map for empty input', async () => {
-    const result = await getDrepsByIds(db(), []);
-    expect(result).toBeInstanceOf(Map);
-    expect(result.size).toBe(0);
-  });
-
-  it('returns an empty Map when no ids match', async () => {
-    const result = await getDrepsByIds(db(), ['drep1-none-a', 'drep1-none-b']);
-    expect(result).toBeInstanceOf(Map);
-    expect(result.size).toBe(0);
   });
 
   it('stays under the D1 100-bind cap and still finds dreps beyond the first chunk', async () => {
@@ -465,11 +410,6 @@ describe('delegator status-change fan-out jobs', () => {
       },
     });
   }
-
-  it('effectiveDrepStatus maps the active boolean to the two effective states', () => {
-    expect(effectiveDrepStatus(true)).toBe('active');
-    expect(effectiveDrepStatus(false)).toBe('inactive');
-  });
 
   it('(a) upsertDrep on a followed active DRep going inactive emits an active->inactive job', async () => {
     const drepId = 'drep-status-a';

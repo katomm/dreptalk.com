@@ -72,168 +72,30 @@ describe('groupItems', () => {
   });
 });
 
-describe('device_paired inbox rows', () => {
-  const deviceItem = {
-    kind: 'device_paired' as const,
-    createdAt: 1_700_000_000,
-    unread: true,
-    actorName: null,
-    actorHref: null,
-    verb: null,
-    title: 'A new device was paired',
-    href: '/devices/',
-    pill: null,
-  };
+describe('facet membership per notification kind', () => {
+  const facets = ['all', 'unread', 'mentions', 'governance', 'discussions'] as const;
 
-  it('counts toward all and unread but not mentions, governance or discussions', () => {
-    const counts = countItems([deviceItem]);
-    expect(counts.all).toBe(1);
-    expect(counts.unread).toBe(1);
-    expect(counts.mentions).toBe(0);
-    expect(counts.governance).toBe(0);
-    expect(counts.discussions).toBe(0);
-  });
-
-  it('survives every filter that should not exclude it', () => {
-    expect(filterItems([deviceItem], 'all')).toHaveLength(1);
-    expect(filterItems([deviceItem], 'unread')).toHaveLength(1);
-    expect(filterItems([deviceItem], 'mentions')).toHaveLength(0);
-    expect(filterItems([deviceItem], 'governance')).toHaveLength(0);
-    expect(filterItems([deviceItem], 'discussions')).toHaveLength(0);
-  });
-});
-
-describe('delegation_changed inbox rows', () => {
-  const delegationItem = {
-    kind: 'delegation_changed' as const,
-    createdAt: 1_700_000_000,
-    unread: true,
-    actorName: null,
-    actorHref: null,
-    verb: null,
-    title: 'Your delegation changed to Always Abstain',
-    href: '/home/',
-    pill: null,
-  };
-
-  it('counts toward all and unread but not mentions, governance or discussions', () => {
-    const counts = countItems([delegationItem]);
-    expect(counts.all).toBe(1);
-    expect(counts.unread).toBe(1);
-    expect(counts.mentions).toBe(0);
-    expect(counts.governance).toBe(0);
-    expect(counts.discussions).toBe(0);
-  });
-
-  it('survives every filter that should not exclude it', () => {
-    expect(filterItems([delegationItem], 'all')).toHaveLength(1);
-    expect(filterItems([delegationItem], 'unread')).toHaveLength(1);
-    expect(filterItems([delegationItem], 'mentions')).toHaveLength(0);
-    expect(filterItems([delegationItem], 'governance')).toHaveLength(0);
-    expect(filterItems([delegationItem], 'discussions')).toHaveLength(0);
-  });
-});
-
-describe('delegator DRep-event inbox rows', () => {
-  const voteItem = {
-    kind: 'delegator_drep_voted' as const,
-    createdAt: 1_700_000_000,
-    unread: true,
-    actorName: null,
-    actorHref: null,
-    verb: null,
-    title: 'Your DRep voted on Reduce fees',
-    href: '/t/reduce-fees/',
-    pill: null,
-  };
-
-  it('counts toward governance (and all/unread), not mentions or discussions', () => {
-    const counts = countItems([voteItem]);
-    expect(counts.all).toBe(1);
-    expect(counts.unread).toBe(1);
-    expect(counts.mentions).toBe(0);
-    expect(counts.governance).toBe(1);
-    expect(counts.discussions).toBe(0);
-  });
-
-  it('filterItems("governance") includes it', () => {
-    expect(filterItems([voteItem], 'governance')).toHaveLength(1);
-    expect(filterItems([voteItem], 'mentions')).toHaveLength(0);
-    expect(filterItems([voteItem], 'discussions')).toHaveLength(0);
-  });
-
-  it('the re-voted and status-changed kinds also count and filter under governance', () => {
-    const reVoteItem = item('delegator_drep_re_voted', 1_700_000_000);
-    const statusItem = item('delegator_drep_status_changed', 1_700_000_000);
-    for (const inboxItem of [reVoteItem, statusItem]) {
-      expect(countItems([inboxItem]).governance).toBe(1);
-      expect(filterItems([inboxItem], 'governance')).toHaveLength(1);
+  it.each([
+    ['device_paired', { all: 1, unread: 1, mentions: 0, governance: 0, discussions: 0 }],
+    ['delegation_changed', { all: 1, unread: 1, mentions: 0, governance: 0, discussions: 0 }],
+    ['delegator_drep_voted', { all: 1, unread: 1, mentions: 0, governance: 1, discussions: 0 }],
+    ['delegator_drep_re_voted', { all: 1, unread: 1, mentions: 0, governance: 1, discussions: 0 }],
+    ['delegator_drep_status_changed', { all: 1, unread: 1, mentions: 0, governance: 1, discussions: 0 }],
+    ['drep_stats', { all: 1, unread: 1, mentions: 0, governance: 0, discussions: 0 }],
+    ['rationale_ready', { all: 1, unread: 1, mentions: 0, governance: 0, discussions: 0 }],
+  ] as const)('%s counts and filters as %o', (kind, expected) => {
+    const unreadItem = item(kind, 1_700_000_000, true);
+    expect(countItems([unreadItem])).toEqual(expected);
+    for (const facet of facets) {
+      expect(filterItems([unreadItem], facet)).toHaveLength(expected[facet]);
     }
   });
 
-  it('a delegation_changed item is NOT counted or filtered under governance', () => {
-    const delegationItem = {
-      kind: 'delegation_changed' as const,
-      createdAt: 1_700_000_000,
-      unread: true,
-      actorName: null,
-      actorHref: null,
-      verb: null,
-      title: 'Your delegation changed to Always Abstain',
-      href: '/home/',
-      pill: null,
-    };
-    expect(countItems([delegationItem]).governance).toBe(0);
-    expect(filterItems([delegationItem], 'governance')).toHaveLength(0);
-  });
-
   it('an item with href: null is still returned by filterItems("all") and counted', () => {
-    const noLinkItem = { ...voteItem, href: null };
+    const noLinkItem = { ...item('delegator_drep_voted', 1_700_000_000, true), href: null };
     expect(filterItems([noLinkItem], 'all')).toHaveLength(1);
     expect(countItems([noLinkItem]).all).toBe(1);
     expect(countItems([noLinkItem]).governance).toBe(1);
-  });
-});
-
-describe('drep_stats inbox rows', () => {
-  it('keeps drep_stats out of the governance tab (all/unread only)', () => {
-    const item = {
-      kind: 'drep_stats' as const,
-      createdAt: 1,
-      unread: true,
-      actorName: null,
-      actorHref: null,
-      verb: null,
-      title: 'Epoch 570: voting power 65.2M ₳ (+3.2%)',
-      href: '/dreps/drep1abc/',
-      pill: null,
-    };
-    const counts = countItems([item]);
-    expect(counts.all).toBe(1);
-    expect(counts.governance).toBe(0);
-    expect(filterItems([item], 'governance')).toHaveLength(0);
-    expect(filterItems([item], 'unread')).toHaveLength(1);
-  });
-});
-
-describe('rationale_ready inbox rows', () => {
-  it('keeps rationale_ready out of the governance tab (all/unread only)', () => {
-    const item = {
-      kind: 'rationale_ready' as const,
-      createdAt: 1,
-      unread: true,
-      actorName: null,
-      actorHref: null,
-      verb: null,
-      title: 'Your rationale on Some Action is ready to share',
-      href: '/dreps/drep1abc/vote/some-action/',
-      pill: null,
-    };
-    const counts = countItems([item]);
-    expect(counts.all).toBe(1);
-    expect(counts.governance).toBe(0);
-    expect(filterItems([item], 'governance')).toHaveLength(0);
-    expect(filterItems([item], 'unread')).toHaveLength(1);
   });
 });
 

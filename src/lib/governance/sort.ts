@@ -1,7 +1,8 @@
 // Sorting for the governance-actions list. The default is "new" (newest on-chain
 // submission first), the most intuitive entry point; "trending" (engagement +
 // recency) sits right next to it for DReps who want to see where discussion is
-// happening. All modes are pure and unit-tested.
+// happening. The list itself is ordered and paged in D1 (govPageOrderBy), this
+// module holds the sort options and the trending key the cron materializes.
 
 import type { Topic } from '../db/forum.js';
 import type { GovernanceAction } from '../db/governance.js';
@@ -78,8 +79,7 @@ function engagementOf(row: GovActionTopic): number {
 /**
  * Canonical, time-invariant trending key. Stored on the row by the gov-sync cron so the
  * list can be ordered and paged in the database instead of after loading every action.
- * This is the single source of truth for trending order; trendingScore below is derived
- * from it, so the in-memory sort and the materialized DB order cannot disagree.
+ * This is the single source of truth for trending order.
  *
  * Blends engagement with recency and penalises terminal (decided) actions so they sink.
  * With no replies and no votes the key is just the recency term, so a brand-new action
@@ -99,72 +99,3 @@ export function trendingOrderKey(row: GovActionTopic): number {
   return isTerminalStatus(row.action.status) ? key + Math.log2(TERMINAL_PENALTY) : key;
 }
 
-/**
- * Live trending score at a given clock, the inverse of trendingOrderKey's log transform:
- * the stored key is log2(score) + now/HALF_LIFE_MS, so the score is 2^(key - now/H).
- * Derived from the one ordering definition (used by the in-memory sort and its tests).
- * Exact while last_post_at <= now (the contract: submission epochs are past, replies use
- * the wall clock), so the old max(0, ageDays) recency clamp is neither possible nor needed.
- */
-export function trendingScore(row: GovActionTopic, now: number): number {
-  return 2 ** (trendingOrderKey(row) - now / HALF_LIFE_MS);
-}
-
-// Epochs are positive; these sentinels push null epochs to the end of either order.
-const descKey = (e: number | null) => e ?? -1;
-const ascKey = (e: number | null) => e ?? Number.MAX_SAFE_INTEGER;
-
-/**
- * Orders governance-action topics for the given sort mode:
- *  - trending: blended engagement + recency score, terminal actions penalised (default).
- *  - new: newest submission first.
- *  - old: oldest submission first (the reverse of new), nulls last.
- *  - closing: open actions only (terminal ones have no time left), soonest expiry first, nulls last.
- *  - ratified: most recently decided first, nulls last.
- *
- * All modes order the full set except 'closing', which also drops terminal actions
- * (a "Closing Soon" list with already-closed actions in it is just wrong).
- */
-export function sortGovActionTopics(rows: GovActionTopic[], mode: GovSort, now: number): GovActionTopic[] {
-  switch (mode) {
-    case 'new':
-      // Exact on-chain submission time first (newest); submission epoch then topic
-      // id are fallbacks while submitted_at is still null. Mirrors govPageOrderBy('new').
-      return [...rows].sort((a, b) => {
-        const byAt = descKey(b.action.submittedAt) - descKey(a.action.submittedAt);
-        if (byAt !== 0) return byAt;
-        const byEpoch = descKey(b.action.submittedEpoch) - descKey(a.action.submittedEpoch);
-        if (byEpoch !== 0) return byEpoch;
-        return a.topic.id.localeCompare(b.topic.id);
-      });
-    case 'old':
-      // Reverse of 'new': oldest submission first, nulls last. Mirrors govPageOrderBy('old').
-      return [...rows].sort((a, b) => {
-        const byAt = ascKey(a.action.submittedAt) - ascKey(b.action.submittedAt);
-        if (byAt !== 0) return byAt;
-        const byEpoch = ascKey(a.action.submittedEpoch) - ascKey(b.action.submittedEpoch);
-        if (byEpoch !== 0) return byEpoch;
-        return a.topic.id.localeCompare(b.topic.id);
-      });
-    case 'closing':
-      return rows
-        .filter((r) => !isTerminalStatus(r.action.status))
-        .sort((a, b) => ascKey(a.action.expiryEpoch) - ascKey(b.action.expiryEpoch));
-    case 'ratified':
-      return [...rows].sort((a, b) => descKey(b.action.decidedEpoch) - descKey(a.action.decidedEpoch));
-    default: {
-      // Score each row once (a comparator would recompute it O(n log n) times), then
-      // order: score descending; ties (submissions cluster at 5-day epoch starts) break
-      // by newest submission, then topic id, so the order is fully deterministic.
-      const scored = rows.map((row) => ({ row, score: trendingScore(row, now) }));
-      scored.sort((a, b) => {
-        const byScore = b.score - a.score;
-        if (byScore !== 0) return byScore;
-        const byEpoch = descKey(b.row.action.submittedEpoch) - descKey(a.row.action.submittedEpoch);
-        if (byEpoch !== 0) return byEpoch;
-        return a.row.topic.id.localeCompare(b.row.topic.id);
-      });
-      return scored.map((s) => s.row);
-    }
-  }
-}

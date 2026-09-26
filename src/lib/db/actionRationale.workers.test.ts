@@ -16,6 +16,18 @@ describe('action_rationale', () => {
     expect(await countActionRationales(env.DB, ga)).toBe(1);
   });
 
+  it('reindexes the FTS row on update so the old body leaves no stale term', async () => {
+    const ga = `${'f'.repeat(64)}#0`;
+    const base = { gaId: ga, voterId: 'drep1def', source: 'onchain' as const, anchorUrl: null, status: 'ok' as const, createdAt: 1000, now: 2000 };
+    await upsertActionRationale(env.DB, { ...base, bodyHtml: '<p>alpha budget</p>' });
+    // A second fetch replaces the body.
+    await upsertActionRationale(env.DB, { ...base, bodyHtml: '<p>omega treasury</p>' });
+    const count = async (term: string) =>
+      (await env.DB.prepare(`SELECT COUNT(*) AS n FROM action_rationale_fts WHERE action_rationale_fts MATCH ?1`).bind(term).first<{ n: number }>())?.n;
+    expect(await count('alpha')).toBe(0);
+    expect(await count('omega')).toBe(1);
+  });
+
   it('upserts and reads back only rows with body_html, tagged with the voter role', async () => {
     await env.DB
       .prepare(`INSERT INTO drep_votes (ga_id, voter_role, voter_id, vote, synced_at) VALUES (?,'DRep','drep1a','Yes',0)`)

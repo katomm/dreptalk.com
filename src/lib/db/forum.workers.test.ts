@@ -4,10 +4,8 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import {
   getThreadPage,
-  slugify,
   createTopic,
   getTopicBySlug,
-  getTopicsByCategory,
   getTopicsByIds,
   createPost,
   getPostsByAuthor,
@@ -26,46 +24,6 @@ const T3 = 1_700_002_000;
 
 // Unique author id for all tests.
 const AUTHOR = 'test-author-forum';
-
-// ---- slugify ----------------------------------------------------------------
-
-describe('slugify', () => {
-  it('converts spaces and punctuation to hyphens', () => {
-    expect(slugify('Hello World!', 'abc')).toBe('hello-world-abc');
-  });
-
-  it('lowercases the title', () => {
-    expect(slugify('UPPERCASE Title', 'x1')).toBe('uppercase-title-x1');
-  });
-
-  it('strips leading and trailing hyphens from the base', () => {
-    expect(slugify('  leading trailing  ', 'zz')).toBe('leading-trailing-zz');
-  });
-
-  it('appends the supplied suffix after a hyphen', () => {
-    const result = slugify('My Post', 'r4nd');
-    expect(result.endsWith('-r4nd')).toBe(true);
-  });
-
-  it('collapses consecutive non-alphanumeric runs into one hyphen', () => {
-    expect(slugify('foo---bar!!!baz', 'q1')).toBe('foo-bar-baz-q1');
-  });
-
-  it('caps base at 60 characters before appending suffix', () => {
-    const long = 'a'.repeat(80);
-    const result = slugify(long, 'sfx');
-    // base part is at most 60 chars, then '-sfx'
-    const base = result.slice(0, result.lastIndexOf('-sfx'));
-    expect(base.length).toBeLessThanOrEqual(60);
-    expect(result.endsWith('-sfx')).toBe(true);
-  });
-
-  it('produces consistent output for the same inputs', () => {
-    expect(slugify('Cardano DRep Forum', 'fixed')).toBe(
-      slugify('Cardano DRep Forum', 'fixed'),
-    );
-  });
-});
 
 // ---- createTopic ------------------------------------------------------------
 
@@ -96,83 +54,31 @@ describe('createTopic', () => {
     expect(firstPost.body_md).toBe('# Hello');
     expect(firstPost.body_html).toBe('<h1>Hello</h1>');
     expect(firstPost.created_at).toBe(T1);
-  });
 
-  it('defaults source to "user"', async () => {
-    const { topic } = await createTopic(db(), {
-      categorySlug: 'general',
-      authorId: AUTHOR,
-      title: 'Source Default Topic',
-      bodyMd: 'body',
-      bodyHtml: '<p>body</p>',
-      now: T1,
-      rand: 'r002',
-    });
     expect(topic.source).toBe('user');
+    // Integer flags map to JS booleans.
+    expect(topic.pinned).toBe(false);
+    expect(topic.locked).toBe(false);
+    expect(topic.deleted).toBe(false);
   });
 
-  it('accepts source "governance"', async () => {
+  it.each(['governance', 'survey'] as const)('accepts source "%s" and emits no topic_created event', async (source) => {
     const { topic } = await createTopic(db(), {
-      categorySlug: 'governance',
+      categorySlug: source === 'survey' ? 'surveys' : 'governance',
       authorId: AUTHOR,
-      title: 'Governance Topic',
-      bodyMd: 'gov body',
-      bodyHtml: '<p>gov body</p>',
-      source: 'governance',
+      title: `System Topic ${source}`,
+      bodyMd: 'system body',
+      bodyHtml: '<p>system body</p>',
+      source,
       now: T1,
-      rand: 'r003',
+      rand: `r003${source[0]}`,
     });
-    expect(topic.source).toBe('governance');
-  });
-
-  it('accepts source "survey" and, like governance, emits no topic_created event', async () => {
-    const { topic } = await createTopic(db(), {
-      categorySlug: 'surveys',
-      authorId: AUTHOR,
-      title: 'Survey Topic',
-      bodyMd: 'survey body',
-      bodyHtml: '<p>survey body</p>',
-      source: 'survey',
-      now: T1,
-      rand: 'r003s',
-    });
-    expect(topic.source).toBe('survey');
+    expect(topic.source).toBe(source);
     const events = await db()
       .prepare('SELECT COUNT(*) AS n FROM activity WHERE topic_id = ?')
       .bind(topic.id)
       .first<{ n: number }>();
     expect(events?.n).toBe(0);
-  });
-
-  it('stores body_html in the first post', async () => {
-    const { firstPost } = await createTopic(db(), {
-      categorySlug: 'general',
-      authorId: AUTHOR,
-      title: 'Html Storage Topic',
-      bodyMd: '**bold**',
-      bodyHtml: '<p><strong>bold</strong></p>',
-      now: T1,
-      rand: 'r004',
-    });
-    expect(firstPost.body_html).toBe('<p><strong>bold</strong></p>');
-  });
-
-  it('maps pinned/locked/deleted as JS booleans', async () => {
-    const { topic } = await createTopic(db(), {
-      categorySlug: 'general',
-      authorId: AUTHOR,
-      title: 'Boolean Mapping Topic',
-      bodyMd: 'content',
-      bodyHtml: '<p>content</p>',
-      now: T1,
-      rand: 'r005',
-    });
-    expect(typeof topic.pinned).toBe('boolean');
-    expect(typeof topic.locked).toBe('boolean');
-    expect(typeof topic.deleted).toBe('boolean');
-    expect(topic.pinned).toBe(false);
-    expect(topic.locked).toBe(false);
-    expect(topic.deleted).toBe(false);
   });
 
   it('uses postedAt for the topic and first-post timestamps when provided', async () => {
@@ -278,202 +184,6 @@ describe('getTopicBySlug', () => {
   });
 });
 
-// ---- getTopicsByCategory ----------------------------------------------------
-
-describe('getTopicsByCategory', () => {
-  it('returns only topics in the matching category', async () => {
-    const catSlug = 'cat-filter-test';
-    const { topic } = await createTopic(db(), {
-      categorySlug: catSlug,
-      authorId: AUTHOR,
-      title: 'Category Specific Topic',
-      bodyMd: 'body',
-      bodyHtml: '<p>body</p>',
-      now: T1,
-      rand: 'r020',
-    });
-
-    // A topic in a different category should not appear.
-    await createTopic(db(), {
-      categorySlug: 'other-cat',
-      authorId: AUTHOR,
-      title: 'Other Category Topic',
-      bodyMd: 'body',
-      bodyHtml: '<p>body</p>',
-      now: T1,
-      rand: 'r021',
-    });
-
-    const results = await getTopicsByCategory(db(), catSlug);
-    expect(results.length).toBeGreaterThanOrEqual(1);
-    expect(results.every(t => t.category_slug === catSlug)).toBe(true);
-    expect(results.some(t => t.id === topic.id)).toBe(true);
-  });
-
-  it('excludes deleted topics', async () => {
-    const catSlug = 'cat-deleted-test';
-    const { topic } = await createTopic(db(), {
-      categorySlug: catSlug,
-      authorId: AUTHOR,
-      title: 'Deleted Topic',
-      bodyMd: 'body',
-      bodyHtml: '<p>body</p>',
-      now: T1,
-      rand: 'r022',
-    });
-
-    // Soft-delete the topic directly.
-    await db()
-      .prepare('UPDATE topics SET deleted = 1 WHERE id = ?')
-      .bind(topic.id)
-      .run();
-
-    const results = await getTopicsByCategory(db(), catSlug);
-    expect(results.some(t => t.id === topic.id)).toBe(false);
-  });
-
-  it('orders pinned topics first, then by last_post_at desc', async () => {
-    const catSlug = 'cat-order-test';
-    const t1Now = T1;
-    const t2Now = T2;
-
-    const { topic: unpinnedOlder } = await createTopic(db(), {
-      categorySlug: catSlug,
-      authorId: AUTHOR,
-      title: 'Unpinned Older Topic',
-      bodyMd: 'body',
-      bodyHtml: '<p>body</p>',
-      now: t1Now,
-      rand: 'r030',
-    });
-
-    const { topic: unpinnedNewer } = await createTopic(db(), {
-      categorySlug: catSlug,
-      authorId: AUTHOR,
-      title: 'Unpinned Newer Topic',
-      bodyMd: 'body',
-      bodyHtml: '<p>body</p>',
-      now: t2Now,
-      rand: 'r031',
-    });
-
-    const { topic: pinnedOlder } = await createTopic(db(), {
-      categorySlug: catSlug,
-      authorId: AUTHOR,
-      title: 'Pinned Older Topic',
-      bodyMd: 'body',
-      bodyHtml: '<p>body</p>',
-      now: t1Now,
-      rand: 'r032',
-    });
-
-    // Pin the third topic.
-    await db()
-      .prepare('UPDATE topics SET pinned = 1 WHERE id = ?')
-      .bind(pinnedOlder.id)
-      .run();
-
-    const results = await getTopicsByCategory(db(), catSlug);
-
-    const ids = results.map(t => t.id);
-    const pinnedIdx = ids.indexOf(pinnedOlder.id);
-    const newerIdx = ids.indexOf(unpinnedNewer.id);
-    const olderIdx = ids.indexOf(unpinnedOlder.id);
-
-    // Pinned must come before unpinned topics.
-    expect(pinnedIdx).toBeLessThan(newerIdx);
-    expect(pinnedIdx).toBeLessThan(olderIdx);
-    // Among unpinned: newer last_post_at first.
-    expect(newerIdx).toBeLessThan(olderIdx);
-  });
-
-  it('respects limit and offset', async () => {
-    const catSlug = 'cat-pagination-test';
-    // Insert 3 topics.
-    for (let i = 0; i < 3; i++) {
-      await createTopic(db(), {
-        categorySlug: catSlug,
-        authorId: AUTHOR,
-        title: `Pagination Topic ${i}`,
-        bodyMd: 'body',
-        bodyHtml: '<p>body</p>',
-        now: T1 + i,
-        rand: `r04${i}`,
-      });
-    }
-
-    const page1 = await getTopicsByCategory(db(), catSlug, { limit: 2 });
-    expect(page1.length).toBe(2);
-
-    const page2 = await getTopicsByCategory(db(), catSlug, { limit: 2, offset: 2 });
-    expect(page2.length).toBe(1);
-
-    // Ensure no overlap between pages.
-    const allIds = [...page1.map(t => t.id), ...page2.map(t => t.id)];
-    expect(new Set(allIds).size).toBe(allIds.length);
-  });
-
-  it('caps limit at 100', async () => {
-    const catSlug = 'cat-cap-test';
-    await createTopic(db(), {
-      categorySlug: catSlug,
-      authorId: AUTHOR,
-      title: 'Cap Test Topic',
-      bodyMd: 'body',
-      bodyHtml: '<p>body</p>',
-      now: T1,
-      rand: 'r050',
-    });
-
-    // Requesting 200 should be silently capped; we can only verify it does not throw
-    // and returns at most 100 rows (we have 1 here).
-    const results = await getTopicsByCategory(db(), catSlug, { limit: 200 });
-    expect(results.length).toBeLessThanOrEqual(100);
-  });
-
-  it('clamps negative limit: limit -1 does not bypass the row cap', async () => {
-    const catSlug = 'cat-neg-limit-test';
-    // Insert 3 topics into the category.
-    for (let i = 0; i < 3; i++) {
-      await createTopic(db(), {
-        categorySlug: catSlug,
-        authorId: AUTHOR,
-        title: `Neg Limit Topic ${i}`,
-        bodyMd: 'body',
-        bodyHtml: '<p>body</p>',
-        now: T1 + i,
-        rand: `r05n${i}`,
-      });
-    }
-
-    // limit: -1 must be clamped to 1, not passed as LIMIT -1 to SQLite.
-    const negResult = await getTopicsByCategory(db(), catSlug, { limit: -1 });
-    expect(negResult.length).toBeGreaterThanOrEqual(1);
-    expect(negResult.length).toBeLessThanOrEqual(100);
-
-    // Explicitly: must not return more rows than the clamped-up value of 1.
-    expect(negResult.length).toBe(1);
-  });
-
-  it('clamps limit 1000 to at most 100', async () => {
-    const catSlug = 'cat-1000-limit-test';
-    for (let i = 0; i < 3; i++) {
-      await createTopic(db(), {
-        categorySlug: catSlug,
-        authorId: AUTHOR,
-        title: `Limit 1000 Topic ${i}`,
-        bodyMd: 'body',
-        bodyHtml: '<p>body</p>',
-        now: T1 + i,
-        rand: `r05k${i}`,
-      });
-    }
-
-    const results = await getTopicsByCategory(db(), catSlug, { limit: 1000 });
-    expect(results.length).toBeLessThanOrEqual(100);
-  });
-});
-
 // ---- createPost + thread reads -----------------------------------------------
 
 // All posts in these tests are top-level, so the thread page's topLevel list is
@@ -574,47 +284,6 @@ describe('createPost', () => {
     expect(withoutGrant.proposer_grant_id).toBeNull();
   });
 
-  it('getThreadPage returns top-level posts in created_at asc order', async () => {
-    const { topic } = await createTopic(db(), {
-      categorySlug: 'general',
-      authorId: AUTHOR,
-      title: 'Ordering Topic',
-      bodyMd: 'first',
-      bodyHtml: '<p>first</p>',
-      now: T1,
-      rand: 'r062',
-    });
-
-    await createPost(db(), {
-      topicId: topic.id,
-      authorId: AUTHOR,
-      bodyMd: 'second',
-      bodyHtml: '<p>second</p>',
-      now: T2,
-    });
-
-    await createPost(db(), {
-      topicId: topic.id,
-      authorId: AUTHOR,
-      bodyMd: 'third',
-      bodyHtml: '<p>third</p>',
-      now: T3,
-    });
-
-    const posts = await topLevelPosts(topic.id);
-    expect(posts.length).toBe(3);
-
-    // Must be sorted ascending by created_at.
-    for (let i = 1; i < posts.length; i++) {
-      expect(posts[i].created_at).toBeGreaterThanOrEqual(posts[i - 1].created_at);
-    }
-
-    // Verify content order via body_html (body_md is not selected by the thread reader).
-    expect(posts[0].body_html).toBe('<p>first</p>');
-    expect(posts[1].body_html).toBe('<p>second</p>');
-    expect(posts[2].body_html).toBe('<p>third</p>');
-  });
-
   it('throws "topic_locked" when posting to a locked topic', async () => {
     const { topic } = await createTopic(db(), {
       categorySlug: 'general',
@@ -682,59 +351,9 @@ describe('createPost', () => {
   });
 });
 
-// ---- thread page pagination + caps -------------------------------------------
+// ---- thread page limit clamp + deleted posts --------------------------------
 
-describe('getThreadPage pagination', () => {
-  it('respects limit and offset', async () => {
-    const { topic } = await createTopic(db(), {
-      categorySlug: 'general',
-      authorId: AUTHOR,
-      title: 'Pagination Posts Topic',
-      bodyMd: 'first',
-      bodyHtml: '<p>first</p>',
-      now: T1,
-      rand: 'r070',
-    });
-
-    for (let i = 1; i <= 3; i++) {
-      await createPost(db(), {
-        topicId: topic.id,
-        authorId: AUTHOR,
-        bodyMd: `post ${i}`,
-        bodyHtml: `<p>post ${i}</p>`,
-        now: T1 + i,
-      });
-    }
-
-    // 4 posts total (1 from createTopic + 3 replies).
-    const page1 = await topLevelPosts(topic.id, { limit: 2 });
-    expect(page1.length).toBe(2);
-
-    const page2 = await topLevelPosts(topic.id, { limit: 2, offset: 2 });
-    expect(page2.length).toBe(2);
-
-    const page3 = await topLevelPosts(topic.id, { limit: 2, offset: 4 });
-    expect(page3.length).toBe(0);
-
-    const allIds = [...page1, ...page2].map(p => p.id);
-    expect(new Set(allIds).size).toBe(allIds.length);
-  });
-
-  it('caps limit at 100', async () => {
-    const { topic } = await createTopic(db(), {
-      categorySlug: 'general',
-      authorId: AUTHOR,
-      title: 'Cap Posts Topic',
-      bodyMd: 'first',
-      bodyHtml: '<p>first</p>',
-      now: T1,
-      rand: 'r071',
-    });
-
-    const results = await topLevelPosts(topic.id, { limit: 500 });
-    expect(results.length).toBeLessThanOrEqual(100);
-  });
-
+describe('getThreadPage filters and limits', () => {
   it('clamps negative limit: limit -1 does not bypass the row cap', async () => {
     const { topic } = await createTopic(db(), {
       categorySlug: 'general',

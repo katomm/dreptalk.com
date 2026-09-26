@@ -1,8 +1,7 @@
 // Lightweight render assertion for NotificationPrefsMatrix: no
 // testing-library in this repo, so the component is rendered to a static
-// HTML string and asserted on directly. Confirms the group layout (the general
-// event types, the delegator-fanout "My delegation" group and the DRep-only
-// group) survives every widening of the NOTIFICATION_EVENT_TYPES union.
+// HTML string and asserted on directly. Confirms the DRep-only group renders
+// only when showDrepStats is set.
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import NotificationPrefsMatrix from './NotificationPrefsMatrix.tsx';
@@ -15,23 +14,6 @@ const allEnabled = Object.fromEntries(NOTIFICATION_EVENT_TYPES.map((t) => [t, tr
 >;
 
 describe('NotificationPrefsMatrix', () => {
-  it('renders both group headings and every general and delegation option', () => {
-    const html = renderToStaticMarkup(
-      <NotificationPrefsMatrix prefs={allEnabled} onChange={() => {}} />,
-    );
-
-    expect(html).toContain('Notify me about');
-    expect(html).toContain('My delegation');
-
-    expect(html).toContain('Replies');
-    expect(html).toContain('Mentions');
-    expect(html).toContain('Governance actions');
-    expect(html).toContain('Governance Review');
-    expect(html).toContain('When a new edition is published');
-    expect(html).toContain('DRep votes');
-    expect(html).toContain('DRep status');
-  });
-
   it('hides the As a DRep group by default', () => {
     const html = renderToStaticMarkup(
       <NotificationPrefsMatrix prefs={allEnabled} onChange={() => {}} />,

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { formatAda, formatAdaCompact, lovelaceToAdaDecimal } from './ada.js';
 
 describe('formatAda', () => {
-  it('formats lovelace as whole ADA with the ₳ symbol and thousands separators', () => {
+  it('formats lovelace as whole ada with the ₳ symbol and thousands separators', () => {
     expect(formatAda('100000000000')).toBe('100,000 ₳');
     expect(formatAda('5000000000')).toBe('5,000 ₳');
     expect(formatAda(0)).toBe('0 ₳');

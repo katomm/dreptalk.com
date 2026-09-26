@@ -7,28 +7,6 @@ import { makeCoseSignature, type6Address } from './__fixtures__/makeCose.js';
 import { verifyCip8 } from './cose.js';
 import { bytesToHex, hexToBytes } from '../crypto/hex.js';
 
-/** Probes which Ed25519 path is available in the current runtime. */
-async function detectEd25519Path(): Promise<'WebCrypto-Ed25519' | 'WebCrypto-NODE-ED25519' | 'noble-fallback'> {
-  const dummy = new Uint8Array(32).fill(1);
-  try {
-    await crypto.subtle.importKey('raw', dummy, 'Ed25519', false, ['verify']);
-    return 'WebCrypto-Ed25519';
-  } catch {
-    try {
-      await crypto.subtle.importKey(
-        'raw',
-        dummy,
-        { name: 'NODE-ED25519', namedCurve: 'NODE-ED25519' } as AlgorithmIdentifier,
-        false,
-        ['verify'],
-      );
-      return 'WebCrypto-NODE-ED25519';
-    } catch {
-      return 'noble-fallback';
-    }
-  }
-}
-
 // Extract the two well-known vectors by label.
 const stakeVector = vectors.vectors.find(v => v.label === 'stake-key-valid')!;
 const drepVector = vectors.vectors.find(v => v.label === 'drep-key-valid');
@@ -46,15 +24,6 @@ function flipByte(hex: string, byteOffset: number): string {
 function replaceLastByte(hex: string): string {
   return `${hex.slice(0, -2)}ff`;
 }
-
-describe('Ed25519 runtime path detection', () => {
-  it('reports which Ed25519 path is available in workerd', async () => {
-    const path = await detectEd25519Path();
-    // This test always passes; it exists to report which crypto path is active.
-    console.log(`[cose.workers] Ed25519 verification path in workerd: ${path}`);
-    expect(['WebCrypto-Ed25519', 'WebCrypto-NODE-ED25519', 'noble-fallback']).toContain(path);
-  });
-});
 
 describe('verifyCip8 (stake-key-valid fixture)', () => {
   it('returns ok=true for a valid stake key fixture', async () => {

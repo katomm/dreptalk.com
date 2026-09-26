@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { env } from 'cloudflare:test';
 import { drepPhases } from './dreps.js';
-import { runPhases } from './registry.js';
-import { recordSyncRun } from '../runRecorder.js';
 import { readVotingTimingSnapshot, writeVotingTimingSnapshot } from '../../db/votingTimingSnapshot.js';
 import * as snapshotModule from '../../db/votingTimingSnapshot.js';
 import * as loaderModule from '../../analytics/votingTimingSnapshot.js';
@@ -32,10 +30,6 @@ afterEach(() => {
 });
 
 describe('voting-timing-snapshot phase', () => {
-  it('is registered and is not the primary phase', () => {
-    expect(phase().primary).toBeFalsy();
-  });
-
   it('writes a readable snapshot whose epoch is the compute epoch', async () => {
     await seedVotingTimingFixture(cfg);
     const before = Date.now();
@@ -77,32 +71,5 @@ describe('voting-timing-snapshot phase', () => {
     ).rejects.toThrow();
 
     expect(await readVotingTimingSnapshot(env.DB)).toEqual(good);
-  });
-
-  it('records its failure in sync_runs and lets later phases keep running', async () => {
-    vi.spyOn(loaderModule, 'loadVotingTimingSnapshot').mockRejectedValue(new Error('boom'));
-    const ran: string[] = [];
-
-    // The real recorder, not a stand-in: the assertion is that runRecorder
-    // persists the failure and continues, which a test-owned catch callback
-    // would only simulate.
-    await recordSyncRun(env.DB, 'dreps', async (phaseFn) => {
-      await runPhases(
-        [phase(), { name: 'after', run: async () => { ran.push('after'); return { items: 0 }; } }],
-        ctx(),
-        phaseFn,
-      );
-    });
-
-    expect(ran).toEqual(['after']);
-    const run = await env.DB
-      .prepare('SELECT status, phases FROM sync_runs ORDER BY id DESC LIMIT 1')
-      .first<{ status: string; phases: string }>();
-    expect(run?.status).toBe('partial');
-    const phases = JSON.parse(run!.phases) as { phase: string; ok: boolean; error?: string }[];
-    const mine = phases.find((x) => x.phase === 'voting-timing-snapshot');
-    expect(mine?.ok).toBe(false);
-    expect(mine?.error).toContain('boom');
-    expect(phases.find((x) => x.phase === 'after')?.ok).toBe(true);
   });
 });

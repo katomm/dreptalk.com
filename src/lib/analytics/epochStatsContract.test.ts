@@ -1,6 +1,5 @@
-// Pure-logic tests for seriesStartFromRows, the in-memory equivalent of
-// seriesStartEpoch. Cases mirror epochStatsContract.workers.test.ts so the
-// two implementations stay behaviorally identical.
+// Pure-logic tests for seriesStartFromRows, one case per start rule of the
+// metric contract.
 import { describe, it, expect } from 'vitest';
 import { EPOCH_STATS_METRICS, seriesStartFromRows } from './epochStatsContract.js';
 import type { EpochStatsRow } from './epochStats.js';
@@ -59,6 +58,16 @@ describe('seriesStartFromRows', () => {
     const r = row(540);
     for (const key of Object.keys(EPOCH_STATS_METRICS) as (keyof typeof EPOCH_STATS_METRICS)[]) {
       expect(Object.hasOwn(r, key)).toBe(true);
+    }
+  });
+});
+
+describe('metric contract', () => {
+  it('has a definition, reliability and start rule on every metric', () => {
+    for (const m of Object.values(EPOCH_STATS_METRICS)) {
+      expect(m.definition.length).toBeGreaterThan(20);
+      expect(['exact', 'forward-only', 'flagged']).toContain(m.reliability);
+      expect(['oldest-row', 'first-non-null', 'first-complete']).toContain(m.start);
     }
   });
 });

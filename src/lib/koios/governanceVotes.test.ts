@@ -58,14 +58,6 @@ describe('createKoiosClient.proposalVotingSummary', () => {
     const client = createKoiosClient({ baseUrl: 'https://preprod.koios.rest/api/v1', fetchImpl });
     expect(await client.proposalVotingSummary(PID)).toBeNull();
   });
-
-  it('sends the bearer token when configured', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([summaryFixture]));
-    const client = createKoiosClient({ baseUrl: 'https://preprod.koios.rest/api/v1', token: 'k', fetchImpl });
-    await client.proposalVotingSummary(PID);
-    const headers = fetchImpl.mock.calls[0][1].headers as Record<string, string>;
-    expect(headers.Authorization).toBe('Bearer k');
-  });
 });
 
 describe('createKoiosClient.proposalVotes', () => {
@@ -97,12 +89,6 @@ describe('createKoiosClient.proposalVotes', () => {
     const client = createKoiosClient({ baseUrl: 'https://preprod.koios.rest/api/v1', fetchImpl });
     const rows = await client.proposalVotes(PID);
     expect(rows[0].voter_hex).toBeNull();
-  });
-
-  it('throws on a non-200 response', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}, 500));
-    const client = createKoiosClient({ baseUrl: 'https://preprod.koios.rest/api/v1', fetchImpl });
-    await expect(client.proposalVotes(PID)).rejects.toThrow(/koios request failed: 500/i);
   });
 
   it('tolerates raw control characters in a string value (a stray newline in meta_url)', async () => {

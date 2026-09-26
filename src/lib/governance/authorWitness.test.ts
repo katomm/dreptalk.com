@@ -1,13 +1,13 @@
-// CIP-108 author-witness verification: the official interop vector proves
-// layer 1 (raw pubkey, no address policy) accepts it, and layer 3 (wallet
-// COSE_Key + strict reward-address policy) rejects it (mainnet enterprise).
+// CIP-108 author-witness verification: layer 3 (wallet COSE_Key + strict
+// reward-address policy) rejects the official interop vector (mainnet
+// enterprise address, raw key).
 // The production accept-path is proven with a genuine testnet-reward COSE
 // built in-test (buildTestCose), not a hand-pinned fixture.
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { canonicalBodyHashFor } from './cip108Canonical.js';
-import { verifyGenericCip0008, verifyWalletAuthorWitness } from './authorWitness.js';
+import { verifyWalletAuthorWitness } from './authorWitness.js';
 import { buildTestCose } from './__fixtures__/buildTestCose.js';
 
 const vector = JSON.parse(
@@ -15,21 +15,9 @@ const vector = JSON.parse(
 );
 const w = vector.authors[0].witness; // { witnessAlgorithm:'CIP-0008', publicKey: raw32hex, signature: coseSign1hex }
 
-// URDNA2015 canonicalization is the most expensive step; compute the vector's
-// body hash once and reuse it across the cases that need it.
+// The vector's real canonical body hash, so the rejection can only come from
+// the key and address policy.
 const vectorBodyHashHex = await canonicalBodyHashFor(vector.body);
-
-describe('layer 1: generic CIP-0008 over a raw key (official vector)', () => {
-  it('verifies the official vector against its canonical body hash', async () => {
-    const res = await verifyGenericCip0008({ publicKeyHex: w.publicKey, signatureHex: w.signature, bodyHashHex: vectorBodyHashHex });
-    expect(res.ok).toBe(true);
-  });
-
-  it('rejects a tampered body hash', async () => {
-    const res = await verifyGenericCip0008({ publicKeyHex: w.publicKey, signatureHex: w.signature, bodyHashHex: 'f'.repeat(64) });
-    expect(res.ok).toBe(false);
-  });
-});
 
 describe('layer 3: production wallet policy', () => {
   const bodyHash = 'a'.repeat(64);

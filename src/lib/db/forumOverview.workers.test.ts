@@ -2,11 +2,7 @@
 // Overview-query tests, run in real workerd via vitest-pool-workers.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import {
-  createTopic,
-  getLatestTopicsAcrossCategories,
-  getCategoryStats,
-} from './forum.js';
+import { createTopic, getCategoryStats } from './forum.js';
 
 const db = () => env.DB;
 const BASE = 1_755_000_000_000;
@@ -25,26 +21,6 @@ async function topic(categorySlug: string, now: number) {
   });
   return topic;
 }
-
-describe('getLatestTopicsAcrossCategories', () => {
-  it('orders by last activity across categories, newest first', async () => {
-    const a = await topic('general', BASE + 1000);
-    const b = await topic('budget', BASE + 3000);
-    const c = await topic('constitution', BASE + 2000);
-
-    const latest = await getLatestTopicsAcrossCategories(db(), { limit: 10 });
-    const idx = (id: string) => latest.findIndex((t) => t.id === id);
-    expect(idx(b.id)).toBeLessThan(idx(c.id));
-    expect(idx(c.id)).toBeLessThan(idx(a.id));
-  });
-
-  it('respects the limit', async () => {
-    await topic('general', BASE + 100);
-    await topic('budget', BASE + 200);
-    const latest = await getLatestTopicsAcrossCategories(db(), { limit: 1 });
-    expect(latest.length).toBe(1);
-  });
-});
 
 describe('getCategoryStats', () => {
   it('counts non-deleted topics and the latest activity per category', async () => {

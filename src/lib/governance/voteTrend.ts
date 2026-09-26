@@ -175,7 +175,7 @@ export function computeVoteTrendSeries(
  * calendar windows only become comparable once both start at t = 0, so the
  * compare overlay shifts both sides instead of teaching the chart about time.
  */
-export function toRelativeSeries(series: TrendSeries[], origin: number): TrendSeries[] {
+function toRelativeSeries(series: TrendSeries[], origin: number): TrendSeries[] {
   return series.map((s) => ({
     ...s,
     points: s.points.map((p) => ({ t: p.t - origin, pct: p.pct })),
@@ -187,7 +187,7 @@ export function toRelativeSeries(series: TrendSeries[], origin: number): TrendSe
  * line under an action that never had an SPO vote reads as this action's own data,
  * so a body missing on either side is dropped from both.
  */
-export function sharedTrendBodies(
+function sharedTrendBodies(
   own: TrendSeries[],
   compare: TrendSeries[],
 ): { own: TrendSeries[]; compare: TrendSeries[] } {

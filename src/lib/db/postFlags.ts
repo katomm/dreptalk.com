@@ -99,18 +99,3 @@ export function flaggedPostIdsStmts(
       .bind(flaggerId, ...chunk),
   );
 }
-
-/**
- * Returns the subset of postIds that flaggerId has already flagged, in one
- * batched round-trip (no N+1). Used to render each post's flag button in the
- * correct state.
- */
-export async function getFlaggedPostIds(
-  db: D1Database,
-  flaggerId: string,
-  postIds: string[],
-): Promise<Set<string>> {
-  if (postIds.length === 0) return new Set();
-  const batched = await db.batch<{ post_id: string }>(flaggedPostIdsStmts(db, flaggerId, postIds));
-  return new Set(batched.flatMap((r) => (r.results ?? []).map((row) => row.post_id)));
-}

@@ -3,7 +3,6 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import {
   GRANT_INVITE_TTL_SEC,
-  MAX_GRANTS_PER_PROPOSER,
   createGrantInvite,
   lookupInviteByCode,
   redeemGrant,
@@ -15,6 +14,7 @@ import {
   withdrawInvite,
 } from './proposerGrants.js';
 import { upsertUserFromAuth } from './users.js';
+import { loadMandates } from '../forum/mandate.js';
 
 const db = () => env.DB as D1Database;
 const NOW = 1_700_000_000;
@@ -494,6 +494,28 @@ describe('getGrantsByIds', () => {
   it('returns an empty map for empty input without querying D1', async () => {
     expect((await getGrantsByIds(db(), [])).size).toBe(0);
   });
+
+  it('still returns a revoked grant, so its mandate badge keeps resolving', async () => {
+    // Real curated address (config/proposers.ts), so the label is the curated name.
+    const proposerStakeAddr = 'stake1uyvjdz9rxsfsmv44rtk75k2rqyqskrga96dgdfrqjvjjpwsefcjnp';
+    const proposer = await upsertUserFromAuth(db(), { stakeAddr: proposerStakeAddr, roles: ['proposer'], now: NOW });
+    const co = await makeCoUser();
+    const invite = await createGrantInvite(db(), { proposerUserId: proposer.id, proposerStakeAddr, now: NOW });
+    const redeemed = await redeemGrant(db(), {
+      grantId: invite!.grantId,
+      coUserId: co.userId,
+      coStakeAddr: co.stakeAddr,
+      displayName: 'Co Proposer',
+      now: NOW,
+    });
+    expect(redeemed.ok).toBe(true);
+    expect(await revokeGrant(db(), { grantId: invite!.grantId, proposerUserId: proposer.id, now: NOW })).toBe(true);
+
+    const map = await getGrantsByIds(db(), [invite!.grantId]);
+    expect(map.get(invite!.grantId)?.status).toBe('revoked');
+    // loadMandates with its default fetch reads through getGrantsByIds.
+    expect((await loadMandates(db(), [invite!.grantId])).get(invite!.grantId)).toBe('for Intersect');
+  });
 });
 
 describe('revokeGrant', () => {
@@ -623,12 +645,5 @@ describe('withdrawInvite', () => {
       .bind(activeInvite!.grantId)
       .first<{ status: string }>();
     expect(stillActive!.status).toBe('active');
-  });
-});
-
-describe('constants', () => {
-  it('exposes the documented TTL and per-proposer limit', () => {
-    expect(GRANT_INVITE_TTL_SEC).toBe(604800);
-    expect(MAX_GRANTS_PER_PROPOSER).toBe(2);
   });
 });
