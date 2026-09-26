@@ -3,7 +3,19 @@
 // one-time launch seed: it protects the 2026-09-25 baseline owners and reports
 // everything Tommy has to look at before the seed is applied.
 import { slugBase } from '../slug.js';
-import { validateHandle } from './handle.js';
+import { HANDLE_MAX, validateHandle } from './handle.js';
+
+/**
+ * The handle a name turns into: the slug base, but a name longer than the
+ * handle limit is cut at the last word boundary instead of mid-word
+ * ("...-from-carda" becomes "...-from"). A single overlong word is cut hard.
+ */
+export function handleBase(name: string): string {
+  const full = slugBase(name, Number.POSITIVE_INFINITY);
+  if (full.length <= HANDLE_MAX) return full;
+  const cut = full.lastIndexOf('-', HANDLE_MAX);
+  return cut > 0 ? full.slice(0, cut) : full.slice(0, HANDLE_MAX);
+}
 
 export interface HandleCandidate { drepId: string; name: string | null; registeredAt: number | null }
 export type SkipReason = 'no_base' | 'shape' | 'length' | 'id_namespace' | 'reserved' | 'taken';
@@ -22,7 +34,7 @@ function byRegistration(a: HandleCandidate, b: HandleCandidate): number {
 export function assignHandles(rows: HandleCandidate[], taken: Set<string>): AssignResult {
   const out: AssignResult = { assigned: [], skipped: [] };
   for (const row of [...rows].sort(byRegistration)) {
-    const base = row.name ? slugBase(row.name) : '';
+    const base = row.name ? handleBase(row.name) : '';
     if (!base) {
       out.skipped.push({ drepId: row.drepId, base, reason: 'no_base' });
       continue;
@@ -67,7 +79,7 @@ export function planSeed(rows: HandleCandidate[], baseline: Baseline, overrides:
   const flags: SeedFlag[] = [];
   const byBase = new Map<string, HandleCandidate[]>();
   for (const row of rows) {
-    const base = row.name ? slugBase(row.name) : '';
+    const base = row.name ? handleBase(row.name) : '';
     if (!base) continue;
     const group = byBase.get(base);
     if (group) group.push(row);
