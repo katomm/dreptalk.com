@@ -18,9 +18,9 @@ import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
  */
 export async function notifyReply(
   db: D1Database,
-  args: { topicId: string; postId: string; actorId: string; now: number; excludeUserIds?: string[] },
+  args: { topicId: string; postId: string; actorId: string; excludeUserIds?: string[] },
 ): Promise<void> {
-  const { topicId, postId, actorId, now, excludeUserIds = [] } = args;
+  const { topicId, postId, actorId, excludeUserIds = [] } = args;
 
   const participants = await getThreadParticipantIds(db, topicId);
   const exclude = new Set([actorId, GOV_SYNC_AUTHOR, 'system', ...excludeUserIds]);
@@ -34,7 +34,6 @@ export async function notifyReply(
       actorId,
       topicId,
       postId,
-      createdAt: now,
     })),
   );
 }
@@ -42,9 +41,9 @@ export async function notifyReply(
 /** Writes one mention notification per mentioned user, excluding the actor. */
 export async function notifyMentions(
   db: D1Database,
-  args: { mentionUserIds: string[]; topicId: string; postId: string | null; actorId: string; now: number },
+  args: { mentionUserIds: string[]; topicId: string; postId: string | null; actorId: string },
 ): Promise<void> {
-  const { mentionUserIds, topicId, postId, actorId, now } = args;
+  const { mentionUserIds, topicId, postId, actorId } = args;
   const recipients = [...new Set(mentionUserIds)].filter((id) => id !== actorId);
   await insertNotifications(
     db,
@@ -54,7 +53,6 @@ export async function notifyMentions(
       actorId,
       topicId,
       postId,
-      createdAt: now,
     })),
   );
 }

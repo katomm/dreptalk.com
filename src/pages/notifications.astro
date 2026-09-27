@@ -121,7 +121,7 @@ if (db) {
     // after this frontmatter runs). Safe to batch with the reads above, since
     // the unread flags below are computed from seenAt and the personal rows
     // fetched before this point.
-    markAllRead(db, user.id, Date.now()),
+    markAllRead(db, user.id),
   ]);
 
   const personalItems: InboxItem[] = personal.flatMap((n): InboxItem[] => {

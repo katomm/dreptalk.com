@@ -8,9 +8,9 @@ import { addChannel, setPref } from '../db/notificationChannels.js';
 const db = () => env.DB;
 
 const push = (userId: string) =>
-  addChannel(db(), { userId, channel: 'webpush', target: '{}', endpoint: `https://push.example/${userId}`, now: 1 });
+  addChannel(db(), { userId, channel: 'webpush', target: '{}', endpoint: `https://push.example/${userId}` });
 const telegram = (userId: string) =>
-  addChannel(db(), { userId, channel: 'telegram', target: '42', endpoint: `telegram:${userId}`, now: 1 });
+  addChannel(db(), { userId, channel: 'telegram', target: '42', endpoint: `telegram:${userId}` });
 
 describe('loadSubscribeState', () => {
   it('is anonymous without a user', async () => {

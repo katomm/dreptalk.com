@@ -206,7 +206,6 @@ export async function handleCreateTopic(input: CreateTopicInput): Promise<Handle
         topicId: topic.id,
         postId: null,
         actorId: user.id,
-        now,
       });
     } catch {
       // Topic exists; a missed notification is acceptable.
@@ -294,8 +293,8 @@ export async function handleCreatePost(input: CreatePostInput): Promise<HandlerR
     // run concurrently. Never fail the post over a notification.
     try {
       await Promise.all([
-        notifyMentions(db, { mentionUserIds, topicId, postId: post.id, actorId: user.id, now }),
-        notifyReply(db, { topicId, postId: post.id, actorId: user.id, now, excludeUserIds: mentionUserIds }),
+        notifyMentions(db, { mentionUserIds, topicId, postId: post.id, actorId: user.id }),
+        notifyReply(db, { topicId, postId: post.id, actorId: user.id, excludeUserIds: mentionUserIds }),
       ]);
     } catch {
       // Post exists; a missed notification is acceptable.

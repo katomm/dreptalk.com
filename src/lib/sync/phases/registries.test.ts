@@ -10,6 +10,7 @@ import type { NetworkConfig } from '../../config/network.js';
 import type { CoreSyncContext, GovSyncKoios } from './context.js';
 import { activePhaseNames } from './registry.js';
 import { governancePhases, type GovernanceSyncContext } from './governance.js';
+import { notificationPhases, type NotificationsSyncContext } from './notifications.js';
 import { votePhases, type VoteSyncContext } from './votes.js';
 import { drepPhases, initialDrepSyncState, type DrepSyncContext } from './dreps.js';
 
@@ -29,12 +30,23 @@ function govCtx(
   return {
     ...core,
     heavy,
-    vapid: null,
-    telegramBotToken: null,
     tessera: opts.tessera ? ({} as GovernanceSyncContext['tessera']) : null,
     state: { mirrorHealthy: false },
     pinGc: opts.pinGc ? { groupId: 'grp', jwt: 'jwt' } : null,
     site: opts.site ? { fetch: async () => new Response() } : null,
+  };
+}
+
+function notificationsCtx(): NotificationsSyncContext {
+  return {
+    ...core,
+    meter: { used: () => 0 },
+    senders: {
+      webpush: (() => {}) as unknown as NotificationsSyncContext['senders']['webpush'],
+      telegram: (() => {}) as unknown as NotificationsSyncContext['senders']['telegram'],
+    },
+    vapid: null,
+    telegramBotToken: null,
   };
 }
 
@@ -71,8 +83,6 @@ function expectBefore(names: string[], first: string, later: string) {
   expect(names.indexOf(first), `${first} runs before ${later}`).toBeLessThan(names.indexOf(later));
 }
 
-const DISPATCH = ['delegation-fanout', 'webpush', 'telegram'];
-
 describe('governancePhases', () => {
   const allGates = govCtx(true, { tessera: true, pinGc: true, site: true });
 
@@ -80,10 +90,10 @@ describe('governancePhases', () => {
     expect(activePhaseNames(governancePhases, allGates)).toEqual(governancePhases.map((d) => d.name));
   });
 
-  it('runs discovery and notification dispatch on every tick, the heavy phases only on a heavy tick', () => {
+  it('runs discovery on every tick, the heavy phases only on a heavy tick', () => {
     const light = activePhaseNames(governancePhases, govCtx(false));
     const heavy = activePhaseNames(governancePhases, govCtx(true));
-    for (const name of ['discovery', ...DISPATCH]) expect(light).toContain(name);
+    expect(light).toContain('discovery');
     // A heavy tick only adds phases, it never drops one the light tick runs.
     for (const name of light) expect(heavy).toContain(name);
     for (const name of ['tallies', 'metadata', 'params', 'delegation-refresh']) {
@@ -92,15 +102,8 @@ describe('governancePhases', () => {
     }
   });
 
-  it('drains the delegation fan-out before the webpush and telegram dispatch', () => {
-    const names = activePhaseNames(governancePhases, govCtx(false));
-    expectBefore(names, 'delegation-fanout', 'webpush');
-    expectBefore(names, 'delegation-fanout', 'telegram');
-  });
-
-  it('announces review editions before the dispatch phases, on heavy ticks with the app binding', () => {
-    const heavy = activePhaseNames(governancePhases, govCtx(true, { site: true }));
-    for (const name of DISPATCH) expectBefore(heavy, 'review-announce', name);
+  it('announces review editions on heavy ticks with the app binding', () => {
+    expect(activePhaseNames(governancePhases, govCtx(true, { site: true }))).toContain('review-announce');
     expect(activePhaseNames(governancePhases, govCtx(false, { site: true }))).not.toContain('review-announce');
     expect(activePhaseNames(governancePhases, govCtx(true))).not.toContain('review-announce');
   });
@@ -134,6 +137,20 @@ describe('governancePhases', () => {
     expect(governancePhases[0].name).toBe('discovery');
     expectSinglePrimaryFirst(governancePhases);
     expectUniqueNames(governancePhases);
+  });
+});
+
+describe('notificationPhases', () => {
+  it('runs the fan-out before the webpush and telegram dispatch, in a fixed order', () => {
+    expect(notificationPhases.map((d) => d.name)).toEqual(['delegation-fanout', 'webpush', 'telegram']);
+  });
+
+  it('reaches every registered phase with no gate to skip', () => {
+    expect(activePhaseNames(notificationPhases, notificationsCtx())).toEqual(notificationPhases.map((d) => d.name));
+  });
+
+  it('keeps names unique', () => {
+    expectUniqueNames(notificationPhases);
   });
 });
 

@@ -268,7 +268,7 @@ async function openGovActionTopic(
         topicId,
         payload: { type: a.type, title: a.title },
         createdAt: a.postedAt,
-        notifiedAt: a.now,
+        notifiedAt: 'db-now',
       }),
       ...(a.draftTopicId ? buildDraftLinkStatements(db, a.actionId, a.draftTopicId) : []),
     ],

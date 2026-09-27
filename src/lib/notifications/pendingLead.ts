@@ -6,13 +6,12 @@
 // This mirrors the inbox row hydration in src/pages/notifications.astro, but for
 // exactly ONE item: the dispatcher only asks for the lead when a channel has at
 // most DETAIL_MAX pending events, so at most one topic / actor / action lookup
-// runs per delivered channel. Eligibility (created_at / notified_at vs the
-// delivery cursor, prefs gating) matches getPendingCounts so the lead can never
-// name an event the counts did not include.
+// runs per delivered channel. Eligibility (created_at / notified_at inside the
+// pass interval delivered_until < ts <= passEnd, prefs gating) matches
+// getPendingCounts so the lead can never name an event the counts did not include.
 
 import type { NotificationChannelRow, NotificationEventType } from '../db/notificationChannels.js';
 import type { PendingLead } from './pushMessage.js';
-import { sqlPlaceholders } from '../db/sql.js';
 import { getTopicsByIds } from '../db/forum.js';
 import { getGovernanceActionSlugsByIds } from '../db/governance.js';
 import { loadAuthorIdentity } from '../forum/author.js';
@@ -75,6 +74,7 @@ export async function resolvePendingLead(
   db: D1Database,
   row: NotificationChannelRow,
   prefs: Record<NotificationEventType, boolean>,
+  passEnd: number,
 ): Promise<PendingLead | null> {
   const cursor = row.delivered_until;
 
@@ -83,35 +83,37 @@ export async function resolvePendingLead(
     .filter(([, pref]) => pref === 'always' || prefs[pref])
     .map(([type]) => type);
 
-  const personal = allowedPersonal.length
-    ? await db
-        .prepare(
-          `SELECT type, actor_id, topic_id, post_id, payload, created_at
-             FROM notifications
-            WHERE recipient_id = ?1 AND created_at > ?2
-              AND type IN (${sqlPlaceholders(allowedPersonal)})
-            ORDER BY created_at DESC LIMIT 1`,
-        )
-        .bind(row.user_id, cursor, ...allowedPersonal)
-        .first<PersonalRow>()
-    : null;
-
-  const gov = prefs.governance
-    ? await db
-        .prepare(
-          // Bare notified_at, matching govThreadsSinceSql: an expression over the
-          // column would not be sargable and would skip idx_activity_notified.
-          `SELECT a.type AS type, a.topic_id AS topic_id, a.payload AS payload,
-                  a.notified_at AS at
-             FROM activity a JOIN topics t ON t.id = a.topic_id
-            WHERE a.type IN ('gov_created', 'gov_status')
-              AND t.deleted = 0
-              AND a.notified_at > ?1
-            ORDER BY at DESC LIMIT 1`,
-        )
-        .bind(cursor)
-        .first<GovRow>()
-    : null;
+  // Independent of each other, so both run concurrently instead of waiting in turn.
+  const [personal, gov] = await Promise.all([
+    allowedPersonal.length
+      ? db
+          .prepare(
+            `SELECT type, actor_id, topic_id, post_id, payload, created_at
+               FROM notifications
+              WHERE recipient_id = ?1 AND created_at > ?2 AND created_at <= ?3
+                AND type IN (${allowedPersonal.map((_, i) => `?${i + 4}`).join(', ')})
+              ORDER BY created_at DESC LIMIT 1`,
+          )
+          .bind(row.user_id, cursor, passEnd, ...allowedPersonal)
+          .first<PersonalRow>()
+      : Promise.resolve(null),
+    prefs.governance
+      ? db
+          .prepare(
+            // Bare notified_at, matching govThreadsSinceSql: an expression over the
+            // column would not be sargable and would skip idx_activity_notified.
+            `SELECT a.type AS type, a.topic_id AS topic_id, a.payload AS payload,
+                    a.notified_at AS at
+               FROM activity a JOIN topics t ON t.id = a.topic_id
+              WHERE a.type IN ('gov_created', 'gov_status')
+                AND t.deleted = 0
+                AND a.notified_at > ?1 AND a.notified_at <= ?2
+              ORDER BY at DESC LIMIT 1`,
+          )
+          .bind(cursor, passEnd)
+          .first<GovRow>()
+      : Promise.resolve(null),
+  ]);
 
   // Pick the newer of the two candidates.
   const personalAt = personal?.created_at ?? -1;

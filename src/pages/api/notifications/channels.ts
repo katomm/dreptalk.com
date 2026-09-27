@@ -99,7 +99,6 @@ export const POST: APIRoute = async ({ request, locals }) => {
     channel: 'webpush',
     target,
     endpoint: parsed.data.subscription.endpoint,
-    now: Date.now(),
   });
   return jsonResponse({ ok: true, id }, 201);
 };

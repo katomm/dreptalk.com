@@ -5,9 +5,20 @@
 // activity" feed. The feed's hydration (titles, authors, governance) lives in
 // src/lib/forum/activityFeed.ts.
 
-import { sqlPlaceholders } from './sql.js';
+import { sqlPlaceholders, DB_NOW_MS } from './sql.js';
 
 export type ActivityKind = 'topic_created' | 'reply_created' | 'gov_created' | 'gov_status';
+
+/**
+ * Builds the SQL placeholder and bind list for a notified_at column: `'db-now'`
+ * stamps the database clock inline (no bind), anything else falls back to the
+ * given value and binds it as a placeholder. Shared by activityInsert and
+ * insertGovStatusEventIfNew, whose INSERT statements both end with this column.
+ */
+function notifiedAtValue(notifiedAt: number | 'db-now' | undefined, fallback: number): { sql: string; binds: unknown[] } {
+  if (notifiedAt === 'db-now') return { sql: DB_NOW_MS, binds: [] };
+  return { sql: '?', binds: [notifiedAt ?? fallback] };
+}
 
 // Raw row shape as stored in D1. payload is a JSON string (or null); the feed
 // loader parses it for gov_status.
@@ -37,6 +48,8 @@ export interface ActivityRow {
  * the event and defaults to createdAt; governance events pass the real
  * detection time so a back-dated action still counts as new against the
  * notification cursors (see migration 0067 and govThreadsSinceSql).
+ * `'db-now'` stamps the database clock (DB_NOW_MS). Governance events use it,
+ * since notified_at is what the delivery cursors compare against.
  */
 export function activityInsert(
   db: D1Database,
@@ -47,24 +60,26 @@ export function activityInsert(
     refPostId?: string | null;
     payload?: Record<string, unknown> | null;
     createdAt: number;
-    notifiedAt?: number;
+    notifiedAt?: number | 'db-now';
   },
 ): D1PreparedStatement {
+  const notified = notifiedAtValue(a.notifiedAt, a.createdAt);
+  const binds: unknown[] = [
+    crypto.randomUUID(),
+    a.type,
+    a.actorId ?? null,
+    a.topicId,
+    a.refPostId ?? null,
+    a.payload ? JSON.stringify(a.payload) : null,
+    a.createdAt,
+    ...notified.binds,
+  ];
   return db
     .prepare(
       `INSERT INTO activity (id, type, actor_id, topic_id, ref_post_id, payload, created_at, notified_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ${notified.sql})`,
     )
-    .bind(
-      crypto.randomUUID(),
-      a.type,
-      a.actorId ?? null,
-      a.topicId,
-      a.refPostId ?? null,
-      a.payload ? JSON.stringify(a.payload) : null,
-      a.createdAt,
-      a.notifiedAt ?? a.createdAt,
-    );
+    .bind(...binds);
 }
 
 /**
@@ -94,26 +109,28 @@ export function buildSetGovCreatedEventDate(db: D1Database, topicId: string, cre
  */
 export async function insertGovStatusEventIfNew(
   db: D1Database,
-  a: { topicId: string; from: string; to: string; createdAt: number; notifiedAt?: number },
+  a: { topicId: string; from: string; to: string; createdAt: number; notifiedAt?: number | 'db-now' },
 ): Promise<void> {
+  const notified = notifiedAtValue(a.notifiedAt, a.createdAt);
+  const binds: unknown[] = [
+    crypto.randomUUID(),
+    a.topicId,
+    JSON.stringify({ from: a.from, to: a.to }),
+    a.createdAt,
+    ...notified.binds,
+    a.topicId,
+    a.to,
+  ];
   await db
     .prepare(
       `INSERT INTO activity (id, type, actor_id, topic_id, ref_post_id, payload, created_at, notified_at)
-       SELECT ?, 'gov_status', NULL, ?, NULL, ?, ?, ?
+       SELECT ?, 'gov_status', NULL, ?, NULL, ?, ?, ${notified.sql}
        WHERE NOT EXISTS (
          SELECT 1 FROM activity
          WHERE type = 'gov_status' AND topic_id = ? AND json_extract(payload, '$.to') = ?
        )`,
     )
-    .bind(
-      crypto.randomUUID(),
-      a.topicId,
-      JSON.stringify({ from: a.from, to: a.to }),
-      a.createdAt,
-      a.notifiedAt ?? a.createdAt,
-      a.topicId,
-      a.to,
-    )
+    .bind(...binds)
     .run();
 }
 

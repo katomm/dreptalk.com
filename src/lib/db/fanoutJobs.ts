@@ -45,14 +45,19 @@ export function buildJobInsert(db: D1Database, job: FanoutJobInput): D1PreparedS
     .bind(job.eventKey, job.eventType, job.subjectId, job.sourceTime, job.payload, job.createdAt, job.createdAt);
 }
 
-/** Open jobs (completed_at IS NULL), oldest first, stable tie-break on event_key. */
+/**
+ * Open jobs (completed_at IS NULL), least recently advanced first, stable
+ * tie-break on event_key, served by idx_fanout_jobs_open_rotation. A job that
+ * got a page moves behind jobs that did not, so across runs the rotation
+ * reaches every open job in turn instead of always serving the same ones.
+ */
 export async function listOpenJobs(db: D1Database, limit: number): Promise<FanoutJobRow[]> {
   const { results } = await db
     .prepare(
       `SELECT event_key, event_type, subject_id, source_time, payload, cursor_user_id, created_at, updated_at, completed_at
        FROM notification_fanout_jobs
        WHERE completed_at IS NULL
-       ORDER BY created_at, event_key
+       ORDER BY updated_at, event_key
        LIMIT ?`,
     )
     .bind(limit)
@@ -60,23 +65,22 @@ export async function listOpenJobs(db: D1Database, limit: number): Promise<Fanou
   return results;
 }
 
-/** Advances the fan-out pagination cursor after a batch of recipients is drained. */
-export async function advanceJobCursor(
+/** The cursor step as an unrun statement, for the page batch in fanout.ts. */
+export function buildAdvanceJobCursor(
   db: D1Database,
   eventKey: string,
   cursorUserId: string,
   nowSec: number,
-): Promise<void> {
-  await db
+): D1PreparedStatement {
+  return db
     .prepare('UPDATE notification_fanout_jobs SET cursor_user_id = ?, updated_at = ? WHERE event_key = ?')
-    .bind(cursorUserId, nowSec, eventKey)
-    .run();
+    .bind(cursorUserId, nowSec, eventKey);
 }
 
-/** Marks a job's fan-out as fully drained. */
-export async function completeJob(db: D1Database, eventKey: string, nowSec: number): Promise<void> {
-  await db
+/** Job completion as an unrun statement, for the page batch in fanout.ts. */
+export function buildCompleteJob(db: D1Database, eventKey: string, nowSec: number): D1PreparedStatement {
+  return db
     .prepare('UPDATE notification_fanout_jobs SET completed_at = ?, updated_at = ? WHERE event_key = ?')
-    .bind(nowSec, nowSec, eventKey)
-    .run();
+    .bind(nowSec, nowSec, eventKey);
 }
+

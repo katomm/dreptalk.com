@@ -4,7 +4,7 @@
 // from a pre-read that could go stale under a concurrent refresh. All queries use
 // prepare().bind(); never string-concatenated SQL.
 import type { DelegationState } from '../delegation/resolve.js';
-import { sqlPlaceholders } from './sql.js';
+import { sqlPlaceholders, DB_NOW_MS } from './sql.js';
 
 export type ResolutionOutcome = { status: 'resolved'; state: DelegationState } | { status: 'error' };
 
@@ -125,21 +125,19 @@ export async function applyResolution(
   const from = stateOf(existing);
 
   // 2. Conditional change: INSERT the event (gated) then UPDATE (same predicate).
-  // NOTE: notifications.created_at is UNIX MILLISECONDS (migration 0053 seeds
-  // notif_seen_at with strftime('%s')*1000 and the inbox compares to Date.now());
-  // `now` here is unix SECONDS (the follow-row unit), so the notification row
-  // uses now*1000. Mixing the two would date the row at 1970 and mis-sort it.
+  // NOTE: the row's created_at comes from the database clock (DB_NOW_MS, unix
+  // milliseconds), not from `now`, which stays unix SECONDS (the follow-row
+  // unit) and is only used to build the event key.
   const eventKey = `deleg-change:${userId}:${now}`;
-  const createdAtMs = now * 1000;
   const payload = JSON.stringify({ from, to: outcome.state });
   const pred = "resolution_status = 'resolved' AND (delegation_type != ? OR COALESCE(drep_id,'') != COALESCE(?, ''))";
   const results = await db.batch([
     db.prepare(
       `INSERT INTO notifications (id, recipient_id, type, event_key, payload, created_at)
-       SELECT ?, user_id, 'delegation_changed', ?, ?, ?
+       SELECT ?, user_id, 'delegation_changed', ?, ?, ${DB_NOW_MS}
          FROM delegator_follows WHERE user_id = ? AND ${pred}
        ON CONFLICT(recipient_id, event_key) WHERE event_key IS NOT NULL DO NOTHING`,
-    ).bind(crypto.randomUUID(), eventKey, payload, createdAtMs, userId, type, drepId),
+    ).bind(crypto.randomUUID(), eventKey, payload, userId, type, drepId),
     // The delegation start belongs to the OLD delegation, so it is invalidated in
     // the same statement that writes the new one. Nulling both columns makes the
     // row "missing a start" by construction, so every capture path (the login

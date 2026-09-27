@@ -26,4 +26,21 @@ describe('NotificationSettings server render', () => {
     const html = renderToStaticMarkup(<NotificationSettings channels={[]} prefs={allEnabled} vapidPublicKey="" />);
     expect(html).toContain('Push notifications are not configured on this deployment yet.');
   });
+
+  it('shows "Last notified" only for a device with a lastSentAt', () => {
+    const html = renderToStaticMarkup(
+      <NotificationSettings
+        channels={[
+          { id: 'd1', createdAt: 1_700_000_000_000, deliveredUntil: 1_700_000_500_000, lastSentAt: 1_700_000_500_000, label: null, fingerprint: null },
+          { id: 'd2', createdAt: 1_700_000_000_000, deliveredUntil: 1_700_000_500_000, lastSentAt: null, label: null, fingerprint: null },
+        ]}
+        prefs={allEnabled}
+        vapidPublicKey="BPUBLICKEY"
+      />,
+    );
+    expect(html).toContain('Last notified');
+    // Two devices rendered, only one "Last notified" occurrence: the muted-advance
+    // cursor on d2 must not be read as a real send.
+    expect(html.match(/Last notified/g)).toHaveLength(1);
+  });
 });

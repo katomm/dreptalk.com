@@ -15,6 +15,7 @@
 // SQL.
 
 import { evaluateDrepStats } from '../notifications/drepStats.js';
+import { DB_NOW_MS } from './sql.js';
 
 interface CandidateRow {
   user_id: string;
@@ -32,21 +33,17 @@ export interface DrepStatsDigestResult {
   fired: number;
 }
 
-// 6 binds per row, so 16 rows keep a statement at 96 parameters, under D1's
+// 5 binds per row, so 16 rows keep a statement at 80 parameters, under D1's
 // 100-bind cap (miniflare does not enforce it, size for the real database).
 const INSERT_CHUNK = 16;
 
 /**
  * Evaluates the digest for the given epoch and inserts one notification per
  * firing DRep-linked user. Safe to call repeatedly for the same epoch, the
- * event_key conflict target makes re-runs no-ops. `nowMs` is unix
- * MILLISECONDS (the notifications.created_at unit).
+ * event_key conflict target makes re-runs no-ops. created_at comes from the
+ * database clock (DB_NOW_MS).
  */
-export async function runDrepStatsDigest(
-  db: D1Database,
-  epoch: number,
-  nowMs: number,
-): Promise<DrepStatsDigestResult> {
+export async function runDrepStatsDigest(db: D1Database, epoch: number): Promise<DrepStatsDigestResult> {
   const rows =
     (
       await db
@@ -80,7 +77,7 @@ export async function runDrepStatsDigest(
   const stmts: D1PreparedStatement[] = [];
   for (let i = 0; i < firing.length; i += INSERT_CHUNK) {
     const chunk = firing.slice(i, i + INSERT_CHUNK);
-    const values = chunk.map(() => '(?, ?, ?, ?, ?, ?)').join(', ');
+    const values = chunk.map(() => `(?, ?, ?, ?, ?, ${DB_NOW_MS})`).join(', ');
     stmts.push(
       db
         .prepare(
@@ -102,7 +99,6 @@ export async function runDrepStatsDigest(
               delegators: r.delegators,
               delegatorsPrev: r.delegators_prev,
             }),
-            nowMs,
           ]),
         ),
     );

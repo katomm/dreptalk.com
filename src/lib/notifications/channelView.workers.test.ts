@@ -13,6 +13,7 @@ const row = (over: Partial<NotificationChannelRow>): NotificationChannelRow => (
   label: null,
   created_at: 100,
   delivered_until: 100,
+  last_sent_at: null,
   ...over,
 });
 
@@ -30,15 +31,15 @@ describe('toClientChannels', () => {
   it('exposes only safe fields, fingerprint for webpush, label for telegram', async () => {
     const rows = [
       row({}),
-      row({ id: 'id-2', channel: 'telegram', endpoint: 'telegram:555', target: '555', label: '@Ada', delivered_until: 900 }),
+      row({ id: 'id-2', channel: 'telegram', endpoint: 'telegram:555', target: '555', label: '@Ada', delivered_until: 900, last_sent_at: 900 }),
     ];
     const out = await toClientChannels(rows);
     expect(out).toHaveLength(2);
     expect(out[0]).toEqual({
-      id: 'id-1', channel: 'webpush', createdAt: 100, deliveredUntil: 100,
+      id: 'id-1', channel: 'webpush', createdAt: 100, deliveredUntil: 100, lastSentAt: null,
       label: null, fingerprint: await endpointFingerprint('https://push.example/abc'),
     });
-    expect(out[1]).toEqual({ id: 'id-2', channel: 'telegram', createdAt: 100, deliveredUntil: 900, label: '@Ada', fingerprint: null });
+    expect(out[1]).toEqual({ id: 'id-2', channel: 'telegram', createdAt: 100, deliveredUntil: 900, lastSentAt: 900, label: '@Ada', fingerprint: null });
     for (const c of out) {
       expect(JSON.stringify(c)).not.toContain('push.example');
       expect(JSON.stringify(c)).not.toContain('555');

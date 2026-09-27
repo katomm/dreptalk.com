@@ -5,6 +5,8 @@
 // there on it is an ordinary personal notification: the bell, the inbox and
 // the push/Telegram dispatch need nothing special for it.
 
+import { DB_NOW_MS } from './sql.js';
+
 /** The edition the site currently serves, as the cron reads it. */
 export interface LatestEdition {
   edition: number;
@@ -52,11 +54,11 @@ export async function announceLatestEdition(
   const fanout = db
     .prepare(
       `INSERT INTO notifications (id, recipient_id, type, event_key, payload, created_at)
-       SELECT lower(hex(randomblob(16))), id, 'review_published', ?1, ?2, ?3
+       SELECT lower(hex(randomblob(16))), id, 'review_published', ?1, ?2, ${DB_NOW_MS}
          FROM users WHERE id NOT IN ('system', 'gov-sync')
        ON CONFLICT(recipient_id, event_key) WHERE event_key IS NOT NULL DO NOTHING`,
     )
-    .bind(`review:${latest.edition}`, JSON.stringify(latest), now);
+    .bind(`review:${latest.edition}`, JSON.stringify(latest));
   const [recorded] = await db.batch([record, fanout]);
   return (recorded.meta.changes ?? 0) > 0 ? 'announced' : 'none';
 }

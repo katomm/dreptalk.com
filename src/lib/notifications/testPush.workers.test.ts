@@ -21,7 +21,7 @@ function deps(sendResult: { ok: boolean; status: number }) {
 
 describe('sendTestPush', () => {
   it('sends the test payload to an owned device after the delay', async () => {
-    const id = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: TARGET, endpoint: 'https://push.example/dev1', now: 1 });
+    const id = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: TARGET, endpoint: 'https://push.example/dev1' });
     const d = deps({ ok: true, status: 201 });
 
     const outcome = await sendTestPush(db(), VAPID, { userId: 'alice', channelId: id }, d);
@@ -40,7 +40,7 @@ describe('sendTestPush', () => {
   });
 
   it('refuses a channel owned by someone else without sending', async () => {
-    const id = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: TARGET, endpoint: 'https://push.example/dev1', now: 1 });
+    const id = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: TARGET, endpoint: 'https://push.example/dev1' });
     const d = deps({ ok: true, status: 201 });
 
     const outcome = await sendTestPush(db(), VAPID, { userId: 'mallory', channelId: id }, d);
@@ -50,7 +50,7 @@ describe('sendTestPush', () => {
   });
 
   it('prunes the channel when the subscription is dead (403 after a key rotation)', async () => {
-    const id = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: TARGET, endpoint: 'https://push.example/dev1', now: 1 });
+    const id = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: TARGET, endpoint: 'https://push.example/dev1' });
     const d = deps({ ok: false, status: 403 });
 
     const outcome = await sendTestPush(db(), VAPID, { userId: 'alice', channelId: id }, d);
@@ -60,7 +60,7 @@ describe('sendTestPush', () => {
   });
 
   it('keeps the channel on a transient failure', async () => {
-    const id = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: TARGET, endpoint: 'https://push.example/dev1', now: 1 });
+    const id = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: TARGET, endpoint: 'https://push.example/dev1' });
     const d = deps({ ok: false, status: 500 });
 
     const outcome = await sendTestPush(db(), VAPID, { userId: 'alice', channelId: id }, d);
@@ -81,7 +81,7 @@ function fakeTgSend(result: TelegramSendResult) {
 
 describe('sendTestTelegram', () => {
   it('sends immediately to an owned telegram channel', async () => {
-    const id = await addChannel(db(), { userId: 'tt-1', channel: 'telegram', target: '900', endpoint: 'telegram:900', now: 1 });
+    const id = await addChannel(db(), { userId: 'tt-1', channel: 'telegram', target: '900', endpoint: 'telegram:900' });
     const { send, calls } = fakeTgSend({ ok: true, status: 200, description: '' });
     const outcome = await sendTestTelegram(db(), 'TOKEN', { userId: 'tt-1', channelId: id }, { send });
     expect(outcome).toBe('sent');
@@ -90,13 +90,13 @@ describe('sendTestTelegram', () => {
   });
 
   it("rejects a channel the user does not own or that is not telegram", async () => {
-    const otherId = await addChannel(db(), { userId: 'tt-2', channel: 'telegram', target: '901', endpoint: 'telegram:901', now: 1 });
+    const otherId = await addChannel(db(), { userId: 'tt-2', channel: 'telegram', target: '901', endpoint: 'telegram:901' });
     const { send } = fakeTgSend({ ok: true, status: 200, description: '' });
     expect(await sendTestTelegram(db(), 'TOKEN', { userId: 'someone-else', channelId: otherId }, { send })).toBe('not_found');
   });
 
   it('prunes a dead chat', async () => {
-    const id = await addChannel(db(), { userId: 'tt-3', channel: 'telegram', target: '902', endpoint: 'telegram:902', now: 1 });
+    const id = await addChannel(db(), { userId: 'tt-3', channel: 'telegram', target: '902', endpoint: 'telegram:902' });
     const { send } = fakeTgSend({ ok: false, status: 403, description: 'Forbidden: bot was blocked by the user' });
     expect(await sendTestTelegram(db(), 'TOKEN', { userId: 'tt-3', channelId: id }, { send })).toBe('pruned');
     expect(await listChannels(db(), 'tt-3')).toHaveLength(0);

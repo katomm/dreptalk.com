@@ -7,12 +7,13 @@
 // nothing and logs an error (freshness.test.ts guards the toml against drift).
 // The public /help/data-freshness page (src/content/guides/data-freshness.md)
 // describes the cadences in a hand-kept table, update it when one changes.
-export const CRON_GOVERNANCE = '*/5 * * * *'; // discovery + notification dispatch every 5 min; heavy tallies gated to every 15 (minute % 15)
+export const CRON_GOVERNANCE = '*/5 * * * *'; // discovery every 5 min; heavy tallies gated to every 15 (minute % 15)
 export const CRON_VOTE_SYNC = '*/20 * * * *'; // per-post vote lists (every 20 min, active only)
 export const CRON_DREP_SYNC = '0 */6 * * *'; // DRep profile sync
+export const CRON_NOTIFICATIONS = '2-59/5 * * * *'; // fan-out + push/Telegram dispatch, two minutes after each governance tick
 
-/** The three sync runs the gov-sync worker dispatches, one per cron trigger. */
-export type SyncCronKind = 'governance' | 'votes' | 'dreps';
+/** The four sync runs the gov-sync worker dispatches, one per cron trigger. */
+export type SyncCronKind = 'governance' | 'votes' | 'dreps' | 'notifications';
 
 /**
  * Maps a scheduled event's cron expression to the sync run it drives. Returns
@@ -24,16 +25,22 @@ export function resolveCronKind(cron: string): SyncCronKind | null {
   if (cron === CRON_GOVERNANCE) return 'governance';
   if (cron === CRON_VOTE_SYNC) return 'votes';
   if (cron === CRON_DREP_SYNC) return 'dreps';
+  if (cron === CRON_NOTIFICATIONS) return 'notifications';
   return null;
 }
 
-// Matches one cron field against a value: '*', '*/n', or a plain number. This
-// covers exactly the subset of cron syntax the CRON_* constants use; anything
-// fancier (lists, ranges) is not supported and yields null from nextCronRunMs.
+// Matches one cron field against a value: '*', '*/n', 'a-b/n', or a plain number.
+// This covers exactly the subset of cron syntax the CRON_* constants use; anything
+// fancier (lists, bare ranges) is not supported and yields null from nextCronRunMs.
 function cronFieldMatches(field: string, value: number): boolean {
   if (field === '*') return true;
   const step = /^\*\/(\d+)$/.exec(field);
   if (step) return value % Number(step[1]) === 0;
+  const rangeStep = /^(\d+)-(\d+)\/(\d+)$/.exec(field);
+  if (rangeStep) {
+    const [lo, hi, n] = rangeStep.slice(1).map(Number);
+    return value >= lo && value <= hi && (value - lo) % n === 0;
+  }
   return /^\d+$/.test(field) && Number(field) === value;
 }
 

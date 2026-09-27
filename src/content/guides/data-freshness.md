@@ -17,6 +17,7 @@ are never delayed. Here is how often each thing updates.
 |------|---------|-------|
 | Forum posts and topics | Immediate | Real forum activity is not delayed. Signed-out visitors may see a page up to a minute old, and for ten minutes after that a cached copy is served while a fresh one renders. |
 | Governance actions (new threads) | About every 5 minutes | A discovery cron opens one thread per new on-chain action. |
+| Notifications (push and Telegram) | About every 5 minutes | Sent shortly after the discovery cron. At very high volume a run delivers a share and the rest follows on the next runs. |
 | CIP-179 surveys (definitions and response counts) | About every 5 minutes | Mirrored from the Tessera index on the discovery cron, on both mainnet and preprod. A submitted answer is counted once the index has confirmed its transaction, usually under ten minutes. |
 | Governance tallies and status (DRep, SPO, CC) | About every 15 minutes, active actions only | Frozen once an action is ratified, enacted, expired, dropped, or closed. Shown with an "as of" time. |
 | Per-post vote badges | About every 20 minutes, active actions only | Vote lists are larger than the tallies but still refresh on a short cycle. |

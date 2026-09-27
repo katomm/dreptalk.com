@@ -36,3 +36,21 @@ export function chunked<T>(xs: readonly T[], size: number): T[][] {
 export function concludedStatusSql(alias: string): string {
   return `${alias}.status IN (${CONCLUDED_STATUSES.map((s) => `'${s}'`).join(', ')})`;
 }
+
+/**
+ * The database clock in unix milliseconds, as an inline SQL expression. Every
+ * timestamp a notification delivery cursor is compared against is written with
+ * this, never with a JavaScript time bound from the Worker: D1 runs one
+ * statement or batch at a time, so a row stamped with the database clock is
+ * visible to every query that reads the clock after it. A JavaScript time taken
+ * before a slow run can sit behind a cursor that another run already moved,
+ * and that row is then never delivered.
+ */
+export const DB_NOW_MS = "CAST(unixepoch('subsec') * 1000 AS INTEGER)";
+
+/** One read of the database clock (see DB_NOW_MS). */
+export async function readDbNow(db: D1Database): Promise<number> {
+  const row = await db.prepare(`SELECT ${DB_NOW_MS} AS ms`).first<{ ms: number }>();
+  if (!row) throw new Error('database clock read returned no row');
+  return row.ms;
+}

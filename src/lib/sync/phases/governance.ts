@@ -1,8 +1,8 @@
-// Phase registry for the governance cron (*/5): discover governance actions and
-// dispatch pending notifications every tick; the heavy tally/backfill/params
-// phases run only when `heavy` is set (the scheduled minute is a multiple of
-// 15), so those keep their old 15-minute cost while new actions and pending
-// notifications go out within 5 minutes.
+// Phase registry for the governance cron (*/5): discover governance actions
+// every tick; the heavy tally/backfill/params phases run only when `heavy` is
+// set (the scheduled minute is a multiple of 15), so those keep their old
+// 15-minute cost. Notification delivery (fan-out, web push, Telegram) moved to
+// its own trigger, phases/notifications.ts, so it gets its own D1 query budget.
 
 import { bytesToHex } from '../../crypto/hex.js';
 import {
@@ -25,10 +25,6 @@ import { makePinataRemover } from '../../governance/pinata.js';
 import { runCip100Sync } from '../../cip100/cron.js';
 import { originForNetwork } from '../../cip100/origin.js';
 import { runPostErasureSweep } from '../../db/postErasure.js';
-import { runFanout } from '../../notifications/fanout.js';
-import { dispatchWebPush, dispatchTelegram } from '../../notifications/dispatch.js';
-import { sendWebPush, type VapidConfig } from '../../push/webPush.js';
-import { sendTelegramMessage } from '../../push/telegram.js';
 import { refreshBulk } from '../../delegation/refresh.js';
 import { fetchLatestEdition, type SiteFetcher } from '../../review/latestEdition.js';
 import { announceLatestEdition } from '../../db/reviewAnnouncements.js';
@@ -39,10 +35,6 @@ import type { SyncPhaseDef } from './registry.js';
 export interface GovernanceSyncContext extends CoreSyncContext {
   /** Heavy tick (scheduled minute % 15 === 0): tally/backfill/params phases run. */
   heavy: boolean;
-  /** Null until both VAPID keys are configured; the webpush phase fails soft. */
-  vapid: VapidConfig | null;
-  /** Null until the bot token secret is set; the telegram phase fails soft. */
-  telegramBotToken: string | null;
   /** Null while TESSERA_BACKEND_URL is unset/empty (the maintainer's off switch
    * for CIP-179 surveys); the surveys phase is gated out entirely. */
   tessera: SurveysTessera | null;
@@ -291,10 +283,10 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
   },
   {
     // Announce a newly deployed Governance Review edition to every account,
-    // delivered by the webpush/telegram phases below in this same run. Runs
-    // only where the binding to the app worker exists, which is mainnet, the
-    // one network with a review. Heavy ticks only: an edition goes out every
-    // few epochs, so a quarter-hour of delay costs nothing.
+    // delivered by the notifications cron's webpush/telegram phases on the next
+    // tick. Runs only where the binding to the app worker exists, which is
+    // mainnet, the one network with a review. Heavy ticks only: an edition goes
+    // out every few epochs, so a quarter-hour of delay costs nothing.
     name: 'review-announce',
     when: (ctx) => ctx.site !== null && ctx.heavy,
     run: async (ctx) => {
@@ -302,42 +294,6 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
       const outcome = latest ? await announceLatestEdition(ctx.db, latest, Date.now()) : 'none';
       if (outcome !== 'none') console.log(`[review-announce] ${outcome} edition=${latest!.edition}`);
       return { items: outcome === 'announced' ? 1 : 0 };
-    },
-  },
-  {
-    // Drain the delegator-notification outbox into per-recipient notification rows.
-    // Runs right before the webpush/telegram dispatch phases so a fan-out job
-    // materialized earlier in this same run (or by the vote/drep sync crons since
-    // the last run) delivers in this run instead of waiting for the next one.
-    name: 'delegation-fanout',
-    run: async (ctx) => {
-      const r = await runFanout(ctx.db, Math.floor(Date.now() / 1000));
-      console.log(`[delegation-fanout] jobs=${r.jobs} delivered=${r.delivered} completed=${r.completed}`);
-      return { items: r.delivered };
-    },
-  },
-  {
-    // After the sync phases: bundle each connected webpush channel's pending replies,
-    // mentions, and governance updates into one push. Runs after every other sync
-    // phase in this trigger so a governance thread discovered earlier in this same
-    // run is already counted.
-    // Fails soft (all-zero, one warning) when the VAPID secret pair is not yet set.
-    name: 'webpush',
-    run: async (ctx) => {
-      const r = await dispatchWebPush(ctx.db, ctx.vapid, { send: sendWebPush, now: Date.now() });
-      console.log(`[webpush-dispatch] sent=${r.sent} pruned=${r.pruned} skipped=${r.skipped}`);
-      return { items: r.sent };
-    },
-  },
-  {
-    // Same bundles as the webpush phase, delivered as Telegram bot messages.
-    // Fails soft (all-zero, one warning) until the bot token secret is set.
-    name: 'telegram',
-    run: async (ctx) => {
-      const cfg = ctx.telegramBotToken ? { botToken: ctx.telegramBotToken, origin: ctx.cfg.siteOrigin } : null;
-      const r = await dispatchTelegram(ctx.db, cfg, { send: sendTelegramMessage, now: Date.now() });
-      console.log(`[telegram-dispatch] sent=${r.sent} pruned=${r.pruned} skipped=${r.skipped}`);
-      return { items: r.sent };
     },
   },
   {

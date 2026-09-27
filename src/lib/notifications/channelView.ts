@@ -9,8 +9,10 @@ export interface ClientChannel {
   id: string;
   channel: string;
   createdAt: number;
-  /** Delivery cursor; equal to createdAt until the first successful send. */
+  /** Delivery cursor; equal to createdAt until the first advance, successful send or not. */
   deliveredUntil: number;
+  /** Unix ms of the last successful send, or null if none yet. Unlike deliveredUntil, never set by a muted or empty pass. */
+  lastSentAt: number | null;
   label: string | null;
   fingerprint: string | null;
 }
@@ -31,6 +33,7 @@ export async function toClientChannels(rows: NotificationChannelRow[]): Promise<
       channel: r.channel,
       createdAt: r.created_at,
       deliveredUntil: r.delivered_until,
+      lastSentAt: r.last_sent_at,
       label: r.label,
       fingerprint: r.channel === 'webpush' ? await endpointFingerprint(r.endpoint) : null,
     })),

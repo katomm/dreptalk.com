@@ -4,6 +4,7 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { getUserById, getUsersByIds, upsertUserFromAuth, getUserByDrepId, getSelfDrepId, getUserByStakeAddr } from './users.js';
 import { bindCountingDb } from './__tests__/bindCountingDb.js';
+import { withDbClock } from './__tests__/dbClock.js';
 
 const db = () => env.DB;
 const NOW = 1_700_000_000;
@@ -11,11 +12,13 @@ const NOW = 1_700_000_000;
 describe('upsertUserFromAuth (drep)', () => {
   it('inserts a new drep user with correct field values', async () => {
     const drepId = `drep1-test-insert-${NOW}`;
-    const user = await upsertUserFromAuth(db(), {
-      drepId,
-      roles: ['drep'],
-      now: NOW,
-    });
+    const { result: user, lo, hi } = await withDbClock(db(), () =>
+      upsertUserFromAuth(db(), {
+        drepId,
+        roles: ['drep'],
+        now: NOW,
+      }),
+    );
 
     expect(user.id).toBe(drepId);
     expect(user.drep_id).toBe(drepId);
@@ -29,12 +32,14 @@ describe('upsertUserFromAuth (drep)', () => {
     expect(user.created_at).toBe(NOW);
     expect(user.last_verified_at).toBe(NOW);
 
-    // A new account starts with the gov backlog marked seen.
+    // A new account starts with the gov backlog marked seen, stamped with the
+    // database clock (a cursor comparison, not the Worker's bound `now`).
     const row = await db()
       .prepare('SELECT notif_seen_at FROM users WHERE id = ?')
       .bind(drepId)
       .first<{ notif_seen_at: number }>();
-    expect(row?.notif_seen_at).toBe(NOW);
+    expect(row?.notif_seen_at).toBeGreaterThanOrEqual(lo);
+    expect(row?.notif_seen_at).toBeLessThanOrEqual(hi);
   });
 
   it('re-auth updates last_verified_at but keeps created_at', async () => {

@@ -2,7 +2,7 @@
 // Parameterized D1 access for the users table.
 // All queries use .prepare().bind() exclusively; never string-concatenated SQL.
 
-import { sqlPlaceholders, chunked, D1_MAX_BINDS } from './sql.js';
+import { sqlPlaceholders, chunked, D1_MAX_BINDS, DB_NOW_MS } from './sql.js';
 import { SESSION_ACTIVITY_THROTTLE_MS } from '../auth/timing.js';
 
 export interface User {
@@ -194,7 +194,8 @@ export type AuthRole = 'drep' | 'proposer' | 'spo' | 'cc';
  * id = drepId ?? stakeAddr ?? poolId ?? ccCred (at least one must be provided);
  * each on-chain credential is its own account in v1 (no cross-credential merge).
  * On INSERT: sets all known fields, created_at and last_verified_at = now.
- *   notif_seen_at also starts at now, so a new account's gov backlog is
+ *   notif_seen_at starts at the database clock (a cursor comparison, like
+ *   every other notification timestamp), so a new account's gov backlog is
  *   marked seen and the badge only reflects activity after this signup.
  * On CONFLICT: updates last_verified_at, ORs in new role flags,
  *   sets the credential strings if not already set (COALESCE).
@@ -231,7 +232,7 @@ export async function upsertUserFromAuth(
     .prepare(
       `INSERT INTO users
          (id, drep_id, stake_addr, pool_id, cc_cred, is_drep, is_proposer, is_spo, is_cc, role, status, created_at, last_verified_at, notif_seen_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'member', 'active', ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'member', 'active', ?, ?, ${DB_NOW_MS})
        ON CONFLICT(id) DO UPDATE SET
          last_verified_at = excluded.last_verified_at,
          is_drep          = is_drep | excluded.is_drep,
@@ -243,7 +244,7 @@ export async function upsertUserFromAuth(
          pool_id          = COALESCE(pool_id, excluded.pool_id),
          cc_cred          = COALESCE(cc_cred, excluded.cc_cred)`,
     )
-    .bind(id, drepId ?? null, stakeAddr ?? null, poolId ?? null, ccCred ?? null, isDrep, isProposer, isSpo, isCc, now, now, now)
+    .bind(id, drepId ?? null, stakeAddr ?? null, poolId ?? null, ccCred ?? null, isDrep, isProposer, isSpo, isCc, now, now)
     .run();
 
   const user = await getUserById(db, id);

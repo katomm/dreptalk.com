@@ -9,7 +9,7 @@ import {
   type ExistingVoteRow,
 } from './voteHistory.js';
 import { buildJobInsert, type FanoutEventType } from './fanoutJobs.js';
-import { chunked, D1_MAX_BINDS, sqlPlaceholders } from './sql.js';
+import { chunked, D1_MAX_BINDS, sqlPlaceholders, DB_NOW_MS } from './sql.js';
 import { concludedStatusSql } from './sql.js';
 import { voteBucket } from '@/lib/governance/view.js';
 
@@ -187,10 +187,11 @@ async function lookupRationaleReadyRecipients(db: D1Database, drepIds: string[])
  * vote upserts (mirroring classifyVoteJobs) so each notification commits
  * atomically with the write that clears its vote's local_status. Idempotent
  * via the notifications (recipient_id, event_key) partial unique index, so a
- * re-synced confirmation never double-notifies. `now` is unix milliseconds
- * (the created_at unit); sourceTime follows the fan-out convention
- * (block_time, else observed second). An empty recipients map (the option was
- * off, or no account owns the voter) yields no statements.
+ * re-synced confirmation never double-notifies. created_at is stamped with the
+ * database clock (DB_NOW_MS), not `now`. `now` is unix milliseconds and only
+ * derives observedAtSec, the fallback for sourceTime when a vote carries no
+ * block_time. An empty recipients map (the option was off, or no account owns
+ * the voter) yields no statements.
  */
 function buildRationaleReadyStatements(
   db: D1Database,
@@ -214,10 +215,10 @@ function buildRationaleReadyStatements(
         db
           .prepare(
             `INSERT INTO notifications (id, recipient_id, type, event_key, payload, created_at)
-             VALUES (?, ?, 'rationale_ready', ?, ?, ?)
+             VALUES (?, ?, 'rationale_ready', ?, ?, ${DB_NOW_MS})
              ON CONFLICT(recipient_id, event_key) WHERE event_key IS NOT NULL DO NOTHING`,
           )
-          .bind(crypto.randomUUID(), userId, `rationale_ready:${v.voterId}:${gaId}:${sourceTime}`, payload, now),
+          .bind(crypto.randomUUID(), userId, `rationale_ready:${v.voterId}:${gaId}:${sourceTime}`, payload),
       );
     }
   }

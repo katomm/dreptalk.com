@@ -11,6 +11,7 @@ import { runDrepStatsDigest } from '../../db/drepStatsDigest.js';
 import { backfillVoteHistorySweep } from '../../governance/voteHistoryBackfill.js';
 import { syncCurrentEpochStats, backfillEpochStats } from '../../analytics/epochStatsSync.js';
 import { getFollowedDrepIds } from '../../db/delegatorFollows.js';
+import { pruneNotifications } from '../../db/notificationRetention.js';
 import {
   listCohortCandidates,
   listQualifyingDecidedEpochs,
@@ -144,7 +145,7 @@ export const drepPhases: readonly SyncPhaseDef<DrepSyncContext>[] = [
     name: 'drep-stats-digest',
     run: async (ctx) => {
       if (ctx.state.vpHistoryEpoch === null) return { items: 0 };
-      const r = await runDrepStatsDigest(ctx.db, ctx.state.vpHistoryEpoch, Date.now());
+      const r = await runDrepStatsDigest(ctx.db, ctx.state.vpHistoryEpoch);
       console.log(`[drep-stats] epoch=${ctx.state.vpHistoryEpoch} candidates=${r.candidates} fired=${r.fired}`);
       return { items: r.fired };
     },
@@ -311,6 +312,19 @@ export const drepPhases: readonly SyncPhaseDef<DrepSyncContext>[] = [
       const gc = await gcDrepAvatars({ db: ctx.db, bucket, nowMs: Date.now(), extraReferenced: poolHashes });
       console.log(`[drep-avatars-gc] scanned=${gc.scanned} deleted=${gc.deleted}`);
       return { items: a.stored + (p.items ?? 0), failed: a.failed + (p.failed ?? 0) };
+    },
+  },
+  {
+    // Inbox retention: read personal notifications go 90 days after creation,
+    // all of them after 365 days. Batched and capped per run, the backlog (if
+    // any) drains over the next runs.
+    name: 'notification-retention',
+    run: async (ctx) => {
+      const r = await pruneNotifications(ctx.db, Date.now());
+      if (r.deleted > 0 || r.capped) {
+        console.log(`[notification-retention] deleted=${r.deleted} batches=${r.batches} capped=${r.capped}`);
+      }
+      return { items: r.deleted };
     },
   },
 ];

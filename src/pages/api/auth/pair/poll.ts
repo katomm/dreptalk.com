@@ -131,10 +131,6 @@ export const POST: APIRoute = async ({ request, locals }) => {
           actorId: null,
           topicId: null,
           postId: null,
-          // Milliseconds, like every other writer of notifications.created_at:
-          // the delivery cursors and the inbox ordering are both in ms, and a
-          // seconds value would sort last and never reach push or Telegram.
-          createdAt: Date.now(),
         },
       ]);
     } catch {

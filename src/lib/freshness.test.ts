@@ -12,6 +12,7 @@ import {
   CRON_GOVERNANCE,
   CRON_VOTE_SYNC,
   CRON_DREP_SYNC,
+  CRON_NOTIFICATIONS,
   nextCronRunMs,
   resolveCronKind,
 } from './freshness.js';
@@ -21,7 +22,7 @@ const WRANGLER_TOML = fileURLToPath(
 );
 
 // The full set of cron expressions the worker knows how to dispatch.
-const EXPECTED = [CRON_GOVERNANCE, CRON_VOTE_SYNC, CRON_DREP_SYNC].sort();
+const EXPECTED = [CRON_GOVERNANCE, CRON_VOTE_SYNC, CRON_DREP_SYNC, CRON_NOTIFICATIONS].sort();
 
 // Extract every `crons = [ ... ]` array from the toml as a sorted string list.
 // A light regex is enough here (no toml dependency): the array is always inline
@@ -59,6 +60,10 @@ describe('resolveCronKind', () => {
     expect(resolveCronKind(CRON_DREP_SYNC)).toBe('dreps');
   });
 
+  it('maps the notifications cron', () => {
+    expect(resolveCronKind(CRON_NOTIFICATIONS)).toBe('notifications');
+  });
+
   it('returns null for an unknown cron expression instead of falling back to a default run', () => {
     expect(resolveCronKind('*/7 * * * *')).toBe(null);
     expect(resolveCronKind('')).toBe(null);
@@ -94,5 +99,20 @@ describe('nextCronRunMs', () => {
   it('returns null for unsupported expressions', () => {
     expect(nextCronRunMs('0 0 1 * *', NOW)).toBeNull();
     expect(nextCronRunMs('1,5 * * * *', NOW)).toBeNull();
+  });
+});
+
+describe('nextCronRunMs with a stepped range', () => {
+  it('fires two minutes after each five-minute mark', () => {
+    expect(nextCronRunMs(CRON_NOTIFICATIONS, Date.UTC(2026, 5, 12, 10, 0))).toBe(Date.UTC(2026, 5, 12, 10, 2));
+  });
+  it('is strictly after now on a fire minute', () => {
+    expect(nextCronRunMs(CRON_NOTIFICATIONS, Date.UTC(2026, 5, 12, 10, 2))).toBe(Date.UTC(2026, 5, 12, 10, 7));
+  });
+  it('rolls from :57 to the next hour :02', () => {
+    expect(nextCronRunMs(CRON_NOTIFICATIONS, Date.UTC(2026, 5, 12, 10, 57))).toBe(Date.UTC(2026, 5, 12, 11, 2));
+  });
+  it('rolls over the day boundary', () => {
+    expect(nextCronRunMs(CRON_NOTIFICATIONS, Date.UTC(2026, 5, 12, 23, 58))).toBe(Date.UTC(2026, 5, 13, 0, 2));
   });
 });

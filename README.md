@@ -57,7 +57,7 @@ The chain is never read live on a page request. The cron worker pulls from Koios
 ```mermaid
 flowchart TB
     chain[("Cardano chain · Koios")]
-    cron["gov-sync cron worker<br/>~5 min: discover actions + surveys + notifications<br/>~15 min: active tallies<br/>~20 min: per-post vote badges<br/>~6 h: DRep profiles + avatars"]
+    cron["gov-sync cron worker<br/>~5 min: discover actions + surveys<br/>~5 min, two minutes later: notifications<br/>~15 min: active tallies<br/>~20 min: per-post vote badges<br/>~6 h: DRep profiles + avatars"]
     store[("Shared storage<br/>D1 (forum + cached chain) · R2 (avatars)")]
     app["App worker · Astro SSR"]
     do["Durable Object<br/>rate limiting"]
