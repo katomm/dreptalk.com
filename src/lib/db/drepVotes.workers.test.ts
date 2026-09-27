@@ -7,7 +7,7 @@ import { resolvePendingLead } from '../notifications/pendingLead.js';
 import { createTopic } from './forum.js';
 import { upsertActionRationale } from './actionRationale.js';
 import { upsertVoteRationalePost } from './voteRationalePost.js';
-import { withDbClock } from './__tests__/dbClock.js';
+import { withDbClock, afterDbMs } from './__tests__/dbClock.js';
 
 async function seedAction(id: string, title: string, decidedEpoch: number) {
   await env.DB.prepare(
@@ -591,6 +591,9 @@ describe('rationale-ready notification', () => {
     ).run();
     await seedDrepUser('userRR8', 'drepRR8');
     const channelId = await addChannel(env.DB, { userId: 'userRR8', channel: 'webpush', target: '{}', endpoint: 'https://push.example/rr8' });
+    // The notification must carry a D1-clock stamp strictly after the channel's seeded cursor.
+    const seeded = await env.DB.prepare('SELECT delivered_until FROM notification_channels WHERE id = ?').bind(channelId).first<{ delivered_until: number }>();
+    await afterDbMs(env.DB, seeded!.delivered_until);
     await recordLocalVote(env.DB, { gaId: 'gaRR8', drepId: 'drepRR8', voterHex: null, vote: 'Yes', metaUrl: 'https://host/r8.json', txHash: 'tx8', now: 1_000 });
     await upsertVotes(env.DB, 'gaRR8', [
       { voterRole: 'DRep', voterId: 'drepRR8', voterHex: null, vote: 'Yes', metaUrl: 'https://host/r8.json', blockTime: 2_000 },
@@ -598,10 +601,10 @@ describe('rationale-ready notification', () => {
 
     const row = (await env.DB.prepare('SELECT * FROM notification_channels WHERE id = ?').bind(channelId).first()) as never;
     const prefs = await getPrefs(env.DB, 'userRR8', 'webpush');
-    const counts = await getPendingCounts(env.DB, row, prefs);
+    const counts = await getPendingCounts(env.DB, row, prefs, Number.MAX_SAFE_INTEGER);
     expect(counts.rationaleReady).toBe(1);
 
-    const lead = await resolvePendingLead(env.DB, row, prefs);
+    const lead = await resolvePendingLead(env.DB, row, prefs, Number.MAX_SAFE_INTEGER);
     expect(lead).toEqual({
       title: 'Rationale Lead Action',
       body: 'Your rationale is ready to share',

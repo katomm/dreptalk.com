@@ -117,13 +117,17 @@ export async function getNotificationsPage(
  * idx_activity_notified and makes this scan all of activity on a per-render path
  * (the header badge). No fallback is needed, since migration 0067 backfilled
  * every existing row and both insert paths always bind a value.
+ *
+ * upperExpr bounds the dispatcher's pass interval (see readPassStart). The
+ * header badge passes none.
  */
-export function govThreadsSinceSql(cursorExpr: string): string {
+export function govThreadsSinceSql(cursorExpr: string, upperExpr?: string): string {
+  const upper = upperExpr ? ` AND a.notified_at <= ${upperExpr}` : '';
   return `(SELECT COUNT(DISTINCT a.topic_id) FROM activity a
             JOIN topics t ON t.id = a.topic_id
             WHERE a.type IN ('gov_created', 'gov_status')
               AND t.deleted = 0
-              AND a.notified_at > ${cursorExpr})`;
+              AND a.notified_at > ${cursorExpr}${upper})`;
 }
 
 /**

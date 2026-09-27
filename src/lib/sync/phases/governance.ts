@@ -29,6 +29,7 @@ import { runFanout } from '../../notifications/fanout.js';
 import { dispatchWebPush, dispatchTelegram } from '../../notifications/dispatch.js';
 import { sendWebPush, type VapidConfig } from '../../push/webPush.js';
 import { sendTelegramMessage } from '../../push/telegram.js';
+import { UNLIMITED } from '../queryBudget.js';
 import { refreshBulk } from '../../delegation/refresh.js';
 import { fetchLatestEdition, type SiteFetcher } from '../../review/latestEdition.js';
 import { announceLatestEdition } from '../../db/reviewAnnouncements.js';
@@ -324,8 +325,8 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
     // Fails soft (all-zero, one warning) when the VAPID secret pair is not yet set.
     name: 'webpush',
     run: async (ctx) => {
-      const r = await dispatchWebPush(ctx.db, ctx.vapid, { send: sendWebPush, now: Date.now() });
-      console.log(`[webpush-dispatch] sent=${r.sent} pruned=${r.pruned} skipped=${r.skipped}`);
+      const r = await dispatchWebPush(ctx.db, ctx.vapid, { send: sendWebPush, allowance: UNLIMITED });
+      console.log(`[webpush-dispatch] sent=${r.sent} pruned=${r.pruned} skipped=${r.skipped} deferred=${r.deferred}`);
       return { items: r.sent };
     },
   },
@@ -335,8 +336,8 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
     name: 'telegram',
     run: async (ctx) => {
       const cfg = ctx.telegramBotToken ? { botToken: ctx.telegramBotToken, origin: ctx.cfg.siteOrigin } : null;
-      const r = await dispatchTelegram(ctx.db, cfg, { send: sendTelegramMessage, now: Date.now() });
-      console.log(`[telegram-dispatch] sent=${r.sent} pruned=${r.pruned} skipped=${r.skipped}`);
+      const r = await dispatchTelegram(ctx.db, cfg, { send: sendTelegramMessage, allowance: UNLIMITED });
+      console.log(`[telegram-dispatch] sent=${r.sent} pruned=${r.pruned} skipped=${r.skipped} deferred=${r.deferred}`);
       return { items: r.sent };
     },
   },

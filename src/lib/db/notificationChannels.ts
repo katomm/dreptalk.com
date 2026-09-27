@@ -90,18 +90,57 @@ export async function listChannels(db: D1Database, userId: string): Promise<Noti
   return results;
 }
 
-/** All channels of one kind, across users; the dispatcher's per-run scan. */
-export async function listChannelsByKind(
+/** What a dispatch pass reads once before touching any channel. */
+export interface PassStart {
+  /** The database clock at pass start (DB_NOW_MS). The pass works on ts <= dbNow - 1. */
+  dbNow: number;
+  /** Newest notified_at of a live governance thread event, or null when there is none. */
+  latestGovAt: number | null;
+}
+
+/**
+ * One query at the start of a dispatch pass: the database clock that bounds the
+ * pass interval, and the newest live governance event for the candidate query.
+ */
+export async function readPassStart(db: D1Database): Promise<PassStart> {
+  const row = await db
+    .prepare(
+      `SELECT ${DB_NOW_MS} AS db_now,
+              (SELECT MAX(a.notified_at) FROM activity a JOIN topics t ON t.id = a.topic_id
+                WHERE a.type IN ('gov_created', 'gov_status') AND t.deleted = 0) AS latest_gov_at`,
+    )
+    .first<{ db_now: number; latest_gov_at: number | null }>();
+  if (!row) throw new Error('pass start read returned no row');
+  return { dbNow: row.db_now, latestGovAt: row.latest_gov_at };
+}
+
+/**
+ * Channels of one kind that may have something to deliver, least recently
+ * attempted first. A superset of "has pending work": prefs are ignored here and
+ * applied by getPendingCounts. A channel qualifies when a live governance
+ * thread is newer than its cursor or it has any personal row newer than it.
+ * A null latestGovAt makes `delivered_until < NULL` NULL, which drops the
+ * governance term.
+ */
+export async function listDispatchCandidates(
   db: D1Database,
-  channel: NotificationChannelKind,
+  kind: NotificationChannelKind,
+  latestGovAt: number | null,
+  limit: number,
 ): Promise<NotificationChannelRow[]> {
+  if (limit <= 0) return [];
   const { results } = await db
     .prepare(
       `SELECT id, user_id, channel, target, endpoint, label, created_at, delivered_until
-       FROM notification_channels
-       WHERE channel = ?`,
+         FROM notification_channels c
+        WHERE c.channel = ?1
+          AND (c.delivered_until < ?2
+               OR EXISTS (SELECT 1 FROM notifications n
+                           WHERE n.recipient_id = c.user_id AND n.created_at > c.delivered_until))
+        ORDER BY c.dispatch_attempted_at, c.id
+        LIMIT ?3`,
     )
-    .bind(channel)
+    .bind(kind, latestGovAt, limit)
     .all<NotificationChannelRow>();
   return results;
 }
@@ -128,22 +167,29 @@ export async function setChannelCursor(db: D1Database, id: string, deliveredUnti
 
 /**
  * Claims a channel's pending bundle by advancing its cursor, but only while the
- * row still holds the value this run read. The governance cron fires every five
- * minutes and a heavy run can outlast that, so two invocations can sit in the
- * dispatch loop at once; both would read the same delivered_until and send the
- * same bundle. Only one conditional UPDATE can match, so the loser gets false
- * and skips the channel. Callers must claim BEFORE sending and hand the claim
- * back (setChannelCursor to the old value) when delivery does not succeed.
+ * row still holds the value this run read. The notifications cron fires every
+ * five minutes and a heavy run can outlast that, so two invocations can sit in
+ * the dispatch loop at once. Both would read the same delivered_until and send
+ * the same bundle. Only one conditional UPDATE can match, so the loser gets
+ * false and skips the channel. Callers must claim BEFORE sending and hand the
+ * claim back (setChannelCursor to the old value) when delivery does not succeed.
+ *
+ * The same UPDATE stamps dispatch_attempted_at, the rotation key of
+ * listDispatchCandidates. A handback restores only delivered_until and leaves
+ * the stamp, so a failing channel still moves to the back of the rotation.
  */
 export async function claimChannelCursor(
   db: D1Database,
   id: string,
   expected: number,
   deliveredUntil: number,
+  attemptedAt: number,
 ): Promise<boolean> {
   const res = await db
-    .prepare('UPDATE notification_channels SET delivered_until = ? WHERE id = ? AND delivered_until = ?')
-    .bind(deliveredUntil, id, expected)
+    .prepare(
+      'UPDATE notification_channels SET delivered_until = ?, dispatch_attempted_at = ? WHERE id = ? AND delivered_until = ?',
+    )
+    .bind(deliveredUntil, attemptedAt, id, expected)
     .run();
   return (res.meta.changes ?? 0) > 0;
 }
@@ -203,10 +249,12 @@ export interface PendingCounts {
  * fan-out notifications (drep vote activity, drep status changes, and the
  * user's own delegation changes), the user's own DRep stats epoch digests,
  * the user's own shareable vote rationales, new Governance Review editions,
- * all newer than the row's delivered_until cursor. The gov term is the
- * shared govThreadsSinceSql fragment (same definition the header badge
- * uses), keyed off the channel's delivery cursor instead of the user's
- * notif_seen_at. Each term is zeroed when its pref is off, except
+ * all inside the pass interval delivered_until < ts <= passEnd (see
+ * readPassStart: rows written after the pass started wait for the next pass,
+ * so the claim never moves the cursor past a row this count did not see).
+ * The gov term is the shared govThreadsSinceSql fragment (same definition
+ * the header badge uses), keyed off the channel's delivery cursor instead of
+ * the user's notif_seen_at. Each term is zeroed when its pref is off, except
  * device_paired: a security alert that can be switched off is worthless, so
  * it always contributes.
  */
@@ -214,22 +262,23 @@ export async function getPendingCounts(
   db: D1Database,
   row: NotificationChannelRow,
   prefs: Record<NotificationEventType, boolean>,
+  passEnd: number,
 ): Promise<PendingCounts> {
   const result = await db
     .prepare(
       `SELECT
-         (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'reply' AND created_at > ?2) AS replies,
-         (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'mention' AND created_at > ?2) AS mentions,
-         (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'device_paired' AND created_at > ?2) AS devices,
-         (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type IN ('delegator_drep_voted', 'delegator_drep_re_voted') AND created_at > ?2) AS drepActivity,
-         (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'delegator_drep_status_changed' AND created_at > ?2) AS drepStatus,
-         (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'delegation_changed' AND created_at > ?2) AS myDelegation,
-         (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'drep_stats' AND created_at > ?2) AS drepStats,
-         (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'rationale_ready' AND created_at > ?2) AS rationaleReady,
-         (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'review_published' AND created_at > ?2) AS reviews,
-         ${govThreadsSinceSql('?2')} AS governance`
+         (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'reply' AND created_at > ?2 AND created_at <= ?3) AS replies,
+         (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'mention' AND created_at > ?2 AND created_at <= ?3) AS mentions,
+         (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'device_paired' AND created_at > ?2 AND created_at <= ?3) AS devices,
+         (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type IN ('delegator_drep_voted', 'delegator_drep_re_voted') AND created_at > ?2 AND created_at <= ?3) AS drepActivity,
+         (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'delegator_drep_status_changed' AND created_at > ?2 AND created_at <= ?3) AS drepStatus,
+         (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'delegation_changed' AND created_at > ?2 AND created_at <= ?3) AS myDelegation,
+         (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'drep_stats' AND created_at > ?2 AND created_at <= ?3) AS drepStats,
+         (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'rationale_ready' AND created_at > ?2 AND created_at <= ?3) AS rationaleReady,
+         (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'review_published' AND created_at > ?2 AND created_at <= ?3) AS reviews,
+         ${govThreadsSinceSql('?2', '?3')} AS governance`
     )
-    .bind(row.user_id, row.delivered_until)
+    .bind(row.user_id, row.delivered_until, passEnd)
     .first<{
       replies: number;
       mentions: number;

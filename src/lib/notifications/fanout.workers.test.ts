@@ -121,7 +121,7 @@ describe('runFanout', () => {
 
     const [row] = await listChannels(db(), 'user-a');
     const prefs = await getPrefs(db(), 'user-a', 'webpush');
-    const counts = await getPendingCounts(db(), row, prefs);
+    const counts = await getPendingCounts(db(), row, prefs, Number.MAX_SAFE_INTEGER);
     expect(counts.drepActivity).toBe(1);
     expect(counts.total).toBe(1);
   });

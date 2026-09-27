@@ -205,10 +205,10 @@ describe('runDrepStatsDigest', () => {
       .first()) as never;
     const prefs = await getPrefs(db(), userId, 'webpush');
 
-    const counts = await getPendingCounts(db(), row, prefs);
+    const counts = await getPendingCounts(db(), row, prefs, Number.MAX_SAFE_INTEGER);
     expect(counts.drepStats).toBe(1);
 
-    const lead = await resolvePendingLead(db(), row, { ...prefs, governance: false });
+    const lead = await resolvePendingLead(db(), row, { ...prefs, governance: false }, Number.MAX_SAFE_INTEGER);
     // Epoch rides in the title, the stat changes in the body.
     expect(lead?.title).toContain('Epoch 861');
     expect(lead?.body.toLowerCase()).toContain('voting power');

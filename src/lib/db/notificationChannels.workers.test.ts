@@ -6,7 +6,8 @@ import {
   addChannel,
   removeChannel,
   listChannels,
-  listChannelsByKind,
+  listDispatchCandidates,
+  readPassStart,
   deleteChannelById,
   setChannelCursor,
   claimChannelCursor,
@@ -113,12 +114,41 @@ describe('addChannel + listChannels + removeChannel', () => {
     expect(row!.delivered_until).toBeLessThanOrEqual(hi);
   });
 
-  it('lists channels by kind across users', async () => {
-    await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', endpoint: 'https://push.example/a' });
-    await addChannel(db(), { userId: 'bob', channel: 'webpush', target: 'sub-b', endpoint: 'https://push.example/b' });
+  it('lists dispatch candidates of one kind across users, only those with a newer row', async () => {
+    const a = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', endpoint: 'https://push.example/a' });
+    const b = await addChannel(db(), { userId: 'bob', channel: 'webpush', target: 'sub-b', endpoint: 'https://push.example/b' });
+    await addChannel(db(), { userId: 'carol', channel: 'webpush', target: 'sub-c', endpoint: 'https://push.example/c' });
+    await addChannel(db(), { userId: 'alice', channel: 'telegram', target: '1', endpoint: 'telegram:1' });
+    for (const id of [a, b]) await setChannelCursor(db(), id, 100);
+    await seedNotificationRow({ recipientId: 'alice', type: 'reply', createdAt: 200 });
+    await seedNotificationRow({ recipientId: 'bob', type: 'reply', createdAt: 200 });
 
-    const rows = await listChannelsByKind(db(), 'webpush');
+    const rows = await listDispatchCandidates(db(), 'webpush', null, 10);
     expect(rows.map((r) => r.user_id).sort()).toEqual(['alice', 'bob']);
+    expect(await listDispatchCandidates(db(), 'webpush', null, 0)).toEqual([]);
+  });
+
+  it('orders candidates least recently attempted first and applies the limit', async () => {
+    const a = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', endpoint: 'https://push.example/a' });
+    const b = await addChannel(db(), { userId: 'bob', channel: 'webpush', target: 'sub-b', endpoint: 'https://push.example/b' });
+    await setChannelCursor(db(), a, 100);
+    await setChannelCursor(db(), b, 100);
+    // A governance event newer than both cursors makes both candidates.
+    await claimChannelCursor(db(), a, 100, 100, 5000);
+
+    const rows = await listDispatchCandidates(db(), 'webpush', 300, 1);
+    expect(rows.map((r) => r.id)).toEqual([b]);
+  });
+
+  it('reads the pass start: the database clock and the newest live governance event', async () => {
+    await seedTopic('g-live');
+    await seedTopic('g-dead', { deleted: true });
+    await activityInsert(db(), { type: 'gov_created', topicId: 'g-live', actorId: null, createdAt: 200 }).run();
+    await activityInsert(db(), { type: 'gov_created', topicId: 'g-dead', actorId: null, createdAt: 900 }).run();
+    const { result, lo, hi } = await withDbClock(db(), () => readPassStart(db()));
+    expect(result.latestGovAt).toBe(200);
+    expect(result.dbNow).toBeGreaterThanOrEqual(lo);
+    expect(result.dbNow).toBeLessThanOrEqual(hi);
   });
 
   it('removeChannel is scoped to the owning user; another user is a no-op', async () => {
@@ -192,11 +222,16 @@ describe('claimChannelCursor', () => {
     const cursor = seeded!.delivered_until;
 
     // Both overlapping runs read this delivered_until before either wrote.
-    expect(await claimChannelCursor(db(), id, cursor, 500)).toBe(true);
-    expect(await claimChannelCursor(db(), id, cursor, 600)).toBe(false);
+    expect(await claimChannelCursor(db(), id, cursor, 500, 1)).toBe(true);
+    expect(await claimChannelCursor(db(), id, cursor, 600, 2)).toBe(false);
 
     const [row] = await listChannels(db(), 'alice');
     expect(row.delivered_until).toBe(500);
+    const stamp = await db()
+      .prepare('SELECT dispatch_attempted_at FROM notification_channels WHERE id = ?')
+      .bind(id)
+      .first<{ dispatch_attempted_at: number }>();
+    expect(stamp!.dispatch_attempted_at).toBe(1);
   });
 });
 
@@ -232,6 +267,8 @@ describe('getPrefs + setPref', () => {
 });
 
 describe('getPendingCounts', () => {
+  // An open pass end, for the cases that are not about the upper bound.
+  const OPEN = Number.MAX_SAFE_INTEGER;
   function row(overrides: Partial<NotificationChannelRow> = {}): NotificationChannelRow {
     return {
       id: 'chan1',
@@ -251,7 +288,7 @@ describe('getPendingCounts', () => {
     await seedNotificationRow({ recipientId: 'alice', type: 'mention', actorId: 'x', topicId: 't1', postId: 'p3', createdAt: 300 });
     await seedNotificationRow({ recipientId: 'bob', type: 'reply', actorId: 'x', topicId: 't1', postId: 'p4', createdAt: 400 }); // other recipient
 
-    const counts = await getPendingCounts(db(), row(), allEnabled);
+    const counts = await getPendingCounts(db(), row(), allEnabled, OPEN);
     expect(counts).toEqual({
       replies: 1,
       mentions: 1,
@@ -267,11 +304,27 @@ describe('getPendingCounts', () => {
     });
   });
 
+  it('bounds personal and governance terms by the pass end', async () => {
+    await seedTopic('g1');
+    await seedTopic('g2');
+    await seedNotificationRow({ recipientId: 'alice', type: 'reply', createdAt: 200 });
+    await seedNotificationRow({ recipientId: 'alice', type: 'reply', createdAt: 999 }); // exactly at the pass end
+    await seedNotificationRow({ recipientId: 'alice', type: 'mention', createdAt: 1000 }); // after it
+    await activityInsert(db(), { type: 'gov_created', topicId: 'g1', actorId: null, createdAt: 300 }).run();
+    await activityInsert(db(), { type: 'gov_created', topicId: 'g2', actorId: null, createdAt: 1000 }).run();
+
+    const counts = await getPendingCounts(db(), row(), allEnabled, 999);
+    expect(counts.replies).toBe(2);
+    expect(counts.mentions).toBe(0);
+    expect(counts.governance).toBe(1);
+    expect(counts.total).toBe(3);
+  });
+
   it('zeroes a term whose pref is off', async () => {
     await seedNotificationRow({ recipientId: 'alice', type: 'reply', actorId: 'x', topicId: 't1', postId: 'p1', createdAt: 200 });
     await seedNotificationRow({ recipientId: 'alice', type: 'mention', actorId: 'x', topicId: 't1', postId: 'p2', createdAt: 300 });
 
-    const counts = await getPendingCounts(db(), row(), { ...allEnabled, reply: false });
+    const counts = await getPendingCounts(db(), row(), { ...allEnabled, reply: false }, OPEN);
     expect(counts).toEqual({
       replies: 0,
       mentions: 1,
@@ -294,7 +347,7 @@ describe('getPendingCounts', () => {
     await activityInsert(db(), { type: 'gov_status', topicId: 'g1', actorId: null, payload: { from: 'active', to: 'ratified' }, createdAt: 300 }).run();
     await activityInsert(db(), { type: 'gov_created', topicId: 'g2', actorId: null, createdAt: 250 }).run();
 
-    const counts = await getPendingCounts(db(), row(), allEnabled);
+    const counts = await getPendingCounts(db(), row(), allEnabled, OPEN);
     expect(counts).toEqual({
       replies: 0,
       mentions: 0,
@@ -314,7 +367,7 @@ describe('getPendingCounts', () => {
     await seedTopic('g1');
     await activityInsert(db(), { type: 'gov_created', topicId: 'g1', actorId: null, createdAt: 200 }).run();
 
-    const counts = await getPendingCounts(db(), row(), { ...allEnabled, governance: false });
+    const counts = await getPendingCounts(db(), row(), { ...allEnabled, governance: false }, OPEN);
     expect(counts).toEqual({
       replies: 0,
       mentions: 0,
@@ -334,7 +387,7 @@ describe('getPendingCounts', () => {
     await seedTopic('g1');
     await activityInsert(db(), { type: 'gov_created', topicId: 'g1', actorId: null, createdAt: 50 }).run();
 
-    const counts = await getPendingCounts(db(), row({ delivered_until: 100 }), allEnabled);
+    const counts = await getPendingCounts(db(), row({ delivered_until: 100 }), allEnabled, OPEN);
     expect(counts).toEqual({
       replies: 0,
       mentions: 0,
@@ -361,7 +414,7 @@ describe('getPendingCounts', () => {
       drep_status: false,
       my_delegation: false,
       drep_stats: false,
-    });
+    }, OPEN);
     expect(counts).toEqual({
       replies: 0,
       mentions: 0,
@@ -390,11 +443,11 @@ describe('getPendingCounts', () => {
     }
     await seedNotificationRow({ recipientId: 'alice', type: types[0], createdAt: 50 }); // before cursor
 
-    const enabledCounts = await getPendingCounts(db(), row(), allEnabled);
+    const enabledCounts = await getPendingCounts(db(), row(), allEnabled, OPEN);
     expect(enabledCounts[key]).toBe(types.length);
     expect(enabledCounts.total).toBe(types.length);
 
-    const disabledCounts = await getPendingCounts(db(), row(), { ...allEnabled, [pref]: false });
+    const disabledCounts = await getPendingCounts(db(), row(), { ...allEnabled, [pref]: false }, OPEN);
     expect(disabledCounts[key]).toBe(0);
     expect(disabledCounts.total).toBe(0);
   });
@@ -408,11 +461,11 @@ describe('getPendingCounts', () => {
     await afterDbMs(db(), cursor);
     await announceLatestEdition(db(), ed(44), 200);
 
-    const enabledCounts = await getPendingCounts(db(), row({ delivered_until: cursor }), allEnabled);
+    const enabledCounts = await getPendingCounts(db(), row({ delivered_until: cursor }), allEnabled, OPEN);
     expect(enabledCounts.reviews).toBe(1);
     expect(enabledCounts.total).toBe(1);
 
-    const disabledCounts = await getPendingCounts(db(), row({ delivered_until: cursor }), { ...allEnabled, governance_review: false });
+    const disabledCounts = await getPendingCounts(db(), row({ delivered_until: cursor }), { ...allEnabled, governance_review: false }, OPEN);
     expect(disabledCounts.reviews).toBe(0);
     expect(disabledCounts.total).toBe(0);
   });
