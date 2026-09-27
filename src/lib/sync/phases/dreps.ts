@@ -11,6 +11,7 @@ import { runDrepStatsDigest } from '../../db/drepStatsDigest.js';
 import { backfillVoteHistorySweep } from '../../governance/voteHistoryBackfill.js';
 import { syncCurrentEpochStats, backfillEpochStats } from '../../analytics/epochStatsSync.js';
 import { getFollowedDrepIds } from '../../db/delegatorFollows.js';
+import { pruneNotifications } from '../../db/notificationRetention.js';
 import {
   listCohortCandidates,
   listQualifyingDecidedEpochs,
@@ -357,6 +358,19 @@ export const drepPhases: readonly SyncPhaseDef<DrepSyncContext>[] = [
         );
       }
       return { items: f.refitted, failed: 0 };
+    },
+  },
+  {
+    // Inbox retention: read personal notifications go 90 days after creation,
+    // all of them after 365 days. Batched and capped per run, the backlog (if
+    // any) drains over the next runs.
+    name: 'notification-retention',
+    run: async (ctx) => {
+      const r = await pruneNotifications(ctx.db, Date.now());
+      if (r.deleted > 0 || r.capped) {
+        console.log(`[notification-retention] deleted=${r.deleted} batches=${r.batches} capped=${r.capped}`);
+      }
+      return { items: r.deleted };
     },
   },
 ];
