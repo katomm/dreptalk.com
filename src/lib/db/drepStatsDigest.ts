@@ -33,7 +33,7 @@ export interface DrepStatsDigestResult {
   fired: number;
 }
 
-// 6 binds per row, so 16 rows keep a statement at 96 parameters, under D1's
+// 5 binds per row, so 16 rows keep a statement at 80 parameters, under D1's
 // 100-bind cap (miniflare does not enforce it, size for the real database).
 const INSERT_CHUNK = 16;
 

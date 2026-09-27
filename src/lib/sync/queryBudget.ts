@@ -45,6 +45,9 @@ export function countingDb(real: D1Database): { db: D1Database; meter: QueryMete
       return real.exec(sql);
     },
     dump: () => real.dump(),
+    // Passed straight through to the real binding, so queries run on a session
+    // from withSession are not counted. Dormant today: no budgeted caller uses
+    // withSession, they all query the plain binding directly.
     withSession: (...args: Parameters<D1Database['withSession']>) => real.withSession(...args),
   } as unknown as D1Database;
   return { db, meter: { used: () => n } };
