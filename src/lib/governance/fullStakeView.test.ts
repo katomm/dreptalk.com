@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildBodyStake, type BodyStakeInput } from './fullStakeView.js';
+import { buildBodyStake, bucketsDrifted, bucketsReproduceTally, ratificationYesPct, shownYesPct, type BodyStakeInput } from './fullStakeView.js';
 
 function makeInput(overrides: Partial<BodyStakeInput> = {}): BodyStakeInput {
   return {
@@ -168,5 +168,38 @@ describe('buildBodyStake', () => {
       const view = buildBodyStake(makeInput({ activeYesPower: 10, noSidePower: '90' }))!;
       expect(view.segments.map((s) => s.key)).toEqual(['yes', 'defaultNo']);
     });
+  });
+});
+
+describe('ratificationYesPct and the tally consistency gate', () => {
+  // Update Constitutional Committee 2026, SPO side as stored on mainnet: the buckets
+  // and the frozen 56.15 come from the same snapshot.
+  const ccUpdate = { yesPower: 6190687758990589, noSidePower: '4834832027344520' };
+
+  it('derives the four-decimal share from yes and the no side', () => {
+    expect(ratificationYesPct({ actionType: 'NewCommittee', body: 'SPO', ...ccUpdate })).toBe(56.1487);
+  });
+
+  it('declines NoConfidence, the SPO side of a hard fork, and missing columns', () => {
+    expect(ratificationYesPct({ actionType: 'NoConfidence', body: 'DRep', ...ccUpdate })).toBeNull();
+    expect(ratificationYesPct({ actionType: 'HardForkInitiation', body: 'SPO', ...ccUpdate })).toBeNull();
+    expect(ratificationYesPct({ actionType: 'HardForkInitiation', body: 'DRep', ...ccUpdate })).toBe(56.1487);
+    expect(ratificationYesPct({ actionType: 'InfoAction', body: 'SPO', yesPower: null, noSidePower: '1' })).toBeNull();
+    expect(ratificationYesPct({ actionType: 'InfoAction', body: 'SPO', yesPower: 1, noSidePower: 'x' })).toBeNull();
+  });
+
+  it('refines the stored share only when the buckets reproduce it', () => {
+    const body = { actionType: 'NewCommittee', body: 'SPO' as const, ...ccUpdate };
+    // Same snapshot: 56.1487 rounds back to 56.15, so it reads 56.1 and never 56.2.
+    expect(shownYesPct({ ...body, storedPct: 56.15 })).toBe(56.1487);
+    expect(bucketsDrifted({ ...body, storedPct: 56.15 })).toBe(false);
+    // Buckets from a later ledger state than the frozen tally: the stored share stays.
+    expect(shownYesPct({ ...body, storedPct: 57.16 })).toBe(57.16);
+    expect(bucketsDrifted({ ...body, storedPct: 57.16 })).toBe(true);
+    expect(bucketsReproduceTally(8.97, 8.9408)).toBe(false);
+    // Missing buckets or a missing tally never count as drift.
+    expect(bucketsDrifted({ ...body, storedPct: 57.16, noSidePower: null })).toBe(false);
+    expect(bucketsDrifted({ ...body, storedPct: null })).toBe(false);
+    expect(shownYesPct({ ...body, storedPct: null })).toBeNull();
   });
 });

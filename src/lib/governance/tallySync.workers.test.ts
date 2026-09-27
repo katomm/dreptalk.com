@@ -227,6 +227,8 @@ describe('syncGovernanceTallies', () => {
       // Above Number.MAX_SAFE_INTEGER (9_007_199_254_740_991): a JS number would
       // silently round this, so this value byte-identical surviving is the real assertion.
       drep_no_vote_power: '1587872967435543',
+      // The share this No side gives, so reads keep the buckets (see bucketsDrifted).
+      drep_yes_pct: 0,
       drep_always_abstain_vote_power: '9776721978688292',
       drep_always_no_confidence_vote_power: '4123456789012345',
       pool_passive_always_abstain_vote_power: '888777666555',
@@ -243,6 +245,27 @@ describe('syncGovernanceTallies', () => {
     expect(got!.drepAlwaysNoConfidencePower).toBe('4123456789012345');
     expect(got!.spoAlwaysAbstainPower).toBe('888777666555');
     expect(got!.spoAlwaysNoConfidencePower).toBe('111222333444');
+  });
+
+  it('reads back no DRep amounts when they contradict the stored percentage', async () => {
+    const a = await insertActive(400);
+    await syncGovernanceTallies({
+      koios: fakeTallyKoios([lifeRow(a.txHash)], {
+        ...summary,
+        drep_no_vote_power: '1587872967435543',
+        drep_yes_pct: 55,
+        drep_always_abstain_vote_power: '9776721978688292',
+        drep_always_no_confidence_vote_power: '4123456789012345',
+      }),
+      db: db(),
+      currentEpoch: 293,
+      now: NOW + 10,
+    });
+    const got = await getGovernanceActionByTopicId(db(), a.topicId);
+    expect(got!.drepYesPct).toBe(55);
+    expect(got!.drepYesPower).toBeNull();
+    expect(got!.drepNoSidePower).toBeNull();
+    expect(got!.drepAlwaysAbstainPower).toBeNull();
   });
 
   it('writes nulls for the four default-option power fields when the summary lacks them', async () => {

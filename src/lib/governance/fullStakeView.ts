@@ -23,6 +23,7 @@
 // Amounts render compact ("5.27B ₳"): the sidebar is 300px wide and these are the
 // largest numbers on the site. formatAdaCompact is BigInt-safe on the raw strings.
 import { formatAdaCompact } from '../format/ada.js';
+import { pct4, round2 } from '../format/pct.js';
 
 /** Compact ada for a raw lovelace amount, two decimals so 10.89B and 10.52B differ. */
 function ada(lovelace: bigint): string {
@@ -108,16 +109,6 @@ const LABELS: Record<FullStakeSegmentKey, string> = {
   alwaysAbstain: 'Always abstain',
 };
 
-/**
- * Four-decimal percent of part out of total, BigInt-safe, 0 when total is 0.
- * Same pattern as pct4 in lib/analytics/epochStats.ts, reimplemented locally
- * since that module is not a shared export surface for view code.
- */
-function pct4(part: bigint, total: bigint): number {
-  if (total <= 0n) return 0;
-  return Number((part * 1_000_000n) / total) / 10_000;
-}
-
 /** Stored INTEGER power columns are optional, null reads as no vote of that kind. */
 function activePower(v: number | null): bigint {
   return v === null ? 0n : BigInt(v);
@@ -133,6 +124,74 @@ function activePower(v: number | null): bigint {
  */
 export function ancIsNoSide(actionType: string): boolean {
   return actionType !== 'NoConfidence';
+}
+
+/**
+ * The yes share of the ratification denominator (yes + no side), four decimals,
+ * computed from the stored power columns. Null when a column is missing, and for
+ * the two cases the plain no side does not describe: NoConfidence (see ancIsNoSide)
+ * and the SPO vote on a HardForkInitiation, where the ledger also counts the
+ * always-abstain stake as No (see spoTallyPct in koios/corrections.ts).
+ */
+export function ratificationYesPct(input: {
+  actionType: string;
+  body: 'DRep' | 'SPO';
+  yesPower: number | string | null;
+  noSidePower: string | null;
+}): number | null {
+  if (input.yesPower === null || input.noSidePower === null || !ancIsNoSide(input.actionType)) return null;
+  if (input.body === 'SPO' && input.actionType === 'HardForkInitiation') return null;
+  let yes: bigint;
+  let noSide: bigint;
+  try {
+    yes = BigInt(input.yesPower);
+    noSide = BigInt(input.noSidePower);
+  } catch {
+    return null;
+  }
+  const counted = yes + noSide;
+  return counted > 0n ? pct4(yes, counted) : null;
+}
+
+/**
+ * Whether the power columns belong to the same snapshot as the stored percentage:
+ * the derived share rounds back to exactly the stored one. The stored pct is frozen
+ * when the action is decided. The columns of an action decided before they existed
+ * were backfilled later from Koios, which recomputes a closed action with the
+ * delegations of the day it is asked, so they can describe a later ledger state.
+ * When they reproduce the pct, the derived value only adds precision (a stored
+ * 56.15 is really 56.149, so it reads 56.1 and not 56.2).
+ */
+export function bucketsReproduceTally(storedPct: number, derivedPct: number): boolean {
+  return Math.abs(round2(derivedPct) - storedPct) < 1e-9;
+}
+
+export interface BodyTallyInput {
+  actionType: string;
+  body: 'DRep' | 'SPO';
+  storedPct: number | null;
+  yesPower: number | string | null;
+  noSidePower: string | null;
+}
+
+/**
+ * True when a body's power columns contradict its stored percentage (see
+ * bucketsReproduceTally). Readers then drop every amount of that body, so no
+ * surface shows a percentage next to amounts that give a different one.
+ */
+export function bucketsDrifted(input: BodyTallyInput): boolean {
+  const derived = ratificationYesPct(input);
+  return input.storedPct != null && derived != null && !bucketsReproduceTally(input.storedPct, derived);
+}
+
+/**
+ * The yes share to show for a body: the stored pct, refined to four decimals from
+ * the power columns when they reproduce it. Null before a tally syncs.
+ */
+export function shownYesPct(input: BodyTallyInput): number | null {
+  if (input.storedPct == null) return null;
+  const derived = ratificationYesPct(input);
+  return derived != null && bucketsReproduceTally(input.storedPct, derived) ? derived : input.storedPct;
 }
 
 export function buildBodyStake(input: BodyStakeInput): BodyStakeView | null {

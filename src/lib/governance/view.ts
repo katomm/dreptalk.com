@@ -6,7 +6,7 @@
 
 import { formatAda, formatAdaCompact } from '../format/ada.js';
 import { epochStartUnix, type NetworkConfig } from '../config/network.js';
-import { buildBodyStake } from './fullStakeView.js';
+import { buildBodyStake, shownYesPct } from './fullStakeView.js';
 import type { Body } from './thresholds.js';
 
 // Re-exported so governance components keep importing the ada formatters from
@@ -469,7 +469,11 @@ export function absentBodyNote(
   const eligible = new Set(eligibleBodies(a, opts?.paramTouchesSecurity ?? false));
   const absent = BODY_ORDER.filter((body) => !eligible.has(body));
   if (absent.length === 0) return null;
-  return `${absent.map((body) => BODY_LABEL[body]).join(' and ')} do not vote on ${readableType(a.type).toLowerCase()}`;
+  // Whether SPOs vote on a parameter change depends on the parameters it touches, so
+  // the note names this change rather than the whole type.
+  const subject =
+    a.type === 'ParameterChange' ? 'this parameter change' : readableType(a.type).toLowerCase();
+  return `${absent.map((body) => BODY_LABEL[body]).join(' and ')} do not vote on ${subject}`;
 }
 
 
@@ -555,7 +559,7 @@ export interface OverviewRowVoting {
 /**
  * The single leading body's honest Yes-of-eligible share for the compact OG card. SPO-led
  * types (see isSpoLedType) lead with SPO, all others with DRep; `order` covers both, so the
- * first with a synced composition wins. Its .yes is the stored ratification pct (denominator
+ * first with a synced composition wins. Its .yes is the ratification pct (denominator
  * independent), so the share image leads with the same honest number the detail page shows.
  * Returns null when no eligible body has a synced tally yet.
  */
@@ -637,7 +641,7 @@ export function overviewRowVoting(
  * voted. The bar itself states the rule.
  */
 export interface CompositionBar {
-  yes: number; // 0..100, the stored ratification pct (matches gov.tools)
+  yes: number; // 0..100, the ratification pct (see bodyComposition)
   no: number;  // 0..100, the remainder; yes + no === 100
 }
 
@@ -648,10 +652,23 @@ export function compositionBar(input: { yesPct: number | null }): CompositionBar
   return { yes, no: 100 - yes };
 }
 
-/** The stored ratification pct for one body. */
+/**
+ * The ratification pct for one body: the stored pct, refined to four decimals from
+ * the power columns when they reproduce it (see shownYesPct). Drifted columns never
+ * reach here, the row mapper drops them (withoutDriftedBuckets in db/governance.ts).
+ */
 export function bodyComposition(a: RowVotingInput, body: Body): CompositionBar | null {
-  const yesPct = body === 'DRep' ? a.drepYesPct : body === 'SPO' ? a.spoYesPct : a.ccYesPct;
-  return compositionBar({ yesPct });
+  if (body === 'CC') return compositionBar({ yesPct: a.ccYesPct });
+  const drep = body === 'DRep';
+  return compositionBar({
+    yesPct: shownYesPct({
+      actionType: a.type,
+      body,
+      storedPct: drep ? a.drepYesPct : a.spoYesPct,
+      yesPower: drep ? a.drepYesPower : a.spoYesPower,
+      noSidePower: drep ? a.drepNoSidePower : a.spoNoSidePower,
+    }),
+  });
 }
 
 /**

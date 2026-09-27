@@ -7,6 +7,7 @@ import { TERMINAL_STATUSES, OPEN_STATUSES } from '../governance/view.js';
 import type { GovSort, GovStatus } from '../governance/sort.js';
 import type { ProposalListRow } from '../koios/client.js';
 import { liveVoteSql } from './drepVotes.js';
+import { bucketsDrifted } from '../governance/fullStakeView.js';
 import type { AnchorReference } from '../governance/metadata.js';
 // The read cap comes from the leaf limits module, not from metadata.js: a value
 // import of that module would pull the markdown renderer and blake2b into every
@@ -332,8 +333,34 @@ function parseReferences(raw: string | null): AnchorReference[] | null {
   }
 }
 
-function rowToGovernanceAction(r: GovernanceActionRow): GovernanceAction {
+/**
+ * Drops a body's power columns when they contradict its frozen percentage (see
+ * bucketsDrifted), so every reader of a GovernanceAction gets either amounts from
+ * the tally's own snapshot or none, and falls back to the percentage alone.
+ */
+function withoutDriftedBuckets(a: GovernanceAction): GovernanceAction {
+  const drep = bucketsDrifted({
+    actionType: a.type, body: 'DRep', storedPct: a.drepYesPct, yesPower: a.drepYesPower, noSidePower: a.drepNoSidePower,
+  });
+  const spo = bucketsDrifted({
+    actionType: a.type, body: 'SPO', storedPct: a.spoYesPct, yesPower: a.spoYesPower, noSidePower: a.spoNoSidePower,
+  });
+  if (!drep && !spo) return a;
   return {
+    ...a,
+    ...(drep && {
+      drepYesPower: null, drepNoPower: null, drepAbstainPower: null, drepVotedPower: null,
+      drepNoSidePower: null, drepAlwaysAbstainPower: null, drepAlwaysNoConfidencePower: null,
+    }),
+    ...(spo && {
+      spoYesPower: null, spoNoPower: null, spoAbstainPower: null, spoEligiblePower: null,
+      spoNoSidePower: null, spoAlwaysAbstainPower: null, spoAlwaysNoConfidencePower: null,
+    }),
+  };
+}
+
+function rowToGovernanceAction(r: GovernanceActionRow): GovernanceAction {
+  return withoutDriftedBuckets({
     id: r.id,
     proposalId: r.proposal_id,
     type: r.type,
@@ -396,7 +423,7 @@ function rowToGovernanceAction(r: GovernanceActionRow): GovernanceAction {
     createdAt: r.created_at,
     lastSyncedAt: r.last_synced_at,
     trendingScore: r.trending_score,
-  };
+  });
 }
 
 /** Returns the governance action attached to a topic, or null. Drives the GA thread header. */
@@ -829,6 +856,11 @@ export async function markBackfillAttempt(
  * first introduced (draining at the backfill's existing per-run budget). Bounded
  * by `limit` so a cron tick stays within Koios/subrequest budgets, and rotated
  * by `retryBefore` (unix ms) as described at backfillRotation.
+ *
+ * Caveat: for an action decided long ago this writes today's Koios figures, which
+ * can contradict the frozen percentage (see bucketsReproduceTally). The row mapper
+ * drops such columns on read. Do not add a new bucket column to this re-queue for
+ * terminal actions, capture it at tally time.
  */
 export async function getActionsNeedingVotedPower(
   db: D1Database,

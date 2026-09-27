@@ -22,6 +22,7 @@ import {
   overviewRowVoting,
   compositionBar,
   bodyComposition,
+  bodyStake,
   compositionAmounts,
   absentBodyNote,
   shortGovActionId,
@@ -581,6 +582,17 @@ describe('bodyComposition / compositionAmounts', () => {
     expect(amounts.notVoted).not.toBe('n/a');
     expect(amounts.hasAbstain).toBe(true);
   });
+
+  it('refines the stored percentage from buckets that reproduce it', () => {
+    const a = makeRow({
+      spoYesPct: 8.94,
+      spoYesPower: 933_163_803_815_955, spoNoPower: 60_086_761_497_652, spoAbstainPower: 1_658_006_281_302,
+      spoNoSidePower: '9503945218192537', spoAlwaysAbstainPower: '10980795196744028',
+      spoAlwaysNoConfidencePower: '52034755451372', spoEligiblePower: 21_419_562_225_033_824,
+    });
+    expect(bodyComposition(a, 'SPO')!.yes).toBe(8.9408);
+    expect(bodyStake(a, 'SPO')).not.toBeNull();
+  });
 });
 
 describe('absentBodyNote', () => {
@@ -596,7 +608,7 @@ describe('absentBodyNote', () => {
 
   it('drops the SPO note for a security-relevant parameter change', () => {
     expect(absentBodyNote({ type: 'ParameterChange' } as any)).toBe(
-      'SPOs do not vote on parameter change',
+      'SPOs do not vote on this parameter change',
     );
     expect(
       absentBodyNote({ type: 'ParameterChange' } as any, { paramTouchesSecurity: true }),

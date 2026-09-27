@@ -14,7 +14,7 @@ export interface ActionDbRow {
   submitted_epoch: number | null; ratified_epoch: number | null; enacted_epoch: number | null; decided_epoch: number | null; expiry_epoch: number | null;
   onchain_payload: string | null;
   drep_yes: number; drep_no: number; drep_abstain: number; drep_yes_pct: number | null; drep_no_pct: number | null;
-  drep_yes_power: string | null; drep_no_power: string | null; drep_abstain_power: string | null;
+  drep_yes_power: string | null; drep_no_power: string | null; drep_abstain_power: string | null; drep_no_side_power: string | null;
   spo_yes: number; spo_no: number; spo_abstain: number; spo_yes_pct: number | null; spo_no_pct: number | null;
   spo_yes_power: number | null; spo_no_side_power: string | null; spo_eligible_power: number | null; tally_epoch: number | null;
   cc_yes: number; cc_no: number; cc_abstain: number; cc_yes_pct: number | null;
@@ -22,7 +22,7 @@ export interface ActionDbRow {
 }
 
 const ACTION_COLUMNS = `id, type, title, status, submitted_epoch, ratified_epoch, enacted_epoch, decided_epoch, expiry_epoch, onchain_payload,
-  drep_yes, drep_no, drep_abstain, drep_yes_pct, drep_no_pct, drep_yes_power, drep_no_power, drep_abstain_power,
+  drep_yes, drep_no, drep_abstain, drep_yes_pct, drep_no_pct, drep_yes_power, drep_no_power, drep_abstain_power, drep_no_side_power,
   spo_yes, spo_no, spo_abstain, spo_yes_pct, spo_no_pct, spo_yes_power, spo_no_side_power, spo_eligible_power, tally_epoch,
   cc_yes, cc_no, cc_abstain, cc_yes_pct, thresholds_json`;
 
