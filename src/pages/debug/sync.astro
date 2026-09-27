@@ -26,10 +26,11 @@ import {
   runDisplay,
   groupRunsByDay,
 } from '@/lib/sync/statusView.js';
-import { CRON_GOVERNANCE, CRON_VOTE_SYNC, CRON_DREP_SYNC, nextCronRunMs } from '@/lib/freshness.js';
+import { CRON_GOVERNANCE, CRON_VOTE_SYNC, CRON_DREP_SYNC, CRON_NOTIFICATIONS, nextCronRunMs } from '@/lib/freshness.js';
 
 const KINDS = [
-  { kind: 'governance', label: 'Governance discovery + notifications', cron: CRON_GOVERNANCE },
+  { kind: 'governance', label: 'Governance discovery', cron: CRON_GOVERNANCE },
+  { kind: 'notifications', label: 'Notification fan-out + push/Telegram', cron: CRON_NOTIFICATIONS },
   { kind: 'votes', label: 'Per-post vote lists + badges', cron: CRON_VOTE_SYNC },
   { kind: 'dreps', label: 'DRep profiles', cron: CRON_DREP_SYNC },
 ] as const;

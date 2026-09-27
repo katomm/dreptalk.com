@@ -190,8 +190,8 @@ async function dispatchChannels(
 }
 
 /**
- * Dispatches bundled web push notifications to every connected webpush
- * channel. Fails soft when the VAPID secret is unset (e.g. mid-rollout):
+ * Dispatches bundled web push notifications to webpush candidates within the
+ * allowance. Fails soft when the VAPID secret is unset (e.g. mid-rollout):
  * logs once and returns all-zero without touching any channel or sending
  * anything.
  */
@@ -234,8 +234,8 @@ export async function dispatchWebPush(
 }
 
 /**
- * Dispatches the same bundles as bot messages to every connected telegram
- * channel. Fails soft when the bot token is unset, mirroring the VAPID path.
+ * Dispatches the same bundles as bot messages to telegram candidates within
+ * the allowance. Fails soft when the bot token is unset, mirroring the VAPID path.
  */
 export async function dispatchTelegram(
   db: D1Database,

@@ -168,7 +168,7 @@ export async function setChannelCursor(db: D1Database, id: string, deliveredUnti
 /**
  * Claims a channel's pending bundle by advancing its cursor, but only while the
  * row still holds the value this run read. The notifications cron fires every
- * five minutes and a heavy run can outlast that, so two invocations can sit in
+ * five minutes and a slow run can outlast that, so two invocations can sit in
  * the dispatch loop at once. Both would read the same delivered_until and send
  * the same bundle. Only one conditional UPDATE can match, so the loser gets
  * false and skips the channel. Callers must claim BEFORE sending and hand the

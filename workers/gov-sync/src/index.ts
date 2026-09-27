@@ -1,12 +1,15 @@
 /// <reference types="@cloudflare/workers-types" />
-// Standalone cron worker: three triggers share this handler, dispatched on
+// Standalone cron worker: four triggers share this handler, dispatched on
 // event.cron against the constants in src/lib/freshness.js (kept in sync with
 // wrangler.toml's `crons`).
-//   */5 * * * *   discover governance actions + dispatch pending notifications;
-//                 the heavy active-action tallies + backfills only run on the
-//                 quarter-hours (scheduled minute % 15 === 0).
-//   */20 * * * *  refresh the larger per-post vote lists (active actions only).
-//   0 */6 * * *   enumerate every registered DRep and persist profile data.
+//   */5 * * * *      discover governance actions; the heavy active-action
+//                     tallies + backfills only run on the quarter-hours
+//                     (scheduled minute % 15 === 0).
+//   2-59/5 * * * *    drain the delegator fan-out and dispatch pending web
+//                     push/Telegram notifications, two minutes after each
+//                     governance tick, in its own counted D1 query budget.
+//   */20 * * * *      refresh the larger per-post vote lists (active actions only).
+//   0 */6 * * *       enumerate every registered DRep and persist profile data.
 // Shares the app's D1 database.
 //
 // This entry only builds the runtime context (bindings, Koios client, gates)
@@ -27,11 +30,14 @@ import { recordSyncRun, type PhaseFn } from '../../../src/lib/sync/runRecorder.j
 import { runPhases } from '../../../src/lib/sync/phases/registry.js';
 import type { CoreSyncContext } from '../../../src/lib/sync/phases/context.js';
 import { governancePhases, initialGovernanceSyncState } from '../../../src/lib/sync/phases/governance.js';
+import { notificationPhases } from '../../../src/lib/sync/phases/notifications.js';
 import { votePhases } from '../../../src/lib/sync/phases/votes.js';
 import { drepPhases, initialDrepSyncState } from '../../../src/lib/sync/phases/dreps.js';
 import { imagesDownscaler } from '../../../src/lib/dreps/avatarStore.js';
 import { createTesseraClient } from 'cardano-tessera-client';
-import type { VapidConfig } from '../../../src/lib/push/webPush.js';
+import { countingDb } from '../../../src/lib/sync/queryBudget.js';
+import { sendWebPush, type VapidConfig } from '../../../src/lib/push/webPush.js';
+import { sendTelegramMessage } from '../../../src/lib/push/telegram.js';
 
 // The binding shapes live once on the global Cloudflare.Env augmentation
 // (src/env.d.ts, same TS program); this worker only narrows DB to required
@@ -89,11 +95,11 @@ export default {
         );
         return;
       }
-      // The governance trigger fires every 5 min; its heavy tally/backfill
-      // phases run only on the quarter-hours (minute % 15 === 0), so those keep
-      // the old 15-min cost while discovery + notification dispatch run every
-      // 5 min. The vote trigger fires every 20 min; the badges phase inside it
-      // is the biggest D1 consumer, so it runs only on the top of the hour.
+      // Discovery runs every 5 min; its heavy tally/backfill phases run only on
+      // the quarter-hours (minute % 15 === 0), so those keep the old 15-min
+      // cost. Notifications run on their own trigger two minutes later. The
+      // vote trigger fires every 20 min; the badges phase inside it is the
+      // biggest D1 consumer, so it runs only on the top of the hour.
       const minute = new Date(event.scheduledTime).getUTCMinutes();
       const core = buildCore(env);
       // Built once per run; the Images binding is optional everywhere it is used.
@@ -118,12 +124,24 @@ export default {
             };
             return runPhases(votePhases, ctx, phase);
           }
+          case 'notifications': {
+            // Every query of this run is counted: the phases size their work to
+            // what is left of the invocation's D1 query budget.
+            const counted = countingDb(core.db);
+            const ctx = {
+              ...core,
+              db: counted.db,
+              meter: counted.meter,
+              vapid: buildVapid(env, core.cfg.siteOrigin),
+              telegramBotToken: env.TELEGRAM_BOT_TOKEN ?? null,
+              senders: { webpush: sendWebPush, telegram: sendTelegramMessage },
+            };
+            return runPhases(notificationPhases, ctx, phase);
+          }
           default: {
             const ctx = {
               ...core,
               heavy: minute % 15 === 0,
-              vapid: buildVapid(env, core.cfg.siteOrigin),
-              telegramBotToken: env.TELEGRAM_BOT_TOKEN ?? null,
               // Non-empty TESSERA_BACKEND_URL switches the surveys phase on
               // (set on both networks). The client itself refuses a backend whose
               // /health network differs from this deployment's, or whose
