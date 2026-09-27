@@ -61,7 +61,7 @@ describe('buildJobInsert', () => {
 });
 
 describe('listOpenJobs', () => {
-  it('returns only completed_at IS NULL rows, ordered by (created_at, event_key)', async () => {
+  it('returns only completed_at IS NULL rows, ordered by (updated_at, event_key)', async () => {
     await db().batch([
       buildJobInsert(db(), job({ eventKey: 'b', createdAt: 100 })),
       buildJobInsert(db(), job({ eventKey: 'a', createdAt: 100 })),
@@ -82,6 +82,17 @@ describe('listOpenJobs', () => {
     const rows = await listOpenJobs(db(), 1);
     expect(rows).toHaveLength(1);
     expect(rows[0].event_key).toBe('a');
+  });
+
+  it('orders by updated_at first, so a job that got a page moves behind jobs that did not', async () => {
+    await db().batch([
+      buildJobInsert(db(), job({ eventKey: 'a', createdAt: 100 })),
+      buildJobInsert(db(), job({ eventKey: 'b', createdAt: 200 })),
+    ]);
+    await advanceJobCursor(db(), 'a', 'user-1', 999);
+
+    const rows = await listOpenJobs(db(), 10);
+    expect(rows.map((r) => r.event_key)).toEqual(['b', 'a']);
   });
 });
 

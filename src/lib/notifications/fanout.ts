@@ -1,14 +1,16 @@
 /// <reference types="@cloudflare/workers-types" />
 // Durable delegator-notification fan-out worker. Drains notification_fanout_jobs
 // (migration 0064) into per-recipient rows in the notifications table.
-// listOpenJobs/advanceJobCursor/completeJob are the outbox primitives (Tasks
-// 1-4, src/lib/db/fanoutJobs.ts); this module never writes to the outbox
-// table directly. subject_id on every job type is the DRep id, so followers
-// are always matched by drep_id = job.subject_id.
-import { listOpenJobs, advanceJobCursor, completeJob, type FanoutJobRow } from '../db/fanoutJobs.js';
+// listOpenJobs/buildAdvanceJobCursor/buildCompleteJob are the outbox primitives
+// (Tasks 1-4, src/lib/db/fanoutJobs.ts); this module never writes to the
+// outbox table directly. subject_id on every job type is the DRep id, so
+// followers are always matched by drep_id = job.subject_id.
+import { DB_NOW_MS } from '../db/sql.js';
+import { listOpenJobs, buildAdvanceJobCursor, buildCompleteJob, type FanoutJobRow } from '../db/fanoutJobs.js';
+import type { Allowance } from '../sync/queryBudget.js';
+import { UNLIMITED } from '../sync/queryBudget.js';
 
 const DEFAULT_PAGE_SIZE = 100;
-const DEFAULT_MAX_PASSES = 50;
 // 6 binds per row; 14 rows keep a statement under D1's 100-bind-param limit
 // (miniflare does not enforce the limit, so tests alone would not catch this).
 const INSERT_CHUNK = 14;
@@ -17,48 +19,59 @@ interface FollowerRow {
   user_id: string;
 }
 
+/** Queries one page costs: the follower select plus the insert chunks and the cursor step in one batch. */
+export function fanoutPageCost(pageSize: number): number {
+  return 1 + Math.ceil(pageSize / INSERT_CHUNK) + 1;
+}
+
 /**
- * Runs one draining cycle over the open fan-out jobs. Fairness: each pass
- * advances every still-open job by exactly one page of followers, so a
- * mega-job (many followers) can never starve a small job behind it; passes
- * repeat until no open jobs remain or maxPasses is reached.
+ * Runs one draining cycle over the open fan-out jobs, spending at most the
+ * given allowance. Fairness: each pass advances every listed open job by
+ * exactly one page of followers, so a mega-job (many followers) can never
+ * starve a small job behind it; passes repeat until no open jobs remain or
+ * the allowance cannot cover another page, in which case deferred is true
+ * and the jobs left behind keep their cursor to be reached on the next run
+ * (see listOpenJobs' rotation order).
  *
- * now is unix SECONDS (the outbox's unit); the notifications this worker
- * writes use now * 1000 as created_at (notifications.created_at is unix
- * MILLISECONDS, matching the rest of the notifications table) so a
- * notification is dated by when it was MATERIALIZED, not by the job's
- * source_time. This is deliberate: a push channel's delivered_until cursor
- * is compared against created_at, and it must see a late-drained event as
- * "new" even if the underlying on-chain event happened long ago.
+ * now is unix SECONDS (the outbox's unit), used only for the job table's
+ * updated_at / completed_at. The notifications this worker writes get
+ * created_at from the database clock at insert time (DB_NOW_MS), not from
+ * now and not from the job's source_time. This is deliberate: a push
+ * channel's delivered_until cursor is compared against created_at, and it
+ * must see a late-drained event as "new" even if the underlying on-chain
+ * event happened long ago.
  */
 export async function runFanout(
   db: D1Database,
   now: number,
-  opts: { pageSize?: number; maxPasses?: number } = {},
-): Promise<{ jobs: number; delivered: number; completed: number }> {
+  opts: { pageSize?: number; allowance?: Allowance } = {},
+): Promise<{ jobs: number; delivered: number; completed: number; deferred: boolean }> {
   const pageSize = opts.pageSize ?? DEFAULT_PAGE_SIZE;
-  const maxPasses = opts.maxPasses ?? DEFAULT_MAX_PASSES;
-
+  const budget = opts.allowance ?? UNLIMITED;
+  const pageCost = fanoutPageCost(pageSize);
   const touchedJobs = new Set<string>();
   let delivered = 0;
   let completed = 0;
 
-  for (let pass = 0; pass < maxPasses; pass++) {
-    const openJobs = await listOpenJobs(db, 1000);
-    if (openJobs.length === 0) break;
-
+  // Each pass gives every listed open job one page, least recently advanced first,
+  // so a mega job never starves a small one. The allowance ends the run; jobs not
+  // reached keep their cursor and sort first on the next run.
+  for (;;) {
+    if (!budget.covers(1 + pageCost)) return { jobs: touchedJobs.size, delivered, completed, deferred: true };
+    const affordable = Math.floor((budget.remaining() - 1) / pageCost);
+    const openJobs = await listOpenJobs(db, Math.min(1000, affordable));
+    if (openJobs.length === 0) return { jobs: touchedJobs.size, delivered, completed, deferred: false };
     for (const job of openJobs) {
+      if (!budget.covers(pageCost)) return { jobs: touchedJobs.size, delivered, completed, deferred: true };
       touchedJobs.add(job.event_key);
       const drained = await processOnePage(db, job, pageSize, now);
       delivered += drained.delivered;
       if (drained.completed) completed += 1;
     }
   }
-
-  return { jobs: touchedJobs.size, delivered, completed };
 }
 
-/** Processes exactly one follower page for one job: insert, advance/complete. */
+/** Processes exactly one follower page for one job: insert and advance/complete in one atomic batch. */
 async function processOnePage(
   db: D1Database,
   job: FanoutJobRow,
@@ -77,36 +90,29 @@ async function processOnePage(
     .bind(job.subject_id, job.source_time, cursor, pageSize)
     .all<FollowerRow>();
 
-  const delivered = followers.length > 0 ? await insertNotificationPage(db, job, followers, now) : 0;
-
   const drained = followers.length < pageSize;
-  if (drained) {
-    await completeJob(db, job.event_key, now);
-  } else {
-    const lastUserId = followers[followers.length - 1].user_id;
-    await advanceJobCursor(db, job.event_key, lastUserId, now);
-  }
+  const step = drained
+    ? buildCompleteJob(db, job.event_key, now)
+    : buildAdvanceJobCursor(db, job.event_key, followers[followers.length - 1].user_id, now);
 
+  // Inserts and the cursor step commit together: a page is either fully
+  // recorded or not at all, so a retry never re-inserts rows whose step was lost.
+  const results = await db.batch([...buildNotificationPage(db, job, followers), step]);
+  const delivered = results.slice(0, -1).reduce((sum, r) => sum + (r.meta.changes ?? 0), 0);
   return { delivered, completed: drained };
 }
 
 /**
- * Inserts one notification row per follower, chunked under the bind-param
- * limit, all chunks in one db.batch. Returns the number of rows actually
- * inserted (meta.changes), so ON CONFLICT-skipped duplicates are not counted
- * as delivered.
+ * Builds the (unrun) insert statements for one page of followers, chunked
+ * under the bind-param limit, for the caller's page batch. Returns an empty
+ * array when there are no followers. Each row's created_at is DB_NOW_MS, the
+ * database clock at the moment the batch commits.
  */
-async function insertNotificationPage(
-  db: D1Database,
-  job: FanoutJobRow,
-  followers: FollowerRow[],
-  now: number,
-): Promise<number> {
-  const createdAt = now * 1000;
+function buildNotificationPage(db: D1Database, job: FanoutJobRow, followers: FollowerRow[]): D1PreparedStatement[] {
   const statements: D1PreparedStatement[] = [];
   for (let i = 0; i < followers.length; i += INSERT_CHUNK) {
     const chunk = followers.slice(i, i + INSERT_CHUNK);
-    const values = chunk.map(() => '(?, ?, ?, ?, ?, ?)').join(', ');
+    const values = chunk.map(() => `(?, ?, ?, ?, ?, ${DB_NOW_MS})`).join(', ');
     statements.push(
       db
         .prepare(
@@ -114,11 +120,8 @@ async function insertNotificationPage(
            VALUES ${values}
            ON CONFLICT(recipient_id, event_key) WHERE event_key IS NOT NULL DO NOTHING`,
         )
-        .bind(
-          ...chunk.flatMap((f) => [crypto.randomUUID(), f.user_id, job.event_type, job.event_key, job.payload, createdAt]),
-        ),
+        .bind(...chunk.flatMap((f) => [crypto.randomUUID(), f.user_id, job.event_type, job.event_key, job.payload])),
     );
   }
-  const results = await db.batch(statements);
-  return results.reduce((sum, r) => sum + (r.meta.changes ?? 0), 0);
+  return statements;
 }
