@@ -70,7 +70,7 @@ const [posts, votingHistory, votesCast, voteBreakdown, rationaleStats, participa
     pool && db ? getVoterVoteHistory(db, pool.poolId) : Promise.resolve(new Map()),
   ]);
 
-const showcase = pickShowcase(earnedBadges, holderCounts, 3);
+const showcase = pickShowcase(earnedBadges, holderCounts);
 
 // Canonical profile URL, used as the base for per-vote share links.
 const canonical = pool ? `${Astro.site?.origin ?? SITE_ORIGIN}${poolPath(pool)}` : null;

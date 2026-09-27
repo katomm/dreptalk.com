@@ -155,11 +155,14 @@ export async function buildBadgeGallery(db: D1Database, subject: BadgeSubject): 
   return { earned, inProgress, hiddenLockedCount };
 }
 
+/** Tiles in the profile showcase: two rows of three on the summary card. */
+export const SHOWCASE_SIZE = 6;
+
 /** The profile showcase: rarest earned badges first (fewest holders), then newest. */
 export function pickShowcase(
   earned: BadgeTileModel[],
   holderCounts: Map<string, number>,
-  n = 3,
+  n = SHOWCASE_SIZE,
 ): BadgeTileModel[] {
   return [...earned]
     .sort(
