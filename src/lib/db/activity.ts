@@ -9,6 +9,17 @@ import { sqlPlaceholders, DB_NOW_MS } from './sql.js';
 
 export type ActivityKind = 'topic_created' | 'reply_created' | 'gov_created' | 'gov_status';
 
+/**
+ * Builds the SQL placeholder and bind list for a notified_at column: `'db-now'`
+ * stamps the database clock inline (no bind), anything else falls back to the
+ * given value and binds it as a placeholder. Shared by activityInsert and
+ * insertGovStatusEventIfNew, whose INSERT statements both end with this column.
+ */
+function notifiedAtValue(notifiedAt: number | 'db-now' | undefined, fallback: number): { sql: string; binds: unknown[] } {
+  if (notifiedAt === 'db-now') return { sql: DB_NOW_MS, binds: [] };
+  return { sql: '?', binds: [notifiedAt ?? fallback] };
+}
+
 // Raw row shape as stored in D1. payload is a JSON string (or null); the feed
 // loader parses it for gov_status.
 export interface ActivityRow {
@@ -52,7 +63,7 @@ export function activityInsert(
     notifiedAt?: number | 'db-now';
   },
 ): D1PreparedStatement {
-  const notifiedSql = a.notifiedAt === 'db-now' ? DB_NOW_MS : '?';
+  const notified = notifiedAtValue(a.notifiedAt, a.createdAt);
   const binds: unknown[] = [
     crypto.randomUUID(),
     a.type,
@@ -61,12 +72,12 @@ export function activityInsert(
     a.refPostId ?? null,
     a.payload ? JSON.stringify(a.payload) : null,
     a.createdAt,
+    ...notified.binds,
   ];
-  if (a.notifiedAt !== 'db-now') binds.push(a.notifiedAt ?? a.createdAt);
   return db
     .prepare(
       `INSERT INTO activity (id, type, actor_id, topic_id, ref_post_id, payload, created_at, notified_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ${notifiedSql})`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ${notified.sql})`,
     )
     .bind(...binds);
 }
@@ -100,14 +111,20 @@ export async function insertGovStatusEventIfNew(
   db: D1Database,
   a: { topicId: string; from: string; to: string; createdAt: number; notifiedAt?: number | 'db-now' },
 ): Promise<void> {
-  const notifiedSql = a.notifiedAt === 'db-now' ? DB_NOW_MS : '?';
-  const binds: unknown[] = [crypto.randomUUID(), a.topicId, JSON.stringify({ from: a.from, to: a.to }), a.createdAt];
-  if (a.notifiedAt !== 'db-now') binds.push(a.notifiedAt ?? a.createdAt);
-  binds.push(a.topicId, a.to);
+  const notified = notifiedAtValue(a.notifiedAt, a.createdAt);
+  const binds: unknown[] = [
+    crypto.randomUUID(),
+    a.topicId,
+    JSON.stringify({ from: a.from, to: a.to }),
+    a.createdAt,
+    ...notified.binds,
+    a.topicId,
+    a.to,
+  ];
   await db
     .prepare(
       `INSERT INTO activity (id, type, actor_id, topic_id, ref_post_id, payload, created_at, notified_at)
-       SELECT ?, 'gov_status', NULL, ?, NULL, ?, ?, ${notifiedSql}
+       SELECT ?, 'gov_status', NULL, ?, NULL, ?, ?, ${notified.sql}
        WHERE NOT EXISTS (
          SELECT 1 FROM activity
          WHERE type = 'gov_status' AND topic_id = ? AND json_extract(payload, '$.to') = ?

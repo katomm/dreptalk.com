@@ -84,17 +84,3 @@ export function buildCompleteJob(db: D1Database, eventKey: string, nowSec: numbe
     .bind(nowSec, nowSec, eventKey);
 }
 
-/** Advances the fan-out pagination cursor after a batch of recipients is drained. */
-export async function advanceJobCursor(
-  db: D1Database,
-  eventKey: string,
-  cursorUserId: string,
-  nowSec: number,
-): Promise<void> {
-  await buildAdvanceJobCursor(db, eventKey, cursorUserId, nowSec).run();
-}
-
-/** Marks a job's fan-out as fully drained. */
-export async function completeJob(db: D1Database, eventKey: string, nowSec: number): Promise<void> {
-  await buildCompleteJob(db, eventKey, nowSec).run();
-}

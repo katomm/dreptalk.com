@@ -83,35 +83,37 @@ export async function resolvePendingLead(
     .filter(([, pref]) => pref === 'always' || prefs[pref])
     .map(([type]) => type);
 
-  const personal = allowedPersonal.length
-    ? await db
-        .prepare(
-          `SELECT type, actor_id, topic_id, post_id, payload, created_at
-             FROM notifications
-            WHERE recipient_id = ?1 AND created_at > ?2 AND created_at <= ?3
-              AND type IN (${allowedPersonal.map((_, i) => `?${i + 4}`).join(', ')})
-            ORDER BY created_at DESC LIMIT 1`,
-        )
-        .bind(row.user_id, cursor, passEnd, ...allowedPersonal)
-        .first<PersonalRow>()
-    : null;
-
-  const gov = prefs.governance
-    ? await db
-        .prepare(
-          // Bare notified_at, matching govThreadsSinceSql: an expression over the
-          // column would not be sargable and would skip idx_activity_notified.
-          `SELECT a.type AS type, a.topic_id AS topic_id, a.payload AS payload,
-                  a.notified_at AS at
-             FROM activity a JOIN topics t ON t.id = a.topic_id
-            WHERE a.type IN ('gov_created', 'gov_status')
-              AND t.deleted = 0
-              AND a.notified_at > ?1 AND a.notified_at <= ?2
-            ORDER BY at DESC LIMIT 1`,
-        )
-        .bind(cursor, passEnd)
-        .first<GovRow>()
-    : null;
+  // Independent of each other, so both run concurrently instead of waiting in turn.
+  const [personal, gov] = await Promise.all([
+    allowedPersonal.length
+      ? db
+          .prepare(
+            `SELECT type, actor_id, topic_id, post_id, payload, created_at
+               FROM notifications
+              WHERE recipient_id = ?1 AND created_at > ?2 AND created_at <= ?3
+                AND type IN (${allowedPersonal.map((_, i) => `?${i + 4}`).join(', ')})
+              ORDER BY created_at DESC LIMIT 1`,
+          )
+          .bind(row.user_id, cursor, passEnd, ...allowedPersonal)
+          .first<PersonalRow>()
+      : Promise.resolve(null),
+    prefs.governance
+      ? db
+          .prepare(
+            // Bare notified_at, matching govThreadsSinceSql: an expression over the
+            // column would not be sargable and would skip idx_activity_notified.
+            `SELECT a.type AS type, a.topic_id AS topic_id, a.payload AS payload,
+                    a.notified_at AS at
+               FROM activity a JOIN topics t ON t.id = a.topic_id
+              WHERE a.type IN ('gov_created', 'gov_status')
+                AND t.deleted = 0
+                AND a.notified_at > ?1 AND a.notified_at <= ?2
+              ORDER BY at DESC LIMIT 1`,
+          )
+          .bind(cursor, passEnd)
+          .first<GovRow>()
+      : Promise.resolve(null),
+  ]);
 
   // Pick the newer of the two candidates.
   const personalAt = personal?.created_at ?? -1;

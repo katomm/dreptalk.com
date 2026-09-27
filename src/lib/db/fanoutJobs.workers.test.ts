@@ -2,7 +2,13 @@
 // notification_fanout_jobs table access tests, run in real workerd via vitest-pool-workers.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { buildJobInsert, listOpenJobs, advanceJobCursor, completeJob, type FanoutJobInput } from './fanoutJobs.js';
+import {
+  buildJobInsert,
+  listOpenJobs,
+  buildAdvanceJobCursor,
+  buildCompleteJob,
+  type FanoutJobInput,
+} from './fanoutJobs.js';
 
 const db = () => env.DB;
 
@@ -67,7 +73,7 @@ describe('listOpenJobs', () => {
       buildJobInsert(db(), job({ eventKey: 'a', createdAt: 100 })),
       buildJobInsert(db(), job({ eventKey: 'c', createdAt: 50 })),
     ]);
-    await completeJob(db(), 'c', 500);
+    await buildCompleteJob(db(), 'c', 500).run();
 
     const rows = await listOpenJobs(db(), 10);
     expect(rows.map((r) => r.event_key)).toEqual(['a', 'b']);
@@ -89,18 +95,18 @@ describe('listOpenJobs', () => {
       buildJobInsert(db(), job({ eventKey: 'a', createdAt: 100 })),
       buildJobInsert(db(), job({ eventKey: 'b', createdAt: 200 })),
     ]);
-    await advanceJobCursor(db(), 'a', 'user-1', 999);
+    await buildAdvanceJobCursor(db(), 'a', 'user-1', 999).run();
 
     const rows = await listOpenJobs(db(), 10);
     expect(rows.map((r) => r.event_key)).toEqual(['b', 'a']);
   });
 });
 
-describe('advanceJobCursor', () => {
+describe('buildAdvanceJobCursor', () => {
   it('sets cursor_user_id and updated_at without touching completed_at', async () => {
     await db().batch([buildJobInsert(db(), job())]);
 
-    await advanceJobCursor(db(), job().eventKey, 'user-42', 300);
+    await buildAdvanceJobCursor(db(), job().eventKey, 'user-42', 300).run();
 
     const [row] = await listOpenJobs(db(), 10);
     expect(row.cursor_user_id).toBe('user-42');
@@ -109,11 +115,11 @@ describe('advanceJobCursor', () => {
   });
 });
 
-describe('completeJob', () => {
+describe('buildCompleteJob', () => {
   it('sets completed_at and updated_at, removing the row from listOpenJobs', async () => {
     await db().batch([buildJobInsert(db(), job())]);
 
-    await completeJob(db(), job().eventKey, 400);
+    await buildCompleteJob(db(), job().eventKey, 400).run();
 
     expect(await listOpenJobs(db(), 10)).toHaveLength(0);
   });

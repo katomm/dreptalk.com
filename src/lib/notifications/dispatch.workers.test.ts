@@ -15,12 +15,13 @@ import {
   type DispatchDeps,
   type TelegramDispatchConfig,
 } from './dispatch.js';
-import { addChannel, setPref, setChannelCursor } from '../db/notificationChannels.js';
+import { addChannel, setPref } from '../db/notificationChannels.js';
 import { insertNotifications } from '../db/notifications.js';
 import { activityInsert } from '../db/activity.js';
 import { announceLatestEdition } from '../db/reviewAnnouncements.js';
 import { UNLIMITED, allowance, countingDb } from '../sync/queryBudget.js';
 import { afterDbMs } from '../db/__tests__/dbClock.js';
+import { setChannelCursor, seedNotificationRow } from '../db/__tests__/notificationSeed.js';
 import type { PushSendResult, PushSubscriptionTarget, VapidConfig } from '../push/webPush.js';
 import type { TelegramSendResult } from '../push/telegram.js';
 
@@ -96,21 +97,7 @@ async function seedPersonal(
   createdAt: number,
   extra: { topicId?: string; postId?: string; actorId?: string; payload?: unknown } = {},
 ) {
-  await db()
-    .prepare(
-      'INSERT INTO notifications (id, recipient_id, type, actor_id, topic_id, post_id, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-    )
-    .bind(
-      crypto.randomUUID(),
-      recipientId,
-      type,
-      extra.actorId ?? null,
-      extra.topicId ?? null,
-      extra.postId ?? null,
-      extra.payload === undefined ? null : JSON.stringify(extra.payload),
-      createdAt,
-    )
-    .run();
+  await seedNotificationRow(db(), { recipientId, type, createdAt, ...extra });
 }
 
 /** A governance thread event with a controlled notified_at. */
@@ -120,12 +107,7 @@ async function seedGov(
   type: 'gov_created' | 'gov_status' = 'gov_created',
   payload: Record<string, unknown> = { type: 'InfoAction', title: 'T' },
 ) {
-  await db()
-    .prepare(
-      'INSERT INTO activity (id, type, actor_id, topic_id, ref_post_id, payload, created_at, notified_at) VALUES (?, ?, NULL, ?, NULL, ?, ?, ?)',
-    )
-    .bind(crypto.randomUUID(), type, topicId, JSON.stringify(payload), notifiedAt, notifiedAt)
-    .run();
+  await activityInsert(db(), { type, topicId, payload, createdAt: notifiedAt, notifiedAt }).run();
 }
 
 async function cursorOf(id: string) {

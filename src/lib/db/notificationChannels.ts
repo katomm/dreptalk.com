@@ -162,11 +162,6 @@ export async function deleteChannelsByEndpoint(db: D1Database, endpoint: string)
   return result.meta.changes ?? 0;
 }
 
-/** Sets the delivery cursor unconditionally. Test seeding only; production hands a claim back through handBackChannelCursor. */
-export async function setChannelCursor(db: D1Database, id: string, deliveredUntil: number): Promise<void> {
-  await db.prepare('UPDATE notification_channels SET delivered_until = ? WHERE id = ?').bind(deliveredUntil, id).run();
-}
-
 /**
  * Claims a channel's pending bundle by advancing its cursor, but only while the
  * row still holds the value this run read. The notifications cron fires every

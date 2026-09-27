@@ -10,7 +10,8 @@ import {
 } from './notifications.js';
 import { runPhases } from './registry.js';
 import { buildJobInsert, listOpenJobs } from '../../db/fanoutJobs.js';
-import { addChannel, setChannelCursor } from '../../db/notificationChannels.js';
+import { addChannel } from '../../db/notificationChannels.js';
+import { setChannelCursor } from '../../db/__tests__/notificationSeed.js';
 
 describe('notification phases under load', () => {
   it('each phase stays in its allocation and both dispatchers still send', async () => {

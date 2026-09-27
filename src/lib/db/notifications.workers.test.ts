@@ -13,6 +13,7 @@ import { activityInsert } from './activity.js';
 import { announceLatestEdition } from './reviewAnnouncements.js';
 import { readDbNow } from './sql.js';
 import { withDbClock, afterDbMs } from './__tests__/dbClock.js';
+import { seedNotificationRow } from './__tests__/notificationSeed.js';
 
 const db = () => env.DB;
 
@@ -37,13 +38,14 @@ async function seedTopic(id: string, opts?: { deleted?: boolean }) {
 
 /** Seeds a notification row with an explicit created_at, for the ordering test below, which checks a controlled time and cannot go through insertNotifications now that created_at comes from the database clock. */
 async function seedNotification(recipientId: string, createdAt: number, type: 'reply' | 'mention' = 'reply') {
-  await db()
-    .prepare(
-      `INSERT INTO notifications (id, recipient_id, type, actor_id, topic_id, post_id, created_at)
-       VALUES (?, ?, ?, 'actor', 'topic1', ?, ?)`,
-    )
-    .bind(crypto.randomUUID(), recipientId, type, `post-${createdAt}`, createdAt)
-    .run();
+  await seedNotificationRow(db(), {
+    recipientId,
+    type,
+    createdAt,
+    actorId: 'actor',
+    topicId: 'topic1',
+    postId: `post-${createdAt}`,
+  });
 }
 
 function insert(recipientId: string, type: 'reply' | 'mention' = 'reply') {

@@ -9,7 +9,6 @@ import {
   listDispatchCandidates,
   readPassStart,
   deleteChannelById,
-  setChannelCursor,
   claimChannelCursor,
   handBackChannelCursor,
   markChannelSent,
@@ -22,6 +21,7 @@ import { activityInsert } from './activity.js';
 import { announceLatestEdition } from './reviewAnnouncements.js';
 import { readDbNow } from './sql.js';
 import { withDbClock, afterDbMs } from './__tests__/dbClock.js';
+import { setChannelCursor, seedNotificationRow as seedNotificationRowOn } from './__tests__/notificationSeed.js';
 
 const db = () => env.DB;
 
@@ -37,30 +37,9 @@ async function seedTopic(id: string, opts?: { deleted?: boolean }) {
     .run();
 }
 
-/** Seeds a notification row with an explicit created_at, since insertNotifications no longer accepts one (created_at now comes from the database clock) and getPendingCounts tests need a controlled time relative to a fixed cursor. */
-async function seedNotificationRow(opts: {
-  recipientId: string;
-  type: string;
-  createdAt: number;
-  actorId?: string | null;
-  topicId?: string | null;
-  postId?: string | null;
-}) {
-  await db()
-    .prepare(
-      `INSERT INTO notifications (id, recipient_id, type, actor_id, topic_id, post_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(
-      crypto.randomUUID(),
-      opts.recipientId,
-      opts.type,
-      opts.actorId ?? null,
-      opts.topicId ?? null,
-      opts.postId ?? null,
-      opts.createdAt,
-    )
-    .run();
+/** Binds the shared seeding helper to this file's db(), so call sites read the same as before. */
+function seedNotificationRow(opts: Parameters<typeof seedNotificationRowOn>[1]) {
+  return seedNotificationRowOn(db(), opts);
 }
 
 const allEnabled = {

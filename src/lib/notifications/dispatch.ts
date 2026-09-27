@@ -68,6 +68,11 @@ export interface DispatchResult {
 /** What one adapter did with one channel's bundle. */
 type DeliveryOutcome = 'sent' | 'dead' | 'failed';
 
+/** An all-zero result for a pass that never touched a channel (budget guard, or the adapter's config unset). */
+function emptyResult(deferred: boolean): DispatchResult {
+  return { sent: 0, pruned: 0, skipped: 0, deferred };
+}
+
 /**
  * Worst case for one channel in queries: prefs, counts, lead (personal and
  * governance reads plus topic, author identity and action lookups), claim,
@@ -101,7 +106,7 @@ async function dispatchChannels(
 ): Promise<DispatchResult> {
   const { allowance } = opts;
   // Not even the pass start and the candidate query fit: touch nothing.
-  if (!allowance.covers(DISPATCH_FIXED_QUERIES)) return { sent: 0, pruned: 0, skipped: 0, deferred: true };
+  if (!allowance.covers(DISPATCH_FIXED_QUERIES)) return emptyResult(true);
   const start = await readPassStart(db);
   if (opts.afterPassStart) await opts.afterPassStart();
   // The pass interval is delivered_until < ts <= passEnd. A row written after the
@@ -204,7 +209,7 @@ export async function dispatchWebPush(
 ): Promise<DispatchResult> {
   if (!vapid) {
     console.warn('[webpush-dispatch] VAPID keys not configured, skipping dispatch');
-    return { sent: 0, pruned: 0, skipped: 0, deferred: false };
+    return emptyResult(false);
   }
   // The app-icon badge shows the same unread count as the header bell, not the
   // per-push bundle size (which resets each send), so it accumulates and clears
@@ -246,7 +251,7 @@ export async function dispatchTelegram(
 ): Promise<DispatchResult> {
   if (!cfg) {
     console.warn('[telegram-dispatch] bot token not configured, skipping dispatch');
-    return { sent: 0, pruned: 0, skipped: 0, deferred: false };
+    return emptyResult(false);
   }
   return dispatchChannels(
     db,
