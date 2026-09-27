@@ -370,3 +370,28 @@ describe('getPendingCounts', () => {
     expect(disabledCounts.total).toBe(0);
   });
 });
+
+describe('migration 0113', () => {
+  it('adds dispatch_attempted_at with default 0 and the rotation indexes', async () => {
+    const id = await addChannel(db(), {
+      userId: 'u-mig',
+      channel: 'webpush',
+      target: '{}',
+      endpoint: 'https://push.example/mig',
+      now: 0,
+    });
+    const row = await db()
+      .prepare('SELECT dispatch_attempted_at FROM notification_channels WHERE id = ?')
+      .bind(id)
+      .first<{ dispatch_attempted_at: number }>();
+    expect(row?.dispatch_attempted_at).toBe(0);
+    const { results } = await db()
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name IN (?, ?, ?, ?, ?)")
+      .bind('idx_notification_channels_dispatch', 'idx_notifications_created', 'idx_fanout_jobs_open_rotation',
+        'idx_notification_channels_channel', 'idx_fanout_jobs_open')
+      .all<{ name: string }>();
+    expect(results.map((r) => r.name).sort()).toEqual([
+      'idx_fanout_jobs_open_rotation', 'idx_notification_channels_dispatch', 'idx_notifications_created',
+    ]);
+  });
+});
