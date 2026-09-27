@@ -13,7 +13,6 @@ import {
 } from '../../governance/tallySync.js';
 import { syncVoteRationales } from '../../governance/rationaleSync.js';
 import { syncCommitteeVoteMeta } from '../../governance/committeeMetaSync.js';
-import { backfillRationaleText } from '../../db/rationaleTextBackfill.js';
 import { getFollowedDrepIds } from '../../db/delegatorFollows.js';
 import type { ImageDownscaler } from '../../dreps/avatarStore.js';
 import { recomputeCommitteePct } from '../../db/committee.js';
@@ -120,17 +119,6 @@ export const votePhases: readonly SyncPhaseDef<VoteSyncContext>[] = [
       const bf = await backfillVoteMetaHashes({ koios: ctx.koios, db: ctx.db, limit: 25, paceMs: VOTE_PACE_MS });
       console.log(`[gov-rationale-hash-backfill] votes=${bf.votes} failed=${bf.failed}`);
       return { items: bf.votes, failed: bf.failed };
-    },
-  },
-  {
-    // One-time historical fill: rationales ingested before the FTS migration have
-    // an empty body_text. Strip their stored body_html into body_text so they enter
-    // the rationale search index. Self-draining, becomes a no-op once all are filled.
-    name: 'rationale-text-backfill',
-    run: async (ctx) => {
-      const bf = await backfillRationaleText(ctx.db, 200);
-      console.log(`[rationale-text-backfill] filled=${bf.filled}`);
-      return { items: bf.filled, failed: 0 };
     },
   },
   {

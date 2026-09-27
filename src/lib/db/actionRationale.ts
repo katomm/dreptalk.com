@@ -26,8 +26,8 @@ export async function upsertActionRationale(
   },
 ): Promise<void> {
   // Plain-text form for the FTS index. NOT NULL column, so never null: no html
-  // yields '', html that strips to nothing yields a single space so the row
-  // leaves the backfill's `body_text = ''` candidate set.
+  // yields '', html that strips to nothing yields a single space, which keeps
+  // the row apart from the no-html case for readers filtering on body_text <> ''.
   const bodyText = rec.bodyHtml ? htmlToText(rec.bodyHtml) || ' ' : '';
   await db
     .prepare(

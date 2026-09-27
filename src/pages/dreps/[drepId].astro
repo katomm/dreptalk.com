@@ -120,7 +120,7 @@ const drepLinkUrl = drepLinkHandle ? `${DREP_LINK_ORIGIN}/${drepLinkHandle}` : n
 
 const timingStat = voteTimingStat(timingRows);
 
-const showcase = pickShowcase(earnedBadges, holderCounts, 3);
+const showcase = pickShowcase(earnedBadges, holderCounts);
 
 // Voting history: show the first few, fold the rest into a pure-HTML "Show more".
 const HISTORY_HEAD = 5;
@@ -430,7 +430,7 @@ const profileSummary = drep
                 <BadgeTile name={t.badge.name} image={t.image} tier={t.tier} tip={t.badge.description} size={56} />
               ))}
             </div>
-            <a href={`${drepPath(drep)}badges/`} class="drep-summary__all">View all {earnedBadges.length} badges</a>
+            <a href={`${drepPath(drep)}badges/`} class="btn btn-secondary drep-summary__all">View all {earnedBadges.length} badges</a>
           </Fragment>
         )}
       </section>
@@ -665,8 +665,12 @@ const profileSummary = drep
      needs a grid parent. In a wrapping flex row WebKit fails to reserve the
      second row's height, so the third badge spilled out of the card on mobile. */
   .drep-summary__badgegrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(5.5rem, 1fr)); gap: 1rem 1.25rem; align-items: start; }
-  /* Anchor the link to the card's bottom so the two summary cards line up. */
-  .drep-summary__all { margin-top: auto; align-self: flex-start; padding-top: 0.95rem; font-size: 0.9375rem; }
+  /* Anchor the button to the card's bottom so the two summary cards line up,
+     the grid's bottom margin keeps a gap when the card has no slack. */
+  /* Fixed three columns so the six showcase tiles always form two rows, auto-fill
+     dropped to two columns on narrow cards and stretched the card to three rows. */
+  .drep-summary__badges .drep-summary__badgegrid { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 1.1rem; }
+  .drep-summary__all { margin-top: auto; align-self: flex-start; }
 
   @media (max-width: 560px) {
     .drep-hd { gap: 0.85rem; }

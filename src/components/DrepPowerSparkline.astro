@@ -16,13 +16,22 @@ interface Props {
 const { series } = Astro.props;
 
 const values = series.map((s) => Number(s.amount)).filter((n) => Number.isFinite(n));
-const chart = buildPowerChart(values, { width: 480, height: 180, padLeft: 4, padRight: 60, padTop: 18, padBottom: 30 });
-
 // Delegator headcount per epoch, index-aligned with the power series. Only stamped
 // from the epoch the count started being recorded, so the older entries are null
 // and the overlay draws the trailing run alone.
 const counts = series.map((s) => (typeof s.delegatorCount === 'number' ? s.delegatorCount : null));
-const overlay = chart ? buildOverlaySeries(counts, chart) : null;
+
+// The labels live inside the SVG and scale with it, so a wide card gets its own
+// wider geometry instead of an enlarged copy of the narrow one. Both are rendered
+// and a container query shows the one closest to the card's width.
+const buildVariant = (width: number) => {
+  const c = buildPowerChart(values, { width, height: 180, padLeft: 4, padRight: 60, padTop: 18, padBottom: 30 });
+  return c ? { chart: c, overlay: buildOverlaySeries(counts, c) } : null;
+};
+const narrow = buildVariant(480);
+const wide = buildVariant(640);
+const chart = narrow?.chart ?? null;
+const overlay = narrow?.overlay ?? null;
 const delegatorChange = overlay ? overlay.lastValue - overlay.firstValue : 0;
 const fmtInt = (n: number) => n.toLocaleString('en-US');
 
@@ -52,8 +61,9 @@ const adaTick = (lovelace: number): string => formatAdaCompact(String(Math.round
 // card would suggest the lines can be read against each other, which they cannot.
 // One label per series, each at its own line's end.
 const LABEL_GAP = 13;
-const delLabelY = ((): number | null => {
-  if (!chart || !overlay) return null;
+type Variant = NonNullable<ReturnType<typeof buildVariant>>;
+const delLabelYFor = ({ chart, overlay }: Variant): number | null => {
+  if (!overlay) return null;
   let y = overlay.last.y + 4;
   // Nudge clear of a power tick label sitting at the same height, away from it, so
   // the two numbers never overlap into an unreadable stack.
@@ -64,7 +74,11 @@ const delLabelY = ((): number | null => {
   }
   // Keep it inside the card whatever the nudge did.
   return Math.min(Math.max(y, 12), chart.height - 12);
-})();
+};
+const variants = [
+  { key: 'narrow', v: narrow },
+  { key: 'wide', v: wide },
+].flatMap(({ key, v }) => (v ? [{ key, ...v, delLabelY: delLabelYFor(v) }] : []));
 
 // The absolute change moves to the hover so the card surfaces only the percent.
 // Nothing to hover when the card already shows the amount itself, and flat
@@ -96,42 +110,44 @@ const hoverText = (d: VotingPowerDelta | null, label: string): string | undefine
       )}
     </header>
 
-    <svg
-      class="vptrend__chart"
-      viewBox={`0 0 ${chart.width} ${chart.height}`}
-      role="img"
-      aria-label={overlay
-        ? `Voting power and delegator count from epoch ${firstEpoch} to ${lastEpoch}. Voting power ${adaTick(values[values.length - 1])}, delegators ${fmtInt(overlay.lastValue)}.`
-        : `Voting power from epoch ${firstEpoch} to ${lastEpoch}`}
-    >
-      <defs>
-        <linearGradient id="vptrend-fill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="currentColor" stop-opacity="0.2" />
-          <stop offset="100%" stop-color="currentColor" stop-opacity="0" />
-        </linearGradient>
-      </defs>
-      {chart.yTicks.map((t) => (
-        <line class="vptrend__grid" x1={chart.plot.x} y1={t.y} x2={chart.plot.x + chart.plot.w} y2={t.y} />
-      ))}
-      <path class="vptrend__area" d={chart.area} />
-      <polyline class="vptrend__line" points={chart.line} vector-effect="non-scaling-stroke" />
-      <circle class="vptrend__dot-ring" cx={chart.last.x} cy={chart.last.y} r="5.5" />
-      <circle class="vptrend__dot" cx={chart.last.x} cy={chart.last.y} r="3.5" />
-      {overlay && (
-        <>
-          <polyline class="vptrend__delline" points={overlay.line} vector-effect="non-scaling-stroke" />
-          <circle class="vptrend__deldot" cx={overlay.last.x} cy={overlay.last.y} r="2.75" />
-        </>
-      )}
-      {chart.yTicks.map((t) => (
-        <text class="vptrend__ylabel" x={chart.plot.x + chart.plot.w + 8} y={t.y + 4}>{adaTick(t.value)}</text>
-      ))}
-      {overlay && delLabelY != null && (
-        <text class="vptrend__dellabel" x={chart.plot.x + chart.plot.w + 8} y={delLabelY}>{fmtInt(overlay.lastValue)}</text>
-      )}
-      <text class="vptrend__xlabel" x={chart.plot.x} y={chart.height - 8} text-anchor="start">Epoch {firstEpoch}</text>
-      <text class="vptrend__xlabel" x={chart.plot.x + chart.plot.w} y={chart.height - 8} text-anchor="end">Epoch {lastEpoch}</text>
-    </svg>
+    {variants.map(({ key, chart, overlay, delLabelY }) => (
+      <svg
+        class={`vptrend__chart vptrend__chart--${key}`}
+        viewBox={`0 0 ${chart.width} ${chart.height}`}
+        role="img"
+        aria-label={overlay
+          ? `Voting power and delegator count from epoch ${firstEpoch} to ${lastEpoch}. Voting power ${adaTick(values[values.length - 1])}, delegators ${fmtInt(overlay.lastValue)}.`
+          : `Voting power from epoch ${firstEpoch} to ${lastEpoch}`}
+      >
+        <defs>
+          <linearGradient id={`vptrend-fill-${key}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="currentColor" stop-opacity="0.2" />
+            <stop offset="100%" stop-color="currentColor" stop-opacity="0" />
+          </linearGradient>
+        </defs>
+        {chart.yTicks.map((t) => (
+          <line class="vptrend__grid" x1={chart.plot.x} y1={t.y} x2={chart.plot.x + chart.plot.w} y2={t.y} />
+        ))}
+        <path class="vptrend__area" d={chart.area} fill={`url(#vptrend-fill-${key})`} />
+        <polyline class="vptrend__line" points={chart.line} vector-effect="non-scaling-stroke" />
+        <circle class="vptrend__dot-ring" cx={chart.last.x} cy={chart.last.y} r="5.5" />
+        <circle class="vptrend__dot" cx={chart.last.x} cy={chart.last.y} r="3.5" />
+        {overlay && (
+          <>
+            <polyline class="vptrend__delline" points={overlay.line} vector-effect="non-scaling-stroke" />
+            <circle class="vptrend__deldot" cx={overlay.last.x} cy={overlay.last.y} r="2.75" />
+          </>
+        )}
+        {chart.yTicks.map((t) => (
+          <text class="vptrend__ylabel" x={chart.plot.x + chart.plot.w + 8} y={t.y + 4}>{adaTick(t.value)}</text>
+        ))}
+        {overlay && delLabelY != null && (
+          <text class="vptrend__dellabel" x={chart.plot.x + chart.plot.w + 8} y={delLabelY}>{fmtInt(overlay.lastValue)}</text>
+        )}
+        <text class="vptrend__xlabel" x={chart.plot.x} y={chart.height - 8} text-anchor="start">Epoch {firstEpoch}</text>
+        <text class="vptrend__xlabel" x={chart.plot.x + chart.plot.w} y={chart.height - 8} text-anchor="end">Epoch {lastEpoch}</text>
+      </svg>
+    ))}
 
     {(spanDelta && spanDisplay) || overlay ? (
       <footer class="vptrend__foot">
@@ -166,10 +182,9 @@ const hoverText = (d: VotingPowerDelta | null, label: string): string | undefine
 <style>
   .vptrend {
     --vp-color: var(--c-pos);
-    /* A compact widget, not a full-width banner: caps at ~32rem on desktop and
-       falls back to full width on narrow screens. The page places it in a summary
-       row, which owns the surrounding margin. */
-    max-width: 32rem;
+    /* Fills its grid cell: both pages place it in a summary row, which owns the
+       width and the surrounding margin. */
+    container-type: inline-size;
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     background: var(--surface-2);
@@ -212,11 +227,17 @@ const hoverText = (d: VotingPowerDelta | null, label: string): string | undefine
     height: auto;
     margin: 0.4rem 0 0.2rem;
   }
+  /* Past 35rem of card width the narrow geometry would blow its labels up beyond
+     ~14px, so the wide one takes over (its labels start at ~11px there). */
+  .vptrend__chart--wide { display: none; }
+  @container (min-width: 35rem) {
+    .vptrend__chart--narrow { display: none; }
+    .vptrend__chart--wide { display: block; }
+  }
   .vptrend__grid { stroke: var(--border); stroke-dasharray: 4 5; }
   .vptrend__ylabel,
   .vptrend__xlabel { fill: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
   .vptrend__dellabel { fill: var(--accent); font-size: 12px; font-variant-numeric: tabular-nums; }
-  .vptrend__area { fill: url(#vptrend-fill); }
   .vptrend__line { fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
   .vptrend__dot-ring { fill: var(--surface-2); }
   .vptrend__dot { fill: currentColor; }

@@ -20,15 +20,15 @@ import { AVATAR_THUMB_EDGE } from '../identity/avatarUrl.js';
 
 // Hard ceiling on the bytes we are willing to keep in R2 for one avatar (512 KB).
 // An image over this is only storable as a downscaled WebP; without a downscaler
-// it is rejected. Exported so the upload endpoint shares the same cap.
-export const MAX_IMAGE_BYTES = 512 * 1024;
+// it is rejected.
+const MAX_IMAGE_BYTES = 512 * 1024;
 // Above this size (24 KB) an avatar is refitted to AVATAR_MAX_EDGE as WebP before
 // storing. Sources are routinely 512px or 1024px artwork shown in a 38px list
 // cell, so the source bytes are mostly resolution nobody ever sees: a typical
 // 200 KB PNG lands around 12 KB with no visible difference at any size the UI
 // renders. Below the threshold the source is already cheap enough that a
 // re-encode is not worth the transform, so it is stored byte for byte.
-export const AVATAR_REFIT_ABOVE_BYTES = 24 * 1024;
+const AVATAR_REFIT_ABOVE_BYTES = 24 * 1024;
 // Hard ceiling on a fetched or uploaded image (10 MB). Above this the source is
 // treated as mislinked or hostile and rejected outright, even for downscaling.
 export const MAX_DOWNLOAD_BYTES = 10 * 1024 * 1024;
