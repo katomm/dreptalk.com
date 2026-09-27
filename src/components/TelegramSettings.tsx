@@ -55,7 +55,7 @@ export default function TelegramSettings({
       const data = (await res.json()) as { channels: (ClientChannelProps & { channel: string })[] };
       return data.channels
         .filter((c) => c.channel === 'telegram')
-        .map((c) => ({ id: c.id, createdAt: c.createdAt, deliveredUntil: c.deliveredUntil, label: c.label, fingerprint: c.fingerprint }));
+        .map((c) => ({ id: c.id, createdAt: c.createdAt, deliveredUntil: c.deliveredUntil, lastSentAt: c.lastSentAt, label: c.label, fingerprint: c.fingerprint }));
     } catch {
       return null;
     }
@@ -222,8 +222,8 @@ export default function TelegramSettings({
                     <p className="nset__rowtitle">{chat.label ?? 'Connected chat'}</p>
                     <p className="nset__rowmeta">
                       Connected on {new Date(chat.createdAt).toLocaleDateString()}
-                      {chat.deliveredUntil > chat.createdAt &&
-                        ` · Last notified ${relativeTime(chat.deliveredUntil, now)}`}
+                      {chat.lastSentAt != null &&
+                        ` · Last notified ${relativeTime(chat.lastSentAt, now)}`}
                     </p>
                   </div>
                   <div className="nset__rowactions">

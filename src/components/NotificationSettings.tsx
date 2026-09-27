@@ -180,7 +180,7 @@ export default function NotificationSettings({ channels, prefs, vapidPublicKey, 
       setDevices((prev) =>
         prev.some((d) => d.id === id)
           ? prev
-          : [...prev, { id, createdAt: now, deliveredUntil: now, label: null, fingerprint: fp }],
+          : [...prev, { id, createdAt: now, deliveredUntil: now, lastSentAt: null, label: null, fingerprint: fp }],
       );
       setPhase({ status: 'idle' });
     } catch {
@@ -311,8 +311,8 @@ export default function NotificationSettings({ channels, prefs, vapidPublicKey, 
                     <p className="nset__rowtitle">{isThisDevice ? 'This device' : 'Device'}</p>
                     <p className="nset__rowmeta">
                       Added on {new Date(device.createdAt).toLocaleDateString()}
-                      {device.deliveredUntil > device.createdAt &&
-                        ` · Last notified ${relativeTime(device.deliveredUntil, now)}`}
+                      {device.lastSentAt != null &&
+                        ` · Last notified ${relativeTime(device.lastSentAt, now)}`}
                     </p>
                   </div>
                   <div className="nset__rowactions">

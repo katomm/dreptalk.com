@@ -11,6 +11,8 @@ import {
   deleteChannelById,
   setChannelCursor,
   claimChannelCursor,
+  handBackChannelCursor,
+  markChannelSent,
   getPrefs,
   setPref,
   getPendingCounts,
@@ -232,6 +234,48 @@ describe('claimChannelCursor', () => {
       .bind(id)
       .first<{ dispatch_attempted_at: number }>();
     expect(stamp!.dispatch_attempted_at).toBe(1);
+  });
+});
+
+describe('handBackChannelCursor', () => {
+  it('restores the old value when the row still holds the claimed value', async () => {
+    const id = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', endpoint: 'https://push.example/a' });
+    await setChannelCursor(db(), id, 100);
+    await claimChannelCursor(db(), id, 100, 500, 1); // this pass claims 100 -> 500
+
+    await handBackChannelCursor(db(), id, 500, 100); // the send failed, hand it back
+
+    const [row] = await listChannels(db(), 'alice');
+    expect(row.delivered_until).toBe(100);
+  });
+
+  it('does not rewind a cursor a later pass already moved past the claimed value', async () => {
+    const id = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', endpoint: 'https://push.example/a' });
+    await setChannelCursor(db(), id, 100);
+    // Slow pass A claims 100 -> 500.
+    await claimChannelCursor(db(), id, 100, 500, 1);
+    // Pass B, overlapping, claims the next bundle before A's handback runs.
+    await claimChannelCursor(db(), id, 500, 900, 2);
+
+    // A's send failed and it now hands its claim back, still thinking the row holds 500.
+    await handBackChannelCursor(db(), id, 500, 100);
+
+    const [row] = await listChannels(db(), 'alice');
+    // Unchanged: rewinding to 100 would make B's already-sent bundle pending again.
+    expect(row.delivered_until).toBe(900);
+  });
+});
+
+describe('markChannelSent', () => {
+  it('sets last_sent_at from the database clock', async () => {
+    const id = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', endpoint: 'https://push.example/a' });
+    const { lo, hi } = await withDbClock(db(), () => markChannelSent(db(), id));
+    const row = await db()
+      .prepare('SELECT last_sent_at FROM notification_channels WHERE id = ?')
+      .bind(id)
+      .first<{ last_sent_at: number }>();
+    expect(row!.last_sent_at).toBeGreaterThanOrEqual(lo);
+    expect(row!.last_sent_at).toBeLessThanOrEqual(hi);
   });
 });
 
@@ -484,6 +528,11 @@ describe('migration 0113', () => {
       .bind(id)
       .first<{ dispatch_attempted_at: number }>();
     expect(row?.dispatch_attempted_at).toBe(0);
+    const lastSent = await db()
+      .prepare('SELECT last_sent_at FROM notification_channels WHERE id = ?')
+      .bind(id)
+      .first<{ last_sent_at: number | null }>();
+    expect(lastSent?.last_sent_at).toBeNull();
     const { results } = await db()
       .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name IN (?, ?, ?, ?, ?)")
       .bind('idx_notification_channels_dispatch', 'idx_notifications_created', 'idx_fanout_jobs_open_rotation',

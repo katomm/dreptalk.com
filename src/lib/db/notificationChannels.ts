@@ -29,6 +29,8 @@ export interface NotificationChannelRow {
   label: string | null;
   created_at: number;
   delivered_until: number;
+  /** Unix ms of the last successful send, or null if none yet. Never set by the muted/nothing-to-send path. */
+  last_sent_at: number | null;
 }
 
 /**
@@ -81,7 +83,7 @@ export async function removeChannel(db: D1Database, userId: string, id: string):
 export async function listChannels(db: D1Database, userId: string): Promise<NotificationChannelRow[]> {
   const { results } = await db
     .prepare(
-      `SELECT id, user_id, channel, target, endpoint, label, created_at, delivered_until
+      `SELECT id, user_id, channel, target, endpoint, label, created_at, delivered_until, last_sent_at
        FROM notification_channels
        WHERE user_id = ?`,
     )
@@ -131,7 +133,7 @@ export async function listDispatchCandidates(
   if (limit <= 0) return [];
   const { results } = await db
     .prepare(
-      `SELECT id, user_id, channel, target, endpoint, label, created_at, delivered_until
+      `SELECT id, user_id, channel, target, endpoint, label, created_at, delivered_until, last_sent_at
          FROM notification_channels c
         WHERE c.channel = ?1
           AND (c.delivered_until < ?2
@@ -160,7 +162,7 @@ export async function deleteChannelsByEndpoint(db: D1Database, endpoint: string)
   return result.meta.changes ?? 0;
 }
 
-/** Sets the delivery cursor unconditionally; used to hand a claim back on failure. */
+/** Sets the delivery cursor unconditionally. Test seeding only; production hands a claim back through handBackChannelCursor. */
 export async function setChannelCursor(db: D1Database, id: string, deliveredUntil: number): Promise<void> {
   await db.prepare('UPDATE notification_channels SET delivered_until = ? WHERE id = ?').bind(deliveredUntil, id).run();
 }
@@ -172,7 +174,7 @@ export async function setChannelCursor(db: D1Database, id: string, deliveredUnti
  * the dispatch loop at once. Both would read the same delivered_until and send
  * the same bundle. Only one conditional UPDATE can match, so the loser gets
  * false and skips the channel. Callers must claim BEFORE sending and hand the
- * claim back (setChannelCursor to the old value) when delivery does not succeed.
+ * claim back (handBackChannelCursor) when delivery does not succeed.
  *
  * The same UPDATE stamps dispatch_attempted_at, the rotation key of
  * listDispatchCandidates. A handback restores only delivered_until and leaves
@@ -192,6 +194,31 @@ export async function claimChannelCursor(
     .bind(deliveredUntil, attemptedAt, id, expected)
     .run();
   return (res.meta.changes ?? 0) > 0;
+}
+
+/**
+ * Restores a channel's cursor after a claim did not lead to a successful send,
+ * but only while the row still holds the value this pass claimed. A slow pass
+ * can fail after a later pass already claimed and sent the next bundle. An
+ * unconditional handback would then rewind that later pass's cursor and its
+ * bundle would go out again. When the row no longer holds `claimedValue`
+ * (another pass already moved it on), this is a no-op.
+ */
+export async function handBackChannelCursor(
+  db: D1Database,
+  id: string,
+  claimedValue: number,
+  restoreTo: number,
+): Promise<void> {
+  await db
+    .prepare('UPDATE notification_channels SET delivered_until = ? WHERE id = ? AND delivered_until = ?')
+    .bind(restoreTo, id, claimedValue)
+    .run();
+}
+
+/** Sets last_sent_at to the database clock; called only after a confirmed successful send. */
+export async function markChannelSent(db: D1Database, id: string): Promise<void> {
+  await db.prepare(`UPDATE notification_channels SET last_sent_at = ${DB_NOW_MS} WHERE id = ?`).bind(id).run();
 }
 
 /** Per-event-type prefs for one user/channel; a missing row counts as enabled. */

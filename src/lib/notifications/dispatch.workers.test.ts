@@ -130,9 +130,9 @@ async function seedGov(
 
 async function cursorOf(id: string) {
   return (await db()
-    .prepare('SELECT delivered_until, dispatch_attempted_at FROM notification_channels WHERE id = ?')
+    .prepare('SELECT delivered_until, dispatch_attempted_at, last_sent_at FROM notification_channels WHERE id = ?')
     .bind(id)
-    .first<{ delivered_until: number; dispatch_attempted_at: number }>())!;
+    .first<{ delivered_until: number; dispatch_attempted_at: number; last_sent_at: number | null }>())!;
 }
 
 async function channelsOf(kind: 'webpush' | 'telegram') {
@@ -179,6 +179,9 @@ describe('dispatchWebPush', () => {
     const row = await cursorOf(id);
     expect(row.delivered_until).toBe(999);
     expect(row.dispatch_attempted_at).toBeGreaterThan(0);
+    // A confirmed send stamps last_sent_at, distinct from the cursor: it is
+    // what the settings page shows as "Last notified", never the muted advance.
+    expect(row.last_sent_at).not.toBeNull();
   });
 
   it('carries the signed-in unread count as the app-icon badge', async () => {
@@ -205,6 +208,23 @@ describe('dispatchWebPush', () => {
     const row = await cursorOf(id);
     expect(row.delivered_until).toBe(100);
     expect(row.dispatch_attempted_at).toBe(0);
+    expect(row.last_sent_at).toBeNull();
+  });
+
+  it('a muted pass advances the cursor but never sets last_sent_at', async () => {
+    const id = await addWebpushChannel('alice', 100);
+    await setPref(db(), { userId: 'alice', channel: 'webpush', eventType: 'mention', enabled: false });
+    await seedPersonal('alice', 'mention', 200); // only muted work pending
+    const { send, calls } = fakeSend({ ok: true, status: 201 });
+
+    const result = await dispatchWebPush(db(), VAPID, deps(send, 999));
+
+    expect(result).toEqual({ sent: 0, pruned: 0, skipped: 1, deferred: false });
+    expect(calls).toHaveLength(0);
+    const row = await cursorOf(id);
+    // The cursor advanced past the muted row (rotation), but nothing was sent.
+    expect(row.delivered_until).toBe(999);
+    expect(row.last_sent_at).toBeNull();
   });
 
   it('prunes the channel row on a 410 Gone response', async () => {
@@ -249,6 +269,7 @@ describe('dispatchWebPush', () => {
     const first = await dispatchWebPush(db(), VAPID, deps(send, 999));
     expect(first).toEqual({ sent: 0, pruned: 0, skipped: 0, deferred: false });
     expect((await cursorOf(id)).delivered_until).toBe(100); // cursor did not move
+    expect((await cursorOf(id)).last_sent_at).toBeNull(); // a failed send never sets it
 
     const second = await dispatchWebPush(db(), VAPID, deps(send, 1500));
     expect(second).toEqual({ sent: 0, pruned: 0, skipped: 0, deferred: false });
@@ -648,8 +669,11 @@ describe('dispatch pass interval and candidates', () => {
     );
     await dispatchWebPush(db(), VAPID, { send, allowance: UNLIMITED, afterPassStart });
     expect(payloads.length).toBe(1);
-    // The first bundle is exactly the one reply from before the pass.
-    expect(JSON.parse(payloads[0]).body).not.toMatch(/2 /);
+    // The first bundle is exactly the one reply from before the pass: with no
+    // topic on the seeded row the lead cannot resolve, so it falls to the
+    // count-only summary. A leaked governance row or late reply in pass 1
+    // would either change this exact text or make the lead resolve at all.
+    expect(JSON.parse(payloads[0])).toMatchObject({ title: 'New activity', body: '1 new reply' });
     const passEndCursor = (await cursorOf(id)).delivered_until;
     const late = await db()
       .prepare("SELECT MIN(created_at) AS m FROM notifications WHERE recipient_id = 'u-mid' AND actor_id IN ('y', 'z')")
@@ -661,6 +685,27 @@ describe('dispatch pass interval and candidates', () => {
     expect(payloads.length).toBe(2);
     await dispatchWebPush(db(), VAPID, { send, allowance: UNLIMITED });
     expect(payloads.length).toBe(2);
+  });
+
+  it('resolvePendingLead names the item inside the pass, never one past passEnd', async () => {
+    await seedUser('u-lead');
+    await seedTopic('t-lead-early');
+    await seedTopic('t-lead-late');
+    await addWebpushChannel('u-lead', 0);
+    // Within the pass interval (<= 999): the item the lead must name.
+    await seedPersonal('u-lead', 'reply', 200, { topicId: 't-lead-early', postId: 'p-early', actorId: 'actor-early' });
+    // Past passEnd: written later in real time (a reply on a newer topic), must
+    // not be picked even though it is the newer row overall.
+    await seedPersonal('u-lead', 'reply', 1200, { topicId: 't-lead-late', postId: 'p-late', actorId: 'actor-late' });
+    const { send, calls } = fakeSend({ ok: true, status: 201 });
+
+    const result = await dispatchWebPush(db(), VAPID, deps(send, 999));
+
+    expect(result).toEqual({ sent: 1, pruned: 0, skipped: 0, deferred: false });
+    const payload = JSON.parse(calls[0].payload);
+    expect(payload.url).toBe('/t/t-lead-early-slug/?tab=discussion#post-p-early');
+    expect(payload.url).not.toContain('t-lead-late-slug');
+    expect(payload.url).not.toContain('p-late');
   });
 });
 
@@ -682,6 +727,9 @@ describe('DISPATCH_QUERIES_PER_CHANNEL_MAX', () => {
     const before = meter.used();
     await dispatchWebPush(counted, VAPID, { send, allowance: UNLIMITED, passEnd: 999 });
     const perChannel = meter.used() - before - 2; // minus pass start and candidate query
+    // Pinned exactly, not just bounded: a silent increase here must fail this
+    // test and prompt updating DISPATCH_QUERIES_PER_CHANNEL_MAX's comment too.
+    expect(perChannel).toBe(11);
     expect(perChannel).toBeLessThanOrEqual(DISPATCH_QUERIES_PER_CHANNEL_MAX);
     // The failed send took the handback path: the cursor is back, the rotation stamp stays.
     const after = await cursorOf(channelId);

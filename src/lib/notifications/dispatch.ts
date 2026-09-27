@@ -13,7 +13,8 @@ import {
   getPrefs,
   getPendingCounts,
   claimChannelCursor,
-  setChannelCursor,
+  handBackChannelCursor,
+  markChannelSent,
   deleteChannelById,
   type NotificationChannelKind,
   type NotificationChannelRow,
@@ -174,6 +175,7 @@ async function dispatchChannels(
       if (outcome === 'sent') {
         claimed = false;
         sent++;
+        await markChannelSent(db, row.id);
       } else if (outcome === 'dead') {
         claimed = false;
         await deleteChannelById(db, row.id);
@@ -182,7 +184,7 @@ async function dispatchChannels(
     } catch (err) {
       console.error(`[${kind}-dispatch] channel ${row.id} failed`, err);
     } finally {
-      if (claimed) await setChannelCursor(db, row.id, row.delivered_until);
+      if (claimed) await handBackChannelCursor(db, row.id, nextCursor, row.delivered_until);
     }
   }
 
