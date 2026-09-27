@@ -681,6 +681,7 @@ export function bodyStake(a: RowVotingInput, body: Body, thresholdPct: number | 
   const drep = body === 'DRep';
   return buildBodyStake({
     actionType: a.type,
+    body,
     activeYesPower: drep ? a.drepYesPower : a.spoYesPower,
     activeNoPower: drep ? a.drepNoPower : a.spoNoPower,
     activeAbstainPower: drep ? a.drepAbstainPower : a.spoAbstainPower,

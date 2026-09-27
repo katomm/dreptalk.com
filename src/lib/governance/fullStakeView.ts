@@ -4,6 +4,9 @@
 //   counted = activeYes + noSide            the ratification denominator
 //   total   = counted + activeAbstain + alwaysAbstain    every eligible lovelace
 //
+// except for the SPO vote on a HardForkInitiation, where the always-abstain stake is
+// already inside noSide (see alwaysAbstainIsNoSide) and total = counted + activeAbstain.
+//
 // The yes percentage is counted-based (it is what the threshold is measured
 // against, and what gov.tools/adastats/Cardanoscan show), turnout is total-based.
 // Reporting one against the other's denominator is the bug this module exists to
@@ -67,6 +70,7 @@ export interface BodyStakeView {
 
 export interface BodyStakeInput {
   actionType: string;
+  body: 'DRep' | 'SPO';
   /** The stored INTEGER power columns, safe under 2^53. */
   activeYesPower: number | null;
   activeNoPower: number | null;
@@ -81,7 +85,8 @@ export interface BodyStakeInput {
 
 // Ordered so the bar reads yes side, then no side, then the excluded tail: the
 // counted stake stays contiguous from the left, which is what lets the threshold
-// marker sit at a meaningful position on the full-stake axis.
+// marker sit at a meaningful position on the full-stake axis. When always-abstain is
+// counted (alwaysAbstainIsNoSide), it moves ahead of the voted abstain for the same reason.
 const SEGMENT_ORDER: FullStakeSegmentKey[] = [
   'yes',
   'no',
@@ -89,6 +94,14 @@ const SEGMENT_ORDER: FullStakeSegmentKey[] = [
   'alwaysNoConfidence',
   'activeAbstain',
   'alwaysAbstain',
+];
+const SEGMENT_ORDER_AA_COUNTED: FullStakeSegmentKey[] = [
+  'yes',
+  'no',
+  'defaultNo',
+  'alwaysNoConfidence',
+  'alwaysAbstain',
+  'activeAbstain',
 ];
 
 const COUNTED: Record<FullStakeSegmentKey, boolean> = {
@@ -127,11 +140,30 @@ export function ancIsNoSide(actionType: string): boolean {
 }
 
 /**
+ * Whether the always-abstain bucket is part of the No side instead of leaving the
+ * tally. Only for the SPO vote on a HardForkInitiation: the ledger ignores the
+ * reward-account default there and counts every pool that did not vote as No.
+ *
+ * Koios already folds that stake into pool_no_vote_power for hard forks, the same way
+ * it folds in always-no-confidence, and still reports the bucket on its own. Verified
+ * on both mainnet hard forks against the epoch's total active stake: van Rossem
+ * (epoch 643) yes + no side + voted abstain is 21.40B of 21.41B active, Plomin
+ * (epoch 536) 21.73B of 21.77B. Adding the always-abstain bucket on top would exceed
+ * the stake that exists (25.41B, 21.98B), and van Rossem, ratified against a 51%
+ * threshold, would read 44.05% yes. So here the bucket is a part of the No side and is
+ * split out of it for display. For every other type and for DReps it sits outside the
+ * No side and outside the tally.
+ */
+export function alwaysAbstainIsNoSide(actionType: string, body: 'DRep' | 'SPO'): boolean {
+  return body === 'SPO' && actionType === 'HardForkInitiation';
+}
+
+/**
  * The yes share of the ratification denominator (yes + no side), four decimals,
  * computed from the stored power columns. Null when a column is missing, and for
- * the two cases the plain no side does not describe: NoConfidence (see ancIsNoSide)
- * and the SPO vote on a HardForkInitiation, where the ledger also counts the
- * always-abstain stake as No (see spoTallyPct in koios/corrections.ts).
+ * NoConfidence, which the plain no side does not describe (see ancIsNoSide). The SPO
+ * vote on a hard fork needs no exception: its no side already holds the
+ * always-abstain stake the ledger counts as No (see alwaysAbstainIsNoSide).
  */
 export function ratificationYesPct(input: {
   actionType: string;
@@ -140,7 +172,6 @@ export function ratificationYesPct(input: {
   noSidePower: string | null;
 }): number | null {
   if (input.yesPower === null || input.noSidePower === null || !ancIsNoSide(input.actionType)) return null;
-  if (input.body === 'SPO' && input.actionType === 'HardForkInitiation') return null;
   let yes: bigint;
   let noSide: bigint;
   try {
@@ -225,14 +256,16 @@ export function buildBodyStake(input: BodyStakeInput): BodyStakeView | null {
   const activeNo = activePower(input.activeNoPower);
   const activeAbstain = activePower(input.activeAbstainPower);
 
-  // What is left of the No side once the two identifiable parts come off is the
-  // stake that never voted and carries the default No. Clamped: a Koios snapshot
-  // taken mid-update can report a No side smaller than its own parts.
-  const defaultNoRaw = noSide - activeNo - alwaysNoConfidence;
+  const aaCounted = alwaysAbstainIsNoSide(input.actionType, input.body);
+
+  // What is left of the No side once the identifiable parts come off is the stake
+  // that never voted and carries the default No. Clamped: a Koios snapshot taken
+  // mid-update can report a No side smaller than its own parts.
+  const defaultNoRaw = noSide - activeNo - alwaysNoConfidence - (aaCounted ? alwaysAbstain : 0n);
   const defaultNo = defaultNoRaw > 0n ? defaultNoRaw : 0n;
 
   const counted = activeYes + noSide;
-  const excluded = activeAbstain + alwaysAbstain;
+  const excluded = aaCounted ? activeAbstain : activeAbstain + alwaysAbstain;
   const total = counted + excluded;
   if (total <= 0n) return null;
 
@@ -245,12 +278,13 @@ export function buildBodyStake(input: BodyStakeInput): BodyStakeView | null {
     alwaysAbstain,
   };
 
-  const segments: FullStakeSegment[] = SEGMENT_ORDER.filter((key) => amounts[key] > 0n).map((key) => ({
+  const order = aaCounted ? SEGMENT_ORDER_AA_COUNTED : SEGMENT_ORDER;
+  const segments: FullStakeSegment[] = order.filter((key) => amounts[key] > 0n).map((key) => ({
     key,
     pct: pct4(amounts[key], total),
-    label: LABELS[key],
+    label: key === 'alwaysAbstain' && aaCounted ? 'Always abstain, counted as No' : LABELS[key],
     amountLabel: ada(amounts[key]),
-    counted: COUNTED[key],
+    counted: key === 'alwaysAbstain' ? aaCounted : COUNTED[key],
   }));
 
   return {
