@@ -29,9 +29,18 @@ export function fanoutPageCost(pageSize: number): number {
  * given allowance. Fairness: each pass advances every listed open job by
  * exactly one page of followers, so a mega-job (many followers) can never
  * starve a small job behind it; passes repeat until no open jobs remain or
- * the allowance cannot cover another page, in which case deferred is true
+ * the allowance cannot cover another pass, in which case deferred is true
  * and the jobs left behind keep their cursor to be reached on the next run
  * (see listOpenJobs' rotation order).
+ *
+ * deferred is true only when work may remain: a job processed in the last
+ * pass did not complete, the last pass could not list as many jobs as it
+ * found (there may be more beyond what the allowance could afford to list),
+ * or the allowance ran out mid-pass before a listed job could be processed.
+ * To tell "that was every open job" from "there may be more beyond this
+ * listing" without a separate count query, each pass asks listOpenJobs for
+ * one row more than it can afford to process. The listing is billed as one
+ * query regardless of LIMIT, so the peek costs nothing extra.
  *
  * now is unix SECONDS (the outbox's unit), used only for the job table's
  * updated_at / completed_at. The notifications this worker writes get
@@ -59,15 +68,28 @@ export async function runFanout(
   for (;;) {
     if (!budget.covers(1 + pageCost)) return { jobs: touchedJobs.size, delivered, completed, deferred: true };
     const affordable = Math.floor((budget.remaining() - 1) / pageCost);
-    const openJobs = await listOpenJobs(db, Math.min(1000, affordable));
+    const limit = Math.min(1000, affordable);
+    const openJobs = await listOpenJobs(db, limit + 1);
     if (openJobs.length === 0) return { jobs: touchedJobs.size, delivered, completed, deferred: false };
-    for (const job of openJobs) {
+    // More open jobs exist than this pass can afford to process: the ones
+    // beyond the affordable count are left for a later pass or run.
+    const truncated = openJobs.length > limit;
+    const toProcess = truncated ? openJobs.slice(0, limit) : openJobs;
+
+    let allCompleted = true;
+    for (const job of toProcess) {
       if (!budget.covers(pageCost)) return { jobs: touchedJobs.size, delivered, completed, deferred: true };
       touchedJobs.add(job.event_key);
       const drained = await processOnePage(db, job, pageSize, now);
       delivered += drained.delivered;
       if (drained.completed) completed += 1;
+      else allCompleted = false;
     }
+
+    // Every listed job completed and there is nothing beyond this listing:
+    // the run is done, not deferred. Otherwise loop again, budget permitting,
+    // rather than guessing from the allowance alone.
+    if (!truncated && allCompleted) return { jobs: touchedJobs.size, delivered, completed, deferred: false };
   }
 }
 

@@ -6,7 +6,7 @@ import { buildJobInsert, listOpenJobs, type FanoutJobInput } from '../db/fanoutJ
 import { runFanout, fanoutPageCost } from './fanout.js';
 import { addChannel, getPendingCounts, getPrefs, listChannels } from '../db/notificationChannels.js';
 import { countingDb, allowance } from '../sync/queryBudget.js';
-import { withDbClock } from '../db/__tests__/dbClock.js';
+import { withDbClock, afterDbMs } from '../db/__tests__/dbClock.js';
 
 const db = () => env.DB as D1Database;
 
@@ -111,6 +111,13 @@ describe('runFanout', () => {
       target: 'sub-a',
       endpoint: 'https://push.example/user-a',
     });
+    const [channelRow] = await listChannels(db(), 'user-a');
+    // Both delivered_until (just above) and the fan-out insert's created_at
+    // (below) are stamped by the database clock. Wait past the clock tick
+    // that produced delivered_until first, so the strict created_at >
+    // delivered_until comparison in getPendingCounts cannot tie on the same
+    // millisecond.
+    await afterDbMs(db(), channelRow.delivered_until);
 
     const now = 900; // materialization happens well after source_time
     await runFanout(db(), now);
@@ -246,6 +253,15 @@ describe('runFanout', () => {
     expect(r.completed).toBe(1);
     expect(meter.used()).toBeLessThanOrEqual(1 + fanoutPageCost(100) + 1);
     expect((await listOpenJobs(db(), 10)).length).toBe(0);
+  });
+
+  it('is not deferred when the allowance exactly covers the last job draining in one page', async () => {
+    await insertFollow('u1', 'drep1', 50);
+    await buildJobInsert(db(), job()).run();
+    const page = 2;
+    const { db: counted, meter } = countingDb(db());
+    const r = await runFanout(counted, 1000, { pageSize: page, allowance: allowance(meter, 1 + fanoutPageCost(page)) });
+    expect(r).toMatchObject({ completed: 1, deferred: false });
   });
 
   it('a page is atomic: a failing batch leaves no rows and no cursor step', async () => {
