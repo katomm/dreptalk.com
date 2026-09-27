@@ -18,6 +18,7 @@ import { createTopic, getOpeningPostBody } from '../db/forum.js';
 import type { ProposalListRow } from '../koios/client.js';
 import { blake2b256 } from '../crypto/blake.js';
 import { bytesToHex } from '../crypto/hex.js';
+import { withDbClock } from '../db/__tests__/dbClock.js';
 
 const anchorDoc = {
   body: { title: 'Fund Community Tooling', abstract: 'A treasury withdrawal for tooling.', rationale: 'Rationale.' },
@@ -685,26 +686,28 @@ describe('submission-date post stamping and backfill', () => {
     const BLOCK_TIME = 1_742_400_123; // unix seconds, well after the epoch-200 boundary
     const NOW = 1_742_500_000_000;
     let n = 0;
-    await syncGovernanceActions({
-      koios: fakeKoios([
-        {
-          proposal_id: 'gov_action1exact',
-          proposal_tx_hash: txHash,
-          proposal_index: 0,
-          proposal_type: 'InfoAction',
-          meta_url: null,
-          meta_hash: null,
-          proposed_epoch: 200,
-          expiration: 230,
-          block_time: BLOCK_TIME,
-        },
-      ]),
-      db: env.DB,
-      network: 'preprod',
-      now: NOW,
-      rand: () => `rex${n++}`,
-      fetchImpl: fetchOk,
-    });
+    const { lo, hi } = await withDbClock(env.DB, () =>
+      syncGovernanceActions({
+        koios: fakeKoios([
+          {
+            proposal_id: 'gov_action1exact',
+            proposal_tx_hash: txHash,
+            proposal_index: 0,
+            proposal_type: 'InfoAction',
+            meta_url: null,
+            meta_hash: null,
+            proposed_epoch: 200,
+            expiration: 230,
+            block_time: BLOCK_TIME,
+          },
+        ]),
+        db: env.DB,
+        network: 'preprod',
+        now: NOW,
+        rand: () => `rex${n++}`,
+        fetchImpl: fetchOk,
+      }),
+    );
     const row = await env.DB
       .prepare(
         `SELECT t.id AS topicId, t.created_at AS tc, t.last_post_at AS tl, p.created_at AS pc
@@ -717,14 +720,16 @@ describe('submission-date post stamping and backfill', () => {
       .first<{ topicId: string; tc: number; tl: number; pc: number }>();
     expect(row).toMatchObject({ tc: BLOCK_TIME * 1000, tl: BLOCK_TIME * 1000, pc: BLOCK_TIME * 1000 });
 
-    // The feed event carries the same exact date, while notified_at stays the
-    // detection time so notification cursors still see the action as new.
+    // The feed event carries the same exact date, while notified_at is
+    // stamped with the database clock so notification cursors still see
+    // the action as new.
     const ev = await env.DB
       .prepare("SELECT created_at, notified_at FROM activity WHERE type = 'gov_created' AND topic_id = ?")
       .bind(row!.topicId)
       .first<{ created_at: number; notified_at: number }>();
     expect(ev!.created_at).toBe(BLOCK_TIME * 1000);
-    expect(ev!.notified_at).toBe(NOW);
+    expect(ev!.notified_at).toBeGreaterThanOrEqual(lo);
+    expect(ev!.notified_at).toBeLessThanOrEqual(hi);
   });
 
   it('corrects a no-reply governance topic to the submission time, then is a no-op', async () => {

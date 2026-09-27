@@ -11,6 +11,8 @@ import {
 } from './notifications.js';
 import { activityInsert } from './activity.js';
 import { announceLatestEdition } from './reviewAnnouncements.js';
+import { readDbNow } from './sql.js';
+import { withDbClock, afterDbMs } from './__tests__/dbClock.js';
 
 const db = () => env.DB;
 
@@ -33,20 +35,39 @@ async function seedTopic(id: string, opts?: { deleted?: boolean }) {
     .run();
 }
 
-function insert(recipientId: string, createdAt: number, type: 'reply' | 'mention' = 'reply') {
-  return {
-    recipientId,
-    type,
-    actorId: 'actor',
-    topicId: 'topic1',
-    postId: `post-${createdAt}`,
-    createdAt,
-  };
+/** Seeds a notification row with an explicit created_at, for the ordering test below, which checks a controlled time and cannot go through insertNotifications now that created_at comes from the database clock. */
+async function seedNotification(recipientId: string, createdAt: number, type: 'reply' | 'mention' = 'reply') {
+  await db()
+    .prepare(
+      `INSERT INTO notifications (id, recipient_id, type, actor_id, topic_id, post_id, created_at)
+       VALUES (?, ?, ?, 'actor', 'topic1', ?, ?)`,
+    )
+    .bind(crypto.randomUUID(), recipientId, type, `post-${createdAt}`, createdAt)
+    .run();
+}
+
+function insert(recipientId: string, type: 'reply' | 'mention' = 'reply') {
+  return { recipientId, type, actorId: 'actor', topicId: 'topic1', postId: crypto.randomUUID() };
 }
 
 describe('insertNotifications + getNotificationsPage', () => {
-  it('inserts rows and reads them back newest first, only for the recipient', async () => {
-    await insertNotifications(db(), [insert('alice', 100), insert('alice', 200, 'mention'), insert('bob', 150)]);
+  it('stamps created_at with the database clock', async () => {
+    const { lo, hi } = await withDbClock(db(), () =>
+      insertNotifications(db(), [
+        { recipientId: 'u1', type: 'reply', actorId: 'a', topicId: 't', postId: 'p' },
+      ]),
+    );
+    const row = await db()
+      .prepare("SELECT created_at FROM notifications WHERE recipient_id = 'u1'")
+      .first<{ created_at: number }>();
+    expect(row!.created_at).toBeGreaterThanOrEqual(lo);
+    expect(row!.created_at).toBeLessThanOrEqual(hi);
+  });
+
+  it('reads rows back newest first, only for the recipient', async () => {
+    await seedNotification('alice', 100);
+    await seedNotification('alice', 200, 'mention');
+    await seedNotification('bob', 150);
     const page = await getNotificationsPage(db(), 'alice', 10);
     expect(page.map((r) => r.created_at)).toEqual([200, 100]);
     expect(page[0].type).toBe('mention');
@@ -55,11 +76,23 @@ describe('insertNotifications + getNotificationsPage', () => {
 
   it('handles empty input and chunks past the 100-bind-param limit', async () => {
     await insertNotifications(db(), []);
-    // 7 binds per row: 30 rows would exceed 100 binds in a single statement.
-    const rows = Array.from({ length: 30 }, (_, i) => insert('carol', i + 1));
+    // 6 binds per row: 30 rows would exceed 100 binds in a single statement.
+    const rows = Array.from({ length: 30 }, () => insert('carol'));
     await insertNotifications(db(), rows);
     const page = await getNotificationsPage(db(), 'carol', 50);
     expect(page.length).toBe(30);
+  });
+});
+
+describe('markAllRead', () => {
+  it('advances notif_seen_at with the database clock', async () => {
+    await env.DB.prepare('INSERT INTO users (id, created_at, last_verified_at) VALUES (?, 0, 0)').bind('u-seen').run();
+    const { lo, hi } = await withDbClock(env.DB, () => markAllRead(env.DB, 'u-seen'));
+    const row = await env.DB.prepare('SELECT notif_seen_at FROM users WHERE id = ?')
+      .bind('u-seen')
+      .first<{ notif_seen_at: number }>();
+    expect(row!.notif_seen_at).toBeGreaterThanOrEqual(lo);
+    expect(row!.notif_seen_at).toBeLessThanOrEqual(hi);
   });
 });
 
@@ -67,19 +100,31 @@ describe('getUnreadCount + markAllRead + getNotifSeenAt', () => {
   it('counts unread personal rows plus gov activity newer than notif_seen_at', async () => {
     await seedUser('alice');
     await seedTopic('g1');
-    await insertNotifications(db(), [insert('alice', 100), insert('alice', 200)]);
-    await activityInsert(db(), { type: 'gov_created', topicId: 'g1', actorId: null, createdAt: 300 }).run();
-    await activityInsert(db(), { type: 'reply_created', topicId: 'g1', actorId: 'x', refPostId: 'p', createdAt: 400 }).run();
+    await insertNotifications(db(), [insert('alice'), insert('alice')]);
+    const beforeMark = await readDbNow(db());
+    await activityInsert(db(), { type: 'gov_created', topicId: 'g1', actorId: null, createdAt: beforeMark, notifiedAt: beforeMark }).run();
+    await activityInsert(db(), { type: 'reply_created', topicId: 'g1', actorId: 'x', refPostId: 'p', createdAt: beforeMark }).run();
 
     // 2 personal unread + 1 gov event (reply_created activity does not count).
     expect(await getUnreadCount(db(), 'alice')).toBe(3);
 
-    await markAllRead(db(), 'alice', 500);
+    const { lo, hi } = await withDbClock(db(), () => markAllRead(db(), 'alice'));
     expect(await getUnreadCount(db(), 'alice')).toBe(0);
-    expect(await getNotifSeenAt(db(), 'alice')).toBe(500);
+    const seenAt = await getNotifSeenAt(db(), 'alice');
+    expect(seenAt).toBeGreaterThanOrEqual(lo);
+    expect(seenAt).toBeLessThanOrEqual(hi);
 
     // New gov event after the cursor counts again.
-    await activityInsert(db(), { type: 'gov_status', topicId: 'g1', actorId: null, payload: { from: 'active', to: 'enacted' }, createdAt: 600 }).run();
+    await afterDbMs(db(), seenAt);
+    const afterSeen = await readDbNow(db());
+    await activityInsert(db(), {
+      type: 'gov_status',
+      topicId: 'g1',
+      actorId: null,
+      payload: { from: 'active', to: 'enacted' },
+      createdAt: afterSeen,
+      notifiedAt: afterSeen,
+    }).run();
     expect(await getUnreadCount(db(), 'alice')).toBe(1);
   });
 
@@ -133,13 +178,14 @@ describe('getUnreadCount + markAllRead + getNotifSeenAt', () => {
     // frank's notif_seen_at defaults to 0 (seedUser does not set it); any created_at > 0 counts.
     expect(await getUnreadCount(db(), 'frank')).toBe(1);
   });
+
   it('counts a Governance Review announcement newer than notif_seen_at, but not the seed', async () => {
     await seedUser('gina');
     await announceLatestEdition(db(), { edition: 42, slug: 'epochs-a', title: 'a' }, 0); // silent seed
     expect(await getUnreadCount(db(), 'gina')).toBe(0);
     await announceLatestEdition(db(), { edition: 43, slug: 'epochs-b', title: 'b' }, 500);
     expect(await getUnreadCount(db(), 'gina')).toBe(1);
-    await markAllRead(db(), 'gina', 600);
+    await markAllRead(db(), 'gina');
     expect(await getUnreadCount(db(), 'gina')).toBe(0);
   });
 });

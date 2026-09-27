@@ -4,6 +4,7 @@
 // string-concatenated SQL.
 
 import { govThreadsSinceSql } from './notifications.js';
+import { DB_NOW_MS } from './sql.js';
 
 export const NOTIFICATION_EVENT_TYPES = [
   'reply',
@@ -46,7 +47,6 @@ export async function addChannel(
     target: string;
     endpoint: string;
     label?: string | null;
-    now: number;
   },
 ): Promise<string> {
   const id = crypto.randomUUID();
@@ -54,11 +54,11 @@ export async function addChannel(
     db
       .prepare(
         `INSERT INTO notification_channels (id, user_id, channel, target, endpoint, label, created_at, delivered_until)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ${DB_NOW_MS}, ${DB_NOW_MS})
          ON CONFLICT(user_id, endpoint) DO UPDATE SET target = excluded.target, label = excluded.label
          RETURNING id`,
       )
-      .bind(id, args.userId, args.channel, args.target, args.endpoint, args.label ?? null, args.now, args.now),
+      .bind(id, args.userId, args.channel, args.target, args.endpoint, args.label ?? null),
     ...NOTIFICATION_EVENT_TYPES.map((eventType) =>
       db
         .prepare(

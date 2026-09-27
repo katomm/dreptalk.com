@@ -48,13 +48,12 @@ function fakeSend(result: PushSendResult) {
   return { send, calls };
 }
 
-async function addWebpushChannel(userId: string, now: number) {
+async function addWebpushChannel(userId: string, _now: number) {
   return addChannel(db(), {
     userId,
     channel: 'webpush',
     target: JSON.stringify(TARGET),
     endpoint: TARGET.endpoint,
-    now,
   });
 }
 
@@ -70,13 +69,12 @@ function fakeTelegramSend(result: TelegramSendResult) {
   return { send, calls };
 }
 
-async function addTelegramChannel(userId: string, chatId: string, now: number) {
+async function addTelegramChannel(userId: string, chatId: string, _now: number) {
   return addChannel(db(), {
     userId,
     channel: 'telegram',
     target: chatId,
     endpoint: `telegram:${chatId}`,
-    now,
   });
 }
 
@@ -88,9 +86,9 @@ describe('dispatchWebPush', () => {
     await seedTopic('g3');
     const id = await addWebpushChannel('alice', 100);
     await insertNotifications(db(), [
-      { recipientId: 'alice', type: 'reply', actorId: 'x', topicId: 't1', postId: 'p1', createdAt: 200 },
-      { recipientId: 'alice', type: 'reply', actorId: 'x', topicId: 't1', postId: 'p2', createdAt: 210 },
-      { recipientId: 'alice', type: 'mention', actorId: 'x', topicId: 't1', postId: 'p3', createdAt: 220 },
+      { recipientId: 'alice', type: 'reply', actorId: 'x', topicId: 't1', postId: 'p1' },
+      { recipientId: 'alice', type: 'reply', actorId: 'x', topicId: 't1', postId: 'p2' },
+      { recipientId: 'alice', type: 'mention', actorId: 'x', topicId: 't1', postId: 'p3' },
     ]);
     await activityInsert(db(), { type: 'gov_created', topicId: 'g1', actorId: null, createdAt: 200 }).run();
     await activityInsert(db(), { type: 'gov_created', topicId: 'g2', actorId: null, createdAt: 200 }).run();
@@ -123,8 +121,8 @@ describe('dispatchWebPush', () => {
     await seedUser('alice');
     await addWebpushChannel('alice', 100);
     await insertNotifications(db(), [
-      { recipientId: 'alice', type: 'reply', actorId: 'x', topicId: 't1', postId: 'p1', createdAt: 200 },
-      { recipientId: 'alice', type: 'mention', actorId: 'x', topicId: 't1', postId: 'p2', createdAt: 210 },
+      { recipientId: 'alice', type: 'reply', actorId: 'x', topicId: 't1', postId: 'p1' },
+      { recipientId: 'alice', type: 'mention', actorId: 'x', topicId: 't1', postId: 'p2' },
     ]);
     const { send, calls } = fakeSend({ ok: true, status: 201 });
 
@@ -149,7 +147,7 @@ describe('dispatchWebPush', () => {
   it('prunes the channel row on a 410 Gone response', async () => {
     const id = await addWebpushChannel('alice', 100);
     await insertNotifications(db(), [
-      { recipientId: 'alice', type: 'reply', actorId: 'x', topicId: 't1', postId: 'p1', createdAt: 200 },
+      { recipientId: 'alice', type: 'reply', actorId: 'x', topicId: 't1', postId: 'p1' },
     ]);
     const { send } = fakeSend({ ok: false, status: 410 });
 
@@ -163,7 +161,7 @@ describe('dispatchWebPush', () => {
   it('prunes the channel row on a 403 response (subscription bound to another VAPID key)', async () => {
     await addWebpushChannel('alice', 100);
     await insertNotifications(db(), [
-      { recipientId: 'alice', type: 'reply', actorId: 'x', topicId: 't1', postId: 'p1', createdAt: 200 },
+      { recipientId: 'alice', type: 'reply', actorId: 'x', topicId: 't1', postId: 'p1' },
     ]);
     const { send } = fakeSend({ ok: false, status: 403 });
 
@@ -176,7 +174,7 @@ describe('dispatchWebPush', () => {
   it('prunes the channel row on a 404 response too', async () => {
     await addWebpushChannel('alice', 100);
     await insertNotifications(db(), [
-      { recipientId: 'alice', type: 'reply', actorId: 'x', topicId: 't1', postId: 'p1', createdAt: 200 },
+      { recipientId: 'alice', type: 'reply', actorId: 'x', topicId: 't1', postId: 'p1' },
     ]);
     const { send } = fakeSend({ ok: false, status: 404 });
 
@@ -189,7 +187,7 @@ describe('dispatchWebPush', () => {
   it('leaves the cursor untouched on a 500, and a second dispatch call retries the send', async () => {
     await addWebpushChannel('alice', 100);
     await insertNotifications(db(), [
-      { recipientId: 'alice', type: 'reply', actorId: 'x', topicId: 't1', postId: 'p1', createdAt: 200 },
+      { recipientId: 'alice', type: 'reply', actorId: 'x', topicId: 't1', postId: 'p1' },
     ]);
     const { send, calls } = fakeSend({ ok: false, status: 500 });
 
@@ -207,8 +205,8 @@ describe('dispatchWebPush', () => {
     await addWebpushChannel('alice', 100);
     await setPref(db(), { userId: 'alice', channel: 'webpush', eventType: 'mention', enabled: false });
     await insertNotifications(db(), [
-      { recipientId: 'alice', type: 'reply', actorId: 'x', topicId: 't1', postId: 'p1', createdAt: 200 },
-      { recipientId: 'alice', type: 'mention', actorId: 'x', topicId: 't1', postId: 'p2', createdAt: 210 },
+      { recipientId: 'alice', type: 'reply', actorId: 'x', topicId: 't1', postId: 'p1' },
+      { recipientId: 'alice', type: 'mention', actorId: 'x', topicId: 't1', postId: 'p2' },
     ]);
     const { send, calls } = fakeSend({ ok: true, status: 201 });
 
@@ -224,7 +222,7 @@ describe('dispatchWebPush', () => {
     await setPref(db(), { userId: 'alice', channel: 'webpush', eventType: 'mention', enabled: false });
     await setPref(db(), { userId: 'alice', channel: 'webpush', eventType: 'governance', enabled: false });
     await insertNotifications(db(), [
-      { recipientId: 'alice', type: 'device_paired', actorId: null, topicId: null, postId: null, createdAt: 200 },
+      { recipientId: 'alice', type: 'device_paired', actorId: null, topicId: null, postId: null },
     ]);
     const { send, calls } = fakeSend({ ok: true, status: 201 });
 
@@ -286,7 +284,7 @@ describe('dispatchWebPush', () => {
     await addWebpushChannel('alice', 100);
     // An older reply (counts, but not the lead) and a newer governance action.
     await insertNotifications(db(), [
-      { recipientId: 'alice', type: 'reply', actorId: 'x', topicId: 't1', postId: 'p1', createdAt: 200 },
+      { recipientId: 'alice', type: 'reply', actorId: 'x', topicId: 't1', postId: 'p1' },
     ]);
     await activityInsert(db(), {
       type: 'gov_created',
@@ -337,7 +335,7 @@ describe('dispatchWebPush', () => {
   it('returns all-zero without calling send when vapid is null (unset secret)', async () => {
     await addWebpushChannel('alice', 100);
     await insertNotifications(db(), [
-      { recipientId: 'alice', type: 'reply', actorId: 'x', topicId: 't1', postId: 'p1', createdAt: 200 },
+      { recipientId: 'alice', type: 'reply', actorId: 'x', topicId: 't1', postId: 'p1' },
     ]);
     const { send, calls } = fakeSend({ ok: true, status: 201 });
 
@@ -355,7 +353,7 @@ describe('dispatchTelegram', () => {
     const userId = 'tg-user-1';
     await addTelegramChannel(userId, '111', 0);
     await insertNotifications(db(), [
-      { recipientId: userId, type: 'reply', actorId: 'a', topicId: null, postId: null, createdAt: 10 },
+      { recipientId: userId, type: 'reply', actorId: 'a', topicId: null, postId: null },
     ]);
     const { send, calls } = fakeTelegramSend({ ok: true, status: 200, description: '' });
     const r = await dispatchTelegram(db(), TG_CFG, { send, now: 50 });
@@ -372,7 +370,7 @@ describe('dispatchTelegram', () => {
     const userId = 'tg-user-2';
     await addTelegramChannel(userId, '222', 0);
     await insertNotifications(db(), [
-      { recipientId: userId, type: 'mention', actorId: 'a', topicId: null, postId: null, createdAt: 10 },
+      { recipientId: userId, type: 'mention', actorId: 'a', topicId: null, postId: null },
     ]);
     const { send } = fakeTelegramSend({ ok: false, status: 403, description: 'Forbidden: bot was blocked by the user' });
     const r = await dispatchTelegram(db(), TG_CFG, { send, now: 50 });
@@ -385,7 +383,7 @@ describe('dispatchTelegram', () => {
     const userId = 'tg-user-3';
     await addTelegramChannel(userId, '333', 0);
     await insertNotifications(db(), [
-      { recipientId: userId, type: 'reply', actorId: 'a', topicId: null, postId: null, createdAt: 10 },
+      { recipientId: userId, type: 'reply', actorId: 'a', topicId: null, postId: null },
     ]);
     const { send } = fakeTelegramSend({ ok: false, status: 429, description: 'Too Many Requests' });
     const r = await dispatchTelegram(db(), TG_CFG, { send, now: 50 });
@@ -405,7 +403,7 @@ describe('dispatchTelegram', () => {
     const userId = 'tg-user-4';
     await addWebpushChannel(userId, 0);
     await insertNotifications(db(), [
-      { recipientId: userId, type: 'reply', actorId: 'a', topicId: null, postId: null, createdAt: 10 },
+      { recipientId: userId, type: 'reply', actorId: 'a', topicId: null, postId: null },
     ]);
     const { send, calls } = fakeTelegramSend({ ok: true, status: 200, description: '' });
     await dispatchTelegram(db(), TG_CFG, { send, now: 50 });

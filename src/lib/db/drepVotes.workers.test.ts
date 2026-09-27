@@ -7,6 +7,7 @@ import { resolvePendingLead } from '../notifications/pendingLead.js';
 import { createTopic } from './forum.js';
 import { upsertActionRationale } from './actionRationale.js';
 import { upsertVoteRationalePost } from './voteRationalePost.js';
+import { withDbClock } from './__tests__/dbClock.js';
 
 async function seedAction(id: string, title: string, decidedEpoch: number) {
   await env.DB.prepare(
@@ -504,14 +505,17 @@ describe('rationale-ready notification', () => {
     await seedAction('gaRR1', 'Rationale Action', 600);
     await seedDrepUser('userRR1', 'drepRR1');
     await recordLocalVote(env.DB, { gaId: 'gaRR1', drepId: 'drepRR1', voterHex: null, vote: 'Yes', metaUrl: 'https://host/r.json', txHash: 'tx1', now: 1_000 });
-    await upsertVotes(env.DB, 'gaRR1', [
-      { voterRole: 'DRep', voterId: 'drepRR1', voterHex: null, vote: 'Yes', metaUrl: 'https://host/r.json', blockTime: 2_000 },
-    ], 5_000, { notifyRationaleReady: true });
+    const { lo, hi } = await withDbClock(env.DB, () =>
+      upsertVotes(env.DB, 'gaRR1', [
+        { voterRole: 'DRep', voterId: 'drepRR1', voterHex: null, vote: 'Yes', metaUrl: 'https://host/r.json', blockTime: 2_000 },
+      ], 5_000, { notifyRationaleReady: true }),
+    );
 
     const rows = await rationaleReadyRows('userRR1');
     expect(rows).toHaveLength(1);
     expect(rows[0].event_key).toBe('rationale_ready:drepRR1:gaRR1:2000');
-    expect(rows[0].created_at).toBe(5_000);
+    expect(rows[0].created_at).toBeGreaterThanOrEqual(lo);
+    expect(rows[0].created_at).toBeLessThanOrEqual(hi);
     expect(JSON.parse(rows[0].payload)).toMatchObject({
       sourceTime: 2_000, gaId: 'gaRR1', drepId: 'drepRR1', title: 'Rationale Action', vote: 'Yes',
     });
@@ -586,7 +590,7 @@ describe('rationale-ready notification', () => {
        VALUES ('gaRR8', 'InfoAction', 'Rationale Lead Action', 'voting', NULL, 'tRR8', 0, 0)`,
     ).run();
     await seedDrepUser('userRR8', 'drepRR8');
-    const channelId = await addChannel(env.DB, { userId: 'userRR8', channel: 'webpush', target: '{}', endpoint: 'https://push.example/rr8', now: 1_000 });
+    const channelId = await addChannel(env.DB, { userId: 'userRR8', channel: 'webpush', target: '{}', endpoint: 'https://push.example/rr8' });
     await recordLocalVote(env.DB, { gaId: 'gaRR8', drepId: 'drepRR8', voterHex: null, vote: 'Yes', metaUrl: 'https://host/r8.json', txHash: 'tx8', now: 1_000 });
     await upsertVotes(env.DB, 'gaRR8', [
       { voterRole: 'DRep', voterId: 'drepRR8', voterHex: null, vote: 'Yes', metaUrl: 'https://host/r8.json', blockTime: 2_000 },

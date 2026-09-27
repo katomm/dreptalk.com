@@ -109,13 +109,11 @@ describe('runFanout', () => {
     await db().batch([buildJobInsert(db(), job({ sourceTime: 100 }))]);
     await insertFollow('user-a', 'drep1', 50);
 
-    const deliveredUntil = 100 * 1000 + 5000; // already past source_time in ms
     await addChannel(db(), {
       userId: 'user-a',
       channel: 'webpush',
       target: 'sub-a',
       endpoint: 'https://push.example/user-a',
-      now: deliveredUntil,
     });
 
     const now = 900; // materialization happens well after source_time

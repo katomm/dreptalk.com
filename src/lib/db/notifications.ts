@@ -3,6 +3,8 @@
 // only; broadcast gov events are merged from the activity table at read time).
 // All queries use .prepare().bind() exclusively; never string-concatenated SQL.
 
+import { DB_NOW_MS } from './sql.js';
+
 export interface NotificationInsert {
   recipientId: string;
   // device_paired is a security notice: no actor, topic or post, and it is not
@@ -26,7 +28,6 @@ export interface NotificationInsert {
   actorId: string | null;
   topicId: string | null;
   postId: string | null;
-  createdAt: number;
 }
 
 export interface NotificationRow {
@@ -41,20 +42,21 @@ export interface NotificationRow {
   read_at: number | null;
 }
 
-// 7 binds per row; 14 rows keep a statement under D1's 100-bind-param limit
+// 6 binds per row, 14 rows keep a statement under D1's 100-bind-param limit
 // (miniflare does not enforce the limit, so tests alone would not catch this).
 const INSERT_CHUNK = 14;
 
 /**
  * Inserts personal notification rows, chunked under the bind-param limit.
  * All chunks go through one db.batch call, so a big fan-out costs a single
- * round trip instead of one per chunk.
+ * round trip instead of one per chunk. created_at comes from the database
+ * clock (DB_NOW_MS).
  */
 export async function insertNotifications(db: D1Database, rows: NotificationInsert[]): Promise<void> {
   const statements: D1PreparedStatement[] = [];
   for (let i = 0; i < rows.length; i += INSERT_CHUNK) {
     const chunk = rows.slice(i, i + INSERT_CHUNK);
-    const values = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
+    const values = chunk.map(() => `(?, ?, ?, ?, ?, ?, ${DB_NOW_MS})`).join(', ');
     statements.push(
       db
         .prepare(
@@ -69,7 +71,6 @@ export async function insertNotifications(db: D1Database, rows: NotificationInse
             r.actorId,
             r.topicId,
             r.postId,
-            r.createdAt,
           ]),
         ),
     );
@@ -163,12 +164,12 @@ export async function getNotifSeenAt(db: D1Database, userId: string): Promise<nu
   return row?.notif_seen_at ?? 0;
 }
 
-/** Marks all personal rows read and advances the broadcast cursor, atomically. */
-export async function markAllRead(db: D1Database, userId: string, now: number): Promise<void> {
+/** Marks all personal rows read and advances the broadcast cursor, atomically, on the database clock. */
+export async function markAllRead(db: D1Database, userId: string): Promise<void> {
   await db.batch([
     db
-      .prepare('UPDATE notifications SET read_at = ? WHERE recipient_id = ? AND read_at IS NULL')
-      .bind(now, userId),
-    db.prepare('UPDATE users SET notif_seen_at = ? WHERE id = ?').bind(now, userId),
+      .prepare(`UPDATE notifications SET read_at = ${DB_NOW_MS} WHERE recipient_id = ? AND read_at IS NULL`)
+      .bind(userId),
+    db.prepare(`UPDATE users SET notif_seen_at = ${DB_NOW_MS} WHERE id = ?`).bind(userId),
   ]);
 }

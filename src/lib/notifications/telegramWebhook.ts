@@ -82,7 +82,7 @@ export async function handleTelegramUpdate(
       await deps.reply(msg.chatId, 'This link has expired. Get a fresh one from your notification settings on DRepTalk.');
       return 'link_invalid';
     }
-    await addChannel(db, { userId, channel: 'telegram', target: msg.chatId, endpoint, label: msg.label, now: deps.now });
+    await addChannel(db, { userId, channel: 'telegram', target: msg.chatId, endpoint, label: msg.label });
     await deps.reply(msg.chatId, "Connected! You'll get DRepTalk notifications here. Send /stop to disconnect.");
     return 'linked';
   }

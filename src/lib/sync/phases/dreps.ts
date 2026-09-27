@@ -168,7 +168,7 @@ export const drepPhases: readonly SyncPhaseDef<DrepSyncContext>[] = [
     name: 'drep-stats-digest',
     run: async (ctx) => {
       if (ctx.state.vpHistoryEpoch === null) return { items: 0 };
-      const r = await runDrepStatsDigest(ctx.db, ctx.state.vpHistoryEpoch, Date.now());
+      const r = await runDrepStatsDigest(ctx.db, ctx.state.vpHistoryEpoch);
       console.log(`[drep-stats] epoch=${ctx.state.vpHistoryEpoch} candidates=${r.candidates} fired=${r.fired}`);
       return { items: r.fired };
     },

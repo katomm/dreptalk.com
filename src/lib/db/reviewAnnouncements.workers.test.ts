@@ -3,6 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { announceLatestEdition, parseReviewPayload } from './reviewAnnouncements.js';
+import { withDbClock } from './__tests__/dbClock.js';
 
 const db = () => env.DB;
 
@@ -87,14 +88,16 @@ describe('notification fan-out', () => {
     expect(await reviewRows()).toEqual([]);
   });
 
-  it('a new edition writes one row per account, never for the built-in system user', async () => {
+  it('a new edition writes one row per account, never for the built-in system user, stamped with the database clock', async () => {
     await seedUser('alice');
     await seedUser('bob');
     await announceLatestEdition(db(), ed(42), 5_000);
-    await announceLatestEdition(db(), ed(43), 9_000);
+    const { lo, hi } = await withDbClock(db(), () => announceLatestEdition(db(), ed(43), 9_000));
     const rows = await reviewRows();
     expect(rows.map((r) => r.recipient_id)).toEqual(['alice', 'bob']);
-    expect(rows[0]).toMatchObject({ event_key: 'review:43', created_at: 9_000 });
+    expect(rows[0].event_key).toBe('review:43');
+    expect(rows[0].created_at).toBeGreaterThanOrEqual(lo);
+    expect(rows[0].created_at).toBeLessThanOrEqual(hi);
     expect(parseReviewPayload(rows[0].payload)).toEqual(ed(43));
   });
 

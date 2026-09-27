@@ -4,6 +4,7 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { activityInsert, getActivityPage, insertGovStatusEventIfNew, type ActivityRow } from './activity.js';
 import { createTopic, createPost } from './forum.js';
+import { withDbClock } from './__tests__/dbClock.js';
 
 const db = () => env.DB;
 
@@ -32,6 +33,16 @@ describe('insertGovStatusEventIfNew', () => {
     const after = await eventsFor('gtopic');
     expect(after.length).toBe(2);
   });
+
+  it('stamps notified_at with the database clock when notifiedAt is db-now', async () => {
+    const { lo, hi } = await withDbClock(db(), () =>
+      insertGovStatusEventIfNew(db(), { topicId: 'gtopic-clock', from: 'active', to: 'enacted', createdAt: 100, notifiedAt: 'db-now' }),
+    );
+    const [row] = await eventsFor('gtopic-clock');
+    expect(row.created_at).toBe(100);
+    expect(row.notified_at).toBeGreaterThanOrEqual(lo);
+    expect(row.notified_at).toBeLessThanOrEqual(hi);
+  });
 });
 
 describe('activityInsert', () => {
@@ -46,6 +57,16 @@ describe('activityInsert', () => {
     const [row] = await eventsFor('topic-2');
     expect(row).toMatchObject({ type: 'gov_status', actor_id: null, ref_post_id: null, created_at: 2000 });
     expect(JSON.parse(row.payload as string)).toEqual({ from: 'active', to: 'enacted' });
+  });
+
+  it('stamps notified_at with the database clock when notifiedAt is db-now', async () => {
+    const { lo, hi } = await withDbClock(db(), () =>
+      activityInsert(db(), { type: 'gov_created', topicId: 'topic-clock', createdAt: 2000, notifiedAt: 'db-now' }).run(),
+    );
+    const [row] = await eventsFor('topic-clock');
+    expect(row.created_at).toBe(2000);
+    expect(row.notified_at).toBeGreaterThanOrEqual(lo);
+    expect(row.notified_at).toBeLessThanOrEqual(hi);
   });
 });
 

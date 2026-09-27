@@ -36,7 +36,7 @@ describe('notifyReply', () => {
   it('notifies the topic author and prior posters, excluding actor, rationale authors and gov-sync', async () => {
     const topic = await seedThread();
     const post = await createPost(db(), { topicId: topic.id, authorId: 'dave', bodyMd: 'x', bodyHtml: '<p>x</p>', now: 400 });
-    await notifyReply(db(), { topicId: topic.id, postId: post.id, actorId: 'dave', now: 400 });
+    await notifyReply(db(), { topicId: topic.id, postId: post.id, actorId: 'dave' });
 
     expect((await getNotificationsPage(db(), 'alice', 10)).length).toBe(1);
     expect((await getNotificationsPage(db(), 'bob', 10)).length).toBe(1);
@@ -53,7 +53,7 @@ describe('notifyReply', () => {
   it('honors excludeUserIds (mention recipients are not double-notified)', async () => {
     const topic = await seedThread();
     const post = await createPost(db(), { topicId: topic.id, authorId: 'dave', bodyMd: 'x', bodyHtml: '<p>x</p>', now: 400 });
-    await notifyReply(db(), { topicId: topic.id, postId: post.id, actorId: 'dave', now: 400, excludeUserIds: ['bob'] });
+    await notifyReply(db(), { topicId: topic.id, postId: post.id, actorId: 'dave', excludeUserIds: ['bob'] });
     expect((await getNotificationsPage(db(), 'bob', 10)).length).toBe(0);
     expect((await getNotificationsPage(db(), 'alice', 10)).length).toBe(1);
   });
@@ -61,7 +61,7 @@ describe('notifyReply', () => {
 
 describe('notifyMentions', () => {
   it('writes mention rows, excluding the actor', async () => {
-    await notifyMentions(db(), { mentionUserIds: ['bob', 'dave'], topicId: 't1', postId: 'p1', actorId: 'dave', now: 500 });
+    await notifyMentions(db(), { mentionUserIds: ['bob', 'dave'], topicId: 't1', postId: 'p1', actorId: 'dave' });
     expect((await getNotificationsPage(db(), 'bob', 10))[0].type).toBe('mention');
     expect((await getNotificationsPage(db(), 'dave', 10)).length).toBe(0);
   });

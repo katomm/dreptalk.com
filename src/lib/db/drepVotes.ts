@@ -9,7 +9,7 @@ import {
   type ExistingVoteRow,
 } from './voteHistory.js';
 import { buildJobInsert, type FanoutEventType } from './fanoutJobs.js';
-import { chunked, D1_MAX_BINDS, sqlPlaceholders } from './sql.js';
+import { chunked, D1_MAX_BINDS, sqlPlaceholders, DB_NOW_MS } from './sql.js';
 import { concludedStatusSql } from './sql.js';
 import { voteBucket } from '@/lib/governance/view.js';
 
@@ -214,10 +214,10 @@ function buildRationaleReadyStatements(
         db
           .prepare(
             `INSERT INTO notifications (id, recipient_id, type, event_key, payload, created_at)
-             VALUES (?, ?, 'rationale_ready', ?, ?, ?)
+             VALUES (?, ?, 'rationale_ready', ?, ?, ${DB_NOW_MS})
              ON CONFLICT(recipient_id, event_key) WHERE event_key IS NOT NULL DO NOTHING`,
           )
-          .bind(crypto.randomUUID(), userId, `rationale_ready:${v.voterId}:${gaId}:${sourceTime}`, payload, now),
+          .bind(crypto.randomUUID(), userId, `rationale_ready:${v.voterId}:${gaId}:${sourceTime}`, payload),
       );
     }
   }

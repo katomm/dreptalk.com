@@ -6,6 +6,7 @@ import { runDrepStatsDigest } from './drepStatsDigest.js';
 import { insertVotingPowerHistory } from './drepVotingPowerHistory.js';
 import { addChannel, getPendingCounts, getPrefs } from './notificationChannels.js';
 import { resolvePendingLead } from '../notifications/pendingLead.js';
+import { withDbClock, afterDbMs } from './__tests__/dbClock.js';
 
 const db = () => env.DB as D1Database;
 
@@ -62,14 +63,15 @@ describe('runDrepStatsDigest', () => {
       { epoch: 801, amount: '105000000', count: 12 },
     ]);
 
-    const r = await runDrepStatsDigest(db(), 801, 1_700_000_000_000);
+    const { result: r, lo, hi } = await withDbClock(db(), () => runDrepStatsDigest(db(), 801));
     expect(r.fired).toBe(1);
 
     const rows = await notificationsFor(userId);
     expect(rows).toHaveLength(1);
     expect(rows[0].type).toBe('drep_stats');
     expect(rows[0].event_key).toBe('drep_stats:drep_digest_a:801');
-    expect(rows[0].created_at).toBe(1_700_000_000_000);
+    expect(rows[0].created_at).toBeGreaterThanOrEqual(lo);
+    expect(rows[0].created_at).toBeLessThanOrEqual(hi);
     expect(JSON.parse(rows[0].payload)).toEqual({
       epoch: 801,
       drepId: 'drep_digest_a',
@@ -87,8 +89,8 @@ describe('runDrepStatsDigest', () => {
       { epoch: 811, amount: '110000000', count: 10 },
     ]);
 
-    const first = await runDrepStatsDigest(db(), 811, 1_700_000_000_000);
-    const second = await runDrepStatsDigest(db(), 811, 1_700_000_100_000);
+    const first = await runDrepStatsDigest(db(), 811);
+    const second = await runDrepStatsDigest(db(), 811);
     expect(first.fired).toBe(1);
     expect(second.fired).toBe(0);
     expect(await notificationsFor(userId)).toHaveLength(1);
@@ -100,7 +102,7 @@ describe('runDrepStatsDigest', () => {
       { epoch: 870, amount: '100000000', count: 10 },
       { epoch: 871, amount: '110000000', count: null },
     ]);
-    const first = await runDrepStatsDigest(db(), 871, 1_700_000_000_000);
+    const first = await runDrepStatsDigest(db(), 871);
     expect(first.fired).toBe(0);
     expect(await notificationsFor(userId)).toHaveLength(0);
 
@@ -113,7 +115,7 @@ describe('runDrepStatsDigest', () => {
       )
       .bind('drep_digest_wait', 871)
       .run();
-    const second = await runDrepStatsDigest(db(), 871, 1_700_000_100_000);
+    const second = await runDrepStatsDigest(db(), 871);
     expect(second.fired).toBe(1);
     const rows = await notificationsFor(userId);
     expect(JSON.parse(rows[0].payload).delegators).toBe(12);
@@ -125,7 +127,7 @@ describe('runDrepStatsDigest', () => {
       { epoch: 820, amount: '100000000000', count: 1000 },
       { epoch: 821, amount: '100500000000', count: 1005 },
     ]);
-    const r = await runDrepStatsDigest(db(), 821, 1_700_000_000_000);
+    const r = await runDrepStatsDigest(db(), 821);
     expect(await notificationsFor(userId)).toHaveLength(0);
     expect(r.candidates).toBeGreaterThanOrEqual(1);
   });
@@ -136,7 +138,7 @@ describe('runDrepStatsDigest', () => {
       { epoch: 830, amount: '100000000', count: null },
       { epoch: 831, amount: '105000000', count: 12 },
     ]);
-    const r = await runDrepStatsDigest(db(), 831, 1_700_000_000_000);
+    const r = await runDrepStatsDigest(db(), 831);
     expect(r.fired).toBe(1);
     const rows = await notificationsFor(userId);
     expect(JSON.parse(rows[0].payload).delegatorsPrev).toBeNull();
@@ -148,7 +150,7 @@ describe('runDrepStatsDigest', () => {
       { epoch: 840, amount: '100000000', count: 1 },
       { epoch: 841, amount: '200000000', count: 5 },
     ]);
-    await runDrepStatsDigest(db(), 841, 1_700_000_000_000);
+    await runDrepStatsDigest(db(), 841);
     expect(await notificationsFor(plainUser)).toHaveLength(0);
     const all = (
       await db()
@@ -165,7 +167,7 @@ describe('runDrepStatsDigest', () => {
       { epoch: 850, amount: '100000000', count: 2 },
       { epoch: 851, amount: '100000000', count: 3 },
     ]);
-    const r = await runDrepStatsDigest(db(), 851, 1_700_000_000_000);
+    const r = await runDrepStatsDigest(db(), 851);
     expect(r.fired).toBe(2);
     expect(await notificationsFor(u1)).toHaveLength(1);
     expect(await notificationsFor(u2)).toHaveLength(1);
@@ -178,17 +180,24 @@ describe('runDrepStatsDigest', () => {
       { epoch: 861, amount: '103000000000000', count: 102 },
     ]);
 
-    // Channel FIRST: addChannel seeds delivered_until with its `now`, so the
-    // cursor must predate the digest's created_at or the notification counts as
-    // already delivered.
+    // Channel FIRST: addChannel seeds delivered_until with the database clock,
+    // so the cursor naturally predates the digest's created_at (stamped
+    // moments later) and the notification does not count as already delivered.
+    // afterDbMs waits for the clock to move past that cursor, since the
+    // comparison is strict and two writes in the same millisecond would
+    // otherwise tie.
     const channelId = await addChannel(db(), {
       userId,
       channel: 'webpush',
       target: JSON.stringify({ endpoint: 'https://push.example/x', keys: {} }),
       endpoint: 'https://push.example/x',
-      now: 1_699_999_999_000,
     });
-    await runDrepStatsDigest(db(), 861, 1_700_000_000_000);
+    const cursor = await db()
+      .prepare('SELECT delivered_until FROM notification_channels WHERE id = ?')
+      .bind(channelId)
+      .first<{ delivered_until: number }>();
+    await afterDbMs(db(), cursor!.delivered_until);
+    await runDrepStatsDigest(db(), 861);
 
     const row = (await db()
       .prepare('SELECT * FROM notification_channels WHERE id = ?')

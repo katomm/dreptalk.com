@@ -15,9 +15,10 @@ import {
   getPendingCounts,
   type NotificationChannelRow,
 } from './notificationChannels.js';
-import { insertNotifications } from './notifications.js';
 import { activityInsert } from './activity.js';
 import { announceLatestEdition } from './reviewAnnouncements.js';
+import { readDbNow } from './sql.js';
+import { withDbClock, afterDbMs } from './__tests__/dbClock.js';
 
 const db = () => env.DB;
 
@@ -30,6 +31,32 @@ async function seedTopic(id: string, opts?: { deleted?: boolean }) {
        VALUES (?, 'governance', 'gov-sync', 'governance', 't', ?, ?, 0, 0)`,
     )
     .bind(id, `${id}-slug`, opts?.deleted ? 1 : 0)
+    .run();
+}
+
+/** Seeds a notification row with an explicit created_at, since insertNotifications no longer accepts one (created_at now comes from the database clock) and getPendingCounts tests need a controlled time relative to a fixed cursor. */
+async function seedNotificationRow(opts: {
+  recipientId: string;
+  type: string;
+  createdAt: number;
+  actorId?: string | null;
+  topicId?: string | null;
+  postId?: string | null;
+}) {
+  await db()
+    .prepare(
+      `INSERT INTO notifications (id, recipient_id, type, actor_id, topic_id, post_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      crypto.randomUUID(),
+      opts.recipientId,
+      opts.type,
+      opts.actorId ?? null,
+      opts.topicId ?? null,
+      opts.postId ?? null,
+      opts.createdAt,
+    )
     .run();
 }
 
@@ -46,14 +73,15 @@ const allEnabled = {
 };
 
 describe('addChannel + listChannels + removeChannel', () => {
-  it('seeds all-enabled prefs and returns a listable row', async () => {
-    const id = await addChannel(db(), {
-      userId: 'alice',
-      channel: 'webpush',
-      target: 'sub-json',
-      endpoint: 'https://push.example/alice',
-      now: 100,
-    });
+  it('seeds all-enabled prefs and returns a listable row, stamped with the database clock', async () => {
+    const { result: id, lo, hi } = await withDbClock(db(), () =>
+      addChannel(db(), {
+        userId: 'alice',
+        channel: 'webpush',
+        target: 'sub-json',
+        endpoint: 'https://push.example/alice',
+      }),
+    );
     expect(typeof id).toBe('string');
 
     const rows = await listChannels(db(), 'alice');
@@ -64,23 +92,37 @@ describe('addChannel + listChannels + removeChannel', () => {
       channel: 'webpush',
       target: 'sub-json',
       endpoint: 'https://push.example/alice',
-      created_at: 100,
-      delivered_until: 100,
     });
+    expect(rows[0].created_at).toBeGreaterThanOrEqual(lo);
+    expect(rows[0].created_at).toBeLessThanOrEqual(hi);
+    expect(rows[0].delivered_until).toBeGreaterThanOrEqual(lo);
+    expect(rows[0].delivered_until).toBeLessThanOrEqual(hi);
 
     expect(await getPrefs(db(), 'alice', 'webpush')).toEqual(allEnabled);
   });
 
+  it('addChannel seeds delivered_until with the database clock', async () => {
+    const { result: id, lo, hi } = await withDbClock(db(), () =>
+      addChannel(db(), { userId: 'u-add', channel: 'webpush', target: '{}', endpoint: 'https://push.example/add' }),
+    );
+    const row = await db()
+      .prepare('SELECT delivered_until FROM notification_channels WHERE id = ?')
+      .bind(id)
+      .first<{ delivered_until: number }>();
+    expect(row!.delivered_until).toBeGreaterThanOrEqual(lo);
+    expect(row!.delivered_until).toBeLessThanOrEqual(hi);
+  });
+
   it('lists channels by kind across users', async () => {
-    await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', endpoint: 'https://push.example/a', now: 1 });
-    await addChannel(db(), { userId: 'bob', channel: 'webpush', target: 'sub-b', endpoint: 'https://push.example/b', now: 2 });
+    await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', endpoint: 'https://push.example/a' });
+    await addChannel(db(), { userId: 'bob', channel: 'webpush', target: 'sub-b', endpoint: 'https://push.example/b' });
 
     const rows = await listChannelsByKind(db(), 'webpush');
     expect(rows.map((r) => r.user_id).sort()).toEqual(['alice', 'bob']);
   });
 
   it('removeChannel is scoped to the owning user; another user is a no-op', async () => {
-    const id = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', endpoint: 'https://push.example/a', now: 1 });
+    const id = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', endpoint: 'https://push.example/a' });
 
     await removeChannel(db(), 'bob', id);
     expect(await listChannels(db(), 'alice')).toHaveLength(1);
@@ -90,15 +132,19 @@ describe('addChannel + listChannels + removeChannel', () => {
   });
 
   it('deleteChannelById removes regardless of owner (dispatcher prune)', async () => {
-    const id = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', endpoint: 'https://push.example/a', now: 1 });
+    const id = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', endpoint: 'https://push.example/a' });
 
     await deleteChannelById(db(), id);
     expect(await listChannels(db(), 'alice')).toHaveLength(0);
   });
 
   it('a second addChannel for the same user and endpoint updates the existing row instead of duplicating it', async () => {
-    const firstId = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-v1', endpoint: 'https://push.example/a', now: 1 });
-    const secondId = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-v2', endpoint: 'https://push.example/a', now: 2 });
+    const firstId = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-v1', endpoint: 'https://push.example/a' });
+    const firstRow = await db()
+      .prepare('SELECT delivered_until FROM notification_channels WHERE id = ?')
+      .bind(firstId)
+      .first<{ delivered_until: number }>();
+    const secondId = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-v2', endpoint: 'https://push.example/a' });
 
     expect(secondId).toBe(firstId);
     const rows = await listChannels(db(), 'alice');
@@ -106,19 +152,19 @@ describe('addChannel + listChannels + removeChannel', () => {
     expect(rows[0].target).toBe('sub-v2');
     // The re-subscribe must not reset the delivery cursor: only the target
     // may change on conflict.
-    expect(rows[0].delivered_until).toBe(1);
+    expect(rows[0].delivered_until).toBe(firstRow!.delivered_until);
   });
 
   it('same user, different endpoints, creates two rows', async () => {
-    await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', endpoint: 'https://push.example/a', now: 1 });
-    await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-b', endpoint: 'https://push.example/b', now: 2 });
+    await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', endpoint: 'https://push.example/a' });
+    await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-b', endpoint: 'https://push.example/b' });
 
     expect(await listChannels(db(), 'alice')).toHaveLength(2);
   });
 
   it('different users, same endpoint, creates two rows', async () => {
-    await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', endpoint: 'https://push.example/shared', now: 1 });
-    await addChannel(db(), { userId: 'bob', channel: 'webpush', target: 'sub-b', endpoint: 'https://push.example/shared', now: 2 });
+    await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', endpoint: 'https://push.example/shared' });
+    await addChannel(db(), { userId: 'bob', channel: 'webpush', target: 'sub-b', endpoint: 'https://push.example/shared' });
 
     expect(await listChannels(db(), 'alice')).toHaveLength(1);
     expect(await listChannels(db(), 'bob')).toHaveLength(1);
@@ -127,7 +173,7 @@ describe('addChannel + listChannels + removeChannel', () => {
 
 describe('setChannelCursor', () => {
   it('moves the delivered_until cursor forward', async () => {
-    const id = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', endpoint: 'https://push.example/a', now: 100 });
+    const id = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', endpoint: 'https://push.example/a' });
 
     await setChannelCursor(db(), id, 500);
 
@@ -138,11 +184,16 @@ describe('setChannelCursor', () => {
 
 describe('claimChannelCursor', () => {
   it('lets only the first of two claims on the same cursor value win', async () => {
-    const id = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', endpoint: 'https://push.example/a', now: 100 });
+    const id = await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', endpoint: 'https://push.example/a' });
+    const seeded = await db()
+      .prepare('SELECT delivered_until FROM notification_channels WHERE id = ?')
+      .bind(id)
+      .first<{ delivered_until: number }>();
+    const cursor = seeded!.delivered_until;
 
-    // Both overlapping runs read delivered_until = 100 before either wrote.
-    expect(await claimChannelCursor(db(), id, 100, 500)).toBe(true);
-    expect(await claimChannelCursor(db(), id, 100, 600)).toBe(false);
+    // Both overlapping runs read this delivered_until before either wrote.
+    expect(await claimChannelCursor(db(), id, cursor, 500)).toBe(true);
+    expect(await claimChannelCursor(db(), id, cursor, 600)).toBe(false);
 
     const [row] = await listChannels(db(), 'alice');
     expect(row.delivered_until).toBe(500);
@@ -151,7 +202,7 @@ describe('claimChannelCursor', () => {
 
 describe('getPrefs + setPref', () => {
   it('defaults missing rows to true and reflects an explicit opt-out', async () => {
-    await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', endpoint: 'https://push.example/a', now: 1 });
+    await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', endpoint: 'https://push.example/a' });
 
     expect(await getPrefs(db(), 'alice', 'webpush')).toEqual(allEnabled);
 
@@ -195,12 +246,10 @@ describe('getPendingCounts', () => {
   }
 
   it('counts replies and mentions newer than the cursor, ignoring older rows', async () => {
-    await insertNotifications(db(), [
-      { recipientId: 'alice', type: 'reply', actorId: 'x', topicId: 't1', postId: 'p1', createdAt: 50 }, // before cursor
-      { recipientId: 'alice', type: 'reply', actorId: 'x', topicId: 't1', postId: 'p2', createdAt: 200 },
-      { recipientId: 'alice', type: 'mention', actorId: 'x', topicId: 't1', postId: 'p3', createdAt: 300 },
-      { recipientId: 'bob', type: 'reply', actorId: 'x', topicId: 't1', postId: 'p4', createdAt: 400 }, // other recipient
-    ]);
+    await seedNotificationRow({ recipientId: 'alice', type: 'reply', actorId: 'x', topicId: 't1', postId: 'p1', createdAt: 50 }); // before cursor
+    await seedNotificationRow({ recipientId: 'alice', type: 'reply', actorId: 'x', topicId: 't1', postId: 'p2', createdAt: 200 });
+    await seedNotificationRow({ recipientId: 'alice', type: 'mention', actorId: 'x', topicId: 't1', postId: 'p3', createdAt: 300 });
+    await seedNotificationRow({ recipientId: 'bob', type: 'reply', actorId: 'x', topicId: 't1', postId: 'p4', createdAt: 400 }); // other recipient
 
     const counts = await getPendingCounts(db(), row(), allEnabled);
     expect(counts).toEqual({
@@ -219,10 +268,8 @@ describe('getPendingCounts', () => {
   });
 
   it('zeroes a term whose pref is off', async () => {
-    await insertNotifications(db(), [
-      { recipientId: 'alice', type: 'reply', actorId: 'x', topicId: 't1', postId: 'p1', createdAt: 200 },
-      { recipientId: 'alice', type: 'mention', actorId: 'x', topicId: 't1', postId: 'p2', createdAt: 300 },
-    ]);
+    await seedNotificationRow({ recipientId: 'alice', type: 'reply', actorId: 'x', topicId: 't1', postId: 'p1', createdAt: 200 });
+    await seedNotificationRow({ recipientId: 'alice', type: 'mention', actorId: 'x', topicId: 't1', postId: 'p2', createdAt: 300 });
 
     const counts = await getPendingCounts(db(), row(), { ...allEnabled, reply: false });
     expect(counts).toEqual({
@@ -304,9 +351,7 @@ describe('getPendingCounts', () => {
   });
 
   it('counts device_paired notifications regardless of prefs, unlike the other terms', async () => {
-    await insertNotifications(db(), [
-      { recipientId: 'alice', type: 'device_paired', actorId: null, topicId: null, postId: null, createdAt: 200 },
-    ]);
+    await seedNotificationRow({ recipientId: 'alice', type: 'device_paired', createdAt: 200 });
 
     const counts = await getPendingCounts(db(), row(), {
       reply: false,
@@ -340,10 +385,10 @@ describe('getPendingCounts', () => {
     { pref: 'my_delegation', key: 'myDelegation', types: ['delegation_changed'] },
     { pref: 'rationale_ready', key: 'rationaleReady', types: ['rationale_ready'] },
   ] as const)('counts $pref past the cursor, gated by its pref', async ({ pref, key, types }) => {
-    await insertNotifications(db(), [
-      ...types.map((type, i) => ({ recipientId: 'alice', type, actorId: null, topicId: null, postId: null, createdAt: 200 + i * 100 })),
-      { recipientId: 'alice', type: types[0], actorId: null, topicId: null, postId: null, createdAt: 50 }, // before cursor
-    ]);
+    for (const [i, type] of types.entries()) {
+      await seedNotificationRow({ recipientId: 'alice', type, createdAt: 200 + i * 100 });
+    }
+    await seedNotificationRow({ recipientId: 'alice', type: types[0], createdAt: 50 }); // before cursor
 
     const enabledCounts = await getPendingCounts(db(), row(), allEnabled);
     expect(enabledCounts[key]).toBe(types.length);
@@ -357,15 +402,17 @@ describe('getPendingCounts', () => {
   it('counts Governance Review announcements past the cursor, never the seed, gated by its pref', async () => {
     const ed = (edition: number) => ({ edition, slug: `epochs-${edition}`, title: `Edition ${edition}` });
     await db().prepare("INSERT INTO users (id, created_at, last_verified_at) VALUES ('alice', 1, 1)").run();
-    await announceLatestEdition(db(), ed(42), 0); // silent seed
-    await announceLatestEdition(db(), ed(43), 50); // before cursor
+    await announceLatestEdition(db(), ed(42), 0); // silent seed, no notification
+    await announceLatestEdition(db(), ed(43), 50); // before the channel's cursor
+    const cursor = await readDbNow(db());
+    await afterDbMs(db(), cursor);
     await announceLatestEdition(db(), ed(44), 200);
 
-    const enabledCounts = await getPendingCounts(db(), row(), allEnabled);
+    const enabledCounts = await getPendingCounts(db(), row({ delivered_until: cursor }), allEnabled);
     expect(enabledCounts.reviews).toBe(1);
     expect(enabledCounts.total).toBe(1);
 
-    const disabledCounts = await getPendingCounts(db(), row(), { ...allEnabled, governance_review: false });
+    const disabledCounts = await getPendingCounts(db(), row({ delivered_until: cursor }), { ...allEnabled, governance_review: false });
     expect(disabledCounts.reviews).toBe(0);
     expect(disabledCounts.total).toBe(0);
   });
@@ -378,7 +425,6 @@ describe('migration 0113', () => {
       channel: 'webpush',
       target: '{}',
       endpoint: 'https://push.example/mig',
-      now: 0,
     });
     const row = await db()
       .prepare('SELECT dispatch_attempted_at FROM notification_channels WHERE id = ?')

@@ -113,7 +113,7 @@ describe('handleTelegramUpdate', () => {
   });
 
   it('/stop removes every channel row for the chat and confirms', async () => {
-    await addChannel(db(), { userId: 'user-l3', channel: 'telegram', target: '555', endpoint: 'telegram:555', now: 1 });
+    await addChannel(db(), { userId: 'user-l3', channel: 'telegram', target: '555', endpoint: 'telegram:555' });
     const r = fakeReply();
     const outcome = await handleTelegramUpdate(
       db(), kv(), { message: { text: '/stop', chat: { id: 555, type: 'private' } } }, deps(r.reply),
