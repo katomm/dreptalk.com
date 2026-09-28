@@ -8,6 +8,7 @@ function makeFollow(over: Partial<DelegatorFollowRow>): DelegatorFollowRow {
     resolution_status: 'resolved', delegation_type: 'drep', drep_id: 'drep1abc',
     checked_at: 100, delegation_set_at: 100, refresh_attempted_at: 100, refresh_error_at: null,
     delegated_since_epoch: null, since_checked_at: null, since_attempts: 0,
+    expected_drep_id: null, expected_at: null, expected_tx: null,
     ...over,
   };
 }
