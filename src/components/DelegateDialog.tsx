@@ -208,7 +208,7 @@ export default function DelegateDialog({
     setSigningIn(true);
     setSignInError(null);
     // The tx WalletApi and the login's CIP-30 surface are the same object at
-    // runtime; their declared types differ (readonly arrays, signData shape).
+    // runtime. Their declared types differ (readonly arrays, signData shape).
     const result = await loginWithWallet(api as unknown as Parameters<typeof loginWithWallet>[0], 'delegator', network, undefined, {
       expectedDrepId: target.drepId,
       expectedTx: txHash,
