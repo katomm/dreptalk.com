@@ -17,6 +17,7 @@ import { drepPath } from '@/lib/dreps/profile.js';
 import { formatAda, truncateId } from '@/lib/forum/view.js';
 import { epochCountdown } from '@/lib/governance/view.js';
 import { epochStartMs } from '@/lib/config/network.js';
+import DelegationSubscribe from '@/components/delegation/DelegationSubscribe.astro';
 
 interface Props {
   data: DelegationData;
@@ -122,6 +123,8 @@ const statusHint = data.drep ? drepStatusHint(data.drep.active, data.drep.status
           </ul>
         </section>
       )}
+
+      <DelegationSubscribe variant="compact" class="mydel-subscribe" />
     </div>
   )
 }
@@ -212,6 +215,10 @@ const statusHint = data.drep ? drepStatusHint(data.drep.active, data.drep.status
   .mydel__heading {
     font-size: 1.125rem;
     margin: 0 0 0.75rem;
+  }
+
+  .mydel-subscribe {
+    margin-top: 0.75rem;
   }
 
   .mydel-awaiting {

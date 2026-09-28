@@ -10,6 +10,7 @@ export const prerender = false;
 
 import Layout from '@/layouts/Layout.astro';
 import GovTypePill from '@/components/GovTypePill.astro';
+import DelegationSubscribe from '@/components/delegation/DelegationSubscribe.astro';
 import { runtimeEnv, currentNetwork } from '@/lib/api/response';
 import { resolveNetwork, epochStartMs, epochStartUnix, txExplorerUrl } from '@/lib/config/network';
 import { getFollow } from '@/lib/db/delegatorFollows';
@@ -257,6 +258,7 @@ const NO_CHANGE = 'Needs a figure for both epochs';
           <>
             <p class="mdr-line"><a href="/login/">Sign in with your stake wallet</a></p>
             <p class="mdr-line"><a href="/help/for-delegators/">How delegators track what their DRep does</a></p>
+            <p class="mdr-line"><a href="/match/">Find a DRep who votes like you</a></p>
           </>
         )}
       </section>
@@ -278,6 +280,7 @@ const NO_CHANGE = 'Needs a figure for both epochs';
           Your stake is not delegated to a DRep or to one of the two default options, so there is nothing to
           report on yet. Delegating puts your voting power to work in governance.
         </p>
+        <p class="mdr-line"><a href="/match/">Find a DRep who votes like you</a></p>
         <p class="mdr-line"><a href="/dreps/">Browse the DRep directory</a></p>
       </section>
     )}
@@ -439,6 +442,8 @@ const NO_CHANGE = 'Needs a figure for both epochs';
       </>
     )}
 
+    {view.kind === 'drep' && <DelegationSubscribe class="mdr-subscribe" />}
+
     {m2 && (
       <>
         <section class="mdr-section">
@@ -477,7 +482,8 @@ const NO_CHANGE = 'Needs a figure for both epochs';
 
         <p class="mdr-sub">
           You can move your voting power to a DRep or to the other default option at any time.
-          <a href="/help/default-delegation-options/">What the default options do</a> covers both in full, and
+          <a href="/help/default-delegation-options/">What the default options do</a> covers both in full,
+          <a href="/match/">the match quiz</a> finds a DRep who votes like you, and
           <a href="/dreps/">the DRep directory</a> lists the representatives you could delegate to instead.
         </p>
       </>
@@ -568,6 +574,10 @@ const NO_CHANGE = 'Needs a figure for both epochs';
     font-size: 1.0625rem;
     font-weight: 700;
   }
+  .mdr-subscribe {
+    margin: 1.5rem 0;
+  }
+
   .mdr-line--muted {
     color: var(--muted);
   }
