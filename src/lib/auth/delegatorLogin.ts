@@ -14,6 +14,8 @@ export async function resolveDelegatorAccount(
   db: D1Database,
   stakeAddr: string,
   now: number,
+  /** Coarse origin token, only used when this call creates the account. */
+  signupRef?: string | null,
 ): Promise<User> {
   const existing = await getUserByStakeAddr(db, stakeAddr);
   if (existing) return touchUserVerification(db, existing.id, now);
@@ -21,7 +23,7 @@ export async function resolveDelegatorAccount(
   try {
     // roles: [] yields the 'member' fallback in rolesFromUser and sets no writer
     // flags; id becomes the stake address.
-    return await upsertUserFromAuth(db, { stakeAddr, roles: [], now });
+    return await upsertUserFromAuth(db, { stakeAddr, roles: [], now, signupRef });
   } catch (error) {
     // A concurrent request may have claimed this stake address under a different
     // account id (writer-link) between our lookup and insert, tripping the

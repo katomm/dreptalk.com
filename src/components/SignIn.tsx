@@ -3,6 +3,7 @@
 // component. Flow logic in walletLogin.ts and offlineLogin.ts is UNCHANGED.
 import { useState, useEffect, useCallback, type ReactNode } from 'react';
 import { loginWithWallet } from '@/lib/auth/walletLogin.js';
+import { refFromUrl } from '@/lib/analytics/signupRef.js';
 import type { WalletApi } from '@/lib/auth/walletLogin.js';
 import { requestChallenge, loginOffline } from '@/lib/auth/offlineLogin.js';
 import { bytesToHex } from '@/lib/crypto/hex.js';
@@ -495,7 +496,11 @@ function WalletTab({ network, loginState, onLoginStateChange, walletScan }: Wall
 
     onLoginStateChange({ status: 'awaiting-signature' });
 
-    const result = await loginWithWallet(api, signRole, network, multisig ? { multisig } : undefined);
+    const result = await loginWithWallet(api, signRole, network, multisig ? { multisig } : undefined, {
+      // Read from the live URL, the same coarse token the delegation dialog
+      // sends. The server validates it and stores it only for a new account.
+      ref: refFromUrl() ?? undefined,
+    });
 
     if (result.ok && result.user) {
       rememberWallet(selectedWallet);

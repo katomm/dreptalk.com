@@ -29,6 +29,7 @@ import { WALLET_NETWORK_MISMATCH } from '../wallet/networkGuard.js';
 import { resolveDelegatorAccount } from './delegatorLogin.js';
 import { ensureFollow, setExpectedDelegation } from '../db/delegatorFollows.js';
 import { normalizeExpectedDrepId } from '../delegation/expectedDrepId.js';
+import { parseSignupRef } from '../analytics/signupRef.js';
 import { resolveFollow } from '../delegation/refresh.js';
 import { getActiveGrantByCoStake } from '../db/proposerGrants.js';
 
@@ -123,6 +124,8 @@ export interface VerifyBody {
   role: string;
   // CIP-129 drep1 id (script credential) the signer claims membership of.
   scriptDrepId?: string;
+  // Coarse origin token, recorded once if this login creates the account.
+  ref?: string;
   // What the delegation dialog just submitted for this wallet, so the dashboard
   // can show the pending target and no change notification is written while the
   // chain catches up. Both are optional and untrusted: an id that does not parse
@@ -301,7 +304,7 @@ async function verifyWalletCip8(
   if (role === 'delegator') {
     const stakeAddr = stakeAddressFromPubKey(pubKey, network);
     const verifiedAt = Math.floor(now ?? Date.now() / 1000);
-    const user = await resolveDelegatorAccount(db, stakeAddr, verifiedAt);
+    const user = await resolveDelegatorAccount(db, stakeAddr, verifiedAt, parseSignupRef(body.ref));
     // The tracking row exists synchronously; a stake-addr mismatch throws here
     // (internal inconsistency, surfaced as a 500), not fail-soft.
     await ensureFollow(db, user.id, stakeAddr, verifiedAt);
@@ -485,6 +488,7 @@ async function finishLogin(
     ccCred,
     roles: grantedRoles,
     now: Math.floor(now ?? Date.now() / 1000),
+    signupRef: parseSignupRef(input.body.ref),
   });
 
   return mintSessionResult(input, user, modRole);
