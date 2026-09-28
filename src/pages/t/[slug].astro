@@ -840,7 +840,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
               <>
                 <div class="ga-overview-block">
                   {spoTotal > 0 && (
-                    <a class="ga-spo-jump" href={`/t/${topic.slug}/?tab=positions&role=spo`}>
+                    <a class="ga-spo-jump" href={`/t/${topic.slug}/?tab=positions&role=spo`} rel="nofollow">
                       {spoTotal} {spoTotal === 1 ? 'SPO' : 'SPOs'} voted on this action, see how
                     </a>
                   )}

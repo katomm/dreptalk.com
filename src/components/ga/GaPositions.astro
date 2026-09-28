@@ -98,12 +98,14 @@ const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
       aria-selected={role === 'drep' ? 'true' : 'false'}
       class:list={['ga-positions__seg', { 'ga-positions__seg--active': role === 'drep' }]}
       href={drepHref}
+      rel="nofollow"
     >DReps <span class="ga-positions__seg-count">{total}</span></a>
     <a
       role="tab"
       aria-selected={role === 'spo' ? 'true' : 'false'}
       class:list={['ga-positions__seg', { 'ga-positions__seg--active': role === 'spo' }]}
       href={spoHref}
+      rel="nofollow"
     >SPOs <span class="ga-positions__seg-count">{spoTotal}</span></a>
     {ccTotal > 0 && (
       <a
@@ -111,6 +113,7 @@ const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
         aria-selected={role === 'cc' ? 'true' : 'false'}
         class:list={['ga-positions__seg', { 'ga-positions__seg--active': role === 'cc' }]}
         href={ccHref}
+        rel="nofollow"
       >CC <span class="ga-positions__seg-count">{ccTotal}</span></a>
     )}
   </div>
@@ -317,8 +320,8 @@ const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
 
   {(prevPage || nextPage) && (
     <nav class="ga-positions__nav">
-      {prevPage && <a href={pageHref(prevPage)}>Previous</a>}
-      {nextPage && <a href={pageHref(nextPage)}>Next</a>}
+      {prevPage && <a href={pageHref(prevPage)} rel="nofollow">Previous</a>}
+      {nextPage && <a href={pageHref(nextPage)} rel="nofollow">Next</a>}
     </nav>
   )}
 </div>

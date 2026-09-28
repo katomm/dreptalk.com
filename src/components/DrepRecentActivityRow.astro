@@ -47,7 +47,7 @@ const { e, now } = Astro.props;
             ? 'Started discussion'
             : 'Commented'}
     </span>
-    {e.href ? <a class="ract__title" href={e.href}>{e.title}</a> : <span class="ract__title">{e.title}</span>}
+    {e.href ? <a class="ract__title" href={e.href} rel={e.href.includes('?') ? 'nofollow' : undefined}>{e.title}</a> : <span class="ract__title">{e.title}</span>}
     {e.kind === 'vote' && <span class="ract__epoch">Epoch {e.epoch}</span>}
   </span>
   <span class="ract__when">{formatRelativeTime(e.ts, now)}</span>
