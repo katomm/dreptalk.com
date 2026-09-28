@@ -1,7 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { getFollow, ensureFollow, applyResolution, markBatchError, getFollowedDrepIds, setDelegatedSince, captureDelegatedSince, listFollowsMissingSince } from './delegatorFollows.js';
+import { getFollow, ensureFollow, applyResolution, markBatchError, getFollowedDrepIds, setDelegatedSince, captureDelegatedSince, listFollowsMissingSince, setExpectedDelegation } from './delegatorFollows.js';
 import { getNotificationsPage } from './notifications.js';
 
 const db = () => env.DB as D1Database;
@@ -300,5 +300,31 @@ describe('delegation start columns (migration 0089)', () => {
     await setDelegatedSince(db(), 'ch-1', 655, 2000);
     expect(await applyResolution(db(), 'ch-1', drepState('drep1chb'), 3000)).toBe('unchanged');
     expect(await since('ch-1')).toEqual({ delegated_since_epoch: 655, since_checked_at: 2000 });
+  });
+});
+
+describe('expectation columns (migration 0114)', () => {
+  it('writes only the expectation columns and leaves the baseline alone', async () => {
+    await ensureFollow(db(), 'u-expect-1', 'stake_test1expect1', 1000);
+    await applyResolution(db(), 'u-expect-1', drepState('drepOLD'), 1000);
+
+    await setExpectedDelegation(db(), 'u-expect-1', 'drepNEW', 'a'.repeat(64), 2000);
+
+    const row = await getFollow(db(), 'u-expect-1');
+    expect(row?.expected_drep_id).toBe('drepNEW');
+    expect(row?.expected_at).toBe(2000);
+    expect(row?.expected_tx).toBe('a'.repeat(64));
+    expect(row?.drep_id).toBe('drepOLD');
+    expect(row?.delegation_type).toBe('drep');
+    expect(row?.checked_at).toBe(1000);
+  });
+
+  it('accepts a null transaction hash', async () => {
+    await ensureFollow(db(), 'u-expect-2', 'stake_test1expect2', 1000);
+    await setExpectedDelegation(db(), 'u-expect-2', 'drepNEW', null, 2000);
+
+    const row = await getFollow(db(), 'u-expect-2');
+    expect(row?.expected_drep_id).toBe('drepNEW');
+    expect(row?.expected_tx).toBeNull();
   });
 });

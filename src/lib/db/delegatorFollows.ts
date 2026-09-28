@@ -22,6 +22,13 @@ export interface DelegatorFollowRow {
   since_checked_at: number | null;
   /** Consecutive SUCCESSFUL lookups that came back with no start. 0 once one succeeds. */
   since_attempts: number;
+  /** The DRep the wallet delegated to before the chain reported it, normalized to the
+   *  form drep_id carries. Null when no delegation is awaiting confirmation. */
+  expected_drep_id: string | null;
+  /** Unix seconds when the expectation was recorded. Expiry is the only thing that clears it. */
+  expected_at: number | null;
+  /** Transaction hash of that delegation, for the explorer link. */
+  expected_tx: string | null;
 }
 
 /**
@@ -202,6 +209,25 @@ export async function setDelegatedSince(
         WHERE user_id = ?`,
     )
     .bind(epoch, now, userId)
+    .run();
+}
+
+/**
+ * Records what the wallet just delegated to. Touches ONLY the three expectation
+ * columns, so it can run concurrently with the login's deferred resolveFollow
+ * (which only writes baseline columns) in either order without either losing.
+ * The caller normalizes the id first, see normalizeExpectedDrepId.
+ */
+export async function setExpectedDelegation(
+  db: D1Database,
+  userId: string,
+  expectedDrepId: string,
+  expectedTx: string | null,
+  now: number,
+): Promise<void> {
+  await db
+    .prepare('UPDATE delegator_follows SET expected_drep_id = ?, expected_at = ?, expected_tx = ? WHERE user_id = ?')
+    .bind(expectedDrepId, now, expectedTx, userId)
     .run();
 }
 
