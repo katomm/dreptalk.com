@@ -4,7 +4,7 @@
 // followed DRep's steckbrief, recent confirmed history, superseded-vote map,
 // and open (unvoted) actions.
 import { getFollow } from './delegatorFollows.js';
-import { resolveDelegationView, type DelegationView } from '../delegation/delegationView.js';
+import { resolveDelegationView, resolveAwaiting, type DelegationView } from '../delegation/delegationView.js';
 import { getDrepById, type Drep } from './dreps.js';
 import { getDrepVotingHistory, type DrepVoteHistoryRow } from './drepVotes.js';
 import { getVoterVoteHistory, type SupersededVote } from './voteHistory.js';
@@ -16,6 +16,9 @@ const HISTORY_LIMIT = 5;
 
 export interface DelegationData {
   view: DelegationView;
+  /** A delegation submitted through the site that the chain has not confirmed
+   *  yet, or null. Set for every view state, so pending and none can show it too. */
+  awaiting: { drepId: string; txHash: string | null } | null;
   /** Only for view.kind === 'drep'; null if the drep id has no synced dreps row. */
   drep: Drep | null;
   history: DrepVoteHistoryRow[];
@@ -33,7 +36,7 @@ const EMPTY: Pick<DelegationData, 'drep' | 'history' | 'earlier' | 'openActions'
 };
 
 /** Default view when there is no DB handle (defensive fallback for callers like home.astro). */
-export const NO_FOLLOW_DELEGATION: DelegationData = { view: { kind: 'no-follow' }, ...EMPTY };
+export const NO_FOLLOW_DELEGATION: DelegationData = { view: { kind: 'no-follow' }, awaiting: null, ...EMPTY };
 
 /**
  * Resolves the follow, and for a drep-follow loads the steckbrief + history +
@@ -44,9 +47,12 @@ export const NO_FOLLOW_DELEGATION: DelegationData = { view: { kind: 'no-follow' 
 export async function loadDelegation(db: D1Database, userId: string): Promise<DelegationData> {
   const follow = await getFollow(db, userId);
   const view = resolveDelegationView(follow);
+  // Read before the early return: a delegation awaiting confirmation is exactly
+  // the case where the row underneath is still pending or none.
+  const awaiting = resolveAwaiting(follow, view, Math.floor(Date.now() / 1000));
 
   if (view.kind !== 'drep') {
-    return { view, ...EMPTY };
+    return { view, awaiting, ...EMPTY };
   }
 
   const [drep, history, earlier, votableRows] = await Promise.all([
@@ -60,5 +66,5 @@ export async function loadDelegation(db: D1Database, userId: string): Promise<De
   // (a pending/failed self-cast is not an on-chain vote).
   const openActions = votableRows.filter((row) => row.viewerVote == null || row.viewerStatus != null);
 
-  return { view, drep, history, earlier, openActions };
+  return { view, awaiting, drep, history, earlier, openActions };
 }

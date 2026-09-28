@@ -11,9 +11,9 @@ export const prerender = false;
 import Layout from '@/layouts/Layout.astro';
 import GovTypePill from '@/components/GovTypePill.astro';
 import { runtimeEnv, currentNetwork } from '@/lib/api/response';
-import { resolveNetwork, epochStartMs, epochStartUnix } from '@/lib/config/network';
+import { resolveNetwork, epochStartMs, epochStartUnix, txExplorerUrl } from '@/lib/config/network';
 import { getFollow } from '@/lib/db/delegatorFollows';
-import { resolveDelegationView, drepStatusHint, isRetiredStatus } from '@/lib/delegation/delegationView';
+import { resolveDelegationView, resolveAwaiting, drepStatusHint, isRetiredStatus } from '@/lib/delegation/delegationView';
 import { SINCE_GIVE_UP_ATTEMPTS } from '@/lib/delegation/refresh';
 import { getDrepById } from '@/lib/db/dreps';
 import { drepPath } from '@/lib/dreps/profile';
@@ -69,14 +69,22 @@ const startPending = startMissing && !startGivenUp;
 // current state actually needs run, the others resolve to their empty value.
 // The DRep row comes first because the since-window depends on it: a delegation
 // older than the registration cannot be measured from the delegation epoch.
-const [drep, recent] = await Promise.all([
+// A delegation submitted through the site that the chain has not confirmed
+// yet. Its own read: the drep read above resolves the CURRENT delegation, and
+// while a delegation is awaiting confirmation those are two different DReps.
+const awaiting = resolveAwaiting(follow, view, Math.floor(Date.now() / 1000));
+
+const [drep, recent, awaitingDrep] = await Promise.all([
   db && drepId ? getDrepById(db, drepId) : Promise.resolve(null),
   db && defaultOption && (sinceEpoch != null || startGivenUp)
     ? // Without a start there is no window to bound the list by, so it runs
       // unbounded and the basis below says so rather than implying a window.
       listRecentDecidedActions(db, RECENT_LIMIT, sinceEpoch ?? undefined)
     : Promise.resolve([] as RecentDecidedAction[]),
+  db && awaiting ? getDrepById(db, awaiting.drepId) : Promise.resolve(null),
 ]);
+
+const awaitingLabel = awaitingDrep?.name?.trim() || (awaiting ? `${awaiting.drepId.slice(0, 12)}…` : '');
 
 // getDrepParticipation counts from the DRep's first registration, so a window
 // that opened before it would report since-figures the profile cannot match. The
@@ -205,6 +213,31 @@ const NO_CHANGE = 'Needs a figure for both epochs';
         </p>
       )}
     </div>
+
+    {awaiting && (
+      <div class="callout callout--info" role="status">
+        <div class="callout__body">
+          <p class="mdr-line">Your delegation to <strong>{awaitingLabel}</strong> is being confirmed on chain.</p>
+          {awaiting.txHash && (
+            <p class="mdr-line">
+              <a href={txExplorerUrl(cfg.network, awaiting.txHash)} target="_blank" rel="noopener noreferrer">View the transaction</a>
+            </p>
+          )}
+          <p class="mdr-line mdr-line--muted">
+            {view.kind === 'drep'
+              ? 'The figures below still describe your previous delegation.'
+              : 'Until it is confirmed there is nothing to report yet.'}
+          </p>
+          <button
+            type="button"
+            class="mdr-check"
+            data-check-delegation
+            data-rendered-type={view.kind === 'no-follow' || view.kind === 'pending' ? '' : view.kind}
+            data-rendered-drep={view.kind === 'drep' ? view.drepId : ''}
+          >Check now</button>
+        </div>
+      </div>
+    )}
 
     {staleError && (
       <p class="mdr-line">Last refresh failed. Showing the last confirmed state.</p>
@@ -452,6 +485,40 @@ const NO_CHANGE = 'Needs a figure for both epochs';
   </div>
 </Layout>
 
+<script>
+  // "Check now" for a delegation awaiting confirmation: the row is already
+  // resolved, so a plain status check says nothing. Reload whenever the state
+  // the endpoint reports differs from the state this page was rendered with,
+  // which covers the confirmation, an expectation that expired meanwhile, and a
+  // target the person changed again. Identical state leaves the page alone.
+  // Bundled <script> (not is:inline) keeps the strict CSP intact.
+  const checkBtn = document.querySelector('[data-check-delegation]') as HTMLButtonElement | null;
+  if (checkBtn) {
+    const renderedType = checkBtn.dataset.renderedType ?? '';
+    const renderedDrep = checkBtn.dataset.renderedDrep ?? '';
+    checkBtn.addEventListener('click', async () => {
+      if (checkBtn.disabled) return;
+      const label = checkBtn.textContent;
+      checkBtn.disabled = true;
+      checkBtn.textContent = 'Checking...';
+      try {
+        const res = await fetch('/api/delegation/track', { method: 'POST' });
+        const data = (await res.json().catch(() => null)) as
+          | { delegationType?: string | null; drepId?: string | null }
+          | null;
+        if (res.ok && data && ((data.delegationType ?? '') !== renderedType || (data.drepId ?? '') !== renderedDrep)) {
+          window.location.reload();
+          return;
+        }
+      } catch {
+        // Network error: fall through to the retryable state below.
+      }
+      checkBtn.disabled = false;
+      checkBtn.textContent = label;
+    });
+  }
+</script>
+
 <style>
   .mdr {
     display: flex;
@@ -501,6 +568,27 @@ const NO_CHANGE = 'Needs a figure for both epochs';
     font-size: 1.0625rem;
     font-weight: 700;
   }
+  .mdr-line--muted {
+    color: var(--muted);
+  }
+
+  .mdr-check {
+    margin-top: 0.5rem;
+    font: inherit;
+    font-size: 0.875rem;
+    padding: 0.35rem 0.75rem;
+    border-radius: 0.375rem;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: inherit;
+    cursor: pointer;
+  }
+
+  .mdr-check[disabled] {
+    opacity: 0.6;
+    cursor: default;
+  }
+
   .mdr-line {
     margin: 0;
     font-size: 0.9375rem;
