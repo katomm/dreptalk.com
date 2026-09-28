@@ -7,8 +7,10 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { handleTrack } from './track.js';
 import { getFollow } from '../db/delegatorFollows.js';
+import { stakeAddressFromRewardAddressHex, drepIdFromKeyHash } from '../cardano/identity.js';
 
 const VALID_DREP_A = 'drep1ygqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq7vlc9n';
+const OTHER_DREP_B = drepIdFromKeyHash(new Uint8Array(28).fill(0x42));
 const acct = (stake: string, drep: string | null) => ({
   stake_address: stake,
   status: 'registered',
@@ -101,5 +103,64 @@ describe('handleTrack: unknown user id', () => {
     const koios = { accountInfo: async () => null, accountInfoBatch: async () => [], accountUpdateHistoryBatch: async () => [] };
     const result = await handleTrack({ db: env.DB, koios, userId: 'ghost-user', now: 1_700_000_000 });
     expect(result.status).toBe(400);
+  });
+});
+
+// The reward address a CIP-30 wallet hands the delegation dialog, as hex.
+function rewardHexFor(fill: number): string {
+  const payload = new Uint8Array(29);
+  payload[0] = 0xe0; // preprod key credential
+  payload.set(new Uint8Array(28).fill(fill), 1);
+  return [...payload].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+describe('handleTrack: expectation from the delegation dialog', () => {
+  it('records an expectation when the reward address belongs to the session account', async () => {
+    const userId = 'track-expect-1';
+    const rewardHex = rewardHexFor(0x21);
+    const stakeAddr = stakeAddressFromRewardAddressHex(rewardHex, 'preprod') as string;
+    await insertUser(userId, stakeAddr);
+    const koios = { accountInfo: async () => acct(stakeAddr, VALID_DREP_A), accountInfoBatch: async () => [], accountUpdateHistoryBatch: async () => [] };
+
+    const result = await handleTrack({
+      db: env.DB, koios, userId, now: 1_700_000_000, network: 'preprod',
+      expected: { drepId: OTHER_DREP_B, txHash: 'e'.repeat(64), rewardAddressHex: rewardHex },
+    });
+
+    expect(result.status).toBe(200);
+    expect((result.json as { expectation: string }).expectation).toBe('recorded');
+    const row = await getFollow(env.DB, userId);
+    expect(row?.expected_drep_id).toBe(OTHER_DREP_B);
+    expect(row?.expected_tx).toBe('e'.repeat(64));
+  });
+
+  it('records nothing when the wallet is not the account stake wallet', async () => {
+    const userId = 'track-expect-2';
+    const ownStake = stakeAddressFromRewardAddressHex(rewardHexFor(0x31), 'preprod') as string;
+    await insertUser(userId, ownStake);
+    const koios = { accountInfo: async () => acct(ownStake, VALID_DREP_A), accountInfoBatch: async () => [], accountUpdateHistoryBatch: async () => [] };
+
+    const result = await handleTrack({
+      db: env.DB, koios, userId, now: 1_700_000_000, network: 'preprod',
+      expected: { drepId: OTHER_DREP_B, txHash: null, rewardAddressHex: rewardHexFor(0x41) },
+    });
+
+    expect(result.status).toBe(200);
+    expect((result.json as { expectation: string }).expectation).toBe('wallet_mismatch');
+    const row = await getFollow(env.DB, userId);
+    expect(row?.expected_drep_id).toBeNull();
+    // The ordinary tracking of the account's own delegation still ran.
+    expect(row?.resolution_status).toBe('resolved');
+  });
+
+  it('reports no expectation when the dialog sent none', async () => {
+    const userId = 'track-expect-3';
+    const stakeAddr = 'stake_test1rtrackexp3';
+    await insertUser(userId, stakeAddr);
+    const koios = { accountInfo: async () => acct(stakeAddr, VALID_DREP_A), accountInfoBatch: async () => [], accountUpdateHistoryBatch: async () => [] };
+
+    const result = await handleTrack({ db: env.DB, koios, userId, now: 1_700_000_000, network: 'preprod' });
+
+    expect((result.json as { expectation: string }).expectation).toBe('none');
   });
 });

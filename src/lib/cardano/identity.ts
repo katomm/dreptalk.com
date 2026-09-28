@@ -3,7 +3,7 @@
 import { blake2b224 } from '../crypto/blake.js';
 import { encodeBech32, decodeBech32 } from '../crypto/bech32.js';
 import { bytesEqual } from '../crypto/bytes.js';
-import { bytesToHex } from '../crypto/hex.js';
+import { bytesToHex, hexToBytes } from '../crypto/hex.js';
 
 // CIP-129 header byte for DRep key hash credentials.
 export const DREP_KEY_HEADER = 0x22;
@@ -72,6 +72,29 @@ export function stakeAddressFromPubKey(pubKey: Uint8Array, network: 'mainnet' | 
   payload[0] = header;
   payload.set(keyHash, 1);
   return encodeBech32(prefix, payload);
+}
+
+/**
+ * Derives the bech32 stake address from a CIP-19 reward address in hex, as a
+ * CIP-30 wallet returns it from getRewardAddresses(). Returns null unless the
+ * bytes are a 29-byte reward address whose header is the KEY credential header
+ * for `network` (0xe0 preprod, 0xe1 mainnet): a reward address for the other
+ * network, a script stake credential (0xf0/0xf1) and anything malformed all
+ * resolve to null rather than to an address that would then be compared
+ * against an account's own stake address.
+ */
+export function stakeAddressFromRewardAddressHex(hex: string, network: 'mainnet' | 'preprod'): string | null {
+  let bytes: Uint8Array;
+  try {
+    bytes = hexToBytes(hex);
+  } catch {
+    return null;
+  }
+  if (bytes.length !== 29) return null;
+  const header = network === 'mainnet' ? REWARD_MAINNET_HEADER : REWARD_TESTNET_HEADER;
+  if (bytes[0] !== header) return null;
+  const prefix = network === 'mainnet' ? 'stake' : 'stake_test';
+  return encodeBech32(prefix, bytes);
 }
 
 /**
