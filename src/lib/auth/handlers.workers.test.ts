@@ -293,6 +293,61 @@ describe('handleVerify: delegator login tracks and resolves', () => {
     expect(notes?.n).toBe(0);
   });
 
+  it('still signs the delegator in when the expectation write fails', async () => {
+    const fixturePayload = stakeVector.payloadUtf8;
+    const koios = {
+      ...koiosRejectAll(),
+      accountInfo: async () => ({
+        stake_address: 's',
+        status: 'registered',
+        delegated_pool: null,
+        delegated_drep: VALID_DREP,
+        total_balance: '1',
+      }),
+      accountInfoBatch: async () => [],
+    };
+    // Poison ONLY the expectation write, the way a transient D1 error would.
+    // The account and the follow row already exist at that point, so a login
+    // that fails here would be a 500 for a person who did nothing wrong.
+    const poisoned = new Proxy(env.DB, {
+      get(target, prop, receiver) {
+        if (prop !== 'prepare') return Reflect.get(target, prop, receiver);
+        return (sql: string) => {
+          if (sql.includes('expected_drep_id = ?')) {
+            throw new Error('transient D1 failure');
+          }
+          return target.prepare(sql);
+        };
+      },
+    }) as D1Database;
+
+    const result = await handleVerify(
+      {
+        body: {
+          payload: fixturePayload,
+          signatureHex: stakeVector.signatureHex,
+          keyHex: stakeVector.keyHex,
+          role: 'delegator',
+          expectedDrepId: OTHER_DREP,
+          expectedTx: 'd'.repeat(64),
+        },
+        sessionKv: env.SESSIONS,
+        db: poisoned,
+        koios: koios as never,
+        network: 'preprod',
+      },
+      { consumeNonce: makeSingleUseNonceOverride(fixturePayload) },
+    );
+
+    expect(result.status).toBe(200);
+    const userId = (result.json as { user: { id: string } }).user.id;
+    const row = await env.DB.prepare('SELECT expected_drep_id FROM delegator_follows WHERE user_id = ?')
+      .bind(userId)
+      .first();
+    expect(row).not.toBeNull();
+    expect(row?.expected_drep_id).toBeNull();
+  });
+
   it('ignores an expected delegation that is not a valid DRep id', async () => {
     const fixturePayload = stakeVector.payloadUtf8;
     const koios = {

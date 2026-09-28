@@ -493,10 +493,12 @@ const NO_CHANGE = 'Needs a figure for both epochs';
 
 <script>
   // "Check now" for a delegation awaiting confirmation: the row is already
-  // resolved, so a plain status check says nothing. Reload whenever the state
-  // the endpoint reports differs from the state this page was rendered with,
-  // which covers the confirmation, an expectation that expired meanwhile, and a
-  // target the person changed again. Identical state leaves the page alone.
+  // resolved, so a plain status check says nothing. Reload whenever the
+  // delegation the endpoint reports differs from the one this page was
+  // rendered with, which covers the confirmation and a target the person
+  // changed again. Known gap: an expectation that merely EXPIRED without any
+  // chain change reports the same delegation, so the callout stays until the
+  // next navigation, which is also when it would disappear anyway.
   // Bundled <script> (not is:inline) keeps the strict CSP intact.
   const checkBtn = document.querySelector('[data-check-delegation]') as HTMLButtonElement | null;
   if (checkBtn) {

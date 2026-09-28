@@ -18,6 +18,9 @@ export type TrackState = 'idle' | 'recorded' | 'wallet_mismatch' | 'error';
 export type TrackingOffer =
   /** Sign in with the wallet that just delegated. */
   | { kind: 'sign-in' }
+  /** Same action, but this wallet belongs to a different account than the one
+   *  currently signed in, so the offer has to say that signing in switches. */
+  | { kind: 'switch-account' }
   /** The request is on its way. */
   | { kind: 'tracking' }
   /** The delegation is being tracked for this account. */
@@ -34,9 +37,12 @@ export function trackingOffer(viewer: TrackingViewer, state: TrackState): Tracki
     case 'recorded':
       return { kind: 'tracked' };
     // Signing in with the delegating wallet moves the session to the account
-    // this delegation belongs to, which is exactly what a mismatch needs.
+    // this delegation belongs to, which is exactly what a mismatch needs. It
+    // also replaces the current session, so this is its own offer and its own
+    // copy: a DRep who delegated with a second wallet would otherwise be
+    // signed out of their DRep account by a button that says nothing about it.
     case 'wallet_mismatch':
-      return { kind: 'sign-in' };
+      return { kind: 'switch-account' };
     case 'error':
       return { kind: 'retry' };
     default:

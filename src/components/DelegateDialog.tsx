@@ -220,7 +220,12 @@ export default function DelegateDialog({
       return;
     }
     // On /match/ the quiz answers live in component state, so a reload would
-    // discard them at exactly the moment someone acted on the result.
+    // discard them at exactly the moment someone acted on the result. Known
+    // limitation of skipping it: the page's header and the `viewer` prop of the
+    // OTHER result rows still describe an anonymous visitor, so delegating to a
+    // second DRep in the same quiz session offers the sign-in once more. It
+    // signs the same wallet into the same account, so the cost is one extra
+    // click, not a wrong account.
     if (source === 'match') setSignedInNow(true);
     else window.location.reload();
   }
@@ -356,14 +361,20 @@ function TrackingBlock({
 }) {
   const note = { margin: '0.75rem 0 0', fontSize: '0.875rem' } as const;
 
-  if (offer.kind === 'sign-in') {
+  if (offer.kind === 'sign-in' || offer.kind === 'switch-account') {
     return (
       <div style={note}>
         <p style={{ margin: '0 0 0.5rem' }}>
-          Want to follow how this DRep votes? Sign in with this wallet and DRepTalk keeps track of your delegation.
+          {offer.kind === 'switch-account'
+            ? 'This is not the wallet linked to your account. Signing in with it switches you to that wallet\'s own account, where this delegation can be tracked.'
+            : 'Want to follow how this DRep votes? Sign in with this wallet and DRepTalk keeps track of your delegation.'}
         </p>
         <button type="button" className="btn btn-primary" onClick={onSignIn} disabled={busy}>
-          {busy ? 'Signing in...' : 'Follow how this DRep votes'}
+          {busy
+            ? 'Signing in...'
+            : offer.kind === 'switch-account'
+              ? 'Sign in with this wallet'
+              : 'Follow how this DRep votes'}
         </button>
         {error && <p style={{ margin: '0.5rem 0 0', color: 'var(--danger, #b00)' }}>{error}</p>}
       </div>

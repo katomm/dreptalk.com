@@ -22,8 +22,11 @@ describe('trackingOffer', () => {
     expect(trackingOffer(delegator, 'recorded')).toEqual({ kind: 'tracked' });
   });
 
-  it('offers sign-in when the wallet belongs to another account', () => {
-    expect(trackingOffer(delegator, 'wallet_mismatch')).toEqual({ kind: 'sign-in' });
+  it('names the account switch when the wallet belongs to another account', () => {
+    // Same action as a plain sign-in, but the person is already signed in
+    // somewhere else, and signing in with this wallet replaces that session.
+    // A DRep who delegates with a second wallet must be told before they click.
+    expect(trackingOffer(delegator, 'wallet_mismatch')).toEqual({ kind: 'switch-account' });
   });
 
   it('offers a retry when the request failed', () => {

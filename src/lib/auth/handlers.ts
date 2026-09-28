@@ -317,7 +317,14 @@ async function verifyWalletCip8(
         // A malformed hash only costs the explorer link. Dropping the whole
         // expectation over it would bring the self notification back.
         const tx = isHexExact(body.expectedTx ?? '', 64) ? (body.expectedTx as string) : null;
-        await setExpectedDelegation(db, user.id, normalized, tx, verifiedAt);
+        try {
+          await setExpectedDelegation(db, user.id, normalized, tx, verifiedAt);
+        } catch {
+          // The account and the follow row already exist, so a transient write
+          // failure here must not turn a good login into a 500. The cost of
+          // degrading is one "your delegation changed" notification the person
+          // did not need, which is far cheaper than a failed sign-in.
+        }
       }
     }
     // Decision A: the delegator door always mints a member-capped session and
