@@ -73,7 +73,7 @@ import { renderMarkdown } from '../markdown.js';
 import { MAX_EXTERNAL_TITLE_LEN, sanitizeExternalText } from '../validation/input.js';
 import { eligibleSurvey } from './admission.js';
 import { type ArtifactInput, computeSurveyTally } from './tallyCompute.js';
-import { parseSurveyDefinition, surveyDescription, surveyTitle } from './view.js';
+import { parseSurveyDefinition, parseSurveyRecord, surveyDescription, surveyTitle } from './view.js';
 
 /**
  * `bundle`, deliberately not `wholeBundle`. wholeBundle is collectSurveyBundle
@@ -398,8 +398,8 @@ async function tallyOneSurvey(
   // documents that precondition, this guard is what enforces it.
   if (row.sealed && !finalized) return false;
 
-  const definition = parseSurveyDefinition(row.definitionJson);
-  if (definition === null) return false;
+  const survey = parseSurveyRecord(row.definitionJson);
+  if (survey === null) return false;
 
   // The hash the computation assumes. The guarded write compares the survey's
   // value against exactly this, so an artifact that appears mid-fetch refuses
@@ -442,15 +442,15 @@ async function tallyOneSurvey(
     if (a === null) throw new Error(`artifact ${row.artifactHash} unknown to the backend`);
     const role = a.tally.perRole.find(r => r.role === Role.DRep) ?? {
       role: Role.DRep,
-      total: null,
       responders: [],
       questions: [],
     };
-    artifact = { role, endEpoch: a.tally.survey.endEpoch };
+    const total = a.info.perRole.find(r => r.role === Role.DRep)?.total ?? null;
+    artifact = { role: { ...role, total }, endEpoch: a.tally.survey.endEpoch };
   }
 
   const computed = computeSurveyTally({
-    definition,
+    survey,
     responses: bundle.responses,
     verdicts: bundle.verdicts,
     power,

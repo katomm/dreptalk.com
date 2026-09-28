@@ -13,7 +13,7 @@
 // counted DRep we cannot resolve to a local power row must leave the weighted
 // run, and the head count must survive that, so the unit-weight run over every
 // counted responder is the head count of record.
-import { Role, type SurveyDefinition } from 'cip-179';
+import { Role } from 'cip-179';
 import {
   auditResponses,
   bytesToHex,
@@ -21,6 +21,7 @@ import {
   type ExclusionKey,
   type ProofVerdicts,
   type ResponseRecord,
+  type SurveyRecord,
 } from 'cip-179/domain';
 import {
   toArtifactQuestions,
@@ -33,13 +34,20 @@ import type { NewSurveyTally } from '../db/surveyTally.js';
 
 /** The DRep role's committed tally plus the epoch it was weighted at. */
 export interface ArtifactInput {
-  role: ArtifactRoleTally;
+  /**
+   * The role's tally joined with its electorate total at the end of end_epoch
+   * (decimal lovelace). The artifact keeps the total in its unhashed info
+   * section, apart from the hashed tally; this site checks no hash, so the
+   * split is not kept here. Null when the artifact lists no DRep total.
+   */
+  role: ArtifactRoleTally & { total: string | null };
   /** The survey's end_epoch, from the artifact's own tally body. */
   endEpoch: number;
 }
 
 export interface ComputeArgs {
-  definition: SurveyDefinition;
+  /** The survey's record: its definition, and the slot that opens its window. */
+  survey: Pick<SurveyRecord, 'slot' | 'definition'>;
   responses: readonly ResponseRecord[];
   verdicts: ProofVerdicts | undefined;
   power: PowerLookup;
@@ -89,11 +97,12 @@ function responderOf(r: ResponseRecord, weight: bigint): WeightedResponder {
 }
 
 export function computeSurveyTally(args: ComputeArgs): ComputedTally {
-  const { definition, responses, verdicts, power, artifact, sealed } = args;
+  const { survey, responses, verdicts, power, artifact, sealed } = args;
+  const { definition } = survey;
 
   // One audit over every response, whatever its claimed role: the exclusion
   // reasons are the library's and we only narrow the set afterwards.
-  const audit = auditResponses(responses, definition, verdicts);
+  const audit = auditResponses(responses, survey, verdicts);
 
   const countedDreps = audit.counted.filter(r => r.response.role === Role.DRep);
 
