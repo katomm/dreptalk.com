@@ -7,6 +7,7 @@
 
 import { Role, type SurveyDefinition } from 'cip-179';
 import { formatRelativeTime } from '../forum/view.js';
+import type { SurveyRecord } from 'cip-179/domain';
 import { decodeSurveyRecord } from 'cip-179/tally';
 import {
   MAX_EXTERNAL_PROSE_LEN,
@@ -46,18 +47,22 @@ export function roleLabels(roles: readonly number[]): string {
 }
 
 /**
- * Decode a stored wire-form record back to its definition, or null when the
- * stored form cannot be read. The form is rewritten on every delivery and
- * decoded on every page view, so a shape this code cannot read, a corrupted
- * row, a cip-179 wire change no delivery has carried since, must cost the card
- * its text and the page its answer panel, not the whole thread a 500.
+ * Decode a stored wire-form record, or null when the stored form cannot be
+ * read. The form is rewritten on every delivery and decoded on every page view,
+ * so a shape this code cannot read, a corrupted row, a cip-179 wire change no
+ * delivery has carried since, must cost the card its text and the page its
+ * answer panel, not the whole thread a 500.
  */
-export function parseSurveyDefinition(definitionJson: string): SurveyDefinition | null {
+export function parseSurveyRecord(definitionJson: string): SurveyRecord | null {
   try {
-    return decodeSurveyRecord(JSON.parse(definitionJson)).definition;
+    return decodeSurveyRecord(JSON.parse(definitionJson));
   } catch {
     return null;
   }
+}
+
+export function parseSurveyDefinition(definitionJson: string): SurveyDefinition | null {
+  return parseSurveyRecord(definitionJson)?.definition ?? null;
 }
 
 /** Thread and row title: the on-chain title, sanitized and capped like a

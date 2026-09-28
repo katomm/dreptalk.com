@@ -32,6 +32,11 @@ function definition(overrides: Partial<SurveyDefinition> = {}): SurveyDefinition
   };
 }
 
+// Published at slot 500, before every response's default slot.
+function survey(overrides: Partial<SurveyDefinition> = {}) {
+  return { slot: 500, definition: definition(overrides) };
+}
+
 function response(
   drepHex: string,
   optionIndex: number,
@@ -78,7 +83,7 @@ function power(
 describe('computeSurveyTally', () => {
   it('counts the latest response per credential and tags the rest as superseded', () => {
     const r = computeSurveyTally({
-      definition: definition(),
+      survey: survey(),
       responses: [
         response(DREP_A, 0, { slot: 1000 }),
         response(DREP_A, 1, { slot: 2000, txHash: 'b'.repeat(64) }),
@@ -96,7 +101,7 @@ describe('computeSurveyTally', () => {
 
   it('keeps an unresolvable DRep in the head count and out of the weighted run', () => {
     const r = computeSurveyTally({
-      definition: definition(),
+      survey: survey(),
       responses: [response(DREP_A, 0), response(DREP_C, 1, { txHash: 'b'.repeat(64) })],
       verdicts: undefined,
       power: power({ [DREP_A]: 4_000_000n }),
@@ -115,7 +120,7 @@ describe('computeSurveyTally', () => {
 
   it('keeps a resolved DRep with zero power inside the weighted run', () => {
     const r = computeSurveyTally({
-      definition: definition(),
+      survey: survey(),
       responses: [response(DREP_A, 0), response(DREP_B, 1, { txHash: 'b'.repeat(64) })],
       verdicts: undefined,
       power: power({ [DREP_A]: 4_000_000n, [DREP_B]: 0n }),
@@ -132,7 +137,7 @@ describe('computeSurveyTally', () => {
 
   it('carries the head count per option, so both readings come from one shape', () => {
     const r = computeSurveyTally({
-      definition: definition(),
+      survey: survey(),
       responses: [
         response(DREP_A, 0),
         response(DREP_B, 0, { txHash: 'b'.repeat(64) }),
@@ -150,7 +155,7 @@ describe('computeSurveyTally', () => {
 
   it('excludes a response past the end epoch', () => {
     const r = computeSurveyTally({
-      definition: definition({ endEpoch: 300 }),
+      survey: survey({ endEpoch: 300 }),
       responses: [response(DREP_A, 0, { epochNo: 301 })],
       verdicts: undefined,
       power: power({ [DREP_A]: 1n }),
@@ -161,9 +166,22 @@ describe('computeSurveyTally', () => {
     expect(r.excludedBy).toEqual({ 'after-deadline': 1 });
   });
 
+  it('excludes a response published before the survey', () => {
+    const r = computeSurveyTally({
+      survey: survey(),
+      responses: [response(DREP_A, 0, { slot: 400 })],
+      verdicts: undefined,
+      power: power({ [DREP_A]: 1n }),
+      artifact: null,
+      sealed: false,
+    });
+    expect(r.counted).toBe(0);
+    expect(r.excludedBy).toEqual({ 'before-survey': 1 });
+  });
+
   it('keeps a response with no proof verdict counted, because pending is not failed', () => {
     const r = computeSurveyTally({
-      definition: definition(),
+      survey: survey(),
       responses: [response(DREP_A, 0)],
       verdicts: {},
       power: power({ [DREP_A]: 1n }),
@@ -180,7 +198,7 @@ describe('computeSurveyTally', () => {
 
   it('excludes a response whose proof verdict is false', () => {
     const r = computeSurveyTally({
-      definition: definition(),
+      survey: survey(),
       responses: [response(DREP_A, 0)],
       verdicts: { [`${TX}:0`]: false },
       power: power({ [DREP_A]: 1n }),
@@ -193,7 +211,7 @@ describe('computeSurveyTally', () => {
 
   it('counts only responses claiming role DRep, and records the other roles', () => {
     const r = computeSurveyTally({
-      definition: definition({ eligibleRoles: [Role.DRep, Role.SPO] }),
+      survey: survey({ eligibleRoles: [Role.DRep, Role.SPO] }),
       responses: [
         response(DREP_A, 0),
         response(DREP_B, 1, { txHash: 'b'.repeat(64), role: Role.SPO }),
@@ -209,7 +227,7 @@ describe('computeSurveyTally', () => {
 
   it('omits role counts when only DReps responded', () => {
     const r = computeSurveyTally({
-      definition: definition(),
+      survey: survey(),
       responses: [response(DREP_A, 0)],
       verdicts: undefined,
       power: power({ [DREP_A]: 5n }),
@@ -221,7 +239,7 @@ describe('computeSurveyTally', () => {
 
   it('takes every weighted figure from the artifact, as one consistent set', () => {
     const r = computeSurveyTally({
-      definition: definition(),
+      survey: survey(),
       responses: [response(DREP_A, 0), response(DREP_B, 1, { txHash: 'b'.repeat(64) })],
       verdicts: undefined,
       // Local power says something entirely different, and must not leak in.
@@ -265,7 +283,7 @@ describe('computeSurveyTally', () => {
     // different optional questions, so the question weights are 3 and 5 and
     // their maximum is 5, while the participating power is 8.
     const r = computeSurveyTally({
-      definition: definition({
+      survey: survey({
         questions: [
           { type: 'singleChoice', prompt: 'Q1', options: { type: 'options', labels: ['A'] } },
           { type: 'singleChoice', prompt: 'Q2', options: { type: 'options', labels: ['A'] } },
@@ -297,7 +315,7 @@ describe('computeSurveyTally', () => {
 
   it('treats an artifact role with no responders as zero, still on the artifact path', () => {
     const r = computeSurveyTally({
-      definition: definition(),
+      survey: survey(),
       responses: [response(DREP_A, 0)],
       verdicts: undefined,
       power: power({ [DREP_A]: 5n }),
@@ -316,7 +334,7 @@ describe('computeSurveyTally', () => {
 
   it('takes a sealed survey head count from the artifact and says so', () => {
     const r = computeSurveyTally({
-      definition: definition({ submissionMode: { type: 'sealed', round: 1, paddingSize: 16, chainHash: hexToBytes('ab'.repeat(32)) } }),
+      survey: survey({ submissionMode: { type: 'sealed', round: 1, paddingSize: 16, chainHash: hexToBytes('ab'.repeat(32)) } }),
       responses: [response(DREP_A, 0)],
       verdicts: undefined,
       power: power({ [DREP_A]: 5n }),
@@ -339,7 +357,7 @@ describe('computeSurveyTally', () => {
 
   it('reports zero answered power without inventing a denominator', () => {
     const r = computeSurveyTally({
-      definition: definition(),
+      survey: survey(),
       responses: [response(DREP_A, 0)],
       verdicts: undefined,
       power: power({ [DREP_A]: 0n }),
@@ -353,7 +371,7 @@ describe('computeSurveyTally', () => {
   it('survives a weight past the exact-integer range without a float', () => {
     const big = 9_007_199_254_740_993n;
     const r = computeSurveyTally({
-      definition: definition(),
+      survey: survey(),
       responses: [response(DREP_A, 0)],
       verdicts: undefined,
       power: power({ [DREP_A]: big }),
@@ -365,7 +383,7 @@ describe('computeSurveyTally', () => {
 
   it('weights a script credential from the script power row, not a key row sharing its hash', () => {
     const r = computeSurveyTally({
-      definition: definition(),
+      survey: survey(),
       responses: [response(DREP_A, 0, { isScript: true })],
       verdicts: undefined,
       // Same hash, two different rows: key weighs 1,000,000 and script weighs
@@ -381,7 +399,7 @@ describe('computeSurveyTally', () => {
 
   it('narrows excluded and excludedBy to the DRep claim, same as counted', () => {
     const r = computeSurveyTally({
-      definition: definition({ eligibleRoles: [Role.DRep, Role.SPO] }),
+      survey: survey({ eligibleRoles: [Role.DRep, Role.SPO] }),
       responses: [
         response(DREP_A, 0),
         response(DREP_B, 1, { txHash: 'b'.repeat(64), role: Role.SPO }),

@@ -130,10 +130,11 @@ leading one, and the card says so beneath them. A rating question is different
 again: its bars sit within the scale the survey declares, and each option is
 rated by its own group, so those means are not parts of one whole either.
 
-Responses can be left out of the count, and the card breaks down why: sent after
-the deadline, invalid against the definition, credential not proven, replaced by
-a later answer, or a sealed answer that did not reveal. The same panel carries
-the turnout behind the figures, with both halves of the fraction named.
+Responses can be left out of the count, and the card breaks down why: sent
+before the survey itself was on chain, sent after the deadline, invalid against
+the definition, credential not proven, replaced by a later answer, or a sealed
+answer that did not reveal. The same panel carries the turnout behind the
+figures, with both halves of the fraction named.
 
 ### Why the figures can still move
 

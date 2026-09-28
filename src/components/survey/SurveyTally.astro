@@ -244,6 +244,7 @@ interface Built {
 }
 
 const EXCLUSION_ORDER: ExclusionKey[] = [
+  'before-survey',
   'after-deadline',
   'invalid',
   'unproven',
@@ -281,6 +282,8 @@ function basisNote(key: QuestionDisplayKey, basis: BarBasis, withinScale: boolea
 
 function exclusionLabel(key: ExclusionKey): string {
   switch (key) {
+    case 'before-survey':
+      return 'Sent before the survey';
     case 'after-deadline':
       return 'Sent after the deadline';
     case 'invalid':
@@ -296,6 +299,8 @@ function exclusionLabel(key: ExclusionKey): string {
 
 function exclusionHint(key: ExclusionKey, endEpoch: number): string {
   switch (key) {
+    case 'before-survey':
+      return 'The response transaction is in a block earlier than the one that published this survey, so it answered a survey that was not on chain yet.';
     case 'after-deadline':
       return `The response transaction is in an epoch later than epoch ${endEpoch}, the last epoch this survey accepts.`;
     case 'invalid':

@@ -295,16 +295,20 @@ function pagingBundle(pages: Record<string, number>, log: string[]): SurveysTess
 }
 
 /** A finalized artifact in the shape the tally pass reads: the DRep role's
- * electorate total, its counted responders with their committed weights, its
- * questions, and the end epoch the weighting stands on. `dreps: null` is a role
- * ABSENT from perRole, which means zero counted responders and is still the
- * artifact path. */
+ * counted responders with their committed weights, its questions, the end epoch
+ * the weighting stands on, and the role's electorate total from the unhashed
+ * info section. `dreps: null` is a role ABSENT from perRole, which means zero
+ * counted responders and is still the artifact path; info then lists no DRep
+ * total either, as Tessera emits it. */
 function tallyArtifact(
   opts: { dreps?: readonly { credential: string; weight: string }[] | null; total?: string } = {},
 ): TallyArtifact {
   const dreps =
     opts.dreps === undefined ? [{ credential: `key:${DREP_A}`, weight: '7000000' }] : opts.dreps;
   return {
+    info: {
+      perRole: dreps === null ? [] : [{ role: Role.DRep, total: opts.total ?? '50000000' }],
+    },
     tally: {
       survey: { txId: TX_LINKED, index: 0, endEpoch: ARTIFACT_END_EPOCH },
       perRole:
@@ -313,7 +317,6 @@ function tallyArtifact(
           : [
               {
                 role: Role.DRep,
-                total: opts.total ?? '50000000',
                 responders: dreps.map(d => ({ ...d, txHash: TX_LINKED, responseIndex: 0 })),
                 questions: [
                   {
