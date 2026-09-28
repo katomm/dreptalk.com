@@ -73,7 +73,7 @@ const backHref = `${p.actionHref}${positionsVoterAnchor(p.author.authorId, p.rol
     {p.rawRationaleUrl && (
       <a class="btn btn-primary" href={p.rawRationaleUrl} rel="nofollow noopener" target="_blank">Raw rationale</a>
     )}
-    <a class="btn btn-secondary" href={backHref}>All votes on this action</a>
+    <a class="btn btn-secondary" href={backHref} rel="nofollow">All votes on this action</a>
     <ShareButton url={new URL(Astro.url.pathname, Astro.url.origin).href} title={`How ${p.author.displayName} voted on ${p.actionTitle}`} ariaLabel="Share this rationale" />
   </div>
 </article>

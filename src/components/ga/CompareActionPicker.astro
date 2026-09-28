@@ -62,6 +62,7 @@ const activeEnd = endNote(activeDecidedEpoch, activeExpiryEpoch);
               <a
                 class:list={['vcmp__item', { 'vcmp__item--active': c.topic_slug === activeSlug }]}
                 href={hrefFor(c.topic_slug)}
+                rel="nofollow"
               >
                 <span class="vcmp__id">
                   <span class="vcmp__name">{label(c)}</span>

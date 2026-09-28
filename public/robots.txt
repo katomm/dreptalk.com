@@ -1,11 +1,20 @@
 # Default rules. Search engines and live answer engines (ClaudeBot,
 # PerplexityBot, Perplexity-User, OAI-SearchBot) are not named in the block
 # group below, so they fall through here and may crawl and cite public pages.
+# Filtered and comparison views of a topic (a voter, a role, a second action)
+# show the same page as the topic itself, whose canonical URL carries no query,
+# so crawlers are pointed at that page instead of every combination.
 User-agent: *
 Disallow: /admin
 Disallow: /api
 Disallow: /imprint
 Disallow: /privacy
+Disallow: /t/*voter=
+Disallow: /t/*role=
+Disallow: /t/*compare=
+Disallow: /ga/*voter=
+Disallow: /ga/*role=
+Disallow: /ga/*compare=
 
 # Share-preview cards under /og/ are generated on demand for social scrapers,
 # so a preview shows up when someone posts a link. SEO and index crawlers fetch
@@ -27,6 +36,12 @@ Disallow: /admin
 Disallow: /api
 Disallow: /imprint
 Disallow: /privacy
+Disallow: /t/*voter=
+Disallow: /t/*role=
+Disallow: /t/*compare=
+Disallow: /ga/*voter=
+Disallow: /ga/*role=
+Disallow: /ga/*compare=
 
 # AI training crawlers: blocked. Public deliberation should be discoverable in
 # answer engines, but the content is not offered up for model training. The
