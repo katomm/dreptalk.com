@@ -6,6 +6,8 @@ import AuthorIdentity from '@/components/AuthorIdentity.astro';
 import VoteBadge from '@/components/VoteBadge.astro';
 import EarlierVotes from '@/components/EarlierVotes.astro';
 import DelegateButton from '@/components/DelegateButton.tsx';
+import { loadTrackingViewer } from '@/lib/delegation/viewer';
+import { runtimeEnv } from '@/lib/api/response';
 import ShareButton from '@/components/ShareButton.astro';
 import { enhanceStoredHtml } from '@/lib/markdown.js';
 import { positionsVoterAnchor } from '@/lib/governance/voteStatement.js';
@@ -42,6 +44,13 @@ const HERO_AVATAR_SIZE = 96;
 // The back link targets this voter's own position row on the action, so the
 // reveal-hash-target script auto-expands the rationale there: the reader lands
 // on the action and immediately sees this rationale exists in context.
+// Read here rather than threaded from the two vote pages that mount this
+// component, the way SubscribeCallout reads its own state.
+const viewer = await loadTrackingViewer(
+  runtimeEnv(Astro.locals).DB as D1Database | undefined,
+  Astro.locals.user?.id ?? null,
+);
+
 const backHref = `${p.actionHref}${positionsVoterAnchor(p.author.authorId, p.roleLabel === 'SPO' ? 'spo' : undefined)}`;
 ---
 <article class="vstmt">
@@ -52,7 +61,7 @@ const backHref = `${p.actionHref}${positionsVoterAnchor(p.author.authorId, p.rol
     <div class="vstmt__idrow">
       <AuthorIdentity author={p.author} size={HERO_AVATAR_SIZE} kind={p.isPool ? 'pool' : undefined} />
       {p.delegateTarget && (
-        <DelegateButton client:idle network={p.delegateNetwork} target={p.delegateTarget} />
+        <DelegateButton client:idle network={p.delegateNetwork} target={p.delegateTarget} viewer={viewer} />
       )}
     </div>
     <p class="vstmt__role">{p.roleLabel}</p>
