@@ -373,3 +373,56 @@ describe('loginWithWallet: delegator', () => {
     expect(body.payload).toBe(FAKE_PAYLOAD);
   });
 });
+
+describe('loginWithWallet extra context', () => {
+  it('forwards the expected delegation and the origin token in the verify body', async () => {
+    const bodies: string[] = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      bodies.push(String(init?.body ?? ''));
+      if (String(url).includes('challenge')) {
+        return { ok: true, json: async () => ({ payload: 'nonce-1' }) } as unknown as Response;
+      }
+      return { ok: true, json: async () => ({ ok: true, user: { id: 'u1', roles: ['member'] } }) } as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    const api = {
+      getRewardAddresses: async () => ['e0aabb'],
+      signData: async () => ({ signature: 'sig', key: 'key' }),
+    } as never;
+
+    const res = await loginWithWallet(api, 'delegator', 'preprod', { fetchImpl }, {
+      expectedDrepId: 'drep1abc',
+      expectedTx: 'd'.repeat(64),
+      ref: 'delegate-dialog',
+    });
+
+    expect(res.ok).toBe(true);
+    const verifyBody = JSON.parse(bodies[bodies.length - 1]);
+    expect(verifyBody.expectedDrepId).toBe('drep1abc');
+    expect(verifyBody.expectedTx).toBe('d'.repeat(64));
+    expect(verifyBody.ref).toBe('delegate-dialog');
+    expect(verifyBody.role).toBe('delegator');
+  });
+
+  it('omits the fields when no extra context is given', async () => {
+    const bodies: string[] = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      bodies.push(String(init?.body ?? ''));
+      if (String(url).includes('challenge')) {
+        return { ok: true, json: async () => ({ payload: 'nonce-2' }) } as unknown as Response;
+      }
+      return { ok: true, json: async () => ({ ok: true, user: { id: 'u1', roles: ['member'] } }) } as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    const api = {
+      getRewardAddresses: async () => ['e0aabb'],
+      signData: async () => ({ signature: 'sig', key: 'key' }),
+    } as never;
+
+    await loginWithWallet(api, 'delegator', 'preprod', { fetchImpl });
+
+    const verifyBody = JSON.parse(bodies[bodies.length - 1]);
+    expect('expectedDrepId' in verifyBody).toBe(false);
+    expect('ref' in verifyBody).toBe(false);
+  });
+});

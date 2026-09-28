@@ -27,7 +27,8 @@ import { rolesFromUser, normalizeSessionRoles } from './roles.js';
 import type { CardanoNetwork } from '../config/network.js';
 import { WALLET_NETWORK_MISMATCH } from '../wallet/networkGuard.js';
 import { resolveDelegatorAccount } from './delegatorLogin.js';
-import { ensureFollow } from '../db/delegatorFollows.js';
+import { ensureFollow, setExpectedDelegation } from '../db/delegatorFollows.js';
+import { normalizeExpectedDrepId } from '../delegation/expectedDrepId.js';
 import { resolveFollow } from '../delegation/refresh.js';
 import { getActiveGrantByCoStake } from '../db/proposerGrants.js';
 
@@ -122,6 +123,12 @@ export interface VerifyBody {
   role: string;
   // CIP-129 drep1 id (script credential) the signer claims membership of.
   scriptDrepId?: string;
+  // What the delegation dialog just submitted for this wallet, so the dashboard
+  // can show the pending target and no change notification is written while the
+  // chain catches up. Both are optional and untrusted: an id that does not parse
+  // and a hash that is not 64 hex characters are dropped, never stored.
+  expectedDrepId?: string;
+  expectedTx?: string;
 }
 
 export interface VerifyInput {
@@ -298,6 +305,18 @@ async function verifyWalletCip8(
     // The tracking row exists synchronously; a stake-addr mismatch throws here
     // (internal inconsistency, surfaced as a 500), not fail-soft.
     await ensureFollow(db, user.id, stakeAddr, verifiedAt);
+    // Before the resolve is scheduled on purpose: resolveFollow runs deferred
+    // and could otherwise see the new delegation first and write a
+    // delegation_changed notification for the person's own action.
+    if (typeof body.expectedDrepId === 'string') {
+      const normalized = normalizeExpectedDrepId(body.expectedDrepId);
+      if (normalized) {
+        // A malformed hash only costs the explorer link. Dropping the whole
+        // expectation over it would bring the self notification back.
+        const tx = isHexExact(body.expectedTx ?? '', 64) ? (body.expectedTx as string) : null;
+        await setExpectedDelegation(db, user.id, normalized, tx, verifiedAt);
+      }
+    }
     // Decision A: the delegator door always mints a member-capped session and
     // never a drepId, regardless of the routed account's roles. Writer rights
     // require the writer door, which revalidates on-chain.
