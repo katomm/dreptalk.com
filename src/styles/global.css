@@ -1804,3 +1804,23 @@ tr.diff-block-del > th {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* DRep share kit on /settings/profile/, a collapsed section under drep.link. */
+.kit {
+  margin: 0 0 2rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.kit__summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.kit__note {
+  margin: 0.75rem 0 0;
+  max-width: 62ch;
+  color: var(--muted);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+}
+

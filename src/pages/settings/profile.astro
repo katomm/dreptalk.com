@@ -59,14 +59,19 @@ const previousRow = handleRows.find((r) => !r.isPrimary) ?? null;
 ---
 <SettingsShell active="profile" isDrep={true} isProposer={isProposer}>
   {linkOpen && (
-    <DrepLinkSettings
-      current={primaryRow?.handle ?? null}
-      previous={previousRow?.releasedAt ? { handle: previousRow.handle, until: previousRow.releasedAt } : null}
-      drepId={drepId}
-      hasName={Boolean(drep?.name)}
-      cooldownUntil={handleCooldownUntil(primaryRow)}
-      client:visible
-    />
+    <>
+      <DrepLinkSettings
+        current={primaryRow?.handle ?? null}
+        previous={previousRow?.releasedAt ? { handle: previousRow.handle, until: previousRow.releasedAt } : null}
+        drepId={drepId}
+        hasName={Boolean(drep?.name)}
+        cooldownUntil={handleCooldownUntil(primaryRow)}
+        name={drep?.name ?? null}
+        client:visible
+      />
+      {/* Click-to-copy for the share kit inside the island above, the same script /brand uses. */}
+      <script is:inline src="/brand-copy.js"></script>
+    </>
   )}
   <p style="margin:0 0 1.25rem;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
     Manage your DRep profile metadata stored on-chain (CIP-119).
