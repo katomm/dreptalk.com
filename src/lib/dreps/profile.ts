@@ -1,4 +1,5 @@
 // Pure view-model helpers for the DRep profile. No I/O.
+import { parseSignupRef } from '../analytics/signupRef.js';
 
 /**
  * Canonical profile path for a DRep: the SEO slug when one is assigned, else
@@ -7,6 +8,25 @@
  */
 export function drepPath(d: { drepId: string; slug?: string | null }): string {
   return `/dreps/${d.slug ?? d.drepId}/`;
+}
+
+/** The canonical profile URL with the request's query string kept, for the 301
+ *  from a raw id or a non-canonical slug. Dropping it would lose ?tab= and the
+ *  origin a short link attached. Same pattern as the /ga/ resolver. */
+export function canonicalProfileHref(d: { drepId: string; slug?: string | null }, search: string): string {
+  return `${drepPath(d)}${search}`;
+}
+
+/** A profile tab link, carrying the visitor's origin when it is a known token.
+ *  Anything else is dropped: the value comes from the URL and is written back
+ *  into the page. */
+export function profileTabHref(d: { drepId: string; slug?: string | null }, tab: string, ref: string | null): string {
+  const params = new URLSearchParams();
+  if (tab !== 'all') params.set('tab', tab);
+  const origin = parseSignupRef(ref);
+  if (origin) params.set('ref', origin);
+  const query = params.toString();
+  return `${drepPath(d)}${query ? `?${query}` : ''}#activity`;
 }
 
 /**
