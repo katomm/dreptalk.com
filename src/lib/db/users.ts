@@ -23,6 +23,9 @@ export interface User {
   created_at: number;
   last_verified_at: number;
   last_seen: number | null;
+  /** Coarse origin token, written once when the row was created. Null for
+   *  accounts created before this existed, or arrivals with no known origin. */
+  signup_ref: string | null;
 }
 
 // Raw row shape as stored in D1 (booleans as 0/1 integers).
@@ -44,6 +47,7 @@ interface UserRow {
   created_at: number;
   last_verified_at: number;
   last_seen: number | null;
+  signup_ref: string | null;
 }
 
 /** Maps a raw D1 row to the User type (0/1 integers to JS booleans). */
@@ -66,6 +70,7 @@ function rowToUser(row: UserRow): User {
     created_at: row.created_at,
     last_verified_at: row.last_verified_at,
     last_seen: row.last_seen,
+    signup_ref: row.signup_ref,
   };
 }
 
@@ -212,9 +217,12 @@ export async function upsertUserFromAuth(
     ccCred?: string;
     roles: AuthRole[];
     now: number;
+    /** Coarse origin token for a NEW account. Ignored on an existing row: the
+     *  value describes where the account came from, which never changes. */
+    signupRef?: string | null;
   },
 ): Promise<User> {
-  const { drepId, stakeAddr, poolId, ccCred, roles, now } = args;
+  const { drepId, stakeAddr, poolId, ccCred, roles, now, signupRef } = args;
   const id = drepId ?? stakeAddr ?? poolId ?? ccCred;
   if (!id) {
     throw new Error('upsertUserFromAuth: at least one credential (drepId, stakeAddr, poolId, ccCred) must be provided');
@@ -231,8 +239,8 @@ export async function upsertUserFromAuth(
   await db
     .prepare(
       `INSERT INTO users
-         (id, drep_id, stake_addr, pool_id, cc_cred, is_drep, is_proposer, is_spo, is_cc, role, status, created_at, last_verified_at, notif_seen_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'member', 'active', ?, ?, ${DB_NOW_MS})
+         (id, drep_id, stake_addr, pool_id, cc_cred, is_drep, is_proposer, is_spo, is_cc, role, status, created_at, last_verified_at, notif_seen_at, signup_ref)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'member', 'active', ?, ?, ${DB_NOW_MS}, ?)
        ON CONFLICT(id) DO UPDATE SET
          last_verified_at = excluded.last_verified_at,
          is_drep          = is_drep | excluded.is_drep,
@@ -243,8 +251,10 @@ export async function upsertUserFromAuth(
          stake_addr       = COALESCE(stake_addr, excluded.stake_addr),
          pool_id          = COALESCE(pool_id, excluded.pool_id),
          cc_cred          = COALESCE(cc_cred, excluded.cc_cred)`,
+    // signup_ref is deliberately NOT in the DO UPDATE list: it records where an
+    // account came from, so only the INSERT that creates the row may set it.
     )
-    .bind(id, drepId ?? null, stakeAddr ?? null, poolId ?? null, ccCred ?? null, isDrep, isProposer, isSpo, isCc, now, now)
+    .bind(id, drepId ?? null, stakeAddr ?? null, poolId ?? null, ccCred ?? null, isDrep, isProposer, isSpo, isCc, now, now, signupRef ?? null)
     .run();
 
   const user = await getUserById(db, id);

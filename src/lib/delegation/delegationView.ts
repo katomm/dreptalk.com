@@ -1,4 +1,5 @@
 import type { DelegatorFollowRow } from '@/lib/db/delegatorFollows.js';
+import { expectationLive } from './expectation.js';
 
 export type DelegationView =
   | { kind: 'no-follow' }
@@ -21,6 +22,23 @@ export function resolveDelegationView(follow: DelegatorFollowRow | null): Delega
   if (follow.delegation_type === 'abstain') return { kind: 'abstain', staleError };
   if (follow.delegation_type === 'no_confidence') return { kind: 'no_confidence', staleError };
   return { kind: 'none', staleError };
+}
+
+/**
+ * The delegation a wallet submitted that the chain has not confirmed yet, or
+ * null. A layer over the view rather than a state of its own: the row
+ * underneath can be pending, none or an old drep follow, and all three still
+ * need their own copy. Null once the resolved value equals the expectation or
+ * the window has passed, so the page falls back to the chain by itself.
+ */
+export function resolveAwaiting(
+  follow: DelegatorFollowRow | null,
+  view: DelegationView,
+  now: number,
+): { drepId: string; txHash: string | null } | null {
+  if (!follow?.expected_drep_id || !expectationLive(follow.expected_at, now)) return null;
+  if (view.kind === 'drep' && view.drepId === follow.expected_drep_id) return null;
+  return { drepId: follow.expected_drep_id, txHash: follow.expected_tx };
 }
 
 /** The delegation states the "My DRep" page has something to report on. */

@@ -305,3 +305,29 @@ describe('getUsersByIds bind cap', () => {
     expect(counted.maxBinds()).toBeLessThanOrEqual(100);
   });
 });
+
+describe('signup_ref: first touch only', () => {
+  it('writes signup_ref when the account row is created', async () => {
+    await upsertUserFromAuth(env.DB, { stakeAddr: 'stake_test1signup1', roles: [], now: 100, signupRef: 'match' });
+    const row = await getUserByStakeAddr(env.DB, 'stake_test1signup1');
+    expect(row?.signup_ref).toBe('match');
+  });
+
+  it('never overwrites it on a later login', async () => {
+    await upsertUserFromAuth(env.DB, { stakeAddr: 'stake_test1signup2', roles: [], now: 100, signupRef: 'match' });
+    await upsertUserFromAuth(env.DB, {
+      stakeAddr: 'stake_test1signup2',
+      roles: [],
+      now: 200,
+      signupRef: 'delegate-dialog',
+    });
+    const row = await getUserByStakeAddr(env.DB, 'stake_test1signup2');
+    expect(row?.signup_ref).toBe('match');
+  });
+
+  it('leaves the column null when no origin was passed', async () => {
+    await upsertUserFromAuth(env.DB, { stakeAddr: 'stake_test1signup3', roles: [], now: 100 });
+    const row = await getUserByStakeAddr(env.DB, 'stake_test1signup3');
+    expect(row?.signup_ref).toBeNull();
+  });
+});

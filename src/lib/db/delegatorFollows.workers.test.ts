@@ -1,8 +1,9 @@
 /// <reference types="@cloudflare/workers-types" />
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { getFollow, ensureFollow, applyResolution, markBatchError, getFollowedDrepIds, setDelegatedSince, captureDelegatedSince, listFollowsMissingSince } from './delegatorFollows.js';
+import { getFollow, ensureFollow, applyResolution, markBatchError, getFollowedDrepIds, setDelegatedSince, captureDelegatedSince, listFollowsMissingSince, setExpectedDelegation } from './delegatorFollows.js';
 import { getNotificationsPage } from './notifications.js';
+import { EXPECTED_TTL_SEC } from '../delegation/expectation.js';
 
 const db = () => env.DB as D1Database;
 
@@ -300,5 +301,107 @@ describe('delegation start columns (migration 0089)', () => {
     await setDelegatedSince(db(), 'ch-1', 655, 2000);
     expect(await applyResolution(db(), 'ch-1', drepState('drep1chb'), 3000)).toBe('unchanged');
     expect(await since('ch-1')).toEqual({ delegated_since_epoch: 655, since_checked_at: 2000 });
+  });
+});
+
+describe('expectation columns (migration 0114)', () => {
+  it('writes only the expectation columns and leaves the baseline alone', async () => {
+    await ensureFollow(db(), 'u-expect-1', 'stake_test1expect1', 1000);
+    await applyResolution(db(), 'u-expect-1', drepState('drepOLD'), 1000);
+
+    await setExpectedDelegation(db(), 'u-expect-1', 'drepNEW', 'a'.repeat(64), 2000);
+
+    const row = await getFollow(db(), 'u-expect-1');
+    expect(row?.expected_drep_id).toBe('drepNEW');
+    expect(row?.expected_at).toBe(2000);
+    expect(row?.expected_tx).toBe('a'.repeat(64));
+    expect(row?.drep_id).toBe('drepOLD');
+    expect(row?.delegation_type).toBe('drep');
+    expect(row?.checked_at).toBe(1000);
+  });
+
+  it('accepts a null transaction hash', async () => {
+    await ensureFollow(db(), 'u-expect-2', 'stake_test1expect2', 1000);
+    await setExpectedDelegation(db(), 'u-expect-2', 'drepNEW', null, 2000);
+
+    const row = await getFollow(db(), 'u-expect-2');
+    expect(row?.expected_drep_id).toBe('drepNEW');
+    expect(row?.expected_tx).toBeNull();
+  });
+});
+
+async function countChanges(userId: string): Promise<number> {
+  const row = await db()
+    .prepare("SELECT COUNT(*) AS n FROM notifications WHERE recipient_id = ? AND type = 'delegation_changed'")
+    .bind(userId)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
+describe('change notification while a delegation is awaiting confirmation', () => {
+  it('writes no change notification while an expectation is live', async () => {
+    await ensureFollow(db(), 'u-sup-1', 'stake_test1sup1', 1000);
+    await applyResolution(db(), 'u-sup-1', drepState('drepOLD'), 1000);
+    await setExpectedDelegation(db(), 'u-sup-1', 'drepNEW', 'a'.repeat(64), 1100);
+
+    const out = await applyResolution(db(), 'u-sup-1', drepState('drepNEW'), 1200);
+
+    expect(out).toBe('changed');
+    const row = await getFollow(db(), 'u-sup-1');
+    expect(row?.drep_id).toBe('drepNEW');
+    expect(row?.delegated_since_epoch).toBeNull();
+    expect(await countChanges('u-sup-1')).toBe(0);
+  });
+
+  it('stays silent through a replica reporting the old value again', async () => {
+    await ensureFollow(db(), 'u-sup-2', 'stake_test1sup2', 1000);
+    await applyResolution(db(), 'u-sup-2', drepState('drepOLD'), 1000);
+    await setExpectedDelegation(db(), 'u-sup-2', 'drepNEW', null, 1100);
+
+    await applyResolution(db(), 'u-sup-2', drepState('drepNEW'), 1200);
+    await applyResolution(db(), 'u-sup-2', drepState('drepOLD'), 1300);
+    await applyResolution(db(), 'u-sup-2', drepState('drepNEW'), 1400);
+
+    expect(await countChanges('u-sup-2')).toBe(0);
+    expect((await getFollow(db(), 'u-sup-2'))?.expected_drep_id).toBe('drepNEW');
+  });
+
+  it('stays silent for a second re-delegation inside the window', async () => {
+    await ensureFollow(db(), 'u-sup-3', 'stake_test1sup3', 1000);
+    await applyResolution(db(), 'u-sup-3', drepState('drepOLD'), 1000);
+    await setExpectedDelegation(db(), 'u-sup-3', 'drepNEW', null, 1100);
+    await setExpectedDelegation(db(), 'u-sup-3', 'drepOTHER', null, 1200);
+
+    await applyResolution(db(), 'u-sup-3', drepState('drepNEW'), 1300);
+    await applyResolution(db(), 'u-sup-3', drepState('drepOTHER'), 1400);
+
+    expect(await countChanges('u-sup-3')).toBe(0);
+  });
+
+  it.each(['abstain', 'no_confidence', 'none'] as const)(
+    'notifies again after expiry, here a change to %s',
+    async (type) => {
+      const id = `u-sup-exp-${type}`;
+      await ensureFollow(db(), id, `stake_test1sup${type}`, 1000);
+      await applyResolution(db(), id, drepState('drepOLD'), 1000);
+      await setExpectedDelegation(db(), id, 'drepNEW', 'b'.repeat(64), 1000);
+
+      const late = 1000 + EXPECTED_TTL_SEC + 1;
+      await applyResolution(db(), id, { status: 'resolved', state: { type } }, late);
+
+      expect(await countChanges(id)).toBe(1);
+      const row = await getFollow(db(), id);
+      expect(row?.expected_drep_id).toBeNull();
+      expect(row?.expected_at).toBeNull();
+      expect(row?.expected_tx).toBeNull();
+    },
+  );
+
+  it('leaves an account without an expectation untouched', async () => {
+    await ensureFollow(db(), 'u-sup-4', 'stake_test1sup4', 1000);
+    await applyResolution(db(), 'u-sup-4', drepState('drepOLD'), 1000);
+    await applyResolution(db(), 'u-sup-4', drepState('drepNEW'), 1200);
+
+    expect(await countChanges('u-sup-4')).toBe(1);
   });
 });

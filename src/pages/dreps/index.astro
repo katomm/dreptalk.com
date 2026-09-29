@@ -6,6 +6,7 @@ import Layout from '@/layouts/Layout.astro';
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import DrepActionsMenu from '@/components/DrepActionsMenu.tsx';
+import { loadTrackingViewer } from '@/lib/delegation/viewer';
 import DrepStatIcon from '@/components/DrepStatIcon.astro';
 import DrepSelfCard from '@/components/DrepSelfCard.astro';
 import DrepTrendChip from '@/components/DrepTrendChip.astro';
@@ -111,6 +112,10 @@ const statCards: {
 
 // DrepActionsMenu uses the deployment's real network for the delegation tx + explorer links.
 const network = currentNetwork().network;
+
+// The dialog offers delegation tracking after a successful delegation, which
+// needs to know whether this account has a stake wallet linked at all.
+const trackingViewer = await loadTrackingViewer(db, Astro.locals.user?.id ?? null);
 
 Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
 
@@ -351,7 +356,7 @@ const selfStanding = selfRanking ? selfStandingLine(selfRanking) : null;
     </a>
   )}
 
-  {dreps.length > 0 && <DrepActionsMenu client:idle network={network} />}
+  {dreps.length > 0 && <DrepActionsMenu client:idle network={network} viewer={trackingViewer} />}
 </Layout>
 
 <style>

@@ -13,12 +13,17 @@
 // submits the vote_deleg certificate.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import DelegateDialog, { type Target } from '@/components/DelegateDialog.js';
+import type { TrackingViewer } from '@/lib/delegation/trackingOffer.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import { drepPath } from '@/lib/dreps/profile.js';
 
 interface Props {
   // Resolved at build/SSR time from the deployment's network; defaults to preprod.
   network?: CardanoNetwork;
+  // Read server side by the mounting page, so the dialog can offer tracking
+  // after a delegation. Required: an anonymous default would send a signed-in
+  // person to a login they do not need.
+  viewer: TrackingViewer;
 }
 
 function targetFromButton(btn: HTMLElement): Target {
@@ -33,7 +38,7 @@ function targetFromButton(btn: HTMLElement): Target {
 
 type Menu = { target: Target; right: number; top: number } | null;
 
-export default function DrepActionsMenu({ network = 'preprod' }: Props) {
+export default function DrepActionsMenu({ network = 'preprod', viewer }: Props) {
   const [menu, setMenu] = useState<Menu>(null);
   const [dialogTarget, setDialogTarget] = useState<Target | null>(null);
   const [copied, setCopied] = useState(false);
@@ -180,6 +185,7 @@ export default function DrepActionsMenu({ network = 'preprod' }: Props) {
         <DelegateDialog
           target={dialogTarget}
           network={network}
+          viewer={viewer}
           onClose={() => setDialogTarget(null)}
         />
       )}

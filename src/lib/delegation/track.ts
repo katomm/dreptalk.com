@@ -5,8 +5,11 @@
 // wrapper (auth + same-origin + rate-limit + env wiring) over this function,
 // mirroring handleLinkStake's convention.
 import { getUserById } from '../db/users.js';
-import { ensureFollow, getFollow } from '../db/delegatorFollows.js';
+import { ensureFollow, getFollow, setExpectedDelegation } from '../db/delegatorFollows.js';
 import { resolveFollow, type KoiosLike } from './refresh.js';
+import { normalizeExpectedDrepId } from './expectedDrepId.js';
+import { stakeAddressFromRewardAddressHex } from '../cardano/identity.js';
+import type { CardanoNetwork } from '../config/network.js';
 
 export interface TrackInput {
   db: D1Database;
@@ -15,6 +18,16 @@ export interface TrackInput {
   // body -- the route layer is responsible for that binding.
   userId: string;
   now?: number;
+  /** Network of the running app, needed to read the wallet's reward address. */
+  network?: CardanoNetwork;
+  /**
+   * What the delegation dialog just submitted with this wallet. Recorded only
+   * when the wallet is the account's own stake wallet: a signed-in person can
+   * connect any wallet in the dialog, and an expectation written for a foreign
+   * delegation would never confirm and would label the dashboard for the whole
+   * window.
+   */
+  expected?: { drepId: string; txHash: string | null; rewardAddressHex: string };
 }
 
 export interface TrackResult {
@@ -52,6 +65,25 @@ async function handleTrackInternal(input: TrackInput): Promise<TrackResult> {
   // surfaces as the 500 above rather than being swallowed fail-soft.
   await ensureFollow(db, userId, row.stake_addr, nowSec);
 
+  // Before the resolve below, for the same reason as the login path: a resolve
+  // that sees the new delegation first would write a delegation_changed
+  // notification for the person's own action.
+  let expectation: 'recorded' | 'wallet_mismatch' | 'none' = 'none';
+  if (input.expected) {
+    const derived = input.network
+      ? stakeAddressFromRewardAddressHex(input.expected.rewardAddressHex, input.network)
+      : null;
+    if (derived && derived === row.stake_addr) {
+      const normalized = normalizeExpectedDrepId(input.expected.drepId);
+      if (normalized) {
+        await setExpectedDelegation(db, userId, normalized, input.expected.txHash, nowSec);
+        expectation = 'recorded';
+      }
+    } else {
+      expectation = 'wallet_mismatch';
+    }
+  }
+
   // resolveFollow never throws: a Koios failure or timeout leaves the row
   // pending (retried later by the cron), it must never fail this request.
   await resolveFollow(db, koios, userId, row.stake_addr, nowSec);
@@ -64,6 +96,7 @@ async function handleTrackInternal(input: TrackInput): Promise<TrackResult> {
       status: follow?.resolution_status ?? 'pending',
       delegationType: follow?.delegation_type ?? null,
       drepId: follow?.drep_id ?? null,
+      expectation,
     },
   };
 }

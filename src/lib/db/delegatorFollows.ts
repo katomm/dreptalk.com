@@ -5,6 +5,7 @@
 // prepare().bind(); never string-concatenated SQL.
 import type { DelegationState } from '../delegation/resolve.js';
 import { sqlPlaceholders, DB_NOW_MS } from './sql.js';
+import { EXPECTED_TTL_SEC } from '../delegation/expectation.js';
 
 export type ResolutionOutcome = { status: 'resolved'; state: DelegationState } | { status: 'error' };
 
@@ -22,6 +23,13 @@ export interface DelegatorFollowRow {
   since_checked_at: number | null;
   /** Consecutive SUCCESSFUL lookups that came back with no start. 0 once one succeeds. */
   since_attempts: number;
+  /** The DRep the wallet delegated to before the chain reported it, normalized to the
+   *  form drep_id carries. Null when no delegation is awaiting confirmation. */
+  expected_drep_id: string | null;
+  /** Unix seconds when the expectation was recorded. Expiry is the only thing that clears it. */
+  expected_at: number | null;
+  /** Transaction hash of that delegation, for the explorer link. */
+  expected_tx: string | null;
 }
 
 /**
@@ -107,6 +115,21 @@ export async function applyResolution(
   }
 
   const { type, drepId } = columnsFor(outcome.state);
+  // A delegation the person submitted through the site is not news, and until
+  // the chain has settled the reported value can swing between the old and the
+  // new one. The target is deliberately not compared: a swing back to the old
+  // value is a change AWAY from the expectation and would notify, naming the
+  // old DRep as the new state. Cost, accepted in the design: this account gets
+  // no change notification at all while the expectation is live.
+  const expectedCutoff = now - EXPECTED_TTL_SEC;
+  const notExpecting = 'NOT (expected_drep_id IS NOT NULL AND COALESCE(expected_at, 0) >= ?)';
+  // Expiry is the only thing that clears an expectation, so both resolved paths
+  // carry the same conditional clear and an abandoned expectation cannot linger
+  // past its window and silence a later real change.
+  const clearExpired =
+    ', expected_drep_id = CASE WHEN COALESCE(expected_at, 0) < ? THEN NULL ELSE expected_drep_id END' +
+    ', expected_tx = CASE WHEN COALESCE(expected_at, 0) < ? THEN NULL ELSE expected_tx END' +
+    ', expected_at = CASE WHEN COALESCE(expected_at, 0) < ? THEN NULL ELSE expected_at END';
 
   // 1. Try to set the baseline atomically (only from pending). One writer wins.
   const base = await db
@@ -135,9 +158,9 @@ export async function applyResolution(
     db.prepare(
       `INSERT INTO notifications (id, recipient_id, type, event_key, payload, created_at)
        SELECT ?, user_id, 'delegation_changed', ?, ?, ${DB_NOW_MS}
-         FROM delegator_follows WHERE user_id = ? AND ${pred}
+         FROM delegator_follows WHERE user_id = ? AND ${pred} AND ${notExpecting}
        ON CONFLICT(recipient_id, event_key) WHERE event_key IS NOT NULL DO NOTHING`,
-    ).bind(crypto.randomUUID(), eventKey, payload, userId, type, drepId),
+    ).bind(crypto.randomUUID(), eventKey, payload, userId, type, drepId, expectedCutoff),
     // The delegation start belongs to the OLD delegation, so it is invalidated in
     // the same statement that writes the new one. Nulling both columns makes the
     // row "missing a start" by construction, so every capture path (the login
@@ -147,19 +170,19 @@ export async function applyResolution(
     db.prepare(
       `UPDATE delegator_follows
           SET delegation_type = ?, drep_id = ?, delegation_set_at = ?, checked_at = ?, refresh_attempted_at = ?, refresh_error_at = NULL,
-              delegated_since_epoch = NULL, since_checked_at = NULL, since_attempts = 0
+              delegated_since_epoch = NULL, since_checked_at = NULL, since_attempts = 0${clearExpired}
         WHERE user_id = ? AND ${pred}`,
-    ).bind(type, drepId, now, now, now, userId, type, drepId),
+    ).bind(type, drepId, now, now, now, expectedCutoff, expectedCutoff, expectedCutoff, userId, type, drepId),
   ]);
   if ((results[1].meta.changes ?? 0) > 0) return 'changed';
 
   // 3. No change: advance checked_at + attempted, clear any error.
   await db
     .prepare(
-      `UPDATE delegator_follows SET checked_at = ?, refresh_attempted_at = ?, refresh_error_at = NULL
+      `UPDATE delegator_follows SET checked_at = ?, refresh_attempted_at = ?, refresh_error_at = NULL${clearExpired}
         WHERE user_id = ? AND resolution_status = 'resolved'`,
     )
-    .bind(now, now, userId)
+    .bind(now, now, expectedCutoff, expectedCutoff, expectedCutoff, userId)
     .run();
   return 'unchanged';
 }
@@ -202,6 +225,25 @@ export async function setDelegatedSince(
         WHERE user_id = ?`,
     )
     .bind(epoch, now, userId)
+    .run();
+}
+
+/**
+ * Records what the wallet just delegated to. Touches ONLY the three expectation
+ * columns, so it can run concurrently with the login's deferred resolveFollow
+ * (which only writes baseline columns) in either order without either losing.
+ * The caller normalizes the id first, see normalizeExpectedDrepId.
+ */
+export async function setExpectedDelegation(
+  db: D1Database,
+  userId: string,
+  expectedDrepId: string,
+  expectedTx: string | null,
+  now: number,
+): Promise<void> {
+  await db
+    .prepare('UPDATE delegator_follows SET expected_drep_id = ?, expected_at = ?, expected_tx = ? WHERE user_id = ?')
+    .bind(expectedDrepId, now, expectedTx, userId)
     .run();
 }
 

@@ -43,6 +43,7 @@ import Avatar from '@/components/Avatar.astro';
 import CopyButton from '@/components/CopyButton.astro';
 import ShareButton from '@/components/ShareButton.astro';
 import DelegateButton from '@/components/DelegateButton.tsx';
+import { loadTrackingViewer } from '@/lib/delegation/viewer';
 import {
   cacheControlForSynced, formatAda, formatAdaCompact, formatRelativeTime, truncateId, truncateIdMiddle, excerptFromHtml, SITE_ORIGIN,
 } from '@/lib/forum/view.js';
@@ -175,6 +176,10 @@ const renderTab: ProfileTab = profileTabs.some((t) => t.id === activeTab) ? acti
 // render plain. A rough length gate is enough, exact overflow depends on the
 // viewport anyway.
 const CLAMP_THRESHOLD = 320;
+
+// The dialog offers delegation tracking after a successful delegation, which
+// needs to know whether this account has a stake wallet linked at all.
+const trackingViewer = await loadTrackingViewer(db, Astro.locals.user?.id ?? null);
 
 if (drep) {
   Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
@@ -317,6 +322,7 @@ const profileSummary = drep
               <DelegateButton
                 client:idle
                 network={delegateNetwork}
+                viewer={trackingViewer}
                 target={{
                   drepId: drep.drepId,
                   slug: drep.slug,

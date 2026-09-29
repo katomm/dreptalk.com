@@ -8,7 +8,7 @@ const user = (over: Partial<User>): User => ({
   id: 'u1', drep_id: null, stake_addr: null, pool_id: null, cc_cred: null,
   is_drep: false, is_spo: false, is_cc: false, is_proposer: false,
   role: 'member', status: 'active', display_name: null, bio: null,
-  avatar_url: null, created_at: 0, last_verified_at: 0, last_seen: null, ...over,
+  avatar_url: null, created_at: 0, last_verified_at: 0, last_seen: null, signup_ref: null, ...over,
 });
 
 describe('describeAuthor identiconSeed', () => {
@@ -107,5 +107,26 @@ describe('authorProfileHref', () => {
   it('returns null when neither role has a profile and for system authors', () => {
     expect(authorProfileHref(base)).toBeNull();
     expect(authorProfileHref({ ...base, isSystem: true, poolId: 'pool1abc' })).toBeNull();
+  });
+});
+
+describe('describeAuthor: delegator accounts without a name', () => {
+  const STAKE = 'stake_test1uqvac6wahwfxejuxhusnvs5dnnxy47lz4agwlm0p958xv2g2n0n9g';
+
+  it('names a plain delegator account "Delegator" instead of printing its stake address', () => {
+    const users = new Map([[STAKE, user({ id: STAKE, stake_addr: STAKE })]]);
+    const d = describeAuthor(STAKE, users, new Map(), new Map());
+    expect(d.displayName).toBe('Delegator');
+    expect(d.displayName).not.toContain('stake');
+  });
+
+  it('keeps a display name the delegator chose', () => {
+    const users = new Map([[STAKE, user({ id: STAKE, stake_addr: STAKE, display_name: 'Ana' })]]);
+    expect(describeAuthor(STAKE, users, new Map(), new Map()).displayName).toBe('Ana');
+  });
+
+  it('keeps the shortened id for a proposer, who posts publicly under it', () => {
+    const users = new Map([[STAKE, user({ id: STAKE, stake_addr: STAKE, is_proposer: true })]]);
+    expect(describeAuthor(STAKE, users, new Map(), new Map()).displayName).toContain('stake');
   });
 });

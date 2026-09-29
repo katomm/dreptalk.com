@@ -16,6 +16,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
+import { drepIdFromKeyHash } from '../cardano/identity.js';
 import { ed25519 } from '@noble/curves/ed25519.js';
 import vectors from './__fixtures__/cip8-vectors.json';
 import { makeCoseSignature, type6Address } from './__fixtures__/makeCose.js';
@@ -188,6 +189,8 @@ describe('handleVerify: happy path (delegator)', () => {
 // ---------------------------------------------------------------------------
 
 const VALID_DREP = 'drep1ygqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq7vlc9n';
+// A second valid CIP-129 key credential, for the delegate-then-track flow.
+const OTHER_DREP = drepIdFromKeyHash(new Uint8Array(28).fill(0x42));
 
 describe('handleVerify: delegator login tracks and resolves', () => {
   it('creates and resolves a delegator_follows row on login', async () => {
@@ -225,6 +228,202 @@ describe('handleVerify: delegator login tracks and resolves', () => {
       .first();
     expect(row?.resolution_status).toBe('resolved');
     expect(row?.drep_id).toBe(VALID_DREP);
+  });
+
+  it('records the expectation before resolving, so the confirming resolve is silent', async () => {
+    const fixturePayload = stakeVector.payloadUtf8;
+    const koiosWith = (drep: string) => ({
+      ...koiosRejectAll(),
+      accountInfo: async () => ({
+        stake_address: 's',
+        status: 'registered',
+        delegated_pool: null,
+        delegated_drep: drep,
+        total_balance: '1',
+      }),
+      accountInfoBatch: async () => [],
+    });
+    const login = (koios: unknown, extra: Record<string, unknown> = {}) =>
+      handleVerify(
+        {
+          body: {
+            payload: fixturePayload,
+            signatureHex: stakeVector.signatureHex,
+            keyHex: stakeVector.keyHex,
+            role: 'delegator',
+            ...extra,
+          },
+          sessionKv: env.SESSIONS,
+          db: env.DB,
+          koios: koios as never,
+          network: 'preprod',
+        },
+        { consumeNonce: makeSingleUseNonceOverride(fixturePayload) },
+      );
+
+    // First login: the chain still reports the OLD delegation, which becomes
+    // the baseline. No ctx, so the resolve runs inline before the call returns.
+    const first = await login(koiosWith(VALID_DREP));
+    expect(first.status).toBe(200);
+    const userId = (first.json as { user: { id: string } }).user.id;
+
+    // The person delegates to OTHER_DREP and signs in to track it. The chain
+    // has caught up by the time this login resolves.
+    const second = await login(koiosWith(OTHER_DREP), {
+      expectedDrepId: OTHER_DREP,
+      expectedTx: 'b'.repeat(64),
+    });
+    expect(second.status).toBe(200);
+
+    const row = await env.DB.prepare(
+      'SELECT expected_drep_id, expected_at, expected_tx, drep_id FROM delegator_follows WHERE user_id = ?',
+    )
+      .bind(userId)
+      .first();
+    expect(row?.expected_drep_id).toBe(OTHER_DREP);
+    expect(row?.expected_tx).toBe('b'.repeat(64));
+    expect(row?.expected_at).not.toBeNull();
+    expect(row?.drep_id).toBe(OTHER_DREP);
+
+    const notes = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM notifications WHERE recipient_id = ? AND type = 'delegation_changed'",
+    )
+      .bind(userId)
+      .first<{ n: number }>();
+    expect(notes?.n).toBe(0);
+  });
+
+  it('still signs the delegator in when the expectation write fails', async () => {
+    const fixturePayload = stakeVector.payloadUtf8;
+    const koios = {
+      ...koiosRejectAll(),
+      accountInfo: async () => ({
+        stake_address: 's',
+        status: 'registered',
+        delegated_pool: null,
+        delegated_drep: VALID_DREP,
+        total_balance: '1',
+      }),
+      accountInfoBatch: async () => [],
+    };
+    // Poison ONLY the expectation write, the way a transient D1 error would.
+    // The account and the follow row already exist at that point, so a login
+    // that fails here would be a 500 for a person who did nothing wrong.
+    const poisoned = new Proxy(env.DB, {
+      get(target, prop, receiver) {
+        if (prop !== 'prepare') return Reflect.get(target, prop, receiver);
+        return (sql: string) => {
+          if (sql.includes('expected_drep_id = ?')) {
+            throw new Error('transient D1 failure');
+          }
+          return target.prepare(sql);
+        };
+      },
+    }) as D1Database;
+
+    const result = await handleVerify(
+      {
+        body: {
+          payload: fixturePayload,
+          signatureHex: stakeVector.signatureHex,
+          keyHex: stakeVector.keyHex,
+          role: 'delegator',
+          expectedDrepId: OTHER_DREP,
+          expectedTx: 'd'.repeat(64),
+        },
+        sessionKv: env.SESSIONS,
+        db: poisoned,
+        koios: koios as never,
+        network: 'preprod',
+      },
+      { consumeNonce: makeSingleUseNonceOverride(fixturePayload) },
+    );
+
+    expect(result.status).toBe(200);
+    const userId = (result.json as { user: { id: string } }).user.id;
+    const row = await env.DB.prepare('SELECT expected_drep_id FROM delegator_follows WHERE user_id = ?')
+      .bind(userId)
+      .first();
+    expect(row).not.toBeNull();
+    expect(row?.expected_drep_id).toBeNull();
+  });
+
+  it('ignores an expected delegation that is not a valid DRep id', async () => {
+    const fixturePayload = stakeVector.payloadUtf8;
+    const koios = {
+      ...koiosRejectAll(),
+      accountInfo: async () => ({
+        stake_address: 's',
+        status: 'registered',
+        delegated_pool: null,
+        delegated_drep: VALID_DREP,
+        total_balance: '1',
+      }),
+      accountInfoBatch: async () => [],
+    };
+    const result = await handleVerify(
+      {
+        body: {
+          payload: fixturePayload,
+          signatureHex: stakeVector.signatureHex,
+          keyHex: stakeVector.keyHex,
+          role: 'delegator',
+          expectedDrepId: 'not-an-id',
+          expectedTx: 'c'.repeat(64),
+        },
+        sessionKv: env.SESSIONS,
+        db: env.DB,
+        koios: koios as never,
+        network: 'preprod',
+      },
+      { consumeNonce: makeSingleUseNonceOverride(fixturePayload) },
+    );
+    expect(result.status).toBe(200);
+    const userId = (result.json as { user: { id: string } }).user.id;
+    const row = await env.DB.prepare('SELECT expected_drep_id, expected_tx FROM delegator_follows WHERE user_id = ?')
+      .bind(userId)
+      .first();
+    expect(row?.expected_drep_id).toBeNull();
+    expect(row?.expected_tx).toBeNull();
+  });
+
+  it('keeps the expectation when only the transaction hash is malformed', async () => {
+    const fixturePayload = stakeVector.payloadUtf8;
+    const koios = {
+      ...koiosRejectAll(),
+      accountInfo: async () => ({
+        stake_address: 's',
+        status: 'registered',
+        delegated_pool: null,
+        delegated_drep: VALID_DREP,
+        total_balance: '1',
+      }),
+      accountInfoBatch: async () => [],
+    };
+    const result = await handleVerify(
+      {
+        body: {
+          payload: fixturePayload,
+          signatureHex: stakeVector.signatureHex,
+          keyHex: stakeVector.keyHex,
+          role: 'delegator',
+          expectedDrepId: OTHER_DREP,
+          expectedTx: 'zz',
+        },
+        sessionKv: env.SESSIONS,
+        db: env.DB,
+        koios: koios as never,
+        network: 'preprod',
+      },
+      { consumeNonce: makeSingleUseNonceOverride(fixturePayload) },
+    );
+    expect(result.status).toBe(200);
+    const userId = (result.json as { user: { id: string } }).user.id;
+    const row = await env.DB.prepare('SELECT expected_drep_id, expected_tx FROM delegator_follows WHERE user_id = ?')
+      .bind(userId)
+      .first();
+    expect(row?.expected_drep_id).toBe(OTHER_DREP);
+    expect(row?.expected_tx).toBeNull();
   });
 
   it('still returns 200 and a pending row when koios is down at login', async () => {

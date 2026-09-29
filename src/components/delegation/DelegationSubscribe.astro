@@ -1,0 +1,23 @@
+---
+// The delegator's "get told when your DRep votes" block: the shared
+// SubscribeCallout with delegation copy, so /my-drep/ and the home card say the
+// same thing. Only rendered for a drep follow: the two default options have no
+// DRep activity to report.
+import SubscribeCallout from '@/components/SubscribeCallout.astro';
+
+interface Props {
+  variant?: 'full' | 'compact';
+  class?: string;
+}
+const { variant = 'full', class: className } = Astro.props;
+---
+
+<SubscribeCallout
+  eventType="drep_activity"
+  heading="Get told when your DRep votes"
+  pitch="Each vote arrives as a Telegram message or an app notification, no email address needed."
+  subscribedLine="You'll get a notification when your DRep votes."
+  label="DRep votes"
+  variant={variant}
+  class={className}
+/>

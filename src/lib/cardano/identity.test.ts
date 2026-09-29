@@ -12,6 +12,7 @@ import {
   drepCredentialHexFromId,
   DREP_SCRIPT_HEADER,
   parseDrepId,
+  stakeAddressFromRewardAddressHex,
 } from './identity.js';
 import { hexToBytes, bytesToHex } from '../crypto/hex.js';
 import { decodeBech32, encodeBech32 } from '../crypto/bech32.js';
@@ -292,5 +293,41 @@ describe('parseDrepId', () => {
 
   it('exposes the script header constant', () => {
     expect(DREP_SCRIPT_HEADER).toBe(0x23);
+  });
+});
+
+describe('stakeAddressFromRewardAddressHex', () => {
+  const hash = new Uint8Array(28).fill(0x11);
+  const withHeader = (header: number) => {
+    const payload = new Uint8Array(29);
+    payload[0] = header;
+    payload.set(hash, 1);
+    return { payload, hex: bytesToHex(payload) };
+  };
+
+  it('derives the preprod stake address from a testnet reward address', () => {
+    const { payload, hex } = withHeader(0xe0);
+    expect(stakeAddressFromRewardAddressHex(hex, 'preprod')).toBe(encodeBech32('stake_test', payload));
+  });
+
+  it('derives the mainnet stake address from a mainnet reward address', () => {
+    const { payload, hex } = withHeader(0xe1);
+    expect(stakeAddressFromRewardAddressHex(hex, 'mainnet')).toBe(encodeBech32('stake', payload));
+  });
+
+  it('rejects a reward address for the other network', () => {
+    expect(stakeAddressFromRewardAddressHex(withHeader(0xe1).hex, 'preprod')).toBeNull();
+    expect(stakeAddressFromRewardAddressHex(withHeader(0xe0).hex, 'mainnet')).toBeNull();
+  });
+
+  it('rejects a script stake credential', () => {
+    expect(stakeAddressFromRewardAddressHex(withHeader(0xf0).hex, 'preprod')).toBeNull();
+    expect(stakeAddressFromRewardAddressHex(withHeader(0xf1).hex, 'mainnet')).toBeNull();
+  });
+
+  it('rejects malformed input', () => {
+    expect(stakeAddressFromRewardAddressHex('', 'preprod')).toBeNull();
+    expect(stakeAddressFromRewardAddressHex('zz', 'preprod')).toBeNull();
+    expect(stakeAddressFromRewardAddressHex('e011', 'preprod')).toBeNull();
   });
 });

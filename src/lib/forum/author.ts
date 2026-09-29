@@ -85,7 +85,7 @@ export function describeAuthor(
   return {
     authorId,
     displayName:
-      u?.display_name ?? drep?.name ?? pool?.name ?? pool?.ticker ?? truncateId(authorId),
+      u?.display_name ?? drep?.name ?? pool?.name ?? pool?.ticker ?? fallbackName(authorId, u),
     drepId: u?.drep_id ?? null,
     drepSlug: drep?.slug ?? null,
     poolId: u?.pool_id ?? null,
@@ -94,6 +94,20 @@ export function describeAuthor(
     identiconSeed: drep?.hex ?? pool?.poolHash ?? authorId,
     badges: roleBadges(u),
   };
+}
+
+/**
+ * The name shown when an account has nothing better. A plain delegator account
+ * is keyed by its stake address, so the shortened id would put that address in
+ * the greeting, the account menu and the active-faces row, which reads like a
+ * wallet dump and ties the person to their holdings at a glance. It gets a role
+ * word instead. A proposer is keyed the same way but posts publicly, so their
+ * shortened id stays: it is how readers tell two unnamed proposers apart.
+ */
+function fallbackName(authorId: string, u: User | undefined): string {
+  const plainDelegator =
+    u != null && !u.is_drep && !u.is_proposer && !u.is_spo && !u.is_cc && authorId.startsWith('stake');
+  return plainDelegator ? 'Delegator' : truncateId(authorId);
 }
 
 /** A resolver that yields a ready descriptor for any author id, no further I/O. */

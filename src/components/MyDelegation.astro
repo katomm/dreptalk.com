@@ -17,6 +17,7 @@ import { drepPath } from '@/lib/dreps/profile.js';
 import { formatAda, truncateId } from '@/lib/forum/view.js';
 import { epochCountdown } from '@/lib/governance/view.js';
 import { epochStartMs } from '@/lib/config/network.js';
+import DelegationSubscribe from '@/components/delegation/DelegationSubscribe.astro';
 
 interface Props {
   data: DelegationData;
@@ -27,8 +28,25 @@ const { data, now, network } = Astro.props;
 const { view } = data;
 
 const displayName = data.drep?.name ?? (data.drep ? truncateId(data.drep.drepId, 18) : null);
+// A delegation submitted through the site that the chain has not confirmed yet.
+// The card only announces it and points at /my-drep/, which carries the check
+// control, so there is one place that re-resolves rather than two.
+const awaitingName = data.awaiting ? truncateId(data.awaiting.drepId, 18) : null;
 const statusHint = data.drep ? drepStatusHint(data.drep.active, data.drep.status) : null;
 ---
+
+{
+  data.awaiting && (
+    <div class="mydel">
+      <div class="callout callout--info mydel-awaiting" role="status">
+        <div class="callout__body">
+          Your delegation to <strong>{awaitingName}</strong> is being confirmed on chain.{' '}
+          <a href="/my-drep/">See the details</a>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 {
   view.kind === 'drep' && (
@@ -105,6 +123,8 @@ const statusHint = data.drep ? drepStatusHint(data.drep.active, data.drep.status
           </ul>
         </section>
       )}
+
+      <DelegationSubscribe variant="compact" class="mydel-subscribe" />
     </div>
   )
 }
@@ -195,6 +215,14 @@ const statusHint = data.drep ? drepStatusHint(data.drep.active, data.drep.status
   .mydel__heading {
     font-size: 1.125rem;
     margin: 0 0 0.75rem;
+  }
+
+  .mydel-subscribe {
+    margin-top: 0.75rem;
+  }
+
+  .mydel-awaiting {
+    margin-bottom: 0.75rem;
   }
 
   .mydel-card {

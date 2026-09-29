@@ -15,6 +15,9 @@ import type { WalletApi } from '@/lib/governance/drepTx.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import { txExplorerUrl } from '@/lib/config/network.js';
 import { truncateIdMiddle } from '@/lib/forum/view.js';
+import { loginWithWallet } from '@/lib/auth/walletLogin.js';
+import { trackingOffer, type TrackState, type TrackingViewer } from '@/lib/delegation/trackingOffer.js';
+import { refFromUrl } from '@/lib/analytics/signupRef.js';
 
 // The enabled CIP-30 surface we use here: the tx WalletApi plus getNetworkId,
 // which the network guard reads (enable() returns the full object at runtime).
@@ -40,17 +43,29 @@ type DelegatePhase =
   | { status: 'success'; txHash: string }
   | { status: 'error'; message: string };
 
+/** Where this dialog was opened from, used as the origin token when the page
+ *  URL carries no ref of its own. */
+export type DelegateSource = 'delegate-dialog' | 'match';
+
 export default function DelegateDialog({
   target,
   network,
+  viewer,
+  source = 'delegate-dialog',
   onClose,
 }: {
   target: Target;
   network: CardanoNetwork;
+  viewer: TrackingViewer;
+  source?: DelegateSource;
   onClose: () => void;
 }) {
   const { wallets, selected, setSelected } = useCardanoWallets();
   const [phase, setPhase] = useState<DelegatePhase>({ status: 'idle' });
+  const [trackState, setTrackState] = useState<TrackState>('idle');
+  const [signingIn, setSigningIn] = useState(false);
+  const [signInError, setSignInError] = useState<string | null>(null);
+  const [signedInNow, setSignedInNow] = useState(false);
   const apiRef = useRef<EnabledWalletApi | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
 
@@ -155,9 +170,64 @@ export default function DelegateDialog({
         origin: window.location.origin,
       });
       setPhase({ status: 'success', txHash });
+      // A signed-in account with a linked stake wallet can be told right away.
+      // The server checks whether this wallet is that account's own and answers
+      // 'wallet_mismatch' when it is not, which turns into the sign-in offer.
+      if (viewer.signedIn && viewer.hasStakeAddr) {
+        void reportDelegation(txHash, rewardAddressHex);
+      }
     } catch (err) {
       setPhase({ status: 'error', message: readableError(err) });
     }
+  }
+
+  /** Tells the server what this wallet just delegated to. Never throws: the
+   *  delegation is already on chain, only the follow-up can fail. */
+  async function reportDelegation(txHash: string, rewardAddressHex: string) {
+    try {
+      const res = await fetch('/api/delegation/track', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ expectedDrepId: target.drepId, expectedTx: txHash, rewardAddressHex }),
+      });
+      const data = (await res.json().catch(() => null)) as { expectation?: string } | null;
+      if (res.ok && data?.expectation === 'recorded') setTrackState('recorded');
+      else if (res.ok && data?.expectation === 'wallet_mismatch') setTrackState('wallet_mismatch');
+      else setTrackState('error');
+    } catch {
+      setTrackState('error');
+    }
+  }
+
+  /** Signs in as a delegator with the wallet that just delegated, handing the
+   *  server the delegation so the dashboard shows it and no "your delegation
+   *  changed" notification is sent for the person's own action. */
+  async function handleTrackSignIn(txHash: string) {
+    const api = apiRef.current;
+    if (!api || signingIn) return;
+    setSigningIn(true);
+    setSignInError(null);
+    // The tx WalletApi and the login's CIP-30 surface are the same object at
+    // runtime. Their declared types differ (readonly arrays, signData shape).
+    const result = await loginWithWallet(api as unknown as Parameters<typeof loginWithWallet>[0], 'delegator', network, undefined, {
+      expectedDrepId: target.drepId,
+      expectedTx: txHash,
+      ref: refFromUrl() ?? source,
+    });
+    setSigningIn(false);
+    if (!result.ok) {
+      setSignInError(result.error ?? 'Sign-in failed. Please try again.');
+      return;
+    }
+    // On /match/ the quiz answers live in component state, so a reload would
+    // discard them at exactly the moment someone acted on the result. Known
+    // limitation of skipping it: the page's header and the `viewer` prop of the
+    // OTHER result rows still describe an anonymous visitor, so delegating to a
+    // second DRep in the same quiz session offers the sign-in once more. It
+    // signs the same wallet into the same account, so the cost is one extra
+    // click, not a wrong account.
+    if (source === 'match') setSignedInNow(true);
+    else window.location.reload();
   }
 
   return (
@@ -195,6 +265,18 @@ export default function DelegateDialog({
               <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
                 Your voting power moves to this DRep once the transaction is confirmed.
               </p>
+              {signedInNow ? (
+                <p style={{ margin: '0.75rem 0 0' }}>
+                  <a href="/my-drep/" style={{ color: 'var(--accent)' }}>See what this DRep does</a>
+                </p>
+              ) : (
+                <TrackingBlock
+                  offer={trackingOffer(viewer, trackState)}
+                  busy={signingIn}
+                  error={signInError}
+                  onSignIn={() => handleTrackSignIn(phase.txHash)}
+                />
+              )}
             </div>
           </div>
         ) : (
@@ -262,4 +344,67 @@ export default function DelegateDialog({
       </div>
     </div>
   );
+}
+
+/** The follow-up offer under a successful delegation. Copy only: which variant
+ *  to show is decided by trackingOffer, which is unit tested on its own. */
+function TrackingBlock({
+  offer,
+  busy,
+  error,
+  onSignIn,
+}: {
+  offer: ReturnType<typeof trackingOffer>;
+  busy: boolean;
+  error: string | null;
+  onSignIn: () => void;
+}) {
+  const note = { margin: '0.75rem 0 0', fontSize: '0.875rem' } as const;
+
+  if (offer.kind === 'sign-in' || offer.kind === 'switch-account') {
+    return (
+      <div style={note}>
+        <p style={{ margin: '0 0 0.5rem' }}>
+          {offer.kind === 'switch-account'
+            ? 'This is not the wallet linked to your account. Signing in with it switches you to that wallet\'s own account, where this delegation can be tracked.'
+            : 'Want to follow how this DRep votes? Sign in with this wallet and DRepTalk keeps track of your delegation.'}
+        </p>
+        <button type="button" className="btn btn-primary" onClick={onSignIn} disabled={busy}>
+          {busy
+            ? 'Signing in...'
+            : offer.kind === 'switch-account'
+              ? 'Sign in with this wallet'
+              : 'Follow how this DRep votes'}
+        </button>
+        {error && <p style={{ margin: '0.5rem 0 0', color: 'var(--danger, #b00)' }}>{error}</p>}
+      </div>
+    );
+  }
+
+  if (offer.kind === 'tracked') {
+    return (
+      <p style={note}>
+        DRepTalk is tracking this delegation. <a href="/my-drep/" style={{ color: 'var(--accent)' }}>See what this DRep does</a>
+      </p>
+    );
+  }
+
+  if (offer.kind === 'link-wallet') {
+    return (
+      <p style={note}>
+        To follow this delegation, link your stake wallet in your{' '}
+        <a href="/settings/account/" style={{ color: 'var(--accent)' }}>account settings</a>.
+      </p>
+    );
+  }
+
+  if (offer.kind === 'retry') {
+    return (
+      <p style={note}>
+        Your delegation is on chain. DRepTalk could not record it just now, it will pick it up on the next refresh.
+      </p>
+    );
+  }
+
+  return <p style={note}>Recording your delegation...</p>;
 }

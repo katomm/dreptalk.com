@@ -5,6 +5,7 @@
 // rankDreps (src/lib/match/logic.ts).
 import { useEffect, useState } from 'react';
 import DelegateButton from '@/components/DelegateButton.js';
+import type { TrackingViewer } from '@/lib/delegation/trackingOffer.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import { drepPath } from '@/lib/dreps/profile.js';
 import { formatAdaCompact } from '@/lib/format/ada.js';
@@ -39,6 +40,10 @@ interface Props {
   questions: MatchQuestion[];
   dreps: MatchDrep[];
   poolStats: MatchPoolStats;
+  // Read server side by /match/, so a result row's delegation dialog can offer
+  // tracking afterwards. Required: an anonymous default would send a signed-in
+  // person to a login they do not need.
+  viewer: TrackingViewer;
 }
 
 type Phase = 'intro' | 'quiz' | 'results';
@@ -74,7 +79,7 @@ function firstSkippedIndex(answers: readonly UserAnswer[]): number {
   return idx === -1 ? 0 : idx;
 }
 
-export default function MatchQuiz({ network, questions, dreps, poolStats }: Props) {
+export default function MatchQuiz({ network, questions, dreps, poolStats, viewer }: Props) {
   const [phase, setPhase] = useState<Phase>('intro');
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState<UserAnswer[]>(() => questions.map(() => 's'));
@@ -214,6 +219,7 @@ export default function MatchQuiz({ network, questions, dreps, poolStats }: Prop
           onShare={() => void handleShare()}
           onAnswerMore={answerMore}
           onStartOver={startOver}
+          viewer={viewer}
         />
       )}
     </div>
@@ -443,6 +449,7 @@ function ResultsScreen({
   onShare,
   onAnswerMore,
   onStartOver,
+  viewer,
 }: {
   network: CardanoNetwork;
   questions: MatchQuestion[];
@@ -457,6 +464,7 @@ function ResultsScreen({
   onShare: () => void;
   onAnswerMore: () => void;
   onStartOver: () => void;
+  viewer: TrackingViewer;
 }) {
   const ranked = rankDreps(answers, dreps, minShared);
 
@@ -503,6 +511,7 @@ function ResultsScreen({
             answers={answers}
             ranked={r}
             isOpen={expanded === r.drep.drepId}
+            viewer={viewer}
             onToggle={() => onToggleExpanded(r.drep.drepId)}
           />
         ))}
@@ -539,6 +548,7 @@ function ResultRow({
   answers,
   ranked,
   isOpen,
+  viewer,
   onToggle,
 }: {
   network: CardanoNetwork;
@@ -546,6 +556,7 @@ function ResultRow({
   answers: UserAnswer[];
   ranked: RankedDrep;
   isOpen: boolean;
+  viewer: TrackingViewer;
   onToggle: () => void;
 }) {
   const d = ranked.drep;
@@ -615,6 +626,8 @@ function ResultRow({
         </button>
         <DelegateButton
           network={network}
+          viewer={viewer}
+          source="match"
           target={{
             drepId: d.drepId,
             slug: d.slug,

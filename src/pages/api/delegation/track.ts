@@ -40,7 +40,22 @@ export const POST: APIRoute = async ({ request, locals }) => {
     if (!userAllowed || !ipAllowed) return jsonResponse({ ok: false, error: 'rate_limited' }, 429);
 
     const networkEnv = (env.CARDANO_NETWORK as string | undefined) ?? null;
-    const { koiosBaseUrl } = resolveNetwork(networkEnv);
+    const { koiosBaseUrl, network } = resolveNetwork(networkEnv);
+
+    // The dashboard's retry control posts no body at all, so an empty or
+    // unparseable body is the normal case and never an error. Only a complete
+    // pair of a DRep id and the delegating wallet's reward address is taken.
+    let expected: { drepId: string; txHash: string | null; rewardAddressHex: string } | undefined;
+    const raw = (await request.json().catch(() => null)) as
+      | { expectedDrepId?: unknown; expectedTx?: unknown; rewardAddressHex?: unknown }
+      | null;
+    if (raw && typeof raw.expectedDrepId === 'string' && typeof raw.rewardAddressHex === 'string') {
+      expected = {
+        drepId: raw.expectedDrepId,
+        txHash: typeof raw.expectedTx === 'string' && /^[0-9a-f]{64}$/.test(raw.expectedTx) ? raw.expectedTx : null,
+        rewardAddressHex: raw.rewardAddressHex,
+      };
+    }
     // Optional Koios API key, same convention as verify.ts: sent as a Bearer
     // token when set, anonymous requests otherwise.
     const koiosToken = (env.KOIOS_API_KEY as string | undefined) || undefined;
@@ -50,9 +65,12 @@ export const POST: APIRoute = async ({ request, locals }) => {
       db,
       koios,
       // The authenticated session's own id, never anything from the request
-      // body -- there is no request body for this endpoint.
+      // body: the body only carries what the wallet just delegated to, and
+      // that is checked against this account's own stake address.
       userId: user.id,
       now: Math.floor(now / 1000),
+      network,
+      expected,
     });
 
     return jsonResponse(result.json, result.status);

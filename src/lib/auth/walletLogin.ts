@@ -62,6 +62,10 @@ export async function loginWithWallet(
   role: 'drep' | 'proposer' | 'delegator',
   network: CardanoNetwork,
   deps?: Deps,
+  // Optional context the server stores for a delegator login: what this wallet
+  // just delegated to, and where the visitor came from. Both are validated
+  // server side, so an unexpected value only means no expectation and no origin.
+  extra?: { expectedDrepId?: string; expectedTx?: string; ref?: string },
 ): Promise<LoginResult> {
   const fetchFn = deps?.fetchImpl ?? fetch;
 
@@ -132,6 +136,9 @@ export async function loginWithWallet(
         signatureHex: signature,
         keyHex: key,
         role,
+        ...(extra?.expectedDrepId ? { expectedDrepId: extra.expectedDrepId } : {}),
+        ...(extra?.expectedTx ? { expectedTx: extra.expectedTx } : {}),
+        ...(extra?.ref ? { ref: extra.ref } : {}),
         ...(deps?.multisig ? { scriptDrepId: deps.multisig.scriptDrepId } : {}),
       }),
     });

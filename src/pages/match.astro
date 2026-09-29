@@ -6,6 +6,7 @@ export const prerender = false;
 import { env } from 'cloudflare:workers';
 import JsonLd from '@/components/JsonLd.astro';
 import MatchQuiz from '@/components/MatchQuiz.tsx';
+import { loadTrackingViewer } from '@/lib/delegation/viewer';
 import Layout from '@/layouts/Layout.astro';
 import { currentNetwork } from '@/lib/api/response';
 import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
@@ -69,6 +70,10 @@ const breadcrumbLd = {
   ],
 };
 
+// The dialog offers delegation tracking after a successful delegation, which
+// needs to know whether this account has a stake wallet linked at all.
+const trackingViewer = await loadTrackingViewer(db, Astro.locals.user?.id ?? null);
+
 Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
 ---
 
@@ -81,7 +86,7 @@ Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.u
   <h1>Find your Cardano DRep</h1>
   {enough && dreps.length >= 3 ? (
     <>
-      <MatchQuiz client:load network={network} questions={questions} dreps={dreps} poolStats={poolStats} />
+      <MatchQuiz client:load network={network} questions={questions} dreps={dreps} poolStats={poolStats} viewer={trackingViewer} />
       <noscript>
         <p class="match-noscript">
           This quiz runs entirely in your browser so your answers never leave your device. Please
