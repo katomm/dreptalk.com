@@ -33,6 +33,9 @@ export function buildDrepBadges(handle: string, name: string | null): BadgeSnipp
     footer: { name: 'My votes', reveal: `&nbsp;· ${shown}`, title: `${who} on DRepTalk` },
     sidebar: { heading: who, body: 'See how I vote on Cardano governance and why, on DRepTalk.' },
     banner: { heading: `${who} on DRepTalk`, body: 'Every vote I cast on Cardano governance, with the reasons behind it.', cta: shown },
+    // Names and handles are the DRep's, up to 40 characters each and often
+    // without a space: let them wrap, and give the reveal room for the link.
+    layout: { footerClass: 'dtdk', revealMaxPx: 380, wrapText: true },
   });
 }
 

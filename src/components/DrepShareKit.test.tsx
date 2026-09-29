@@ -14,7 +14,7 @@ describe('DrepShareKit', () => {
 
   it('says where to get a link when there is no handle yet', () => {
     const html = renderToStaticMarkup(<DrepShareKit handle={null} name="X" />);
-    expect(html).toContain('Once you have a drep.link above');
+    expect(html).toContain('Pick a drep.link name above');
     expect(html).not.toContain('embed__copy');
   });
 

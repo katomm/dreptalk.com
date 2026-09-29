@@ -65,3 +65,25 @@ describe('drepShareText', () => {
     expect(drepShareText('')).toBeNull();
   });
 });
+
+describe('buildDrepBadges with long names and handles', () => {
+  const LONG_HANDLE = 'governance-representative-cardano-xyz12';
+  const LONG_NAME = 'GovernanceRepresentativeCardanoXYZ123456';
+
+  // A name without spaces is wider than the 300px card at 17px bold.
+  it('lets long headings and the short link wrap instead of overflowing', () => {
+    const [, sidebar, banner] = buildDrepBadges(LONG_HANDLE, LONG_NAME);
+    expect(sidebar.html).toMatch(/letter-spacing:-\.01em;overflow-wrap:anywhere;">/);
+    expect(banner.html).toMatch(/font-weight:700;overflow-wrap:anywhere;">/);
+    expect(banner.html).not.toMatch(/white-space:nowrap;">drep\.link\//);
+  });
+
+  // The /brand reveal was sized for "· Cardano Governance Forum". A DRep
+  // reveal is the short link, up to 50 characters.
+  it('gives the footer reveal room for a long short link, under its own class', () => {
+    const [footer] = buildDrepBadges(LONG_HANDLE, null);
+    expect(footer.html).toContain('.dtdk:hover .dtdk-x,.dtdk:focus-visible .dtdk-x{max-width:380px;');
+    expect(footer.html).not.toContain('.dtlk');
+    expect(footer.html).toContain('class="dtdk"');
+  });
+});

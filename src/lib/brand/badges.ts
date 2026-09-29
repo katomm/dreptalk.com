@@ -30,6 +30,18 @@ export interface BadgeOptions {
   footer: { name: string; reveal: string; title: string };
   sidebar: { heading: string; body: string };
   banner: { heading: string; body: string; cta: string };
+  /** Layout for text the caller does not control. The defaults are the /brand
+   *  output, which a fixture pins byte for byte. */
+  layout?: {
+    /** Class prefix of the footer pill's <style> block. A second set on the
+     *  same host page needs its own, or the last <style> wins for both. */
+    footerClass?: string;
+    /** Room for the footer pill's hover reveal, in px. */
+    revealMaxPx?: number;
+    /** Let headings and the banner's call to action wrap anywhere, for long
+     *  unbroken names and short links. */
+    wrapText?: boolean;
+  };
 }
 
 const badgeFont = "system-ui,-apple-system,'Segoe UI',sans-serif";
@@ -59,22 +71,26 @@ const badgeLogo = (id: string, size: number) =>
   `<circle cx="36" cy="36" r="7" fill="url(#${id})"/></svg>`;
 
 export function buildBadges(o: BadgeOptions): BadgeSnippet[] {
+  const fc = o.layout?.footerClass ?? 'dtlk';
+  const revealMax = o.layout?.revealMaxPx ?? 220;
+  const wrap = o.layout?.wrapText ? 'overflow-wrap:anywhere;' : '';
+  const ctaFlow = o.layout?.wrapText ? 'overflow-wrap:anywhere;' : 'white-space:nowrap;';
   const footer =
     `<style>` +
-    `.dtlk{display:inline-flex;align-items:center;gap:7px;padding:5px 12px 5px 8px;border:${badgeBorder};border-radius:999px;background:${badgeBg};text-decoration:none;color:inherit;font:500 12px/1.2 ${badgeFont};}` +
-    `.dtlk-x{display:inline-block;vertical-align:bottom;max-width:0;overflow:hidden;white-space:nowrap;opacity:0;transition:max-width .35s ease,opacity .25s ease;}` +
-    `.dtlk:hover .dtlk-x,.dtlk:focus-visible .dtlk-x{max-width:220px;opacity:.85;}` +
-    `@media (prefers-reduced-motion:reduce){.dtlk-x{transition:none;}}` +
+    `.${fc}{display:inline-flex;align-items:center;gap:7px;padding:5px 12px 5px 8px;border:${badgeBorder};border-radius:999px;background:${badgeBg};text-decoration:none;color:inherit;font:500 12px/1.2 ${badgeFont};}` +
+    `.${fc}-x{display:inline-block;vertical-align:bottom;max-width:0;overflow:hidden;white-space:nowrap;opacity:0;transition:max-width .35s ease,opacity .25s ease;}` +
+    `.${fc}:hover .${fc}-x,.${fc}:focus-visible .${fc}-x{max-width:${revealMax}px;opacity:.85;}` +
+    `@media (prefers-reduced-motion:reduce){.${fc}-x{transition:none;}}` +
     `</style>` +
-    `<a href="${o.href}" class="dtlk" title="${o.footer.title}">` +
+    `<a href="${o.href}" class="${fc}" title="${o.footer.title}">` +
     badgeLogo(`${o.idPrefix}-fb`, 16) +
-    `<span style="opacity:.9;white-space:nowrap;">${o.footer.name}<span class="dtlk-x">${o.footer.reveal}</span></span></a>`;
+    `<span style="opacity:.9;white-space:nowrap;">${o.footer.name}<span class="${fc}-x">${o.footer.reveal}</span></span></a>`;
 
   const sidebar =
     `<a href="${o.href}" style="display:block;max-width:300px;box-sizing:border-box;padding:16px;border:${badgeBorder};border-radius:14px;background:${badgeBg};text-decoration:none;color:inherit;font-family:${badgeFont};">` +
     `<span style="display:flex;align-items:center;gap:10px;">` +
     badgeLogo(`${o.idPrefix}-sc`, 34) +
-    `<span style="font-size:17px;font-weight:700;letter-spacing:-.01em;">${o.sidebar.heading}</span></span>` +
+    `<span style="font-size:17px;font-weight:700;letter-spacing:-.01em;${wrap}">${o.sidebar.heading}</span></span>` +
     `<span style="display:block;margin-top:9px;font-size:13px;line-height:1.5;opacity:.75;">${o.sidebar.body}</span>` +
     `<span style="display:block;height:3px;width:44px;margin-top:12px;border-radius:2px;background:linear-gradient(90deg,${gradStops.join(',')});"></span></a>`;
 
@@ -82,9 +98,9 @@ export function buildBadges(o: BadgeOptions): BadgeSnippet[] {
     `<a href="${o.href}" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;max-width:728px;box-sizing:border-box;padding:14px 18px;border:${badgeBorder};border-radius:14px;background:${badgeBg};text-decoration:none;color:inherit;font-family:${badgeFont};">` +
     badgeLogo(`${o.idPrefix}-bn`, 36) +
     `<span style="flex:1;min-width:200px;">` +
-    `<span style="display:block;font-size:15px;font-weight:700;">${o.banner.heading}</span>` +
+    `<span style="display:block;font-size:15px;font-weight:700;${wrap}">${o.banner.heading}</span>` +
     `<span style="display:block;margin-top:3px;font-size:13px;line-height:1.45;opacity:.72;">${o.banner.body}</span></span>` +
-    `<span style="font-size:12.5px;font-weight:600;color:#8b5cf6;white-space:nowrap;">${o.banner.cta}</span></a>`;
+    `<span style="font-size:12.5px;font-weight:600;color:#8b5cf6;${ctaFlow}">${o.banner.cta}</span></a>`;
 
   return [
     { kind: 'footer', title: 'Footer badge', note: o.notes.footer, html: footer },

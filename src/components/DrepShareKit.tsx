@@ -14,7 +14,7 @@ export default function DrepShareKit({ handle, name }: { handle: string | null; 
     <details className="kit">
       <summary className="kit__summary">Share your votes</summary>
       {badges.length === 0 ? (
-        <p className="kit__note">Once you have a drep.link above, badges and a share text for your own site appear here.</p>
+        <p className="kit__note">Pick a drep.link name above to get badges and a share text for your own site.</p>
       ) : (
         <>
           <p className="kit__note">
