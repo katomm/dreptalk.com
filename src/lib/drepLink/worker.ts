@@ -92,12 +92,17 @@ export async function handleRequest(req: Request, deps: ResolverDeps): Promise<R
       return redirect(`${site}${searchPageHref(route.q, 'dreps')}`);
     case 'handle': {
       // Keyed by the lowercased handle, independent of case, slash and query.
-      const key = new Request(`${DREP_LINK_ORIGIN}/${route.handle}`);
+      // The v2 marker retires redirects cached before the origin was added, so
+      // the change takes effect at once instead of after HIT_TTL.
+      const key = new Request(`${DREP_LINK_ORIGIN}/${route.handle}?v=2`);
       const hit = deps.cache ? await deps.cache.match(key) : undefined;
       if (hit) return hit;
       const found = await resolveHandle(deps.db, route.handle, deps.now);
+      // The origin rides on the redirect: the profile page and the delegation
+      // dialog read it from the URL, and it is validated again at sign-in. The
+      // handle already passed isRoutableHandle, so it needs no URL encoding.
       const res = found
-        ? redirect(`${site}${drepPath({ drepId: found.drepId, slug: found.slug })}`, HIT_TTL)
+        ? redirect(`${site}${drepPath({ drepId: found.drepId, slug: found.slug })}?ref=drep-link:${route.handle}`, HIT_TTL)
         : redirect(`${site}${searchPageHref(route.handle, 'dreps')}`);
       await store(deps, key, res);
       return res;
