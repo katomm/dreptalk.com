@@ -65,6 +65,11 @@ then it becomes free for others. You can pick the next new name once it has
 expired, and switch back to it after 90 days. DReps without a name can always
 use `drep.link/` followed by their DRep id.
 
+Under Share your votes on the same settings page you find a share text for your
+social profiles and three badges to paste into your own site, all linking to
+your drep.link. When a visitor comes through that link and starts following a
+delegation on DRepTalk, the new account is counted for your link.
+
 ## Get your 500 ada deposit back
 
 The 500 ada you locked when you registered is refunded automatically when you
