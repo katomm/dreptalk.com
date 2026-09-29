@@ -1,6 +1,7 @@
 ---
 import Layout from '@/layouts/Layout.astro';
 import { BRAND_BADGES } from '@/lib/brand/badges';
+import EmbedSnippet from '@/components/EmbedSnippet.tsx';
 import LogoMark from '@/components/LogoMark.astro';
 
 // SSR (not prerendered) so this page is served by the Worker and receives
@@ -139,16 +140,7 @@ const badgeSnippets = BRAND_BADGES.map(({ title, note, html }) => ({ title, note
         paste it straight into your HTML.
       </p>
       {badgeSnippets.map((b) => (
-        <div class="embed">
-          <div class="embed__head">
-            <h3>{b.title}</h3>
-            <button class="btn btn-secondary embed__copy" type="button" data-copy={b.html}>
-              <span data-copy-label="Copy HTML">Copy HTML</span>
-            </button>
-          </div>
-          <p class="brand__note">{b.note}</p>
-          <div class="embed__preview" set:html={b.html} />
-        </div>
+        <EmbedSnippet title={b.title} note={b.note} html={b.html} />
       ))}
       <p class="brand__note">
         DReps can point a badge at their own short link, <code>drep.link/yourname</code>, which
@@ -367,29 +359,6 @@ const badgeSnippets = BRAND_BADGES.map(({ title, note, html }) => ({ title, note
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  /* ---- Backlink badges ---- */
-  .embed {
-    margin-top: 1.5rem;
-  }
-  .embed__head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-  }
-  .embed__head h3 {
-    margin: 0;
-  }
-  .embed__copy {
-    flex-shrink: 0;
-  }
-  .embed__preview {
-    padding: 1.5rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    background: var(--surface-2);
   }
 
   /* ---- Type ---- */

@@ -1764,3 +1764,43 @@ tr.diff-block-del > th {
 .diff-source .diff-line-del {
   background: var(--diff-del-bg);
 }
+
+/* ---- Copy-paste snippet blocks (EmbedSnippet): /brand and the DRep share kit ----
+   Global because one React component renders them on two pages. The title and
+   note values reproduce what /brand gave its h3 and .brand__note before the
+   block became a component. */
+.embed {
+  margin-top: 1.5rem;
+}
+.embed__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.embed__title {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.embed__copy {
+  flex-shrink: 0;
+}
+.embed__note {
+  margin: 0 0 1rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+.embed__preview {
+  padding: 1.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+}
+.embed__preview--text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
