@@ -136,7 +136,7 @@ if (db) {
           verb: null,
           title: 'A new device was paired',
           // Links to the page where the pairing can be undone.
-          href: '/devices/',
+          href: '/settings/devices/',
           pill: null,
         },
       ];
@@ -318,7 +318,7 @@ const now = Date.now();
       <a class="notif-settingslink" href="#notification-settings">Notification settings</a>
       {/* Push notifications are set up here but only work on a signed-in device,
           so this is the natural place to find the pairing page from. */}
-      <a class="notif-settingslink" href="/devices/">Devices</a>
+      <a class="notif-settingslink" href="/settings/devices/">Devices</a>
     </div>
   </div>
 

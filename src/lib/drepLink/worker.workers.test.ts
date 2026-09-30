@@ -31,14 +31,14 @@ describe('handleRequest', () => {
     await insertHandle(env.DB, 'p', A);
     const res = await go('/P/');
     expect(res.status).toBe(302);
-    expect(res.headers.get('location')).toBe('https://dreptalk.com/dreps/p-rysud/');
+    expect(res.headers.get('location')).toBe('https://dreptalk.com/dreps/p-rysud/?ref=drep-link:p');
     // Handles change rarely (90-day cooldown), so a hit may be kept for an hour.
     expect(res.headers.get('cache-control')).toBe('public, max-age=3600');
   });
   it('falls back to the id path when the DRep has no slug', async () => {
     await upsertDrep(env.DB, drepArgs(A, null));
     await insertHandle(env.DB, 'p', A);
-    expect((await go('/p')).headers.get('location')).toBe(`https://dreptalk.com/dreps/${A}/`);
+    expect((await go('/p')).headers.get('location')).toBe(`https://dreptalk.com/dreps/${A}/?ref=drep-link:p`);
   });
   it('sends an unknown handle to the DRep search, cached only briefly', async () => {
     const res = await go('/nobody-here');
@@ -85,6 +85,32 @@ describe('handleRequest', () => {
     await insertHandle(env.DB, 'p', A);
     await go('/p', undefined, cache);
     await env.DB.prepare('DELETE FROM drep_handles').run();
-    expect((await go('/P/', undefined, cache)).headers.get('location')).toBe(`https://dreptalk.com/dreps/${A}/`);
+    expect((await go('/P/', undefined, cache)).headers.get('location')).toBe(`https://dreptalk.com/dreps/${A}/?ref=drep-link:p`);
+  });
+  // The origin rides on the handle redirect, lowercased like the route itself,
+  // and one cache entry serves every spelling of the same handle.
+  it('carries the lowercase handle as the origin, whatever the request spelling', async () => {
+    await upsertDrep(env.DB, drepArgs(A, 'P'));
+    await env.DB.prepare('UPDATE dreps SET slug = ? WHERE drep_id = ?').bind('p-rysud', A).run();
+    await insertHandle(env.DB, 'p', A);
+    const { cache, store } = fakeCache();
+    const a = await go('/P/', undefined, cache);
+    const b = await go('/p?utm_source=x', undefined, cache);
+    expect(a.headers.get('location')).toBe('https://dreptalk.com/dreps/p-rysud/?ref=drep-link:p');
+    expect(b.headers.get('location')).toBe(a.headers.get('location'));
+    expect([...store.keys()]).toEqual(['https://drep.link/p?v=2']);
+  });
+  it('ignores a redirect cached before the origin was added', async () => {
+    await upsertDrep(env.DB, drepArgs(A, 'P'));
+    await env.DB.prepare('UPDATE dreps SET slug = ? WHERE drep_id = ?').bind('p-rysud', A).run();
+    await insertHandle(env.DB, 'p', A);
+    const { cache, store } = fakeCache();
+    store.set('https://drep.link/p', new Response(null, { status: 302, headers: { location: 'https://dreptalk.com/dreps/p-rysud/' } }));
+    const res = await go('/p', undefined, cache);
+    expect(res.headers.get('location')).toBe('https://dreptalk.com/dreps/p-rysud/?ref=drep-link:p');
+  });
+  it('adds no origin to the DRep id route or an unknown handle', async () => {
+    expect((await go(`/${A}`)).headers.get('location')).toBe(`https://dreptalk.com/dreps/${A}/`);
+    expect((await go('/nobody-here')).headers.get('location')).toBe('https://dreptalk.com/search/?q=nobody-here&scope=dreps');
   });
 });

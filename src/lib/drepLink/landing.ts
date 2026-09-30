@@ -82,7 +82,7 @@ footer{margin-top:3rem;font-size:.9rem;color:var(--muted)}
 <section class="card">
 <h2>Get your free drep.link</h2>
 <p>If your DRep metadata has a name, your link already exists and is built from that name. You can pick a different one after logging in on DRepTalk with your DRep key.</p>
-<p><a href="${siteOrigin}/settings/profile/">Open your DRep settings</a></p>
+<p><a href="${siteOrigin}/settings/drep-link/">Open your DRep settings</a></p>
 </section>
 <footer>A <a href="${siteOrigin}/">DRepTalk</a> service. Every link points to a DRep's profile on DRepTalk.</footer>
 </main>

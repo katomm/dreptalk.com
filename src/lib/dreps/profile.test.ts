@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isIndexableProfile, influencePct, formatSharePct, drepMetaDescription, drepProfileSummary } from './profile.js';
+import { isIndexableProfile, influencePct, formatSharePct, drepMetaDescription, drepProfileSummary, canonicalProfileHref, profileTabHref } from './profile.js';
 
 describe('isIndexableProfile (SEO quality-gate)', () => {
   it('is indexable with on-chain metadata', () => {
@@ -69,5 +69,36 @@ describe('formatSharePct', () => {
   it('is null for null or non-positive input', () => {
     expect(formatSharePct(null)).toBeNull();
     expect(formatSharePct(0)).toBeNull();
+  });
+});
+
+describe('canonicalProfileHref', () => {
+  it('keeps the query string', () => {
+    expect(canonicalProfileHref({ drepId: 'drep1x', slug: 'new-slug' }, '?ref=drep-link:p&tab=votes'))
+      .toBe('/dreps/new-slug/?ref=drep-link:p&tab=votes');
+  });
+
+  it('adds nothing when there is no query', () => {
+    expect(canonicalProfileHref({ drepId: 'drep1x', slug: 'new-slug' }, '')).toBe('/dreps/new-slug/');
+  });
+});
+
+describe('profileTabHref', () => {
+  const d = { drepId: 'drep1x', slug: 'ada' };
+
+  it('keeps a valid origin on every tab', () => {
+    expect(profileTabHref(d, 'votes', 'drep-link:ada')).toBe('/dreps/ada/?tab=votes&ref=drep-link%3Aada#activity');
+    expect(profileTabHref(d, 'all', 'drep-link:ada')).toBe('/dreps/ada/?ref=drep-link%3Aada#activity');
+  });
+
+  it('matches today when there is no origin', () => {
+    expect(profileTabHref(d, 'votes', null)).toBe('/dreps/ada/?tab=votes#activity');
+    expect(profileTabHref(d, 'all', null)).toBe('/dreps/ada/#activity');
+  });
+
+  // The value comes from the URL and goes back into our page.
+  it('drops a hostile origin instead of echoing it', () => {
+    expect(profileTabHref(d, 'votes', '"><script>x</script>')).toBe('/dreps/ada/?tab=votes#activity');
+    expect(profileTabHref(d, 'all', 'javascript:alert(1)')).toBe('/dreps/ada/#activity');
   });
 });

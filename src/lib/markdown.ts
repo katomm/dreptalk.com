@@ -28,6 +28,7 @@ import { Marked } from 'marked';
 // export is the module.exports object with FilterXSS attached, so reach it through that.
 import xssModule from 'xss';
 import { ALLOWED_TAGS } from './sanitizedHtmlGrammar.js';
+import { escapeHtml } from './html/escape.js';
 
 const { FilterXSS, escapeAttrValue } = xssModule as unknown as typeof import('xss');
 
@@ -43,14 +44,7 @@ export interface MentionLink {
 // mention label is an on-chain display name, i.e. untrusted: without this a
 // name containing markup could break out of the <a> element (the sanitizer
 // strips dangerous tags afterwards, but broken nesting would remain).
-function escapeHtml(s: string): string {
-  return s
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
-}
+// The implementation lives in ./html/escape.js so browser code can share it.
 
 // @slug mentions. Syntax contract shared with extractMentionSlugs
 // (src/lib/forum/mentions.ts): '@' preceded by start / whitespace / '(' / '>',

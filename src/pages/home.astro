@@ -16,6 +16,7 @@ import { runtimeEnv, currentNetwork } from '@/lib/api/response';
 import { resolveNetwork } from '@/lib/config/network';
 import { getSelfDrepId } from '@/lib/db/users';
 import { getDrepById } from '@/lib/db/dreps';
+import { isSeeded, listDrepHandles } from '@/lib/db/drepHandles';
 import { getVotableActionsForViewer } from '@/lib/db/votableActions';
 import { getDrepVoteBreakdown, getDrepRationaleStats, getDrepParticipation } from '@/lib/db/drepVotes';
 import { getDrepVotingPowerSeries } from '@/lib/db/drepVotingPowerHistory';
@@ -64,7 +65,7 @@ const drep = drepId && db ? await getDrepById(db, drepId) : null;
 // (pairs with the top-10 face row), the hot-topic teaser looks at the last week.
 const nowMs = Date.now();
 const HOT_TOPIC_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
-const [[account, unreadCount], votableRows, activeFaces, activeCounts, hotTopic, voteBreakdown, rationaleStats, participation, powerSeries, delegationData] =
+const [[account, unreadCount], votableRows, activeFaces, activeCounts, hotTopic, voteBreakdown, rationaleStats, participation, powerSeries, delegationData, drepLink] =
   await Promise.all([
     loadSessionHeader(Astro.locals, user.id),
     drepId && db ? getVotableActionsForViewer(db, drepId) : [],
@@ -78,6 +79,13 @@ const [[account, unreadCount], votableRows, activeFaces, activeCounts, hotTopic,
     db
       ? loadDelegation(db, user.id)
       : NO_FOLLOW_DELEGATION,
+    // The drep.link card: only once the launch seed has opened drep.link, with
+    // the DRep's current short link as its status line.
+    drepId && db
+      ? Promise.all([isSeeded(db), listDrepHandles(db, drepId, Math.floor(nowMs / 1000))]).then(([open, rows]) =>
+          open ? { handle: rows.find((r) => r.isPrimary)?.handle ?? null } : null,
+        )
+      : null,
   ]);
 
 // The "... active in the last 30 days on DRepTalk" label (built from activeCounts).
@@ -112,6 +120,7 @@ const icons = {
   discussions:
     'M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1',
   analytics: 'M4 5v14h16M8 15l3-4 2.5 2L18 7',
+  link: 'M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71 M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71',
 } as const;
 
 // Card status lines are uniformly muted; anything that wants action (unvoted
@@ -167,25 +176,35 @@ const cards: HomeCard[] = [
         },
         {
           title: 'DRep metadata',
-          href: '/settings/',
+          href: '/settings/metadata/',
           icon: icons.metadata,
           desc: 'Your on-chain profile: name, bio, links and image (CIP-119).',
           stat: drep?.name ? `On-chain name: ${drep.name}` : 'No on-chain metadata yet',
           badge: drep?.name ? undefined : '!',
         },
+        ...(drepLink
+          ? [
+              {
+                title: 'Share your votes',
+                href: '/settings/drep-link/',
+                icon: icons.link,
+                desc: 'Your short link, badges and a share text for your site.',
+                stat: drepLink.handle ? `drep.link/${drepLink.handle}` : 'Pick your drep.link name',
+                newUntil: '2026-10-21',
+              },
+            ]
+          : []),
         {
           href: '/voting-power-origins/',
           title: 'Voting power origins',
           desc: 'Where your current voting power came from.',
           icon: icons.origins,
-          newUntil: '2026-10-15',
         },
         {
           href: '/my-governance-record/',
           title: 'Your governance record',
           desc: 'Your percentiles in context, plus the actions behind them.',
           icon: icons.record,
-          newUntil: '2026-10-15',
         },
       ]
     : [
@@ -215,22 +234,25 @@ const cards: HomeCard[] = [
             trackedDelegation === 'drep'
               ? 'What your DRep did since you delegated.'
               : 'What your default choice meant.',
-          newUntil: '2026-09-16',
         },
       ]
     : []),
-  {
-    title: 'Find your DRep',
-    href: '/match/',
-    icon: icons.match,
-    desc: 'Answer real governance questions and see which DReps vote like you.',
-  },
+  // The quiz is for people looking for a DRep, not for a DRep's own start page.
+  ...(drepId
+    ? []
+    : [
+        {
+          title: 'Find your DRep',
+          href: '/match/',
+          icon: icons.match,
+          desc: 'Answer real governance questions and see which DReps vote like you.',
+        },
+      ]),
   {
     title: 'Governance analytics',
     href: '/analytics/',
     icon: icons.analytics,
     desc: 'Health, participation and the default options, tracked per epoch.',
-    newUntil: '2026-10-15',
   },
   {
     title: 'Notifications',

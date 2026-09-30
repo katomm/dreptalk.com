@@ -1,4 +1,4 @@
-// "Your drep.link" section on /settings/profile/: shows the DRep's short link and
+// "Your drep.link" section on /settings/drep-link/: shows the DRep's short link and
 // lets it pick another one. Changes are rare by design (90 days between changes,
 // the old link keeps redirecting for 180 days), so a change takes a confirm step.
 import { useState } from 'react';
@@ -7,6 +7,7 @@ import { inputStyle, labelStyle } from './drepFormStyles';
 import { DREP_LINK_HOST, DREP_LINK_ORIGIN, normalizeHandleInput, validateHandle } from '@/lib/drepLink/handle';
 import { claimErrorMessage, formatLinkDate } from '@/lib/drepLink/messages';
 import { nextNewHandleAt } from '@/lib/drepLink/claim';
+import DrepShareKit from './DrepShareKit';
 
 interface Props {
   current: string | null;
@@ -14,11 +15,13 @@ interface Props {
   drepId: string;
   hasName: boolean;
   cooldownUntil: number | null;
+  /** The DRep's on-chain name, for the share kit's badges. */
+  name?: string | null;
 }
 
 const mutedStyle = { margin: 0, fontSize: '0.875rem', color: 'var(--muted)' } as const;
 
-export default function DrepLinkSettings({ current: initialCurrent, previous: initialPrevious, drepId, hasName, cooldownUntil: initialCooldown }: Props) {
+export default function DrepLinkSettings({ current: initialCurrent, previous: initialPrevious, drepId, hasName, cooldownUntil: initialCooldown, name }: Props) {
   const [current, setCurrent] = useState(initialCurrent);
   const [previous, setPrevious] = useState(initialPrevious);
   const [cooldownUntil, setCooldownUntil] = useState(initialCooldown);
@@ -75,6 +78,7 @@ export default function DrepLinkSettings({ current: initialCurrent, previous: in
   }
 
   return (
+    <>
     <section id="drep-link" aria-labelledby="drep-link-heading" style={{ maxWidth: '32rem', margin: '0 0 2rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
       <h2 id="drep-link-heading" style={{ margin: 0, fontSize: '1.125rem' }}>Your drep.link</h2>
 
@@ -178,5 +182,8 @@ export default function DrepLinkSettings({ current: initialCurrent, previous: in
         </div>
       )}
     </section>
+      {/* Built from `current`, so a saved rename updates every snippet without a reload. */}
+      <DrepShareKit handle={current} name={name ?? null} />
+    </>
   );
 }

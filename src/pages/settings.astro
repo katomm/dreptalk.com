@@ -1,7 +1,7 @@
 ---
 // Settings index: redirects to the default settings tab. A DRep lands on their
-// Profile tab (the on-chain metadata form); everyone else on Account. The tab
-// sub-pages live under /settings/ (profile, account, danger). Session-gated.
+// Metadata tab (the on-chain metadata form), everyone else on Account. The tab
+// sub-pages live under /settings/. Session-gated.
 export const prerender = false;
 
 import { runtimeEnv } from '@/lib/api/response';
@@ -15,12 +15,12 @@ if (!user) {
 const env = runtimeEnv(Astro.locals);
 const db = env.DB as D1Database | undefined;
 
-// A DRep defaults to the Profile tab; everyone else to Account. The check lives
+// A DRep defaults to the Metadata tab, everyone else to Account. The check lives
 // in an if-condition (not the redirect expression) so this template-less page
 // has no "unused variable" hint on the trailing return.
 const isDrep = !!(db && (await getSelfDrepId(db, user)));
 if (isDrep) {
-  return Astro.redirect('/settings/profile/');
+  return Astro.redirect('/settings/metadata/');
 }
 return Astro.redirect('/settings/account/');
 ---

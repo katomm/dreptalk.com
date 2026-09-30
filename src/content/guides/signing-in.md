@@ -98,7 +98,7 @@ rather than your very last click), and for 90 days at most, however often you
 visit. After that the device asks for a
 new signature, or a new pairing code on a phone.
 
-Every signed-in device is listed under **Devices** in the account menu, with
+Every signed-in device is listed under [Settings, Devices](/settings/devices/), with
 the one you are on marked. You can sign out a single device from there, or
 end every session at once if one is lost. See
 [Pair a phone or tablet](/help/pair-a-device/).

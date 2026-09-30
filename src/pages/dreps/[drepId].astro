@@ -29,7 +29,7 @@ import { getVoterVoteHistory } from '@/lib/db/voteHistory.js';
 import { getBadgeHolderCounts } from '@/lib/db/badgeAwards.js';
 import { loadEarnedBadges, pickShowcase } from '@/lib/badges/gallery.js';
 import BadgeTile from '@/components/BadgeTile.astro';
-import { isIndexableProfile, influencePct, formatSharePct, drepPath, isCanonicalDrepParam, drepMetaDescription, drepProfileSummary } from '@/lib/dreps/profile.js';
+import { isIndexableProfile, influencePct, formatSharePct, drepPath, isCanonicalDrepParam, drepMetaDescription, drepProfileSummary, canonicalProfileHref, profileTabHref } from '@/lib/dreps/profile.js';
 import { buildRecentActivity } from '@/lib/dreps/recentActivity.js';
 import { voteChangeStat, voteTimingStat } from '@/lib/dreps/voteStatsView.js';
 import { getReportCard } from '@/lib/db/drepReportCard.js';
@@ -66,7 +66,7 @@ const drep = drepId && db ? await getDrepByIdOrSlug(db, drepId) : null;
 // A slugged profile has exactly one canonical URL: requests for the raw id
 // redirect permanently so links, crawlers, and caches converge on the slug.
 if (drep && drepId && !isCanonicalDrepParam(drep, drepId)) {
-  return Astro.redirect(drepPath(drep), 301);
+  return Astro.redirect(canonicalProfileHref(drep, Astro.url.search), 301);
 }
 
 // A signed-in DRep viewing their own not-yet-synced profile (fresh on-chain
@@ -167,8 +167,10 @@ const profileTabs = drep
   : [];
 // Tab links carry the #activity anchor so the reload lands back at the section
 // instead of the page top; scroll-margin keeps it clear of the sticky header.
+// They also carry a visitor's origin from a short link, validated first, so
+// opening a tab before delegating does not lose it.
 const tabHref = (id: ProfileTab): string =>
-  drep ? (id === 'all' ? `${drepPath(drep)}#activity` : `${drepPath(drep)}?tab=${id}#activity`) : '';
+  drep ? profileTabHref(drep, id, Astro.url.searchParams.get('ref')) : '';
 // A hand-typed ?tab= for a hidden (empty) tab falls back to the All feed.
 const renderTab: ProfileTab = profileTabs.some((t) => t.id === activeTab) ? activeTab : 'all';
 

@@ -1,5 +1,5 @@
 // POST /api/auth/sessions/revoke: signs one device out, from the device list on
-// /devices. The narrow counterpart to logout-all: it takes a session id that
+// /settings/devices. The narrow counterpart to logout-all: it takes a session id that
 // listSessionsForUser handed to this very user, and revokeSessionForUser
 // refuses ids belonging to anyone else.
 //
@@ -36,7 +36,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     const ownSession = revoked && token !== null && (await sessionIdForToken(token)) === sessionId;
 
     const headers: Record<string, string> = {
-      location: ownSession ? '/' : `/devices/${revoked ? '?revoked=1' : '?revoked=0'}`,
+      location: ownSession ? '/' : `/settings/devices/${revoked ? '?revoked=1' : '?revoked=0'}`,
     };
     if (ownSession) headers['set-cookie'] = clearSessionCookie();
     return new Response(null, { status: 303, headers });

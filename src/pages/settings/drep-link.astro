@@ -1,0 +1,51 @@
+---
+// Settings > drep.link tab: the DRep's short link and the share kit built from
+// it. DRep-only and only once the launch seed has opened drep.link, a DRep
+// without it is sent to the Metadata tab, anyone else to Account.
+export const prerender = false;
+
+import SettingsShell from '@/components/SettingsShell.astro';
+import DrepLinkSettings from '@/components/DrepLinkSettings.tsx';
+import { runtimeEnv } from '@/lib/api/response';
+import { getDrepById } from '@/lib/db/dreps';
+import { listDrepHandles } from '@/lib/db/drepHandles';
+import { cooldownUntil as handleCooldownUntil } from '@/lib/drepLink/claim';
+import { loadSettingsAccess } from '@/lib/auth/settingsAccess';
+
+const user = Astro.locals.user;
+if (!user) {
+  return Astro.redirect('/login/');
+}
+
+const env = runtimeEnv(Astro.locals);
+const db = env.DB as D1Database | undefined;
+
+const access = await loadSettingsAccess(db, user);
+const drepId = access.drepId;
+if (!drepId) {
+  return Astro.redirect('/settings/account/');
+}
+if (!access.drepLinkOpen || !db) {
+  return Astro.redirect('/settings/metadata/');
+}
+
+const [drep, handleRows] = await Promise.all([
+  getDrepById(db, drepId),
+  listDrepHandles(db, drepId, Math.floor(Date.now() / 1000)),
+]);
+const primaryRow = handleRows.find((r) => r.isPrimary) ?? null;
+const previousRow = handleRows.find((r) => !r.isPrimary) ?? null;
+---
+<SettingsShell active="drep-link" access={access}>
+  <DrepLinkSettings
+    current={primaryRow?.handle ?? null}
+    previous={previousRow?.releasedAt ? { handle: previousRow.handle, until: previousRow.releasedAt } : null}
+    drepId={drepId}
+    hasName={Boolean(drep?.name)}
+    cooldownUntil={handleCooldownUntil(primaryRow)}
+    name={drep?.name ?? null}
+    client:load
+  />
+  {/* Click-to-copy for the share kit inside the island above, the same script /brand uses. */}
+  <script is:inline src="/brand-copy.js"></script>
+</SettingsShell>

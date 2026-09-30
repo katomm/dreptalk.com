@@ -143,7 +143,7 @@ async function hydrateGov(db: D1Database, row: GovRow): Promise<PendingLead | nu
 async function hydratePersonal(db: D1Database, row: PersonalRow): Promise<PendingLead | null> {
   switch (row.type) {
     case 'device_paired':
-      return { title: 'New device paired', body: 'Tap to review your devices', href: '/devices/' };
+      return { title: 'New device paired', body: 'Tap to review your devices', href: '/settings/devices/' };
 
     case 'delegation_changed':
       return { title: 'Delegation changed', body: 'Tap to review your delegation', href: '/home/' };

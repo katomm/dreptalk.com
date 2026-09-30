@@ -42,7 +42,7 @@ in full when you later deregister.
 
 Your on-chain metadata is what wallets, explorers, and DRepTalk show to
 delegators. If yours is outdated, or you registered without any, sign in as a
-DRep and open [Settings](/settings/). The form is prefilled with your current
+DRep and open [Settings, Metadata](/settings/metadata/). The form is prefilled with your current
 on-chain profile. Edit the name, objectives, or links, upload an image if you
 like, and submit. Your wallet signs an update certificate that points to the new document.
 There is **no deposit** for updates, only the small network fee.
@@ -60,10 +60,15 @@ slides. It is built from your name when you first appear with one, and it keeps
 working when you rename yourself later.
 
 To pick a different one, sign in as a DRep and open
-[Settings](/settings/profile/). Your old link keeps redirecting for 180 days,
+[Settings, drep.link](/settings/drep-link/). Your old link keeps redirecting for 180 days,
 then it becomes free for others. You can pick the next new name once it has
 expired, and switch back to it after 90 days. DReps without a name can always
 use `drep.link/` followed by their DRep id.
+
+Under Share your votes on the same tab you find a share text for your
+social profiles and three badges to paste into your own site, all linking to
+your drep.link. When a visitor comes through that link and starts following a
+delegation on DRepTalk, the new account is counted for your link.
 
 ## Get your 500 ada deposit back
 

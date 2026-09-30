@@ -1,4 +1,4 @@
-// React island: the desktop side of device pairing. Rendered on /devices/ for
+// React island: the desktop side of device pairing. Rendered on /settings/devices/ for
 // a signed-in user who wants to approve a phone (or other device) that is
 // showing a short pairing code.
 //
