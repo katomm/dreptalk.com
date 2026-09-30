@@ -535,6 +535,35 @@ describe('deregistration', () => {
     expect((await getDrepById(env.DB, stay))!.status).toBe('registered');
   });
 
+  it('stores zero power for a retired DRep even while Koios still reports the last snapshot', async () => {
+    const stay = 'drep1-dereg-stale-stay';
+    const gone = 'drep1-dereg-stale-gone';
+
+    const r1 = fakeKoios({
+      pages: [[listRow(stay), listRow(gone)]],
+      infoById: new Map([
+        [stay, infoRow(stay)],
+        [gone, infoRow(gone, { amount: '89350959208038' })],
+      ]),
+    });
+    await syncDreps({ koios: r1.koios, db: env.DB, fetchImpl: countingProfileFetch().fetchImpl, now: NOW });
+
+    // Right after the retirement certificate, drep_info still carries the
+    // epoch snapshot the DRep was last counted in. The row is never refreshed
+    // after this sync, so that amount must not be stored.
+    const r2k = fakeKoios({
+      pages: [[listRow(stay, true), listRow(gone, false)]],
+      infoById: new Map([
+        [stay, infoRow(stay)],
+        [gone, infoRow(gone, { drep_status: 'deregistered', active: false, amount: '89350959208038', deposit: null })],
+      ]),
+    });
+    await syncDreps({ koios: r2k.koios, db: env.DB, fetchImpl: countingProfileFetch().fetchImpl, now: NOW + 1 });
+    const after = (await getDrepById(env.DB, gone))!;
+    expect(after.status).toBe('deregistered');
+    expect(after.votingPower).toBe('0');
+  });
+
   it('leaves an inactive DRep alone when Koios still reports it registered', async () => {
     const stay = 'drep1-dereg-miss-stay';
     const missed = 'drep1-dereg-miss-missed';

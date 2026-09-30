@@ -533,7 +533,6 @@ export async function syncDreps(deps: DrepSyncDeps): Promise<DrepSyncResult> {
         return [{
           drepId,
           status: info?.drep_status ?? 'deregistered',
-          votingPower: info?.amount ?? '0',
           deposit: info?.deposit ?? null,
           expiresEpochNo: info?.expires_epoch_no ?? null,
           lastSyncedAt: now,

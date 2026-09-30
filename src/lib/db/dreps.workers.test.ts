@@ -474,7 +474,7 @@ describe('delegator status-change fan-out jobs', () => {
     await upsertDrep(db(), { ...BASE_ARGS, drepId, active: true, status: 'active' });
     const n = await deactivateDreps(
       db(),
-      [{ drepId, status: 'deregistered', votingPower: '0', deposit: null, expiresEpochNo: null, lastSyncedAt: T_MS }],
+      [{ drepId, status: 'deregistered', deposit: null, expiresEpochNo: null, lastSyncedAt: T_MS }],
       { followedDrepIds: new Set([drepId]) },
     );
     expect(n).toBe(1);
@@ -502,7 +502,7 @@ describe('delegator status-change fan-out jobs', () => {
     );
     await deactivateDreps(
       db(),
-      [{ drepId, status: 'deregistered', votingPower: '0', deposit: null, expiresEpochNo: null, lastSyncedAt: T_MS }],
+      [{ drepId, status: 'deregistered', deposit: null, expiresEpochNo: null, lastSyncedAt: T_MS }],
       { followedDrepIds: new Set(['some-other-drep']) },
     );
     expect(await jobsFor(drepId)).toHaveLength(0);
@@ -519,7 +519,7 @@ describe('delegator status-change fan-out jobs', () => {
     // deactivateDreps on a never-seen followed id likewise emits nothing (no prior row).
     await deactivateDreps(
       db(),
-      [{ drepId: 'drep-status-f-ghost', status: 'deregistered', votingPower: '0', deposit: null, expiresEpochNo: null, lastSyncedAt: T_MS }],
+      [{ drepId: 'drep-status-f-ghost', status: 'deregistered', deposit: null, expiresEpochNo: null, lastSyncedAt: T_MS }],
       { followedDrepIds: new Set(['drep-status-f-ghost']) },
     );
     expect(await jobsFor('drep-status-f-ghost')).toHaveLength(0);
@@ -573,7 +573,7 @@ describe('delegator status-change fan-out jobs', () => {
     await expect(
       deactivateDreps(
         poisonJobInsert(env.DB),
-        [{ drepId, status: 'deregistered', votingPower: '0', deposit: null, expiresEpochNo: null, lastSyncedAt: T_MS }],
+        [{ drepId, status: 'deregistered', deposit: null, expiresEpochNo: null, lastSyncedAt: T_MS }],
         { followedDrepIds: new Set([drepId]) },
       ),
     ).rejects.toThrow();
