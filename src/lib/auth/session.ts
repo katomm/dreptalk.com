@@ -50,7 +50,7 @@ export interface SessionRecord {
   actsFor?: { userId: string; stakeAddr: string } | null;
   /**
    * Human-readable device label derived from the User-Agent at mint time, for
-   * the device list on /devices. null when the mint path had no User-Agent or
+   * the device list on /settings/devices. null when the mint path had no User-Agent or
    * could not recognise it; undefined for sessions minted before this field
    * existed.
    */
@@ -330,7 +330,7 @@ export async function sessionIdForToken(token: string): Promise<string> {
 
 /**
  * Lists the caller's live sessions, newest activity first, for the device list
- * on /devices. Entries whose record has expired between the index write and
+ * on /settings/devices. Entries whose record has expired between the index write and
  * this read are skipped and pruned, so the list never shows a dead device.
  *
  * @param kv - The SESSIONS KV namespace.

@@ -29,7 +29,7 @@ will not carry over: the app will still show you as signed out.
    **Pair with desktop**.
 2. Tap **Show pairing code**. A short code appears on screen.
 3. On a computer where you are already signed in to DRepTalk, open
-   **Devices** from the account menu.
+   **Settings** from the account menu and the **Devices** tab.
 4. Enter the code shown on your phone, check that the device shown matches
    what you expect, and confirm.
 

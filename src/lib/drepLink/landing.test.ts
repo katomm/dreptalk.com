@@ -11,7 +11,7 @@ describe('renderLanding', () => {
     expect(html).toContain('<meta name="twitter:image" content="https://dreptalk.com/og/drep-link.png?v=1">');
     expect(html).toContain('<form action="/" method="get"');
     expect(html).toContain('name="h"');
-    expect(html).toContain('href="https://dreptalk.com/settings/profile/"');
+    expect(html).toContain('href="https://dreptalk.com/settings/drep-link/"');
   });
   it('shows the given handle as the example', () => {
     expect(html).toContain('<a href="/some-drep"><code>drep.link/some-drep</code></a>');

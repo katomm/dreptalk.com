@@ -1805,16 +1805,13 @@ tr.diff-block-del > th {
   overflow-wrap: anywhere;
 }
 
-/* DRep share kit on /settings/profile/, a collapsed section under drep.link. */
+/* DRep share kit on /settings/drep-link/, below the short link itself. */
 .kit {
   margin: 0 0 2rem;
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
 }
-.kit__summary {
-  cursor: pointer;
-  font-weight: 600;
+.kit__title {
+  margin: 0;
+  font-size: 1.125rem;
 }
 .kit__note {
   margin: 0.75rem 0 0;

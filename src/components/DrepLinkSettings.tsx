@@ -1,4 +1,4 @@
-// "Your drep.link" section on /settings/profile/: shows the DRep's short link and
+// "Your drep.link" section on /settings/drep-link/: shows the DRep's short link and
 // lets it pick another one. Changes are rare by design (90 days between changes,
 // the old link keeps redirecting for 180 days), so a change takes a confirm step.
 import { useState } from 'react';

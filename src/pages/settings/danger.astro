@@ -7,8 +7,7 @@ export const prerender = false;
 import SettingsShell from '@/components/SettingsShell.astro';
 import DrepRetire from '@/components/DrepRetire.tsx';
 import { currentNetwork, runtimeEnv } from '@/lib/api/response';
-import { getSelfDrepId } from '@/lib/db/users';
-import { requireGrantManager } from '@/lib/auth/coProposerManage';
+import { loadSettingsAccess } from '@/lib/auth/settingsAccess';
 
 const user = Astro.locals.user;
 if (!user) {
@@ -19,16 +18,12 @@ const env = runtimeEnv(Astro.locals);
 const db = env.DB as D1Database | undefined;
 const network = currentNetwork().network;
 
-const drepId = db ? await getSelfDrepId(db, user) : null;
+const access = await loadSettingsAccess(db, user);
+const drepId = access.drepId;
 if (!drepId) {
   return Astro.redirect('/settings/account/');
 }
-
-// Grant-manager status gates the Co-proposers tab in the shell (a DRep who is
-// also an on-chain proposer still gets the tab from this page).
-const grantGuard = db ? await requireGrantManager(db, user) : null;
-const isProposer = grantGuard !== null && 'row' in grantGuard;
 ---
-<SettingsShell active="danger" isDrep={true} isProposer={isProposer}>
+<SettingsShell active="danger" access={access}>
   <DrepRetire network={network} expectedDrepId={drepId} client:load />
 </SettingsShell>

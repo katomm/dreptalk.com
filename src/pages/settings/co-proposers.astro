@@ -9,9 +9,9 @@ export const prerender = false;
 
 import SettingsShell from '@/components/SettingsShell.astro';
 import CoProposerInvite from '@/components/CoProposerInvite.tsx';
-import { requireGrantManager } from '@/lib/auth/coProposerManage';
+import { loadSettingsAccess } from '@/lib/auth/settingsAccess';
 import { getGrantsForProposer, MAX_GRANTS_PER_PROPOSER } from '@/lib/db/proposerGrants';
-import { getSelfDrepId, getUsersByIds } from '@/lib/db/users';
+import { getUsersByIds } from '@/lib/db/users';
 import { truncateIdMiddle } from '@/lib/forum/view';
 import { runtimeEnv } from '@/lib/api/response';
 
@@ -23,11 +23,8 @@ if (!user) {
 const env = runtimeEnv(Astro.locals);
 const db = env.DB as D1Database | undefined;
 
-// DRep status gates the Profile/Danger tabs in the shell.
-const drepId = db ? await getSelfDrepId(db, user) : null;
-
-const grantGuard = db ? await requireGrantManager(db, user) : null;
-const canManage = grantGuard !== null && 'row' in grantGuard;
+const access = await loadSettingsAccess(db, user);
+const canManage = access.isProposer;
 
 const grants = canManage && db ? await getGrantsForProposer(db, user.id) : [];
 const pendingGrants = grants.filter((g) => g.status === 'pending');
@@ -50,7 +47,7 @@ const initialActive = activeGrants.map((g) => ({
   since: g.redeemed_at,
 }));
 ---
-<SettingsShell active="co-proposers" isDrep={drepId != null} isProposer={canManage}>
+<SettingsShell active="co-proposers" access={access}>
   {canManage ? (
     <>
       <p style="margin:0 0 1.25rem;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">

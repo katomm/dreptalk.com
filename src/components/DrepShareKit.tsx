@@ -1,9 +1,7 @@
 // Badges and a share text a DRep pastes into their own site or social
 // profiles, all pointing at their drep.link. Rendered inside the drep.link
 // settings island from its current handle, so a saved rename updates every
-// snippet at once, with no reload that would throw away an unsaved profile
-// draft further down the page. Collapsed by default so the metadata form
-// stays in view.
+// snippet at once without a reload.
 import EmbedSnippet from './EmbedSnippet.tsx';
 import { buildDrepBadges, drepShareText } from '@/lib/brand/drepBadges.js';
 
@@ -11,8 +9,8 @@ export default function DrepShareKit({ handle, name }: { handle: string | null; 
   const badges = handle ? buildDrepBadges(handle, name) : [];
   const shareText = handle ? drepShareText(handle) : null;
   return (
-    <details className="kit">
-      <summary className="kit__summary">Share your votes</summary>
+    <section className="kit" aria-labelledby="kit-heading">
+      <h2 id="kit-heading" className="kit__title">Share your votes</h2>
       {badges.length === 0 ? (
         <p className="kit__note">Pick a drep.link name above to get badges and a share text for your own site.</p>
       ) : (
@@ -35,6 +33,6 @@ export default function DrepShareKit({ handle, name }: { handle: string | null; 
           ))}
         </>
       )}
-    </details>
+    </section>
   );
 }
