@@ -537,8 +537,11 @@ export async function listRegisteredDrepIds(db: D1Database): Promise<string[]> {
 
 /**
  * Marks DReps that have left the registered set as inactive: refreshes ONLY the
- * chain-derived columns (status, active=0, voting power, deposit, expiry) and the
- * sync timestamp from a fresh drep_info, leaving the profile (name/bio/avatar/
+ * chain-derived columns (status, active=0, deposit, expiry) and the sync
+ * timestamp from a fresh drep_info, and zeroes the voting power. A retired DRep
+ * holds none, while drep_info still reports the last epoch snapshot right after
+ * the retirement, and a deregistered row is never refreshed again, so that
+ * amount would stay frozen here. Leaves the profile (name/bio/avatar/
  * anchor/slug) untouched so a retired DRep stays viewable for its governance
  * history. A plain UPDATE keeps the rowid stable, and name/bio are not touched,
  * so the WHEN-guarded FTS triggers do not fire. Batched; no-op on an empty list.
@@ -549,7 +552,6 @@ export async function deactivateDreps(
   rows: {
     drepId: string;
     status: string;
-    votingPower: string | null;
     deposit: string | null;
     expiresEpochNo: number | null;
     lastSyncedAt: number;
@@ -560,11 +562,11 @@ export async function deactivateDreps(
   const updateStmts = rows.map((r) =>
     db
       .prepare(
-        `UPDATE dreps SET status = ?, active = 0, voting_power = ?, deposit = ?,
+        `UPDATE dreps SET status = ?, active = 0, voting_power = '0', deposit = ?,
            expires_epoch_no = ?, last_synced_at = ?
          WHERE drep_id = ?`,
       )
-      .bind(r.status, r.votingPower, r.deposit, r.expiresEpochNo, r.lastSyncedAt, r.drepId),
+      .bind(r.status, r.deposit, r.expiresEpochNo, r.lastSyncedAt, r.drepId),
   );
 
   // Fan-out jobs for followed rows whose effective state actually changes. The new

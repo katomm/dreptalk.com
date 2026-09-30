@@ -42,7 +42,7 @@ The silent counterpart uses the same window but a different base: it counts the 
 
 The default options also get a share chart: the two predefined options together, as a percentage of everything delegated to them and to representative DReps. It is the per-epoch version of the comparison sentence under the two option cards.
 
-The "DRep activity" section reads the current registrations rather than a trend. Two bars split all registered DReps by registration state, active against inactive or retired, and by voting history, ever voted on chain against never voted, with a note on how many active registrations hold delegated power. Below them the section states how much stake is still delegated to inactive DReps, how much of it the ten largest hold, and lists the largest inactive DReps by voting power.
+The "DRep activity" section reads the current registrations rather than a trend. Two bars split all registered DReps by registration state, active against inactive or retired, and by voting history, ever voted on chain against never voted, with a note on how many active registrations hold delegated power. Below them the section states how much stake is still delegated to inactive DReps, how many of them hold it, how much of it the ten largest hold, and lists the largest inactive DReps by voting power. A retired DRep holds no voting power, so this stake sits entirely with DReps that are still registered but stopped voting.
 
 ## Voting concentration in practice
 

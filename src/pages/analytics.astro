@@ -238,7 +238,6 @@ const droppedActions = buildDroppedActions(droppedRows, successorRows);
 const unlistedDropped = throughput.dropped - droppedActions.length;
 const showSubmittedRecent = params?.epoch != null;
 const fmtShare = (pct: number | null): string => (pct != null ? `${pct.toFixed(1)}%` : 'n/a');
-const inactiveLabel = (retired: boolean): string => (retired ? 'retired' : 'inactive');
 // Medians can end in .5 with an even action count, render as-is.
 const fmtCount = (n: number): string => (Number.isInteger(n) ? String(n) : n.toFixed(1));
 
@@ -489,13 +488,12 @@ const activityBars = activity
             {bar.sub && <p class="hub-activity__sub">{bar.sub}</p>}
           </div>
         ))}
-        <p class="hub-activity__stake">Stake still delegated to inactive DReps: {formatAda(activity.inactiveStake)} across {activity.inactiveCount.toLocaleString('en-US')} DReps.{activity.top10InactiveSharePct != null && ` The ten largest hold ${fmtShare(activity.top10InactiveSharePct)} of it.`}</p>
+        <p class="hub-activity__stake">Stake still delegated to inactive DReps: {formatAda(activity.inactiveStake)}, spread over {activity.inactiveHolders.toLocaleString('en-US')} of them.{activity.top10InactiveSharePct != null && ` The ten largest hold ${fmtShare(activity.top10InactiveSharePct)} of it.`}</p>
         {activity.topInactive.length > 0 && (
           <ul class="hub-rows hub-activity__top">
             {activity.topInactive.map((d) => (
               <li class="hub-row hub-row--inline">
                 <span class="hub-row__title"><a href={d.href}>{d.name ?? truncateId(d.drepId, 14)}</a></span>
-                <span class="hub-activity__top-state">{inactiveLabel(d.retired)}</span>
                 <span class="hub-row__meta">{formatAda(d.votingPower)}</span>
               </li>
             ))}
@@ -1717,8 +1715,7 @@ const activityBars = activity
   .hub-spo__row-title a:hover {
     text-decoration: underline;
   }
-  .hub-spo__row-type,
-  .hub-activity__top-state {
+  .hub-spo__row-type {
     font-size: 0.7rem;
     font-weight: 600;
     text-transform: uppercase;
