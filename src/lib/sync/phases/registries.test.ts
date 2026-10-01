@@ -141,8 +141,8 @@ describe('governancePhases', () => {
 });
 
 describe('notificationPhases', () => {
-  it('runs the fan-out before the webpush and telegram dispatch, in a fixed order', () => {
-    expect(notificationPhases.map((d) => d.name)).toEqual(['delegation-fanout', 'webpush', 'telegram']);
+  it('runs the fan-out and the digest before the webpush and telegram dispatch, in a fixed order', () => {
+    expect(notificationPhases.map((d) => d.name)).toEqual(['delegation-fanout', 'delegation-digest', 'webpush', 'telegram']);
   });
 
   it('reaches every registered phase with no gate to skip', () => {
