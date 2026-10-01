@@ -11,6 +11,7 @@ function counts(partial: Partial<PendingCounts>): PendingCounts {
     drepStatus: 0,
     myDelegation: 0,
     drepStats: 0,
+    delegationDigest: 0,
     rationaleReady: 0,
     reviews: 0,
     devices: 0,
@@ -71,6 +72,11 @@ describe('formatSummary', () => {
   it('summarizes pending DRep stats digests', () => {
     expect(formatSummary(counts({ drepStats: 1 }))).toBe('1 DRep stats update');
     expect(formatSummary(counts({ drepStats: 2, replies: 1 }))).toBe('1 new reply, 2 DRep stats updates');
+  });
+
+  it('summarizes pending delegation digests', () => {
+    expect(formatSummary(counts({ delegationDigest: 1 }))).toBe('1 epoch summary');
+    expect(formatSummary(counts({ delegationDigest: 2 }))).toBe('2 epoch summaries');
   });
 
   it('summarizes shareable rationales', () => {

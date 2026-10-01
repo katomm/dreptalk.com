@@ -14,7 +14,8 @@ export type InboxKind =
   | 'delegator_drep_status_changed'
   | 'drep_stats'
   | 'rationale_ready'
-  | 'review_published';
+  | 'review_published'
+  | 'delegation_digest';
 
 export interface InboxItem {
   kind: InboxKind;
@@ -47,7 +48,7 @@ export interface InboxCounts {
 /** Rows shown per group before the rest collapses behind "View N more". */
 export const GROUP_VISIBLE = 5;
 
-// delegation_changed, drep_stats and rationale_ready are deliberately
+// delegation_changed, delegation_digest, drep_stats and rationale_ready are deliberately
 // excluded: personal events about your own account are not governance
 // activity, so they stay all/unread only, never the governance tab. A
 // Governance Review edition is not an action either, so it stays out too.

@@ -16,6 +16,7 @@ export const NOTIFICATION_EVENT_TYPES = [
   'drep_stats',
   'rationale_ready',
   'governance_review',
+  'delegation_digest',
 ] as const;
 export type NotificationEventType = (typeof NOTIFICATION_EVENT_TYPES)[number];
 export type NotificationChannelKind = 'webpush' | 'telegram';
@@ -256,6 +257,8 @@ export interface PendingCounts {
   myDelegation: number;
   /** DRep stats epoch digests (the user's own DRep). */
   drepStats: number;
+  /** Delegator epoch digests about the user's DRep. */
+  delegationDigest: number;
   /** The user's own vote rationale confirmed on chain and ready to share. */
   rationaleReady: number;
   /** New Governance Review editions. */
@@ -269,7 +272,7 @@ export interface PendingCounts {
  * Counts undelivered work for one channel row: personal reply/mention
  * notifications, distinct live governance threads with activity, delegator
  * fan-out notifications (drep vote activity, drep status changes, and the
- * user's own delegation changes), the user's own DRep stats epoch digests,
+ * user's own delegation changes), the delegator's epoch digests, the user's own DRep stats epoch digests,
  * the user's own shareable vote rationales, new Governance Review editions,
  * all inside the pass interval delivered_until < ts <= passEnd (see
  * readPassStart: rows written after the pass started wait for the next pass,
@@ -296,6 +299,7 @@ export async function getPendingCounts(
          (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'delegator_drep_status_changed' AND created_at > ?2 AND created_at <= ?3) AS drepStatus,
          (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'delegation_changed' AND created_at > ?2 AND created_at <= ?3) AS myDelegation,
          (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'drep_stats' AND created_at > ?2 AND created_at <= ?3) AS drepStats,
+         (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'delegation_digest' AND created_at > ?2 AND created_at <= ?3) AS delegationDigest,
          (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'rationale_ready' AND created_at > ?2 AND created_at <= ?3) AS rationaleReady,
          (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'review_published' AND created_at > ?2 AND created_at <= ?3) AS reviews,
          ${govThreadsSinceSql('?2', '?3')} AS governance`
@@ -310,6 +314,7 @@ export async function getPendingCounts(
       drepStatus: number;
       myDelegation: number;
       drepStats: number;
+      delegationDigest: number;
       rationaleReady: number;
       reviews: number;
     }>();
@@ -321,6 +326,7 @@ export async function getPendingCounts(
   const drepStatus = prefs.drep_status ? (result?.drepStatus ?? 0) : 0;
   const myDelegation = prefs.my_delegation ? (result?.myDelegation ?? 0) : 0;
   const drepStats = prefs.drep_stats ? (result?.drepStats ?? 0) : 0;
+  const delegationDigest = prefs.delegation_digest ? (result?.delegationDigest ?? 0) : 0;
   const rationaleReady = prefs.rationale_ready ? (result?.rationaleReady ?? 0) : 0;
   const reviews = prefs.governance_review ? (result?.reviews ?? 0) : 0;
   // Security notices are deliberately not gated on prefs: an alert that can be
@@ -334,6 +340,7 @@ export async function getPendingCounts(
     drepStatus,
     myDelegation,
     drepStats,
+    delegationDigest,
     rationaleReady,
     reviews,
     devices,

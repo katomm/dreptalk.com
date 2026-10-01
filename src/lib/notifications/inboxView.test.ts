@@ -82,6 +82,7 @@ describe('facet membership per notification kind', () => {
     ['delegator_drep_re_voted', { all: 1, unread: 1, mentions: 0, governance: 1, discussions: 0 }],
     ['delegator_drep_status_changed', { all: 1, unread: 1, mentions: 0, governance: 1, discussions: 0 }],
     ['drep_stats', { all: 1, unread: 1, mentions: 0, governance: 0, discussions: 0 }],
+    ['delegation_digest', { all: 1, unread: 1, mentions: 0, governance: 0, discussions: 0 }],
     ['rationale_ready', { all: 1, unread: 1, mentions: 0, governance: 0, discussions: 0 }],
   ] as const)('%s counts and filters as %o', (kind, expected) => {
     const unreadItem = item(kind, 1_700_000_000, true);

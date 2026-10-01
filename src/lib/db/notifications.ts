@@ -24,7 +24,10 @@ export interface NotificationInsert {
     | 'rationale_ready'
     // review_published rows are written by reviewAnnouncements.ts, one per
     // account, when a new Governance Review edition goes live.
-    | 'review_published';
+    | 'review_published'
+    // delegation_digest rows are written by delegationDigest.ts, one per
+    // follower and completed epoch, with payload + event_key.
+    | 'delegation_digest';
   actorId: string | null;
   topicId: string | null;
   postId: string | null;

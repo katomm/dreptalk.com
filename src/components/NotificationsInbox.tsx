@@ -37,6 +37,7 @@ const KIND_LEAD: Record<Exclude<InboxItem['kind'], 'reply' | 'mention'>, string>
   delegator_drep_re_voted: 'Your DRep',
   delegator_drep_status_changed: 'Your DRep',
   drep_stats: 'Your DRep stats',
+  delegation_digest: 'Your DRep this epoch',
   rationale_ready: 'Your vote',
   review_published: 'New Governance Review',
   gov_created: 'New governance action',
@@ -99,8 +100,8 @@ function KindIcon({ kind }: { kind: InboxItem['kind'] }) {
       </svg>
     );
   }
-  if (kind === 'drep_stats') {
-    // The DRep's own epoch stats: a small bar chart.
+  if (kind === 'drep_stats' || kind === 'delegation_digest') {
+    // The DRep's own epoch stats and a delegator's epoch digest: a small bar chart.
     return (
       <svg {...common} aria-hidden="true">
         <path d="M3 21h18" />

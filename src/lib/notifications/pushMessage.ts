@@ -57,6 +57,9 @@ export function formatSummary(counts: PendingCounts): string {
   if (counts.myDelegation > 0) {
     parts.push(`${counts.myDelegation} delegation ${counts.myDelegation === 1 ? 'change' : 'changes'}`);
   }
+  if (counts.delegationDigest > 0) {
+    parts.push(`${counts.delegationDigest} epoch ${counts.delegationDigest === 1 ? 'summary' : 'summaries'}`);
+  }
   if (counts.drepStats > 0) {
     parts.push(`${counts.drepStats} DRep stats ${counts.drepStats === 1 ? 'update' : 'updates'}`);
   }
