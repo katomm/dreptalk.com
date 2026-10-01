@@ -3,6 +3,8 @@
 // to report, and the copy shared by the inbox row and the push lead. No DB,
 // no I/O, unit-testable in node.
 
+import { isNonNegativeInt as isCount } from './drepStats.js';
+
 /** Action titles carried in a payload, newest vote first. */
 export const DIGEST_TITLE_MAX = 3;
 /** Each title is clipped to this many characters before it is stored. */
@@ -56,19 +58,15 @@ export function parseDelegationDigestPayload(payload: string | null): Delegation
   };
 }
 
-function isCount(v: unknown): v is number {
-  return typeof v === 'number' && Number.isInteger(v) && v >= 0;
-}
-
-const actions = (n: number) => `${n} ${n === 1 ? 'action' : 'actions'}`;
+const noun = (n: number) => (n === 1 ? 'action' : 'actions');
 
 /** "Voted on 3 actions, 2 with a rationale. 1 open action without a vote" */
 export function formatDelegationDigestDetail(p: DelegationDigestPayload): string {
   const voted =
     p.votes === 0
       ? 'No votes'
-      : `Voted on ${actions(p.votes)}, ${p.withRationale === 0 ? 'none' : p.withRationale} with a rationale`;
-  const open = p.openUnvoted ? `. ${p.openUnvoted} open ${p.openUnvoted === 1 ? 'action' : 'actions'} without a vote` : '';
+      : `Voted on ${p.votes} ${noun(p.votes)}, ${p.withRationale === 0 ? 'none' : p.withRationale} with a rationale`;
+  const open = p.openUnvoted ? `. ${p.openUnvoted} open ${noun(p.openUnvoted)} without a vote` : '';
   return voted + open;
 }
 
@@ -83,4 +81,10 @@ export function formatDelegationDigestTitles(p: DelegationDigestPayload): string
   if (p.titles.length === 0) return null;
   const rest = p.votes - p.titles.length;
   return p.titles.join(', ') + (rest > 0 ? ` and ${rest} more` : '');
+}
+
+/** Inbox row: the summary plus "Actions: A, B and 1 more" when titles were stored. */
+export function formatDelegationDigestInboxTitle(p: DelegationDigestPayload): string {
+  const titles = formatDelegationDigestTitles(p);
+  return titles ? `${formatDelegationDigestSummary(p)}. Actions: ${titles}` : formatDelegationDigestSummary(p);
 }

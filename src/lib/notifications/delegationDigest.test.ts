@@ -5,6 +5,7 @@ import {
   formatDelegationDigestDetail,
   formatDelegationDigestSummary,
   formatDelegationDigestTitles,
+  formatDelegationDigestInboxTitle,
   type DelegationDigestPayload,
 } from './delegationDigest.js';
 
@@ -81,5 +82,13 @@ describe('copy', () => {
       'Treasury withdrawal for X, Info action Y, Hard fork Z and 2 more',
     );
     expect(formatDelegationDigestTitles({ ...base, titles: [] })).toBeNull();
+  });
+  it('appends the titles to the inbox row', () => {
+    expect(formatDelegationDigestInboxTitle(base)).toBe(
+      'Epoch 612: voted on 3 actions, 2 with a rationale. 1 open action without a vote. Actions: Treasury withdrawal for X, Info action Y, Hard fork Z',
+    );
+    expect(formatDelegationDigestInboxTitle({ ...base, titles: [] })).toBe(
+      'Epoch 612: voted on 3 actions, 2 with a rationale. 1 open action without a vote',
+    );
   });
 });

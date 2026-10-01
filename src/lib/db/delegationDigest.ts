@@ -4,8 +4,8 @@
 // inside the current epoch, the completed epoch (current - 1) is summarized
 // once per followed DRep into delegation_digest_dreps and marked built in
 // delegation_digest_epochs, in one atomic batch. Each later run writes digests
-// for up to `recipients` followers with a single INSERT ... SELECT, in user id
-// order and only for DReps with something to report, so a capped run continues
+// for up to `recipients` followers with a single INSERT ... SELECT, in follow
+// index order and only for DReps with something to report, so a capped run continues
 // where the previous one stopped and silent DReps never block anyone. When a
 // check finds nobody left, the epoch is marked done and later runs cost one
 // query. Idempotency comes from the notifications (recipient_id, event_key)
@@ -20,17 +20,18 @@ import {
   isReportable,
   type DelegationDigestPayload,
 } from '../notifications/delegationDigest.js';
+import { OPEN_STATUSES } from '../governance/view.js';
 import type { Allowance } from '../sync/queryBudget.js';
 import { confirmedVoteSql } from './drepVotes.js';
-import { DB_NOW_MS } from './sql.js';
+import { chunked, DB_NOW_MS } from './sql.js';
 
 // DRep ids per IN list. The vote query binds the list twice plus four bounds,
 // 2 * 45 + 4 = 94 stays under D1's 100 cap.
 const DREP_CHUNK = 45;
 // 4 binds per summary row.
 const SUMMARY_INSERT_CHUNK = 24;
-// Statuses the vote sync still fetches votes for, see getVoteStaleSyncableActions.
-const OPEN_STATUSES_SQL = `('pending', 'active')`;
+// The statuses the vote sync still fetches votes for, inlined from the shared constant.
+const OPEN_STATUSES_SQL = `(${OPEN_STATUSES.map((s) => `'${s}'`).join(', ')})`;
 
 export interface FollowedDrep {
   drepId: string;
@@ -38,7 +39,7 @@ export interface FollowedDrep {
   status: string | null;
 }
 
-export type DigestRunState = 'waiting' | 'built' | 'sending' | 'done' | 'deferred';
+export type DigestRunState = 'waiting' | 'sending' | 'done' | 'deferred';
 
 /**
  * True once the vote cron finished a run that started inside the current
@@ -77,15 +78,8 @@ export async function listFollowedDreps(db: D1Database): Promise<FollowedDrep[]>
 
 /** Queries a build issues for this many followed DReps, batch statements counted singly. */
 export function buildCost(followedCount: number): number {
-  const chunks = Math.ceil(followedCount / DREP_CHUNK);
-  // open count + 2 per chunk + 2 deletes + summary inserts + epoch row.
-  return 1 + 2 * chunks + 2 + Math.ceil(followedCount / SUMMARY_INSERT_CHUNK) + 1;
-}
-
-function chunk<T>(items: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
-  return out;
+  // open count + voted-open counts + 1 per vote chunk + 2 deletes + summary inserts + epoch row.
+  return 2 + Math.ceil(followedCount / DREP_CHUNK) + 2 + Math.ceil(followedCount / SUMMARY_INSERT_CHUNK) + 1;
 }
 
 const clip = (t: string) => (t.length <= DIGEST_TITLE_CHARS ? t : `${t.slice(0, DIGEST_TITLE_CHARS - 1).trimEnd()}…`);
@@ -104,34 +98,54 @@ export async function buildDrepSummaries(
 ): Promise<{ dreps: number; reportable: number }> {
   const start = epochStartUnix(epoch, cfg);
   const end = epochStartUnix(epoch + 1, cfg);
-  const openCount =
-    (await db.prepare(`SELECT COUNT(*) AS n FROM governance_actions WHERE status IN ${OPEN_STATUSES_SQL}`).first<{ n: number }>())?.n ?? 0;
+  const followedIds = new Set(followed.map((f) => f.drepId));
+  // The open count and every DRep's confirmed votes on open actions, read once
+  // for the whole follow set. Open actions are few, so the grouped read is small.
+  const [openRow, votedOpen, voteChunks] = await Promise.all([
+    db.prepare(`SELECT COUNT(*) AS n FROM governance_actions WHERE status IN ${OPEN_STATUSES_SQL}`).first<{ n: number }>(),
+    db
+      .prepare(
+        `SELECT v.voter_id AS voter_id, COUNT(*) AS n
+           FROM drep_votes v JOIN governance_actions g ON g.id = v.ga_id AND g.status IN ${OPEN_STATUSES_SQL}
+          WHERE v.voter_role = 'DRep' AND ${confirmedVoteSql('v')}
+          GROUP BY v.voter_id`,
+      )
+      .all<{ voter_id: string; n: number }>(),
+    // Votes inside the epoch, from the current vote and from superseded ones,
+    // newest first. The chunks are independent, so they run concurrently.
+    Promise.all(
+      chunked([...followedIds], DREP_CHUNK).map(async (part) => {
+        const marks = part.map(() => '?').join(', ');
+        return (
+          await db
+            .prepare(
+              `SELECT x.voter_id AS voter_id, x.ga_id AS ga_id, x.meta_url AS meta_url, g.title AS title
+                 FROM (
+                   SELECT voter_id, ga_id, block_time, meta_url FROM drep_votes
+                    WHERE voter_role = 'DRep' AND voter_id IN (${marks})
+                      AND block_time >= ? AND block_time < ? AND ${confirmedVoteSql()}
+                   UNION ALL
+                   SELECT voter_id, ga_id, block_time, meta_url FROM drep_vote_history
+                    WHERE voter_role = 'DRep' AND voter_id IN (${marks})
+                      AND block_time >= ? AND block_time < ?
+                 ) x
+                 LEFT JOIN governance_actions g ON g.id = x.ga_id
+                ORDER BY x.block_time DESC, x.ga_id`,
+            )
+            .bind(...part, start, end, ...part, start, end)
+            .all<{ voter_id: string; ga_id: string; meta_url: string | null; title: string | null }>()
+        ).results;
+      }),
+    ),
+  ]);
+  const openCount = openRow?.n ?? 0;
+  const votedOpenBy = new Map(
+    votedOpen.results.filter((r) => followedIds.has(r.voter_id)).map((r) => [r.voter_id, r.n] as const),
+  );
 
-  // Newest version per (DRep, action) inside the epoch, from the current vote
-  // and from superseded ones, in block time order.
+  // Newest version per (DRep, action) inside the epoch.
   const votesBy = new Map<string, { title: string | null; meta: string | null }[]>();
-  const votedOpenBy = new Map<string, number>();
-  for (const part of chunk(followed.map((f) => f.drepId), DREP_CHUNK)) {
-    const marks = part.map(() => '?').join(', ');
-    const rows = (
-      await db
-        .prepare(
-          `SELECT x.voter_id AS voter_id, x.ga_id AS ga_id, x.meta_url AS meta_url, g.title AS title
-             FROM (
-               SELECT voter_id, ga_id, block_time, meta_url FROM drep_votes
-                WHERE voter_role = 'DRep' AND voter_id IN (${marks})
-                  AND block_time >= ? AND block_time < ? AND ${confirmedVoteSql()}
-               UNION ALL
-               SELECT voter_id, ga_id, block_time, meta_url FROM drep_vote_history
-                WHERE voter_role = 'DRep' AND voter_id IN (${marks})
-                  AND block_time >= ? AND block_time < ?
-             ) x
-             LEFT JOIN governance_actions g ON g.id = x.ga_id
-            ORDER BY x.block_time DESC, x.ga_id`,
-        )
-        .bind(...part, start, end, ...part, start, end)
-        .all<{ voter_id: string; ga_id: string; meta_url: string | null; title: string | null }>()
-    ).results;
+  for (const rows of voteChunks) {
     const seen = new Set<string>();
     for (const r of rows) {
       const key = `${r.voter_id}\u0000${r.ga_id}`;
@@ -141,18 +155,6 @@ export async function buildDrepSummaries(
       list.push({ title: r.title, meta: r.meta_url });
       votesBy.set(r.voter_id, list);
     }
-    const voted = (
-      await db
-        .prepare(
-          `SELECT v.voter_id AS voter_id, COUNT(*) AS n
-             FROM drep_votes v JOIN governance_actions g ON g.id = v.ga_id AND g.status IN ${OPEN_STATUSES_SQL}
-            WHERE v.voter_role = 'DRep' AND v.voter_id IN (${marks}) AND ${confirmedVoteSql('v')}
-            GROUP BY v.voter_id`,
-        )
-        .bind(...part)
-        .all<{ voter_id: string; n: number }>()
-    ).results;
-    for (const r of voted) votedOpenBy.set(r.voter_id, r.n);
   }
 
   const rows = followed.map((f) => {
@@ -176,7 +178,7 @@ export async function buildDrepSummaries(
   await db.batch([
     db.prepare('DELETE FROM delegation_digest_dreps WHERE epoch < ?').bind(epoch - 1),
     db.prepare('DELETE FROM delegation_digest_epochs WHERE epoch < ?').bind(epoch - 1),
-    ...chunk(rows, SUMMARY_INSERT_CHUNK).map((c) =>
+    ...chunked(rows, SUMMARY_INSERT_CHUNK).map((c) =>
       db
         .prepare(
           `INSERT OR IGNORE INTO delegation_digest_dreps (epoch, drep_id, payload, reportable)
@@ -195,8 +197,9 @@ export async function buildDrepSummaries(
 }
 
 // Followers of reportable DReps without a digest for the epoch (?1), active
-// accounts only. Shared by the insert and the done check. D1 binds a JS number
-// as a real, so the epoch is cast before it is concatenated into the event key.
+// accounts only. Shared by the insert and the done check. The event key suffix
+// (?2, ":<epoch>") is built in JS and bound as text: D1 binds a JS number as a
+// real, which would concatenate as "300.0".
 const PENDING_RECIPIENTS = `
   FROM delegation_digest_dreps s
   JOIN delegator_follows f
@@ -205,7 +208,9 @@ const PENDING_RECIPIENTS = `
  WHERE s.epoch = ?1 AND s.reportable = 1
    AND NOT EXISTS (
      SELECT 1 FROM notifications n
-      WHERE n.recipient_id = f.user_id AND n.event_key = 'delegation_digest:' || f.user_id || ':' || CAST(?1 AS INTEGER))`;
+      WHERE n.recipient_id = f.user_id AND n.event_key = 'delegation_digest:' || f.user_id || ?2)`;
+
+const keySuffix = (epoch: number) => `:${epoch}`;
 
 /**
  * Writes digests for up to `limit` pending followers in one statement, so the
@@ -217,19 +222,19 @@ export async function sendDigests(db: D1Database, epoch: number, limit: number):
     .prepare(
       `INSERT INTO notifications (id, recipient_id, type, event_key, payload, created_at)
        SELECT lower(hex(randomblob(16))), f.user_id, 'delegation_digest',
-              'delegation_digest:' || f.user_id || ':' || CAST(?1 AS INTEGER), s.payload, ${DB_NOW_MS}
+              'delegation_digest:' || f.user_id || ?2, s.payload, ${DB_NOW_MS}
        ${PENDING_RECIPIENTS}
-        ORDER BY f.user_id
-        LIMIT ?2
+        ORDER BY f.drep_id, f.user_id
+        LIMIT ?3
        ON CONFLICT(recipient_id, event_key) WHERE event_key IS NOT NULL DO NOTHING`,
     )
-    .bind(epoch, limit)
+    .bind(epoch, keySuffix(epoch), limit)
     .run();
   return res.meta.changes ?? 0;
 }
 
 async function anyPending(db: D1Database, epoch: number): Promise<boolean> {
-  return (await db.prepare(`SELECT 1 AS x ${PENDING_RECIPIENTS} LIMIT 1`).bind(epoch).first()) !== null;
+  return (await db.prepare(`SELECT 1 AS x ${PENDING_RECIPIENTS} LIMIT 1`).bind(epoch, keySuffix(epoch)).first()) !== null;
 }
 
 /**
@@ -265,10 +270,8 @@ export async function runDelegationDigest(
     }
     const r = await buildDrepSummaries(db, epoch, cfg, followed);
     if (r.reportable === 0) return { epoch, state: 'done', inserted: 0 };
-    if (!budget.covers(3)) return { epoch, state: 'built', inserted: 0 };
-  } else if (!budget.covers(3)) {
-    return { epoch, state: 'deferred', inserted: 0 };
   }
+  if (!budget.covers(3)) return { epoch, state: 'deferred', inserted: 0 };
 
   const inserted = await sendDigests(db, epoch, recipients);
   if (inserted >= recipients) return { epoch, state: 'sending', inserted };

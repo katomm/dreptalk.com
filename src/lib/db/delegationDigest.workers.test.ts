@@ -198,7 +198,7 @@ it('defers a build that does not fit the allowance and stays inside it', async (
   expect(counted.meter.used()).toBeLessThanOrEqual(4);
   const before = counted.meter.used();
   const ok = await runDelegationDigest(counted.db, cfg, nowInNext, { budget: allowance(counted.meter, 400), recipients: 10 });
-  expect(['built', 'sending', 'done']).toContain(ok.state);
+  expect(['sending', 'done']).toContain(ok.state);
   expect(counted.meter.used() - before).toBeLessThanOrEqual(400);
 });
 
