@@ -73,7 +73,7 @@ delegator you receive a notification when:
 <img class="shot" src="/help/shots/delegator-notifications.webp" alt="The notifications inbox of a delegator: entries for each vote their DRep cast and for governance actions changing status" width="1040" height="740" loading="lazy" />
 
 The epoch summary arrives once after each epoch and says what your DRep did
-in it: how many actions they voted on with up to three of their titles, how
+in it: how many actions they voted on, with up to three action titles, how
 many of those votes carry a rationale, and how many open actions still have
 no vote from them. Nothing is sent for an epoch in which your DRep neither
 voted nor has an open action left to vote on. The summary always appears in

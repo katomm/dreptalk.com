@@ -37,7 +37,7 @@ const KIND_LEAD: Record<Exclude<InboxItem['kind'], 'reply' | 'mention'>, string>
   delegator_drep_re_voted: 'Your DRep',
   delegator_drep_status_changed: 'Your DRep',
   drep_stats: 'Your DRep stats',
-  delegation_digest: 'Your DRep this epoch',
+  delegation_digest: 'Epoch summary',
   rationale_ready: 'Your vote',
   review_published: 'New Governance Review',
   gov_created: 'New governance action',

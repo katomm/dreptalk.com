@@ -48,7 +48,7 @@ npm run sync:dev                                       # terminal 1: start the w
 
 # terminal 2: trigger a single run. Keep the * inside quotes so the shell does not expand them.
 curl "http://localhost:8787/__scheduled?cron=*/5+*+*+*+*"     # governance actions (5-min cron); tallies and backfills only when the current minute is a multiple of 15
-curl "http://localhost:8787/__scheduled?cron=2-59/5+*+*+*+*"  # notification fan-out + push/Telegram dispatch (5-min cron, two minutes after governance)
+curl "http://localhost:8787/__scheduled?cron=2-59/5+*+*+*+*"  # notification fan-out + delegation digest + push/Telegram dispatch (5-min cron, two minutes after governance)
 curl "http://localhost:8787/__scheduled?cron=*/20+*+*+*+*"    # per-post DRep vote lists (20-min cron)
 curl "http://localhost:8787/__scheduled?cron=0+*/6+*+*+*"      # DRep profiles + voting power (6-hourly cron)
 ```

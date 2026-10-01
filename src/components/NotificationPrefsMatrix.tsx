@@ -4,7 +4,7 @@
 // updates and reverts, and passes the current prefs plus an onChange handler.
 // Three deliberate groups: forum/governance activity (replies, mentions,
 // governance actions, Governance Review editions), the delegator-fanout types introduced for the delegator dashboard
-// (DRep vote activity, DRep status, the user's own delegation), and the
+// (DRep vote activity, DRep status, the user's own delegation, and the epoch summary), and the
 // DRep-only types (stats digest, shareable rationale), shown only to
 // accounts flagged as a DRep.
 import type { NotificationEventType } from '@/lib/db/notificationChannels.js';
