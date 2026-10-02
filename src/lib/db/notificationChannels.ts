@@ -19,6 +19,18 @@ export const NOTIFICATION_EVENT_TYPES = [
   'delegation_digest',
 ] as const;
 export type NotificationEventType = (typeof NOTIFICATION_EVENT_TYPES)[number];
+
+/**
+ * Event types a channel only receives after an explicit opt-in. The epoch
+ * summary repeats the per-vote DRep notifications, which are on by default,
+ * so push and Telegram stay quiet about it unless asked.
+ */
+const OPT_IN_EVENT_TYPES: ReadonlySet<NotificationEventType> = new Set(['delegation_digest']);
+
+/** The pref a channel has for an event type it never stored a choice for. */
+export function prefDefault(eventType: NotificationEventType): boolean {
+  return !OPT_IN_EVENT_TYPES.has(eventType);
+}
 export type NotificationChannelKind = 'webpush' | 'telegram';
 
 export interface NotificationChannelRow {
@@ -35,7 +47,7 @@ export interface NotificationChannelRow {
 }
 
 /**
- * Connects a channel and seeds all-enabled prefs rows for the channel kind
+ * Connects a channel and seeds default prefs rows (prefDefault) for the channel kind
  * (INSERT OR IGNORE, so an already-customized pref for another channel row
  * of the same kind is left untouched). Deduped on (user_id, endpoint): a
  * repeat subscribe from an already-connected device updates the stored
@@ -66,9 +78,9 @@ export async function addChannel(
       db
         .prepare(
           `INSERT OR IGNORE INTO notification_prefs (user_id, channel, event_type, enabled)
-           VALUES (?, ?, ?, 1)`,
+           VALUES (?, ?, ?, ?)`,
         )
-        .bind(args.userId, args.channel, eventType),
+        .bind(args.userId, args.channel, eventType, prefDefault(eventType) ? 1 : 0),
     ),
   ];
   const [insertResult] = await db.batch<{ id: string }>(statements);
@@ -217,7 +229,7 @@ export async function markChannelSent(db: D1Database, id: string): Promise<void>
   await db.prepare(`UPDATE notification_channels SET last_sent_at = ${DB_NOW_MS} WHERE id = ?`).bind(id).run();
 }
 
-/** Per-event-type prefs for one user/channel; a missing row counts as enabled. */
+/** Per-event-type prefs for one user/channel. A missing row takes the type's default (prefDefault). */
 export async function getPrefs(
   db: D1Database,
   userId: string,
@@ -229,7 +241,7 @@ export async function getPrefs(
     .all<{ event_type: string; enabled: number }>();
   const stored = new Map(results.map((r) => [r.event_type, r.enabled === 1]));
   return Object.fromEntries(
-    NOTIFICATION_EVENT_TYPES.map((eventType) => [eventType, stored.get(eventType) ?? true]),
+    NOTIFICATION_EVENT_TYPES.map((eventType) => [eventType, stored.get(eventType) ?? prefDefault(eventType)]),
   ) as Record<NotificationEventType, boolean>;
 }
 

@@ -5,7 +5,7 @@
 // once per followed DRep into delegation_digest_dreps and marked built in
 // delegation_digest_epochs, in one atomic batch. Each later run writes digests
 // for up to `recipients` followers with a single INSERT ... SELECT, in follow
-// index order and only for DReps with something to report, so a capped run continues
+// index order and only for DReps that voted in the epoch, so a capped run continues
 // where the previous one stopped and silent DReps never block anyone. When a
 // check finds nobody left, the epoch is marked done and later runs cost one
 // query. Idempotency comes from the notifications (recipient_id, event_key)
@@ -20,7 +20,6 @@ import {
   isReportable,
   type DelegationDigestPayload,
 } from '../notifications/delegationDigest.js';
-import { OPEN_STATUSES } from '../governance/view.js';
 import type { Allowance } from '../sync/queryBudget.js';
 import { confirmedVoteSql } from './drepVotes.js';
 import { chunked, DB_NOW_MS } from './sql.js';
@@ -30,13 +29,9 @@ import { chunked, DB_NOW_MS } from './sql.js';
 const DREP_CHUNK = 45;
 // 4 binds per summary row.
 const SUMMARY_INSERT_CHUNK = 24;
-// The statuses the vote sync still fetches votes for, inlined from the shared constant.
-const OPEN_STATUSES_SQL = `(${OPEN_STATUSES.map((s) => `'${s}'`).join(', ')})`;
 
 export interface FollowedDrep {
   drepId: string;
-  /** dreps.status, null when the DRep row is not synced yet. */
-  status: string | null;
 }
 
 export type DigestRunState = 'waiting' | 'sending' | 'done' | 'deferred';
@@ -63,23 +58,22 @@ export async function digestReady(db: D1Database, currentEpoch: number, cfg: Net
   return row !== null;
 }
 
-/** Every DRep a resolved follow points at, with its registration status. */
+/** Every DRep a resolved follow points at. */
 export async function listFollowedDreps(db: D1Database): Promise<FollowedDrep[]> {
   const { results } = await db
     .prepare(
-      `SELECT f.drep_id AS drep_id, MAX(d.status) AS status
-         FROM delegator_follows f LEFT JOIN dreps d ON d.drep_id = f.drep_id
-        WHERE f.resolution_status = 'resolved' AND f.delegation_type = 'drep' AND f.drep_id IS NOT NULL
-        GROUP BY f.drep_id`,
+      `SELECT DISTINCT f.drep_id AS drep_id
+         FROM delegator_follows f
+        WHERE f.resolution_status = 'resolved' AND f.delegation_type = 'drep' AND f.drep_id IS NOT NULL`,
     )
-    .all<{ drep_id: string; status: string | null }>();
-  return results.map((r) => ({ drepId: r.drep_id, status: r.status }));
+    .all<{ drep_id: string }>();
+  return results.map((r) => ({ drepId: r.drep_id }));
 }
 
 /** Queries a build issues for this many followed DReps, batch statements counted singly. */
 export function buildCost(followedCount: number): number {
-  // open count + voted-open counts + 1 per vote chunk + 2 deletes + summary inserts + epoch row.
-  return 2 + Math.ceil(followedCount / DREP_CHUNK) + 2 + Math.ceil(followedCount / SUMMARY_INSERT_CHUNK) + 1;
+  // 1 per vote chunk + 2 deletes + summary inserts + epoch row.
+  return Math.ceil(followedCount / DREP_CHUNK) + 2 + Math.ceil(followedCount / SUMMARY_INSERT_CHUNK) + 1;
 }
 
 const clip = (t: string) => (t.length <= DIGEST_TITLE_CHARS ? t : `${t.slice(0, DIGEST_TITLE_CHARS - 1).trimEnd()}…`);
@@ -99,21 +93,9 @@ export async function buildDrepSummaries(
   const start = epochStartUnix(epoch, cfg);
   const end = epochStartUnix(epoch + 1, cfg);
   const followedIds = new Set(followed.map((f) => f.drepId));
-  // The open count and every DRep's confirmed votes on open actions, read once
-  // for the whole follow set. Open actions are few, so the grouped read is small.
-  const [openRow, votedOpen, voteChunks] = await Promise.all([
-    db.prepare(`SELECT COUNT(*) AS n FROM governance_actions WHERE status IN ${OPEN_STATUSES_SQL}`).first<{ n: number }>(),
-    db
-      .prepare(
-        `SELECT v.voter_id AS voter_id, COUNT(*) AS n
-           FROM drep_votes v JOIN governance_actions g ON g.id = v.ga_id AND g.status IN ${OPEN_STATUSES_SQL}
-          WHERE v.voter_role = 'DRep' AND ${confirmedVoteSql('v')}
-          GROUP BY v.voter_id`,
-      )
-      .all<{ voter_id: string; n: number }>(),
-    // Votes inside the epoch, from the current vote and from superseded ones,
-    // newest first. The chunks are independent, so they run concurrently.
-    Promise.all(
+  // Votes inside the epoch, from the current vote and from superseded ones,
+  // newest first. The chunks are independent, so they run concurrently.
+  const voteChunks = await Promise.all(
       chunked([...followedIds], DREP_CHUNK).map(async (part) => {
         const marks = part.map(() => '?').join(', ');
         return (
@@ -136,11 +118,6 @@ export async function buildDrepSummaries(
             .all<{ voter_id: string; ga_id: string; meta_url: string | null; title: string | null }>()
         ).results;
       }),
-    ),
-  ]);
-  const openCount = openRow?.n ?? 0;
-  const votedOpenBy = new Map(
-    votedOpen.results.filter((r) => followedIds.has(r.voter_id)).map((r) => [r.voter_id, r.n] as const),
   );
 
   // Newest version per (DRep, action) inside the epoch.
@@ -169,7 +146,9 @@ export async function buildDrepSummaries(
         .filter((t) => t !== '')
         .slice(0, DIGEST_TITLE_MAX)
         .map(clip),
-      openUnvoted: f.status === 'registered' ? Math.max(0, openCount - (votedOpenBy.get(f.drepId) ?? 0)) : null,
+      // No longer reported: a count of actions the DRep has not voted on read
+      // as a warning nobody could act on. Kept in the shape for older rows.
+      openUnvoted: null,
     };
     return { drepId: f.drepId, payload, reportable: isReportable(payload) };
   });

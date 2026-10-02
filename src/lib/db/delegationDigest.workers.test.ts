@@ -110,18 +110,7 @@ it('counts confirmed and superseded votes inside the epoch once per action', asy
   expect(p!.votes).toBe(3); // ga1, ga2, ga7
   expect(p!.withRationale).toBe(2); // ga1, ga7
   expect(p!.titles).toEqual(['Re-voted', 'Second', 'First']);
-  // Open: ga2..ga7 = 6. Confirmed current votes on open actions: ga2, ga3, ga4, ga5, ga7 = 5.
-  // The pending local vote on ga6 does not count as voted.
-  expect(p!.openUnvoted).toBe(1);
-});
-
-it('never reports open actions for a DRep that is not registered', async () => {
-  await seedDrep('drepGone', 'deregistered');
-  await seedFollower('drepGone');
-  await seedAction('gaOpen', 'active', 'Open');
-  await buildDrepSummaries(db(), EPOCH, cfg, await listFollowedDreps(db()));
-  const p = await summaryOf('drepGone');
-  expect(p!.reportable).toBe(0);
+  // Open actions without a vote are no longer reported.
   expect(p!.openUnvoted).toBeNull();
 });
 
