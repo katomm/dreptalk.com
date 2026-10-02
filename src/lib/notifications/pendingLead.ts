@@ -19,8 +19,12 @@ import { statusBadge } from '../governance/view.js';
 import { voteStatementPath } from '../governance/voteStatement.js';
 import { parseDrepEventPayload } from '../delegation/notifyPayload.js';
 import { parseDrepStatsPayload, formatDrepStatsDetail } from './drepStats.js';
-import { parseDelegationDigestPayload, formatDelegationDigestDetail } from './delegationDigest.js';
-import { drepPath } from '../dreps/profile.js';
+import {
+  parseDelegationDigestPayload,
+  formatDelegationDigestDetail,
+  formatDelegationDigestHeadline,
+} from './delegationDigest.js';
+import { drepPath, profileTabHref } from '../dreps/profile.js';
 import { parseReviewPayload } from '../db/reviewAnnouncements.js';
 import { editionPath } from '../review/windows.js';
 
@@ -185,9 +189,9 @@ async function hydratePersonal(db: D1Database, row: PersonalRow): Promise<Pendin
       const p = parseDelegationDigestPayload(row.payload);
       if (!p) return null;
       return {
-        title: `Epoch ${p.epoch} · Your DRep`,
-        body: formatDelegationDigestDetail(p),
-        href: drepPath({ drepId: p.drepId }),
+        title: formatDelegationDigestHeadline(p),
+        body: formatDelegationDigestDetail(p) || "Tap to see your DRep's votes",
+        href: profileTabHref({ drepId: p.drepId }, 'votes', null),
       };
     }
 

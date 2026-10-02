@@ -20,13 +20,13 @@ export interface DelegationDigestPayload {
   withRationale: number;
   /** Up to DIGEST_TITLE_MAX action titles, newest vote first. */
   titles: string[];
-  /** Active actions without a vote from the DRep at build time. Null when the DRep is not registered. */
+  /** No longer written (always null). Older rows carry a count of open actions without a vote, which the copy ignores. */
   openUnvoted: number | null;
 }
 
-/** A DRep has something to report when it voted or still has open actions to vote on. */
-export function isReportable(p: Pick<DelegationDigestPayload, 'votes' | 'openUnvoted'>): boolean {
-  return p.votes > 0 || (p.openUnvoted ?? 0) > 0;
+/** A digest is only worth sending when the DRep actually voted in the epoch. */
+export function isReportable(p: Pick<DelegationDigestPayload, 'votes'>): boolean {
+  return p.votes > 0;
 }
 
 /**
@@ -60,20 +60,11 @@ export function parseDelegationDigestPayload(payload: string | null): Delegation
 
 const noun = (n: number) => (n === 1 ? 'action' : 'actions');
 
-/** "Voted on 3 actions, 2 with a rationale. 1 open action without a vote" */
-export function formatDelegationDigestDetail(p: DelegationDigestPayload): string {
-  const voted =
-    p.votes === 0
-      ? 'No votes'
-      : `Voted on ${p.votes} ${noun(p.votes)}, ${p.withRationale === 0 ? 'none' : p.withRationale} with a rationale`;
-  const open = p.openUnvoted ? `. ${p.openUnvoted} open ${noun(p.openUnvoted)} without a vote` : '';
-  return voted + open;
-}
-
-/** Inbox line: "Epoch 612: voted on 3 actions, ..." */
-export function formatDelegationDigestSummary(p: DelegationDigestPayload): string {
-  const detail = formatDelegationDigestDetail(p);
-  return `Epoch ${p.epoch}: ${detail.charAt(0).toLowerCase()}${detail.slice(1)}`;
+/** "Your DRep voted on 2 actions in epoch 658" (older zero-vote rows read "cast no votes"). */
+export function formatDelegationDigestHeadline(p: DelegationDigestPayload): string {
+  return p.votes === 0
+    ? `Your DRep cast no votes in epoch ${p.epoch}`
+    : `Your DRep voted on ${p.votes} ${noun(p.votes)} in epoch ${p.epoch}`;
 }
 
 /** "A, B, C and 2 more", null when the payload carries no titles. */
@@ -83,8 +74,16 @@ export function formatDelegationDigestTitles(p: DelegationDigestPayload): string
   return p.titles.join(', ') + (rest > 0 ? ` and ${rest} more` : '');
 }
 
-/** Inbox row: the summary plus "Actions: A, B and 1 more" when titles were stored. */
-export function formatDelegationDigestInboxTitle(p: DelegationDigestPayload): string {
+/** "A, B and 1 more. 1 with a rationale", empty for a digest without votes. */
+export function formatDelegationDigestDetail(p: DelegationDigestPayload): string {
+  if (p.votes === 0) return '';
+  const rationale = `${p.withRationale === 0 ? 'None' : p.withRationale} with a rationale`;
   const titles = formatDelegationDigestTitles(p);
-  return titles ? `${formatDelegationDigestSummary(p)}. Actions: ${titles}` : formatDelegationDigestSummary(p);
+  return titles ? `${titles}. ${rationale}` : rationale;
+}
+
+/** Inbox row: the headline, then the detail after a colon. */
+export function formatDelegationDigestInboxTitle(p: DelegationDigestPayload): string {
+  const detail = formatDelegationDigestDetail(p);
+  return detail ? `${formatDelegationDigestHeadline(p)}: ${detail}` : formatDelegationDigestHeadline(p);
 }

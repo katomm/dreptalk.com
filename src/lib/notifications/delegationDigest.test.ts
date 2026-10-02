@@ -3,7 +3,7 @@ import {
   isReportable,
   parseDelegationDigestPayload,
   formatDelegationDigestDetail,
-  formatDelegationDigestSummary,
+  formatDelegationDigestHeadline,
   formatDelegationDigestTitles,
   formatDelegationDigestInboxTitle,
   type DelegationDigestPayload,
@@ -20,14 +20,10 @@ const base: DelegationDigestPayload = {
 
 describe('isReportable', () => {
   it('reports a DRep that voted', () => {
-    expect(isReportable({ votes: 1, openUnvoted: 0 })).toBe(true);
+    expect(isReportable({ votes: 1 })).toBe(true);
   });
-  it('reports a registered DRep with open actions left', () => {
-    expect(isReportable({ votes: 0, openUnvoted: 2 })).toBe(true);
-  });
-  it('stays silent for a DRep with nothing to report', () => {
-    expect(isReportable({ votes: 0, openUnvoted: 0 })).toBe(false);
-    expect(isReportable({ votes: 0, openUnvoted: null })).toBe(false);
+  it('stays silent for a DRep that did not vote', () => {
+    expect(isReportable({ votes: 0 })).toBe(false);
   });
 });
 
@@ -51,30 +47,26 @@ describe('parseDelegationDigestPayload', () => {
 });
 
 describe('copy', () => {
-  it('names votes, rationales and open actions', () => {
+  it('leads with what the DRep did and when', () => {
+    expect(formatDelegationDigestHeadline(base)).toBe('Your DRep voted on 3 actions in epoch 612');
+    expect(formatDelegationDigestHeadline({ ...base, votes: 1, titles: ['A'] })).toBe(
+      'Your DRep voted on 1 action in epoch 612',
+    );
+  });
+  it('names older zero-vote rows plainly', () => {
+    const none = { ...base, votes: 0, withRationale: 0, titles: [], openUnvoted: 2 };
+    expect(formatDelegationDigestHeadline(none)).toBe('Your DRep cast no votes in epoch 612');
+    expect(formatDelegationDigestDetail(none)).toBe('');
+    expect(formatDelegationDigestInboxTitle(none)).toBe('Your DRep cast no votes in epoch 612');
+  });
+  it('lists the titles, then the rationale count', () => {
     expect(formatDelegationDigestDetail(base)).toBe(
-      'Voted on 3 actions, 2 with a rationale. 1 open action without a vote',
+      'Treasury withdrawal for X, Info action Y, Hard fork Z. 2 with a rationale',
     );
+    expect(formatDelegationDigestDetail({ ...base, withRationale: 0, titles: [] })).toBe('None with a rationale');
   });
-  it('handles singulars and the no-rationale case', () => {
-    expect(formatDelegationDigestDetail({ ...base, votes: 1, withRationale: 0, openUnvoted: 0 })).toBe(
-      'Voted on 1 action, none with a rationale',
-    );
-  });
-  it('says so when there were no votes', () => {
-    expect(formatDelegationDigestDetail({ ...base, votes: 0, withRationale: 0, titles: [], openUnvoted: 2 })).toBe(
-      'No votes. 2 open actions without a vote',
-    );
-  });
-  it('leaves the open part out for a DRep that is not registered', () => {
-    expect(formatDelegationDigestDetail({ ...base, openUnvoted: null })).toBe(
-      'Voted on 3 actions, 2 with a rationale',
-    );
-  });
-  it('prefixes the epoch in the summary', () => {
-    expect(formatDelegationDigestSummary(base)).toBe(
-      'Epoch 612: voted on 3 actions, 2 with a rationale. 1 open action without a vote',
-    );
+  it('never mentions open actions, even from older rows', () => {
+    expect(formatDelegationDigestInboxTitle(base)).not.toMatch(/open/);
   });
   it('lists titles and the rest as a count', () => {
     expect(formatDelegationDigestTitles(base)).toBe('Treasury withdrawal for X, Info action Y, Hard fork Z');
@@ -83,12 +75,9 @@ describe('copy', () => {
     );
     expect(formatDelegationDigestTitles({ ...base, titles: [] })).toBeNull();
   });
-  it('appends the titles to the inbox row', () => {
+  it('joins headline and detail in the inbox row', () => {
     expect(formatDelegationDigestInboxTitle(base)).toBe(
-      'Epoch 612: voted on 3 actions, 2 with a rationale. 1 open action without a vote. Actions: Treasury withdrawal for X, Info action Y, Hard fork Z',
-    );
-    expect(formatDelegationDigestInboxTitle({ ...base, titles: [] })).toBe(
-      'Epoch 612: voted on 3 actions, 2 with a rationale. 1 open action without a vote',
+      'Your DRep voted on 3 actions in epoch 612: Treasury withdrawal for X, Info action Y, Hard fork Z. 2 with a rationale',
     );
   });
 });

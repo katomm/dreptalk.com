@@ -20,7 +20,7 @@ const EVENT_LABELS: Record<NotificationEventType, { label: string; hint: string 
   drep_activity: { label: 'DRep votes', hint: 'When your DRep casts or changes a vote' },
   drep_status: { label: 'DRep status', hint: 'When your DRep becomes active or inactive' },
   my_delegation: { label: 'My delegation', hint: 'When your delegation changes' },
-  delegation_digest: { label: 'Epoch summary', hint: 'What your DRep did in the last epoch' },
+  delegation_digest: { label: 'Epoch summary', hint: 'One summary per epoch of the votes your DRep cast, off by default' },
   drep_stats: { label: 'Voting power and delegators', hint: 'Epoch summary of your own DRep statistics' },
   rationale_ready: { label: 'Rationale ready to share', hint: 'When a vote you cast here is confirmed on chain and its rationale can be shared' },
   governance_review: { label: 'Governance Review', hint: 'When a new edition is published' },

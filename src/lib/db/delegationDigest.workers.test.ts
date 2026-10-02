@@ -7,11 +7,11 @@ import { resolveNetwork, epochStartUnix, epochStartMs } from '../config/network.
 import { allowance, countingDb } from '../sync/queryBudget.js';
 import {
   digestReady,
-  listFollowedDreps,
   buildDrepSummaries,
   sendDigests,
   runDelegationDigest,
 } from './delegationDigest.js';
+import { getFollowedDrepIds } from './delegatorFollows.js';
 import { parseDelegationDigestPayload } from '../notifications/delegationDigest.js';
 
 const db = () => env.DB as D1Database;
@@ -104,24 +104,13 @@ it('counts confirmed and superseded votes inside the epoch once per action', asy
   // Voted in the epoch with a rationale, changed in the next epoch before the build.
   await seedHistory('drepA', 'ga7', inEpoch(300), 'https://r/7');
   await seedVote('drepA', 'ga7', epochStartUnix(EPOCH + 1, cfg) + 60);
-  const r = await buildDrepSummaries(db(), EPOCH, cfg, await listFollowedDreps(db()));
+  const r = await buildDrepSummaries(db(), EPOCH, cfg, [...(await getFollowedDrepIds(db()))]);
   expect(r).toEqual({ dreps: 1, reportable: 1 });
   const p = await summaryOf('drepA');
   expect(p!.votes).toBe(3); // ga1, ga2, ga7
   expect(p!.withRationale).toBe(2); // ga1, ga7
   expect(p!.titles).toEqual(['Re-voted', 'Second', 'First']);
-  // Open: ga2..ga7 = 6. Confirmed current votes on open actions: ga2, ga3, ga4, ga5, ga7 = 5.
-  // The pending local vote on ga6 does not count as voted.
-  expect(p!.openUnvoted).toBe(1);
-});
-
-it('never reports open actions for a DRep that is not registered', async () => {
-  await seedDrep('drepGone', 'deregistered');
-  await seedFollower('drepGone');
-  await seedAction('gaOpen', 'active', 'Open');
-  await buildDrepSummaries(db(), EPOCH, cfg, await listFollowedDreps(db()));
-  const p = await summaryOf('drepGone');
-  expect(p!.reportable).toBe(0);
+  // Open actions without a vote are no longer reported.
   expect(p!.openUnvoted).toBeNull();
 });
 
@@ -184,7 +173,7 @@ it('skips accounts that are not active', async () => {
   const u = await seedFollower('drepE', { status: 'disabled' });
   await seedAction('gaE', 'closed', 'E');
   await seedVote('drepE', 'gaE', inEpoch(10));
-  await buildDrepSummaries(db(), EPOCH, cfg, await listFollowedDreps(db()));
+  await buildDrepSummaries(db(), EPOCH, cfg, [...(await getFollowedDrepIds(db()))]);
   expect(await sendDigests(db(), EPOCH, 10)).toBe(0);
   expect(await digestsFor(u)).toHaveLength(0);
 });

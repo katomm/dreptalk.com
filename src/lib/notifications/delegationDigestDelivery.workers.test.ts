@@ -20,14 +20,17 @@ async function seed(userId: string) {
 describe('delegation digest delivery', () => {
   it('counts, leads and formats a pending digest', async () => {
     const row = await seed('dd_a');
+    // Opt-in: a fresh channel stays quiet about the digest until switched on.
+    expect((await getPrefs(db(), 'dd_a', 'telegram')).delegation_digest).toBe(false);
+    await setPref(db(), { userId: 'dd_a', channel: 'telegram', eventType: 'delegation_digest', enabled: true });
     const prefs = await getPrefs(db(), 'dd_a', 'telegram');
     const counts = await getPendingCounts(db(), row, prefs, 1000);
     expect(counts.delegationDigest).toBe(1);
     const lead = await resolvePendingLead(db(), row, prefs, 1000);
-    expect(lead?.title).toBe('Epoch 612 · Your DRep');
-    expect(lead?.body).toBe('Voted on 2 actions, 1 with a rationale. 1 open action without a vote');
-    expect(lead?.href.startsWith('/dreps/')).toBe(true);
-    expect(formatNotification(counts, lead).title).toBe('Epoch 612 · Your DRep');
+    expect(lead?.title).toBe('Your DRep voted on 2 actions in epoch 612');
+    expect(lead?.body).toBe('A, B. 1 with a rationale');
+    expect(lead?.href).toMatch(/^\/dreps\/drep1xyz\/\?tab=votes#activity$/);
+    expect(formatNotification(counts, lead).title).toBe('Your DRep voted on 2 actions in epoch 612');
   });
 
   it('respects the pref for push and Telegram', async () => {

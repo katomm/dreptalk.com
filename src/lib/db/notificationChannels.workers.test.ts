@@ -55,8 +55,11 @@ const allEnabled = {
   governance_review: true,
 };
 
+/** What a channel gets without stored choices: everything on except the opt-in epoch summary. */
+const defaults = { ...allEnabled, delegation_digest: false };
+
 describe('addChannel + listChannels + removeChannel', () => {
-  it('seeds all-enabled prefs and returns a listable row, stamped with the database clock', async () => {
+  it('seeds default prefs and returns a listable row, stamped with the database clock', async () => {
     const { result: id, lo, hi } = await withDbClock(db(), () =>
       addChannel(db(), {
         userId: 'alice',
@@ -81,7 +84,7 @@ describe('addChannel + listChannels + removeChannel', () => {
     expect(rows[0].delivered_until).toBeGreaterThanOrEqual(lo);
     expect(rows[0].delivered_until).toBeLessThanOrEqual(hi);
 
-    expect(await getPrefs(db(), 'alice', 'webpush')).toEqual(allEnabled);
+    expect(await getPrefs(db(), 'alice', 'webpush')).toEqual(defaults);
   });
 
   it('addChannel seeds delivered_until with the database clock', async () => {
@@ -260,21 +263,21 @@ describe('markChannelSent', () => {
 });
 
 describe('getPrefs + setPref', () => {
-  it('defaults missing rows to true and reflects an explicit opt-out', async () => {
+  it('defaults missing rows to the type default and reflects an explicit opt-out', async () => {
     await addChannel(db(), { userId: 'alice', channel: 'webpush', target: 'sub-a', endpoint: 'https://push.example/a' });
 
-    expect(await getPrefs(db(), 'alice', 'webpush')).toEqual(allEnabled);
+    expect(await getPrefs(db(), 'alice', 'webpush')).toEqual(defaults);
 
     await setPref(db(), { userId: 'alice', channel: 'webpush', eventType: 'mention', enabled: false });
-    expect(await getPrefs(db(), 'alice', 'webpush')).toEqual({ ...allEnabled, mention: false });
+    expect(await getPrefs(db(), 'alice', 'webpush')).toEqual({ ...defaults, mention: false });
 
     // setPref is INSERT OR REPLACE: flipping back should stick too.
     await setPref(db(), { userId: 'alice', channel: 'webpush', eventType: 'mention', enabled: true });
-    expect(await getPrefs(db(), 'alice', 'webpush')).toEqual(allEnabled);
+    expect(await getPrefs(db(), 'alice', 'webpush')).toEqual(defaults);
   });
 
-  it('returns all-enabled defaults for a user/channel with no rows at all', async () => {
-    expect(await getPrefs(db(), 'nobody', 'webpush')).toEqual(allEnabled);
+  it('returns the defaults for a user/channel with no rows at all', async () => {
+    expect(await getPrefs(db(), 'nobody', 'webpush')).toEqual(defaults);
   });
 
   // Authorization-review checkpoint (delegator login, Phase 1): a delegator's

@@ -14,7 +14,7 @@ import TelegramSettings from '@/components/TelegramSettings.tsx';
 import NotificationsInbox from '@/components/NotificationsInbox.tsx';
 import { runtimeEnv } from '@/lib/api/response';
 import { getNotificationsPage, getNotifSeenAt, markAllRead } from '@/lib/db/notifications';
-import { listChannels, getPrefs, NOTIFICATION_EVENT_TYPES } from '@/lib/db/notificationChannels';
+import { listChannels, getPrefs, prefDefault, NOTIFICATION_EVENT_TYPES } from '@/lib/db/notificationChannels';
 import { getUserById } from '@/lib/db/users.js';
 import type { NotificationEventType } from '@/lib/db/notificationChannels';
 import { toClientChannels } from '@/lib/notifications/channelView';
@@ -30,7 +30,7 @@ import type { InboxItem } from '@/lib/notifications/inboxView.js';
 import { delegationLabel } from '@/lib/delegation/format.js';
 import { parseDelegationChangePayload } from '@/lib/delegation/payload.js';
 import { parseDrepEventPayload } from '@/lib/delegation/notifyPayload.js';
-import { drepPath } from '@/lib/dreps/profile.js';
+import { drepPath, profileTabHref } from '@/lib/dreps/profile.js';
 import { parseDrepStatsPayload, formatDrepStatsSummary } from '@/lib/notifications/drepStats.js';
 import { parseDelegationDigestPayload, formatDelegationDigestInboxTitle } from '@/lib/notifications/delegationDigest.js';
 import { parseReviewPayload } from '@/lib/db/reviewAnnouncements.js';
@@ -55,15 +55,15 @@ const PERSONAL_VERBS: Record<string, string> = {
 let items: InboxItem[] = [];
 let pushChannels: ClientChannel[] = [];
 let telegramChannels: ClientChannel[] = [];
-// Fallback before a session-gated read has run: every event type defaults to
-// enabled, derived from NOTIFICATION_EVENT_TYPES so a widened union can never
+// Fallback before a session-gated read has run: every event type takes its
+// default, derived from NOTIFICATION_EVENT_TYPES so a widened union can never
 // drift out of sync with this seed again.
-const allPrefsEnabled = Object.fromEntries(NOTIFICATION_EVENT_TYPES.map((t) => [t, true])) as Record<
+const defaultPrefs = Object.fromEntries(NOTIFICATION_EVENT_TYPES.map((t) => [t, prefDefault(t)])) as Record<
   NotificationEventType,
   boolean
 >;
-let pushPrefs = allPrefsEnabled;
-let telegramPrefs = allPrefsEnabled;
+let pushPrefs = defaultPrefs;
+let telegramPrefs = defaultPrefs;
 // The DRep stats digest targets ACCOUNTS linked to a DRep, so the matrix
 // group keys on the account row, not the session roles: the delegator door
 // deliberately mints ['member'] sessions even when it routed to a DRep
@@ -254,7 +254,7 @@ if (db) {
           actorHref: null,
           verb: null,
           title: formatDelegationDigestInboxTitle(p),
-          href: drepPath({ drepId: p.drepId }),
+          href: profileTabHref({ drepId: p.drepId }, 'votes', null),
           pill: null,
         },
       ];
