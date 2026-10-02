@@ -112,7 +112,7 @@ export function parseDrepStatsPayload(payload: string | null): DrepStatsPayload 
   return { epoch: p.epoch, drepId: p.drepId, power, powerPrev, delegators, delegatorsPrev };
 }
 
-function isNonNegativeInt(v: unknown): v is number {
+export function isNonNegativeInt(v: unknown): v is number {
   return typeof v === 'number' && Number.isInteger(v) && v >= 0;
 }
 

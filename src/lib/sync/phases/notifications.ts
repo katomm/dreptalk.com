@@ -1,10 +1,12 @@
 /// <reference types="@cloudflare/workers-types" />
 // Phase registry for the notifications cron (2-59/5): drain the delegator
-// fan-out outbox, then deliver bundled web push and Telegram messages. Runs in
-// its own invocation, two minutes after each governance tick, so these phases
-// share the per-invocation D1 query limit only with each other. Every query
-// goes through the counting wrapper, and each phase gets an allowance.
+// fan-out outbox, write the delegation digest, then deliver bundled web push and
+// Telegram messages. Runs in its own invocation, two minutes after each
+// governance tick, so these phases share the per-invocation D1 query limit only
+// with each other. Every query goes through the counting wrapper, and each
+// phase gets an allowance.
 
+import { runDelegationDigest } from '../../db/delegationDigest.js';
 import { runFanout } from '../../notifications/fanout.js';
 import { dispatchWebPush, dispatchTelegram } from '../../notifications/dispatch.js';
 import type { sendWebPush, VapidConfig } from '../../push/webPush.js';
@@ -17,6 +19,13 @@ import type { SyncPhaseDef } from './registry.js';
 export const NOTIFICATIONS_QUERY_BUDGET = 900;
 /** The fan-out's cap. Web push then gets half of what is left, Telegram the rest. */
 export const FANOUT_QUERY_SHARE = 300;
+/**
+ * The delegation digest's cap. A normal pass needs at most four queries, only
+ * the one build pass per epoch needs more (about 100 for 1,100 followed DReps).
+ */
+export const DIGEST_QUERY_SHARE = 400;
+/** Followers who get their epoch digest per pass, written by one statement. */
+export const DIGEST_RECIPIENTS_PER_RUN = 500;
 
 export interface NotificationsSyncContext extends CoreSyncContext {
   /** Counts every query issued through ctx.db. */
@@ -41,6 +50,20 @@ export const notificationPhases: readonly SyncPhaseDef<NotificationsSyncContext>
       });
       console.log(`[delegation-fanout] jobs=${r.jobs} delivered=${r.delivered} completed=${r.completed} deferred=${r.deferred}`);
       return { items: r.delivered };
+    },
+  },
+  {
+    // After the fan-out and before the dispatchers, so digests written here go
+    // out in this run. Builds the completed epoch's per-DRep summary once, then
+    // writes a capped page of digests per pass until every follower has one.
+    name: 'delegation-digest',
+    run: async (ctx) => {
+      const r = await runDelegationDigest(ctx.db, ctx.cfg, Math.floor(Date.now() / 1000), {
+        budget: allowance(ctx.meter, Math.min(DIGEST_QUERY_SHARE, left(ctx))),
+        recipients: DIGEST_RECIPIENTS_PER_RUN,
+      });
+      console.log(`[delegation-digest] epoch=${r.epoch} state=${r.state} inserted=${r.inserted}`);
+      return { items: r.inserted };
     },
   },
   {

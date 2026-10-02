@@ -4,13 +4,13 @@
 // updates and reverts, and passes the current prefs plus an onChange handler.
 // Three deliberate groups: forum/governance activity (replies, mentions,
 // governance actions, Governance Review editions), the delegator-fanout types introduced for the delegator dashboard
-// (DRep vote activity, DRep status, the user's own delegation), and the
+// (DRep vote activity, DRep status, the user's own delegation, and the epoch summary), and the
 // DRep-only types (stats digest, shareable rationale), shown only to
 // accounts flagged as a DRep.
 import type { NotificationEventType } from '@/lib/db/notificationChannels.js';
 
 const GENERAL_EVENT_TYPES: NotificationEventType[] = ['reply', 'mention', 'governance', 'governance_review'];
-const DELEGATION_EVENT_TYPES: NotificationEventType[] = ['drep_activity', 'drep_status', 'my_delegation'];
+const DELEGATION_EVENT_TYPES: NotificationEventType[] = ['drep_activity', 'drep_status', 'my_delegation', 'delegation_digest'];
 const DREP_EVENT_TYPES: NotificationEventType[] = ['drep_stats', 'rationale_ready'];
 
 const EVENT_LABELS: Record<NotificationEventType, { label: string; hint: string }> = {
@@ -20,6 +20,7 @@ const EVENT_LABELS: Record<NotificationEventType, { label: string; hint: string 
   drep_activity: { label: 'DRep votes', hint: 'When your DRep casts or changes a vote' },
   drep_status: { label: 'DRep status', hint: 'When your DRep becomes active or inactive' },
   my_delegation: { label: 'My delegation', hint: 'When your delegation changes' },
+  delegation_digest: { label: 'Epoch summary', hint: 'What your DRep did in the last epoch' },
   drep_stats: { label: 'Voting power and delegators', hint: 'Epoch summary of your own DRep statistics' },
   rationale_ready: { label: 'Rationale ready to share', hint: 'When a vote you cast here is confirmed on chain and its rationale can be shared' },
   governance_review: { label: 'Governance Review', hint: 'When a new edition is published' },

@@ -4,7 +4,7 @@ description: "How an ada holder signs in to DRepTalk as a delegator to follow th
 cardLabel: "Tracking your delegation"
 category: "Start here"
 order: 3
-updated: 2026-09-18
+updated: 2026-10-01
 faqs:
   - q: "Does signing in as a delegator cost anything?"
     a: "No. Signing in is a free message signature, not a transaction."
@@ -67,9 +67,18 @@ delegator you receive a notification when:
 
 - your DRep **votes or changes a vote** on a governance action,
 - your DRep's **registration status changes**, for example if they retire,
-- your **delegation itself changes** on-chain.
+- your **delegation itself changes** on-chain,
+- an epoch ends and your DRep has something to report, as an **epoch summary**.
 
 <img class="shot" src="/help/shots/delegator-notifications.webp" alt="The notifications inbox of a delegator: entries for each vote their DRep cast and for governance actions changing status" width="1040" height="740" loading="lazy" />
+
+The epoch summary arrives once after each epoch and says what your DRep did
+in it: how many actions they voted on, with up to three action titles, how
+many of those votes carry a rationale, and how many open actions still have
+no vote from them. Nothing is sent for an epoch in which your DRep neither
+voted nor has an open action left to vote on. The summary always appears in
+your inbox. The **Epoch summary** switch under **My delegation** in your
+notification settings controls whether it also reaches you by push or Telegram.
 
 Notifications arrive in your on-site inbox, and optionally as browser push
 notifications or Telegram messages. You choose the channels and event types

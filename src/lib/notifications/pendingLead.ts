@@ -19,6 +19,7 @@ import { statusBadge } from '../governance/view.js';
 import { voteStatementPath } from '../governance/voteStatement.js';
 import { parseDrepEventPayload } from '../delegation/notifyPayload.js';
 import { parseDrepStatsPayload, formatDrepStatsDetail } from './drepStats.js';
+import { parseDelegationDigestPayload, formatDelegationDigestDetail } from './delegationDigest.js';
 import { drepPath } from '../dreps/profile.js';
 import { parseReviewPayload } from '../db/reviewAnnouncements.js';
 import { editionPath } from '../review/windows.js';
@@ -36,6 +37,7 @@ const PERSONAL_PREF: Record<string, NotificationEventType | 'always'> = {
   delegator_drep_status_changed: 'drep_status',
   delegation_changed: 'my_delegation',
   drep_stats: 'drep_stats',
+  delegation_digest: 'delegation_digest',
   rationale_ready: 'rationale_ready',
   review_published: 'governance_review',
   device_paired: 'always',
@@ -175,6 +177,16 @@ async function hydratePersonal(db: D1Database, row: PersonalRow): Promise<Pendin
       return {
         title: 'DRep status changed',
         body: `Your DRep is now ${p.to.effective}`,
+        href: drepPath({ drepId: p.drepId }),
+      };
+    }
+
+    case 'delegation_digest': {
+      const p = parseDelegationDigestPayload(row.payload);
+      if (!p) return null;
+      return {
+        title: `Epoch ${p.epoch} · Your DRep`,
+        body: formatDelegationDigestDetail(p),
         href: drepPath({ drepId: p.drepId }),
       };
     }

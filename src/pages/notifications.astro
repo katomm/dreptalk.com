@@ -32,6 +32,7 @@ import { parseDelegationChangePayload } from '@/lib/delegation/payload.js';
 import { parseDrepEventPayload } from '@/lib/delegation/notifyPayload.js';
 import { drepPath } from '@/lib/dreps/profile.js';
 import { parseDrepStatsPayload, formatDrepStatsSummary } from '@/lib/notifications/drepStats.js';
+import { parseDelegationDigestPayload, formatDelegationDigestInboxTitle } from '@/lib/notifications/delegationDigest.js';
 import { parseReviewPayload } from '@/lib/db/reviewAnnouncements.js';
 import { editionPath } from '@/lib/review/windows.js';
 
@@ -237,6 +238,23 @@ if (db) {
           verb: null,
           title: `Edition ${p.edition}: ${p.title}`,
           href: editionPath(p.slug),
+          pill: null,
+        },
+      ];
+    }
+    if (n.type === 'delegation_digest') {
+      const p = parseDelegationDigestPayload(n.payload);
+      if (!p) return [];
+      return [
+        {
+          kind: 'delegation_digest' as const,
+          createdAt: n.created_at,
+          unread: n.read_at === null,
+          actorName: null,
+          actorHref: null,
+          verb: null,
+          title: formatDelegationDigestInboxTitle(p),
+          href: drepPath({ drepId: p.drepId }),
           pill: null,
         },
       ];
