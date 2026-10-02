@@ -21,6 +21,7 @@ import {
   type DelegationDigestPayload,
 } from '../notifications/delegationDigest.js';
 import type { Allowance } from '../sync/queryBudget.js';
+import { getFollowedDrepIds } from './delegatorFollows.js';
 import { confirmedVoteSql } from './drepVotes.js';
 import { chunked, DB_NOW_MS } from './sql.js';
 
@@ -30,9 +31,6 @@ const DREP_CHUNK = 45;
 // 4 binds per summary row.
 const SUMMARY_INSERT_CHUNK = 24;
 
-export interface FollowedDrep {
-  drepId: string;
-}
 
 export type DigestRunState = 'waiting' | 'sending' | 'done' | 'deferred';
 
@@ -58,18 +56,6 @@ export async function digestReady(db: D1Database, currentEpoch: number, cfg: Net
   return row !== null;
 }
 
-/** Every DRep a resolved follow points at. */
-export async function listFollowedDreps(db: D1Database): Promise<FollowedDrep[]> {
-  const { results } = await db
-    .prepare(
-      `SELECT DISTINCT f.drep_id AS drep_id
-         FROM delegator_follows f
-        WHERE f.resolution_status = 'resolved' AND f.delegation_type = 'drep' AND f.drep_id IS NOT NULL`,
-    )
-    .all<{ drep_id: string }>();
-  return results.map((r) => ({ drepId: r.drep_id }));
-}
-
 /** Queries a build issues for this many followed DReps, batch statements counted singly. */
 export function buildCost(followedCount: number): number {
   // 1 per vote chunk + 2 deletes + summary inserts + epoch row.
@@ -88,36 +74,35 @@ export async function buildDrepSummaries(
   db: D1Database,
   epoch: number,
   cfg: NetworkConfig,
-  followed: FollowedDrep[],
+  followed: string[],
 ): Promise<{ dreps: number; reportable: number }> {
   const start = epochStartUnix(epoch, cfg);
   const end = epochStartUnix(epoch + 1, cfg);
-  const followedIds = new Set(followed.map((f) => f.drepId));
   // Votes inside the epoch, from the current vote and from superseded ones,
   // newest first. The chunks are independent, so they run concurrently.
   const voteChunks = await Promise.all(
-      chunked([...followedIds], DREP_CHUNK).map(async (part) => {
-        const marks = part.map(() => '?').join(', ');
-        return (
-          await db
-            .prepare(
-              `SELECT x.voter_id AS voter_id, x.ga_id AS ga_id, x.meta_url AS meta_url, g.title AS title
-                 FROM (
-                   SELECT voter_id, ga_id, block_time, meta_url FROM drep_votes
-                    WHERE voter_role = 'DRep' AND voter_id IN (${marks})
-                      AND block_time >= ? AND block_time < ? AND ${confirmedVoteSql()}
-                   UNION ALL
-                   SELECT voter_id, ga_id, block_time, meta_url FROM drep_vote_history
-                    WHERE voter_role = 'DRep' AND voter_id IN (${marks})
-                      AND block_time >= ? AND block_time < ?
-                 ) x
-                 LEFT JOIN governance_actions g ON g.id = x.ga_id
-                ORDER BY x.block_time DESC, x.ga_id`,
-            )
-            .bind(...part, start, end, ...part, start, end)
-            .all<{ voter_id: string; ga_id: string; meta_url: string | null; title: string | null }>()
-        ).results;
-      }),
+    chunked(followed, DREP_CHUNK).map(async (part) => {
+      const marks = part.map(() => '?').join(', ');
+      return (
+        await db
+          .prepare(
+            `SELECT x.voter_id AS voter_id, x.ga_id AS ga_id, x.meta_url AS meta_url, g.title AS title
+               FROM (
+                 SELECT voter_id, ga_id, block_time, meta_url FROM drep_votes
+                  WHERE voter_role = 'DRep' AND voter_id IN (${marks})
+                    AND block_time >= ? AND block_time < ? AND ${confirmedVoteSql()}
+                 UNION ALL
+                 SELECT voter_id, ga_id, block_time, meta_url FROM drep_vote_history
+                  WHERE voter_role = 'DRep' AND voter_id IN (${marks})
+                    AND block_time >= ? AND block_time < ?
+               ) x
+               LEFT JOIN governance_actions g ON g.id = x.ga_id
+              ORDER BY x.block_time DESC, x.ga_id`,
+          )
+          .bind(...part, start, end, ...part, start, end)
+          .all<{ voter_id: string; ga_id: string; meta_url: string | null; title: string | null }>()
+      ).results;
+    }),
   );
 
   // Newest version per (DRep, action) inside the epoch.
@@ -134,11 +119,11 @@ export async function buildDrepSummaries(
     }
   }
 
-  const rows = followed.map((f) => {
-    const votes = votesBy.get(f.drepId) ?? [];
+  const rows = followed.map((drepId) => {
+    const votes = votesBy.get(drepId) ?? [];
     const payload: DelegationDigestPayload = {
       epoch,
-      drepId: f.drepId,
+      drepId,
       votes: votes.length,
       withRationale: votes.filter((v) => v.meta != null && v.meta !== '').length,
       titles: votes
@@ -146,11 +131,9 @@ export async function buildDrepSummaries(
         .filter((t) => t !== '')
         .slice(0, DIGEST_TITLE_MAX)
         .map(clip),
-      // No longer reported: a count of actions the DRep has not voted on read
-      // as a warning nobody could act on. Kept in the shape for older rows.
-      openUnvoted: null,
+      openUnvoted: null, // legacy field, see DelegationDigestPayload
     };
-    return { drepId: f.drepId, payload, reportable: isReportable(payload) };
+    return { drepId, payload, reportable: isReportable(payload) };
   });
   const reportable = rows.filter((r) => r.reportable).length;
 
@@ -241,7 +224,7 @@ export async function runDelegationDigest(
   if (!marker) {
     if (!budget.covers(2)) return { epoch, state: 'deferred', inserted: 0 };
     if (!(await digestReady(db, current, cfg))) return { epoch, state: 'waiting', inserted: 0 };
-    const followed = await listFollowedDreps(db);
+    const followed = [...(await getFollowedDrepIds(db))];
     const cost = buildCost(followed.length);
     if (!budget.covers(cost)) {
       console.warn(`[delegation-digest] build for ${followed.length} DReps needs ${cost} queries, ${budget.remaining()} left, deferred`);

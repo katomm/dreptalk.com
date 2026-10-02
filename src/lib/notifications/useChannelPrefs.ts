@@ -1,25 +1,28 @@
 // React hook: the event-type prefs state machine shared by the push and
 // Telegram settings cards on /notifications. Owns the optimistic pref state,
-// the master toggle (flips all event prefs in parallel) and the single
+// the master toggle (turns every event pref off, or back to its default) and the single
 // pref toggle, both with snapshot-and-revert on failure and busy-serialization
 // so an in-flight request can never be clobbered by an overlapping one.
 import { useState } from 'react';
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
-import { NOTIFICATION_EVENT_TYPES } from '@/lib/db/notificationChannels.js';
+import { NOTIFICATION_EVENT_TYPES, prefDefault } from '@/lib/db/notificationChannels.js';
 import type { NotificationEventType } from '@/lib/db/notificationChannels.js';
 
 /**
- * Flips all event prefs for a channel in parallel. Used by the master
+ * Writes all event prefs for a channel in parallel. Used by the master
  * toggle. Resolves true only when every POST succeeded, so the caller can
  * revert its optimistic state on any failure.
  */
-async function setAllPrefs(channel: 'webpush' | 'telegram', enabled: boolean): Promise<boolean> {
+async function setAllPrefs(
+  channel: 'webpush' | 'telegram',
+  prefs: Record<NotificationEventType, boolean>,
+): Promise<boolean> {
   const results = await Promise.all(
     NOTIFICATION_EVENT_TYPES.map((eventType) =>
       fetchWithTimeout('/api/notifications/prefs', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ channel, eventType, enabled }),
+        body: JSON.stringify({ channel, eventType, enabled: prefs[eventType] }),
       })
         .then((r) => r.ok)
         .catch(() => false),
@@ -57,15 +60,18 @@ export function useChannelPrefs(
 
   async function toggleAll() {
     if (prefsBusy) return;
+    // Off turns everything off. On restores the defaults, so an opt-in type
+    // such as the epoch summary is never switched on as a side effect.
     const next = !masterOn;
     const prev = prefState;
+    const nextPrefs = Object.fromEntries(
+      NOTIFICATION_EVENT_TYPES.map((t) => [t, next && prefDefault(t)]),
+    ) as Record<NotificationEventType, boolean>;
     setPrefError(null);
     setPrefsBusy(true);
-    setPrefState(
-      Object.fromEntries(NOTIFICATION_EVENT_TYPES.map((t) => [t, next])) as Record<NotificationEventType, boolean>,
-    );
+    setPrefState(nextPrefs);
     try {
-      const ok = await setAllPrefs(channel, next);
+      const ok = await setAllPrefs(channel, nextPrefs);
       if (!ok) {
         setPrefState(prev);
         setPrefError('Could not save that setting. Please try again.');
