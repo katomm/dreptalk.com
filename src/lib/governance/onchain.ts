@@ -471,7 +471,7 @@ export function decodeOnchainChanges(
       return {
         kind: 'note',
         tag: 'InfoAction',
-        text: 'Informational action. No on-chain effect; the vote signals opinion only.',
+        text: 'Informational action. No on-chain effect, the vote signals opinion only.',
       };
     default:
       return null;

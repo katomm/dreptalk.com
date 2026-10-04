@@ -208,7 +208,7 @@ describe('decodeOnchainChanges', () => {
     expect(decodeOnchainChanges(p, EP, 'preprod')).toEqual({
       kind: 'note',
       tag: 'InfoAction',
-      text: 'Informational action. No on-chain effect; the vote signals opinion only.',
+      text: 'Informational action. No on-chain effect, the vote signals opinion only.',
     });
   });
 });

@@ -254,7 +254,7 @@ function DepositInfo({ deposit }: { deposit: DepositState }) {
             </p>
             <ul style={{ margin: 0, paddingLeft: '1.1rem', color: 'var(--muted)', fontSize: '0.8125rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
               <li>This is the current on-chain governance action deposit.</li>
-              <li>The transaction is built with the SDK&apos;s live protocol parameters at submit time; those are authoritative and may differ slightly from this figure.</li>
+              <li>The transaction reads the live protocol parameters when you submit. Those are authoritative and can differ slightly from this figure.</li>
               <li>The deposit is refunded to your reward address once the action is ratified, enacted, or expires.</li>
               <li>Your wallet needs at least this much tADA, plus a small network fee, to submit.</li>
             </ul>
@@ -1423,7 +1423,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
             Sign as author
             <span style={{ display: 'block', color: 'var(--muted)', fontSize: '0.8125rem', marginTop: '0.15rem' }}>
               Signs the metadata with your wallet&apos;s reward key. The document then shows &quot;Signed with wallet
-              key&quot;; the name below is self-declared, not independently verified.
+              key&quot;. The name below is self-declared, not independently verified.
             </span>
           </span>
         </label>

@@ -99,7 +99,7 @@ describe('previewModelFromForm, the five types when the form is complete', () =>
     expect(result.onchain).toEqual({
       kind: 'note',
       tag: 'InfoAction',
-      text: 'Informational action. No on-chain effect; the vote signals opinion only.',
+      text: 'Informational action. No on-chain effect, the vote signals opinion only.',
     });
   });
 
