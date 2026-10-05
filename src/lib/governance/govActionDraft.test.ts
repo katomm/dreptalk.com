@@ -131,7 +131,7 @@ describe('loadGovActionDraft v1 upgrade', () => {
       abstract: 'Old abstract',
       motivation: 'Old motivation',
       rationale: 'Old rationale',
-      signAsAuthor: false,
+      signAsAuthor: true,
       authorName: 'Old author',
       references: [{ label: 'r', uri: 'https://example.com' }],
       surveyRef: '',
@@ -178,7 +178,7 @@ describe('loadGovActionDraft defensive parsing', () => {
       abstract: '',
       motivation: '',
       rationale: '',
-      signAsAuthor: false,
+      signAsAuthor: true,
       authorName: '',
       references: [],
       surveyRef: '',
@@ -304,6 +304,26 @@ describe('the survey link is part of the draft', () => {
     ]);
     const storage = { getItem: (k: string) => store.get(k) ?? null };
     expect(loadGovActionDraft(storage, 'k')?.surveyRef).toBe('');
+  });
+});
+
+describe('signAsAuthor on restore', () => {
+  const load = (value: Record<string, unknown>) => {
+    const store = new Map<string, string>([['k', JSON.stringify(value)]]);
+    return loadGovActionDraft({ getItem: (k: string) => store.get(k) ?? null }, 'k')?.signAsAuthor;
+  };
+
+  it('restores a draft from before the signing default as signed, even with a stored false', () => {
+    expect(load({ title: 't', signAsAuthor: false })).toBe(true);
+  });
+
+  it('keeps an explicit opt-out in a draft saved under the signing default', () => {
+    expect(load({ title: 't', signAsAuthor: false, savedAt: 1 })).toBe(false);
+  });
+
+  it('defaults to signed when a current draft has no usable value', () => {
+    expect(load({ title: 't', savedAt: 1 })).toBe(true);
+    expect(load({ title: 't', signAsAuthor: 'yes', savedAt: 1 })).toBe(true);
   });
 });
 

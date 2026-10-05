@@ -142,7 +142,10 @@ export function loadGovActionDraft(storage: Pick<Storage, 'getItem'>, key: strin
     abstract: str(parsed.abstract),
     motivation: str(parsed.motivation),
     rationale: str(parsed.rationale),
-    signAsAuthor: parsed.signAsAuthor === true,
+    // Signing is the default since savedAt was introduced. A draft saved before
+    // that kept the old opt-in default, so its stored false is not a choice and
+    // restores as signed. A newer draft keeps an explicit false.
+    signAsAuthor: typeof parsed.savedAt === 'number' ? parsed.signAsAuthor !== false : true,
     authorName: str(parsed.authorName),
     references,
     // Drafts saved before the survey-link field existed simply have none.
