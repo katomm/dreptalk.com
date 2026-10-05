@@ -70,6 +70,35 @@ const fmtInt = (n: number) => n.toLocaleString('en-US');
   // second tap (avatar or card) follows the link. Tapping anywhere else closes
   // the open card. Hover-capable devices keep the CSS-only behavior below and
   // this listener stays inert for them.
+  // Cards are placed against the real layout before they show: centred over
+  // the avatar, then shifted to stay inside the row's container and the
+  // viewport. A fixed first/last-items rule broke on short rows (three faces
+  // on preprod pushed the middle card off the left edge) and on wrapped rows.
+  const CARD_WIDTH = 232;
+  const EDGE = 8;
+  const place = (face: Element) => {
+    const card = face.querySelector<HTMLElement>('.af__card');
+    if (!card) return;
+    const f = face.getBoundingClientRect();
+    const center = f.left + f.width / 2;
+    const vw = document.documentElement.clientWidth;
+    let lo = EDGE;
+    let hi = vw - EDGE;
+    const box = face.closest('.af')?.parentElement?.getBoundingClientRect();
+    if (box && Math.min(box.right, hi) - Math.max(box.left, lo) >= CARD_WIDTH) {
+      lo = Math.max(box.left, lo);
+      hi = Math.min(box.right, hi);
+    }
+    const left = Math.min(Math.max(center - CARD_WIDTH / 2, lo), Math.max(lo, hi - CARD_WIDTH));
+    card.style.setProperty('--af-x', `${Math.round(left - center)}px`);
+  };
+  const placeFrom = (e: Event) => {
+    const face = e.target instanceof Element ? e.target.closest('a.af__face:not(.af__face--more)') : null;
+    if (face) place(face);
+  };
+  document.addEventListener('pointerover', placeFrom);
+  document.addEventListener('focusin', placeFrom);
+
   if (!window.matchMedia('(hover: hover)').matches) {
     document.addEventListener('click', (e) => {
       const face = e.target instanceof Element ? e.target.closest('a.af__face:not(.af__face--more)') : null;
@@ -78,6 +107,7 @@ const fmtInt = (n: number) => n.toLocaleString('en-US');
       }
       if (face && !face.classList.contains('is-open')) {
         e.preventDefault();
+        place(face);
         face.classList.add('is-open');
       }
     });
@@ -108,7 +138,8 @@ const fmtInt = (n: number) => n.toLocaleString('en-US');
   /* Hover card. The wrapper reaches down to the avatar (padding-bottom) so the
      pointer can move onto the card without a hover gap. Vertical hover animation
      lives on the wrapper, horizontal placement on the card, so the two never
-     fight; the card is centred by default and re-anchored at the row ends.
+     fight; the card is centred by default and the script shifts it (--af-x) to
+     stay inside the container and the viewport.
      Hidden cards must be display: none, not just opacity: 0: an invisible card
      still counts toward the page's scrollable overflow, and cards near the right
      edge of the row made the whole page scroll sideways on narrow viewports.
@@ -140,12 +171,10 @@ const fmtInt = (n: number) => n.toLocaleString('en-US');
     }
   }
   .af__card {
-    display: block; width: 232px; transform: translateX(-50%);
+    display: block; width: 232px; transform: translateX(var(--af-x, -50%));
     background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18); padding: 0.85rem 0.9rem;
   }
-  .af__item:nth-child(-n+2) .af__card { transform: translateX(-12px); }
-  .af__item:nth-last-child(-n+2) .af__card { transform: translateX(calc(-100% + 52px)); }
 
   .af__head { display: flex; align-items: center; gap: 0.6rem; }
   .af__id { display: flex; flex-direction: column; min-width: 0; gap: 0.15rem; }
