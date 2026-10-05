@@ -1,5 +1,6 @@
 // The Review step of /ga/new: the action as it will be rendered, over the
-// form, before anything is published or signed.
+// form, before anything is published or signed. Every submission passes
+// through it, the signing button lives in its footer.
 //
 // A native <dialog> opened with showModal(), so the browser supplies the
 // top-layer stacking, the backdrop and the inert page behind it. Escape and
@@ -18,7 +19,7 @@
 // reference definition sits in the other field would show as raw Markdown here
 // and as a link on the page.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { cip108Body } from '@/lib/governance/cip108Body.js';
 import PreviewCard from '@/components/govAction/PreviewCard.js';
@@ -38,6 +39,8 @@ export interface ReviewModalProps {
   references: readonly { label: string; uri: string }[];
   onchain: OnchainChanges | null;
   committeeNames?: Map<string, string>;
+  /** The signing step under the preview: what is still missing, and the button that signs. */
+  footer?: ReactNode;
 }
 
 type PreviewState =
@@ -68,7 +71,15 @@ const headerStyle: CSSProperties = {
 const bodyStyle: CSSProperties = {
   padding: '1.125rem',
   overflowY: 'auto',
-  maxHeight: 'calc(100vh - 9rem)',
+  maxHeight: 'calc(100vh - 14rem)',
+};
+
+const footerStyle: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '0.75rem',
+  padding: '0.875rem 1.125rem',
+  borderTop: '1px solid var(--border)',
 };
 
 export default function ReviewModal(props: ReviewModalProps) {
@@ -210,6 +221,8 @@ export default function ReviewModal(props: ReviewModalProps) {
               />
             )}
           </div>
+
+          {props.footer && <div style={footerStyle}>{props.footer}</div>}
         </>
       )}
     </dialog>

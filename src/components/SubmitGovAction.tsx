@@ -86,6 +86,8 @@ import SignAndSubmit from '@/components/govAction/SignAndSubmit.js';
 import DraftRestoreBanner from '@/components/govAction/DraftRestoreBanner.js';
 import DraftLinkControl from '@/components/govAction/DraftLinkControl.js';
 import ReviewModal from '@/components/govAction/ReviewModal.js';
+import ReadinessList from '@/components/govAction/ReadinessList.js';
+import MarkdownEditor from '@/components/MarkdownEditor.js';
 
 // Mirrors the un-exported AUTHOR_NAME_MAX in infoActionMetadataHandler.ts, kept
 // in sync manually since that constant is server-internal.
@@ -220,7 +222,6 @@ function mapSubmitError(err: unknown, prev: PrevActionRef | null): string {
 // Small presentational pieces
 // ---------------------------------------------------------------------------
 
-const textAreaStyle: CSSProperties = { ...inputStyle, lineHeight: '1.6', resize: 'vertical', fontFamily: 'inherit' };
 const helpStyle: CSSProperties = { display: 'block', fontSize: '0.8125rem', color: 'var(--muted)', margin: '0 0 0.375rem' };
 const labelRowStyle: CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.5rem' };
 const counterStyle: CSSProperties = { fontSize: '0.75rem', color: 'var(--muted)', flexShrink: 0 };
@@ -308,6 +309,12 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   const [reviewOpen, setReviewOpen] = useState(false);
   // Focus goes back here when the modal closes, whichever way it closed.
   const reviewButtonRef = useRef<HTMLButtonElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  // True only for the one synchronous requestSubmit the dialog's Sign and
+  // submit button makes. The form has no submit button, so Enter sends no
+  // implicit submission, and any other submit opens the Review dialog instead.
+  // Nothing is signed without the review.
+  const confirmedSubmitRef = useRef(false);
 
   // A live read of `phase` for the visibility effect below, whose listener is
   // a closure kept across renders (see that effect's own dependency list) and
@@ -793,6 +800,23 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   // metadata, then build/sign/submit the propose tx. The reward address comes
   // from the state it was put into at connect time, the api from the ref.
   // ------------------------------------------------------------------
+  /**
+   * The dialog's Sign and submit. The dialog closes first, then the form is
+   * submitted for real, so the browser's own validation (the reference URL
+   * fields have rules of their own) can focus a bad field on the page instead
+   * of failing silently behind the modal.
+   */
+  function confirmSubmit() {
+    setReviewOpen(false);
+    setTimeout(() => {
+      confirmedSubmitRef.current = true;
+      formRef.current?.requestSubmit();
+      // A failed validation fires no submit event, so the flag is dropped here
+      // and cannot let a later submit skip the review.
+      confirmedSubmitRef.current = false;
+    }, 0);
+  }
+
   async function handleSubmit() {
     // The readiness list is the single gate: it already names every missing
     // piece on screen, so a submit attempt that slips past the disabled
@@ -1235,9 +1259,15 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
       <DepositInfo deposit={deposit} />
 
       <form
+        ref={formRef}
         onSubmit={(e) => {
           e.preventDefault();
-          void handleSubmit();
+          if (confirmedSubmitRef.current) {
+            confirmedSubmitRef.current = false;
+            void handleSubmit();
+          } else if (!busy) {
+            setReviewOpen(true);
+          }
         }}
         style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}
       >
@@ -1276,45 +1306,48 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
           />
         </CountedField>
 
-        <CountedField id="ia-abstract" label="Abstract" count={metadata.abstract.length} max={INFO_ABSTRACT_MAX} help="Brief summary of what this proposal is about.">
-          <textarea
-            id="ia-abstract"
+        <CountedField id="ia-abstract-body" label="Abstract" count={metadata.abstract.length} max={INFO_ABSTRACT_MAX} help="Brief summary of what this proposal is about.">
+          <MarkdownEditor
+            idPrefix="ia-abstract"
             value={metadata.abstract}
-            onChange={(e) => setMetadata({ abstract: e.target.value })}
+            onChange={(v) => setMetadata({ abstract: v })}
             maxLength={INFO_ABSTRACT_MAX}
-            rows={4}
+            minRows={4}
             required
             disabled={busy}
-            style={textAreaStyle}
             placeholder="What is this proposal about?"
+            helpText={false}
+            mentions={false}
           />
         </CountedField>
 
-        <CountedField id="ia-motivation" label="Motivation" count={metadata.motivation.length} max={INFO_MOTIVATION_MAX} help="Why this proposal is needed.">
-          <textarea
-            id="ia-motivation"
+        <CountedField id="ia-motivation-body" label="Motivation" count={metadata.motivation.length} max={INFO_MOTIVATION_MAX} help="Why this proposal is needed.">
+          <MarkdownEditor
+            idPrefix="ia-motivation"
             value={metadata.motivation}
-            onChange={(e) => setMetadata({ motivation: e.target.value })}
+            onChange={(v) => setMetadata({ motivation: v })}
             maxLength={INFO_MOTIVATION_MAX}
-            rows={8}
+            minRows={8}
             required
             disabled={busy}
-            style={textAreaStyle}
             placeholder="Why is this proposal needed?"
+            helpText={false}
+            mentions={false}
           />
         </CountedField>
 
-        <CountedField id="ia-rationale" label="Rationale" count={metadata.rationale.length} max={INFO_RATIONALE_MAX} help="Detailed reasoning behind the proposal.">
-          <textarea
-            id="ia-rationale"
+        <CountedField id="ia-rationale-body" label="Rationale" count={metadata.rationale.length} max={INFO_RATIONALE_MAX} help="Detailed reasoning behind the proposal.">
+          <MarkdownEditor
+            idPrefix="ia-rationale"
             value={metadata.rationale}
-            onChange={(e) => setMetadata({ rationale: e.target.value })}
+            onChange={(v) => setMetadata({ rationale: v })}
             maxLength={INFO_RATIONALE_MAX}
-            rows={10}
+            minRows={10}
             required
             disabled={busy}
-            style={textAreaStyle}
             placeholder="Explain the reasoning in detail..."
+            helpText={false}
+            mentions={false}
           />
         </CountedField>
 
@@ -1494,17 +1527,8 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
           connectError={phase.status === 'error' && phase.step === 'connect' ? phase.message : null}
           submitError={phase.status === 'error' && phase.step === 'submit' ? phase.message : null}
           onUseDifferentWallet={reset}
-          reviewSlot={
-            <button
-              ref={reviewButtonRef}
-              type="button"
-              className="btn"
-              onClick={() => setReviewOpen(true)}
-              disabled={busy}
-            >
-              Review
-            </button>
-          }
+          onReview={() => setReviewOpen(true)}
+          reviewButtonRef={reviewButtonRef}
         />
 
         <ReviewModal
@@ -1519,6 +1543,20 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
           references={metadata.references}
           onchain={preview?.onchain ?? null}
           committeeNames={committeeNames}
+          footer={
+            <>
+              <ReadinessList reasons={reasons} />
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={confirmSubmit}
+                disabled={busy || reasons.length > 0}
+                style={{ alignSelf: 'flex-start' }}
+              >
+                Sign and submit
+              </button>
+            </>
+          }
         />
 
         {phase.status === 'submitting' && (

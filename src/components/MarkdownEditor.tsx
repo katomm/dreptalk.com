@@ -115,6 +115,8 @@ export interface MarkdownEditorProps {
   idPrefix?: string;
   showCounter?: boolean;
   helpText?: boolean;
+  /** @mention autocomplete and its toolbar button. Off for text published outside the forum. */
+  mentions?: boolean;
 }
 
 // Controlled Markdown editor shared by the forum composer and the vote rationale
@@ -122,7 +124,7 @@ export interface MarkdownEditorProps {
 // sanitized). The imperative focus() handle resets to edit mode and focuses the
 // textarea, which the composer uses when a Reply/Edit action targets it.
 const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(function MarkdownEditor(
-  { value, onChange, maxLength, label, placeholder = 'Write in Markdown...', disabled = false, required = false, minRows = 7, idPrefix = 'md', showCounter = false, helpText = true },
+  { value, onChange, maxLength, label, placeholder = 'Write in Markdown...', disabled = false, required = false, minRows = 7, idPrefix = 'md', showCounter = false, helpText = true, mentions = true },
   ref,
 ) {
   const [showPreview, setShowPreview] = useState(false);
@@ -204,6 +206,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   // change to the textarea value or caret so the panel tracks typing and
   // caret movement. Candidates are fetched lazily on the first '@'.
   const syncActive = (el: HTMLTextAreaElement) => {
+    if (!mentions) return;
     const next = detectMentionQuery(el.value, el.selectionStart);
     if (next?.start !== active?.start || next?.query !== active?.query) setHighlight(0);
     setActive(next);
@@ -307,7 +310,9 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
             {TOOLBAR.map(({ action, title }) => (
               <ToolbarButton key={action} title={title} path={TOOLBAR_ICON[action]} disabled={disabled} onClick={() => runAction(action)} />
             ))}
-            <ToolbarButton title="Mention someone" path={TOOLBAR_ICON.mention} disabled={disabled} onClick={triggerMention} />
+            {mentions && (
+              <ToolbarButton title="Mention someone" path={TOOLBAR_ICON.mention} disabled={disabled} onClick={triggerMention} />
+            )}
           </div>
           <textarea
             ref={textareaRef}
@@ -416,7 +421,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
 
       {helpText && (
         <p style={{ margin: '0.5rem 0 0', fontSize: '0.8125rem', color: 'var(--muted)' }}>
-          Use the toolbar or type Markdown directly: headings, bold, italics, strikethrough, links, quotes, lists, and code. Type @ to mention someone.
+          Use the toolbar or type Markdown directly: headings, bold, italics, strikethrough, links, quotes, lists, and code.{mentions ? ' Type @ to mention someone.' : ''}
         </p>
       )}
     </div>

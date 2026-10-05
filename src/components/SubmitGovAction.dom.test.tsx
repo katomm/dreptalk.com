@@ -309,6 +309,17 @@ async function connect() {
   await screen.findByText(/^Deposit .*wallet/, {}, SLOW);
 }
 
+/**
+ * The Sign and submit button, which lives in the Review dialog. Opens the
+ * dialog first when it is not open yet, the way a user has to.
+ */
+function signButton(): HTMLButtonElement {
+  const open = screen.queryByRole('button', { name: 'Sign and submit' });
+  if (open) return open as HTMLButtonElement;
+  fireEvent.click(screen.getByRole('button', { name: 'Review and submit' }));
+  return screen.getByRole('button', { name: 'Sign and submit' }) as HTMLButtonElement;
+}
+
 function fillMetadata() {
   fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'A committee change' } });
   fireEvent.change(screen.getByLabelText('Abstract'), { target: { value: 'The abstract' } });
@@ -394,7 +405,7 @@ describe('SubmitGovAction', () => {
 
     // The button stays disabled until the quorum prefill effect has run and
     // the panel validates, so waiting on it is what lets the click through.
-    const submit = screen.getByRole('button', { name: 'Submit proposal' }) as HTMLButtonElement;
+    const submit = signButton() as HTMLButtonElement;
     await waitFor(() => expect(submit.disabled).toBe(false), SLOW);
     fireEvent.click(submit);
 
@@ -440,7 +451,7 @@ describe('SubmitGovAction', () => {
     fireEvent.change(screen.getByLabelText('Credential to add 1'), { target: { value: scriptBech32 } });
     fireEvent.change(screen.getByLabelText('Expiry epoch for addition 1'), { target: { value: '560' } });
 
-    const submit = screen.getByRole('button', { name: 'Submit proposal' }) as HTMLButtonElement;
+    const submit = signButton() as HTMLButtonElement;
     await waitFor(() => expect(submit.disabled).toBe(false), SLOW);
     fireEvent.click(submit);
 
@@ -461,7 +472,43 @@ describe('SubmitGovAction', () => {
     await screen.findByText('Connect a wallet');
     await screen.findByText(/No Cardano wallet extension detected/);
     expect(screen.queryByRole('button', { name: 'Connect wallet' })).toBeNull();
-    expect((screen.getByRole('button', { name: 'Submit proposal' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((signButton() as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('opens the review for any submit that did not come from Sign and submit', async () => {
+    installFetchMock();
+    render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+    await connect();
+    fillMetadata();
+    await fillCommitteePanel();
+    await waitFor(() => expect(screen.queryByText('Before you can submit')).toBeNull(), SLOW);
+
+    // The form has no submit button, so a browser sends no implicit
+    // submission on Enter. Anything that submits it anyway is routed to the
+    // review, never straight to signing.
+    fireEvent.submit(screen.getByLabelText('Title').closest('form') as HTMLFormElement);
+
+    const sign = await screen.findByRole('button', { name: 'Sign and submit' });
+    expect((sign as HTMLButtonElement).disabled).toBe(false);
+    expect(submitGovActionMock).not.toHaveBeenCalled();
+  });
+
+  it('names what is missing inside the review, next to a disabled Sign and submit', async () => {
+    render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+    fillMetadata();
+    await fillCommitteePanel();
+
+    const sign = signButton();
+    expect(sign.disabled).toBe(true);
+    const dialog = sign.closest('dialog') as HTMLElement;
+    await waitFor(() => expect(dialog.textContent).toContain('Connect a wallet'));
+  });
+
+  it('offers the Markdown toolbar on the three text fields, without @mentions', async () => {
+    render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+    await screen.findByLabelText('Abstract');
+    expect(screen.getAllByRole('toolbar', { name: 'Markdown formatting' })).toHaveLength(3);
+    expect(screen.queryByTitle('Mention someone')).toBeNull();
   });
 
   it('asks only for a wallet once the form itself is complete', async () => {
@@ -508,7 +555,7 @@ describe('SubmitGovAction', () => {
       {},
       SLOW,
     );
-    const submit = screen.getByRole('button', { name: 'Submit proposal' }) as HTMLButtonElement;
+    const submit = signButton() as HTMLButtonElement;
     expect(submit.disabled).toBe(true);
 
     walletLovelace = 200_000_000_000n;
@@ -539,7 +586,7 @@ describe('SubmitGovAction', () => {
     await waitFor(() => expect(submitGovActionMock).not.toHaveBeenCalled());
     expect(screen.getByText('Deposit 100,000 tADA, wallet 200,000 tADA')).toBeTruthy();
     expect(screen.queryByText(/The wallet holds/)).toBeNull();
-    expect((screen.getByRole('button', { name: 'Submit proposal' }) as HTMLButtonElement).disabled).toBe(false);
+    expect((signButton() as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('says the balance read failed instead of claiming to still be reading', async () => {
@@ -554,7 +601,7 @@ describe('SubmitGovAction', () => {
     await screen.findByText('Could not read the wallet balance, check again', {}, SLOW);
     expect(screen.queryByText('Reading the wallet balance...')).toBeNull();
     expect(screen.getByText(/Koios is down/)).toBeTruthy();
-    expect((screen.getByRole('button', { name: 'Submit proposal' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((signButton() as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('lets the browser reject an invalid reference URL before anything is published', async () => {
@@ -567,7 +614,7 @@ describe('SubmitGovAction', () => {
     fireEvent.change(screen.getByLabelText('Reference 1 label'), { target: { value: 'The discussion' } });
     fireEvent.change(screen.getByLabelText('Reference 1 URL'), { target: { value: 'not a url' } });
 
-    const submit = screen.getByRole('button', { name: 'Submit proposal' }) as HTMLButtonElement;
+    const submit = signButton() as HTMLButtonElement;
     // Readiness has nothing against it: the URL rule is the browser's.
     expect(submit.disabled).toBe(false);
     fireEvent.click(submit);
@@ -575,9 +622,10 @@ describe('SubmitGovAction', () => {
     await waitFor(() => expect(submitGovActionMock).not.toHaveBeenCalled());
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/api/gov-action/metadata'))).toBe(false);
 
-    // The same click goes through once the URL is one.
+    // The failed validation closed the review. Once the URL is one, the same
+    // review and sign goes through.
     fireEvent.change(screen.getByLabelText('Reference 1 URL'), { target: { value: 'https://example.org/thread' } });
-    fireEvent.click(submit);
+    fireEvent.click(signButton());
     await waitFor(() => expect(submitGovActionMock).toHaveBeenCalledTimes(1), SLOW);
   });
 
@@ -607,7 +655,7 @@ describe('SubmitGovAction', () => {
     expect(screen.queryByText(/^Deposit .*wallet/)).toBeNull();
     expect(screen.queryByRole('button', { name: 'Check again' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Connect wallet' })).toBeTruthy();
-    expect((screen.getByRole('button', { name: 'Submit proposal' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((signButton() as HTMLButtonElement).disabled).toBe(true);
     // The form is untouched by any of it.
     expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('A committee change');
   });
@@ -647,7 +695,7 @@ describe('SubmitGovAction', () => {
       fillMetadata();
       await connect();
 
-      const submit = screen.getByRole('button', { name: 'Submit proposal' }) as HTMLButtonElement;
+      const submit = signButton() as HTMLButtonElement;
       await waitFor(() => expect(submit.disabled).toBe(false), SLOW);
       fireEvent.click(submit);
 
@@ -670,7 +718,7 @@ describe('SubmitGovAction', () => {
       fireEvent.click(screen.getByRole('checkbox', { name: /Sign as author/ }));
       await connect();
 
-      const submit = screen.getByRole('button', { name: 'Submit proposal' }) as HTMLButtonElement;
+      const submit = signButton() as HTMLButtonElement;
       await waitFor(() => expect(submit.disabled).toBe(false), SLOW);
       fireEvent.click(submit);
 
@@ -897,7 +945,7 @@ describe('SubmitGovAction', () => {
     async function fillAndConnect() {
       fillMetadata();
       await connect();
-      const submit = screen.getByRole('button', { name: 'Submit proposal' }) as HTMLButtonElement;
+      const submit = signButton() as HTMLButtonElement;
       await waitFor(() => expect(submit.disabled).toBe(false), SLOW);
       return submit;
     }
@@ -978,7 +1026,7 @@ describe('SubmitGovAction', () => {
     fillMetadata();
     await connect();
 
-    const submit = screen.getByRole('button', { name: 'Submit proposal' }) as HTMLButtonElement;
+    const submit = signButton() as HTMLButtonElement;
     await waitFor(() => expect(submit.disabled).toBe(false), SLOW);
     fireEvent.click(submit);
     await screen.findByText(/Please approve each wallet prompt/, {}, SLOW);
@@ -1018,7 +1066,7 @@ describe('SubmitGovAction', () => {
   // ------------------------------------------------------------------
   describe('review modal', () => {
     async function openReview() {
-      const review = await screen.findByRole('button', { name: 'Review' });
+      const review = await screen.findByRole('button', { name: 'Review and submit' });
       fireEvent.click(review);
       return review as HTMLButtonElement;
     }
@@ -1268,7 +1316,7 @@ describe('SubmitGovAction', () => {
       const view = render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
       fillMetadata();
       await connect();
-      const submit = screen.getByRole('button', { name: 'Submit proposal' }) as HTMLButtonElement;
+      const submit = signButton() as HTMLButtonElement;
       await waitFor(() => expect(submit.disabled).toBe(false), SLOW);
       fireEvent.click(submit);
       await screen.findByText('Proposal submitted', {}, SLOW);
@@ -1470,7 +1518,7 @@ describe('SubmitGovAction', () => {
           await vi.advanceTimersByTimeAsync(0);
         });
 
-        const submit = screen.getByRole('button', { name: 'Submit proposal' }) as HTMLButtonElement;
+        const submit = signButton() as HTMLButtonElement;
         expect(submit.disabled).toBe(false);
 
         const before = contextCallCount(fetchMock);

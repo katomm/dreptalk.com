@@ -5,9 +5,9 @@
 //
 // Presentational: it owns no state of its own. Connecting, reading the
 // balance and submitting are the island's handlers, the readiness reasons come
-// from readiness.ts, and the Review button is passed in as a slot so this
-// component does not need to know what a preview is.
-import type { CSSProperties, ReactNode } from 'react';
+// from readiness.ts. The one button here opens the Review dialog, which holds
+// the actual signing step, so nobody signs without seeing the action first.
+import type { CSSProperties, Ref } from 'react';
 import type { CardanoWalletInfo } from '@/lib/wallet/useCardanoWallets.js';
 import type { DepositState, WalletState } from '@/lib/governance/govActionFormState.js';
 import type { ReadinessReason } from '@/lib/governance/readiness.js';
@@ -28,8 +28,9 @@ export interface SignAndSubmitProps {
   /** Re-reads the wallet balance after a top-up. */
   onCheckAgain: () => void;
   submitting: boolean;
-  /** The Review button, which readiness never disables. */
-  reviewSlot?: ReactNode;
+  /** Opens the Review dialog. Readiness never disables it, the dialog explains what is missing. */
+  onReview: () => void;
+  reviewButtonRef?: Ref<HTMLButtonElement>;
   /** A failed connect attempt: the form above stays exactly as it was. */
   connectError: string | null;
   /** A failed submit, shown under the button next to its retry. */
@@ -126,15 +127,16 @@ export default function SignAndSubmit(props: SignAndSubmitProps) {
 
       <ReadinessList reasons={reasons} />
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', flexWrap: 'wrap' }}>
-        {props.reviewSlot}
-        {/* A real submit button inside the island's form, so the browser runs
-            its own validation (the reference URL fields above have rules of
-            their own) before the handler publishes anything. */}
-        <button type="submit" className="btn btn-primary" disabled={submitting || reasons.length > 0}>
-          {submitting ? 'Awaiting wallet...' : 'Submit proposal'}
-        </button>
-      </div>
+      <button
+        ref={props.reviewButtonRef}
+        type="button"
+        className="btn btn-primary"
+        onClick={props.onReview}
+        disabled={submitting}
+        style={{ alignSelf: 'flex-start' }}
+      >
+        {submitting ? 'Awaiting wallet...' : 'Review and submit'}
+      </button>
 
       {props.submitError && (
         <div className="callout callout--error" role="alert">
