@@ -1083,6 +1083,16 @@ describe('SubmitGovAction', () => {
       return review as HTMLButtonElement;
     }
 
+    it('names the action type above the title', async () => {
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      fillMetadata();
+      await fillCommitteePanel();
+      await openReview();
+
+      const title = await screen.findByRole('heading', { name: 'A committee change' }, SLOW);
+      expect(title.previousElementSibling?.textContent).toBe('Update committee');
+    });
+
     it('shows the server-rendered HTML under the abstract label', async () => {
       render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
       fillMetadata();

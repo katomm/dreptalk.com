@@ -55,6 +55,11 @@ const TYPES: { type: GovActionFormType; label: string; summary: string }[] = [
   },
 ];
 
+/** The label the selector shows for a type, reused wherever the form names the type it builds. */
+export function govActionFormTypeLabel(type: GovActionFormType): string {
+  return TYPES.find(t => t.type === type)?.label ?? type;
+}
+
 const listStyle: CSSProperties = { display: 'flex', flexDirection: 'column', gap: '0.5rem' };
 
 function cardStyle(selected: boolean, disabled: boolean): CSSProperties {

@@ -72,7 +72,7 @@ import type { GovActionSpec } from '@/lib/governance/govActionParts.js';
 import type { ActionContextResponse } from '@/lib/governance/actionContextHandler.js';
 import { protocolParamsFromEpochParams } from '@/lib/koios/protocolParamsAdapter.js';
 import type { EpochParamsRow } from '@/lib/koios/client.js';
-import TypeSelector from '@/components/govAction/TypeSelector.js';
+import TypeSelector, { govActionFormTypeLabel } from '@/components/govAction/TypeSelector.js';
 import PrevActionField from '@/components/govAction/PrevActionField.js';
 import HardForkPanel from '@/components/govAction/HardForkPanel.js';
 import NewConstitutionPanel from '@/components/govAction/NewConstitutionPanel.js';
@@ -1506,6 +1506,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
         <ReviewModal
           open={reviewOpen}
           onClose={() => setReviewOpen(false)}
+          typeLabel={govActionFormTypeLabel(state.type)}
           title={metadata.title}
           abstractMd={metadata.abstract}
           motivationMd={metadata.motivation}

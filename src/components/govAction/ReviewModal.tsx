@@ -30,6 +30,7 @@ export interface ReviewModalProps {
   open: boolean;
   /** Closes the modal. The caller returns focus to the Review button. */
   onClose: () => void;
+  typeLabel: string;
   title: string;
   abstractMd: string;
   motivationMd: string;
@@ -211,6 +212,7 @@ export default function ReviewModal(props: ReviewModalProps) {
 
             {preview.status === 'ready' && (
               <PreviewCard
+                typeLabel={props.typeLabel}
                 title={props.title}
                 html={preview.html}
                 authorLine={props.authorLine}

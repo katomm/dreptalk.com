@@ -21,6 +21,8 @@ import { resolveAnchorUrl } from '@/lib/governance/anchorUrl.js';
 import type { CommitteeMemberChange, OnchainChanges } from '@/lib/governance/onchain.js';
 
 export interface PreviewCardProps {
+  /** The action type as the type selector names it, shown above the title. */
+  typeLabel: string;
   title: string;
   /**
    * Server-rendered HTML per part, keyed as the request sent them: the
@@ -275,6 +277,22 @@ export default function PreviewCard(props: PreviewCardProps) {
           </div>
         </div>
       )}
+
+      <span
+        style={{
+          display: 'inline-block',
+          margin: '0 0 0.5rem',
+          padding: '0.15rem 0.6rem',
+          border: '1px solid var(--border)',
+          borderRadius: '999px',
+          fontSize: '0.8125rem',
+          fontWeight: 600,
+          color: 'var(--fg)',
+          background: 'var(--surface)',
+        }}
+      >
+        {props.typeLabel}
+      </span>
 
       {/* A text node on purpose: a title is plain text on the action page too,
           so markup typed into the field shows as the characters it is. */}
