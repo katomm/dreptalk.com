@@ -18,6 +18,7 @@
 // not data.
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
+import { flushSync } from 'react-dom';
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { CopyButton } from '@/components/CopyButton.js';
 import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
@@ -87,7 +88,7 @@ import DraftRestoreBanner from '@/components/govAction/DraftRestoreBanner.js';
 import DraftLinkControl from '@/components/govAction/DraftLinkControl.js';
 import ReviewModal from '@/components/govAction/ReviewModal.js';
 import ReadinessList from '@/components/govAction/ReadinessList.js';
-import MarkdownEditor from '@/components/MarkdownEditor.js';
+import MarkdownEditor, { markdownBodyId } from '@/components/MarkdownEditor.js';
 
 // Mirrors the un-exported AUTHOR_NAME_MAX in infoActionMetadataHandler.ts, kept
 // in sync manually since that constant is server-internal.
@@ -227,6 +228,13 @@ const labelRowStyle: CSSProperties = { display: 'flex', justifyContent: 'space-b
 const counterStyle: CSSProperties = { fontSize: '0.75rem', color: 'var(--muted)', flexShrink: 0 };
 
 /** A labelled field with a live "used / max" counter and a helper line, matching DrepProfileFields' CountedField. */
+// The three CIP-108 Markdown fields, in form order.
+const MARKDOWN_FIELDS = [
+  { key: 'abstract', label: 'Abstract', max: INFO_ABSTRACT_MAX, help: 'Brief summary of what this proposal is about.', placeholder: 'What is this proposal about?', rows: 4 },
+  { key: 'motivation', label: 'Motivation', max: INFO_MOTIVATION_MAX, help: 'Why this proposal is needed.', placeholder: 'Why is this proposal needed?', rows: 8 },
+  { key: 'rationale', label: 'Rationale', max: INFO_RATIONALE_MAX, help: 'Detailed reasoning behind the proposal.', placeholder: 'Explain the reasoning in detail...', rows: 10 },
+] as const;
+
 function CountedField(props: { id: string; label: string; count: number; max: number; help: string; children: ReactNode }) {
   return (
     <div>
@@ -310,11 +318,6 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   // Focus goes back here when the modal closes, whichever way it closed.
   const reviewButtonRef = useRef<HTMLButtonElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
-  // True only for the one synchronous requestSubmit the dialog's Sign and
-  // submit button makes. The form has no submit button, so Enter sends no
-  // implicit submission, and any other submit opens the Review dialog instead.
-  // Nothing is signed without the review.
-  const confirmedSubmitRef = useRef(false);
 
   // A live read of `phase` for the visibility effect below, whose listener is
   // a closure kept across renders (see that effect's own dependency list) and
@@ -801,26 +804,25 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   // from the state it was put into at connect time, the api from the ref.
   // ------------------------------------------------------------------
   /**
-   * The dialog's Sign and submit. The dialog closes first, then the form is
-   * submitted for real, so the browser's own validation (the reference URL
-   * fields have rules of their own) can focus a bad field on the page instead
-   * of failing silently behind the modal.
+   * The dialog's Sign and submit. The fields sit inert behind the modal, so a
+   * field the browser rejects (the reference URLs have rules of their own) is
+   * reported only after the dialog is closed, where it can take focus.
    */
   function confirmSubmit() {
+    const form = formRef.current;
+    if (form && !form.checkValidity()) {
+      flushSync(() => setReviewOpen(false));
+      form.reportValidity();
+      return;
+    }
     setReviewOpen(false);
-    setTimeout(() => {
-      confirmedSubmitRef.current = true;
-      formRef.current?.requestSubmit();
-      // A failed validation fires no submit event, so the flag is dropped here
-      // and cannot let a later submit skip the review.
-      confirmedSubmitRef.current = false;
-    }, 0);
+    void handleSubmit();
   }
 
   async function handleSubmit() {
     // The readiness list is the single gate: it already names every missing
-    // piece on screen, so a submit attempt that slips past the disabled
-    // button (the form's own Enter key) simply does nothing.
+    // piece on screen, and the review's Sign and submit is disabled while it
+    // has any, so this only backs that button up.
     if (phase.status === 'submitting' || reasons.length > 0) return;
 
     const api = enabledApiRef.current;
@@ -1262,12 +1264,10 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
         ref={formRef}
         onSubmit={(e) => {
           e.preventDefault();
-          if (confirmedSubmitRef.current) {
-            confirmedSubmitRef.current = false;
-            void handleSubmit();
-          } else if (!busy) {
-            setReviewOpen(true);
-          }
+          // Signing starts only from the review's Sign and submit. The form
+          // has no submit button, so this is a backstop for anything else
+          // that submits it: it opens the review.
+          if (!busy) setReviewOpen(true);
         }}
         style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}
       >
@@ -1306,50 +1306,22 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
           />
         </CountedField>
 
-        <CountedField id="ia-abstract-body" label="Abstract" count={metadata.abstract.length} max={INFO_ABSTRACT_MAX} help="Brief summary of what this proposal is about.">
-          <MarkdownEditor
-            idPrefix="ia-abstract"
-            value={metadata.abstract}
-            onChange={(v) => setMetadata({ abstract: v })}
-            maxLength={INFO_ABSTRACT_MAX}
-            minRows={4}
-            required
-            disabled={busy}
-            placeholder="What is this proposal about?"
-            helpText={false}
-            mentions={false}
-          />
-        </CountedField>
-
-        <CountedField id="ia-motivation-body" label="Motivation" count={metadata.motivation.length} max={INFO_MOTIVATION_MAX} help="Why this proposal is needed.">
-          <MarkdownEditor
-            idPrefix="ia-motivation"
-            value={metadata.motivation}
-            onChange={(v) => setMetadata({ motivation: v })}
-            maxLength={INFO_MOTIVATION_MAX}
-            minRows={8}
-            required
-            disabled={busy}
-            placeholder="Why is this proposal needed?"
-            helpText={false}
-            mentions={false}
-          />
-        </CountedField>
-
-        <CountedField id="ia-rationale-body" label="Rationale" count={metadata.rationale.length} max={INFO_RATIONALE_MAX} help="Detailed reasoning behind the proposal.">
-          <MarkdownEditor
-            idPrefix="ia-rationale"
-            value={metadata.rationale}
-            onChange={(v) => setMetadata({ rationale: v })}
-            maxLength={INFO_RATIONALE_MAX}
-            minRows={10}
-            required
-            disabled={busy}
-            placeholder="Explain the reasoning in detail..."
-            helpText={false}
-            mentions={false}
-          />
-        </CountedField>
+        {MARKDOWN_FIELDS.map((f) => (
+          <CountedField key={f.key} id={markdownBodyId(`ia-${f.key}`)} label={f.label} count={metadata[f.key].length} max={f.max} help={f.help}>
+            <MarkdownEditor
+              idPrefix={`ia-${f.key}`}
+              value={metadata[f.key]}
+              onChange={(v) => setMetadata({ [f.key]: v })}
+              maxLength={f.max}
+              minRows={f.rows}
+              required
+              disabled={busy}
+              placeholder={f.placeholder}
+              helpText={false}
+              mentions={false}
+            />
+          </CountedField>
+        ))}
 
         <DraftLinkControl
           openDrafts={openDrafts}

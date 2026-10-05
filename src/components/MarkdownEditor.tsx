@@ -123,6 +123,11 @@ export interface MarkdownEditorProps {
 // modal. Toolbar + textarea + a Preview toggle backed by /api/preview (server
 // sanitized). The imperative focus() handle resets to edit mode and focuses the
 // textarea, which the composer uses when a Reply/Edit action targets it.
+/** The textarea's id, for a caller that labels the editor from outside. */
+export function markdownBodyId(idPrefix: string): string {
+  return `${idPrefix}-body`;
+}
+
 const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(function MarkdownEditor(
   { value, onChange, maxLength, label, placeholder = 'Write in Markdown...', disabled = false, required = false, minRows = 7, idPrefix = 'md', showCounter = false, helpText = true, mentions = true },
   ref,
@@ -139,7 +144,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   // immediately while later keystrokes still debounce.
   const firstPreviewRef = useRef(true);
   const pendingSelRef = useRef<{ start: number; end: number } | null>(null);
-  const bodyId = `${idPrefix}-body`;
+  const bodyId = markdownBodyId(idPrefix);
 
   // @mention autocomplete: candidates load lazily on the first '@', the panel
   // sits below the textarea (not caret-anchored).
@@ -243,12 +248,16 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
       const res = await fetch('/api/preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bodyMd: md }),
+        // Without mentions the text is published outside the forum, so it is
+        // rendered the way the governance action page renders it (parts mode:
+        // no @mention links), not the way a forum post is.
+        body: JSON.stringify(mentions ? { bodyMd: md } : { parts: { body: md } }),
         signal: ctrl.signal,
       });
       if (!ctrl.signal.aborted && res.ok) {
-        const data = (await res.json()) as { html: string };
-        if (!ctrl.signal.aborted) setPreviewHtml(data.html);
+        const data = (await res.json()) as { html: string | { body?: string } };
+        const html = typeof data.html === 'string' ? data.html : (data.html.body ?? '');
+        if (!ctrl.signal.aborted) setPreviewHtml(html);
       }
     } catch {
       // Preview errors (including the AbortError on supersede) are silent; the
@@ -256,7 +265,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     } finally {
       if (!ctrl.signal.aborted) setLoading(false);
     }
-  }, []);
+  }, [mentions]);
 
   // Cancel any in-flight preview when the editor unmounts.
   useEffect(() => () => previewAbortRef.current?.abort(), []);
