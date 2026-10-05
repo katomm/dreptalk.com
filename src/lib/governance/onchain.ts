@@ -227,10 +227,20 @@ export type OnchainChanges =
   | { kind: 'hardfork'; fromVersion: string | null; toVersion: string }
   | { kind: 'treasury'; rows: TreasuryRow[]; totalAda: string }
   | { kind: 'committee'; added: CommitteeMemberChange[]; removed: CommitteeMemberChange[]; threshold: string | null }
-  | { kind: 'constitution'; anchorUrl: string | null; scriptHash: string | null }
+  // dataHash is the blake2b-256 of the constitution document the anchor points
+  // at, not the action's own CIP-108 metadata hash. It is what lets a reader
+  // verify the document they open is the one that was proposed.
+  | { kind: 'constitution'; anchorUrl: string | null; dataHash: string | null; scriptHash: string | null }
   | { kind: 'note'; text: string; tag: 'NoConfidence' | 'InfoAction' };
 
-function shortenHash(h: string): string {
+/**
+ * The first 8 and last 6 characters of a hash or id, joined by an ellipsis,
+ * and left whole when it is short enough that shortening would save nothing.
+ * The one shortening rule for on-chain identifiers, shared with the submit
+ * page's change notes and its committee panel so the same credential reads the
+ * same everywhere.
+ */
+export function shortenHash(h: string): string {
   return h.length > 16 ? `${h.slice(0, 8)}…${h.slice(-6)}` : h;
 }
 
@@ -406,10 +416,11 @@ function decodeCommittee(contents: unknown[]): OnchainChanges {
 }
 
 function decodeConstitution(contents: unknown[]): OnchainChanges {
-  const body = findObjByKey<{ anchor?: { url?: string }; script?: string }>(contents, 'anchor');
+  const body = findObjByKey<{ anchor?: { url?: string; dataHash?: string }; script?: string }>(contents, 'anchor');
   return {
     kind: 'constitution',
     anchorUrl: body?.anchor?.url ?? null,
+    dataHash: typeof body?.anchor?.dataHash === 'string' ? body.anchor.dataHash : null,
     scriptHash: typeof body?.script === 'string' ? body.script : null,
   };
 }
@@ -460,7 +471,7 @@ export function decodeOnchainChanges(
       return {
         kind: 'note',
         tag: 'InfoAction',
-        text: 'Informational action. No on-chain effect; the vote signals opinion only.',
+        text: 'Informational action. No on-chain effect, the vote signals opinion only.',
       };
     default:
       return null;

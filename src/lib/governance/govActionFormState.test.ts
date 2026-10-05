@@ -5,18 +5,44 @@ import {
   effectivePrev,
   draftFromState,
   isFormBlank,
+  linkedDraftReference,
+  effectiveLinkedDraftSlug,
+  draftConflict,
   committeeMode,
+  emptyPanelStates,
+  panelReadiness,
   validateCommitteePanel,
   validateHardForkPanel,
   validateNewConstitutionPanel,
+  contextChangeLines,
   PREV_ACTION_CHANGED,
   type GovActionFormState,
 } from './govActionFormState.js';
 import type { ActionContextResponse } from './actionContextHandler.js';
 import type { GovActionDraft } from './govActionDraft.js';
+import { REFERENCES_MAX } from './infoActionLimits.js';
 
 const REF_A = { txHashHex: 'a'.repeat(64), index: 0 };
 const REF_B = { txHashHex: 'b'.repeat(64), index: 1 };
+const SITE_ORIGIN = 'https://dreptalk.com';
+
+/** A stored v2 draft with every field on its empty default, for the restore paths. */
+function draft(overrides: Partial<GovActionDraft> = {}): GovActionDraft {
+  return {
+    v: 2,
+    type: 'InfoAction',
+    title: '',
+    abstract: '',
+    motivation: '',
+    rationale: '',
+    signAsAuthor: true,
+    authorName: '',
+    references: [],
+    surveyRef: '',
+    panels: {},
+    ...overrides,
+  };
+}
 
 function ctx(epoch: number, lastEnactedHash?: string): ActionContextResponse {
   return {
@@ -38,7 +64,7 @@ function ctx(epoch: number, lastEnactedHash?: string): ActionContextResponse {
 }
 
 describe('initialGovActionFormState', () => {
-  it('starts on InfoAction with empty metadata, empty panels and an idle context', () => {
+  it('starts on InfoAction with empty metadata text, empty panels and an idle context', () => {
     const s = initialGovActionFormState();
     expect(s.type).toBe('InfoAction');
     expect(s.metadata.title).toBe('');
@@ -46,6 +72,18 @@ describe('initialGovActionFormState', () => {
     expect(s.panels.UpdateCommittee.add).toEqual([]);
     expect(s.context.status).toBe('idle');
     expect(s.context.data).toBeNull();
+  });
+
+  it('signs as author by default, with no name when none is given', () => {
+    const s = initialGovActionFormState();
+    expect(s.metadata.signAsAuthor).toBe(true);
+    expect(s.metadata.authorName).toBe('');
+  });
+
+  it('prefills the author name from the signed-in display name', () => {
+    const s = initialGovActionFormState('Jane DRep');
+    expect(s.metadata.signAsAuthor).toBe(true);
+    expect(s.metadata.authorName).toBe('Jane DRep');
   });
 });
 
@@ -80,7 +118,7 @@ describe('setType', () => {
   it('drops a loaded context, since it belongs to the type it was fetched for', () => {
     let s = initialGovActionFormState();
     s = govActionFormReducer(s, { kind: 'contextRequested', requestId: 1 });
-    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 1, data: ctx(500) });
+    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 1, data: ctx(500), now: 0 });
     expect(s.context.status).toBe('ready');
     s = govActionFormReducer(s, { kind: 'setType', type: 'NewConstitution' });
     expect(s.context.status).toBe('idle');
@@ -140,7 +178,7 @@ describe('context lifecycle', () => {
       kind: 'contextRequested',
       requestId: 3,
     });
-    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 3, data: ctx(501) });
+    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 3, data: ctx(501), now: 0 });
     expect(s.context.status).toBe('ready');
     expect(s.context.data?.epoch).toBe(501);
   });
@@ -151,7 +189,7 @@ describe('context lifecycle', () => {
     s = govActionFormReducer(s, { kind: 'setType', type: 'HardForkInitiation' });
     s = govActionFormReducer(s, { kind: 'contextRequested', requestId: 2 });
     // The slow response for the first (NoConfidence-era) request arrives late.
-    const after = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 1, data: ctx(400) });
+    const after = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 1, data: ctx(400), now: 0 });
     expect(after).toBe(s);
     expect(after.context.status).toBe('loading');
     expect(after.context.data).toBeNull();
@@ -161,7 +199,7 @@ describe('context lifecycle', () => {
     let s = initialGovActionFormState();
     s = govActionFormReducer(s, { kind: 'contextRequested', requestId: 1 });
     s = govActionFormReducer(s, { kind: 'contextRequested', requestId: 2 });
-    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 2, data: ctx(502) });
+    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 2, data: ctx(502), now: 0 });
     const after = govActionFormReducer(s, { kind: 'contextFailed', requestId: 1 });
     expect(after).toBe(s);
     expect(after.context.status).toBe('ready');
@@ -182,7 +220,7 @@ describe('context lifecycle', () => {
       kind: 'contextRequested',
       requestId: 1,
     });
-    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 1, data: ctx(500) });
+    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 1, data: ctx(500), now: 0 });
     s = govActionFormReducer(s, { kind: 'contextRequested', requestId: 2 });
     expect(s.context.status).toBe('loading');
     expect(s.context.data?.epoch).toBe(500);
@@ -197,16 +235,251 @@ describe('context lifecycle', () => {
       kind: 'contextLoaded',
       requestId: 1,
       data: ctx(500, 'a'.repeat(64)),
+      now: 0,
     });
     s = govActionFormReducer(s, { kind: 'contextRequested', requestId: 2 });
     s = govActionFormReducer(s, {
       kind: 'contextLoaded',
       requestId: 2,
       data: ctx(501, 'b'.repeat(64)),
+      now: 60_000,
     });
     expect(s.context.status).toBe('ready');
     expect(s.context.data?.epoch).toBe(501);
     expect(s.context.data?.prev?.lastEnacted?.txHash).toBe('b'.repeat(64));
+  });
+});
+
+// A context with every field the change notes compare, so each test below
+// only overrides the one field it moves. `undefined` keeps the base value,
+// an explicit `null` clears the field (no previous action, no script hash).
+function changeCtx(over: {
+  lastEnactedId?: string | null;
+  quorum?: { numerator: number; denominator: number } | null;
+  scriptHash?: string | null;
+  version?: { major: number; minor: number } | null;
+} = {}): ActionContextResponse {
+  const lastEnactedId = over.lastEnactedId === undefined ? 'gov_action1aaa' : over.lastEnactedId;
+  return {
+    epoch: 500,
+    prev: {
+      lastEnacted: lastEnactedId
+        ? { txHash: 'a'.repeat(64), index: 0, id: lastEnactedId, type: 'NewConstitution', title: null, proposedEpoch: 100 }
+        : null,
+      open: [],
+    },
+    committee: {
+      members: [],
+      quorum: over.quorum === undefined ? { numerator: 2, denominator: 3 } : over.quorum,
+      maxTermLength: null,
+    },
+    constitution: { scriptHash: over.scriptHash === undefined ? 'f'.repeat(56) : over.scriptHash },
+    protocolVersion: (over.version === undefined ? { major: 11, minor: 0 } : over.version) ?? undefined,
+  };
+}
+
+/** Loads `data` as the very next ready response, starting from a fresh idle state. */
+function loadOnce(data: ActionContextResponse, now = 0): GovActionFormState {
+  let s = initialGovActionFormState();
+  s = govActionFormReducer(s, { kind: 'contextRequested', requestId: 1 });
+  return govActionFormReducer(s, { kind: 'contextLoaded', requestId: 1, data, now });
+}
+
+/** Refetches over an already-ready state, so contextLoaded has something to compare against. */
+function reload(s: GovActionFormState, data: ActionContextResponse, now: number): GovActionFormState {
+  s = govActionFormReducer(s, { kind: 'contextRequested', requestId: s.context.requestId + 1 });
+  return govActionFormReducer(s, { kind: 'contextLoaded', requestId: s.context.requestId, data, now });
+}
+
+describe('contextLoaded change notes', () => {
+  it('produces no changes on a first load, there is nothing yet to compare against', () => {
+    const s = loadOnce(changeCtx());
+    expect(contextChangeLines(s.context.changes)).toEqual([]);
+  });
+
+  it('sets loadedAt from the action’s own now, not the clock', () => {
+    const s = loadOnce(changeCtx(), 123_456);
+    expect(s.context.loadedAt).toBe(123_456);
+  });
+
+  it('notes the previous action moving to a different one', () => {
+    let s = loadOnce(changeCtx({ lastEnactedId: 'gov_action1aaa' }));
+    s = reload(s, changeCtx({ lastEnactedId: 'gov_action1bbb' }), 1000);
+    expect(contextChangeLines(s.context.changes)).toEqual(['The previous action changed to gov_action1bbb']);
+  });
+
+  it('notes the previous action moving to none', () => {
+    let s = loadOnce(changeCtx({ lastEnactedId: 'gov_action1aaa' }));
+    s = reload(s, changeCtx({ lastEnactedId: null }), 1000);
+    expect(contextChangeLines(s.context.changes)).toEqual([
+      'The previous action changed to none, this now starts the chain',
+    ]);
+  });
+
+  it('notes the committee quorum changing', () => {
+    let s = loadOnce(changeCtx({ quorum: { numerator: 2, denominator: 3 } }));
+    s = reload(s, changeCtx({ quorum: { numerator: 3, denominator: 5 } }), 1000);
+    expect(contextChangeLines(s.context.changes)).toEqual(['The committee quorum changed to 3/5']);
+  });
+
+  it('notes the guardrails script hash changing, shortened the way the on-chain card shortens it', () => {
+    const newHash = 'b'.repeat(56);
+    let s = loadOnce(changeCtx({ scriptHash: 'f'.repeat(56) }));
+    s = reload(s, changeCtx({ scriptHash: newHash }), 1000);
+    expect(contextChangeLines(s.context.changes)).toEqual([
+      `The guardrails script hash changed to ${newHash.slice(0, 8)}…${newHash.slice(-6)}`,
+    ]);
+  });
+
+  it('notes the guardrails script hash going missing', () => {
+    let s = loadOnce(changeCtx({ scriptHash: 'f'.repeat(56) }));
+    s = reload(s, changeCtx({ scriptHash: null }), 1000);
+    expect(contextChangeLines(s.context.changes)).toEqual(['The guardrails script hash is no longer on record']);
+  });
+
+  it('notes the active protocol version changing', () => {
+    let s = loadOnce(changeCtx({ version: { major: 11, minor: 0 } }));
+    s = reload(s, changeCtx({ version: { major: 11, minor: 1 } }), 1000);
+    expect(contextChangeLines(s.context.changes)).toEqual(['The active protocol version changed to 11.1']);
+  });
+
+  it('lists every field that moved at once, in one refetch', () => {
+    let s = loadOnce(
+      changeCtx({ lastEnactedId: 'gov_action1aaa', quorum: { numerator: 2, denominator: 3 }, scriptHash: 'f'.repeat(56), version: { major: 11, minor: 0 } }),
+    );
+    s = reload(
+      s,
+      changeCtx({ lastEnactedId: 'gov_action1bbb', quorum: { numerator: 3, denominator: 5 }, scriptHash: null, version: { major: 12, minor: 0 } }),
+      1000,
+    );
+    expect(contextChangeLines(s.context.changes)).toEqual([
+      'The previous action changed to gov_action1bbb',
+      'The committee quorum changed to 3/5',
+      'The guardrails script hash is no longer on record',
+      'The active protocol version changed to 12.0',
+    ]);
+  });
+
+  it('reports no changes when a refetch answers with the same reading', () => {
+    let s = loadOnce(changeCtx());
+    s = reload(s, changeCtx(), 1000);
+    expect(contextChangeLines(s.context.changes)).toEqual([]);
+  });
+
+  // Finding 2 (Codex, review round 2): a wholesale replacement on every
+  // refetch loses an earlier note the moment ANY refetch runs, even one that
+  // does not touch the field the note was about. These two tests exercise
+  // exactly the sequence the design promises: a note stays until an edit,
+  // not until the next unrelated network round trip.
+  it('keeps a note through a refetch that changes nothing, and drops it only on the next edit', () => {
+    let s = loadOnce(changeCtx({ quorum: { numerator: 2, denominator: 3 } }));
+    s = reload(s, changeCtx({ quorum: { numerator: 3, denominator: 5 } }), 1000);
+    expect(contextChangeLines(s.context.changes)).toEqual(['The committee quorum changed to 3/5']);
+
+    // An unrelated refetch (nothing moved) must not touch the existing note.
+    s = reload(s, changeCtx({ quorum: { numerator: 3, denominator: 5 } }), 2000);
+    expect(contextChangeLines(s.context.changes)).toEqual(['The committee quorum changed to 3/5']);
+
+    s = govActionFormReducer(s, { kind: 'setMetadata', patch: { title: 'an edit' } });
+    expect(contextChangeLines(s.context.changes)).toEqual([]);
+  });
+
+  it('accumulates notes from different fields moving on successive refetches, not just one refetch at once', () => {
+    let s = loadOnce(changeCtx({ quorum: { numerator: 2, denominator: 3 }, scriptHash: 'f'.repeat(56) }));
+    s = reload(s, changeCtx({ quorum: { numerator: 3, denominator: 5 }, scriptHash: 'f'.repeat(56) }), 1000);
+    expect(contextChangeLines(s.context.changes)).toEqual(['The committee quorum changed to 3/5']);
+
+    // A LATER refetch moves a different field. The quorum note from the
+    // earlier refetch must still be there, in the fixed rendering order.
+    const newHash = 'b'.repeat(56);
+    s = reload(s, changeCtx({ quorum: { numerator: 3, denominator: 5 }, scriptHash: newHash }), 2000);
+    expect(contextChangeLines(s.context.changes)).toEqual([
+      'The committee quorum changed to 3/5',
+      `The guardrails script hash changed to ${newHash.slice(0, 8)}…${newHash.slice(-6)}`,
+    ]);
+  });
+
+  it('replaces a field’s own note when that same field moves again, rather than keeping the stale one', () => {
+    let s = loadOnce(changeCtx({ quorum: { numerator: 2, denominator: 3 } }));
+    s = reload(s, changeCtx({ quorum: { numerator: 3, denominator: 5 } }), 1000);
+    s = reload(s, changeCtx({ quorum: { numerator: 1, denominator: 2 } }), 2000);
+    expect(contextChangeLines(s.context.changes)).toEqual(['The committee quorum changed to 1/2']);
+  });
+
+  it('clears on setType, since the context itself is dropped', () => {
+    let s = loadOnce(changeCtx({ lastEnactedId: 'gov_action1aaa' }));
+    s = reload(s, changeCtx({ lastEnactedId: 'gov_action1bbb' }), 1000);
+    expect(contextChangeLines(s.context.changes)).not.toEqual([]);
+    s = govActionFormReducer(s, { kind: 'setType', type: 'NewConstitution' });
+    expect(contextChangeLines(s.context.changes)).toEqual([]);
+  });
+
+  it('clears on setMetadata, setPanel, linkDraft and unlinkDraft, the form’s own edit actions', () => {
+    const withChanges = () => {
+      let s = loadOnce(changeCtx({ lastEnactedId: 'gov_action1aaa' }));
+      s = reload(s, changeCtx({ lastEnactedId: 'gov_action1bbb' }), 1000);
+      expect(contextChangeLines(s.context.changes)).not.toEqual([]);
+      return s;
+    };
+
+    expect(
+      contextChangeLines(govActionFormReducer(withChanges(), { kind: 'setMetadata', patch: { title: 'x' } }).context.changes),
+    ).toEqual([]);
+
+    expect(
+      contextChangeLines(
+        govActionFormReducer(withChanges(), {
+          kind: 'setPanel',
+          type: 'NoConfidence',
+          state: { prev: null },
+        }).context.changes,
+      ),
+    ).toEqual([]);
+
+    expect(
+      contextChangeLines(
+        govActionFormReducer(withChanges(), {
+          kind: 'linkDraft',
+          slug: 'a-draft',
+          title: 'A draft',
+          siteOrigin: SITE_ORIGIN,
+        }).context.changes,
+      ),
+    ).toEqual([]);
+
+    let linked = govActionFormReducer(withChanges(), {
+      kind: 'linkDraft',
+      slug: 'a-draft',
+      title: 'A draft',
+      siteOrigin: SITE_ORIGIN,
+    });
+    linked = reload(linked, changeCtx({ lastEnactedId: 'gov_action1ccc' }), 2000);
+    expect(contextChangeLines(linked.context.changes)).not.toEqual([]);
+    expect(
+      contextChangeLines(govActionFormReducer(linked, { kind: 'unlinkDraft', siteOrigin: SITE_ORIGIN }).context.changes),
+    ).toEqual([]);
+  });
+
+  it('clears on discardDraft too, so a discarded draft leaves no stale notes behind', () => {
+    let s = loadOnce(changeCtx({ lastEnactedId: 'gov_action1aaa' }));
+    s = reload(s, changeCtx({ lastEnactedId: 'gov_action1bbb' }), 1000);
+    expect(contextChangeLines(s.context.changes)).not.toEqual([]);
+
+    s = govActionFormReducer(s, { kind: 'discardDraft', displayName: 'Jane DRep' });
+    expect(contextChangeLines(s.context.changes)).toEqual([]);
+    // The context reading itself (and its age) is not draft data, unlike the
+    // notes: discarding text is not the same as losing the chain reading.
+    expect(s.context.status).toBe('ready');
+    expect(s.context.loadedAt).toBe(1000);
+  });
+
+  it('keeps the previous changes visible while a same-type refetch is in flight', () => {
+    let s = loadOnce(changeCtx({ lastEnactedId: 'gov_action1aaa' }));
+    s = reload(s, changeCtx({ lastEnactedId: 'gov_action1bbb' }), 1000);
+    const withChanges = s.context.changes;
+    s = govActionFormReducer(s, { kind: 'contextRequested', requestId: s.context.requestId + 1 });
+    expect(s.context.status).toBe('loading');
+    expect(s.context.changes).toEqual(withChanges);
   });
 });
 
@@ -269,6 +542,107 @@ describe('restoreDraft', () => {
     expect(s.panels.HardForkInitiation).toEqual({ prev: null, version: null });
     expect(s.panels.NewConstitution).toEqual({ prev: null, text: '', scriptHashHex: 'ab' });
   });
+
+  const baseDraft: GovActionDraft = {
+    v: 2,
+    type: 'InfoAction',
+    title: '',
+    abstract: '',
+    motivation: '',
+    rationale: '',
+    signAsAuthor: false,
+    authorName: '',
+    references: [],
+    surveyRef: '',
+    panels: {},
+  };
+
+  it('restores an explicit tracked slug', () => {
+    const draft: GovActionDraft = { ...baseDraft, linkedDraftSlug: 'my-draft-a1b2' };
+    const s = govActionFormReducer(initialGovActionFormState(), { kind: 'restoreDraft', draft });
+    expect(s.linkedDraftSlug).toBe('my-draft-a1b2');
+  });
+
+  it('restores an explicit null tracked slug (linked then unlinked) without deriving one', () => {
+    const draft: GovActionDraft = {
+      ...baseDraft,
+      linkedDraftSlug: null,
+      references: [{ label: 'A draft', uri: `${SITE_ORIGIN}/t/still-open-a1/` }],
+    };
+    const s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'restoreDraft',
+      draft,
+      openDrafts: [{ slug: 'still-open-a1' }],
+      siteOrigin: SITE_ORIGIN,
+    });
+    expect(s.linkedDraftSlug).toBeNull();
+  });
+
+  it('derives the tracked slug of a legacy draft (no stored linkedDraftSlug) from the first reference naming an open draft', () => {
+    const draft: GovActionDraft = {
+      ...baseDraft,
+      references: [
+        { label: 'Not a draft', uri: 'https://example.org/notes' },
+        { label: 'My draft', uri: `${SITE_ORIGIN}/t/legacy-draft-c3/` },
+      ],
+    };
+    expect(draft.linkedDraftSlug).toBeUndefined();
+    const s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'restoreDraft',
+      draft,
+      openDrafts: [{ slug: 'legacy-draft-c3' }],
+      siteOrigin: SITE_ORIGIN,
+    });
+    expect(s.linkedDraftSlug).toBe('legacy-draft-c3');
+    // The rows themselves are untouched, but the derived one is moved to the
+    // front like any tracked reference, see draftReferenceFirst.
+    expect(s.metadata.references).toEqual([
+      { label: 'My draft', uri: `${SITE_ORIGIN}/t/legacy-draft-c3/` },
+      { label: 'Not a draft', uri: 'https://example.org/notes' },
+    ]);
+  });
+
+  it('leaves the tracked slug null for a legacy draft whose references name no open draft', () => {
+    const draft: GovActionDraft = {
+      ...baseDraft,
+      references: [{ label: 'A closed thread', uri: `${SITE_ORIGIN}/t/no-longer-open/` }],
+    };
+    const s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'restoreDraft',
+      draft,
+      openDrafts: [{ slug: 'some-other-draft' }],
+      siteOrigin: SITE_ORIGIN,
+    });
+    expect(s.linkedDraftSlug).toBeNull();
+  });
+
+  it('keeps an explicit tracked slug and its reference even once the draft is no longer open', () => {
+    const draft: GovActionDraft = {
+      ...baseDraft,
+      linkedDraftSlug: 'closed-draft-f9',
+      references: [{ label: 'Closed draft', uri: `${SITE_ORIGIN}/t/closed-draft-f9/` }],
+    };
+    const s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'restoreDraft',
+      draft,
+      openDrafts: [],
+      siteOrigin: SITE_ORIGIN,
+    });
+    expect(s.linkedDraftSlug).toBe('closed-draft-f9');
+    expect(s.metadata.references).toEqual(draft.references);
+  });
+
+  it('drops a malformed stored slug instead of tracking it', () => {
+    const draft: GovActionDraft = {
+      ...baseDraft,
+      // Not a slugify() shape (see forum.ts): corrupted or tampered storage,
+      // never a value this app wrote.
+      linkedDraftSlug: '../etc/passwd',
+      references: [{ label: 'Suspicious', uri: `${SITE_ORIGIN}/t/../etc/passwd/` }],
+    };
+    const s = govActionFormReducer(initialGovActionFormState(), { kind: 'restoreDraft', draft });
+    expect(s.linkedDraftSlug).toBeNull();
+  });
 });
 
 describe('effectivePrev', () => {
@@ -309,7 +683,27 @@ describe('draftFromState and isFormBlank', () => {
   });
 
   it('treats the untouched form as blank', () => {
-    expect(isFormBlank(initialGovActionFormState())).toBe(true);
+    expect(isFormBlank(initialGovActionFormState(), { authorName: '' })).toBe(true);
+  });
+
+  it('treats the prefilled author name and the default signing-on as blank too', () => {
+    expect(isFormBlank(initialGovActionFormState('Jane DRep'), { authorName: 'Jane DRep' })).toBe(true);
+  });
+
+  it('is not blank once the author name is edited away from the default', () => {
+    const s = govActionFormReducer(initialGovActionFormState('Jane DRep'), {
+      kind: 'setMetadata',
+      patch: { authorName: 'Someone else' },
+    });
+    expect(isFormBlank(s, { authorName: 'Jane DRep' })).toBe(false);
+  });
+
+  it('is not blank once signing as author is turned off, even with the name untouched', () => {
+    const s = govActionFormReducer(initialGovActionFormState('Jane DRep'), {
+      kind: 'setMetadata',
+      patch: { signAsAuthor: false },
+    });
+    expect(isFormBlank(s, { authorName: 'Jane DRep' })).toBe(false);
   });
 
   it('keeps a filled panel with empty metadata', () => {
@@ -323,7 +717,7 @@ describe('draftFromState and isFormBlank', () => {
         add: [{ input: 'ab', hexKind: 'key', expiryEpoch: '410' }],
       },
     });
-    expect(isFormBlank(s)).toBe(false);
+    expect(isFormBlank(s, { authorName: '' })).toBe(false);
   });
 
   it('is not blank once the type alone moved away from InfoAction', () => {
@@ -331,7 +725,7 @@ describe('draftFromState and isFormBlank', () => {
       kind: 'setType',
       type: 'NoConfidence',
     });
-    expect(isFormBlank(s)).toBe(false);
+    expect(isFormBlank(s, { authorName: '' })).toBe(false);
   });
 
   it('is not blank once any metadata text is typed', () => {
@@ -339,7 +733,7 @@ describe('draftFromState and isFormBlank', () => {
       kind: 'setMetadata',
       patch: { abstract: 'x' },
     });
-    expect(isFormBlank(s)).toBe(false);
+    expect(isFormBlank(s, { authorName: '' })).toBe(false);
   });
 });
 
@@ -365,8 +759,8 @@ function committeeCtx(): ActionContextResponse {
     },
     committee: {
       members: [
-        { coldHex: MEMBER_A, hasScript: false, expirationEpoch: 600 },
-        { coldHex: MEMBER_B, hasScript: false, expirationEpoch: 610 },
+        { coldHex: MEMBER_A, hasScript: false, expirationEpoch: 600, name: null },
+        { coldHex: MEMBER_B, hasScript: false, expirationEpoch: 610, name: null },
       ],
       quorum: { numerator: 2, denominator: 3 },
       maxTermLength: 100,
@@ -441,11 +835,11 @@ describe('committeeMode and validateCommitteePanel', () => {
   it('carries ticked removals into free rows when the prev switches to an open proposal', () => {
     let s = initialGovActionFormState();
     s = govActionFormReducer(s, { kind: 'contextRequested', requestId: 1 });
-    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 1, data: committeeCtx() });
+    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 1, data: committeeCtx(), now: 0 });
     s = govActionFormReducer(s, { kind: 'setType', type: 'UpdateCommittee' });
     // setType drops the context, so re-load it for the type now selected.
     s = govActionFormReducer(s, { kind: 'contextRequested', requestId: 2 });
-    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 2, data: committeeCtx() });
+    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 2, data: committeeCtx(), now: 0 });
 
     s = govActionFormReducer(s, {
       kind: 'setPanel',
@@ -479,7 +873,7 @@ describe('committeeMode and validateCommitteePanel', () => {
   it('keeps the ticked removals on the way back to the enacted default and does not seed twice', () => {
     let s = initialGovActionFormState();
     s = govActionFormReducer(s, { kind: 'contextRequested', requestId: 1 });
-    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 1, data: committeeCtx() });
+    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 1, data: committeeCtx(), now: 0 });
     s = govActionFormReducer(s, {
       kind: 'setPanel',
       type: 'UpdateCommittee',
@@ -628,5 +1022,696 @@ describe('validateNewConstitutionPanel', () => {
       ncCtx(null),
     );
     expect(result).toEqual({ ok: false, error: 'A guardrails script hash is exactly 56 hex characters.' });
+  });
+});
+
+describe('panelReadiness', () => {
+  const NC_CTX: ActionContextResponse = {
+    epoch: 500,
+    prev: { lastEnacted: null, open: [] },
+    constitution: { scriptHash: 'a'.repeat(56) },
+  };
+
+  it('is ok with no message for a panel that validates', () => {
+    const panels = emptyPanelStates();
+    panels.NewConstitution = { prev: null, text: '# Constitution', scriptHashHex: null };
+    expect(panelReadiness('NewConstitution', panels, NC_CTX)).toEqual({ ok: true, error: '' });
+  });
+
+  it('carries the panel validator message when the panel does not validate', () => {
+    const panels = emptyPanelStates();
+    panels.NewConstitution = { prev: null, text: '   ', scriptHashHex: null };
+    expect(panelReadiness('NewConstitution', panels, NC_CTX)).toEqual({
+      ok: false,
+      error: 'Enter the constitution text.',
+    });
+  });
+});
+
+describe('wallet state', () => {
+  it('starts with no wallet and a clean form', () => {
+    const s = initialGovActionFormState();
+    expect(s.wallet).toEqual({ status: 'none' });
+    expect(s.dirty).toBe(false);
+  });
+
+  it('walks none, connecting, connected with a loading balance', () => {
+    let s = initialGovActionFormState();
+    s = govActionFormReducer(s, { kind: 'walletConnecting' });
+    expect(s.wallet).toEqual({ status: 'connecting' });
+    s = govActionFormReducer(s, { kind: 'walletConnected', rewardAddressHex: 'e0ff' });
+    expect(s.wallet).toEqual({
+      status: 'connected',
+      rewardAddressHex: 'e0ff',
+      balance: { status: 'loading' },
+    });
+  });
+
+  it('ignores a second connect while one is running', () => {
+    let s = initialGovActionFormState();
+    s = govActionFormReducer(s, { kind: 'walletConnecting' });
+    const again = govActionFormReducer(s, { kind: 'walletConnecting' });
+    expect(again).toBe(s);
+  });
+
+  it('keeps the refund address registration next to the balance', () => {
+    let s = initialGovActionFormState();
+    s = govActionFormReducer(s, { kind: 'walletConnected', rewardAddressHex: 'e0ff' });
+    s = govActionFormReducer(s, { kind: 'walletBalance', lovelace: 42n, rewardRegistered: false });
+    expect(s.wallet).toEqual({
+      status: 'connected',
+      rewardAddressHex: 'e0ff',
+      balance: { status: 'ready', lovelace: 42n, rewardRegistered: false },
+    });
+  });
+
+  it('files the balance read, its result and its failure', () => {
+    let s = initialGovActionFormState();
+    s = govActionFormReducer(s, { kind: 'walletConnecting' });
+    s = govActionFormReducer(s, { kind: 'walletConnected', rewardAddressHex: 'e0ff' });
+    s = govActionFormReducer(s, { kind: 'walletBalance', lovelace: 42n });
+    expect(s.wallet).toEqual({
+      status: 'connected',
+      rewardAddressHex: 'e0ff',
+      balance: { status: 'ready', lovelace: 42n },
+    });
+    s = govActionFormReducer(s, { kind: 'walletBalanceLoading' });
+    expect(s.wallet).toEqual({
+      status: 'connected',
+      rewardAddressHex: 'e0ff',
+      balance: { status: 'loading' },
+    });
+    s = govActionFormReducer(s, { kind: 'walletBalanceFailed', message: 'Koios said no' });
+    expect(s.wallet).toEqual({
+      status: 'connected',
+      rewardAddressHex: 'e0ff',
+      balance: { status: 'error', message: 'Koios said no' },
+    });
+  });
+
+  it('ignores a balance action while no wallet is connected', () => {
+    const s = initialGovActionFormState();
+    expect(govActionFormReducer(s, { kind: 'walletBalance', lovelace: 1n })).toBe(s);
+    expect(govActionFormReducer(s, { kind: 'walletBalanceLoading' })).toBe(s);
+    expect(govActionFormReducer(s, { kind: 'walletBalanceFailed', message: 'x' })).toBe(s);
+  });
+
+  it('drops the reward address and the balance on disconnect', () => {
+    let s = initialGovActionFormState();
+    s = govActionFormReducer(s, { kind: 'walletConnecting' });
+    s = govActionFormReducer(s, { kind: 'walletConnected', rewardAddressHex: 'e0ff' });
+    s = govActionFormReducer(s, { kind: 'walletBalance', lovelace: 42n });
+    // "Use a different wallet" after a failed submit.
+    s = govActionFormReducer(s, { kind: 'walletDisconnected' });
+    expect(s.wallet).toEqual({ status: 'none' });
+  });
+
+  it('goes back to none when the connect attempt finds no reward address', () => {
+    let s = initialGovActionFormState();
+    s = govActionFormReducer(s, { kind: 'walletConnecting' });
+    s = govActionFormReducer(s, { kind: 'walletDisconnected' });
+    expect(s.wallet).toEqual({ status: 'none' });
+  });
+
+  it('keeps the form untouched across every wallet transition', () => {
+    let s = initialGovActionFormState();
+    s = govActionFormReducer(s, { kind: 'setMetadata', patch: { title: 'Keep me' } });
+    s = govActionFormReducer(s, { kind: 'walletConnecting' });
+    s = govActionFormReducer(s, { kind: 'walletConnected', rewardAddressHex: 'e0ff' });
+    s = govActionFormReducer(s, { kind: 'walletDisconnected' });
+    expect(s.metadata.title).toBe('Keep me');
+    expect(s.type).toBe('InfoAction');
+  });
+});
+
+describe('dirty', () => {
+  it('is set by a metadata edit', () => {
+    const s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'setMetadata',
+      patch: { title: 'x' },
+    });
+    expect(s.dirty).toBe(true);
+  });
+
+  it('is set by the author fields, which live in the metadata', () => {
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'setMetadata',
+      patch: { signAsAuthor: true },
+    });
+    expect(s.dirty).toBe(true);
+    s = { ...s, dirty: false };
+    s = govActionFormReducer(s, { kind: 'setMetadata', patch: { authorName: 'Someone' } });
+    expect(s.dirty).toBe(true);
+  });
+
+  it('is set by a type switch, but not by re-picking the same type', () => {
+    let s = govActionFormReducer(initialGovActionFormState(), { kind: 'setType', type: 'NoConfidence' });
+    expect(s.dirty).toBe(true);
+    s = { ...s, dirty: false };
+    s = govActionFormReducer(s, { kind: 'setType', type: 'NoConfidence' });
+    expect(s.dirty).toBe(false);
+  });
+
+  it('is set by a panel edit', () => {
+    const s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'setPanel',
+      type: 'NoConfidence',
+      state: { prev: REF_A },
+    });
+    expect(s.dirty).toBe(true);
+  });
+
+  it('is cleared by a draft restore', () => {
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'setMetadata',
+      patch: { title: 'x' },
+    });
+    const draft: GovActionDraft = {
+      v: 2,
+      type: 'InfoAction',
+      title: 'T',
+      abstract: '',
+      motivation: '',
+      rationale: '',
+      signAsAuthor: false,
+      authorName: '',
+      references: [],
+      surveyRef: '',
+      panels: {},
+    };
+    s = govActionFormReducer(s, { kind: 'restoreDraft', draft });
+    expect(s.dirty).toBe(false);
+  });
+
+  it('is untouched by the context lifecycle and by the wallet', () => {
+    let s = initialGovActionFormState();
+    s = govActionFormReducer(s, { kind: 'contextRequested', requestId: 1 });
+    s = govActionFormReducer(s, { kind: 'contextFailed', requestId: 1 });
+    s = govActionFormReducer(s, { kind: 'walletConnecting' });
+    s = govActionFormReducer(s, { kind: 'walletConnected', rewardAddressHex: 'e0ff' });
+    expect(s.dirty).toBe(false);
+  });
+});
+
+describe('discardDraft', () => {
+  it('resets the type, metadata and panels to the defaults and clears dirty', () => {
+    let s = initialGovActionFormState('Jane DRep');
+    s = govActionFormReducer(s, { kind: 'setType', type: 'UpdateCommittee' });
+    s = govActionFormReducer(s, { kind: 'setMetadata', patch: { title: 'Draft title', authorName: 'Someone else' } });
+    s = govActionFormReducer(s, {
+      kind: 'setPanel',
+      type: 'UpdateCommittee',
+      state: { ...s.panels.UpdateCommittee, add: [{ input: 'ab', hexKind: 'key', expiryEpoch: '410' }] },
+    });
+    expect(s.dirty).toBe(true);
+
+    s = govActionFormReducer(s, { kind: 'discardDraft', displayName: 'Jane DRep' });
+    expect(s.type).toBe('InfoAction');
+    expect(s.metadata).toEqual({
+      title: '',
+      abstract: '',
+      motivation: '',
+      rationale: '',
+      signAsAuthor: true,
+      authorName: 'Jane DRep',
+      references: [],
+      surveyRef: '',
+    });
+    expect(s.panels.UpdateCommittee.add).toEqual([]);
+    expect(s.dirty).toBe(false);
+  });
+
+  it('leaves the context and the wallet untouched', () => {
+    let s = initialGovActionFormState('Jane DRep');
+    s = govActionFormReducer(s, { kind: 'contextRequested', requestId: 1 });
+    s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 1, data: ctx(500), now: 0 });
+    s = govActionFormReducer(s, { kind: 'walletConnecting' });
+    s = govActionFormReducer(s, { kind: 'walletConnected', rewardAddressHex: 'e0ff' });
+
+    s = govActionFormReducer(s, { kind: 'discardDraft', displayName: 'Jane DRep' });
+    expect(s.context.status).toBe('ready');
+    expect(s.wallet).toEqual({ status: 'connected', rewardAddressHex: 'e0ff', balance: { status: 'loading' } });
+  });
+
+  it('leaves the form blank straight after discarding', () => {
+    let s = initialGovActionFormState('Jane DRep');
+    s = govActionFormReducer(s, { kind: 'setMetadata', patch: { title: 'x' } });
+    s = govActionFormReducer(s, { kind: 'discardDraft', displayName: 'Jane DRep' });
+    expect(isFormBlank(s, { authorName: 'Jane DRep' })).toBe(true);
+  });
+
+  it('clears the tracked draft slug', () => {
+    let s = initialGovActionFormState('Jane DRep');
+    s = govActionFormReducer(s, { kind: 'linkDraft', slug: 'a-draft', title: 'A draft', siteOrigin: SITE_ORIGIN });
+    s = govActionFormReducer(s, { kind: 'discardDraft', displayName: 'Jane DRep' });
+    expect(s.linkedDraftSlug).toBeNull();
+    expect(s.metadata.references).toEqual([]);
+  });
+});
+
+// resolveDraftTopic (draftLinks.ts) reads the FIRST Proposal Drafts reference
+// of a submitted document, so the tracked draft's reference has to stay at the
+// front through every path, not only through linkDraft's own insert.
+describe('the tracked draft reference stays first', () => {
+  it('moves a restored tracked reference ahead of an earlier closed-draft reference', () => {
+    const s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'restoreDraft',
+      draft: draft({
+        references: [
+          { label: 'Closed draft C', uri: `${SITE_ORIGIN}/t/closed-draft-c/` },
+          { label: 'Draft A', uri: `${SITE_ORIGIN}/t/draft-a/` },
+          { label: 'Discussion', uri: `${SITE_ORIGIN}/t/other-thread/` },
+        ],
+        linkedDraftSlug: 'draft-a',
+      }),
+      openDrafts: [{ slug: 'draft-a' }],
+      siteOrigin: SITE_ORIGIN,
+    });
+
+    expect(s.linkedDraftSlug).toBe('draft-a');
+    expect(s.metadata.references).toEqual([
+      { label: 'Draft A', uri: `${SITE_ORIGIN}/t/draft-a/` },
+      { label: 'Closed draft C', uri: `${SITE_ORIGIN}/t/closed-draft-c/` },
+      { label: 'Discussion', uri: `${SITE_ORIGIN}/t/other-thread/` },
+    ]);
+    // The restore itself is not an edit, moving the row does not make it one.
+    expect(s.dirty).toBe(false);
+  });
+
+  it('moves the tracked reference back to the front when an edit pushes it behind another row', () => {
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'linkDraft',
+      slug: 'draft-a',
+      title: 'Draft A',
+      siteOrigin: SITE_ORIGIN,
+    });
+    s = govActionFormReducer(s, {
+      kind: 'setMetadata',
+      patch: {
+        references: [
+          { label: 'Closed draft C', uri: `${SITE_ORIGIN}/t/closed-draft-c/` },
+          { label: 'Draft A', uri: `${SITE_ORIGIN}/t/draft-a/` },
+        ],
+      },
+      siteOrigin: SITE_ORIGIN,
+    });
+
+    expect(s.linkedDraftSlug).toBe('draft-a');
+    expect(s.metadata.references).toEqual([
+      { label: 'Draft A', uri: `${SITE_ORIGIN}/t/draft-a/` },
+      { label: 'Closed draft C', uri: `${SITE_ORIGIN}/t/closed-draft-c/` },
+    ]);
+  });
+
+  it('leaves the order alone for an edit that does not move the tracked reference', () => {
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'linkDraft',
+      slug: 'draft-a',
+      title: 'Draft A',
+      siteOrigin: SITE_ORIGIN,
+    });
+    s = govActionFormReducer(s, {
+      kind: 'setMetadata',
+      patch: { references: [...s.metadata.references, { label: 'Other', uri: 'https://example.org/x' }] },
+      siteOrigin: SITE_ORIGIN,
+    });
+    s = govActionFormReducer(s, { kind: 'setMetadata', patch: { title: 'A title' }, siteOrigin: SITE_ORIGIN });
+
+    expect(s.metadata.references).toEqual([
+      { label: 'Draft A', uri: `${SITE_ORIGIN}/t/draft-a/` },
+      { label: 'Other', uri: 'https://example.org/x' },
+    ]);
+  });
+
+  it('leaves a restored draft alone when nothing is tracked', () => {
+    const references = [
+      { label: 'Closed draft C', uri: `${SITE_ORIGIN}/t/closed-draft-c/` },
+      { label: 'Discussion', uri: `${SITE_ORIGIN}/t/other-thread/` },
+    ];
+    const s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'restoreDraft',
+      draft: draft({ references, linkedDraftSlug: null }),
+      openDrafts: [{ slug: 'draft-a' }],
+      siteOrigin: SITE_ORIGIN,
+    });
+    expect(s.metadata.references).toEqual(references);
+  });
+});
+
+describe('linkDraft', () => {
+  it('appends a reference in the exact shape draftSlugsFromReferences recognizes', () => {
+    const s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'linkDraft',
+      slug: 'fund-tooling-a1b2',
+      title: 'Fund tooling',
+      siteOrigin: SITE_ORIGIN,
+    });
+    expect(s.linkedDraftSlug).toBe('fund-tooling-a1b2');
+    expect(s.metadata.references).toEqual([
+      { label: 'Fund tooling', uri: `${SITE_ORIGIN}/t/fund-tooling-a1b2/` },
+    ]);
+    expect(s.dirty).toBe(true);
+    expect(s.draftLinkError).toBeNull();
+  });
+
+  it('replaces the tracked reference when switching drafts, leaving an unrelated thread reference untouched', () => {
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'setMetadata',
+      patch: { references: [{ label: 'Discussion', uri: `${SITE_ORIGIN}/t/other-thread/` }] },
+    });
+    s = govActionFormReducer(s, { kind: 'linkDraft', slug: 'draft-a', title: 'Draft A', siteOrigin: SITE_ORIGIN });
+    // Inserted at the front, ahead of the unrelated reference: gov-sync's
+    // resolver takes the first Proposal Drafts reference in order, so the
+    // picked draft has to outrank whatever else is already listed.
+    expect(s.metadata.references).toEqual([
+      { label: 'Draft A', uri: `${SITE_ORIGIN}/t/draft-a/` },
+      { label: 'Discussion', uri: `${SITE_ORIGIN}/t/other-thread/` },
+    ]);
+
+    s = govActionFormReducer(s, { kind: 'linkDraft', slug: 'draft-b', title: 'Draft B', siteOrigin: SITE_ORIGIN });
+    expect(s.linkedDraftSlug).toBe('draft-b');
+    // The replacement is at the front too, the unrelated reference is still
+    // untouched.
+    expect(s.metadata.references).toEqual([
+      { label: 'Draft B', uri: `${SITE_ORIGIN}/t/draft-b/` },
+      { label: 'Discussion', uri: `${SITE_ORIGIN}/t/other-thread/` },
+    ]);
+  });
+
+  it('inserts the picked draft ahead of an earlier reference naming a closed draft, so it stays the first Proposal Drafts reference', () => {
+    // Nothing is tracked here on purpose: this is the shape a manually typed
+    // reference to an old, now-locked draft leaves behind, which is exactly
+    // what resolveDraftTopic (draftLinks.ts) would otherwise read first.
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'setMetadata',
+      patch: {
+        references: [
+          { label: 'Closed draft A', uri: `${SITE_ORIGIN}/t/closed-draft-a/` },
+          { label: 'Unrelated', uri: `${SITE_ORIGIN}/t/unrelated-thread/` },
+        ],
+      },
+    });
+    s = govActionFormReducer(s, { kind: 'linkDraft', slug: 'draft-b', title: 'Draft B', siteOrigin: SITE_ORIGIN });
+    expect(s.linkedDraftSlug).toBe('draft-b');
+    expect(s.metadata.references).toEqual([
+      { label: 'Draft B', uri: `${SITE_ORIGIN}/t/draft-b/` },
+      { label: 'Closed draft A', uri: `${SITE_ORIGIN}/t/closed-draft-a/` },
+      { label: 'Unrelated', uri: `${SITE_ORIGIN}/t/unrelated-thread/` },
+    ]);
+  });
+
+  it('replaces the tracked reference in place even when the list is at the cap', () => {
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'linkDraft',
+      slug: 'draft-a',
+      title: 'Draft A',
+      siteOrigin: SITE_ORIGIN,
+    });
+    const filler = Array.from({ length: REFERENCES_MAX - 1 }, (_, i) => ({ label: `R${i}`, uri: `https://example.org/${i}` }));
+    s = govActionFormReducer(s, {
+      kind: 'setMetadata',
+      patch: { references: [...s.metadata.references, ...filler] },
+    });
+    expect(s.metadata.references).toHaveLength(REFERENCES_MAX);
+
+    s = govActionFormReducer(s, { kind: 'linkDraft', slug: 'draft-b', title: 'Draft B', siteOrigin: SITE_ORIGIN });
+    expect(s.linkedDraftSlug).toBe('draft-b');
+    expect(s.metadata.references).toHaveLength(REFERENCES_MAX);
+    expect(s.metadata.references[0]).toEqual({ label: 'Draft B', uri: `${SITE_ORIGIN}/t/draft-b/` });
+    expect(s.draftLinkError).toBeNull();
+  });
+
+  it('moves a replaced reference to the front, ahead of an earlier closed-draft reference', () => {
+    // The shape a restored draft leaves behind: a reference to a draft that
+    // has since been closed sits ahead of the tracked one. Rewriting the
+    // tracked row where it stood would leave the closed draft first, and
+    // resolveDraftTopic (draftLinks.ts) reads the first Proposal Drafts
+    // reference, not the one the picker shows.
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'restoreDraft',
+      draft: draft({
+        references: [
+          { label: 'Closed draft C', uri: `${SITE_ORIGIN}/t/closed-draft-c/` },
+          { label: 'Draft A', uri: `${SITE_ORIGIN}/t/draft-a/` },
+        ],
+        linkedDraftSlug: 'draft-a',
+      }),
+      openDrafts: [{ slug: 'draft-a' }, { slug: 'draft-b' }],
+      siteOrigin: SITE_ORIGIN,
+    });
+    expect(s.linkedDraftSlug).toBe('draft-a');
+
+    s = govActionFormReducer(s, {
+      kind: 'linkDraft',
+      slug: 'draft-b',
+      title: 'Draft B',
+      siteOrigin: SITE_ORIGIN,
+      selectedSlug: 'draft-a',
+    });
+
+    expect(s.linkedDraftSlug).toBe('draft-b');
+    expect(s.metadata.references).toEqual([
+      { label: 'Draft B', uri: `${SITE_ORIGIN}/t/draft-b/` },
+      { label: 'Closed draft C', uri: `${SITE_ORIGIN}/t/closed-draft-c/` },
+    ]);
+  });
+
+  it('replaces a hand-typed reference the control shows as chosen instead of adding a second one', () => {
+    // Nothing was ever tracked: the reference was typed into the references
+    // list by hand, and the select shows it as chosen all the same.
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'setMetadata',
+      patch: { references: [{ label: 'Hand typed', uri: `${SITE_ORIGIN}/t/draft-a/` }] },
+      siteOrigin: SITE_ORIGIN,
+    });
+    expect(effectiveLinkedDraftSlug(s, [{ slug: 'draft-a' }, { slug: 'draft-b' }], SITE_ORIGIN)).toBe('draft-a');
+
+    s = govActionFormReducer(s, {
+      kind: 'linkDraft',
+      slug: 'draft-b',
+      title: 'Draft B',
+      siteOrigin: SITE_ORIGIN,
+      selectedSlug: 'draft-a',
+    });
+
+    expect(s.linkedDraftSlug).toBe('draft-b');
+    expect(s.metadata.references).toEqual([{ label: 'Draft B', uri: `${SITE_ORIGIN}/t/draft-b/` }]);
+  });
+
+  it('refuses to append at the cap and leaves the form untouched', () => {
+    const fullRefs = Array.from({ length: REFERENCES_MAX }, (_, i) => ({ label: `R${i}`, uri: `https://example.org/${i}` }));
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'setMetadata',
+      patch: { references: fullRefs },
+    });
+    const before = s;
+    s = govActionFormReducer(s, { kind: 'linkDraft', slug: 'draft-a', title: 'Draft A', siteOrigin: SITE_ORIGIN });
+    expect(s.linkedDraftSlug).toBeNull();
+    expect(s.metadata.references).toEqual(before.metadata.references);
+    expect(s.draftLinkError).toBe('Remove a reference first, the list is full');
+  });
+});
+
+describe('unlinkDraft', () => {
+  it('removes only the tracked reference and clears the slug', () => {
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'setMetadata',
+      patch: { references: [{ label: 'Discussion', uri: `${SITE_ORIGIN}/t/other-thread/` }] },
+    });
+    s = govActionFormReducer(s, { kind: 'linkDraft', slug: 'draft-a', title: 'Draft A', siteOrigin: SITE_ORIGIN });
+    s = govActionFormReducer(s, { kind: 'unlinkDraft', siteOrigin: SITE_ORIGIN });
+    expect(s.linkedDraftSlug).toBeNull();
+    expect(s.metadata.references).toEqual([{ label: 'Discussion', uri: `${SITE_ORIGIN}/t/other-thread/` }]);
+  });
+
+  it('removes a hand-typed reference the control shows as chosen', () => {
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'setMetadata',
+      patch: {
+        references: [
+          { label: 'Hand typed', uri: `${SITE_ORIGIN}/t/draft-a/` },
+          { label: 'Discussion', uri: `${SITE_ORIGIN}/t/other-thread/` },
+        ],
+      },
+      siteOrigin: SITE_ORIGIN,
+    });
+    expect(s.linkedDraftSlug).toBeNull();
+
+    s = govActionFormReducer(s, { kind: 'unlinkDraft', siteOrigin: SITE_ORIGIN, selectedSlug: 'draft-a' });
+
+    expect(s.linkedDraftSlug).toBeNull();
+    expect(s.metadata.references).toEqual([{ label: 'Discussion', uri: `${SITE_ORIGIN}/t/other-thread/` }]);
+  });
+
+  it('is a no-op when nothing is tracked', () => {
+    const s = govActionFormReducer(initialGovActionFormState(), { kind: 'unlinkDraft', siteOrigin: SITE_ORIGIN });
+    expect(s.linkedDraftSlug).toBeNull();
+    expect(s.metadata.references).toEqual([]);
+  });
+});
+
+describe('setMetadata keeps the tracked slug in sync with the references', () => {
+  it('clears the tracked slug once its reference is hand-edited to a different thread', () => {
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'linkDraft',
+      slug: 'draft-a',
+      title: 'Draft A',
+      siteOrigin: SITE_ORIGIN,
+    });
+    // The URI input for that same row, edited by hand to a different draft's URL.
+    s = govActionFormReducer(s, {
+      kind: 'setMetadata',
+      patch: { references: [{ label: 'Draft A', uri: `${SITE_ORIGIN}/t/draft-b/` }] },
+      siteOrigin: SITE_ORIGIN,
+    });
+    expect(s.linkedDraftSlug).toBeNull();
+  });
+
+  it('leaves the tracked slug alone when the edit does not touch its reference', () => {
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'linkDraft',
+      slug: 'draft-a',
+      title: 'Draft A',
+      siteOrigin: SITE_ORIGIN,
+    });
+    s = govActionFormReducer(s, {
+      kind: 'setMetadata',
+      patch: { references: [...s.metadata.references, { label: 'Other', uri: 'https://example.org/x' }] },
+      siteOrigin: SITE_ORIGIN,
+    });
+    expect(s.linkedDraftSlug).toBe('draft-a');
+  });
+
+  it('leaves the tracked slug alone when the caller does not pass a siteOrigin', () => {
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'linkDraft',
+      slug: 'draft-a',
+      title: 'Draft A',
+      siteOrigin: SITE_ORIGIN,
+    });
+    // No siteOrigin: there is no positive evidence the reference is gone, so
+    // tracking is left exactly as it was rather than cleared on a guess.
+    s = govActionFormReducer(s, { kind: 'setMetadata', patch: { references: [] } });
+    expect(s.linkedDraftSlug).toBe('draft-a');
+  });
+
+  it('never clears the tracked slug for a patch that does not touch references at all', () => {
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'linkDraft',
+      slug: 'draft-a',
+      title: 'Draft A',
+      siteOrigin: SITE_ORIGIN,
+    });
+    s = govActionFormReducer(s, { kind: 'setMetadata', patch: { title: 'A title' }, siteOrigin: SITE_ORIGIN });
+    expect(s.linkedDraftSlug).toBe('draft-a');
+  });
+});
+
+describe('effectiveLinkedDraftSlug', () => {
+  it('returns the tracked slug when it still has a matching reference', () => {
+    const s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'linkDraft',
+      slug: 'draft-a',
+      title: 'Draft A',
+      siteOrigin: SITE_ORIGIN,
+    });
+    expect(effectiveLinkedDraftSlug(s, [{ slug: 'draft-a' }], SITE_ORIGIN)).toBe('draft-a');
+  });
+
+  it('follows a hand-edited reference to a different open draft once tracking is cleared', () => {
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'linkDraft',
+      slug: 'draft-a',
+      title: 'Draft A',
+      siteOrigin: SITE_ORIGIN,
+    });
+    s = govActionFormReducer(s, {
+      kind: 'setMetadata',
+      patch: { references: [{ label: 'Draft A', uri: `${SITE_ORIGIN}/t/draft-b/` }] },
+      siteOrigin: SITE_ORIGIN,
+    });
+    expect(s.linkedDraftSlug).toBeNull();
+    expect(effectiveLinkedDraftSlug(s, [{ slug: 'draft-b' }], SITE_ORIGIN)).toBe('draft-b');
+  });
+
+  it('picks up a hand-typed reference to an open draft even though nothing was ever tracked', () => {
+    const s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'setMetadata',
+      patch: { references: [{ label: 'Hand typed', uri: `${SITE_ORIGIN}/t/draft-b/` }] },
+    });
+    expect(effectiveLinkedDraftSlug(s, [{ slug: 'draft-b' }], SITE_ORIGIN)).toBe('draft-b');
+  });
+
+  it('is null when nothing is tracked and no reference names an open draft', () => {
+    expect(effectiveLinkedDraftSlug(initialGovActionFormState(), [{ slug: 'draft-b' }], SITE_ORIGIN)).toBeNull();
+  });
+});
+
+describe('linkedDraftReference', () => {
+  it('finds the reference the tracked slug points at', () => {
+    const s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'linkDraft',
+      slug: 'draft-a',
+      title: 'Draft A',
+      siteOrigin: SITE_ORIGIN,
+    });
+    expect(linkedDraftReference(s, SITE_ORIGIN)).toEqual({ label: 'Draft A', uri: `${SITE_ORIGIN}/t/draft-a/` });
+  });
+
+  it('is null when nothing is tracked', () => {
+    expect(linkedDraftReference(initialGovActionFormState(), SITE_ORIGIN)).toBeNull();
+  });
+});
+
+describe('draftConflict', () => {
+  it('is false with a single tracked draft reference', () => {
+    const s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'linkDraft',
+      slug: 'draft-a',
+      title: 'Draft A',
+      siteOrigin: SITE_ORIGIN,
+    });
+    expect(draftConflict(s, [{ slug: 'draft-a' }], SITE_ORIGIN)).toBe(false);
+  });
+
+  it('is true when two references name two different open drafts', () => {
+    const s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'setMetadata',
+      patch: {
+        references: [
+          { label: 'Draft A', uri: `${SITE_ORIGIN}/t/draft-a/` },
+          { label: 'Draft B', uri: `${SITE_ORIGIN}/t/draft-b/` },
+        ],
+      },
+    });
+    expect(draftConflict(s, [{ slug: 'draft-a' }, { slug: 'draft-b' }], SITE_ORIGIN)).toBe(true);
+  });
+
+  it('is false when the second reference names a draft that is not open', () => {
+    const s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'setMetadata',
+      patch: {
+        references: [
+          { label: 'Draft A', uri: `${SITE_ORIGIN}/t/draft-a/` },
+          { label: 'Not open', uri: `${SITE_ORIGIN}/t/not-open/` },
+        ],
+      },
+    });
+    expect(draftConflict(s, [{ slug: 'draft-a' }], SITE_ORIGIN)).toBe(false);
+  });
+
+  it('counts the tracked slug even once it falls off the open drafts list', () => {
+    let s = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'linkDraft',
+      slug: 'closed-draft',
+      title: 'Closed draft',
+      siteOrigin: SITE_ORIGIN,
+    });
+    s = govActionFormReducer(s, {
+      kind: 'setMetadata',
+      patch: { references: [...s.metadata.references, { label: 'Draft B', uri: `${SITE_ORIGIN}/t/draft-b/` }] },
+    });
+    // closed-draft is no longer in openDrafts, but it is still the tracked slug.
+    expect(draftConflict(s, [{ slug: 'draft-b' }], SITE_ORIGIN)).toBe(true);
   });
 });

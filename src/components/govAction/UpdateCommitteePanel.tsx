@@ -11,15 +11,19 @@ import { useMemo } from 'react';
 import type { CSSProperties } from 'react';
 import PrevActionField from './PrevActionField.js';
 import { validateCommitteePanel } from '@/lib/governance/govActionFormState.js';
-import { isBech32CredentialInput } from '@/lib/governance/committeeUpdate.js';
+import { ccColdBech32, isBech32CredentialInput } from '@/lib/governance/committeeUpdate.js';
+import { shortenHash } from '@/lib/governance/onchain.js';
+import { epochDateClause, epochWithDate } from '@/lib/governance/epochLabel.js';
 import type { CommitteeAddRow, UpdateCommitteePanelState } from '@/lib/governance/govActionFormState.js';
 import type { ActionContextResponse } from '@/lib/governance/actionContextHandler.js';
+import type { NetworkConfig } from '@/lib/config/network.js';
 import { inputStyle, labelStyle, mutedStyle } from '@/components/drepFormStyles.js';
 
 export interface UpdateCommitteePanelProps {
   context: ActionContextResponse;
   value: UpdateCommitteePanelState;
   onChange: (value: UpdateCommitteePanelState) => void;
+  networkConfig: NetworkConfig;
   disabled?: boolean;
 }
 
@@ -35,8 +39,33 @@ const linkButtonStyle = (disabled: boolean): CSSProperties => ({
   textDecoration: 'underline',
 });
 
-function shortHex(hex: string): string {
-  return `${hex.slice(0, 12)}...${hex.slice(-6)}`;
+/**
+ * A member's cold credential as shortened cc_cold bech32, or, when the chain
+ * context hands back a hash that is not 56 hex characters, the shortened hex
+ * it did hand back. The members come from upstream, so an unencodable hash is
+ * shown as what it is rather than allowed to take the panel down.
+ */
+function shortColdCredential(coldHex: string, hasScript: boolean): string {
+  return shortenHash(ccColdBech32(coldHex, hasScript) ?? coldHex);
+}
+
+/**
+ * A sitting member's checkbox label: its self-declared or curated display
+ * name (when known) followed by the shortened cc_cold bech32 credential and
+ * the term expiry with its calendar date, or the shortened credential alone
+ * when there is no name. The kind (key vs script) is not spelled out
+ * separately, the bech32 header byte already carries it.
+ */
+function committeeMemberLabel(
+  member: { coldHex: string; hasScript: boolean; expirationEpoch: number | null; name: string | null },
+  networkConfig: NetworkConfig,
+): string {
+  const short = shortColdCredential(member.coldHex, member.hasScript);
+  const expiry =
+    member.expirationEpoch == null
+      ? ''
+      : `, term ends in epoch ${member.expirationEpoch}, ${epochDateClause(member.expirationEpoch, networkConfig)}`;
+  return member.name ? `${member.name} (${short}${expiry})` : `${short}${expiry}`;
 }
 
 /** The key/script toggle, disabled and irrelevant while the input is bech32. */
@@ -63,7 +92,7 @@ function KindToggle(props: {
   );
 }
 
-export default function UpdateCommitteePanel({ context, value, onChange, disabled = false }: UpdateCommitteePanelProps) {
+export default function UpdateCommitteePanel({ context, value, onChange, networkConfig, disabled = false }: UpdateCommitteePanelProps) {
   const prevContext = context.prev ?? { lastEnacted: null, open: [] };
   const committee = context.committee ?? null;
   const members = committee?.members ?? [];
@@ -104,6 +133,7 @@ export default function UpdateCommitteePanel({ context, value, onChange, disable
         context={prevContext}
         value={value.prev}
         onChange={prev => onChange({ ...value, prev })}
+        networkConfig={networkConfig}
         disabled={disabled}
       />
 
@@ -127,6 +157,7 @@ export default function UpdateCommitteePanel({ context, value, onChange, disable
                   <label key={m.coldHex} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', fontSize: '0.875rem' }}>
                     <input
                       type="checkbox"
+                      value={m.coldHex}
                       checked={value.removeHex.includes(m.coldHex)}
                       disabled={disabled}
                       onChange={e =>
@@ -138,13 +169,7 @@ export default function UpdateCommitteePanel({ context, value, onChange, disable
                         })
                       }
                     />
-                    <span>
-                      {shortHex(m.coldHex)}{' '}
-                      <span style={mutedStyle}>
-                        ({m.hasScript ? 'script hash' : 'key hash'}
-                        {m.expirationEpoch == null ? '' : `, term ends in epoch ${m.expirationEpoch}`})
-                      </span>
-                    </span>
+                    <span>{committeeMemberLabel({ ...m, coldHex: m.coldHex }, networkConfig)}</span>
                   </label>
                 ),
               )}
@@ -197,7 +222,13 @@ export default function UpdateCommitteePanel({ context, value, onChange, disable
               </div>
             ))}
             <datalist id="ga-committee-members">
-              {members.map(m => (m.coldHex === null ? null : <option key={m.coldHex} value={m.coldHex} />))}
+              {/* A member whose cold hash does not encode is left out rather
+                  than offered as a suggestion the credential parser would
+                  refuse anyway. */}
+              {members.map(m => {
+                const bech32 = m.coldHex === null ? null : ccColdBech32(m.coldHex, m.hasScript);
+                return bech32 === null ? null : <option key={m.coldHex} value={bech32} />;
+              })}
             </datalist>
             <div>
               <button
@@ -228,7 +259,7 @@ export default function UpdateCommitteePanel({ context, value, onChange, disable
           A cold credential as CIP-129 bech32 (cc_cold...) or 56 hex characters, plus the epoch its term ends.
           {maxTermLength == null
             ? ''
-            : ` The term cannot run past epoch ${context.epoch + maxTermLength}, the maximum term from here.`}
+            : ` The term cannot run past ${epochWithDate(context.epoch + maxTermLength, networkConfig)}, the maximum term from here.`}
         </span>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           {value.add.map((row, i) => (
@@ -241,6 +272,7 @@ export default function UpdateCommitteePanel({ context, value, onChange, disable
                   onChange={e => updateAddRow(i, { input: e.target.value })}
                   placeholder="cc_cold... or 56 hex characters"
                   disabled={disabled}
+                  list="ga-committee-members"
                   spellCheck={false}
                   style={{ ...inputStyle, flex: 1, minWidth: '14rem' }}
                   aria-label={`Credential to add ${i + 1}`}

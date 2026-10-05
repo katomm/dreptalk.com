@@ -9,8 +9,10 @@ export const prerender = false;
 
 import Layout from '@/layouts/Layout.astro';
 import SubmitGovAction from '@/components/SubmitGovAction.tsx';
-import { currentNetwork } from '@/lib/api/response';
+import { currentNetwork, runtimeEnv } from '@/lib/api/response';
 import { govActionSubmissionAvailable } from '@/lib/governance/submissionGate';
+import { loadSessionHeader } from '@/lib/forum/sessionHeader';
+import { listOpenProposalDrafts } from '@/lib/db/proposalDrafts';
 
 const net = currentNetwork();
 if (!govActionSubmissionAvailable(net.network)) {
@@ -23,12 +25,24 @@ if (!user) {
 }
 
 const network = net.network;
+// Resolved the way /home/ resolves its greeting, so "Sign as author" prefills
+// the same name the user sees elsewhere on the site.
+const [account] = await loadSessionHeader(Astro.locals, user.id);
+const displayName = account.displayName;
+// SSR prop, no dedicated route (see the design doc's decision 3): the "Link a
+// Proposal Draft" control needs the list once per page load, not on every
+// keystroke.
+const db = runtimeEnv(Astro.locals).DB as D1Database | undefined;
+const openDrafts = db ? await listOpenProposalDrafts(db, user.id) : [];
+// What draftSlugsFromReferences compares a reference's URL against, not the
+// browser's own origin.
+const siteOrigin = net.siteOrigin;
 ---
 <Layout title="Submit a governance action (Beta) - DRepTalk" description="Beta preprod tool for submitting a governance action." noindex={true}>
   <div class="callout callout--warning" role="status">
     <div class="callout__body">
-      Beta, preprod only. Submitting locks the governance action deposit
-      (1000 tADA on preprod), refunded when the action is finalized.
+      Beta, preprod only. Submitting locks the governance action deposit shown below,
+      refunded when the action is finalized.
     </div>
   </div>
 
@@ -39,5 +53,5 @@ const network = net.network;
     Everything is signed locally, dreptalk.com never handles your private keys.
   </p>
 
-  <SubmitGovAction network={network} client:load />
+  <SubmitGovAction network={network} displayName={displayName} openDrafts={openDrafts} siteOrigin={siteOrigin} client:load />
 </Layout>

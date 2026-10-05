@@ -115,14 +115,21 @@ export interface MarkdownEditorProps {
   idPrefix?: string;
   showCounter?: boolean;
   helpText?: boolean;
+  /** @mention autocomplete and its toolbar button. Off for text published outside the forum. */
+  mentions?: boolean;
 }
 
 // Controlled Markdown editor shared by the forum composer and the vote rationale
 // modal. Toolbar + textarea + a Preview toggle backed by /api/preview (server
 // sanitized). The imperative focus() handle resets to edit mode and focuses the
 // textarea, which the composer uses when a Reply/Edit action targets it.
+/** The textarea's id, for a caller that labels the editor from outside. */
+export function markdownBodyId(idPrefix: string): string {
+  return `${idPrefix}-body`;
+}
+
 const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(function MarkdownEditor(
-  { value, onChange, maxLength, label, placeholder = 'Write in Markdown...', disabled = false, required = false, minRows = 7, idPrefix = 'md', showCounter = false, helpText = true },
+  { value, onChange, maxLength, label, placeholder = 'Write in Markdown...', disabled = false, required = false, minRows = 7, idPrefix = 'md', showCounter = false, helpText = true, mentions = true },
   ref,
 ) {
   const [showPreview, setShowPreview] = useState(false);
@@ -137,7 +144,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   // immediately while later keystrokes still debounce.
   const firstPreviewRef = useRef(true);
   const pendingSelRef = useRef<{ start: number; end: number } | null>(null);
-  const bodyId = `${idPrefix}-body`;
+  const bodyId = markdownBodyId(idPrefix);
 
   // @mention autocomplete: candidates load lazily on the first '@', the panel
   // sits below the textarea (not caret-anchored).
@@ -204,6 +211,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
   // change to the textarea value or caret so the panel tracks typing and
   // caret movement. Candidates are fetched lazily on the first '@'.
   const syncActive = (el: HTMLTextAreaElement) => {
+    if (!mentions) return;
     const next = detectMentionQuery(el.value, el.selectionStart);
     if (next?.start !== active?.start || next?.query !== active?.query) setHighlight(0);
     setActive(next);
@@ -240,12 +248,16 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
       const res = await fetch('/api/preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bodyMd: md }),
+        // Without mentions the text is published outside the forum, so it is
+        // rendered the way the governance action page renders it (parts mode:
+        // no @mention links), not the way a forum post is.
+        body: JSON.stringify(mentions ? { bodyMd: md } : { parts: { body: md } }),
         signal: ctrl.signal,
       });
       if (!ctrl.signal.aborted && res.ok) {
-        const data = (await res.json()) as { html: string };
-        if (!ctrl.signal.aborted) setPreviewHtml(data.html);
+        const data = (await res.json()) as { html: string | { body?: string } };
+        const html = typeof data.html === 'string' ? data.html : (data.html.body ?? '');
+        if (!ctrl.signal.aborted) setPreviewHtml(html);
       }
     } catch {
       // Preview errors (including the AbortError on supersede) are silent; the
@@ -253,7 +265,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     } finally {
       if (!ctrl.signal.aborted) setLoading(false);
     }
-  }, []);
+  }, [mentions]);
 
   // Cancel any in-flight preview when the editor unmounts.
   useEffect(() => () => previewAbortRef.current?.abort(), []);
@@ -307,7 +319,9 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
             {TOOLBAR.map(({ action, title }) => (
               <ToolbarButton key={action} title={title} path={TOOLBAR_ICON[action]} disabled={disabled} onClick={() => runAction(action)} />
             ))}
-            <ToolbarButton title="Mention someone" path={TOOLBAR_ICON.mention} disabled={disabled} onClick={triggerMention} />
+            {mentions && (
+              <ToolbarButton title="Mention someone" path={TOOLBAR_ICON.mention} disabled={disabled} onClick={triggerMention} />
+            )}
           </div>
           <textarea
             ref={textareaRef}
@@ -416,7 +430,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
 
       {helpText && (
         <p style={{ margin: '0.5rem 0 0', fontSize: '0.8125rem', color: 'var(--muted)' }}>
-          Use the toolbar or type Markdown directly: headings, bold, italics, strikethrough, links, quotes, lists, and code. Type @ to mention someone.
+          Use the toolbar or type Markdown directly: headings, bold, italics, strikethrough, links, quotes, lists, and code.{mentions ? ' Type @ to mention someone.' : ''}
         </p>
       )}
     </div>

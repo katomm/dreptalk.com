@@ -14,12 +14,14 @@ import {
 import { matchesRef } from '@/lib/governance/prevAction.js';
 import type { ActionContextResponse } from '@/lib/governance/actionContextHandler.js';
 import type { HardForkPanelState } from '@/lib/governance/govActionFormState.js';
+import type { NetworkConfig } from '@/lib/config/network.js';
 import { labelStyle, mutedStyle } from '@/components/drepFormStyles.js';
 
 export interface HardForkPanelProps {
   context: ActionContextResponse;
   value: HardForkPanelState;
   onChange: (value: HardForkPanelState) => void;
+  networkConfig: NetworkConfig;
   disabled?: boolean;
 }
 
@@ -31,7 +33,7 @@ function sameVersion(a: ProtocolVersion | null, b: ProtocolVersion): boolean {
   return a !== null && a.major === b.major && a.minor === b.minor;
 }
 
-export default function HardForkPanel({ context, value, onChange, disabled = false }: HardForkPanelProps) {
+export default function HardForkPanel({ context, value, onChange, networkConfig, disabled = false }: HardForkPanelProps) {
   const prevContext = context.prev ?? { lastEnacted: null, open: [] };
   const active = context.protocolVersion ?? null;
   const prev = value.prev;
@@ -48,6 +50,7 @@ export default function HardForkPanel({ context, value, onChange, disabled = fal
         context={prevContext}
         value={value.prev}
         onChange={prev => onChange({ ...value, prev })}
+        networkConfig={networkConfig}
         disabled={disabled}
       />
 
@@ -55,7 +58,7 @@ export default function HardForkPanel({ context, value, onChange, disabled = fal
         <span style={labelStyle}>Protocol version</span>
         {active && (
           <p style={{ ...mutedStyle, margin: '0 0 0.375rem' }}>
-            The network is on {formatVersion(active)}
+            Active version {formatVersion(active)}
             {openRow?.version ? `, and the chosen open proposal would take it to ${formatVersion(openRow.version)}` : ''}.
           </p>
         )}
@@ -71,7 +74,10 @@ export default function HardForkPanel({ context, value, onChange, disabled = fal
             version can be offered against it. Chain onto the last enacted action instead.
           </p>
         )}
-        {candidates.length > 0 && (
+        {/* `base` is what the candidates were computed from, so it is always
+            set when there are any. Naming it here is what lets the major-bump
+            line below read base.major without a fallback. */}
+        {base && candidates.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
             {candidates.map(c => (
               <label key={formatVersion(c)} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', fontSize: '0.875rem' }}>
@@ -83,8 +89,10 @@ export default function HardForkPanel({ context, value, onChange, disabled = fal
                   onChange={() => onChange({ ...value, version: c })}
                 />
                 <span>
-                  {formatVersion(c)}{' '}
-                  <span style={mutedStyle}>({c.minor === 0 ? 'major version bump' : 'minor version bump'})</span>
+                  {formatVersion(c)}
+                  <span style={mutedStyle}>
+                    , {c.major > base.major ? 'a new major version (a real hard fork)' : 'a minor version bump'}
+                  </span>
                 </span>
               </label>
             ))}

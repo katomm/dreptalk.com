@@ -9,12 +9,14 @@ import { CONSTITUTION_DOCUMENT_MAX_BYTES } from '@/lib/governance/infoActionLimi
 import { HEX_HASH_224_RE } from '@/lib/crypto/hex.js';
 import type { ActionContextResponse } from '@/lib/governance/actionContextHandler.js';
 import type { NewConstitutionPanelState } from '@/lib/governance/govActionFormState.js';
+import type { NetworkConfig } from '@/lib/config/network.js';
 import { inputStyle, labelStyle, mutedStyle } from '@/components/drepFormStyles.js';
 
 export interface NewConstitutionPanelProps {
   context: ActionContextResponse;
   value: NewConstitutionPanelState;
   onChange: (value: NewConstitutionPanelState) => void;
+  networkConfig: NetworkConfig;
   disabled?: boolean;
 }
 
@@ -28,7 +30,7 @@ function formatBytes(bytes: number): string {
   return `${Math.round(bytes / 1024)} KiB`;
 }
 
-export default function NewConstitutionPanel({ context, value, onChange, disabled = false }: NewConstitutionPanelProps) {
+export default function NewConstitutionPanel({ context, value, onChange, networkConfig, disabled = false }: NewConstitutionPanelProps) {
   const prevContext = context.prev ?? { lastEnacted: null, open: [] };
   const contextScriptHash = context.constitution?.scriptHash ?? null;
 
@@ -48,6 +50,7 @@ export default function NewConstitutionPanel({ context, value, onChange, disable
         context={prevContext}
         value={value.prev}
         onChange={prev => onChange({ ...value, prev })}
+        networkConfig={networkConfig}
         disabled={disabled}
       />
 

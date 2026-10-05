@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { encodeBech32 } from '../crypto/bech32.js';
 import {
   type ColdCredential,
+  ccColdBech32,
   parseColdCredential,
   validateCommitteeUpdate,
 } from './committeeUpdate.js';
@@ -375,5 +376,46 @@ describe('validateCommitteeUpdate', () => {
         expect(result.errors.some(e => e.field === 'add[0].expiryEpoch')).toBe(true);
       }
     });
+  });
+});
+
+describe('ccColdBech32', () => {
+  it('encodes a key hash as a real cc_cold bech32 string decodable by parseColdCredential', () => {
+    const hashHex = 'd'.repeat(56);
+    const bech32 = ccColdBech32(hashHex, false) as string;
+    expect(bech32.startsWith('cc_cold1')).toBe(true);
+    expect(parseColdCredential(bech32, 'key')).toEqual({ hashHex, isScript: false });
+  });
+
+  it('encodes a script hash as a real cc_cold bech32 string decodable by parseColdCredential', () => {
+    const hashHex = 'e'.repeat(56);
+    const bech32 = ccColdBech32(hashHex, true) as string;
+    expect(bech32.startsWith('cc_cold1')).toBe(true);
+    expect(parseColdCredential(bech32, 'key')).toEqual({ hashHex, isScript: true });
+  });
+
+  // The members come from the chain context, not from this form, so a hash
+  // that is not 56 hex characters is upstream data rather than a bug here. It
+  // used to throw out of hexToBytes or out of Uint8Array.set, in the middle of
+  // a render, which took the whole submit island down.
+  it('answers null for a hash that is not exactly 56 hex characters', () => {
+    expect(ccColdBech32('', false)).toBeNull();
+    expect(ccColdBech32('abc', false)).toBeNull();
+    // 58 hex characters: one byte too many for the 29-byte payload.
+    expect(ccColdBech32('a'.repeat(58), false)).toBeNull();
+    expect(ccColdBech32(`${'a'.repeat(54)}zz`, true)).toBeNull();
+  });
+
+  it('round-trips against a known real cc_cold credential', () => {
+    expect(ccColdBech32(SCRIPT_HEX, true)).toBe(SCRIPT_BECH32);
+  });
+
+  it('round-trips arbitrary hashes for both kinds through parseColdCredential', () => {
+    for (const isScript of [false, true]) {
+      const hashHex = (isScript ? 'f' : '0').repeat(56);
+      const bech32 = ccColdBech32(hashHex, isScript) as string;
+      const parsed = parseColdCredential(bech32, 'key');
+      expect(parsed).toEqual({ hashHex, isScript });
+    }
   });
 });

@@ -127,6 +127,42 @@ export function thresholdSentence(type: GovActionFormType, p: ProtocolParams): s
   return `${parts.join(', ')}${suffix}.`;
 }
 
+// Non-null placeholder params for decidersLine's plan() probe. Only the
+// null-vs-set shape of spo and the cc flag matter there, never the numeric
+// thresholds, so any non-null values work.
+const PROBE_PARAMS: ProtocolParams = {
+  epoch: 0,
+  dvtMotionNoConfidence: 1, dvtCommitteeNormal: 1, dvtCommitteeNoConfidence: 1,
+  dvtUpdateConstitution: 1, dvtHardFork: 1, dvtPpNetwork: 1, dvtPpEconomic: 1,
+  dvtPpTechnical: 1, dvtPpGov: 1, dvtTreasuryWithdrawal: 1,
+  pvtMotionNoConfidence: 1, pvtCommitteeNormal: 1, pvtCommitteeNoConfidence: 1,
+  pvtHardFork: 1, pvtSecurityGroup: 1, ccThreshold: 1, committeeMinSize: null, committeeSize: null,
+  syncedAt: 0, rawJson: null,
+  treasuryLovelace: null, reservesLovelace: null, circulationLovelace: null, treasuryEpoch: null,
+};
+
+/**
+ * One line naming who decides an action type, for the /ga/new type selector
+ * cards. Derived from plan() (which body votes and whether the committee
+ * votes), the same table thresholdSentence reads, so the two can never say
+ * different things about who votes. InfoAction is not on-chain at all
+ * (plan() returns null for it) so its line is written out here rather than
+ * derived.
+ */
+export function decidersLine(type: GovActionFormType): string {
+  if (type === 'InfoAction') {
+    return 'Advisory, never ratified, DReps and SPOs vote to signal';
+  }
+  const koiosType = koiosProposalType(type);
+  const pl = plan({ type: koiosType, drepYesPct: null, spoYesPct: null, ccYesPct: null }, PROBE_PARAMS);
+  const spoVotes = pl?.spo != null;
+  const ccVotes = pl?.cc ?? false;
+  if (spoVotes && ccVotes) return 'Decided by DReps, SPOs and the committee';
+  if (spoVotes) return 'Decided by DReps and SPOs';
+  if (ccVotes) return 'Decided by DReps and the committee';
+  return 'Decided by DReps';
+}
+
 /**
  * Whether an action type carries an on-chain ratification threshold. Only
  * InfoAction is advisory and has none; every other governance action type carries

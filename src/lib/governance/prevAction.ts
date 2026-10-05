@@ -143,6 +143,16 @@ export function matchesRef(ref: PrevActionRef, candidate: { txHash: string; inde
   return ref.txHashHex.toLowerCase() === candidate.txHash.toLowerCase() && ref.index === candidate.index;
 }
 
+/**
+ * The "<64-hex-txHash>#<index>" key shape, which is what governance_actions.id
+ * holds and what formatGovActionKey below writes. Lowercase only, since that
+ * is how the tx hash and the stored id are both written (see sync.ts, which
+ * keys the id off proposal_tx_hash straight from Koios). The one place this
+ * shape is spelled out, so a route and a transaction builder cannot end up
+ * accepting slightly different ids.
+ */
+export const GOV_ACTION_KEY_RE = /^[0-9a-f]{64}#\d{1,5}$/;
+
 /** Formats a PrevActionRef as the "<txHashHex>#<index>" key used as governance_actions.id. */
 export function formatGovActionKey(ref: PrevActionRef): string {
   return `${ref.txHashHex}#${ref.index}`;

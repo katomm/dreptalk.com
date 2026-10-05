@@ -42,6 +42,21 @@ export interface GovActionDraft {
   surveyRef: string;
   /** Per-type panel state, keyed by every form type except InfoAction (which has no panel). */
   panels: Partial<Record<Exclude<GovActionFormType, 'InfoAction'>, unknown>>;
+  /**
+   * When this draft was written, in ms. Written by saveGovActionDraft on every
+   * save, absent on a draft saved before this field existed (which shows
+   * "Restored your saved draft" instead of a relative time).
+   */
+  savedAt?: number;
+  /**
+   * The Proposal Drafts thread slug tracked by the "Link a Proposal Draft"
+   * control, or null when nothing is linked. Written on every save from this
+   * field's introduction onward, so `undefined` (the key absent) means a
+   * draft saved before it existed, not "nothing was linked". A restore of
+   * such a draft derives the slug from the references instead, see
+   * govActionFormState.ts.
+   */
+  linkedDraftSlug?: string | null;
 }
 
 function isFormType(value: unknown): value is GovActionFormType {
@@ -127,19 +142,40 @@ export function loadGovActionDraft(storage: Pick<Storage, 'getItem'>, key: strin
     abstract: str(parsed.abstract),
     motivation: str(parsed.motivation),
     rationale: str(parsed.rationale),
-    signAsAuthor: parsed.signAsAuthor === true,
+    // Signing is the default since savedAt was introduced. A draft saved before
+    // that kept the old opt-in default, so its stored false is not a choice and
+    // restores as signed. A newer draft keeps an explicit false.
+    signAsAuthor: typeof parsed.savedAt === 'number' ? parsed.signAsAuthor !== false : true,
     authorName: str(parsed.authorName),
     references,
     // Drafts saved before the survey-link field existed simply have none.
     surveyRef: str(parsed.surveyRef),
     panels: coercePanels(parsed.panels),
+    // Drafts saved before savedAt existed simply have none.
+    ...(typeof parsed.savedAt === 'number' ? { savedAt: parsed.savedAt } : {}),
+    // Drafts saved before linkedDraftSlug existed leave the key out entirely
+    // (undefined), which is what tells restoreDraft to derive it instead of
+    // trusting an absent link.
+    ...(typeof parsed.linkedDraftSlug === 'string' || parsed.linkedDraftSlug === null
+      ? { linkedDraftSlug: parsed.linkedDraftSlug }
+      : {}),
   };
 }
 
-/** Stores the draft as JSON. Best-effort: storage can be full or blocked, so this never throws. */
-export function saveGovActionDraft(storage: Pick<Storage, 'setItem'>, key: string, draft: GovActionDraft): void {
+/**
+ * Stores the draft as JSON, stamped with the save time. Best-effort: storage
+ * can be full or blocked, so this never throws. nowMs is a parameter (rather
+ * than reading Date.now() unconditionally) so a test can assert an exact
+ * value.
+ */
+export function saveGovActionDraft(
+  storage: Pick<Storage, 'setItem'>,
+  key: string,
+  draft: GovActionDraft,
+  nowMs: number = Date.now(),
+): void {
   try {
-    storage.setItem(key, JSON.stringify(draft));
+    storage.setItem(key, JSON.stringify({ ...draft, savedAt: nowMs }));
   } catch {
     // Storage can be full or blocked, drafting is best-effort.
   }

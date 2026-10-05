@@ -10,6 +10,7 @@ import { METADATA_LABEL, type Metadatum } from 'cip-179';
 import { toTxMetadatum } from 'cip-179/evolution';
 import { dreptalkCip20Metadatum, DREPTALK_CIP20_LABEL } from '../cardano/tx.js';
 import { hexToBytes } from '../crypto/hex.js';
+import { GOV_ACTION_KEY_RE } from './prevAction.js';
 import type { CardanoNetwork } from '../config/network.js';
 import {
   FUNDING_HEADROOM_LOVELACE,
@@ -286,20 +287,26 @@ export function buildDrepTarget(opts: { credentialHex: string; isScript: boolean
 /**
  * Parses the stored governance action id ("<txHash>#<index>", the
  * governance_actions.id form) into the SDK GovActionId the vote builder needs.
- * The tx hash is 64 lowercase hex chars (32 bytes); the index is a uint16.
- * Pure; exported for unit tests.
+ * The tx hash is 64 hex chars (32 bytes), the index a uint16. Pure, exported
+ * for unit tests.
+ *
+ * The shape itself comes from GOV_ACTION_KEY_RE, which is lowercase only, so a
+ * hash typed in upper case is folded down before it is checked rather than
+ * being rejected: the hash goes on chain as bytes, and this builder has always
+ * taken either case.
  */
 export function buildGovActionId(id: string): GovernanceAction.GovActionId {
-  const m = /^([0-9a-fA-F]{64})#(\d{1,5})$/.exec(id.trim());
-  if (!m) {
-    throw new Error('Invalid governance action id; expected "<64-hex-txHash>#<index>".');
+  const key = id.trim().toLowerCase();
+  if (!GOV_ACTION_KEY_RE.test(key)) {
+    throw new Error('Invalid governance action id, expected "<64-hex-txHash>#<index>".');
   }
-  const index = Number(m[2]);
+  const [txHashHex, indexText] = key.split('#');
+  const index = Number(indexText);
   if (!Number.isInteger(index) || index < 0 || index > 0xffff) {
     throw new Error('Governance action index out of range.');
   }
   return new GovernanceAction.GovActionId({
-    transactionId: TransactionHash.fromHex(m[1].toLowerCase()),
+    transactionId: TransactionHash.fromHex(txHashHex),
     govActionIndex: BigInt(index),
   });
 }

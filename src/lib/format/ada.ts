@@ -23,6 +23,17 @@ export function formatAda(lovelace: string | number | null | undefined): string 
 }
 
 /**
+ * Plain ada from lovelace, with no symbol and up to two decimals: "1,005",
+ * "99,435.5". For copy that writes the unit itself, which on the preprod-only
+ * submission flow is "tADA" rather than the symbol. Never null: the callers
+ * pass an exact lovelace amount they already hold.
+ */
+export function formatAdaPlain(lovelace: bigint | string | number): string {
+  const value = typeof lovelace === 'bigint' ? lovelace : BigInt(lovelace);
+  return (Number(value) / 1_000_000).toLocaleString('en-US', { maximumFractionDigits: 2 });
+}
+
+/**
  * Compact ada from lovelace: "3.21B ₳" / "39.6M ₳" / "950K ₳". Null when
  * absent/non-numeric. Defaults to one fraction digit; pass 2 where the extra
  * resolution matters (e.g. comparing turnout totals in the billions).

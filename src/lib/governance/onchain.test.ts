@@ -169,12 +169,46 @@ describe('decodeOnchainChanges', () => {
     expect(changes.removed[1]).toMatchObject({ credentialType: 'scriptHash', coldKeyHex: 'cc'.repeat(28) });
   });
 
+  // Shape confirmed against mainnet Koios (see govActionMetadata.ts): the
+  // constitution body sits at contents[1] with the anchor's url and dataHash.
+  it('decodes a NewConstitution anchor, its document hash and the guardrails script', () => {
+    const p = JSON.stringify({
+      tag: 'NewConstitution',
+      contents: [
+        { txId: '8c653ee5c9800e6d31e79b5a7f7d4400c81d44717ad4db633dc18d4c07e4a4fd', govActionIx: 0 },
+        {
+          anchor: { url: 'ipfs://bafkreieyuknozbtewyurfqoagvplvykadn6a4u6wglupavdz46bbsnnl6e', dataHash: 'ab'.repeat(32) },
+          script: 'fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64',
+        },
+      ],
+    });
+    expect(decodeOnchainChanges(p, EP, 'preprod')).toEqual({
+      kind: 'constitution',
+      anchorUrl: 'ipfs://bafkreieyuknozbtewyurfqoagvplvykadn6a4u6wglupavdz46bbsnnl6e',
+      dataHash: 'ab'.repeat(32),
+      scriptHash: 'fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64',
+    });
+  });
+
+  it('reports a missing constitution document hash as null rather than dropping the field', () => {
+    const p = JSON.stringify({
+      tag: 'NewConstitution',
+      contents: [null, { anchor: { url: 'https://example.com/con.json' }, script: null }],
+    });
+    expect(decodeOnchainChanges(p, EP, 'preprod')).toEqual({
+      kind: 'constitution',
+      anchorUrl: 'https://example.com/con.json',
+      dataHash: null,
+      scriptHash: null,
+    });
+  });
+
   it('returns a note for InfoAction', () => {
     const p = JSON.stringify({ tag: 'InfoAction' });
     expect(decodeOnchainChanges(p, EP, 'preprod')).toEqual({
       kind: 'note',
       tag: 'InfoAction',
-      text: 'Informational action. No on-chain effect; the vote signals opinion only.',
+      text: 'Informational action. No on-chain effect, the vote signals opinion only.',
     });
   });
 });

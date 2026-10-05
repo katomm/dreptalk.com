@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatAda, formatAdaCompact, lovelaceToAdaDecimal } from './ada.js';
+import { formatAda, formatAdaCompact, formatAdaPlain, lovelaceToAdaDecimal } from './ada.js';
 
 describe('formatAda', () => {
   it('formats lovelace as whole ada with the ₳ symbol and thousands separators', () => {
@@ -17,6 +17,19 @@ describe('formatAda', () => {
     expect(formatAda(undefined)).toBeNull();
     expect(formatAda('')).toBeNull();
     expect(formatAda('abc')).toBeNull();
+  });
+});
+
+describe('formatAdaPlain', () => {
+  it('writes no symbol, so the caller can add its own unit', () => {
+    expect(formatAdaPlain(1_005_000_000n)).toBe('1,005');
+    expect(formatAdaPlain('812000000')).toBe('812');
+    expect(formatAdaPlain(0n)).toBe('0');
+  });
+
+  it('keeps up to two decimals, unlike the rounded full form', () => {
+    expect(formatAdaPlain(99_435_500_000n)).toBe('99,435.5');
+    expect(formatAdaPlain(1_234_567n)).toBe('1.23');
   });
 });
 
