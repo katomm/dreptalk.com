@@ -6,6 +6,7 @@ import {
   committeeBelowMinSize,
   tallyContradictsOutcome,
   THRESHOLD_SNAPSHOT_VERSION,
+  thresholdSentence,
 } from './thresholds.js';
 import type { BodyResult } from './thresholds.js';
 import type { ProtocolParams } from '../db/protocolParams.js';
@@ -202,5 +203,45 @@ describe('committeeBelowMinSize', () => {
   it('is null when either value is unknown', () => {
     expect(committeeBelowMinSize(null, 7)).toBeNull();
     expect(committeeBelowMinSize(6, null)).toBeNull();
+  });
+});
+
+describe('thresholdSentence', () => {
+  it('NoConfidence: DRep and SPO percentages, no committee vote, plus the normal-state clause', () => {
+    expect(thresholdSentence('NoConfidence', P)).toBe(
+      'DReps 67%, SPOs 51%, the committee does not vote (normal state, after a no-confidence vote different committee thresholds apply).',
+    );
+  });
+
+  it('UpdateCommittee maps to the Koios NewCommittee thresholds and carries the same clause', () => {
+    expect(thresholdSentence('UpdateCommittee', P)).toBe(
+      'DReps 67%, SPOs 51%, the committee does not vote (normal state, after a no-confidence vote different committee thresholds apply).',
+    );
+  });
+
+  it('HardForkInitiation: DReps, SPOs and a committee vote', () => {
+    expect(thresholdSentence('HardForkInitiation', P)).toBe('DReps 60%, SPOs 51%, the committee votes.');
+  });
+
+  it('NewConstitution: DReps only, plus the committee', () => {
+    expect(thresholdSentence('NewConstitution', P)).toBe('DReps 75%, the committee votes.');
+  });
+
+  it('InfoAction has no ratification threshold at all', () => {
+    expect(thresholdSentence('InfoAction', P)).toBe(
+      'No ratification thresholds, an InfoAction is advisory and never enacts.',
+    );
+  });
+
+  it('says unknown rather than inventing a figure when the parameters are not synced', () => {
+    const unsynced: ProtocolParams = { ...P, dvtHardFork: null, pvtHardFork: null };
+    expect(thresholdSentence('HardForkInitiation', unsynced)).toBe(
+      'DReps unknown, SPOs unknown, the committee votes.',
+    );
+  });
+
+  it('formats a fractional threshold without trailing zeros', () => {
+    const odd: ProtocolParams = { ...P, dvtUpdateConstitution: 0.725 };
+    expect(thresholdSentence('NewConstitution', odd)).toBe('DReps 72.5%, the committee votes.');
   });
 });

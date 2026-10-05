@@ -11,7 +11,10 @@ import { SETTINGS_PATH, VOTE_PATH } from '@/lib/forum/icons';
 import { truncateIdMiddle } from '@/lib/forum/view';
 import Avatar from '@/components/Avatar.astro';
 import CopyButton from '@/components/CopyButton.astro';
+import BetaPill from '@/components/govAction/BetaPill.astro';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
+import { currentNetwork } from '@/lib/api/response';
+import { govActionSubmissionAvailable } from '@/lib/governance/submissionGate';
 
 interface Props {
   /** Resolved identity of the signed-in user. */
@@ -37,15 +40,30 @@ const icons = {
   home: 'M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8 M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z',
   settings: SETTINGS_PATH,
   vote: VOTE_PATH,
+  // Pencil tip plus a small plus mark: "create a new action", distinct from
+  // the plain pencil-on-page glyph used elsewhere for editing metadata.
+  pencilPlus:
+    'M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z M5 18v4 M3 20h4',
   logout: 'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4 M16 17l5-5-5-5 M21 12H9',
 } as const;
 
+interface MenuItem {
+  label: string;
+  href: string;
+  icon: string;
+  /** Renders a BetaPill after the label, for rows behind the mainnet gate. */
+  beta?: boolean;
+}
+
 // Menu rows above Log out, most-used first. The Voting Dashboard is DRep-only,
 // since /vote redirects everyone else to /login, so it is gated on a synced
-// DRep id.
-const items = [
+// DRep id. Submit action (Beta) shows wherever submission is available.
+const items: MenuItem[] = [
   { label: 'Home', href: '/home/', icon: icons.home },
   ...(account.drepId ? [{ label: 'Voting Dashboard', href: '/vote/', icon: icons.vote }] : []),
+  ...(govActionSubmissionAvailable(currentNetwork().network)
+    ? [{ label: 'Submit action', href: '/ga/new/', icon: icons.pencilPlus, beta: true }]
+    : []),
   { label: 'Settings', href: '/settings/', icon: icons.settings },
 ];
 ---
@@ -65,6 +83,7 @@ const items = [
     <a class="account-menu__item" href={item.href}>
       <svg class="account-menu__item-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d={item.icon} /></svg>
       {item.label}
+      {item.beta && <BetaPill />}
     </a>
   ))}
   <form method="POST" action="/api/auth/logout" class="account-menu__logout-form">

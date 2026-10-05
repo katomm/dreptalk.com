@@ -1,0 +1,259 @@
+// Constitutional committee update validation: cold credential parsing and
+// the UpdateCommittee field rules (expiry, conflicts, quorum). Pure logic
+// only, no network and no D1, so the /ga/new form can depend on this leaf
+// module directly.
+import { decodeBech32 } from '../crypto/bech32.js';
+import { bytesToHex, HEX_HASH_224_RE } from '../crypto/hex.js';
+
+/** A committee member's cold credential: a key hash or a script hash. */
+export type ColdCredential = { hashHex: string; isScript: boolean };
+
+/** A committee member as currently on chain, with its expiry epoch. */
+export type CurrentMember = {
+  hashHex: string;
+  isScript: boolean;
+  expirationEpoch: number | null;
+};
+
+/** One credential being added, with the epoch its term expires. */
+export type AddedMember = { credential: ColdCredential; expiryEpoch: number };
+
+/** A governance quorum threshold as a fraction. */
+export type Quorum = { numerator: number; denominator: number };
+
+/** The validated shape of an UpdateCommittee proposal, ready to submit. */
+export type CommitteeUpdate = {
+  remove: ColdCredential[];
+  add: AddedMember[];
+  quorum: Quorum;
+};
+
+export type ValidationError = { field: string; message: string };
+export type ValidationWarning = { field: string; message: string };
+
+export type ValidateCommitteeUpdateInput = {
+  /**
+   * Which committee the diff will meet. 'enacted' is the default case: the
+   * proposal chains onto the last enacted action, so today's committee is the
+   * state the diff is applied to and can be compared against. 'open' is a
+   * proposal chained onto one that is still open: the committee at enactment
+   * is whatever that proposal leaves behind, which is not knowable here, so
+   * the rules that compare against today's committee step aside.
+   */
+  mode: 'enacted' | 'open';
+  epoch: number;
+  maxTermLength: number | null;
+  current: CurrentMember[];
+  remove: ColdCredential[];
+  add: AddedMember[];
+  quorum: Quorum | null;
+  currentQuorum: Quorum | null;
+};
+
+export type ValidateCommitteeUpdateResult =
+  | { ok: true; value: CommitteeUpdate; warnings: ValidationWarning[] }
+  | { ok: false; errors: ValidationError[] };
+
+const CC_COLD_PREFIX = 'cc_cold';
+const CC_COLD_BECH32_RE = /^cc_cold1[a-z0-9]+$/;
+const CC_COLD_KEY_HEADER = 0x12;
+const CC_COLD_SCRIPT_HEADER = 0x13;
+
+/**
+ * True when the input is the CIP-129 bech32 form rather than raw hex, using
+ * exactly the rule parseColdCredential applies below. The caller needs this to
+ * know whether the key/script choice still matters: a bech32 credential
+ * carries that in its header byte, so the toggle beside the field is moot.
+ */
+export function isBech32CredentialInput(input: string): boolean {
+  return CC_COLD_BECH32_RE.test(input.trim().toLowerCase());
+}
+
+/**
+ * Parses a cold credential from either 56 hex chars (kind given explicitly
+ * by `hexKind`, since raw hex carries no key-vs-script marker) or a CIP-129
+ * bech32 string with the single `cc_cold` prefix used for both kinds: a
+ * 29-byte payload of a header byte (0x12 = key hash, 0x13 = script hash)
+ * followed by the 28-byte hash. Returns null for anything else: wrong
+ * prefix, wrong length, bad checksum, or an unrecognized header byte.
+ */
+export function parseColdCredential(
+  input: string,
+  hexKind: 'key' | 'script',
+): ColdCredential | null {
+  const trimmed = input.trim();
+  if (trimmed.length === 0) return null;
+
+  const lowered = trimmed.toLowerCase();
+  if (HEX_HASH_224_RE.test(lowered)) {
+    return { hashHex: lowered, isScript: hexKind === 'script' };
+  }
+
+  if (CC_COLD_BECH32_RE.test(lowered)) {
+    try {
+      const { prefix, data } = decodeBech32(lowered);
+      if (prefix !== CC_COLD_PREFIX) return null;
+      if (data.length !== 29) return null;
+      const header = data[0];
+      if (header !== CC_COLD_KEY_HEADER && header !== CC_COLD_SCRIPT_HEADER) return null;
+      return { hashHex: bytesToHex(data.slice(1)), isScript: header === CC_COLD_SCRIPT_HEADER };
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function credentialKey(c: { hashHex: string; isScript: boolean }): string {
+  return `${c.hashHex.toLowerCase()}:${c.isScript}`;
+}
+
+function isNonNegativeInteger(n: number): boolean {
+  return Number.isInteger(n) && n >= 0;
+}
+
+function isPositiveInteger(n: number): boolean {
+  return Number.isInteger(n) && n > 0;
+}
+
+function quorumsEqual(a: Quorum, b: Quorum): boolean {
+  return a.numerator === b.numerator && a.denominator === b.denominator;
+}
+
+/**
+ * Validates an UpdateCommittee proposal's fields: each added credential's
+ * expiry, conflicts between the add and remove lists, an added credential
+ * that is already a current member (warning, not an error, since re-adding
+ * with a new expiry is a legitimate way to extend a term), the removal of a
+ * credential that is not a member, the quorum fraction, and that the proposal
+ * actually changes something.
+ *
+ * The last three compare against today's committee and therefore only apply
+ * in 'enacted' mode, see the `mode` field.
+ */
+export function validateCommitteeUpdate(
+  input: ValidateCommitteeUpdateInput,
+): ValidateCommitteeUpdateResult {
+  const errors: ValidationError[] = [];
+  const warnings: ValidationWarning[] = [];
+
+  const removeKeys = new Set(input.remove.map(credentialKey));
+  const seenAddKeys = new Set<string>();
+  const currentByKey = new Map(input.current.map(c => [credentialKey(c), c]));
+
+  input.add.forEach((entry, i) => {
+    const key = credentialKey(entry.credential);
+
+    if (entry.expiryEpoch <= input.epoch) {
+      errors.push({
+        field: `add[${i}].expiryEpoch`,
+        message: 'expiry epoch must be after the current epoch',
+      });
+    } else if (
+      input.maxTermLength != null &&
+      entry.expiryEpoch > input.epoch + input.maxTermLength
+    ) {
+      errors.push({
+        field: `add[${i}].expiryEpoch`,
+        message:
+          'expiry epoch is beyond the maximum committee term, the action could pass the vote and still never ratify',
+      });
+    }
+
+    if (removeKeys.has(key)) {
+      errors.push({
+        field: `add[${i}].credential`,
+        message: 'credential is in both the add and remove lists',
+      });
+    }
+
+    if (seenAddKeys.has(key)) {
+      errors.push({
+        field: `add[${i}].credential`,
+        message: 'credential is listed more than once in add',
+      });
+    }
+    seenAddKeys.add(key);
+
+    if (input.mode === 'enacted' && currentByKey.has(key)) {
+      warnings.push({
+        field: `add[${i}].credential`,
+        message: 'credential is already a current committee member, this extends its term',
+      });
+    }
+  });
+
+  input.remove.forEach((c, i) => {
+    const key = credentialKey(c);
+    if (seenAddKeys.has(key)) {
+      errors.push({
+        field: `remove[${i}]`,
+        message: 'credential is in both the add and remove lists',
+      });
+    }
+    // Only meaningful against today's committee: in open mode the credential
+    // may be one the open prev adds, so it is a free credential there.
+    if (input.mode === 'enacted' && !currentByKey.has(key)) {
+      errors.push({
+        field: `remove[${i}]`,
+        message: 'credential is not a current committee member',
+      });
+    }
+  });
+
+  if (input.quorum == null) {
+    errors.push({ field: 'quorum.numerator', message: 'quorum is required' });
+  } else {
+    const { numerator, denominator } = input.quorum;
+    if (!isNonNegativeInteger(numerator)) {
+      errors.push({
+        field: 'quorum.numerator',
+        message: 'quorum numerator must be a non-negative integer',
+      });
+    }
+    if (!isPositiveInteger(denominator)) {
+      errors.push({
+        field: 'quorum.denominator',
+        message: 'quorum denominator must be a positive integer',
+      });
+    }
+    if (
+      isNonNegativeInteger(numerator) &&
+      isPositiveInteger(denominator) &&
+      numerator > denominator
+    ) {
+      errors.push({
+        field: 'quorum.numerator',
+        message: 'quorum numerator cannot exceed the denominator',
+      });
+    }
+  }
+
+  const quorumChanged =
+    input.quorum != null &&
+    (input.currentQuorum == null || !quorumsEqual(input.quorum, input.currentQuorum));
+  const hasMembershipChange = input.add.length > 0 || input.remove.length > 0;
+
+  // In open mode a quorum equal to today's can still be a real change,
+  // because the open prev may have moved it, so the rule is skipped there.
+  if (input.mode === 'enacted' && !hasMembershipChange && !quorumChanged && errors.length === 0) {
+    errors.push({ field: 'changes', message: 'nothing to change' });
+  }
+
+  if (errors.length > 0) {
+    return { ok: false, errors };
+  }
+
+  return {
+    ok: true,
+    value: {
+      remove: input.remove,
+      add: input.add,
+      // input.quorum is non-null here: the null and invalid-shape cases above
+      // both push an error and return before this point.
+      quorum: input.quorum as Quorum,
+    },
+    warnings,
+  };
+}

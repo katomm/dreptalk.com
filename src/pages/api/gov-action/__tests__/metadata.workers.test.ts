@@ -1,11 +1,12 @@
 /// <reference types="@cloudflare/workers-types" />
-// Workers-runtime tests for gateInfoActionRequest, the shared server gate for
-// POST /api/gov-action/metadata and POST /api/gov-action/metadata/prepare.
+// Workers-runtime tests for the shared gov-action gate, exercised through the
+// metadata policy used by POST /api/gov-action/metadata and
+// POST /api/gov-action/metadata/prepare.
 // network and env are injected via deps so every branch is deterministic and
 // never depends on the global cloudflare:workers env (preprod-only in prod).
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { gateInfoActionRequest } from '../metadata.js';
+import { gateGovActionRequest, GOV_ACTION_RATE_POLICIES } from '@/lib/governance/govActionGate';
 
 const preprod = { network: 'preprod', networkId: 0 } as never; // minimal NetworkConfig stub
 const mainnet = { network: 'mainnet', networkId: 1 } as never;
@@ -16,44 +17,49 @@ function req(headers: Record<string, string>) {
 
 const withJwt = { ...env, PINATA_JWT: 'jwt' } as Cloudflare.Env;
 
-describe('gateInfoActionRequest', () => {
+describe('gateGovActionRequest (metadata policy)', () => {
   const user = { user: { id: 'u', roles: [] } } as App.Locals;
 
   it('404 on mainnet', async () => {
-    const out = await gateInfoActionRequest(
+    const out = await gateGovActionRequest(
       { request: req({ 'sec-fetch-site': 'same-origin' }), locals: user },
+      GOV_ACTION_RATE_POLICIES.metadata,
       { network: mainnet, env: withJwt },
     );
     expect(out instanceof Response && out.status).toBe(404);
   });
 
   it('403 cross-origin', async () => {
-    const out = await gateInfoActionRequest(
+    const out = await gateGovActionRequest(
       { request: req({ 'sec-fetch-site': 'cross-site' }), locals: user },
+      GOV_ACTION_RATE_POLICIES.metadata,
       { network: preprod, env: withJwt },
     );
     expect(out instanceof Response && out.status).toBe(403);
   });
 
   it('401 signed out', async () => {
-    const out = await gateInfoActionRequest(
+    const out = await gateGovActionRequest(
       { request: req({ 'sec-fetch-site': 'same-origin' }), locals: { user: null } as App.Locals },
+      GOV_ACTION_RATE_POLICIES.metadata,
       { network: preprod, env: withJwt },
     );
     expect(out instanceof Response && out.status).toBe(401);
   });
 
   it('503 without PINATA_JWT', async () => {
-    const out = await gateInfoActionRequest(
+    const out = await gateGovActionRequest(
       { request: req({ 'sec-fetch-site': 'same-origin' }), locals: user },
+      GOV_ACTION_RATE_POLICIES.metadata,
       { network: preprod, env: { ...env, PINATA_JWT: undefined } as Cloudflare.Env },
     );
     expect(out instanceof Response && out.status).toBe(503);
   });
 
   it('passes with everything present', async () => {
-    const out = await gateInfoActionRequest(
+    const out = await gateGovActionRequest(
       { request: req({ 'sec-fetch-site': 'same-origin' }), locals: user },
+      GOV_ACTION_RATE_POLICIES.metadata,
       { network: preprod, env: withJwt },
     );
     expect(out instanceof Response).toBe(false);

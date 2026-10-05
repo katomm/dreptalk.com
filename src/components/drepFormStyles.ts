@@ -19,3 +19,9 @@ export const labelStyle: CSSProperties = {
   marginBottom: '0.25rem',
   color: 'var(--muted)',
 };
+
+/** Secondary help and note text, smaller than a label and in the muted colour. */
+export const mutedStyle: CSSProperties = {
+  color: 'var(--muted)',
+  fontSize: '0.8125rem',
+};

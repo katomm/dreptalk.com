@@ -5,13 +5,13 @@
 // this route is safe to call directly.
 import type { APIRoute } from 'astro';
 import { jsonResponse } from '@/lib/api/response';
-import { gateInfoActionRequest } from '../metadata';
+import { gateGovActionRequest, GOV_ACTION_RATE_POLICIES } from '@/lib/governance/govActionGate';
 import { prepareInfoActionBodyHash } from '@/lib/governance/infoActionMetadataHandler';
 
 export const prerender = false;
 
 export const POST: APIRoute = async ({ request, locals }) => {
-  const gate = await gateInfoActionRequest({ request, locals });
+  const gate = await gateGovActionRequest({ request, locals }, GOV_ACTION_RATE_POLICIES.metadata);
   if (gate instanceof Response) return gate;
 
   let body: unknown;

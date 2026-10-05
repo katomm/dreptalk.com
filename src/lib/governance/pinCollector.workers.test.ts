@@ -37,6 +37,25 @@ function fakeRemover(
   };
 }
 
+// Confirmed shape against mainnet Koios (gov_action1jxne7hynfd7frcczwumd2eggps4kvy0msjztz9t0mutpy870ksgqqp6vp3p,
+// ratified epoch 608): proposal_description for a NewConstitution action, exactly
+// as stored via JSON.stringify(p.proposal_description) in sync.ts. The
+// constitution hash sits at contents[1].anchor.dataHash, lowercase hex, and it
+// is a different value from the action's own meta_hash (the CIP-108 anchor_hash
+// of the proposal's own metadata document, unrelated to the constitution text).
+function newConstitutionPayload(dataHash: string): string {
+  return JSON.stringify({
+    tag: 'NewConstitution',
+    contents: [
+      { txId: '8c653ee5c9800e6d31e79b5a7f7d4400c81d44717ad4db633dc18d4c07e4a4fd', govActionIx: 0 },
+      {
+        anchor: { url: 'ipfs://bafkreieyuknozbtewyurfqoagvplvykadn6a4u6wglupavdz46bbsnnl6e', dataHash },
+        script: 'fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64',
+      },
+    ],
+  });
+}
+
 async function insertOld(hash: string, fileId: string | null, servedAt = NOW - GRACE - DAY) {
   await putGovActionMetadata(env.DB, {
     hash,
@@ -140,6 +159,54 @@ describe('collectUnreferencedPins', () => {
     const client = fakeRemover();
     expect(await run(client)).toMatchObject({ scanned: 0, deleted: 0 });
     expect(client.calls).toEqual([]);
+  });
+
+  it('leaves a constitution document referenced by a NewConstitution payload alone', async () => {
+    const hash = 'b368bdad83c727bbfe86425575233fb914eb76d05d89497f7790cf007fd95f52';
+    await insertOld(hash, 'file-g');
+    await env.DB.prepare(`UPDATE gov_action_metadata SET kind = 'constitution' WHERE hash = ?`).bind(hash).run();
+    await env.DB.prepare(
+      `INSERT INTO governance_actions (id, type, onchain_payload, status, meta_version, topic_id, created_at, last_synced_at)
+       VALUES (?, 'NewConstitution', ?, 'active', 5, 'topic-g', 1, 1)`,
+    )
+      .bind(
+        'gov_action1jxne7hynfd7frcczwumd2eggps4kvy0msjztz9t0mutpy870ksgqqp6vp3p',
+        newConstitutionPayload(hash),
+      )
+      .run();
+    const client = fakeRemover();
+    const res = await run(client);
+    expect(res).toMatchObject({ scanned: 0, deleted: 0 });
+    expect(client.calls).toEqual([]);
+  });
+
+  it('deletes a constitution document referenced nowhere', async () => {
+    const hash = 'h'.repeat(64);
+    await insertOld(hash, 'file-h');
+    await env.DB.prepare(`UPDATE gov_action_metadata SET kind = 'constitution' WHERE hash = ?`).bind(hash).run();
+    const client = fakeRemover();
+    const res = await run(client);
+    expect(res).toMatchObject({ scanned: 1, deleted: 1 });
+    expect(client.calls).toEqual(['file-h']);
+  });
+
+  it('deletes a constitution document when the NewConstitution payload carries a different dataHash', async () => {
+    const hash = 'b368bdad83c727bbfe86425575233fb914eb76d05d89497f7790cf007fd95f52';
+    const otherHash = 'c479cebe94d838cc0e97536686344dc025fc87e16e9a598e888dc11806f63001';
+    await insertOld(hash, 'file-i');
+    await env.DB.prepare(`UPDATE gov_action_metadata SET kind = 'constitution' WHERE hash = ?`).bind(hash).run();
+    await env.DB.prepare(
+      `INSERT INTO governance_actions (id, type, onchain_payload, status, meta_version, topic_id, created_at, last_synced_at)
+       VALUES (?, 'NewConstitution', ?, 'active', 5, 'topic-i', 1, 1)`,
+    )
+      .bind('gov_action1other', newConstitutionPayload(otherHash))
+      .run();
+    // The stored payload references a different constitution entirely, so this
+    // row must not be protected by it.
+    const client = fakeRemover();
+    const res = await run(client);
+    expect(res).toMatchObject({ scanned: 1, deleted: 1 });
+    expect(client.calls).toEqual(['file-i']);
   });
 
   it('reports the remaining backlog so overload is visible', async () => {

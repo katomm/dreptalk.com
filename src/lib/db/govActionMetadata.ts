@@ -22,6 +22,9 @@ export interface CollectablePin {
   pinataFileId: string;
 }
 
+/** What a gov_action_metadata row hosts. Informational only, hash stays the key. */
+export type GovActionMetadataKind = 'cip108' | 'constitution';
+
 /**
  * Hands a previously pinned CID back to a submitter, or null if there is none.
  *
@@ -38,28 +41,35 @@ export async function serveGovActionMetadata(
   db: D1Database,
   hash: string,
   now: number,
-): Promise<{ cid: string } | null> {
+): Promise<{ cid: string; kind: GovActionMetadataKind } | null> {
   const row = await db
     .prepare(
       `UPDATE gov_action_metadata SET last_served_at = ?
         WHERE hash = ? AND deleting_at IS NULL
-        RETURNING cid`,
+        RETURNING cid, kind`,
     )
     .bind(now, hash)
-    .first<{ cid: string }>();
-  return row ? { cid: row.cid } : null;
+    .first<{ cid: string; kind: GovActionMetadataKind }>();
+  return row ? { cid: row.cid, kind: row.kind } : null;
 }
 
 export async function putGovActionMetadata(
   db: D1Database,
-  rec: { hash: string; cid: string; body: string; createdAt: number; pinataFileId?: string | null },
+  rec: {
+    hash: string;
+    cid: string;
+    body: string;
+    createdAt: number;
+    pinataFileId?: string | null;
+    kind?: GovActionMetadataKind;
+  },
 ): Promise<void> {
   await db
     .prepare(
-      `INSERT OR IGNORE INTO gov_action_metadata (hash, cid, body, created_at, last_served_at, pinata_file_id)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT OR IGNORE INTO gov_action_metadata (hash, cid, body, created_at, last_served_at, pinata_file_id, kind)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
-    .bind(rec.hash, rec.cid, rec.body, rec.createdAt, rec.createdAt, rec.pinataFileId ?? null)
+    .bind(rec.hash, rec.cid, rec.body, rec.createdAt, rec.createdAt, rec.pinataFileId ?? null, rec.kind ?? 'cip108')
     .run();
 }
 
@@ -68,11 +78,30 @@ export async function putGovActionMetadata(
 // is a LEASE, not a lock: a run killed mid-flight would otherwise strand a row
 // that is never served and never re-selected, so a stale claim is reclaimed the
 // way runRecorder reaps stale sync runs.
+// The NewConstitution check uses instr(), never LIKE: a hash is a 64-char
+// substring of onchain_payload, and D1 rejects LIKE patterns that long at
+// runtime. instr() has no such limit and is an exact substring test either way.
+//
+// Confirmed against mainnet Koios (gov_action1jxne7hynfd7frcczwumd2eggps4kvy0msjztz9t0mutpy870ksgqqp6vp3p,
+// ratified epoch 608): onchain_payload for a NewConstitution action is
+// JSON.stringify(p.proposal_description), shaped like
+// {"tag":"NewConstitution","contents":[{"txId":...,"govActionIx":...},
+// {"anchor":{"url":...,"dataHash":"<lowercase hex>"},"script":...}]}. The
+// constitution hash sits at contents[1].anchor.dataHash, a plain substring of
+// that JSON, and differs from the action's own meta_hash (the CIP-108
+// anchor_hash of the proposal's metadata document, unrelated to the
+// constitution text itself).
 const COLLECTABLE_WHERE = `
         WHERE pinata_file_id IS NOT NULL
           AND (deleting_at IS NULL OR deleting_at < ?)
           AND last_served_at < ?
-          AND hash NOT IN (SELECT anchor_hash FROM governance_actions WHERE anchor_hash IS NOT NULL)`;
+          AND hash NOT IN (SELECT anchor_hash FROM governance_actions WHERE anchor_hash IS NOT NULL)
+          AND NOT EXISTS (
+            SELECT 1 FROM governance_actions g
+             WHERE g.type = 'NewConstitution'
+               AND g.onchain_payload IS NOT NULL
+               AND instr(g.onchain_payload, gov_action_metadata.hash) > 0
+          )`;
 
 export interface CollectableOpts {
   /** Unix seconds; rows served after this are still protected. */

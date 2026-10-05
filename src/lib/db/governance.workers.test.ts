@@ -29,6 +29,7 @@ import {
   updateActionOnchainPayload,
   getLatestActionWithVotes,
   getGovernanceActionSlugsByIds,
+  getGovernanceActionTitlesByIds,
   getCompareCandidates,
   getCompareActionBySlug,
   type NewGovernanceAction,
@@ -386,6 +387,41 @@ describe('getGovernanceActionSlugsByIds', () => {
 
     expect(map.has('ga-no-topic')).toBe(true);
     expect(map.get('ga-no-topic')).toBeNull();
+  });
+});
+
+describe('getGovernanceActionTitlesByIds', () => {
+  // id (the "<txHash>#<index>" key) and proposal_id (the bech32 gov_action1...
+  // form) deliberately differ here, to prove the lookup matches on id, not
+  // on proposal_id.
+  it('resolves the title keyed on id, not on the bech32 proposal_id', async () => {
+    await db()
+      .prepare(
+        `INSERT INTO governance_actions (id, proposal_id, type, anchor_status, status, title, created_at, last_synced_at)
+         VALUES (?, ?, 'InfoAction', 'no-anchor', 'active', ?, ?, ?)`,
+      )
+      .bind(`${'a'.repeat(64)}#0`, 'gov_action1differentbech32id', 'Some Title', NOW, NOW)
+      .run();
+
+    const map = await getGovernanceActionTitlesByIds(db(), [`${'a'.repeat(64)}#0`]);
+
+    expect(map.get(`${'a'.repeat(64)}#0`)).toBe('Some Title');
+    // The bech32 id must never resolve: it is not the map's key space.
+    expect(map.has('gov_action1differentbech32id')).toBe(false);
+  });
+
+  it('maps a titleless action to null, and omits an id with no row at all', async () => {
+    await seedGovRow({ topicId: 'title-none', actionId: 'ga-title-none', title: null });
+
+    const map = await getGovernanceActionTitlesByIds(db(), ['ga-title-none', 'ga-missing']);
+
+    expect(map.get('ga-title-none')).toBeNull();
+    expect(map.has('ga-missing')).toBe(false);
+  });
+
+  it('returns an empty map for empty input', async () => {
+    const map = await getGovernanceActionTitlesByIds(db(), []);
+    expect(map.size).toBe(0);
   });
 });
 

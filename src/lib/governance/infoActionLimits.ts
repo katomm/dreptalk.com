@@ -18,6 +18,14 @@ export const REFERENCE_LABEL_MAX = 200;
 export const REFERENCE_URI_MAX = 2048;
 export const REFERENCES_MAX = 10;
 
+/**
+ * 256 KiB cap on a NewConstitution document, measured on its UTF-8 bytes (the
+ * mainnet constitution is about 60 KiB). Enforced by the document route and
+ * mirrored by the submit form's byte counter, which is why it lives in this
+ * leaf module rather than in the route handler.
+ */
+export const CONSTITUTION_DOCUMENT_MAX_BYTES = 256 * 1024;
+
 // How many references we keep when READING someone else's action off chain.
 // Deliberately looser than REFERENCES_MAX: that caps what DRepTalk lets a user
 // submit, this bounds what an arbitrary GovTool document may make us store and

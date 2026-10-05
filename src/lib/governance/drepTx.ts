@@ -580,6 +580,6 @@ export async function delegateVotesToDRep(opts: DelegateVotesOpts): Promise<{ tx
   return signAndSubmit(built, opts.walletApi);
 }
 
-// Exported for the sibling client-side tx builders (infoActionTx), which reuse
+// Exported for the sibling client-side tx builders (govActionTx), which reuse
 // the same client construction and the same sign/splice/submit tail.
 export { makeClient, signAndSubmit };

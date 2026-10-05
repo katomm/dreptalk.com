@@ -33,6 +33,8 @@ import { authorProfileHref } from '@/lib/forum/author';
 import { activeLabel, ACTIVE_WINDOW_MS, HOME_FACE_LIMIT } from '@/lib/forum/view';
 import { PENCIL_PATH, PROFILE_PATH, SETTINGS_PATH, TARGET_PATH, VOTE_PATH } from '@/lib/forum/icons';
 import { loadSessionHeader } from '@/lib/forum/sessionHeader';
+import { govActionSubmissionAvailable } from '@/lib/governance/submissionGate';
+import BetaPill from '@/components/govAction/BetaPill.astro';
 
 const user = Astro.locals.user;
 if (!user) {
@@ -121,11 +123,15 @@ const icons = {
     'M14 9a2 2 0 0 1-2 2H6l-4 4V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2z M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1',
   analytics: 'M4 5v14h16M8 15l3-4 2.5 2L18 7',
   link: 'M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71 M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71',
+  submit: PENCIL_PATH,
 } as const;
 
 // Card status lines are uniformly muted; anything that wants action (unvoted
 // actions, unread notifications, missing metadata) is flagged by an accent
 // badge next to the title instead, so the highlight mechanism is consistent.
+// badge is for counts, New and Beta never together: New retires itself once
+// a feature settles, Beta stays until the mainnet switch, so a card is never
+// both freshly shipped and still experimental at once.
 interface HomeCard {
   title: string;
   href: string;
@@ -135,6 +141,8 @@ interface HomeCard {
   badge?: string;
   /** ISO date. While today is before it, the card carries a "New" pill. */
   newUntil?: string;
+  /** Renders a BetaPill next to the title, for cards behind the mainnet gate. */
+  beta?: boolean;
 }
 
 // The delegation the "My DRep" card has something to show for, taken from the
@@ -234,6 +242,17 @@ const cards: HomeCard[] = [
             trackedDelegation === 'drep'
               ? 'What your DRep did since you delegated.'
               : 'What your default choice meant.',
+        },
+      ]
+    : []),
+  ...(govActionSubmissionAvailable(network.network)
+    ? [
+        {
+          title: 'Submit a governance action',
+          href: '/ga/new/',
+          icon: icons.submit,
+          desc: 'Draft and submit an info, no-confidence, hard fork, constitution or committee action from your wallet.',
+          beta: true,
         },
       ]
     : []),
@@ -337,6 +356,7 @@ const cards: HomeCard[] = [
             {card.title}
             {card.badge && <span class="home-card__badge">{card.badge}</span>}
             {isNew(card.newUntil) && <span class="home-card__new">New</span>}
+            {card.beta && <BetaPill />}
           </span>
           <span class="home-card__text">{card.desc}</span>
           {card.stat && <span class="home-card__stat">{card.stat}</span>}
