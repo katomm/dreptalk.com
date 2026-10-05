@@ -25,6 +25,7 @@ import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallet
 import { submitGovAction } from '@/lib/governance/govActionTx.js';
 import { govActionSubmissionAvailable } from '@/lib/governance/submissionGate.js';
 import { collectWalletUtxos, totalLovelace } from '@/lib/governance/walletUtxos.js';
+import { fetchStakeRegistration } from '@/lib/governance/stakeAccount.js';
 import type { WalletApi } from '@/lib/governance/walletUtxos.js';
 import { readinessReasons } from '@/lib/governance/readiness.js';
 import { formatAdaPlain } from '@/lib/format/ada.js';
@@ -702,11 +703,13 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   /**
    * Reads the wallet's funding balance with exactly the collector the
    * transaction builder uses, so the readiness check and the builder cannot
-   * disagree about what the wallet holds. Also the "Check again" handler,
-   * which is why it takes the api rather than reading the ref: after a
-   * top-up nothing else has changed.
+   * disagree about what the wallet holds, and whether the reward address is
+   * a registered stake account the deposit can be refunded to. Also the
+   * "Check again" handler, which is why it takes the api and the address
+   * rather than reading state: after a top-up or a registration nothing else
+   * has changed.
    */
-  async function readBalance(api: Cip30Api) {
+  async function readBalance(api: Cip30Api, rewardAddressHex: string) {
     // Every read carries a generation and only the latest one may file its
     // answer. "Use a different wallet" during a slow read, and a second
     // "Check again" before the first came back, both leave an older read in
@@ -717,9 +720,17 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
     const readId = balanceReadIdRef.current;
     dispatch({ kind: 'walletBalanceLoading' });
     try {
-      const utxos = await collectWalletUtxos(network, window.location.origin, api as unknown as WalletApi);
+      // The refund address check rides along with the balance read, so
+      // "Check again" after registering the stake key re-reads both. A failed
+      // lookup leaves it unknown rather than blocking the submit.
+      const [utxos, rewardRegistered] = await Promise.all([
+        collectWalletUtxos(network, window.location.origin, api as unknown as WalletApi),
+        fetchStakeRegistration({ rewardAddressHex, network, origin: window.location.origin })
+          .then((r) => r.registered)
+          .catch(() => undefined),
+      ]);
       if (balanceReadIdRef.current !== readId) return;
-      dispatch({ kind: 'walletBalance', lovelace: totalLovelace(utxos) });
+      dispatch({ kind: 'walletBalance', lovelace: totalLovelace(utxos), rewardRegistered });
     } catch (err) {
       if (balanceReadIdRef.current !== readId) return;
       dispatch({ kind: 'walletBalanceFailed', message: readableError(err) });
@@ -728,8 +739,8 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
 
   function handleCheckAgain() {
     const api = enabledApiRef.current;
-    if (!api) return;
-    void readBalance(api);
+    if (!api || state.wallet.status !== 'connected') return;
+    void readBalance(api, state.wallet.rewardAddressHex);
   }
 
   async function handleConnect() {
@@ -795,7 +806,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
     enabledApiRef.current = api;
     rememberWallet(selected);
     dispatch({ kind: 'walletConnected', rewardAddressHex });
-    void readBalance(api);
+    void readBalance(api, rewardAddressHex);
   }
 
   // ------------------------------------------------------------------

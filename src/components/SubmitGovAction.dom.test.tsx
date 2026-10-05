@@ -230,6 +230,8 @@ let previewImpl: (() => Promise<Response>) | null = null;
 // answers. Reset in beforeEach. Defaults to "not synced yet", the common case
 // for every test that only cares about reaching the success screen at all.
 let statusImpl: (() => Promise<Response>) | null = null;
+/** What Koios account_info reports for the wallet's reward address. */
+let stakeStatus = 'registered';
 
 // Holds every /api/gov-action/context response open on the given promise
 // instead of answering at once, for the test that has to catch a second
@@ -256,6 +258,7 @@ function installFetchMock() {
           });
     }
     if (url.includes('/api/koios/epoch_params')) return jsonResponse([EPOCH_PARAMS_ROW]);
+    if (url.includes('/api/koios/account_info')) return jsonResponse([{ status: stakeStatus }]);
     if (url.includes('/api/gov-action/context')) return contextHold ? await contextHold : jsonResponse(committeeContext);
     if (url.includes('/api/gov-action/status')) {
       return statusImpl ? await statusImpl() : jsonResponse({ synced: false, slug: null, draft: null });
@@ -346,6 +349,7 @@ describe('SubmitGovAction', () => {
     committeeContext = COMMITTEE_CONTEXT;
     previewImpl = null;
     statusImpl = null;
+    stakeStatus = 'registered';
     contextHold = null;
     installFetchMock();
     installWalletMock();
@@ -573,6 +577,23 @@ describe('SubmitGovAction', () => {
     walletLovelace = 200_000_000_000n;
     fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
     await waitFor(() => expect(screen.queryByText(/The wallet holds/)).toBeNull(), SLOW);
+    await waitFor(() => expect(submit.disabled).toBe(false), SLOW);
+  });
+
+  it('stops on an unregistered refund address and clears after registering and checking again', async () => {
+    stakeStatus = 'not registered';
+    render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+    fillMetadata();
+    await fillCommitteePanel();
+    await connect();
+
+    await screen.findByText(/stake key is not registered/, {}, SLOW);
+    const submit = signButton();
+    expect(submit.disabled).toBe(true);
+
+    stakeStatus = 'registered';
+    fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
+    await waitFor(() => expect(screen.queryByText(/stake key is not registered/)).toBeNull(), SLOW);
     await waitFor(() => expect(submit.disabled).toBe(false), SLOW);
   });
 

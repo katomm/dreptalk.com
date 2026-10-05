@@ -26,7 +26,8 @@ export type ReadinessKey =
   | 'wallet'
   | 'balanceLoading'
   | 'balanceUnknown'
-  | 'balance';
+  | 'balance'
+  | 'rewardUnregistered';
 
 export interface ReadinessReason {
   key: ReadinessKey;
@@ -116,6 +117,17 @@ export function readinessReasons(input: ReadinessInput): ReadinessReason[] {
   if (balance.status === 'error') {
     reasons.push({ key: 'balanceUnknown', message: 'Could not read the wallet balance, check again' });
     return reasons;
+  }
+
+  // Outside the Conway bootstrap phase the ledger rejects a proposal whose
+  // refund address is not a registered stake account, and only after the
+  // wallet has signed. Saying it here saves the user that round trip.
+  if (balance.rewardRegistered === false) {
+    reasons.push({
+      key: 'rewardUnregistered',
+      message:
+        "This wallet's stake key is not registered, so the ledger would refuse it as the deposit refund address. Register it in your wallet, for example by delegating, then check again",
+    });
   }
 
   // Nothing to compare a balance against while the deposit is unknown, and

@@ -1074,6 +1074,17 @@ describe('wallet state', () => {
     expect(again).toBe(s);
   });
 
+  it('keeps the refund address registration next to the balance', () => {
+    let s = initialGovActionFormState();
+    s = govActionFormReducer(s, { kind: 'walletConnected', rewardAddressHex: 'e0ff' });
+    s = govActionFormReducer(s, { kind: 'walletBalance', lovelace: 42n, rewardRegistered: false });
+    expect(s.wallet).toEqual({
+      status: 'connected',
+      rewardAddressHex: 'e0ff',
+      balance: { status: 'ready', lovelace: 42n, rewardRegistered: false },
+    });
+  });
+
   it('files the balance read, its result and its failure', () => {
     let s = initialGovActionFormState();
     s = govActionFormReducer(s, { kind: 'walletConnecting' });

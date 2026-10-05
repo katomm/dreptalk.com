@@ -166,7 +166,16 @@ export type DepositState =
  */
 export type WalletBalanceState =
   | { status: 'loading' }
-  | { status: 'ready'; lovelace: bigint }
+  | {
+      status: 'ready';
+      lovelace: bigint;
+      /**
+       * Whether the reward address (where the deposit is refunded) is a
+       * registered stake account. Absent when the lookup failed: the ledger
+       * then has the last word, the form does not guess.
+       */
+      rewardRegistered?: boolean;
+    }
   | { status: 'error'; message: string };
 
 /**
@@ -267,7 +276,7 @@ export type GovActionFormAction =
   | { kind: 'walletConnecting' }
   | { kind: 'walletConnected'; rewardAddressHex: string }
   | { kind: 'walletBalanceLoading' }
-  | { kind: 'walletBalance'; lovelace: bigint }
+  | { kind: 'walletBalance'; lovelace: bigint; rewardRegistered?: boolean }
   | { kind: 'walletBalanceFailed'; message: string }
   | { kind: 'walletDisconnected' };
 
@@ -905,7 +914,10 @@ export function govActionFormReducer(
       if (state.wallet.status !== 'connected') return state;
       return {
         ...state,
-        wallet: { ...state.wallet, balance: { status: 'ready', lovelace: action.lovelace } },
+        wallet: {
+          ...state.wallet,
+          balance: { status: 'ready', lovelace: action.lovelace, rewardRegistered: action.rewardRegistered },
+        },
       };
 
     case 'walletBalanceFailed':

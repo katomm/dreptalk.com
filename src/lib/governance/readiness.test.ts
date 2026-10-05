@@ -169,6 +169,21 @@ describe('readinessReasons', () => {
     expect(keys(short)).toEqual(['balance']);
   });
 
+  it('stops on a refund address the ledger would refuse, and only on a confirmed one', () => {
+    const wallet = (rewardRegistered?: boolean) =>
+      ready({
+        wallet: {
+          status: 'connected',
+          rewardAddressHex: 'e0ff',
+          balance: { status: 'ready', lovelace: ENOUGH, rewardRegistered },
+        },
+      });
+    expect(keys(wallet(false))).toEqual(['rewardUnregistered']);
+    expect(keys(wallet(true))).toEqual([]);
+    // A failed lookup leaves the question to the ledger.
+    expect(keys(wallet(undefined))).toEqual([]);
+  });
+
   it('does not compare a balance against a deposit it does not know yet', () => {
     const input = ready({ depositLovelace: null });
     expect(keys(input)).toEqual(['deposit']);
