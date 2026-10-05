@@ -26,6 +26,8 @@ import { submitGovAction } from '@/lib/governance/govActionTx.js';
 import { govActionSubmissionAvailable } from '@/lib/governance/submissionGate.js';
 import { collectWalletUtxos, totalLovelace } from '@/lib/governance/walletUtxos.js';
 import { fetchStakeRegistration } from '@/lib/governance/stakeAccount.js';
+import { KEEP_STAKE_KEY_REGISTERED, latestRefundEpoch } from '@/lib/governance/depositRefund.js';
+import { epochWithDate } from '@/lib/governance/epochLabel.js';
 import type { WalletApi } from '@/lib/governance/walletUtxos.js';
 import { readinessReasons } from '@/lib/governance/readiness.js';
 import { formatAdaPlain } from '@/lib/format/ada.js';
@@ -132,7 +134,7 @@ interface InfoActionFields {
 type Phase =
   | { status: 'editing' }
   | { status: 'submitting' }
-  | { status: 'success'; txHash: string; authored: boolean }
+  | { status: 'success'; txHash: string; authored: boolean; refundEpoch: number | null }
   // `step` decides where the message goes: a connect error sits next to the
   // Connect button, a submit error under the Submit button. Neither one takes
   // the form off the screen.
@@ -265,7 +267,7 @@ function DepositInfo({ deposit }: { deposit: DepositState }) {
             <ul style={{ margin: 0, paddingLeft: '1.1rem', color: 'var(--muted)', fontSize: '0.8125rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
               <li>This is the current on-chain governance action deposit.</li>
               <li>The transaction reads the live protocol parameters when you submit. Those are authoritative and can differ slightly from this figure.</li>
-              <li>The deposit is refunded to your reward address once the action is ratified, enacted, or expires.</li>
+              <li>The deposit is refunded to your reward address once the action is ratified, enacted, or expires. {KEEP_STAKE_KEY_REGISTERED}</li>
               <li>Your wallet needs at least this much tADA, plus a small network fee, to submit.</li>
             </ul>
           </>
@@ -1061,7 +1063,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
       // The submit path above builds exactly one proposal per transaction, so
       // the on-chain action id (the governance_actions.id form the status
       // route and the sync both key on) is always this tx hash at index 0.
-      setPhase({ status: 'success', txHash, authored: metadata.signAsAuthor });
+      setPhase({ status: 'success', txHash, authored: metadata.signAsAuthor, refundEpoch: latestRefundEpoch(epochParamsRow) });
     } catch (err) {
       setPhase({ status: 'error', message: mapSubmitError(err, prev), step: 'submit' });
     }
@@ -1220,6 +1222,11 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
             {phase.authored && (
               <p style={{ margin: '0 0 0.5rem', color: 'var(--muted)', fontSize: '0.875rem' }}>Signed with wallet key.</p>
             )}
+            <p style={{ margin: '0 0 0.5rem', fontSize: '0.875rem' }}>
+              The deposit returns to your reward address when the action is enacted
+              {phase.refundEpoch !== null ? `, or at the latest at the start of ${epochWithDate(phase.refundEpoch, networkConfig)}` : ' or expires'}
+              . {KEEP_STAKE_KEY_REGISTERED}
+            </p>
             {pollState.kind === 'pending' && (
               <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.875rem' }}>
                 The action appears in DRepTalk and on explorers only after the next gov-sync run, and after the
@@ -1530,6 +1537,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
           footer={
             <>
               <ReadinessList reasons={reasons} />
+              <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--muted)' }}>{KEEP_STAKE_KEY_REGISTERED}</p>
               <button
                 type="button"
                 className="btn btn-primary"

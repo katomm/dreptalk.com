@@ -110,6 +110,7 @@ const REWARD_ADDRESS = 'e0'.concat('c'.repeat(56));
 const EPOCH_PARAMS_ROW = {
   epoch_no: 500,
   gov_action_deposit: 100_000_000_000,
+  gov_action_lifetime: 6,
   protocol_major: 10,
   protocol_minor: 0,
   committee_max_term_length: 100,
@@ -1369,6 +1370,14 @@ describe('SubmitGovAction', () => {
       await waitFor(() => expect(capturedPolls.length).toBeGreaterThan(pollsBefore), SLOW);
       return { poll: capturedPolls[capturedPolls.length - 1], unmount: view.unmount };
     }
+
+    it('says when the deposit comes back at the latest and warns about the stake key', async () => {
+      submitGovActionMock.mockResolvedValue({ txHash: 'f'.repeat(64) });
+      await submitAndReachSuccess();
+
+      expect(screen.getByText(/at the latest at the start of epoch 507/)).toBeTruthy();
+      expect(screen.getByText(/the ledger sends the deposit to the treasury instead/)).toBeTruthy();
+    });
 
     it('asks the status route for "<txHash>#0"', async () => {
       submitGovActionMock.mockResolvedValue({ txHash: 'f'.repeat(64) });
