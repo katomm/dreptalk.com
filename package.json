@@ -50,7 +50,7 @@
     "@astrojs/cloudflare": "~14.2.2",
     "@astrojs/markdown-remark": "7.2.4",
     "@astrojs/react": "^6.0.5",
-    "@evolution-sdk/evolution": "^0.5.13",
+    "@evolution-sdk/evolution": "0.5.17",
     "@noble/curves": "^2.4.0",
     "@stricahq/cardano-identicon": "^1.0.0",
     "astro": "~7.2.9",
