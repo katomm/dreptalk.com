@@ -9,8 +9,8 @@ import {
   GUARDRAIL_SCRIPT_HASH_HEX,
   GUARDRAIL_UNKNOWN_MESSAGE,
   guardrailDecision,
-  guardrailPlutusScript,
 } from './guardrailScript.js';
+import { guardrailPlutusScript } from './guardrailPlutusScript.js';
 
 describe('the guardrails script constant', () => {
   it('hashes to the constant hash in exactly the stored byte form', () => {
