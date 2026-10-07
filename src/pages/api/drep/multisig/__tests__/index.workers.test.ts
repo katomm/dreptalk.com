@@ -257,6 +257,18 @@ describe('POST /api/drep/multisig', () => {
     expect(body.error).toBe('script hash mismatch');
   });
 
+  it('returns 503 when koios fails', async () => {
+    await seedScriptDrepUser();
+    koiosMock.scriptInfo.mockRejectedValue(new Error('koios request failed: 500'));
+    const res = await POST(makeCtx({
+      user: { id: USER_ID, roles: ['drep'] },
+      body: validBody(),
+    }));
+    expect(res.status).toBe(503);
+    const body = await res.json() as Record<string, unknown>;
+    expect(body.error).toBe('service unavailable');
+  });
+
   it('returns 422 when koios returns null (script not found)', async () => {
     await seedScriptDrepUser();
     koiosMock.scriptInfo.mockResolvedValue(null);
