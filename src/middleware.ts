@@ -7,6 +7,7 @@ import { parseSessionToken, getSession, buildSessionCookie, clearSessionCookie }
 import { sessionActivityHook } from './lib/auth/sessionActivity.js';
 import { crossOriginWriteResponse } from './lib/http/origin.js';
 import { applySecurityHeaders, relaxStyleSrc } from './lib/http/securityHeaders.js';
+import { trailingSlashRedirect } from './lib/http/trailingSlash.js';
 import { internalErrorResponse, isDatabaseUnavailable, serviceUnavailableResponse } from './lib/http/serviceUnavailable.js';
 import {
   pageCacheKey,
@@ -39,6 +40,11 @@ export const onRequest = defineMiddleware(async (context, next) => {
     url.hostname = 'dreptalk.com';
     return context.redirect(url.toString(), 301);
   }
+
+  // Canonical trailing slash: a slashless page path would otherwise render as
+  // its own canonical duplicate. Same early position, no session read needed.
+  const slashTarget = trailingSlashRedirect(context.request);
+  if (slashTarget) return context.redirect(slashTarget, 301);
 
   // RFC 8615 service description for the CIP-100 documents. Served here rather
   // than as a page, because a dot-directory under src/pages is not a reliable
