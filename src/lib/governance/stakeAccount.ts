@@ -53,3 +53,35 @@ export async function fetchStakeRegistration(opts: {
     registered: rows[0]?.status === 'registered',
   };
 }
+
+/**
+ * Registration of several stake addresses in one /api/koios/account_info
+ * call, keyed by the bech32 address as given. A never-seen address returns no
+ * row and counts as unregistered, exactly like fetchStakeRegistration. Rows
+ * are matched by their own stake_address field rather than by position, since
+ * Koios does not promise to answer in request order. Throws on a failed
+ * request so the caller can offer a retry instead of guessing.
+ */
+export async function fetchStakeRegistrations(opts: {
+  stakeAddresses: readonly string[];
+  origin: string;
+}): Promise<Map<string, boolean>> {
+  const unique = [...new Set(opts.stakeAddresses)];
+  const registered = new Map<string, boolean>(unique.map((address) => [address, false]));
+  if (unique.length === 0) return registered;
+  const res = await fetch(`${opts.origin}/api/koios/account_info`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({ _stake_addresses: unique }),
+  });
+  if (!res.ok) {
+    throw new Error(`account_info request failed: ${res.status}`);
+  }
+  const rows = (await res.json()) as Array<{ stake_address?: string; status?: string }>;
+  for (const row of rows) {
+    if (row.stake_address && registered.has(row.stake_address)) {
+      registered.set(row.stake_address, row.status === 'registered');
+    }
+  }
+  return registered;
+}
