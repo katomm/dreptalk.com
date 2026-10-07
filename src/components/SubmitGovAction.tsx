@@ -28,7 +28,7 @@ import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallet
 import { submitGovAction } from '@/lib/governance/govActionTx.js';
 import { govActionSubmissionAvailable, govActionTypeAvailable } from '@/lib/governance/submissionGate.js';
 import { collectWalletUtxos, totalLovelace } from '@/lib/governance/walletUtxos.js';
-import { fetchStakeRegistration, fetchStakeRegistrations } from '@/lib/governance/stakeAccount.js';
+import { fetchStakeRegistration, fetchStakeRegistrations, rewardAddressToStakeBech32 } from '@/lib/governance/stakeAccount.js';
 import { KEEP_STAKE_KEY_REGISTERED, latestRefundEpoch } from '@/lib/governance/depositRefund.js';
 import { epochWithDate } from '@/lib/governance/epochLabel.js';
 import type { WalletApi } from '@/lib/governance/walletUtxos.js';
@@ -1340,11 +1340,22 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
             guardrail={contextData.guardrail}
             recipients={state.recipients}
             onRetryRecipients={() => setRecipientsAttempt((n) => n + 1)}
+            ownStakeAddress={ownStakeAddress}
             disabled={busy}
           />
         );
       default:
         return null;
+    }
+  }
+
+  // The wallet's own stake address for the treasury panel's shortcut button.
+  let ownStakeAddress: string | null = null;
+  if (state.wallet.status === 'connected') {
+    try {
+      ownStakeAddress = rewardAddressToStakeBech32(state.wallet.rewardAddressHex, network);
+    } catch {
+      ownStakeAddress = null;
     }
   }
 

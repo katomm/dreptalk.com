@@ -25,6 +25,8 @@ export interface TreasuryPanelProps {
   recipients: RecipientCheckState;
   /** Runs the registration check again after a failed lookup. */
   onRetryRecipients: () => void;
+  /** The connected wallet's stake address (bech32), null before a wallet is connected. */
+  ownStakeAddress?: string | null;
   disabled?: boolean;
 }
 
@@ -47,6 +49,7 @@ export default function TreasuryPanel({
   guardrail,
   recipients,
   onRetryRecipients,
+  ownStakeAddress = null,
   disabled = false,
 }: TreasuryPanelProps) {
   const rows = value.rows;
@@ -64,6 +67,19 @@ export default function TreasuryPanel({
   function addRow() {
     if (rows.length >= TREASURY_RECIPIENTS_MAX) return;
     onChange({ rows: [...rows, EMPTY_TREASURY_ROW] });
+  }
+  // Offered while the wallet's address is not listed yet and there is room for
+  // it: an empty row to fill, or space for a new one.
+  const firstEmptyRow = rows.findIndex((row) => row.address.trim() === '');
+  const ownNormalized = ownStakeAddress?.trim().toLowerCase() ?? '';
+  const canAddOwn =
+    ownNormalized !== '' &&
+    !rows.some((row) => row.address.trim().toLowerCase() === ownNormalized) &&
+    (firstEmptyRow !== -1 || rows.length < TREASURY_RECIPIENTS_MAX);
+  function addOwn() {
+    if (!ownStakeAddress) return;
+    if (firstEmptyRow !== -1) updateRow(firstEmptyRow, { address: ownStakeAddress });
+    else onChange({ rows: [...rows, { address: ownStakeAddress, amountAda: '' }] });
   }
 
   return (
@@ -145,6 +161,16 @@ export default function TreasuryPanel({
           }}
         >
           Add recipient
+        </button>
+      )}
+      {canAddOwn && (
+        <button
+          type="button"
+          onClick={addOwn}
+          disabled={disabled}
+          style={{ ...linkButtonStyle, alignSelf: 'flex-start', cursor: disabled ? 'not-allowed' : 'pointer' }}
+        >
+          Add my wallet's stake address
         </button>
       )}
       <p style={{ ...mutedStyle, margin: 0 }}>Total {formatLovelaceExact(checked.totalLovelace)} tADA</p>

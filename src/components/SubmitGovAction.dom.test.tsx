@@ -1717,6 +1717,18 @@ describe('SubmitGovAction', () => {
       });
     });
 
+    it('adds the connected wallet\'s stake address as a recipient', async () => {
+      committeeContext = TREASURY_CONTEXT;
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      fireEvent.click(await screen.findByRole('radio', { name: /Treasury withdrawal/ }, SLOW));
+      await screen.findByLabelText('Recipient 1 stake address', {}, SLOW);
+      expect(screen.queryByRole('button', { name: "Add my wallet's stake address" })).toBeNull();
+      await connect();
+      fireEvent.click(await screen.findByRole('button', { name: "Add my wallet's stake address" }, SLOW));
+      const own = encodeBech32('stake_test', hexToBytes(REWARD_ADDRESS));
+      expect((screen.getByLabelText('Recipient 1 stake address') as HTMLInputElement).value).toBe(own);
+    });
+
     it('checks an address typed in uppercase under its lowercase form and lets it through', async () => {
       committeeContext = TREASURY_CONTEXT;
       const fetchMock = installFetchMock();

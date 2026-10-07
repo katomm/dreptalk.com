@@ -102,4 +102,72 @@ describe('TreasuryPanel', () => {
     });
     expect(screen.getByText('Total 3.000001 tADA')).toBeTruthy();
   });
+  describe('own stake address button', () => {
+    const OWN = 'Add my wallet\'s stake address';
+    const full = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({ address: `stake_test1x${i}`, amountAda: '1' }));
+
+    it('is absent without an own stake address', () => {
+      panel();
+      expect(screen.queryByRole('button', { name: OWN })).toBeNull();
+    });
+
+    it('fills the first empty row', () => {
+      const { onChange } = panel({
+        ownStakeAddress: ADDR,
+        value: {
+          rows: [
+            { address: 'stake_test1abc', amountAda: '2' },
+            { address: '  ', amountAda: '3' },
+            { address: '', amountAda: '' },
+          ],
+        },
+      });
+      fireEvent.click(screen.getByRole('button', { name: OWN }));
+      expect(onChange).toHaveBeenLastCalledWith({
+        rows: [
+          { address: 'stake_test1abc', amountAda: '2' },
+          { address: ADDR, amountAda: '3' },
+          { address: '', amountAda: '' },
+        ],
+      });
+    });
+
+    it('appends a row when none is empty', () => {
+      const { onChange } = panel({
+        ownStakeAddress: ADDR,
+        value: { rows: [{ address: 'stake_test1abc', amountAda: '2' }] },
+      });
+      fireEvent.click(screen.getByRole('button', { name: OWN }));
+      expect(onChange).toHaveBeenLastCalledWith({
+        rows: [
+          { address: 'stake_test1abc', amountAda: '2' },
+          { address: ADDR, amountAda: '' },
+        ],
+      });
+    });
+
+    it('is hidden when the address is already listed, in any case', () => {
+      panel({ ownStakeAddress: ADDR, value: { rows: [{ address: ADDR, amountAda: '1' }] } });
+      expect(screen.queryByRole('button', { name: OWN })).toBeNull();
+      cleanup();
+      panel({ ownStakeAddress: ADDR, value: { rows: [{ address: ` ${ADDR.toUpperCase()}`, amountAda: '1' }] } });
+      expect(screen.queryByRole('button', { name: OWN })).toBeNull();
+    });
+
+    it('is hidden at the row cap with no empty row but shown with an empty one', () => {
+      panel({ ownStakeAddress: ADDR, value: { rows: full(TREASURY_RECIPIENTS_MAX) } });
+      expect(screen.queryByRole('button', { name: OWN })).toBeNull();
+      cleanup();
+      const rows = full(TREASURY_RECIPIENTS_MAX);
+      rows[3] = { address: '', amountAda: '' };
+      panel({ ownStakeAddress: ADDR, value: { rows } });
+      expect(screen.getByRole('button', { name: OWN })).toBeTruthy();
+    });
+
+    it('is disabled when the panel is disabled', () => {
+      panel({ ownStakeAddress: ADDR, disabled: true });
+      expect((screen.getByRole('button', { name: OWN }) as HTMLButtonElement).disabled).toBe(true);
+    });
+  });
 });
