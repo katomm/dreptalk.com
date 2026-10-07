@@ -126,6 +126,40 @@ export default defineConfig({
           };
         },
       },
+      // Dev only: with nodejs_compat and our compatibility date, workerd serves
+      // its native node:console module, whose createTask exists but throws
+      // "not implemented". Once any dependency imports node:console, the global
+      // console carries that method too. React's development build calls
+      // console.createTask while it loads, so the next module reload after such
+      // an import (a dependency re-optimize, for example) crashes the whole dev
+      // worker, the rate limiter Durable Object included. Production runs
+      // React's production build, which never calls it, so this plugin applies
+      // to the dev server only and the deploy config stays untouched. The shim
+      // loads node:console itself first, or a later import would bring the
+      // throwing method back. Without createTask React takes its plain path.
+      {
+        name: 'dev-console-create-task',
+        apply: 'serve',
+        resolveId(id) {
+          if (id === 'virtual:dev-console-create-task') return '\0virtual:dev-console-create-task';
+        },
+        load(id) {
+          if (id !== '\0virtual:dev-console-create-task') return;
+          return [
+            "import 'node:console';",
+            'try {',
+            "  console.createTask?.('probe');",
+            '} catch {',
+            '  console.createTask = undefined;',
+            '}',
+          ].join('\n');
+        },
+        // Prepended on the entry's first line so its line numbers stay intact.
+        transform(code, id) {
+          if (!/[\\/]src[\\/]worker\.ts$/.test(id)) return;
+          return { code: `import 'virtual:dev-console-create-task';${code}`, map: null };
+        },
+      },
     ],
     // Pin React to a single instance. Astro's React islands load the renderer's
     // React through Vite's optimized deps (the ?v= query), while a component's
