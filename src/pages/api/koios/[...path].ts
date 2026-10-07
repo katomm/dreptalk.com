@@ -39,6 +39,10 @@ const ALLOWED_GET_PATHS = new Set(['epoch_params', 'asset_addresses']);
 
 // POST endpoints the EvolutionSDK provider calls for bulk reads.
 // Explicit allowlist: deny everything not on it.
+// Deliberately absent: /ogmios and /script_info. A treasury withdrawal's
+// guardrail evaluation runs through the session-gated
+// /api/gov-action/evaluate route with the server's token (see
+// evaluateHandler.ts), so this proxy stays read-only and unfiltered.
 const ALLOWED_POST_PATHS = new Set([
   'drep_info',
   'account_info',

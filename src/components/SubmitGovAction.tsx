@@ -9,7 +9,10 @@
 // (3) connect a plain CIP-30 wallet (no CIP-95, a proposal needs no DRep key)
 // in the section at the end and check the balance against the deposit,
 // (4) host the metadata via the /api/gov-action routes, (5) build/sign/submit
-// the propose tx via submitGovAction.
+// the propose tx via submitGovAction. A treasury withdrawal also re-checks its
+// guardrail and its recipients' registration right before the author
+// signature, and its guardrails script is evaluated through
+// /api/gov-action/evaluate during the build.
 //
 // The form state, including the wallet step, lives in the govActionFormState
 // reducer, so the type switch, the per-type panels, the out-of-order context
