@@ -10,7 +10,7 @@
 // FUNDING_HEADROOM_LOVELACE, read from the same module the transaction builder
 // selects inputs with, so the form can never promise a submit the builder
 // would refuse (or refuse one it would accept).
-import type { GovActionFormType } from './prevAction.js';
+import { needsContext, type GovActionFormType } from './prevAction.js';
 import type { ContextState, WalletState } from './govActionFormState.js';
 import { FUNDING_HEADROOM_LOVELACE } from './walletUtxos.js';
 import { formatAdaPlain } from '../format/ada.js';
@@ -64,6 +64,7 @@ const PANEL_LABEL: Record<GovActionFormType, string> = {
   HardForkInitiation: 'hard fork',
   NewConstitution: 'constitution',
   UpdateCommittee: 'committee',
+  TreasuryWithdrawals: 'treasury withdrawal',
 };
 
 /**
@@ -74,9 +75,8 @@ const PANEL_LABEL: Record<GovActionFormType, string> = {
 export function readinessReasons(input: ReadinessInput): ReadinessReason[] {
   const reasons: ReadinessReason[] = [];
 
-  // InfoAction is unchained: it fetches no context, so its idle status is not
-  // something to wait for.
-  if (input.type !== 'InfoAction' && input.contextStatus !== 'ready') {
+  // InfoAction loads no context, so its idle status is not something to wait for.
+  if (needsContext(input.type) && input.contextStatus !== 'ready') {
     reasons.push({ key: 'context', message: 'Waiting for the chain context' });
   }
 

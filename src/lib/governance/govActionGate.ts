@@ -1,8 +1,9 @@
 // Shared server gate for every /api/gov-action/* route: preprod-only
 // availability, same-origin, session, D1/rate-limiter bindings, an optional
 // Pinata JWT, and a per-user rate limit. Extracted from the metadata route so
-// the context route (which needs no JWT and a looser rate limit) can share
-// the exact same check order instead of re-implementing it.
+// the context route (which needs no JWT and a looser rate limit) and the
+// evaluate route can share the exact same check order instead of
+// re-implementing it.
 import { jsonResponse, runtimeEnv, currentNetwork } from '@/lib/api/response';
 import type { NetworkConfig } from '@/lib/config/network';
 import { isSameOriginRequest } from '@/lib/http/origin';
@@ -24,6 +25,7 @@ export const GOV_ACTION_RATE_POLICIES = {
   document: { rateKey: 'gov-action-doc', rateMax: 10, rateWindowSec: 60, requireJwt: true },
   context: { rateKey: 'gov-action-ctx', rateMax: 30, rateWindowSec: 60, requireJwt: false },
   status: { rateKey: 'gov-action-status', rateMax: 60, rateWindowSec: 60, requireJwt: false },
+  evaluate: { rateKey: 'gov-action-eval', rateMax: 20, rateWindowSec: 60, requireJwt: false },
 } as const satisfies Record<string, GovActionGatePolicy>;
 
 export interface GovActionGateResult {

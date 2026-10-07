@@ -1,0 +1,554 @@
+diff --git a/node_modules/@evolution-sdk/evolution/dist/sdk/builders/TransactionBuilder.d.ts b/node_modules/@evolution-sdk/evolution/dist/sdk/builders/TransactionBuilder.d.ts
+index 2cff14e..0fdb9e6 100644
+--- a/node_modules/@evolution-sdk/evolution/dist/sdk/builders/TransactionBuilder.d.ts
++++ b/node_modules/@evolution-sdk/evolution/dist/sdk/builders/TransactionBuilder.d.ts
+@@ -259,7 +259,7 @@ export interface ProtocolParameters {
+  * @category state
+  */
+ export interface RedeemerData {
+-    readonly tag: "spend" | "mint" | "cert" | "reward" | "vote";
++    readonly tag: "spend" | "mint" | "cert" | "reward" | "vote" | "propose";
+     readonly data: PlutusData.Data;
+     readonly exUnits?: {
+         readonly mem: bigint;
+@@ -276,7 +276,7 @@ export interface RedeemerData {
+  * @category state
+  */
+ export interface DeferredRedeemerData {
+-    readonly tag: "spend" | "mint" | "cert" | "reward" | "vote";
++    readonly tag: "spend" | "mint" | "cert" | "reward" | "vote" | "propose";
+     readonly deferred: DeferredRedeemer;
+     readonly exUnits?: {
+         readonly mem: bigint;
+@@ -625,6 +625,23 @@ export type ProgramStep = Effect.Effect<void, TransactionBuilderError, TxContext
+  * @category utilities
+  */
+ export declare const voterToKey: (voter: VotingProcedures.Voter) => string;
++/**
++ * Convert a proposal's position in proposalProcedures to a unique string key
++ * for redeemer tracking. Proposals keep insertion order in the transaction,
++ * so the position is also the redeemer index.
++ *
++ * @since 2.0.0
++ * @category utilities
++ */
++export declare const proposalToKey: (index: number) => string;
++/**
++ * Parse a proposal redeemer key back to its position in proposalProcedures.
++ * Returns undefined for keys that are not proposal keys.
++ *
++ * @since 2.0.0
++ * @category utilities
++ */
++export declare const proposalKeyToIndex: (key: string) => number | undefined;
+ /**
+  * Result type for transaction chaining operations.
+  *
+@@ -1167,6 +1184,10 @@ export interface TransactionBuilderBase {
+      * Call .propose() multiple times to submit multiple proposals in one transaction.
+      * Consistent with .registerStake() and .registerDRep() - no manual deposit handling.
+      *
++     * ParameterChangeAction and TreasuryWithdrawalsAction with a Plutus `policyHash` run the
++     * constitution's guardrail script. Pass a `redeemer` and provide the script via
++     * .attachScript(), .readFrom() or a spent input that carries it.
++     *
+      * The deposit amount is automatically deducted during transaction balancing.
+      *
+      * Queues a deferred operation that will be executed when build() is called.
+@@ -1174,8 +1195,10 @@ export interface TransactionBuilderBase {
+      *
+      * @example
+      * ```typescript
++     * import * as Data from "@evolution-sdk/Data"
+      * import * as GovernanceAction from "@evolution-sdk/GovernanceAction"
+      * import * as RewardAccount from "@evolution-sdk/RewardAccount"
++     * import * as ScriptHash from "@evolution-sdk/ScriptHash"
+      *
+      * // Submit single proposal (deposit auto-fetched)
+      * await client.newTx()
+@@ -1203,6 +1226,22 @@ export interface TransactionBuilderBase {
+      *   .build()
+      *   .then(tx => tx.sign())
+      *   .then(tx => tx.submit())
++     *
++     * // Treasury withdrawal checked by the constitution's guardrail script
++     * await client.newTx()
++     *   .propose({
++     *     governanceAction: new GovernanceAction.TreasuryWithdrawalsAction({
++     *       withdrawals: new Map([[myRewardAccount, 1_000_000_000n]]),
++     *       policyHash: ScriptHash.fromScript(guardrailScript)
++     *     }),
++     *     rewardAccount: myRewardAccount,
++     *     anchor: myAnchor,
++     *     redeemer: Data.constr(0n, [])
++     *   })
++     *   .attachScript({ script: guardrailScript })
++     *   .build()
++     *   .then(tx => tx.sign())
++     *   .then(tx => tx.submit())
+      * ```
+      *
+      * @since 2.0.0
+diff --git a/node_modules/@evolution-sdk/evolution/dist/sdk/builders/TransactionBuilder.js b/node_modules/@evolution-sdk/evolution/dist/sdk/builders/TransactionBuilder.js
+index 63934ca..3dfd72f 100644
+--- a/node_modules/@evolution-sdk/evolution/dist/sdk/builders/TransactionBuilder.js
++++ b/node_modules/@evolution-sdk/evolution/dist/sdk/builders/TransactionBuilder.js
+@@ -132,6 +132,31 @@ export const voterToKey = voter => {
+       return `pool:${Bytes.toHex(voter.poolKeyHash.hash)}`;
+   }
+ };
++// ============================================================================
++// Proposal Key
++// ============================================================================
++const PROPOSAL_KEY_PREFIX = "propose:";
++/**
++ * Convert a proposal's position in proposalProcedures to a unique string key
++ * for redeemer tracking. Proposals keep insertion order in the transaction,
++ * so the position is also the redeemer index.
++ *
++ * @since 2.0.0
++ * @category utilities
++ */
++export const proposalToKey = index => `${PROPOSAL_KEY_PREFIX}${index}`;
++/**
++ * Parse a proposal redeemer key back to its position in proposalProcedures.
++ * Returns undefined for keys that are not proposal keys.
++ *
++ * @since 2.0.0
++ * @category utilities
++ */
++export const proposalKeyToIndex = key => {
++  if (!key.startsWith(PROPOSAL_KEY_PREFIX)) return undefined;
++  const index = Number(key.slice(PROPOSAL_KEY_PREFIX.length));
++  return Number.isInteger(index) && index >= 0 ? index : undefined;
++};
+ export function makeTxBuilder(config) {
+   return BuilderFactory.makeTxBuilder(config);
+ }
+diff --git a/node_modules/@evolution-sdk/evolution/dist/sdk/builders/internal/build.js b/node_modules/@evolution-sdk/evolution/dist/sdk/builders/internal/build.js
+index e2bdadf..26f699d 100644
+--- a/node_modules/@evolution-sdk/evolution/dist/sdk/builders/internal/build.js
++++ b/node_modules/@evolution-sdk/evolution/dist/sdk/builders/internal/build.js
+@@ -126,6 +126,7 @@ export const makeBuild = (config, programs, options = BuilderState.DEFAULT_BUILD
+   });
+   yield* TxBuilderImpl.validateVoterRedeemers;
+   yield* TxBuilderImpl.validateCertRedeemers;
++  yield* TxBuilderImpl.validateProposalRedeemers;
+   const {
+     transaction,
+     txWithFakeWitnesses
+diff --git a/node_modules/@evolution-sdk/evolution/dist/sdk/builders/internal/txBuilder.d.ts b/node_modules/@evolution-sdk/evolution/dist/sdk/builders/internal/txBuilder.d.ts
+index 6ddc262..989b5fe 100644
+--- a/node_modules/@evolution-sdk/evolution/dist/sdk/builders/internal/txBuilder.d.ts
++++ b/node_modules/@evolution-sdk/evolution/dist/sdk/builders/internal/txBuilder.d.ts
+@@ -128,6 +128,16 @@ export declare const validateVoterRedeemers: Effect.Effect<void, TransactionBuil
+  * @category validation
+  */
+ export declare const validateCertRedeemers: Effect.Effect<void, TransactionBuilderError, TxContext>;
++/**
++ * Validate redeemer requirements for governance proposals. Actions that carry a
++ * guardrail `policyHash` run the constitution script under the propose purpose,
++ * so a Plutus guardrail needs a redeemer. Redeemers supplied for proposals that
++ * run no script are rejected, since the ledger refuses extraneous redeemers.
++ *
++ * @since 2.0.0
++ * @category validation
++ */
++export declare const validateProposalRedeemers: Effect.Effect<void, TransactionBuilderError, TxContext>;
+ /**
+  * Assemble a Transaction from inputs, outputs, and calculated fee.
+  * Creates TransactionBody with all required fields.
+@@ -187,7 +197,7 @@ export declare const buildFakeWitnessSet: (inputUtxos: ReadonlyArray<CoreUTxO.UT
+  * @category fee-calculation
+  */
+ export declare const calculateFeeIteratively: (inputUtxos: ReadonlyArray<CoreUTxO.UTxO>, inputs: ReadonlyArray<TransactionInput.TransactionInput>, outputs: ReadonlyArray<TxOut.TransactionOutput>, redeemers: Map<string, {
+-    readonly tag: "spend" | "mint" | "cert" | "reward" | "vote";
++    readonly tag: "spend" | "mint" | "cert" | "reward" | "vote" | "propose";
+     readonly data: PlutusData.Data;
+     readonly exUnits?: {
+         readonly mem: bigint;
+diff --git a/node_modules/@evolution-sdk/evolution/dist/sdk/builders/internal/txBuilder.js b/node_modules/@evolution-sdk/evolution/dist/sdk/builders/internal/txBuilder.js
+index cf02727..0a0a9b3 100644
+--- a/node_modules/@evolution-sdk/evolution/dist/sdk/builders/internal/txBuilder.js
++++ b/node_modules/@evolution-sdk/evolution/dist/sdk/builders/internal/txBuilder.js
+@@ -24,7 +24,7 @@ import * as TxOut from "../../../TxOut.js";
+ import * as CoreUTxO from "../../../UTxO.js";
+ import * as VKey from "../../../VKey.js";
+ import * as Withdrawals from "../../../Withdrawals.js";
+-import { BuildOptionsTag, FullProtocolParametersTag, TransactionBuilderError, TxContext, voterToKey } from "../TransactionBuilder.js";
++import { BuildOptionsTag, FullProtocolParametersTag, proposalKeyToIndex, proposalToKey, TransactionBuilderError, TxContext, voterToKey } from "../TransactionBuilder.js";
+ import * as Unfrack from "../Unfrack.js";
+ // ============================================================================
+ // TransactionBuilder Effect Programs Implementation
+@@ -235,12 +235,12 @@ const certScriptHashHex = certificate => {
+ /**
+  * Build a resolver that reports whether the script behind a given hash is a native
+  * script. Looks at scripts attached via `.attachScript()` first, then any reference
+- * inputs carrying a script. Returns `undefined` when the script cannot be classified.
++ * or spent inputs carrying a script. Returns `undefined` when the script cannot be classified.
+  */
+ const makeIsNativeScript = state => scriptHashHex => {
+   const attached = state.scripts.get(scriptHashHex);
+   if (attached) return attached._tag === "NativeScript";
+-  for (const ref of state.referenceInputs) {
++  for (const ref of [...state.referenceInputs, ...state.selectedUtxos]) {
+     if (ref.scriptRef && ScriptHash.toHex(ScriptHash.fromScript(ref.scriptRef)) === scriptHashHex) {
+       return ref.scriptRef._tag === "NativeScript";
+     }
+@@ -278,7 +278,7 @@ export const validateVoterRedeemers = /*#__PURE__*/Effect.gen(function* () {
+   }
+   if (votersMissingRedeemer.length > 0) {
+     return yield* Effect.fail(new TransactionBuilderError({
+-      message: `Redeemer required for ${votersMissingRedeemer.length} non-native-script voter(s): ` + `${votersMissingRedeemer.join(", ")}. ` + `If a voter is a native (multisig) script, attach it via .attachScript() ` + `(or provide it through a reference input) so it is recognized and no redeemer is needed; ` + `if it is a Plutus script, supply a redeemer.`,
++      message: `Redeemer required for ${votersMissingRedeemer.length} non-native-script voter(s): ` + `${votersMissingRedeemer.join(", ")}. ` + `If a voter is a native (multisig) script, attach it via .attachScript() ` + `(or provide it through a reference or spent input) so it is recognized and no redeemer is needed; ` + `if it is a Plutus script, supply a redeemer.`,
+       cause: votersMissingRedeemer
+     }));
+   }
+@@ -332,7 +332,7 @@ export const validateCertRedeemers = /*#__PURE__*/Effect.gen(function* () {
+   }
+   if (certsMissingRedeemer.length > 0) {
+     return yield* Effect.fail(new TransactionBuilderError({
+-      message: `Redeemer required for ${certsMissingRedeemer.length} non-native-script certificate(s): ` + `${certsMissingRedeemer.join(", ")}. ` + `If the certificate's credential is a native (multisig) script, attach it via .attachScript() ` + `(or provide it through a reference input) so it is recognized and no redeemer is needed; ` + `if it is a Plutus script, supply a redeemer.`,
++      message: `Redeemer required for ${certsMissingRedeemer.length} non-native-script certificate(s): ` + `${certsMissingRedeemer.join(", ")}. ` + `If the certificate's credential is a native (multisig) script, attach it via .attachScript() ` + `(or provide it through a reference or spent input) so it is recognized and no redeemer is needed; ` + `if it is a Plutus script, supply a redeemer.`,
+       cause: certsMissingRedeemer
+     }));
+   }
+@@ -353,6 +353,91 @@ export const validateCertRedeemers = /*#__PURE__*/Effect.gen(function* () {
+     });
+   }
+ });
++/**
++ * Return the guardrail policy hash (hex) a governance action must run, if any.
++ * Only ParameterChangeAction and TreasuryWithdrawalsAction carry a policy hash.
++ */
++const proposalPolicyHashHex = action => {
++  switch (action._tag) {
++    case "ParameterChangeAction":
++    case "TreasuryWithdrawalsAction":
++      return action.policyHash ? ScriptHash.toHex(action.policyHash) : undefined;
++    default:
++      return undefined;
++  }
++};
++/**
++ * Validate redeemer requirements for governance proposals. Actions that carry a
++ * guardrail `policyHash` run the constitution script under the propose purpose,
++ * so a Plutus guardrail needs a redeemer. Redeemers supplied for proposals that
++ * run no script are rejected, since the ledger refuses extraneous redeemers.
++ *
++ * @since 2.0.0
++ * @category validation
++ */
++export const validateProposalRedeemers = /*#__PURE__*/Effect.gen(function* () {
++  const stateRef = yield* TxContext;
++  const state = yield* Ref.get(stateRef);
++  if (!state.proposalProcedures || state.proposalProcedures.procedures.length === 0) {
++    return;
++  }
++  const isNativeScript = makeIsNativeScript(state);
++  const proposalsMissingRedeemer = [];
++  const proposalsWithoutPolicy = [];
++  const proposalsMissingScript = [];
++  const nativeProposalRedeemerKeys = [];
++  state.proposalProcedures.procedures.forEach((procedure, index) => {
++    const proposalKey = proposalToKey(index);
++    const hasRedeemer = state.redeemers.has(proposalKey) || state.deferredRedeemers.has(proposalKey);
++    const scriptHashHex = proposalPolicyHashHex(procedure.governanceAction);
++    if (scriptHashHex === undefined) {
++      if (hasRedeemer) proposalsWithoutPolicy.push(proposalKey);
++      return;
++    }
++    const native = isNativeScript(scriptHashHex);
++    if (native === true) {
++      if (hasRedeemer) nativeProposalRedeemerKeys.push(proposalKey);
++    } else if (!hasRedeemer) {
++      proposalsMissingRedeemer.push(`${proposalKey} (policy ${scriptHashHex})`);
++    } else if (native === undefined) {
++      proposalsMissingScript.push(`${proposalKey} (policy ${scriptHashHex})`);
++    }
++  });
++  if (proposalsMissingRedeemer.length > 0) {
++    return yield* Effect.fail(new TransactionBuilderError({
++      message: `Redeemer required for ${proposalsMissingRedeemer.length} proposal(s) checked by a guardrail script: ` + `${proposalsMissingRedeemer.join(", ")}. ` + `If the guardrail is a native (multisig) script, attach it via .attachScript() ` + `(or provide it through a reference or spent input) so it is recognized and no redeemer is needed. ` + `If it is a Plutus script, pass a redeemer to .propose() and provide the script the same way.`,
++      cause: proposalsMissingRedeemer
++    }));
++  }
++  if (proposalsMissingScript.length > 0) {
++    return yield* Effect.fail(new TransactionBuilderError({
++      message: `Guardrail script not provided for ${proposalsMissingScript.length} proposal(s): ` + `${proposalsMissingScript.join(", ")}. ` + `Attach it via .attachScript(), provide it through a reference input with .readFrom(), ` + `or spend an input that carries it.`,
++      cause: proposalsMissingScript
++    }));
++  }
++  if (proposalsWithoutPolicy.length > 0) {
++    return yield* Effect.fail(new TransactionBuilderError({
++      message: `Redeemer supplied for ${proposalsWithoutPolicy.length} proposal(s) without a guardrail policyHash: ` + `${proposalsWithoutPolicy.join(", ")}. ` + `Only ParameterChangeAction and TreasuryWithdrawalsAction with a policyHash run the guardrail script.`,
++      cause: proposalsWithoutPolicy
++    }));
++  }
++  if (nativeProposalRedeemerKeys.length > 0) {
++    yield* Effect.logDebug(`[Propose] Ignoring redeemer(s) supplied for native-script guardrail(s): ${nativeProposalRedeemerKeys.join(", ")}. ` + `Native scripts are satisfied by vkey witnesses, not redeemers.`);
++    yield* Ref.update(stateRef, s => {
++      const redeemers = new Map(s.redeemers);
++      const deferredRedeemers = new Map(s.deferredRedeemers);
++      for (const key of nativeProposalRedeemerKeys) {
++        redeemers.delete(key);
++        deferredRedeemers.delete(key);
++      }
++      return {
++        ...s,
++        redeemers,
++        deferredRedeemers
++      };
++    });
++  }
++});
+ /**
+  * Assemble a Transaction from inputs, outputs, and calculated fee.
+  * Creates TransactionBody with all required fields.
+@@ -531,6 +616,17 @@ export const assembleTransaction = (inputs, outputs, fee) => Effect.gen(function
+         yield* Effect.logWarning(`[Assembly] Could not find voter index for key: ${key}`);
+         continue;
+       }
++    } else if (redeemerData.tag === "propose") {
++      // For propose redeemers, the key carries the proposal's position in proposalProcedures.
++      // Proposals keep insertion order, so the position is the redeemer index.
++      // Key format: `propose:{index}`
++      const proposalIndex = proposalKeyToIndex(key);
++      const proposalCount = state.proposalProcedures?.procedures.length ?? 0;
++      if (proposalIndex === undefined || proposalIndex >= proposalCount) {
++        yield* Effect.logWarning(`[Assembly] Could not find proposal index for key: ${key}`);
++        continue;
++      }
++      redeemerIndex = proposalIndex;
+     } else {
+       // For spend redeemers, look up in input index map
+       redeemerIndex = inputIndexMap.get(key);
+@@ -543,7 +639,7 @@ export const assembleTransaction = (inputs, outputs, fee) => Effect.gen(function
+     // Create proper Redeemer object
+     const redeemer = new Redeemer.Redeemer({
+       tag: redeemerData.tag,
+-      // "spend", "mint", "cert", or "reward"
++      // "spend", "mint", "cert", "reward", "vote", or "propose"
+       index: BigInt(redeemerIndex),
+       // Use actual redeemer index
+       data: redeemerData.data,
+@@ -890,11 +986,11 @@ export const buildFakeWitnessSet = inputUtxos => Effect.gen(function* () {
+         break;
+     }
+   }
+-  // Also count required signers from reference scripts (scripts in referenceInputs)
+-  for (const refUtxo of state.referenceInputs) {
+-    if (refUtxo.scriptRef && refUtxo.scriptRef._tag === "NativeScript") {
+-      const requiredSigners = addNativeScriptWitnesses(refUtxo.scriptRef);
+-      yield* Effect.logDebug(`[buildFakeWitnessSet] Reference native script requires ${requiredSigners} signers`);
++  // Also count required signers from scripts carried by reference or spent inputs
++  for (const utxo of [...state.referenceInputs, ...inputUtxos]) {
++    if (utxo.scriptRef && utxo.scriptRef._tag === "NativeScript") {
++      const requiredSigners = addNativeScriptWitnesses(utxo.scriptRef);
++      yield* Effect.logDebug(`[buildFakeWitnessSet] Input-carried native script requires ${requiredSigners} signers`);
+     }
+   }
+   // Build fake witnesses for each unique key hash (inputs + native script signers)
+diff --git a/node_modules/@evolution-sdk/evolution/dist/sdk/builders/operations/Operations.d.ts b/node_modules/@evolution-sdk/evolution/dist/sdk/builders/operations/Operations.d.ts
+index 3562a39..a0d5f59 100644
+--- a/node_modules/@evolution-sdk/evolution/dist/sdk/builders/operations/Operations.d.ts
++++ b/node_modules/@evolution-sdk/evolution/dist/sdk/builders/operations/Operations.d.ts
+@@ -461,6 +461,15 @@ export interface ProposeParams {
+     readonly rewardAccount: RewardAccount.RewardAccount;
+     /** Optional anchor with metadata URL and hash */
+     readonly anchor: Anchor.Anchor | null;
++    /**
++     * Redeemer for the constitution's guardrail script (propose purpose).
++     * Required when the governance action carries a Plutus `policyHash`
++     * (TreasuryWithdrawalsAction, ParameterChangeAction). The guardrail script
++     * itself is supplied via .attachScript() or a reference input.
++     */
++    readonly redeemer?: RedeemerBuilder.RedeemerArg;
++    /** Optional label for debugging script failures - identifies this operation in error messages */
++    readonly label?: string;
+ }
+ /**
+  * Parameters for sending all wallet assets to a recipient address.
+diff --git a/node_modules/@evolution-sdk/evolution/dist/sdk/builders/operations/Propose.d.ts b/node_modules/@evolution-sdk/evolution/dist/sdk/builders/operations/Propose.d.ts
+index d795174..7841db3 100644
+--- a/node_modules/@evolution-sdk/evolution/dist/sdk/builders/operations/Propose.d.ts
++++ b/node_modules/@evolution-sdk/evolution/dist/sdk/builders/operations/Propose.d.ts
+@@ -15,7 +15,8 @@ import type { ProposeParams } from "./Operations.js";
+  * 1. Fetches govActionDeposit from protocol parameters (like registerStake)
+  * 2. Constructs ProposalProcedure with the fetched deposit
+  * 3. Merges with existing proposal procedures if any
+- * 4. No redeemers needed - proposing is not script-controlled
++ * 4. Tracks the guardrail redeemer (propose purpose) if provided, keyed by the
++ *    proposal's position in proposalProcedures
+  *
+  * Note: The deposit is deducted from transaction inputs during balancing.
+  *
+diff --git a/node_modules/@evolution-sdk/evolution/dist/sdk/builders/operations/Propose.js b/node_modules/@evolution-sdk/evolution/dist/sdk/builders/operations/Propose.js
+index 587c861..473dd3c 100644
+--- a/node_modules/@evolution-sdk/evolution/dist/sdk/builders/operations/Propose.js
++++ b/node_modules/@evolution-sdk/evolution/dist/sdk/builders/operations/Propose.js
+@@ -7,7 +7,8 @@
+ import { Effect, Ref } from "effect";
+ import * as ProposalProcedure from "../../../ProposalProcedure.js";
+ import * as ProposalProcedures from "../../../ProposalProcedures.js";
+-import { FullProtocolParametersTag, TransactionBuilderError, TxContext } from "../TransactionBuilder.js";
++import * as RedeemerBuilder from "../RedeemerBuilder.js";
++import { FullProtocolParametersTag, proposalToKey, TransactionBuilderError, TxContext } from "../TransactionBuilder.js";
+ /**
+  * Creates a ProgramStep for propose operation.
+  * Fetches govActionDeposit from protocol parameters and constructs ProposalProcedure.
+@@ -16,7 +17,8 @@ import { FullProtocolParametersTag, TransactionBuilderError, TxContext } from ".
+  * 1. Fetches govActionDeposit from protocol parameters (like registerStake)
+  * 2. Constructs ProposalProcedure with the fetched deposit
+  * 3. Merges with existing proposal procedures if any
+- * 4. No redeemers needed - proposing is not script-controlled
++ * 4. Tracks the guardrail redeemer (propose purpose) if provided, keyed by the
++ *    proposal's position in proposalProcedures
+  *
+  * Note: The deposit is deducted from transaction inputs during balancing.
+  *
+@@ -32,6 +34,13 @@ export const createProposeProgram = params => Effect.gen(function* () {
+     }));
+   }
+   const govActionDeposit = fullParams.govActionDeposit;
++  // A redeemer may be the integer 0, so test for presence rather than truthiness
++  const deferred = params.redeemer !== undefined ? RedeemerBuilder.toDeferredRedeemer(params.redeemer) : undefined;
++  if (deferred?._tag === "self") {
++    return yield* Effect.fail(new TransactionBuilderError({
++      message: "Self redeemers are not supported for proposals: a proposal spends no input. " + "Pass static redeemer data or a batch redeemer instead."
++    }));
++  }
+   // 2. Construct ProposalProcedure with fetched deposit
+   const proposalProcedure = new ProposalProcedure.ProposalProcedure({
+     deposit: govActionDeposit,
+@@ -42,6 +51,30 @@ export const createProposeProgram = params => Effect.gen(function* () {
+   // 3. Update state: merge proposal procedures
+   yield* Ref.update(ctx, state => {
+     let mergedProposalProcedures = state.proposalProcedures;
++    const proposalIndex = mergedProposalProcedures?.procedures.length ?? 0;
++    // Track guardrail redeemer for script-checked actions (propose purpose)
++    let newRedeemers = state.redeemers;
++    let newDeferredRedeemers = state.deferredRedeemers;
++    if (deferred) {
++      const proposalKey = proposalToKey(proposalIndex);
++      if (deferred._tag === "static") {
++        newRedeemers = new Map(state.redeemers);
++        newRedeemers.set(proposalKey, {
++          tag: "propose",
++          data: deferred.data,
++          exUnits: undefined,
++          label: params.label
++        });
++      } else {
++        newDeferredRedeemers = new Map(state.deferredRedeemers);
++        newDeferredRedeemers.set(proposalKey, {
++          tag: "propose",
++          deferred,
++          exUnits: undefined,
++          label: params.label
++        });
++      }
++    }
+     if (mergedProposalProcedures) {
+       // Merge with existing proposals
+       mergedProposalProcedures = new ProposalProcedures.ProposalProcedures({
+@@ -55,7 +88,9 @@ export const createProposeProgram = params => Effect.gen(function* () {
+     }
+     return {
+       ...state,
+-      proposalProcedures: mergedProposalProcedures
++      proposalProcedures: mergedProposalProcedures,
++      redeemers: newRedeemers,
++      deferredRedeemers: newDeferredRedeemers
+     };
+   });
+   yield* Effect.logDebug(`[Propose] Added governance proposal with deposit ${govActionDeposit}`);
+diff --git a/node_modules/@evolution-sdk/evolution/dist/sdk/builders/phases/Evaluation.js b/node_modules/@evolution-sdk/evolution/dist/sdk/builders/phases/Evaluation.js
+index 2ca8616..761cde8 100644
+--- a/node_modules/@evolution-sdk/evolution/dist/sdk/builders/phases/Evaluation.js
++++ b/node_modules/@evolution-sdk/evolution/dist/sdk/builders/phases/Evaluation.js
+@@ -15,7 +15,7 @@ import * as PolicyId from "../../../PolicyId.js";
+ import * as CoreUTxO from "../../../UTxO.js";
+ import * as EvaluationStateManager from "../EvaluationStateManager.js";
+ import { assembleTransaction } from "../internal/txBuilder.js";
+-import { BuildOptionsTag, EvaluationError, FullProtocolParametersTag, PhaseContextTag, TransactionBuilderError, TxContext, voterToKey } from "../TransactionBuilder.js";
++import { BuildOptionsTag, EvaluationError, FullProtocolParametersTag, PhaseContextTag, proposalToKey, TransactionBuilderError, TxContext, voterToKey } from "../TransactionBuilder.js";
+ /**
+  * Convert ProtocolParameters cost models to CostModels core type for evaluation.
+  *
+@@ -48,7 +48,7 @@ const buildCostModels = protocolParams => Effect.gen(function* () {
+  * Takes raw failures (from evaluator) and adds user-provided labels,
+  * UTxO references, credentials, and policy IDs based on index mappings.
+  */
+-const enrichFailuresWithLabels = (failures, redeemers, inputIndexMapping, withdrawalIndexMapping, mintIndexMapping, certIndexMapping, voteIndexMapping) => {
++const enrichFailuresWithLabels = (failures, redeemers, inputIndexMapping, withdrawalIndexMapping, mintIndexMapping, certIndexMapping, voteIndexMapping, proposeIndexMapping) => {
+   return failures.map(failure => {
+     const {
+       index,
+@@ -74,6 +74,8 @@ const enrichFailuresWithLabels = (failures, redeemers, inputIndexMapping, withdr
+       credential = redeemerKey?.replace("cert:", "");
+     } else if (purpose === "vote") {
+       redeemerKey = voteIndexMapping.get(index);
++    } else if (purpose === "propose") {
++      redeemerKey = proposeIndexMapping.get(index);
+     }
+     // Look up label from redeemer state
+     if (redeemerKey) {
+@@ -377,6 +379,17 @@ export const executeEvaluation = () => Effect.gen(function* () {
+       yield* Effect.logDebug(`[Evaluation] Vote ${i} maps to voter: ${sortedVoterKeys[i]}`);
+     }
+   }
++  // Build proposal index mapping: index → "propose:{index}"
++  // Proposals keep insertion order, so only those with a redeemer need a mapping
++  const proposeIndexMapping = new Map();
++  const proposalCount = updatedState.proposalProcedures?.procedures.length ?? 0;
++  for (let i = 0; i < proposalCount; i++) {
++    const key = proposalToKey(i);
++    if (updatedState.redeemers.has(key)) {
++      proposeIndexMapping.set(i, key);
++      yield* Effect.logDebug(`[Evaluation] Proposal ${i} maps to: ${key}`);
++    }
++  }
+   const inputs = CoreUTxO.toInputs(sortedUtxos);
+   const allOutputs = [...updatedState.outputs, ...buildCtx.changeOutputs];
+   const transaction = yield* assembleTransaction(inputs, allOutputs, buildCtx.calculatedFee);
+@@ -415,7 +428,7 @@ export const executeEvaluation = () => Effect.gen(function* () {
+   const evalResults = yield* evaluator.evaluate(transaction, additionalUtxos, evaluationContext).pipe(Effect.mapError(evalError => {
+     // Enrich failures with labels from builder state
+     // evalError.failures contains raw failures from evaluator (provider or aiken)
+-    const enrichedFailures = enrichFailuresWithLabels(evalError.failures ?? [], updatedState.redeemers, inputIndexMapping, withdrawalIndexMapping, mintIndexMapping, certIndexMapping, voteIndexMapping);
++    const enrichedFailures = enrichFailuresWithLabels(evalError.failures ?? [], updatedState.redeemers, inputIndexMapping, withdrawalIndexMapping, mintIndexMapping, certIndexMapping, voteIndexMapping, proposeIndexMapping);
+     // Create enhanced evaluation error with enriched failures
+     const enhancedError = new EvaluationError({
+       message: "Script evaluation failed",
+@@ -551,6 +564,30 @@ export const executeEvaluation = () => Effect.gen(function* () {
+           message: `Evaluator returned vote result for ${voterKey} but no redeemer exists in builder state for that voter`
+         }));
+       }
++    } else if (evalRedeemer.redeemer_tag === "propose") {
++      // For propose redeemers, map index to proposal key
++      const proposalKey = proposeIndexMapping.get(evalRedeemer.redeemer_index);
++      if (!proposalKey) {
++        return yield* Effect.fail(new TransactionBuilderError({
++          message: `Evaluator returned propose result at index ${evalRedeemer.redeemer_index} but no proposal redeemer exists at that position in the transaction`
++        }));
++      }
++      const redeemer = evaluatedRedeemers.get(proposalKey);
++      if (redeemer) {
++        // Update redeemer with ExUnits from evaluation
++        evaluatedRedeemers.set(proposalKey, {
++          ...redeemer,
++          exUnits: {
++            mem: BigInt(evalRedeemer.ex_units.mem),
++            steps: BigInt(evalRedeemer.ex_units.steps)
++          }
++        });
++        yield* Effect.logDebug(`[Evaluation] Updated redeemer for ${proposalKey}: ` + `mem=${evalRedeemer.ex_units.mem}, steps=${evalRedeemer.ex_units.steps}`);
++      } else {
++        return yield* Effect.fail(new TransactionBuilderError({
++          message: `Evaluator returned propose result for ${proposalKey} but no redeemer exists in builder state for that proposal`
++        }));
++      }
+     } else {
+       // Unknown redeemer type returned by the evaluator — fail immediately.
+       // Silently ignoring this would leave the redeemer at exUnits = 0, which

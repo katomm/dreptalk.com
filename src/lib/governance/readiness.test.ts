@@ -212,4 +212,16 @@ describe('readinessReasons', () => {
       'wallet',
     ]);
   });
+
+  it('waits for the context of a treasury withdrawal and names its panel', () => {
+    expect(messageFor(ready({ type: 'TreasuryWithdrawals', contextStatus: 'loading' }), 'context')).toBe(
+      'Waiting for the chain context',
+    );
+    expect(
+      messageFor(
+        ready({ type: 'TreasuryWithdrawals', contextStatus: 'ready', panelValidation: { ok: false, error: 'x' } }),
+        'panel',
+      ),
+    ).toBe('Fix the treasury withdrawal changes above');
+  });
 });

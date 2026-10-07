@@ -9,7 +9,10 @@
 // (3) connect a plain CIP-30 wallet (no CIP-95, a proposal needs no DRep key)
 // in the section at the end and check the balance against the deposit,
 // (4) host the metadata via the /api/gov-action routes, (5) build/sign/submit
-// the propose tx via submitGovAction.
+// the propose tx via submitGovAction. A treasury withdrawal also re-checks its
+// guardrail and its recipients' registration right before the author
+// signature, and its guardrails script is evaluated through
+// /api/gov-action/evaluate during the build.
 //
 // The form state, including the wallet step, lives in the govActionFormState
 // reducer, so the type switch, the per-type panels, the out-of-order context
@@ -21,11 +24,11 @@ import type { CSSProperties, ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { CopyButton } from '@/components/CopyButton.js';
-import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
+import { useCardanoWallets, rememberWallet, recallWallet } from '@/lib/wallet/useCardanoWallets.js';
 import { submitGovAction } from '@/lib/governance/govActionTx.js';
-import { govActionSubmissionAvailable } from '@/lib/governance/submissionGate.js';
+import { govActionSubmissionAvailable, govActionTypeAvailable } from '@/lib/governance/submissionGate.js';
 import { collectWalletUtxos, totalLovelace } from '@/lib/governance/walletUtxos.js';
-import { fetchStakeRegistration } from '@/lib/governance/stakeAccount.js';
+import { fetchStakeRegistration, fetchStakeRegistrations, rewardAddressToStakeBech32 } from '@/lib/governance/stakeAccount.js';
 import { KEEP_STAKE_KEY_REGISTERED, latestRefundEpoch } from '@/lib/governance/depositRefund.js';
 import { epochWithDate } from '@/lib/governance/epochLabel.js';
 import type { WalletApi } from '@/lib/governance/walletUtxos.js';
@@ -61,6 +64,7 @@ import {
   validateCommitteePanel,
   validateHardForkPanel,
   validateNewConstitutionPanel,
+  validateTreasuryPanel,
   contextChangeLines,
   PREV_ACTION_CHANGED,
 } from '@/lib/governance/govActionFormState.js';
@@ -69,7 +73,15 @@ import { startStatusPolling } from '@/lib/governance/successPolling.js';
 import type { GovActionStatusResponse, SuccessPollState } from '@/lib/governance/successPolling.js';
 import type { OpenProposalDraft } from '@/lib/db/proposalDrafts.js';
 import type { DepositState } from '@/lib/governance/govActionFormState.js';
-import { chainForType, refStillPresent } from '@/lib/governance/prevAction.js';
+import { needsContext, refStillPresent } from '@/lib/governance/prevAction.js';
+import {
+  checkTreasuryRows,
+  RECIPIENT_UNREGISTERED,
+  RECIPIENTS_CHECK_FAILED_AT_SUBMIT,
+  withAddressAdded,
+} from '@/lib/governance/treasuryWithdrawals.js';
+import { guardrailDecision, GUARDRAIL_UNKNOWN_MESSAGE } from '@/lib/governance/guardrailScript.js';
+import { mapGuardrailBuildError } from '@/lib/governance/govActionErrors.js';
 import type { GovActionFormType, PrevActionRef } from '@/lib/governance/prevAction.js';
 import type { GovActionSpec } from '@/lib/governance/govActionParts.js';
 import type { ActionContextResponse } from '@/lib/governance/actionContextHandler.js';
@@ -80,6 +92,7 @@ import PrevActionField from '@/components/govAction/PrevActionField.js';
 import HardForkPanel from '@/components/govAction/HardForkPanel.js';
 import NewConstitutionPanel from '@/components/govAction/NewConstitutionPanel.js';
 import UpdateCommitteePanel from '@/components/govAction/UpdateCommitteePanel.js';
+import TreasuryPanel from '@/components/govAction/TreasuryPanel.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import { resolveNetwork, txExplorerUrl } from '@/lib/config/network.js';
 import { readableError } from '@/lib/wallet/walletError.js';
@@ -96,6 +109,10 @@ import MarkdownEditor, { markdownBodyId } from '@/components/MarkdownEditor.js';
 // Mirrors the un-exported AUTHOR_NAME_MAX in infoActionMetadataHandler.ts, kept
 // in sync manually since that constant is server-internal.
 const AUTHOR_NAME_MAX = 120;
+
+// Pause after the last address edit before the registration read, so typing
+// an address does not cost one request per keystroke.
+const RECIPIENT_CHECK_DEBOUNCE_MS = 400;
 
 // The real CIP-30 DataSignature shape (COSE_Sign1 signature + COSE_Key), which
 // is what every wallet actually returns and what the author witness reads.
@@ -138,7 +155,7 @@ type Phase =
   // `step` decides where the message goes: a connect error sits next to the
   // Connect button, a submit error under the Submit button. Neither one takes
   // the form off the screen.
-  | { status: 'error'; message: string; step: 'connect' | 'submit' };
+  | { status: 'error'; message: string; step: 'connect' | 'submit'; detail?: string | null };
 
 export interface SubmitGovActionProps {
   network: CardanoNetwork;
@@ -205,21 +222,63 @@ const INSUFFICIENT_FUNDS_RE = /^Insufficient tADA for the deposit: need (\d+) lo
  */
 const WALLET_ACCOUNT_CHANGED = 'The wallet account changed. Connect the wallet again.';
 
-function mapSubmitError(err: unknown, prev: PrevActionRef | null): string {
+function mapSubmitError(err: unknown, prev: PrevActionRef | null): { message: string; detail?: string | null } {
   const raw = err instanceof Error ? err.message : String(err);
   const m = INSUFFICIENT_FUNDS_RE.exec(raw);
   if (m) {
     const [, requiredLovelace, availableLovelace] = m;
     if (availableLovelace === '0') {
-      return 'No preprod UTxOs found for this wallet (is it a Preview wallet? Preview and Preprod are separate testnets with separate funds).';
+      return {
+        message:
+          'No preprod UTxOs found for this wallet (is it a Preview wallet? Preview and Preprod are separate testnets with separate funds).',
+      };
     }
-    return `Insufficient tADA: this proposal needs about ${formatAdaPlain(requiredLovelace)} tADA (deposit plus fee headroom), but your wallet only has ${formatAdaPlain(availableLovelace)} tADA.`;
+    return {
+      message: `Insufficient tADA: this proposal needs about ${formatAdaPlain(requiredLovelace)} tADA (deposit plus fee headroom), but your wallet only has ${formatAdaPlain(availableLovelace)} tADA.`,
+    };
   }
+  // The guardrail evaluation and the collateral it needs come with their own
+  // wording, the script error itself goes into a disclosure.
+  const guardrail = mapGuardrailBuildError(err);
+  if (guardrail) return guardrail;
   const readable = readableError(err);
   if (prev && raw.toLowerCase().includes(prev.txHashHex.toLowerCase())) {
-    return `${readable} ${PREV_ACTION_CHANGED}`;
+    return { message: `${readable} ${PREV_ACTION_CHANGED}` };
   }
-  return readable;
+  return { message: readable };
+}
+
+/**
+ * Wording for a context route error code that has its own sentence. Any other
+ * code, or none, gets the generic outage line.
+ */
+const CONTEXT_ERROR_MESSAGES: ReadonlyMap<string, string> = new Map([['guardrail_unknown', GUARDRAIL_UNKNOWN_MESSAGE]]);
+
+/**
+ * What stops a submit right after the context refetch, before the author
+ * signature and before anything is pinned, or null when nothing does. A
+ * treasury withdrawal has no chain to re-check: a guardrails script that
+ * changed since the page loaded, or one nothing proves any more, takes the
+ * chain checks' place, and the recipients' registration (read again at the
+ * same point) comes second. The chained types need a fresh chain state whose
+ * root still holds the previous action the form chose.
+ */
+function preSignatureProblem(
+  type: GovActionFormType,
+  prev: PrevActionRef | null,
+  fresh: ActionContextResponse | null,
+  recipientsProblem: string | null,
+): string | null {
+  if (type === 'TreasuryWithdrawals') {
+    // A failed refetch (null) is a guardrail nobody could check, which
+    // guardrailDecision words as GUARDRAIL_UNKNOWN_MESSAGE.
+    const decision = guardrailDecision(fresh?.guardrail);
+    if (!decision.ok) return decision.message;
+    return recipientsProblem;
+  }
+  if (!fresh?.prev) return 'Could not re-check the current chain state. Please try again.';
+  if (!refStillPresent(prev, fresh.prev)) return PREV_ACTION_CHANGED;
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -292,7 +351,18 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   // is exactly as unusable as a missing prop, since it would build a
   // reference URI with no origin at all.
   const draftSiteOrigin = siteOrigin || networkConfig.siteOrigin;
-  const { wallets, selected, setSelected } = useCardanoWallets();
+  const { wallets, selected, setSelected: setSelectedWallet } = useCardanoWallets();
+  // Whether the user clicked a wallet in the picker. The hook always fills a
+  // selection (remembered wallet, else the first one found), which says
+  // nothing about the user having chosen between several wallets.
+  const walletPickedRef = useRef(false);
+  const setSelected = (key: string) => {
+    walletPickedRef.current = true;
+    setSelectedWallet(key);
+  };
+  // Set while the recipient panel's connect button waits for the wallet.
+  const addOwnAfterConnectRef = useRef(false);
+  const [focusPickerToken, setFocusPickerToken] = useState(0);
   const [phase, setPhase] = useState<Phase>({ status: 'editing' });
   const [deposit, setDeposit] = useState<DepositState>({ status: 'loading' });
   // The /epoch_params row, kept raw: the preview feeds it to the shared
@@ -345,7 +415,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   // Destructured for the draft effect below, which reads exactly these five
   // and must not re-run on a context transition.
   const { type, panels, dirty, linkedDraftSlug } = state;
-  const chained = chainForType(state.type) !== null;
+  const contextual = needsContext(state.type);
 
   /**
    * Fetches the live ledger context for a type and files the outcome through
@@ -364,7 +434,13 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
       const res = await fetchWithTimeout(
         `${window.location.origin}/api/gov-action/context?type=${encodeURIComponent(forType)}`,
       );
-      if (!res.ok) throw new Error(`context request failed (${res.status})`);
+      if (!res.ok) {
+        // The route words one failure on its own: a guardrail nothing on chain
+        // proves, which the panel explains differently from an outage.
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        dispatch({ kind: 'contextFailed', requestId, code: body?.error });
+        return null;
+      }
       const data = (await res.json()) as ActionContextResponse;
       dispatch({ kind: 'contextLoaded', requestId, data, now: Date.now() });
       return data;
@@ -382,12 +458,19 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   // the per-type panel state.
   const draftKey = govActionDraftKey(network);
   const draftRestoredRef = useRef(false);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: openDrafts and draftSiteOrigin are the page's own SSR props, fixed for the session, restore runs once right after mount regardless
+  // biome-ignore lint/correctness/useExhaustiveDependencies: openDrafts, draftSiteOrigin and network are the page's own SSR props, fixed for the session, restore runs once right after mount regardless
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const draft = loadGovActionDraft(window.localStorage, draftKey);
     if (draft) {
-      dispatch({ kind: 'restoreDraft', draft, openDrafts, siteOrigin: draftSiteOrigin });
+      // A draft saved for a type this network does not offer (a treasury
+      // withdrawal draft on mainnet) restores as an info action, panels kept.
+      const available = govActionTypeAvailable(draft.type, {
+        submissionAvailable: govActionSubmissionAvailable(network),
+        network,
+      });
+      const restorable = available ? draft : { ...draft, type: 'InfoAction' as const };
+      dispatch({ kind: 'restoreDraft', draft: restorable, openDrafts, siteOrigin: draftSiteOrigin });
       setRestoredAt(draft.savedAt ?? null);
     }
     draftRestoredRef.current = true;
@@ -456,7 +539,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   // biome-ignore lint/correctness/useExhaustiveDependencies: contextAttempt is the retry nonce, it exists to re-run this effect for the same type
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    if (chainForType(state.type) === null) return;
+    if (!needsContext(state.type)) return;
     void loadContext(state.type);
   }, [state.type, contextAttempt, loadContext]);
 
@@ -492,12 +575,74 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
       if (hiddenAt === null) return;
       if (Date.now() - hiddenAt <= 60_000) return;
       if (phaseRef.current.status === 'submitting') return;
-      if (chainForType(state.type) === null) return;
+      if (!needsContext(state.type)) return;
       void loadContext(state.type);
     }
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [state.type, loadContext]);
+
+  // The treasury recipients' registration: one batched account_info read for
+  // every row whose address parses, after an edit (debounced), after a draft
+  // restore (the rows change) and on "Try again". The set of addresses is the
+  // key, so an amount edit costs no request. Every check is marked as running
+  // at once under a fresh id, so an answer still in flight for the previous
+  // set is dropped by the reducer. The addresses are the normalized lowercase
+  // bech32 parseStakeAddress returns, the form validateTreasuryPanel looks
+  // them up by.
+  const recipientsRequestIdRef = useRef(0);
+  const [recipientsAttempt, setRecipientsAttempt] = useState(0);
+
+  /**
+   * Starts one registration check: a fresh request id, and every address
+   * marked as checking under it at once. Returns the read itself, which files
+   * the answer (or the failure) under that id and resolves to the answer, or
+   * to null when the lookup failed. Split in two so the debounced effect can
+   * mark the set as checking right away and still cancel the read.
+   */
+  const startRecipientsCheck = useCallback((addresses: readonly string[]) => {
+    recipientsRequestIdRef.current += 1;
+    const requestId = recipientsRequestIdRef.current;
+    dispatch({ kind: 'recipientsCheckRequested', requestId, addresses });
+    return async (): Promise<Map<string, boolean> | null> => {
+      try {
+        const registered = await fetchStakeRegistrations({ stakeAddresses: addresses, origin: window.location.origin });
+        dispatch({ kind: 'recipientsChecked', requestId, registered: Object.fromEntries(registered) });
+        return registered;
+      } catch {
+        dispatch({ kind: 'recipientsCheckFailed', requestId });
+        return null;
+      }
+    };
+  }, []);
+  const recipientKey = useMemo(() => {
+    if (state.type !== 'TreasuryWithdrawals') return '';
+    return checkTreasuryRows(state.panels.TreasuryWithdrawals.rows, network)
+      .rows.flatMap((row) => (row.address ? [row.address.stakeAddress] : []))
+      .join(',');
+  }, [state.type, state.panels.TreasuryWithdrawals, network]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: recipientsAttempt is the retry nonce, it exists to re-run this effect for the same addresses
+  useEffect(() => {
+    if (typeof window === 'undefined' || recipientKey === '') return;
+    const readRegistrations = startRecipientsCheck(recipientKey.split(','));
+    const timer = setTimeout(() => void readRegistrations(), RECIPIENT_CHECK_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [recipientKey, recipientsAttempt, startRecipientsCheck]);
+
+  /**
+   * Reads every recipient's registration again right before the author
+   * signature and the pins. The answer goes through the reducer too, so the
+   * panel shows what was found. Returns the sentence that blocks the submit,
+   * or null when every recipient is registered.
+   */
+  async function recheckRecipients(): Promise<string | null> {
+    const checked = checkTreasuryRows(state.panels.TreasuryWithdrawals.rows, network);
+    if (!checked.ok) return checked.error;
+    const addresses = checked.withdrawals.map((w) => w.recipient.stakeAddress);
+    const registered = await startRecipientsCheck(addresses)();
+    if (!registered) return RECIPIENTS_CHECK_FAILED_AT_SUBMIT;
+    return addresses.every((address) => registered.get(address) === true) ? null : RECIPIENT_UNREGISTERED;
+  }
 
   // Ticks once a minute so the "loaded n minutes ago" line stays current on
   // a page nobody touches, without a refetch. Cleared on unmount.
@@ -534,9 +679,12 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   // panelReadiness for the per-type rules). Memoized because the committee
   // arm validates every typed row, which is more work than a re-render of an
   // unrelated field should cost.
+  // What the treasury panel is judged by besides the context, one object for
+  // the readiness list and the submit-time validation alike.
+  const treasuryEnv = useMemo(() => ({ network, recipients: state.recipients }), [network, state.recipients]);
   const panelValidation = useMemo(
-    () => panelReadiness(state.type, state.panels, contextData),
-    [state.type, state.panels, contextData],
+    () => panelReadiness(state.type, state.panels, contextData, treasuryEnv),
+    [state.type, state.panels, contextData, treasuryEnv],
   );
 
   // Everything standing between the form as it is and a submittable proposal.
@@ -693,6 +841,22 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
           },
         };
       }
+
+      case 'TreasuryWithdrawals': {
+        const result = validateTreasuryPanel(state.panels.TreasuryWithdrawals, ctx, treasuryEnv);
+        if (!result.ok) return result;
+        return {
+          ok: true,
+          spec: {
+            type: 'TreasuryWithdrawals',
+            withdrawals: result.value.withdrawals.map((w) => ({
+              rewardAddressHex: w.recipient.rewardAddressHex,
+              lovelace: w.lovelace,
+            })),
+            guardrail: result.value.guardrail,
+          },
+        };
+      }
     }
   }
 
@@ -745,12 +909,12 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
     void readBalance(api, state.wallet.rewardAddressHex);
   }
 
-  async function handleConnect() {
+  async function handleConnect(): Promise<boolean> {
     // A second click while the first connect is still running does nothing:
     // the wallet is already showing its prompt.
-    if (state.wallet.status === 'connecting') return;
+    if (state.wallet.status === 'connecting') return false;
     const walletInfo = wallets.find((w) => w.key === selected);
-    if (!walletInfo) return;
+    if (!walletInfo) return false;
 
     /**
      * Back to no wallet, with the message next to the Connect button. Takes
@@ -774,7 +938,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
       api = (await walletInfo.raw.enable()) as unknown as Cip30Api;
     } catch (err) {
       failed(err);
-      return;
+      return false;
     }
 
     // Fail clearly before any tx is built when the wallet is on the wrong
@@ -783,7 +947,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
       await assertWalletNetwork(api, network);
     } catch (err) {
       failed(err);
-      return;
+      return false;
     }
 
     // The reward address is required regardless of author signing: it is
@@ -796,19 +960,38 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
       rewardAddressHex = (await api.getRewardAddresses())[0];
     } catch (err) {
       failed(err);
-      return;
+      return false;
     }
     if (!rewardAddressHex) {
       failed(
         'Your wallet exposes no reward address, so it cannot receive the deposit refund. Please use a different wallet.',
       );
-      return;
+      return false;
     }
 
     enabledApiRef.current = api;
     rememberWallet(selected);
     dispatch({ kind: 'walletConnected', rewardAddressHex });
     void readBalance(api, rewardAddressHex);
+    return true;
+  }
+
+  /**
+   * The recipient panel's connect button. One wallet, or one the user already
+   * chose or used last time, connects right away and the address is added once
+   * it is known. With several wallets and no choice yet, the picker is brought
+   * into view instead and nothing is connected.
+   */
+  async function handleConnectAndAddOwn() {
+    if (state.wallet.status !== 'none') return;
+    const decided = wallets.length === 1 || walletPickedRef.current || (selected !== '' && selected === recallWallet());
+    if (!decided) {
+      setFocusPickerToken((n) => n + 1);
+      return;
+    }
+    addOwnAfterConnectRef.current = true;
+    const ok = await handleConnect();
+    if (!ok) addOwnAfterConnectRef.current = false;
   }
 
   // ------------------------------------------------------------------
@@ -853,7 +1036,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
       });
       return;
     }
-    if (chained && !contextReady) {
+    if (contextual && !contextReady) {
       setPhase({
         status: 'error',
         message: 'The current chain state has not finished loading. Please wait a moment and try again.',
@@ -926,21 +1109,23 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
       // node after the deposit prompt. Check first, before anything is
       // published or signed.
       let fresh: ActionContextResponse | null = contextData;
-      if (chained) {
+      if (contextual) {
         // The route answers no-store, so this cannot come from the browser
         // cache. The fresh response replaces the stored one either way, so
-        // the panel immediately shows what the chain looks like now.
-        fresh = await loadContext(state.type);
-        if (!fresh?.prev) {
-          setPhase({
-            status: 'error',
-            message: 'Could not re-check the current chain state. Please try again.',
-            step: 'submit',
-          });
-          return;
-        }
-        if (!refStillPresent(prev, fresh.prev)) {
-          setPhase({ status: 'error', message: PREV_ACTION_CHANGED, step: 'submit' });
+        // the panel immediately shows what the chain looks like now. A
+        // treasury withdrawal reads its recipients' registration again at the
+        // same time, the two reads do not depend on each other.
+        const [loaded, recipientsProblem] = await Promise.all([
+          loadContext(state.type),
+          // Must stay before prepareAction below: prepareAction reads
+          // state.recipients from this click's closure, and only this recheck
+          // guarantees every recipient is registered right now.
+          state.type === 'TreasuryWithdrawals' ? recheckRecipients() : Promise.resolve(null),
+        ]);
+        fresh = loaded;
+        const problem = preSignatureProblem(state.type, prev, fresh, recipientsProblem);
+        if (problem) {
+          setPhase({ status: 'error', message: problem, step: 'submit' });
           return;
         }
       }
@@ -1065,7 +1250,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
       // route and the sync both key on) is always this tx hash at index 0.
       setPhase({ status: 'success', txHash, authored: metadata.signAsAuthor, refundEpoch: latestRefundEpoch(epochParamsRow) });
     } catch (err) {
-      setPhase({ status: 'error', message: mapSubmitError(err, prev), step: 'submit' });
+      setPhase({ status: 'error', ...mapSubmitError(err, prev), step: 'submit' });
     }
   }
 
@@ -1113,13 +1298,14 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
 
   /** The type panel, plus the context's own loading and error rows. */
   function renderPanel() {
-    if (!chained) return null;
+    if (!contextual) return null;
     if (state.context.status === 'error') {
       return (
         <div className="callout callout--error" role="alert">
           <ErrorIcon />
           <div className="callout__body">
-            Could not load the current chain state for this action type.{' '}
+            {CONTEXT_ERROR_MESSAGES.get(state.context.code ?? '') ??
+              'Could not load the current chain state for this action type.'}{' '}
             <button
               type="button"
               onClick={() => setContextAttempt((n) => n + 1)}
@@ -1176,10 +1362,52 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
             disabled={busy}
           />
         );
+      case 'TreasuryWithdrawals':
+        return (
+          <TreasuryPanel
+            value={state.panels.TreasuryWithdrawals}
+            onChange={(panel) => dispatch({ kind: 'setPanel', type: 'TreasuryWithdrawals', state: panel })}
+            network={network}
+            guardrail={contextData.guardrail}
+            recipients={state.recipients}
+            onRetryRecipients={() => setRecipientsAttempt((n) => n + 1)}
+            ownStakeAddress={ownStakeAddress}
+            canConnectWallet={wallets.length > 0 && state.wallet.status === 'none'}
+            onConnectAndAddOwn={() => void handleConnectAndAddOwn()}
+            disabled={busy}
+          />
+        );
       default:
         return null;
     }
   }
+
+  // The wallet's own stake address for the treasury panel's shortcut button.
+  let ownStakeAddress: string | null = null;
+  if (state.wallet.status === 'connected') {
+    try {
+      ownStakeAddress = rewardAddressToStakeBech32(state.wallet.rewardAddressHex, network);
+    } catch {
+      ownStakeAddress = null;
+    }
+  }
+
+  // Finishes the recipient panel's connect button: reads the panel as it is
+  // now (the user may have typed while the wallet prompt was open), not as it
+  // was at the click.
+  useEffect(() => {
+    if (!addOwnAfterConnectRef.current) return;
+    if (!ownStakeAddress) {
+      // Connected but the address could not be derived: drop the pending add so a later reconnect cannot fill.
+      if (state.wallet.status === 'connected') addOwnAfterConnectRef.current = false;
+      return;
+    }
+    addOwnAfterConnectRef.current = false;
+    if (state.type !== 'TreasuryWithdrawals') return;
+    const panel = state.panels.TreasuryWithdrawals;
+    const rows = withAddressAdded(panel.rows, ownStakeAddress);
+    if (rows !== panel.rows) dispatch({ kind: 'setPanel', type: 'TreasuryWithdrawals', state: { rows } });
+  }, [ownStakeAddress, state.wallet.status, state.type, state.panels.TreasuryWithdrawals]);
 
   // The two context lines above the panel, each computed once rather than in
   // both the guard and the body it guards.
@@ -1294,13 +1522,15 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
           onChange={(type) => dispatch({ kind: 'setType', type })}
           params={params}
           deposit={deposit}
+          network={network}
+          submissionAvailable={govActionSubmissionAvailable(network)}
           disabled={busy}
         />
 
-        {chained && ageLine && (
+        {contextual && ageLine && (
           <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.8125rem' }}>{ageLine}</p>
         )}
-        {chained && changeLines.length > 0 && (
+        {contextual && changeLines.length > 0 && (
           <div role="status" style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
             {changeLines.map((line) => (
               <p key={line} style={{ margin: 0, color: 'var(--muted)', fontSize: '0.8125rem' }}>{line}</p>
@@ -1512,10 +1742,12 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
           deposit={deposit}
           reasons={reasons}
           onConnect={() => void handleConnect()}
+          focusPickerToken={focusPickerToken}
           onCheckAgain={handleCheckAgain}
           submitting={busy}
           connectError={phase.status === 'error' && phase.step === 'connect' ? phase.message : null}
           submitError={phase.status === 'error' && phase.step === 'submit' ? phase.message : null}
+          submitErrorDetail={phase.status === 'error' && phase.step === 'submit' ? (phase.detail ?? null) : null}
           onUseDifferentWallet={reset}
           onReview={() => setReviewOpen(true)}
           reviewButtonRef={reviewButtonRef}

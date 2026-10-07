@@ -18,6 +18,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { CopyButton } from '@/components/CopyButton.js';
 import { resolveAnchorUrl } from '@/lib/governance/anchorUrl.js';
+import { truncateIdMiddle } from '@/lib/forum/view.js';
 import type { CommitteeMemberChange, OnchainChanges } from '@/lib/governance/onchain.js';
 
 export interface PreviewCardProps {
@@ -213,6 +214,32 @@ function OnchainChangesCard({ changes, names }: { changes: OnchainChanges; names
         )}
       </ul>
     );
+  } else if (changes.kind === 'treasury' && changes.rows.length > 0) {
+    // Mirrors GaOnchainChanges.astro: "<amount> paid to <stake address>" per
+    // recipient, and a total only when there is more than one row, since for a
+    // single payout it would repeat the row.
+    body = (
+      <>
+        <ul className="ocx__rows" style={rowsStyle}>
+          {changes.rows.map((row) => (
+            // Recipients are deduplicated on the address, so it is a stable key.
+            <li key={row.address} className="ocx__row ocx__pay" style={rowStyle}>
+              <span className="ocx__new ocx__payamt" style={newStyle}>{row.ada}</span>{' '}
+              <span className="ocx__payto" style={mutedStyle}>paid to</span>{' '}
+              <span className="ocx__payaddr mono" style={monoStyle} title={row.address}>
+                {truncateIdMiddle(row.address)}
+              </span>
+              <CopyButton value={row.address} label="Copy address" />
+            </li>
+          ))}
+        </ul>
+        {changes.rows.length > 1 && (
+          <p className="ocx__total" style={{ fontSize: '0.875rem', margin: '0.5rem 0 0' }}>
+            Total: <span className="ocx__new" style={newStyle}>{changes.totalAda}</span>
+          </p>
+        )}
+      </>
+    );
   } else if (changes.kind === 'note') {
     body = (
       <p className="ocx__note" style={{ fontSize: '0.9375rem', margin: '0.4rem 0 0', color: 'var(--muted)' }}>
@@ -221,9 +248,9 @@ function OnchainChangesCard({ changes, names }: { changes: OnchainChanges; names
     );
   }
 
-  // Nothing to show: an empty committee diff, or (unreachable from this form,
-  // which offers neither ParameterChange nor TreasuryWithdrawals, see
-  // govActionParts.ts) a params or treasury payload.
+  // Nothing to show: an empty committee diff, an empty treasury list, or a
+  // params payload, which this form does not produce because it offers no
+  // ParameterChange (see govActionParts.ts).
   if (body === null) return null;
 
   return (

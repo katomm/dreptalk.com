@@ -10,7 +10,8 @@ import {
 import type { ActionContextResponse } from './actionContextHandler.js';
 import type { EpochParamsRow } from '../koios/client.js';
 import { blake2b256 } from '../crypto/blake.js';
-import { bytesToHex } from '../crypto/hex.js';
+import { bytesToHex, hexToBytes } from '../crypto/hex.js';
+import { encodeBech32 } from '../crypto/bech32.js';
 
 const MEMBER_A = 'a'.repeat(56);
 const MEMBER_B = 'b'.repeat(56);
@@ -385,5 +386,63 @@ describe('cip108Body, the merge rule the preview and the action page share', () 
   it('leaves out an empty field instead of opening with a blank line', () => {
     expect(cip108Body('', 'Only the rationale.')).toBe('Only the rationale.');
     expect(cip108Body('Only the motivation.', '')).toBe('Only the motivation.');
+  });
+});
+
+describe('treasury withdrawal preview', () => {
+  const KEY_ADDR = encodeBech32('stake_test', hexToBytes(`e0${'ab'.repeat(28)}`));
+  const SCRIPT_ADDR = encodeBech32('stake_test', hexToBytes(`f0${'cd'.repeat(28)}`));
+  const LARGE_ADDR = encodeBech32('stake_test', hexToBytes(`e0${'ef'.repeat(28)}`));
+
+  // Built on initialGovActionFormState('Jane DRep') like the file's own form()
+  // helper, so the prefilled author name keeps 'Author name' out of missing.
+  function treasuryForm(rows: { address: string; amountAda: string }[]) {
+    const base = initialGovActionFormState('Jane DRep');
+    return {
+      type: 'TreasuryWithdrawals' as const,
+      metadata: { ...base.metadata, title: 'T', abstract: 'A', motivation: 'M', rationale: 'R' },
+      panels: { ...base.panels, TreasuryWithdrawals: { rows } },
+    };
+  }
+
+  it('shows every amount and the total exactly to the lovelace, also above 2^53 lovelace', () => {
+    const model = previewModelFromForm(
+      treasuryForm([
+        { address: KEY_ADDR, amountAda: '0.000001' },
+        { address: SCRIPT_ADDR, amountAda: '2.5' },
+        { address: LARGE_ADDR, amountAda: '9007199254.740993' },
+      ]),
+      { epoch: 500, guardrail: { state: 'known', scriptHash: SCRIPT_HASH } },
+      EPOCH_PARAMS,
+      'preprod',
+    );
+    expect(model.onchain).toEqual({
+      kind: 'treasury',
+      rows: [
+        { address: KEY_ADDR, ada: '0.000001 tADA' },
+        { address: SCRIPT_ADDR, ada: '2.5 tADA' },
+        { address: LARGE_ADDR, ada: '9,007,199,254.740993 tADA' },
+      ],
+      totalAda: '9,007,199,257.240994 tADA',
+    });
+    expect(model.missing).toEqual([]);
+  });
+
+  it('keeps the readable rows and names the unreadable ones and a missing guardrail', () => {
+    const model = previewModelFromForm(
+      treasuryForm([
+        { address: KEY_ADDR, amountAda: '1' },
+        { address: 'stake_test1nope', amountAda: '' },
+      ]),
+      { epoch: 500 },
+      EPOCH_PARAMS,
+      'preprod',
+    );
+    expect(model.onchain).toEqual({
+      kind: 'treasury',
+      rows: [{ address: KEY_ADDR, ada: '1 tADA' }],
+      totalAda: '1 tADA',
+    });
+    expect(model.missing).toEqual(['Recipient 2', 'Amount 2', 'Guardrails script']);
   });
 });

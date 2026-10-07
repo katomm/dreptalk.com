@@ -84,7 +84,7 @@ function plan(input: ThresholdInput, p: ProtocolParams): { drep: number | null; 
 
 // The action types SPOs vote on at all (CIP-1694). ParameterChange is absent
 // because there it depends on the changed parameters, and this sentence is
-// only used for the five types the submit form offers.
+// only used for the types the submit form offers.
 const SPO_VOTING_TYPES = new Set(['NoConfidence', 'NewCommittee', 'HardForkInitiation']);
 
 /** A threshold fraction as a percentage string, trailing zeros trimmed. */

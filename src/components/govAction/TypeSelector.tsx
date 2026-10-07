@@ -1,4 +1,4 @@
-// The five action-type radio cards at the top of /ga/new. Presentational: it
+// The action-type radio cards at the top of /ga/new. Presentational: it
 // renders the type names, one sentence of what each one does, and the
 // thresholds it has to clear, all supplied from outside. The threshold
 // sentence comes from thresholds.ts, the single CIP-1694 threshold table, so
@@ -9,6 +9,8 @@ import { thresholdSentence, decidersLine } from '@/lib/governance/thresholds.js'
 import type { ProtocolParams } from '@/lib/db/protocolParams.js';
 import type { DepositState } from '@/lib/governance/govActionFormState.js';
 import { formatAdaPlain } from '@/lib/format/ada.js';
+import type { CardanoNetwork } from '@/lib/config/network.js';
+import { govActionTypeAvailable } from '@/lib/governance/submissionGate.js';
 
 export interface TypeSelectorProps {
   value: GovActionFormType;
@@ -17,6 +19,10 @@ export interface TypeSelectorProps {
   params: ProtocolParams | null;
   /** The same epoch_params fetch the island already runs, for the deposit line. No new fetch here. */
   deposit: DepositState;
+  /** Only the types govActionTypeAvailable allows get a card. */
+  network: CardanoNetwork;
+  /** The submission switch's answer, today govActionSubmissionAvailable(network) from the island. */
+  submissionAvailable: boolean;
   disabled?: boolean;
 }
 
@@ -53,6 +59,12 @@ const TYPES: { type: GovActionFormType; label: string; summary: string }[] = [
     label: 'Update committee',
     summary: 'Adds or removes constitutional committee members and sets the committee quorum.',
   },
+  {
+    type: 'TreasuryWithdrawals',
+    label: 'Treasury withdrawal',
+    summary:
+      "Pays ada from the treasury to one or more registered stake addresses. The constitution's guardrails script checks the action before it can be submitted.",
+  },
 ];
 
 /** The label the selector shows for a type, reused wherever the form names the type it builds. */
@@ -76,7 +88,7 @@ function cardStyle(selected: boolean, disabled: boolean): CSSProperties {
   };
 }
 
-export default function TypeSelector({ value, onChange, params, deposit, disabled = false }: TypeSelectorProps) {
+export default function TypeSelector({ value, onChange, params, deposit, network, submissionAvailable, disabled = false }: TypeSelectorProps) {
   // The same line on every card, so it is worded once rather than per type.
   const depositText = depositLine(deposit);
   return (
@@ -85,7 +97,7 @@ export default function TypeSelector({ value, onChange, params, deposit, disable
         Action type
       </legend>
       <div style={listStyle}>
-        {TYPES.map(t => (
+        {TYPES.filter(t => govActionTypeAvailable(t.type, { submissionAvailable, network })).map(t => (
           <label key={t.type} style={cardStyle(t.type === value, disabled)}>
             <input
               type="radio"

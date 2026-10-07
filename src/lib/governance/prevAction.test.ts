@@ -4,10 +4,12 @@ import { describe, expect, it } from 'vitest';
 import {
   type ChainRow,
   chainForType,
+  GOV_ACTION_FORM_TYPES,
   formatGovActionKey,
   type GovActionRef,
   koiosProposalType,
   matchesRef,
+  needsContext,
   openInChain,
   pickLastEnacted,
   refStillPresent,
@@ -177,5 +179,16 @@ describe('refStillPresent', () => {
 
   it('is false for chosen === null when lastEnacted is not null', () => {
     expect(refStillPresent(null, { lastEnacted, open: [openRow] })).toBe(false);
+  });
+});
+
+describe('treasury withdrawals in the type list', () => {
+  it('has no purpose chain but needs a context', () => {
+    expect(chainForType('TreasuryWithdrawals')).toBeNull();
+    expect(needsContext('TreasuryWithdrawals')).toBe(true);
+  });
+
+  it('needs a context for every type except InfoAction', () => {
+    expect(GOV_ACTION_FORM_TYPES.filter((type) => !needsContext(type))).toEqual(['InfoAction']);
   });
 });

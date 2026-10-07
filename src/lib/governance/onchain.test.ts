@@ -12,6 +12,7 @@ import {
   lineagePredecessorTxIds,
   parseHardForkVersion,
   parseProposalPolicyHash,
+  parseConstitutionScriptHash,
 } from './onchain.js';
 
 describe('formatValue', () => {
@@ -239,47 +240,137 @@ describe('parseHardForkVersion', () => {
   });
 });
 
+const GUARDRAIL = 'fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64';
+
 describe('parseProposalPolicyHash', () => {
-  it('reads the policy hash off a real preprod ParameterChange payload', () => {
+  it('reads a ParameterChange policy hash from contents[2], the real preprod shape', () => {
     const payload = {
       tag: 'ParameterChange',
       contents: [
-        { txId: '3e1b', govActionIx: 0 },
-        { govActionDeposit: 1000000000 },
-        'fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64',
+        { txId: '4aa45fe4266c114201733bbc641164b4d3eac51081afeee12ddc92235b58f45c', govActionIx: 0 },
+        { minPoolCost: 75000000 },
+        GUARDRAIL,
       ],
     };
-    expect(parseProposalPolicyHash(payload)).toBe('fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64');
+    expect(parseProposalPolicyHash(payload)).toEqual({ kind: 'hash', hex: GUARDRAIL });
   });
 
-  it('reads the policy hash off a TreasuryWithdrawals payload', () => {
+  it('reads a TreasuryWithdrawals policy hash from contents[1], the real preprod shape', () => {
     const payload = {
       tag: 'TreasuryWithdrawals',
-      contents: [[], null, 'fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64'],
+      contents: [
+        [[{ network: 'Testnet', credential: { keyHash: '60adcde454590dbfe5935f8bc29619fe608d7cdd631580cc78b67763' } }, 1000000]],
+        GUARDRAIL,
+      ],
     };
-    expect(parseProposalPolicyHash(payload)).toBe('fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64');
+    expect(parseProposalPolicyHash(payload)).toEqual({ kind: 'hash', hex: GUARDRAIL });
   });
 
-  it('returns null for a null policy hash', () => {
-    const payload = {
-      tag: 'ParameterChange',
-      contents: [{ txId: '3e1b', govActionIx: 0 }, { govActionDeposit: 1000000000 }, null],
-    };
-    expect(parseProposalPolicyHash(payload)).toBeNull();
+  it('lowercases an uppercase hash', () => {
+    const payload = { tag: 'TreasuryWithdrawals', contents: [[], GUARDRAIL.toUpperCase()] };
+    expect(parseProposalPolicyHash(payload)).toEqual({ kind: 'hash', hex: GUARDRAIL });
   });
 
-  it('returns null for a non-hex or wrong-length value', () => {
-    const payload = { tag: 'ParameterChange', contents: [null, null, 'not-a-hash'] };
-    expect(parseProposalPolicyHash(payload)).toBeNull();
+  it('reads an explicit null as proven absence, for both tags', () => {
+    expect(parseProposalPolicyHash({ tag: 'TreasuryWithdrawals', contents: [[], null] })).toEqual({ kind: 'none' });
+    expect(parseProposalPolicyHash({ tag: 'ParameterChange', contents: [null, { minPoolCost: 1 }, null] })).toEqual({
+      kind: 'none',
+    });
   });
 
-  it('returns null for an unrelated tag', () => {
-    expect(parseProposalPolicyHash({ tag: 'HardForkInitiation', contents: [] })).toBeNull();
+  it('treats a missing slot as unreadable, never as absence', () => {
+    expect(parseProposalPolicyHash({ tag: 'TreasuryWithdrawals', contents: [[]] })).toEqual({ kind: 'unreadable' });
+    expect(parseProposalPolicyHash({ tag: 'ParameterChange', contents: [null, { minPoolCost: 1 }] })).toEqual({
+      kind: 'unreadable',
+    });
   });
 
-  it('returns null for null or non-object input', () => {
-    expect(parseProposalPolicyHash(null)).toBeNull();
-    expect(parseProposalPolicyHash(undefined)).toBeNull();
+  it('treats the old three-slot treasury shape as unreadable', () => {
+    // The fixture this block used to carry put the hash where a treasury
+    // withdrawal has no slot, which is how the index bug went unnoticed.
+    expect(parseProposalPolicyHash({ tag: 'TreasuryWithdrawals', contents: [[], null, GUARDRAIL] })).toEqual({
+      kind: 'unreadable',
+    });
+  });
+
+  it('treats malformed hex as unreadable', () => {
+    for (const bad of ['not-a-hash', 'deadbeef', 'z'.repeat(56), 42, {}]) {
+      expect(parseProposalPolicyHash({ tag: 'ParameterChange', contents: [null, null, bad] })).toEqual({
+        kind: 'unreadable',
+      });
+    }
+  });
+
+  it('treats an unrelated tag, a missing contents array or a non-object as unreadable', () => {
+    expect(parseProposalPolicyHash({ tag: 'HardForkInitiation', contents: [] })).toEqual({ kind: 'unreadable' });
+    expect(parseProposalPolicyHash({ tag: 'ParameterChange' })).toEqual({ kind: 'unreadable' });
+    expect(parseProposalPolicyHash(null)).toEqual({ kind: 'unreadable' });
+    expect(parseProposalPolicyHash(undefined)).toEqual({ kind: 'unreadable' });
+  });
+});
+
+describe('parseConstitutionScriptHash', () => {
+  const anchor = { url: 'ipfs://bafkrei', dataHash: '7c05f74f644daac5be3b432357d133659cc76fff6a46bfb4355bc82c8992fa95' };
+
+  it('reads the script hash next to the anchor', () => {
+    const payload = { tag: 'NewConstitution', contents: [null, { anchor, script: GUARDRAIL }] };
+    expect(parseConstitutionScriptHash(payload)).toEqual({ kind: 'hash', hex: GUARDRAIL });
+  });
+
+  it('reads an omitted script key as proven absence, the shape Koios serves for a constitution without guardrail', () => {
+    expect(parseConstitutionScriptHash({ tag: 'NewConstitution', contents: [null, { anchor }] })).toEqual({ kind: 'none' });
+  });
+
+  it('reads an explicit null script as proven absence', () => {
+    expect(parseConstitutionScriptHash({ tag: 'NewConstitution', contents: [null, { anchor, script: null }] })).toEqual({
+      kind: 'none',
+    });
+  });
+
+  it('treats a malformed script as unreadable', () => {
+    expect(parseConstitutionScriptHash({ tag: 'NewConstitution', contents: [null, { anchor, script: 'deadbeef' }] })).toEqual({
+      kind: 'unreadable',
+    });
+  });
+
+  it('treats a body without a usable anchor as unreadable, never as absence', () => {
+    const unreadable = { kind: 'unreadable' };
+    const shapes = [
+      [null, { script: GUARDRAIL }],
+      [null, { anchor: null }],
+      [null, { anchor: [] }],
+      [null, { anchor: {} }],
+      [null, { anchor: { url: 'ipfs://x' } }],
+      [null, { anchor: { url: 'ipfs://x', dataHash: 'zz' } }],
+      [null, { anchor: { url: 42, dataHash: anchor.dataHash } }],
+    ];
+    for (const contents of shapes) {
+      expect(parseConstitutionScriptHash({ tag: 'NewConstitution', contents })).toEqual(unreadable);
+    }
+  });
+
+  it('treats a wrong contents shape as unreadable', () => {
+    const unreadable = { kind: 'unreadable' };
+    expect(parseConstitutionScriptHash({ tag: 'NewConstitution', contents: [{ anchor: [] }] })).toEqual(unreadable);
+    expect(parseConstitutionScriptHash({ tag: 'NewConstitution', contents: [null, [{ anchor }]] })).toEqual(unreadable);
+    expect(parseConstitutionScriptHash({ tag: 'NewConstitution', contents: [null, { anchor }, null] })).toEqual(unreadable);
+    expect(parseConstitutionScriptHash({ tag: 'NewConstitution', contents: ['prev', { anchor }] })).toEqual(unreadable);
+    expect(parseConstitutionScriptHash({ tag: 'NewConstitution', contents: { 1: { anchor } } })).toEqual(unreadable);
+    expect(parseConstitutionScriptHash([{ tag: 'NewConstitution' }])).toEqual(unreadable);
+  });
+
+  it('accepts a previous action object in the first slot', () => {
+    const prevId = { txId: 'ab'.repeat(32), govActionIx: 0 };
+    expect(parseConstitutionScriptHash({ tag: 'NewConstitution', contents: [prevId, { anchor }] })).toEqual({ kind: 'none' });
+  });
+
+  it('accepts the UpdateConstitution tag the decoder also accepts', () => {
+    expect(parseConstitutionScriptHash({ tag: 'UpdateConstitution', contents: [null, { anchor }] })).toEqual({ kind: 'none' });
+  });
+
+  it('treats another tag or a non-object as unreadable', () => {
+    expect(parseConstitutionScriptHash({ tag: 'ParameterChange', contents: [] })).toEqual({ kind: 'unreadable' });
+    expect(parseConstitutionScriptHash(null)).toEqual({ kind: 'unreadable' });
   });
 });
 
