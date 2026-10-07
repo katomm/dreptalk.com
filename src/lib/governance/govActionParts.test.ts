@@ -6,9 +6,10 @@
 // and now sit directly on the SDK calls.
 
 import { describe, it, expect } from 'vitest';
-import { Anchor, GovernanceAction, RewardAccount, Url } from '@evolution-sdk/evolution';
+import { Anchor, GovernanceAction, RewardAccount, ScriptHash, Url } from '@evolution-sdk/evolution';
 import { buildGovernanceAction } from './govActionParts.js';
 import { bytesToHex, hexToBytes } from '../crypto/hex.js';
+import { GUARDRAIL_SCRIPT_HASH_HEX } from './guardrailScript.js';
 
 // Deterministic test fixtures.
 const REWARD_ADDRESS_HEX = `e0${'00'.repeat(28)}`; // testnet-style reward address (29 bytes)
@@ -169,5 +170,72 @@ describe('buildGovernanceAction', () => {
       const decoded = GovernanceAction.fromCBORHex(hex);
       expect(decoded._tag).toBe(action._tag);
     }
+  });
+});
+
+describe('buildGovernanceAction TreasuryWithdrawals', () => {
+  const KEY_RECIPIENT = `e0${'ab'.repeat(28)}`;
+  const SCRIPT_RECIPIENT = `f0${'cd'.repeat(28)}`;
+  const KNOWN = { state: 'known', scriptHash: GUARDRAIL_SCRIPT_HASH_HEX } as const;
+
+  function treasury(action: GovernanceAction.GovernanceAction): GovernanceAction.TreasuryWithdrawalsAction {
+    if (action._tag !== 'TreasuryWithdrawalsAction') throw new Error(`expected a treasury action, got ${action._tag}`);
+    return action;
+  }
+
+  it('builds one map entry per recipient with the guardrail as policy hash', () => {
+    const action = treasury(
+      buildGovernanceAction({
+        type: 'TreasuryWithdrawals',
+        withdrawals: [
+          { rewardAddressHex: KEY_RECIPIENT, lovelace: 1_000_000n },
+          { rewardAddressHex: SCRIPT_RECIPIENT, lovelace: 2_500_000n },
+        ],
+        guardrail: KNOWN,
+      }),
+    );
+    expect([...action.withdrawals].map(([account, lovelace]) => [RewardAccount.toHex(account), lovelace])).toEqual([
+      [KEY_RECIPIENT, 1_000_000n],
+      [SCRIPT_RECIPIENT, 2_500_000n],
+    ]);
+    expect(action.policyHash ? ScriptHash.toHex(action.policyHash) : null).toBe(GUARDRAIL_SCRIPT_HASH_HEX);
+  });
+
+  it('carries no policy hash when the chain proves there is no guardrail', () => {
+    const action = treasury(
+      buildGovernanceAction({
+        type: 'TreasuryWithdrawals',
+        withdrawals: [{ rewardAddressHex: KEY_RECIPIENT, lovelace: 1n }],
+        guardrail: { state: 'absent' },
+      }),
+    );
+    expect(action.policyHash).toBeNull();
+  });
+
+  it('refuses a recipient listed twice, also when the hex differs only in case', () => {
+    expect(() =>
+      buildGovernanceAction({
+        type: 'TreasuryWithdrawals',
+        withdrawals: [
+          { rewardAddressHex: KEY_RECIPIENT, lovelace: 1n },
+          { rewardAddressHex: KEY_RECIPIENT.toUpperCase(), lovelace: 2n },
+        ],
+        guardrail: KNOWN,
+      }),
+    ).toThrow(/^Duplicate treasury withdrawal recipient/);
+  });
+
+  it('round-trips through CBOR with every recipient', () => {
+    const action = buildGovernanceAction({
+      type: 'TreasuryWithdrawals',
+      withdrawals: [
+        { rewardAddressHex: KEY_RECIPIENT, lovelace: 1_000_000n },
+        { rewardAddressHex: SCRIPT_RECIPIENT, lovelace: 2_500_000n },
+      ],
+      guardrail: KNOWN,
+    });
+    const decoded = treasury(GovernanceAction.fromCBORHex(GovernanceAction.toCBORHex(action)));
+    expect(decoded.withdrawals.size).toBe(2);
+    expect(decoded.policyHash ? ScriptHash.toHex(decoded.policyHash) : null).toBe(GUARDRAIL_SCRIPT_HASH_HEX);
   });
 });
