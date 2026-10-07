@@ -63,32 +63,36 @@ function removedEntry(credential: { hashHex: string; isScript: boolean }): Recor
 }
 
 /**
- * The synthetic Koios `proposal_description` for the form as it stands, plus
- * the panel fields that are still missing. The payload shapes are the ones in
+ * The on-chain changes card for the form as it stands, plus the panel fields
+ * that are still missing. Most types build a synthetic Koios
+ * `proposal_description` and decode it, the payload shapes are the ones in
  * onchain.test.ts's fixtures, which were confirmed against real mainnet rows.
- * A treasury withdrawal hands back a finished card as `exact` instead, with
- * no payload, because the decoder rounds its amounts to whole ada.
+ * A treasury withdrawal builds its card directly instead, because the decoder
+ * rounds its amounts to whole ada.
  */
-function previewPayload(
+function previewOnchain(
   state: PreviewFormState,
   context: ActionContextResponse | null,
+  epochParams: EpochParamsRow | null,
   network: CardanoNetwork,
-): { payload: { tag: string; contents: unknown[] } | null; missing: string[]; exact?: OnchainChanges } {
+): { onchain: OnchainChanges | null; missing: string[] } {
   const prev = prevSlot(effectivePrev(chosenPrev(state.type, state.panels), context));
+  const decode = (payload: { tag: string; contents: unknown[] }) =>
+    decodeOnchainChanges(JSON.stringify(payload), epochParams ? JSON.stringify(epochParams) : null, network);
 
   switch (state.type) {
     case 'InfoAction':
-      return { payload: { tag: 'InfoAction', contents: [] }, missing: [] };
+      return { onchain: decode({ tag: 'InfoAction', contents: [] }), missing: [] };
 
     case 'NoConfidence':
-      return { payload: { tag: 'NoConfidence', contents: [prev] }, missing: [] };
+      return { onchain: decode({ tag: 'NoConfidence', contents: [prev] }), missing: [] };
 
     case 'HardForkInitiation': {
       const { payloadPart, missing } = describeHardForkPanel(state.panels.HardForkInitiation, context);
       return {
         // An unchosen version leaves the slot empty rather than inventing one,
         // so the card shows the active version and nothing after the arrow.
-        payload: { tag: 'HardForkInitiation', contents: payloadPart ? [prev, payloadPart] : [prev] },
+        onchain: decode({ tag: 'HardForkInitiation', contents: payloadPart ? [prev, payloadPart] : [prev] }),
         missing,
       };
     }
@@ -102,7 +106,7 @@ function previewPayload(
       // of an empty string.
       const dataHash = text.trim() ? bytesToHex(blake2b256(new TextEncoder().encode(text))) : null;
       return {
-        payload: {
+        onchain: decode({
           tag: 'NewConstitution',
           contents: [
             prev,
@@ -111,7 +115,7 @@ function previewPayload(
               script: payloadPart?.scriptHashHex ?? null,
             },
           ],
-        },
+        }),
         missing,
       };
     }
@@ -121,7 +125,7 @@ function previewPayload(
       const added: Record<string, number> = {};
       for (const member of payloadPart?.add ?? []) added[addedKey(member.credential)] = member.expiryEpoch;
       return {
-        payload: {
+        onchain: decode({
           tag: 'UpdateCommittee',
           contents: [
             prev,
@@ -129,25 +133,24 @@ function previewPayload(
             added,
             payloadPart?.quorum ?? null,
           ],
-        },
+        }),
         missing,
       };
     }
 
     case 'TreasuryWithdrawals': {
       const { payloadPart, missing } = describeTreasuryPanel(state.panels.TreasuryWithdrawals, context, network);
-      const rows = payloadPart?.rows ?? [];
+      const { rows } = payloadPart;
       const total = rows.reduce((sum, row) => sum + row.lovelace, 0n);
       // Exact to the lovelace, the same row and total semantics as the
       // action page's card (GaOnchainChanges.astro), without its rounding.
       return {
-        payload: null,
-        missing,
-        exact: {
+        onchain: {
           kind: 'treasury',
           rows: rows.map((row) => ({ address: row.recipient.stakeAddress, ada: formatTreasuryAda(row.lovelace) })),
           totalAda: formatTreasuryAda(total),
         },
+        missing,
       };
     }
   }
@@ -177,10 +180,7 @@ export function previewModelFromForm(
   epochParams: EpochParamsRow | null,
   network: CardanoNetwork,
 ): PreviewModel {
-  const { payload, missing: panelMissing, exact } = previewPayload(state, context, network);
-  const onchain =
-    exact ??
-    (payload ? decodeOnchainChanges(JSON.stringify(payload), epochParams ? JSON.stringify(epochParams) : null, network) : null);
+  const { onchain, missing: panelMissing } = previewOnchain(state, context, epochParams, network);
 
   const metadata = state.metadata;
   const missing = [...panelMissing];

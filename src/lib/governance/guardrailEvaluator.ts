@@ -12,14 +12,11 @@ import { Effect, Redeemer, Transaction } from '@evolution-sdk/evolution';
 import { EvaluationError, type Evaluator } from '@evolution-sdk/evolution/sdk/builders/TransactionBuilder';
 import type { EvalRedeemer } from '@evolution-sdk/evolution/sdk/EvalRedeemer';
 import type { EvalRedeemerJson, EvaluateResponse, EvaluationFailureCause } from './evaluateContract.js';
+import { isRecord } from '../util/isRecord.js';
 
 type RouteOutcome = { ok: true; redeemers: EvalRedeemer[] } | { ok: false; cause: EvaluationFailureCause };
 
 const UNAVAILABLE: RouteOutcome = { ok: false, cause: { code: 'evaluator_unavailable', detail: null } };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 const REDEEMER_TAGS: readonly string[] = ['spend', 'mint', 'cert', 'reward', 'vote', 'propose'];
 const UINT_STRING_RE = /^\d+$/;

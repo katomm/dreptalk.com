@@ -4,7 +4,8 @@
 
 import { formatAda } from './view.js';
 import { rewardAddressToStakeBech32 } from './stakeAccount.js';
-import { HEX_HASH_224_RE } from '../crypto/hex.js';
+import { HEX_HASH_224_RE, HEX_HASH_256_RE } from '../crypto/hex.js';
+import { isRecord } from '../util/isRecord.js';
 import type { CardanoNetwork } from '../config/network.js';
 import type { ParamGroup, ParamChangeScope } from './thresholds.js';
 
@@ -378,12 +379,6 @@ export function parseProposalPolicyHash(payload: unknown): GuardrailLeaf {
   return guardrailLeafFromSlot(obj.contents[size - 1]);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-const ANCHOR_DATA_HASH_RE = /^[0-9a-f]{64}$/i;
-
 /**
  * The guardrails script hash a NewConstitution proposal sets. Koios omits the
  * `script` key for a constitution without a guardrail (checked on preview
@@ -407,7 +402,8 @@ export function parseConstitutionScriptHash(payload: unknown): GuardrailLeaf {
     !isRecord(anchor) ||
     typeof anchor.url !== 'string' ||
     typeof anchor.dataHash !== 'string' ||
-    !ANCHOR_DATA_HASH_RE.test(anchor.dataHash)
+    // Lowercased first: the shared pattern is lowercase only, Koios may not be.
+    !HEX_HASH_256_RE.test(anchor.dataHash.toLowerCase())
   ) {
     return { kind: 'unreadable' };
   }

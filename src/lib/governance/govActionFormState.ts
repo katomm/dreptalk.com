@@ -35,6 +35,8 @@ import type {
 } from './committeeUpdate.js';
 import {
   checkTreasuryRows,
+  EMPTY_TREASURY_ROW,
+  isEmptyTreasuryPanel,
   RECIPIENT_UNREGISTERED,
   RECIPIENTS_CHECK_FAILED,
   RECIPIENTS_CHECKING,
@@ -178,8 +180,8 @@ export type ContextState =
       data: null;
       loadedAt: null;
       changes: ContextChangeNotes;
-      /** Set when the route said the guardrail could not be checked, which the panel words differently. */
-      code?: 'guardrail_unknown';
+      /** The route's own error code, when it sent one. The island words some of them differently. */
+      code?: string;
     };
 
 /** The current governance action deposit, read once from /epoch_params. */
@@ -290,7 +292,7 @@ export type GovActionFormAction =
       /** The load's own clock reading (ms), carried in the action so a test can control it instead of racing Date.now(). */
       now: number;
     }
-  | { kind: 'contextFailed'; requestId: number; code?: 'guardrail_unknown' }
+  | { kind: 'contextFailed'; requestId: number; code?: string }
   | { kind: 'recipientsCheckRequested'; requestId: number; addresses: readonly string[] }
   | { kind: 'recipientsChecked'; requestId: number; registered: Readonly<Record<string, boolean>> }
   | { kind: 'recipientsCheckFailed'; requestId: number }
@@ -349,7 +351,7 @@ export function emptyPanelStates(): PanelStates {
     HardForkInitiation: { prev: null, version: null },
     NewConstitution: { prev: null, text: '', scriptHashHex: null },
     UpdateCommittee: { prev: null, removeHex: [], removeFree: [], add: [], quorum: null },
-    TreasuryWithdrawals: { rows: [{ address: '', amountAda: '' }] },
+    TreasuryWithdrawals: { rows: [EMPTY_TREASURY_ROW] },
   };
 }
 
@@ -471,7 +473,7 @@ function coerceTreasuryPanel(raw: unknown): TreasuryPanelState {
           .map((r) => ({ address: str(r.address), amountAda: str(r.amountAda) }))
       : [];
   // The panel always shows at least one row, as a fresh form does.
-  return { rows: rows.length > 0 ? rows : [{ address: '', amountAda: '' }] };
+  return { rows: rows.length > 0 ? rows : [EMPTY_TREASURY_ROW] };
 }
 
 /** Rebuilds every panel from a stored draft, defaulting each one that is missing or malformed. */
@@ -746,6 +748,24 @@ export function contextChangeLines(notes: ContextChangeNotes): string[] {
 // Reducer
 // ---------------------------------------------------------------------------
 
+/**
+ * Files a registration answer: every address the latest check still marks as
+ * checking gets the status `statusFor` gives it. An answer for an older
+ * check is stale and leaves the state as it is.
+ */
+function settleRecipients(
+  state: GovActionFormState,
+  requestId: number,
+  statusFor: (address: string) => RecipientStatus,
+): GovActionFormState {
+  if (requestId !== state.recipients.requestId) return state;
+  const byAddress: Record<string, RecipientStatus> = { ...state.recipients.byAddress };
+  for (const address of Object.keys(byAddress)) {
+    if (byAddress[address] === 'checking') byAddress[address] = statusFor(address);
+  }
+  return { ...state, recipients: { ...state.recipients, byAddress } };
+}
+
 export function govActionFormReducer(
   state: GovActionFormState,
   action: GovActionFormAction,
@@ -851,7 +871,7 @@ export function govActionFormReducer(
           data: null,
           loadedAt: null,
           changes: NO_CONTEXT_CHANGES,
-          ...(action.code ? { code: action.code } : {}),
+          code: action.code,
         },
       };
 
@@ -1017,24 +1037,13 @@ export function govActionFormReducer(
       return { ...state, recipients: { requestId: action.requestId, byAddress } };
     }
 
-    case 'recipientsChecked': {
-      if (action.requestId !== state.recipients.requestId) return state;
-      const byAddress: Record<string, RecipientStatus> = { ...state.recipients.byAddress };
-      for (const address of Object.keys(byAddress)) {
-        if (byAddress[address] !== 'checking') continue;
-        byAddress[address] = action.registered[address] === true ? 'registered' : 'unregistered';
-      }
-      return { ...state, recipients: { ...state.recipients, byAddress } };
-    }
+    case 'recipientsChecked':
+      return settleRecipients(state, action.requestId, (address) =>
+        action.registered[address] === true ? 'registered' : 'unregistered',
+      );
 
-    case 'recipientsCheckFailed': {
-      if (action.requestId !== state.recipients.requestId) return state;
-      const byAddress: Record<string, RecipientStatus> = { ...state.recipients.byAddress };
-      for (const address of Object.keys(byAddress)) {
-        if (byAddress[address] === 'checking') byAddress[address] = 'failed';
-      }
-      return { ...state, recipients: { ...state.recipients, byAddress } };
-    }
+    case 'recipientsCheckFailed':
+      return settleRecipients(state, action.requestId, () => 'failed');
   }
 }
 
@@ -1176,9 +1185,7 @@ function panelsAreEmpty(panels: PanelStates): boolean {
     panels.UpdateCommittee.removeFree.length === 0 &&
     panels.UpdateCommittee.add.length === 0 &&
     panels.UpdateCommittee.quorum === null &&
-    panels.TreasuryWithdrawals.rows.length === 1 &&
-    panels.TreasuryWithdrawals.rows[0].address === '' &&
-    panels.TreasuryWithdrawals.rows[0].amountAda === ''
+    isEmptyTreasuryPanel(panels.TreasuryWithdrawals)
   );
 }
 
@@ -1572,14 +1579,15 @@ export function validateTreasuryPanel(
 
 /**
  * The treasury panel read leniently for the preview: every row that parsed,
- * the policy hash the context reports, and the names of the fields that are
- * not usable yet. Registration is left out, the preview shows the payload.
+ * and the names of the fields that are not usable yet. Registration is left
+ * out, the preview shows the payload. The rows are always there, possibly
+ * empty, so unlike the other panels the payload part is never null.
  */
 export function describeTreasuryPanel(
   panel: TreasuryPanelState,
   context: ActionContextResponse | null,
   network: CardanoNetwork,
-): PanelDescription<{ rows: TreasuryWithdrawalRow[]; policyHashHex: string | null }> {
+): { payloadPart: { rows: TreasuryWithdrawalRow[] }; missing: string[] } {
   const checked = checkTreasuryRows(panel.rows, network);
   const missing: string[] = [];
   checked.rows.forEach((row, i) => {
@@ -1590,11 +1598,7 @@ export function describeTreasuryPanel(
   const rows = checked.rows.flatMap((row) =>
     row.address && row.lovelace !== null ? [{ recipient: row.address, lovelace: row.lovelace }] : [],
   );
-  const guardrail = context?.guardrail;
-  return {
-    payloadPart: { rows, policyHashHex: guardrail?.state === 'known' ? guardrail.scriptHash : null },
-    missing,
-  };
+  return { payloadPart: { rows }, missing };
 }
 
 /**
@@ -1608,15 +1612,14 @@ export function describeTreasuryPanel(
  *
  * Pure, so the whole per-type verdict is unit-tested without a DOM, and built
  * on the same validate*Panel functions the panels render through and the
- * submit path builds the action with. A treasury withdrawal also needs the
- * registration answers, passed as `treasury`, and counts as still checking
- * without them.
+ * submit path builds the action with. `env` carries what the treasury panel
+ * is judged by besides the context, the other types ignore it.
  */
 export function panelReadiness(
   type: GovActionFormType,
   panels: PanelStates,
   context: ActionContextResponse | null,
-  treasury?: TreasuryReadinessInput,
+  env: TreasuryReadinessInput,
 ): { ok: boolean; error: string } | null {
   if (!context) return null;
   switch (type) {
@@ -1638,8 +1641,7 @@ export function panelReadiness(
         : { ok: true, error: '' };
     }
     case 'TreasuryWithdrawals': {
-      if (!treasury) return { ok: false, error: RECIPIENTS_CHECKING };
-      const result = validateTreasuryPanel(panels.TreasuryWithdrawals, context, treasury);
+      const result = validateTreasuryPanel(panels.TreasuryWithdrawals, context, env);
       return result.ok ? { ok: true, error: '' } : { ok: false, error: result.error };
     }
   }

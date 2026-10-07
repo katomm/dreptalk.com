@@ -1038,6 +1038,7 @@ describe('validateNewConstitutionPanel', () => {
 });
 
 describe('panelReadiness', () => {
+  const ENV = { network: 'preprod', recipients: NO_RECIPIENT_CHECK } as const;
   const NC_CTX: ActionContextResponse = {
     epoch: 500,
     prev: { lastEnacted: null, open: [] },
@@ -1047,13 +1048,13 @@ describe('panelReadiness', () => {
   it('is ok with no message for a panel that validates', () => {
     const panels = emptyPanelStates();
     panels.NewConstitution = { prev: null, text: '# Constitution', scriptHashHex: null };
-    expect(panelReadiness('NewConstitution', panels, NC_CTX)).toEqual({ ok: true, error: '' });
+    expect(panelReadiness('NewConstitution', panels, NC_CTX, ENV)).toEqual({ ok: true, error: '' });
   });
 
   it('carries the panel validator message when the panel does not validate', () => {
     const panels = emptyPanelStates();
     panels.NewConstitution = { prev: null, text: '   ', scriptHashHex: null };
-    expect(panelReadiness('NewConstitution', panels, NC_CTX)).toEqual({
+    expect(panelReadiness('NewConstitution', panels, NC_CTX, ENV)).toEqual({
       ok: false,
       error: 'Enter the constitution text.',
     });
@@ -1913,7 +1914,9 @@ describe('panelReadiness for a treasury withdrawal', () => {
       ...emptyPanelStates(),
       TreasuryWithdrawals: { rows: [{ address: TREASURY_ADDR, amountAda: '1' }] },
     };
-    expect(panelReadiness('TreasuryWithdrawals', panels, KNOWN_GUARDRAIL_CTX)).toEqual({
+    expect(
+      panelReadiness('TreasuryWithdrawals', panels, KNOWN_GUARDRAIL_CTX, { network: 'preprod', recipients: NO_RECIPIENT_CHECK }),
+    ).toEqual({
       ok: false,
       error: RECIPIENTS_CHECKING,
     });
@@ -1933,6 +1936,7 @@ describe('contextFailed with a code', () => {
     expect(state.context).toMatchObject({ status: 'error', code: 'guardrail_unknown' });
     let plain = govActionFormReducer(initialGovActionFormState(), { kind: 'contextRequested', requestId: 2 });
     plain = govActionFormReducer(plain, { kind: 'contextFailed', requestId: 2 });
-    expect('code' in plain.context).toBe(false);
+    expect(plain.context).toMatchObject({ status: 'error' });
+    expect(plain.context.status === 'error' && plain.context.code).toBeUndefined();
   });
 });

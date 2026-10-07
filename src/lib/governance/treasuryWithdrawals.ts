@@ -7,7 +7,7 @@
 import { decodeBech32, encodeBech32 } from '../crypto/bech32.js';
 import { bytesToHex } from '../crypto/hex.js';
 import { lovelaceToAdaDecimal } from '../format/ada.js';
-import type { CardanoNetwork } from '../config/network.js';
+import { resolveNetwork, type CardanoNetwork, type NetworkConfig } from '../config/network.js';
 
 /** The most recipients one action may list. */
 export const TREASURY_RECIPIENTS_MAX = 20;
@@ -40,6 +40,10 @@ export interface StakeAddressParts {
 
 export type StakeAddressResult = { ok: true; value: StakeAddressParts } | { ok: false; error: string };
 
+// Every network a stake address prefix can name, so an address for the other
+// network is told apart from one that is not a stake address at all.
+const STAKE_NETWORKS: readonly NetworkConfig[] = [resolveNetwork('mainnet'), resolveNetwork('preprod')];
+
 /**
  * A reward account in bech32: checksum, a `stake` or `stake_test` prefix, 29
  * bytes, a header whose high nibble is 0xe (key credential) or 0xf (script
@@ -55,14 +59,12 @@ export function parseStakeAddress(input: string, network: CardanoNetwork): Stake
     return { ok: false, error: STAKE_ADDRESS_INVALID };
   }
   const { prefix, data } = decoded;
-  if ((prefix !== 'stake' && prefix !== 'stake_test') || data.length !== 29) {
-    return { ok: false, error: STAKE_ADDRESS_INVALID };
-  }
+  const prefixNetwork = STAKE_NETWORKS.find((cfg) => cfg.stakePrefix === prefix);
+  if (!prefixNetwork || data.length !== 29) return { ok: false, error: STAKE_ADDRESS_INVALID };
   const kindNibble = data[0] >> 4;
   if (kindNibble !== 0xe && kindNibble !== 0xf) return { ok: false, error: STAKE_ADDRESS_INVALID };
-  const prefixNetworkId = prefix === 'stake' ? 1 : 0;
-  if ((data[0] & 0x0f) !== prefixNetworkId) return { ok: false, error: STAKE_ADDRESS_INVALID };
-  if (prefixNetworkId !== (network === 'mainnet' ? 1 : 0)) return { ok: false, error: STAKE_ADDRESS_WRONG_NETWORK };
+  if ((data[0] & 0x0f) !== prefixNetwork.networkId) return { ok: false, error: STAKE_ADDRESS_INVALID };
+  if (prefixNetwork.network !== network) return { ok: false, error: STAKE_ADDRESS_WRONG_NETWORK };
   const rewardAddressHex = bytesToHex(data);
   return {
     ok: true,
@@ -107,6 +109,14 @@ export interface TreasuryRowInput {
   amountAda: string;
 }
 
+/** The blank row a fresh panel shows, and what the last removed row leaves behind. */
+export const EMPTY_TREASURY_ROW: TreasuryRowInput = { address: '', amountAda: '' };
+
+/** True for a panel that holds nothing but one blank row, which is how a fresh form starts. */
+export function isEmptyTreasuryPanel(panel: { rows: readonly TreasuryRowInput[] }): boolean {
+  return panel.rows.length === 1 && panel.rows[0].address === '' && panel.rows[0].amountAda === '';
+}
+
 /** One row after parsing: the usable parts, and a message for each field that is not usable. */
 export interface TreasuryRowCheck {
   address: StakeAddressParts | null;
@@ -134,6 +144,7 @@ export type TreasuryRowsResult = { rows: TreasuryRowCheck[]; totalLovelace: bigi
 export function checkTreasuryRows(rows: readonly TreasuryRowInput[], network: CardanoNetwork): TreasuryRowsResult {
   const seen = new Set<string>();
   let totalLovelace = 0n;
+  const withdrawals: TreasuryWithdrawalRow[] = [];
   const checked: TreasuryRowCheck[] = rows.map((row) => {
     let address: StakeAddressParts | null = null;
     let addressError: string | null = null;
@@ -150,18 +161,14 @@ export function checkTreasuryRows(rows: readonly TreasuryRowInput[], network: Ca
     }
     const lovelace = parseAdaAmount(row.amountAda);
     if (lovelace !== null) totalLovelace += lovelace;
-    return { address, lovelace, addressError, amountError: lovelace === null ? AMOUNT_INVALID : null };
+    const amountError = lovelace === null ? AMOUNT_INVALID : null;
+    if (address && lovelace !== null) withdrawals.push({ recipient: address, lovelace });
+    return { address, lovelace, addressError, amountError };
   });
 
   if (rows.length === 0) return { rows: checked, totalLovelace, ok: false, error: TREASURY_NO_RECIPIENTS };
   if (rows.length > TREASURY_RECIPIENTS_MAX) return { rows: checked, totalLovelace, ok: false, error: TREASURY_TOO_MANY };
-  const firstBad = checked.find((row) => row.addressError !== null || row.amountError !== null);
-  if (firstBad) {
-    return { rows: checked, totalLovelace, ok: false, error: (firstBad.addressError ?? firstBad.amountError) as string };
-  }
-  const withdrawals = checked.map((row) => ({
-    recipient: row.address as StakeAddressParts,
-    lovelace: row.lovelace as bigint,
-  }));
+  const firstError = checked.map((row) => row.addressError ?? row.amountError).find((error) => error !== null);
+  if (firstError) return { rows: checked, totalLovelace, ok: false, error: firstError };
   return { rows: checked, totalLovelace, ok: true, withdrawals };
 }

@@ -221,7 +221,7 @@ const INSUFFICIENT_FUNDS_RE = /^Insufficient tADA for the deposit: need (\d+) lo
  */
 const WALLET_ACCOUNT_CHANGED = 'The wallet account changed. Connect the wallet again.';
 
-function mapSubmitError(err: unknown, prev: PrevActionRef | null): { message: string; detail: string | null } {
+function mapSubmitError(err: unknown, prev: PrevActionRef | null): { message: string; detail?: string | null } {
   const raw = err instanceof Error ? err.message : String(err);
   const m = INSUFFICIENT_FUNDS_RE.exec(raw);
   if (m) {
@@ -230,12 +230,10 @@ function mapSubmitError(err: unknown, prev: PrevActionRef | null): { message: st
       return {
         message:
           'No preprod UTxOs found for this wallet (is it a Preview wallet? Preview and Preprod are separate testnets with separate funds).',
-        detail: null,
       };
     }
     return {
       message: `Insufficient tADA: this proposal needs about ${formatAdaPlain(requiredLovelace)} tADA (deposit plus fee headroom), but your wallet only has ${formatAdaPlain(availableLovelace)} tADA.`,
-      detail: null,
     };
   }
   // The guardrail evaluation and the collateral it needs come with their own
@@ -244,9 +242,42 @@ function mapSubmitError(err: unknown, prev: PrevActionRef | null): { message: st
   if (guardrail) return guardrail;
   const readable = readableError(err);
   if (prev && raw.toLowerCase().includes(prev.txHashHex.toLowerCase())) {
-    return { message: `${readable} ${PREV_ACTION_CHANGED}`, detail: null };
+    return { message: `${readable} ${PREV_ACTION_CHANGED}` };
   }
-  return { message: readable, detail: null };
+  return { message: readable };
+}
+
+/**
+ * Wording for a context route error code that has its own sentence. Any other
+ * code, or none, gets the generic outage line.
+ */
+const CONTEXT_ERROR_MESSAGES: ReadonlyMap<string, string> = new Map([['guardrail_unknown', GUARDRAIL_UNKNOWN_MESSAGE]]);
+
+/**
+ * What stops a submit right after the context refetch, before the author
+ * signature and before anything is pinned, or null when nothing does. A
+ * treasury withdrawal has no chain to re-check: a guardrails script that
+ * changed since the page loaded, or one nothing proves any more, takes the
+ * chain checks' place, and the recipients' registration (read again at the
+ * same point) comes second. The chained types need a fresh chain state whose
+ * root still holds the previous action the form chose.
+ */
+function preSignatureProblem(
+  type: GovActionFormType,
+  prev: PrevActionRef | null,
+  fresh: ActionContextResponse | null,
+  recipientsProblem: string | null,
+): string | null {
+  if (type === 'TreasuryWithdrawals') {
+    // A failed refetch (null) is a guardrail nobody could check, which
+    // guardrailDecision words as GUARDRAIL_UNKNOWN_MESSAGE.
+    const decision = guardrailDecision(fresh?.guardrail);
+    if (!decision.ok) return decision.message;
+    return recipientsProblem;
+  }
+  if (!fresh?.prev) return 'Could not re-check the current chain state. Please try again.';
+  if (!refStillPresent(prev, fresh.prev)) return PREV_ACTION_CHANGED;
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -395,11 +426,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
         // The route words one failure on its own: a guardrail nothing on chain
         // proves, which the panel explains differently from an outage.
         const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        dispatch({
-          kind: 'contextFailed',
-          requestId,
-          ...(body?.error === 'guardrail_unknown' ? { code: 'guardrail_unknown' as const } : {}),
-        });
+        dispatch({ kind: 'contextFailed', requestId, code: body?.error });
         return null;
       }
       const data = (await res.json()) as ActionContextResponse;
@@ -553,6 +580,29 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   // them up by.
   const recipientsRequestIdRef = useRef(0);
   const [recipientsAttempt, setRecipientsAttempt] = useState(0);
+
+  /**
+   * Starts one registration check: a fresh request id, and every address
+   * marked as checking under it at once. Returns the read itself, which files
+   * the answer (or the failure) under that id and resolves to the answer, or
+   * to null when the lookup failed. Split in two so the debounced effect can
+   * mark the set as checking right away and still cancel the read.
+   */
+  const startRecipientsCheck = useCallback((addresses: readonly string[]) => {
+    recipientsRequestIdRef.current += 1;
+    const requestId = recipientsRequestIdRef.current;
+    dispatch({ kind: 'recipientsCheckRequested', requestId, addresses });
+    return async (): Promise<Map<string, boolean> | null> => {
+      try {
+        const registered = await fetchStakeRegistrations({ stakeAddresses: addresses, origin: window.location.origin });
+        dispatch({ kind: 'recipientsChecked', requestId, registered: Object.fromEntries(registered) });
+        return registered;
+      } catch {
+        dispatch({ kind: 'recipientsCheckFailed', requestId });
+        return null;
+      }
+    };
+  }, []);
   const recipientKey = useMemo(() => {
     if (state.type !== 'TreasuryWithdrawals') return '';
     return checkTreasuryRows(state.panels.TreasuryWithdrawals.rows, network)
@@ -562,17 +612,10 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   // biome-ignore lint/correctness/useExhaustiveDependencies: recipientsAttempt is the retry nonce, it exists to re-run this effect for the same addresses
   useEffect(() => {
     if (typeof window === 'undefined' || recipientKey === '') return;
-    const addresses = recipientKey.split(',');
-    recipientsRequestIdRef.current += 1;
-    const requestId = recipientsRequestIdRef.current;
-    dispatch({ kind: 'recipientsCheckRequested', requestId, addresses });
-    const timer = setTimeout(() => {
-      fetchStakeRegistrations({ stakeAddresses: addresses, origin: window.location.origin })
-        .then((registered) => dispatch({ kind: 'recipientsChecked', requestId, registered: Object.fromEntries(registered) }))
-        .catch(() => dispatch({ kind: 'recipientsCheckFailed', requestId }));
-    }, RECIPIENT_CHECK_DEBOUNCE_MS);
+    const readRegistrations = startRecipientsCheck(recipientKey.split(','));
+    const timer = setTimeout(() => void readRegistrations(), RECIPIENT_CHECK_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [recipientKey, recipientsAttempt]);
+  }, [recipientKey, recipientsAttempt, startRecipientsCheck]);
 
   /**
    * Reads every recipient's registration again right before the author
@@ -584,17 +627,9 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
     const checked = checkTreasuryRows(state.panels.TreasuryWithdrawals.rows, network);
     if (!checked.ok) return checked.error;
     const addresses = checked.withdrawals.map((w) => w.recipient.stakeAddress);
-    recipientsRequestIdRef.current += 1;
-    const requestId = recipientsRequestIdRef.current;
-    dispatch({ kind: 'recipientsCheckRequested', requestId, addresses });
-    try {
-      const registered = await fetchStakeRegistrations({ stakeAddresses: addresses, origin: window.location.origin });
-      dispatch({ kind: 'recipientsChecked', requestId, registered: Object.fromEntries(registered) });
-      return addresses.every((address) => registered.get(address) === true) ? null : RECIPIENT_UNREGISTERED;
-    } catch {
-      dispatch({ kind: 'recipientsCheckFailed', requestId });
-      return RECIPIENTS_CHECK_FAILED_AT_SUBMIT;
-    }
+    const registered = await startRecipientsCheck(addresses)();
+    if (!registered) return RECIPIENTS_CHECK_FAILED_AT_SUBMIT;
+    return addresses.every((address) => registered.get(address) === true) ? null : RECIPIENT_UNREGISTERED;
   }
 
   // Ticks once a minute so the "loaded n minutes ago" line stays current on
@@ -632,9 +667,12 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   // panelReadiness for the per-type rules). Memoized because the committee
   // arm validates every typed row, which is more work than a re-render of an
   // unrelated field should cost.
+  // What the treasury panel is judged by besides the context, one object for
+  // the readiness list and the submit-time validation alike.
+  const treasuryEnv = useMemo(() => ({ network, recipients: state.recipients }), [network, state.recipients]);
   const panelValidation = useMemo(
-    () => panelReadiness(state.type, state.panels, contextData, { network, recipients: state.recipients }),
-    [state.type, state.panels, contextData, network, state.recipients],
+    () => panelReadiness(state.type, state.panels, contextData, treasuryEnv),
+    [state.type, state.panels, contextData, treasuryEnv],
   );
 
   // Everything standing between the form as it is and a submittable proposal.
@@ -793,10 +831,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
       }
 
       case 'TreasuryWithdrawals': {
-        const result = validateTreasuryPanel(state.panels.TreasuryWithdrawals, ctx, {
-          network,
-          recipients: state.recipients,
-        });
+        const result = validateTreasuryPanel(state.panels.TreasuryWithdrawals, ctx, treasuryEnv);
         if (!result.ok) return result;
         return {
           ok: true,
@@ -1046,42 +1081,21 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
       if (contextual) {
         // The route answers no-store, so this cannot come from the browser
         // cache. The fresh response replaces the stored one either way, so
-        // the panel immediately shows what the chain looks like now.
-        fresh = await loadContext(state.type);
-        if (state.type === 'TreasuryWithdrawals') {
-          // This type has no chain to re-check. Its guardrail check takes the
-          // chain checks' place: a script that changed since the page loaded,
-          // or one nothing proves any more, stops the flow here, before the
-          // author signature and before anything is pinned. The recipients'
-          // registration is read again at the same point.
-          const decision = guardrailDecision(fresh?.guardrail);
-          if (!decision.ok) {
-            // A failed refetch (null) is a guardrail nobody could check, which
-            // guardrailDecision words as GUARDRAIL_UNKNOWN_MESSAGE.
-            setPhase({ status: 'error', message: decision.message, step: 'submit' });
-            return;
-          }
+        // the panel immediately shows what the chain looks like now. A
+        // treasury withdrawal reads its recipients' registration again at the
+        // same time, the two reads do not depend on each other.
+        const [loaded, recipientsProblem] = await Promise.all([
+          loadContext(state.type),
           // Must stay before prepareAction below: prepareAction reads
           // state.recipients from this click's closure, and only this recheck
           // guarantees every recipient is registered right now.
-          const recipientsProblem = await recheckRecipients();
-          if (recipientsProblem) {
-            setPhase({ status: 'error', message: recipientsProblem, step: 'submit' });
-            return;
-          }
-        } else {
-          if (!fresh?.prev) {
-            setPhase({
-              status: 'error',
-              message: 'Could not re-check the current chain state. Please try again.',
-              step: 'submit',
-            });
-            return;
-          }
-          if (!refStillPresent(prev, fresh.prev)) {
-            setPhase({ status: 'error', message: PREV_ACTION_CHANGED, step: 'submit' });
-            return;
-          }
+          state.type === 'TreasuryWithdrawals' ? recheckRecipients() : Promise.resolve(null),
+        ]);
+        fresh = loaded;
+        const problem = preSignatureProblem(state.type, prev, fresh, recipientsProblem);
+        if (problem) {
+          setPhase({ status: 'error', message: problem, step: 'submit' });
+          return;
         }
       }
 
@@ -1259,9 +1273,8 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
         <div className="callout callout--error" role="alert">
           <ErrorIcon />
           <div className="callout__body">
-            {state.context.status === 'error' && state.context.code === 'guardrail_unknown'
-              ? GUARDRAIL_UNKNOWN_MESSAGE
-              : 'Could not load the current chain state for this action type.'}{' '}
+            {CONTEXT_ERROR_MESSAGES.get(state.context.code ?? '') ??
+              'Could not load the current chain state for this action type.'}{' '}
             <button
               type="button"
               onClick={() => setContextAttempt((n) => n + 1)}

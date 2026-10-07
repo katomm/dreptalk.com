@@ -7,6 +7,7 @@ import type { CardanoNetwork } from '@/lib/config/network.js';
 import type { RecipientCheckState, TreasuryPanelState } from '@/lib/governance/govActionFormState.js';
 import {
   checkTreasuryRows,
+  EMPTY_TREASURY_ROW,
   formatLovelaceExact,
   RECIPIENT_UNREGISTERED,
   TREASURY_RECIPIENTS_MAX,
@@ -27,7 +28,6 @@ export interface TreasuryPanelProps {
   disabled?: boolean;
 }
 
-const EMPTY_ROW = { address: '', amountAda: '' };
 const errorStyle: CSSProperties = { margin: '0.25rem 0 0', fontSize: '0.8125rem', color: 'var(--danger, #b3261e)' };
 const noteStyle: CSSProperties = { ...mutedStyle, margin: '0.25rem 0 0' };
 const rowButtonStyle: CSSProperties = {
@@ -59,11 +59,11 @@ export default function TreasuryPanel({
   function removeRow(i: number) {
     const next = rows.filter((_, idx) => idx !== i);
     // The panel always keeps one row to type into, as a fresh form does.
-    onChange({ rows: next.length > 0 ? next : [EMPTY_ROW] });
+    onChange({ rows: next.length > 0 ? next : [EMPTY_TREASURY_ROW] });
   }
   function addRow() {
     if (rows.length >= TREASURY_RECIPIENTS_MAX) return;
-    onChange({ rows: [...rows, EMPTY_ROW] });
+    onChange({ rows: [...rows, EMPTY_TREASURY_ROW] });
   }
 
   return (
