@@ -246,21 +246,19 @@ export default function MultisigVotePanel({ gaId, network, scriptDrepId, mode, p
         anchor = await hostVoteRationale({ gaId, drepId: scriptDrepId, rationale: rationaleText });
       }
 
-      // Fetch the native script for this script DRep from the Koios proxy.
+      // Load the native script through the session-gated server route (the
+      // public Koios proxy does not forward script_info). The server derives
+      // the DRep id from the session and validates the script against it.
       const parsed = parseDrepId(scriptDrepId);
       if (parsed?.kind !== 'script') {
         throw new Error('This DRep is not a native-script DRep.');
       }
-      const scriptRes = await fetchWithTimeout('/api/koios/script_info', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ _script_hashes: [parsed.hashHex] }),
-      });
+      const scriptRes = await fetchWithTimeout('/api/drep/multisig/script');
       if (!scriptRes.ok) {
         throw new Error('Could not load the multisig script. Please try again.');
       }
-      const scriptRows = (await scriptRes.json()) as Array<{ value?: unknown }>;
-      const scriptValue = Array.isArray(scriptRows) ? scriptRows[0]?.value : undefined;
+      const scriptBody = (await scriptRes.json().catch(() => null)) as { value?: unknown } | null;
+      const scriptValue = scriptBody?.value;
       const { parseNativeScriptJson } = await import('@/lib/cardano/nativeScript.js');
       const nativeScript = parseNativeScriptJson(scriptValue);
       if (!nativeScript) {

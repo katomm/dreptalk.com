@@ -8,8 +8,7 @@ import { z } from 'zod';
 import { type DRep, ScriptHash, Transaction, TransactionBody, TransactionHash, type VotingProcedures } from '@evolution-sdk/evolution';
 import { jsonResponse, runtimeEnv } from '@/lib/api/response';
 import { getUserById } from '@/lib/db/users';
-import { parseDrepId } from '@/lib/cardano/identity';
-import { parseNativeScriptJson, nativeScriptHash } from '@/lib/cardano/nativeScript';
+import { loadDrepNativeScript } from '@/lib/governance/drepNativeScript';
 import { createKoiosClient } from '@/lib/koios/client';
 import { resolveNetwork } from '@/lib/config/network';
 import { createPendingMultisig } from '@/lib/db/pendingMultisigTx';
@@ -55,37 +54,16 @@ export const POST: APIRoute = async ({ request, locals }) => {
     return jsonResponse({ error: 'not a member' }, 403);
   }
 
-  // Verify the DRep id is a script credential (not a key credential).
-  const parsedDrep = parseDrepId(body.scriptDrepId);
-  if (parsedDrep?.kind !== 'script') {
-    return jsonResponse({ error: 'not a script drep' }, 422);
-  }
-
-  // Fetch the script from Koios and confirm it is a native (timelock) script.
+  // Load the script from Koios and validate it (native, parseable, hash matches).
   const networkEnv = (env.CARDANO_NETWORK as string | undefined) ?? null;
   const { koiosBaseUrl } = resolveNetwork(networkEnv);
   const koiosToken = (env.KOIOS_API_KEY as string | undefined) || undefined;
   const koios = createKoiosClient({ baseUrl: koiosBaseUrl, token: koiosToken });
 
-  const info = await koios.scriptInfo(parsedDrep.hashHex);
-  if (!info) {
-    return jsonResponse({ error: 'script not found' }, 422);
-  }
-  if (info.type !== 'timelock') {
-    return jsonResponse(
-      { error: 'Plutus-script DReps cannot vote. Only native-script DReps are supported.' },
-      422,
-    );
-  }
-
-  // Parse the native-script JSON and recompute the hash for defense in depth.
-  const script = parseNativeScriptJson(info.value);
-  if (!script) {
-    return jsonResponse({ error: 'unsupported script' }, 422);
-  }
-  if (nativeScriptHash(script) !== parsedDrep.hashHex) {
-    return jsonResponse({ error: 'script hash mismatch' }, 422);
-  }
+  const loaded = await loadDrepNativeScript(koios, body.scriptDrepId);
+  if (!loaded.ok) return jsonResponse({ error: loaded.error }, loaded.status);
+  const { script } = loaded;
+  const parsedDrep = { hashHex: loaded.hashHex };
 
   // Decode the client-supplied CBOR to bind the stored record to the actual tx.
   let tx: ReturnType<typeof Transaction.fromCBORHex>;
