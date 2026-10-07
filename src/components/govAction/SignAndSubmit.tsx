@@ -35,6 +35,8 @@ export interface SignAndSubmitProps {
   connectError: string | null;
   /** A failed submit, shown under the button next to its retry. */
   submitError: string | null;
+  /** The script error behind a guardrail rejection, shown in a disclosure under the message. */
+  submitErrorDetail?: string | null;
   onUseDifferentWallet: () => void;
 }
 
@@ -146,6 +148,14 @@ export default function SignAndSubmit(props: SignAndSubmitProps) {
             <button type="button" onClick={props.onUseDifferentWallet} style={linkButtonStyle}>
               Use a different wallet
             </button>
+            {props.submitErrorDetail && (
+              <details style={{ marginTop: '0.5rem' }}>
+                <summary style={{ cursor: 'pointer', fontSize: '0.8125rem' }}>Details</summary>
+                <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontSize: '0.75rem', margin: '0.375rem 0 0' }}>
+                  {props.submitErrorDetail}
+                </pre>
+              </details>
+            )}
           </div>
         </div>
       )}

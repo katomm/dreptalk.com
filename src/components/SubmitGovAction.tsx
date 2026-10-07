@@ -23,9 +23,9 @@ import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { CopyButton } from '@/components/CopyButton.js';
 import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
 import { submitGovAction } from '@/lib/governance/govActionTx.js';
-import { govActionSubmissionAvailable } from '@/lib/governance/submissionGate.js';
+import { govActionSubmissionAvailable, govActionTypeAvailable } from '@/lib/governance/submissionGate.js';
 import { collectWalletUtxos, totalLovelace } from '@/lib/governance/walletUtxos.js';
-import { fetchStakeRegistration } from '@/lib/governance/stakeAccount.js';
+import { fetchStakeRegistration, fetchStakeRegistrations } from '@/lib/governance/stakeAccount.js';
 import { KEEP_STAKE_KEY_REGISTERED, latestRefundEpoch } from '@/lib/governance/depositRefund.js';
 import { epochWithDate } from '@/lib/governance/epochLabel.js';
 import type { WalletApi } from '@/lib/governance/walletUtxos.js';
@@ -70,7 +70,14 @@ import { startStatusPolling } from '@/lib/governance/successPolling.js';
 import type { GovActionStatusResponse, SuccessPollState } from '@/lib/governance/successPolling.js';
 import type { OpenProposalDraft } from '@/lib/db/proposalDrafts.js';
 import type { DepositState } from '@/lib/governance/govActionFormState.js';
-import { chainForType, refStillPresent } from '@/lib/governance/prevAction.js';
+import { needsContext, refStillPresent } from '@/lib/governance/prevAction.js';
+import {
+  checkTreasuryRows,
+  RECIPIENT_UNREGISTERED,
+  RECIPIENTS_CHECK_FAILED_AT_SUBMIT,
+} from '@/lib/governance/treasuryWithdrawals.js';
+import { guardrailDecision, GUARDRAIL_UNKNOWN_MESSAGE } from '@/lib/governance/guardrailScript.js';
+import { mapGuardrailBuildError } from '@/lib/governance/govActionErrors.js';
 import type { GovActionFormType, PrevActionRef } from '@/lib/governance/prevAction.js';
 import type { GovActionSpec } from '@/lib/governance/govActionParts.js';
 import type { ActionContextResponse } from '@/lib/governance/actionContextHandler.js';
@@ -81,6 +88,7 @@ import PrevActionField from '@/components/govAction/PrevActionField.js';
 import HardForkPanel from '@/components/govAction/HardForkPanel.js';
 import NewConstitutionPanel from '@/components/govAction/NewConstitutionPanel.js';
 import UpdateCommitteePanel from '@/components/govAction/UpdateCommitteePanel.js';
+import TreasuryPanel from '@/components/govAction/TreasuryPanel.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import { resolveNetwork, txExplorerUrl } from '@/lib/config/network.js';
 import { readableError } from '@/lib/wallet/walletError.js';
@@ -97,6 +105,10 @@ import MarkdownEditor, { markdownBodyId } from '@/components/MarkdownEditor.js';
 // Mirrors the un-exported AUTHOR_NAME_MAX in infoActionMetadataHandler.ts, kept
 // in sync manually since that constant is server-internal.
 const AUTHOR_NAME_MAX = 120;
+
+// Pause after the last address edit before the registration read, so typing
+// an address does not cost one request per keystroke.
+const RECIPIENT_CHECK_DEBOUNCE_MS = 400;
 
 // The real CIP-30 DataSignature shape (COSE_Sign1 signature + COSE_Key), which
 // is what every wallet actually returns and what the author witness reads.
@@ -139,7 +151,7 @@ type Phase =
   // `step` decides where the message goes: a connect error sits next to the
   // Connect button, a submit error under the Submit button. Neither one takes
   // the form off the screen.
-  | { status: 'error'; message: string; step: 'connect' | 'submit' };
+  | { status: 'error'; message: string; step: 'connect' | 'submit'; detail?: string | null };
 
 export interface SubmitGovActionProps {
   network: CardanoNetwork;
@@ -206,21 +218,32 @@ const INSUFFICIENT_FUNDS_RE = /^Insufficient tADA for the deposit: need (\d+) lo
  */
 const WALLET_ACCOUNT_CHANGED = 'The wallet account changed. Connect the wallet again.';
 
-function mapSubmitError(err: unknown, prev: PrevActionRef | null): string {
+function mapSubmitError(err: unknown, prev: PrevActionRef | null): { message: string; detail: string | null } {
   const raw = err instanceof Error ? err.message : String(err);
   const m = INSUFFICIENT_FUNDS_RE.exec(raw);
   if (m) {
     const [, requiredLovelace, availableLovelace] = m;
     if (availableLovelace === '0') {
-      return 'No preprod UTxOs found for this wallet (is it a Preview wallet? Preview and Preprod are separate testnets with separate funds).';
+      return {
+        message:
+          'No preprod UTxOs found for this wallet (is it a Preview wallet? Preview and Preprod are separate testnets with separate funds).',
+        detail: null,
+      };
     }
-    return `Insufficient tADA: this proposal needs about ${formatAdaPlain(requiredLovelace)} tADA (deposit plus fee headroom), but your wallet only has ${formatAdaPlain(availableLovelace)} tADA.`;
+    return {
+      message: `Insufficient tADA: this proposal needs about ${formatAdaPlain(requiredLovelace)} tADA (deposit plus fee headroom), but your wallet only has ${formatAdaPlain(availableLovelace)} tADA.`,
+      detail: null,
+    };
   }
+  // The guardrail evaluation and the collateral it needs come with their own
+  // wording, the script error itself goes into a disclosure.
+  const guardrail = mapGuardrailBuildError(err);
+  if (guardrail) return guardrail;
   const readable = readableError(err);
   if (prev && raw.toLowerCase().includes(prev.txHashHex.toLowerCase())) {
-    return `${readable} ${PREV_ACTION_CHANGED}`;
+    return { message: `${readable} ${PREV_ACTION_CHANGED}`, detail: null };
   }
-  return readable;
+  return { message: readable, detail: null };
 }
 
 // ---------------------------------------------------------------------------
@@ -346,7 +369,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   // Destructured for the draft effect below, which reads exactly these five
   // and must not re-run on a context transition.
   const { type, panels, dirty, linkedDraftSlug } = state;
-  const chained = chainForType(state.type) !== null;
+  const contextual = needsContext(state.type);
 
   /**
    * Fetches the live ledger context for a type and files the outcome through
@@ -365,7 +388,17 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
       const res = await fetchWithTimeout(
         `${window.location.origin}/api/gov-action/context?type=${encodeURIComponent(forType)}`,
       );
-      if (!res.ok) throw new Error(`context request failed (${res.status})`);
+      if (!res.ok) {
+        // The route words one failure on its own: a guardrail nothing on chain
+        // proves, which the panel explains differently from an outage.
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        dispatch({
+          kind: 'contextFailed',
+          requestId,
+          ...(body?.error === 'guardrail_unknown' ? { code: 'guardrail_unknown' as const } : {}),
+        });
+        return null;
+      }
       const data = (await res.json()) as ActionContextResponse;
       dispatch({ kind: 'contextLoaded', requestId, data, now: Date.now() });
       return data;
@@ -383,12 +416,19 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   // the per-type panel state.
   const draftKey = govActionDraftKey(network);
   const draftRestoredRef = useRef(false);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: openDrafts and draftSiteOrigin are the page's own SSR props, fixed for the session, restore runs once right after mount regardless
+  // biome-ignore lint/correctness/useExhaustiveDependencies: openDrafts, draftSiteOrigin and network are the page's own SSR props, fixed for the session, restore runs once right after mount regardless
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const draft = loadGovActionDraft(window.localStorage, draftKey);
     if (draft) {
-      dispatch({ kind: 'restoreDraft', draft, openDrafts, siteOrigin: draftSiteOrigin });
+      // A draft saved for a type this network does not offer (a treasury
+      // withdrawal draft on mainnet) restores as an info action, panels kept.
+      const available = govActionTypeAvailable(draft.type, {
+        submissionAvailable: govActionSubmissionAvailable(network),
+        network,
+      });
+      const restorable = available ? draft : { ...draft, type: 'InfoAction' as const };
+      dispatch({ kind: 'restoreDraft', draft: restorable, openDrafts, siteOrigin: draftSiteOrigin });
       setRestoredAt(draft.savedAt ?? null);
     }
     draftRestoredRef.current = true;
@@ -457,7 +497,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   // biome-ignore lint/correctness/useExhaustiveDependencies: contextAttempt is the retry nonce, it exists to re-run this effect for the same type
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    if (chainForType(state.type) === null) return;
+    if (!needsContext(state.type)) return;
     void loadContext(state.type);
   }, [state.type, contextAttempt, loadContext]);
 
@@ -493,12 +533,66 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
       if (hiddenAt === null) return;
       if (Date.now() - hiddenAt <= 60_000) return;
       if (phaseRef.current.status === 'submitting') return;
-      if (chainForType(state.type) === null) return;
+      if (!needsContext(state.type)) return;
       void loadContext(state.type);
     }
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [state.type, loadContext]);
+
+  // The treasury recipients' registration: one batched account_info read for
+  // every row whose address parses, after an edit (debounced), after a draft
+  // restore (the rows change) and on "Try again". The set of addresses is the
+  // key, so an amount edit costs no request. Every check is marked as running
+  // at once under a fresh id, so an answer still in flight for the previous
+  // set is dropped by the reducer. The addresses are the normalized lowercase
+  // bech32 parseStakeAddress returns, the form validateTreasuryPanel looks
+  // them up by.
+  const recipientsRequestIdRef = useRef(0);
+  const [recipientsAttempt, setRecipientsAttempt] = useState(0);
+  const recipientKey = useMemo(() => {
+    if (state.type !== 'TreasuryWithdrawals') return '';
+    return checkTreasuryRows(state.panels.TreasuryWithdrawals.rows, network)
+      .rows.flatMap((row) => (row.address ? [row.address.stakeAddress] : []))
+      .join(',');
+  }, [state.type, state.panels.TreasuryWithdrawals, network]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: recipientsAttempt is the retry nonce, it exists to re-run this effect for the same addresses
+  useEffect(() => {
+    if (typeof window === 'undefined' || recipientKey === '') return;
+    const addresses = recipientKey.split(',');
+    recipientsRequestIdRef.current += 1;
+    const requestId = recipientsRequestIdRef.current;
+    dispatch({ kind: 'recipientsCheckRequested', requestId, addresses });
+    const timer = setTimeout(() => {
+      fetchStakeRegistrations({ stakeAddresses: addresses, origin: window.location.origin })
+        .then((registered) => dispatch({ kind: 'recipientsChecked', requestId, registered: Object.fromEntries(registered) }))
+        .catch(() => dispatch({ kind: 'recipientsCheckFailed', requestId }));
+    }, RECIPIENT_CHECK_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [recipientKey, recipientsAttempt]);
+
+  /**
+   * Reads every recipient's registration again right before the author
+   * signature and the pins. The answer goes through the reducer too, so the
+   * panel shows what was found. Returns the sentence that blocks the submit,
+   * or null when every recipient is registered.
+   */
+  async function recheckRecipients(): Promise<string | null> {
+    const checked = checkTreasuryRows(state.panels.TreasuryWithdrawals.rows, network);
+    if (!checked.ok) return checked.error;
+    const addresses = checked.withdrawals.map((w) => w.recipient.stakeAddress);
+    recipientsRequestIdRef.current += 1;
+    const requestId = recipientsRequestIdRef.current;
+    dispatch({ kind: 'recipientsCheckRequested', requestId, addresses });
+    try {
+      const registered = await fetchStakeRegistrations({ stakeAddresses: addresses, origin: window.location.origin });
+      dispatch({ kind: 'recipientsChecked', requestId, registered: Object.fromEntries(registered) });
+      return addresses.every((address) => registered.get(address) === true) ? null : RECIPIENT_UNREGISTERED;
+    } catch {
+      dispatch({ kind: 'recipientsCheckFailed', requestId });
+      return RECIPIENTS_CHECK_FAILED_AT_SUBMIT;
+    }
+  }
 
   // Ticks once a minute so the "loaded n minutes ago" line stays current on
   // a page nobody touches, without a refetch. Cleared on unmount.
@@ -536,8 +630,8 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   // arm validates every typed row, which is more work than a re-render of an
   // unrelated field should cost.
   const panelValidation = useMemo(
-    () => panelReadiness(state.type, state.panels, contextData),
-    [state.type, state.panels, contextData],
+    () => panelReadiness(state.type, state.panels, contextData, { network, recipients: state.recipients }),
+    [state.type, state.panels, contextData, network, state.recipients],
   );
 
   // Everything standing between the form as it is and a submittable proposal.
@@ -873,7 +967,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
       });
       return;
     }
-    if (chained && !contextReady) {
+    if (contextual && !contextReady) {
       setPhase({
         status: 'error',
         message: 'The current chain state has not finished loading. Please wait a moment and try again.',
@@ -946,22 +1040,45 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
       // node after the deposit prompt. Check first, before anything is
       // published or signed.
       let fresh: ActionContextResponse | null = contextData;
-      if (chained) {
+      if (contextual) {
         // The route answers no-store, so this cannot come from the browser
         // cache. The fresh response replaces the stored one either way, so
         // the panel immediately shows what the chain looks like now.
         fresh = await loadContext(state.type);
-        if (!fresh?.prev) {
-          setPhase({
-            status: 'error',
-            message: 'Could not re-check the current chain state. Please try again.',
-            step: 'submit',
-          });
-          return;
-        }
-        if (!refStillPresent(prev, fresh.prev)) {
-          setPhase({ status: 'error', message: PREV_ACTION_CHANGED, step: 'submit' });
-          return;
+        if (state.type === 'TreasuryWithdrawals') {
+          // This type has no chain to re-check. Its guardrail check takes the
+          // chain checks' place: a script that changed since the page loaded,
+          // or one nothing proves any more, stops the flow here, before the
+          // author signature and before anything is pinned. The recipients'
+          // registration is read again at the same point.
+          const decision = guardrailDecision(fresh?.guardrail);
+          if (!decision.ok) {
+            // A failed refetch (null) is a guardrail nobody could check, which
+            // guardrailDecision words as GUARDRAIL_UNKNOWN_MESSAGE.
+            setPhase({ status: 'error', message: decision.message, step: 'submit' });
+            return;
+          }
+          // Must stay before prepareAction below: prepareAction reads
+          // state.recipients from this click's closure, and only this recheck
+          // guarantees every recipient is registered right now.
+          const recipientsProblem = await recheckRecipients();
+          if (recipientsProblem) {
+            setPhase({ status: 'error', message: recipientsProblem, step: 'submit' });
+            return;
+          }
+        } else {
+          if (!fresh?.prev) {
+            setPhase({
+              status: 'error',
+              message: 'Could not re-check the current chain state. Please try again.',
+              step: 'submit',
+            });
+            return;
+          }
+          if (!refStillPresent(prev, fresh.prev)) {
+            setPhase({ status: 'error', message: PREV_ACTION_CHANGED, step: 'submit' });
+            return;
+          }
         }
       }
 
@@ -1085,7 +1202,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
       // route and the sync both key on) is always this tx hash at index 0.
       setPhase({ status: 'success', txHash, authored: metadata.signAsAuthor, refundEpoch: latestRefundEpoch(epochParamsRow) });
     } catch (err) {
-      setPhase({ status: 'error', message: mapSubmitError(err, prev), step: 'submit' });
+      setPhase({ status: 'error', ...mapSubmitError(err, prev), step: 'submit' });
     }
   }
 
@@ -1133,13 +1250,15 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
 
   /** The type panel, plus the context's own loading and error rows. */
   function renderPanel() {
-    if (!chained) return null;
+    if (!contextual) return null;
     if (state.context.status === 'error') {
       return (
         <div className="callout callout--error" role="alert">
           <ErrorIcon />
           <div className="callout__body">
-            Could not load the current chain state for this action type.{' '}
+            {state.context.status === 'error' && state.context.code === 'guardrail_unknown'
+              ? GUARDRAIL_UNKNOWN_MESSAGE
+              : 'Could not load the current chain state for this action type.'}{' '}
             <button
               type="button"
               onClick={() => setContextAttempt((n) => n + 1)}
@@ -1193,6 +1312,18 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
             value={state.panels.UpdateCommittee}
             onChange={(panel) => dispatch({ kind: 'setPanel', type: 'UpdateCommittee', state: panel })}
             networkConfig={networkConfig}
+            disabled={busy}
+          />
+        );
+      case 'TreasuryWithdrawals':
+        return (
+          <TreasuryPanel
+            value={state.panels.TreasuryWithdrawals}
+            onChange={(panel) => dispatch({ kind: 'setPanel', type: 'TreasuryWithdrawals', state: panel })}
+            network={network}
+            guardrail={contextData.guardrail}
+            recipients={state.recipients}
+            onRetryRecipients={() => setRecipientsAttempt((n) => n + 1)}
             disabled={busy}
           />
         );
@@ -1319,10 +1450,10 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
           disabled={busy}
         />
 
-        {chained && ageLine && (
+        {contextual && ageLine && (
           <p style={{ margin: 0, color: 'var(--muted)', fontSize: '0.8125rem' }}>{ageLine}</p>
         )}
-        {chained && changeLines.length > 0 && (
+        {contextual && changeLines.length > 0 && (
           <div role="status" style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
             {changeLines.map((line) => (
               <p key={line} style={{ margin: 0, color: 'var(--muted)', fontSize: '0.8125rem' }}>{line}</p>
@@ -1538,6 +1669,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
           submitting={busy}
           connectError={phase.status === 'error' && phase.step === 'connect' ? phase.message : null}
           submitError={phase.status === 'error' && phase.step === 'submit' ? phase.message : null}
+          submitErrorDetail={phase.status === 'error' && phase.step === 'submit' ? (phase.detail ?? null) : null}
           onUseDifferentWallet={reset}
           onReview={() => setReviewOpen(true)}
           reviewButtonRef={reviewButtonRef}

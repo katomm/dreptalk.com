@@ -24,6 +24,11 @@ const SLOW = { timeout: 5000 };
 import SubmitGovAction from './SubmitGovAction.js';
 import { loadGovActionDraft, govActionDraftKey } from '@/lib/governance/govActionDraft.js';
 import { ccColdBech32 } from '@/lib/governance/committeeUpdate.js';
+import { GUARDRAIL_CHANGED_MESSAGE, GUARDRAIL_SCRIPT_HASH_HEX, GUARDRAIL_UNKNOWN_MESSAGE } from '@/lib/governance/guardrailScript.js';
+import { RECIPIENT_UNREGISTERED, RECIPIENTS_CHECK_FAILED_AT_SUBMIT } from '@/lib/governance/treasuryWithdrawals.js';
+import { EVALUATION_FAILED_MESSAGE } from '@/lib/governance/govActionErrors.js';
+import { encodeBech32 } from '@/lib/crypto/bech32.js';
+import { hexToBytes } from '@/lib/crypto/hex.js';
 
 const submitGovActionMock = vi.fn();
 vi.mock('@/lib/governance/govActionTx.js', () => ({
@@ -85,6 +90,20 @@ vi.mock('@/lib/governance/walletUtxos.js', async importOriginal => {
     ...actual,
     collectWalletUtxos: async () =>
       collectWalletUtxosImpl ? await collectWalletUtxosImpl() : [{ assets: { lovelace: walletLovelace } }],
+  };
+});
+
+// The mainnet switch, forced on by the test that restores a draft on a
+// network where submission is on but the draft's type is not offered. Null
+// keeps the real switch. Only the switch is replaced, so the per-type rule in
+// govActionTypeAvailable stays the real one.
+let submissionSwitch: boolean | null = null;
+vi.mock('@/lib/governance/submissionGate.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/governance/submissionGate.js')>();
+  return {
+    ...actual,
+    govActionSubmissionAvailable: (network: Parameters<typeof actual.govActionSubmissionAvailable>[0]) =>
+      submissionSwitch ?? actual.govActionSubmissionAvailable(network),
   };
 });
 
@@ -233,6 +252,16 @@ let previewImpl: (() => Promise<Response>) | null = null;
 let statusImpl: (() => Promise<Response>) | null = null;
 /** What Koios account_info reports for the wallet's reward address. */
 let stakeStatus = 'registered';
+/** Per-address account_info status for treasury recipients, every other address answers stakeStatus. */
+let recipientStatus = new Map<string, string>();
+/** When set, every /api/gov-action/context request answers 503 with this body. */
+let contextError: { error: string } | null = null;
+/** When true, every /api/koios/account_info request answers 503. */
+let accountInfoFails = false;
+
+const RECIPIENT_HEX = `e0${'ab'.repeat(28)}`;
+const RECIPIENT = encodeBech32('stake_test', hexToBytes(RECIPIENT_HEX));
+const TREASURY_CONTEXT = { epoch: 500, guardrail: { state: 'known', scriptHash: GUARDRAIL_SCRIPT_HASH_HEX } };
 
 // Holds every /api/gov-action/context response open on the given promise
 // instead of answering at once, for the test that has to catch a second
@@ -242,11 +271,10 @@ let contextHold: Promise<Response> | null = null;
 
 /**
  * Routes every request the island makes, so no test depends on a real network.
- * The init argument is declared even though the routing never reads it, so a
- * test can assert what a POST actually sent.
+ * The init argument lets account_info answer per address and a test assert what a POST sent.
  */
 function installFetchMock() {
-  const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
     if (url.includes('/api/preview')) {
       return previewImpl
@@ -259,8 +287,22 @@ function installFetchMock() {
           });
     }
     if (url.includes('/api/koios/epoch_params')) return jsonResponse([EPOCH_PARAMS_ROW]);
-    if (url.includes('/api/koios/account_info')) return jsonResponse([{ status: stakeStatus }]);
-    if (url.includes('/api/gov-action/context')) return contextHold ? await contextHold : jsonResponse(committeeContext);
+    if (url.includes('/api/koios/account_info')) {
+      if (accountInfoFails) return new Response('unavailable', { status: 503 });
+      const body = JSON.parse(String(init?.body ?? '{}')) as { _stake_addresses?: string[] };
+      return jsonResponse(
+        (body._stake_addresses ?? []).map((address) => ({
+          stake_address: address,
+          status: recipientStatus.get(address) ?? stakeStatus,
+        })),
+      );
+    }
+    if (url.includes('/api/gov-action/context')) {
+      if (contextError) {
+        return new Response(JSON.stringify(contextError), { status: 503, headers: { 'content-type': 'application/json' } });
+      }
+      return contextHold ? await contextHold : jsonResponse(committeeContext);
+    }
     if (url.includes('/api/gov-action/status')) {
       return statusImpl ? await statusImpl() : jsonResponse({ synced: false, slug: null, draft: null });
     }
@@ -341,6 +383,14 @@ async function fillCommitteePanel() {
   fireEvent.change(screen.getByLabelText('Expiry epoch for addition 1'), { target: { value: '560' } });
 }
 
+/** Switches to TreasuryWithdrawals and fills the first recipient row. */
+async function fillTreasuryPanel(address = RECIPIENT, amount = '1') {
+  fireEvent.click(screen.getByRole('radio', { name: /Treasury withdrawal/ }));
+  await screen.findByLabelText('Recipient 1 stake address', {}, SLOW);
+  fireEvent.change(screen.getByLabelText('Recipient 1 stake address'), { target: { value: address } });
+  fireEvent.change(screen.getByLabelText('Recipient 1 amount in tADA'), { target: { value: amount } });
+}
+
 describe('SubmitGovAction', () => {
   beforeEach(() => {
     window.localStorage.clear();
@@ -352,6 +402,10 @@ describe('SubmitGovAction', () => {
     statusImpl = null;
     stakeStatus = 'registered';
     contextHold = null;
+    recipientStatus = new Map();
+    contextError = null;
+    accountInfoFails = false;
+    submissionSwitch = null;
     installFetchMock();
     installWalletMock();
   });
@@ -1639,6 +1693,181 @@ describe('SubmitGovAction', () => {
       } finally {
         vi.useRealTimers();
       }
+    });
+  });
+
+  describe('treasury withdrawals', () => {
+    it('submits a treasury withdrawal with the checked guardrail and the registered recipient', async () => {
+      committeeContext = TREASURY_CONTEXT;
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      await connect();
+      fillMetadata();
+      await fillTreasuryPanel();
+
+      const submit = signButton();
+      await waitFor(() => expect(submit.disabled).toBe(false), SLOW);
+      fireEvent.click(submit);
+
+      await waitFor(() => expect(submitGovActionMock).toHaveBeenCalledTimes(1), SLOW);
+      const opts = submitGovActionMock.mock.calls[0][0] as { action: unknown };
+      expect(opts.action).toEqual({
+        type: 'TreasuryWithdrawals',
+        withdrawals: [{ rewardAddressHex: RECIPIENT_HEX, lovelace: 1_000_000n }],
+        guardrail: { state: 'known', scriptHash: GUARDRAIL_SCRIPT_HASH_HEX },
+      });
+    });
+
+    it('checks an address typed in uppercase under its lowercase form and lets it through', async () => {
+      committeeContext = TREASURY_CONTEXT;
+      const fetchMock = installFetchMock();
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      await connect();
+      fillMetadata();
+      await fillTreasuryPanel(RECIPIENT.toUpperCase());
+
+      const submit = signButton();
+      await waitFor(() => expect(submit.disabled).toBe(false), SLOW);
+      const recipientLookups = fetchMock.mock.calls
+        .filter(([input]) => String(input).includes('/api/koios/account_info'))
+        .map(([, init]) => (JSON.parse(String(init?.body)) as { _stake_addresses: string[] })._stake_addresses)
+        .filter((addresses) => addresses.includes(RECIPIENT));
+      expect(recipientLookups.length).toBeGreaterThan(0);
+      for (const addresses of recipientLookups) expect(addresses).toEqual([RECIPIENT]);
+    });
+
+    it('blocks when the guardrails script changed after the form loaded, before anything is signed or pinned', async () => {
+      committeeContext = TREASURY_CONTEXT;
+      const fetchMock = installFetchMock();
+      const api = installWalletMock();
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      await connect();
+      fillMetadata();
+      await fillTreasuryPanel();
+      const submit = signButton();
+      await waitFor(() => expect(submit.disabled).toBe(false), SLOW);
+
+      committeeContext = { epoch: 500, guardrail: { state: 'known', scriptHash: 'ab'.repeat(28) } };
+      fireEvent.click(submit);
+
+      expect((await screen.findAllByText(GUARDRAIL_CHANGED_MESSAGE, {}, SLOW)).length).toBeGreaterThan(0);
+      expect(submitGovActionMock).not.toHaveBeenCalled();
+      expect(api.signData).not.toHaveBeenCalled();
+      expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/api/gov-action/metadata'))).toBe(false);
+    });
+
+    it('keeps submit disabled for an unregistered recipient and says why', async () => {
+      committeeContext = TREASURY_CONTEXT;
+      recipientStatus.set(RECIPIENT, 'not registered');
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      await connect();
+      fillMetadata();
+      await fillTreasuryPanel();
+
+      expect((await screen.findAllByText(RECIPIENT_UNREGISTERED, {}, SLOW)).length).toBeGreaterThan(0);
+      expect(signButton().disabled).toBe(true);
+    });
+
+    it('re-reads registration at submit and stops when a recipient is no longer registered', async () => {
+      committeeContext = TREASURY_CONTEXT;
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      await connect();
+      fillMetadata();
+      await fillTreasuryPanel();
+      const submit = signButton();
+      await waitFor(() => expect(submit.disabled).toBe(false), SLOW);
+
+      recipientStatus.set(RECIPIENT, 'not registered');
+      fireEvent.click(submit);
+
+      expect((await screen.findAllByText(RECIPIENT_UNREGISTERED, {}, SLOW)).length).toBeGreaterThan(0);
+      expect(submitGovActionMock).not.toHaveBeenCalled();
+    });
+
+    it('stops without signing when the registration lookup fails at submit', async () => {
+      committeeContext = TREASURY_CONTEXT;
+      const fetchMock = installFetchMock();
+      const api = installWalletMock();
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      await connect();
+      fillMetadata();
+      await fillTreasuryPanel();
+      const submit = signButton();
+      await waitFor(() => expect(submit.disabled).toBe(false), SLOW);
+
+      accountInfoFails = true;
+      fireEvent.click(submit);
+
+      expect((await screen.findAllByText(RECIPIENTS_CHECK_FAILED_AT_SUBMIT, {}, SLOW)).length).toBeGreaterThan(0);
+      expect(submitGovActionMock).not.toHaveBeenCalled();
+      expect(api.signData).not.toHaveBeenCalled();
+      expect(fetchMock.mock.calls.some(([input]) => String(input).includes('/api/gov-action/metadata'))).toBe(false);
+    });
+
+    it('says the guardrails script could not be checked when the context answers guardrail_unknown', async () => {
+      contextError = { error: 'guardrail_unknown' };
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      fireEvent.click(await screen.findByRole('radio', { name: /Treasury withdrawal/ }));
+      expect(await screen.findByText(GUARDRAIL_UNKNOWN_MESSAGE, {}, SLOW)).toBeTruthy();
+    });
+
+    it('words a guardrail rejection and shows the script error in a disclosure', async () => {
+      committeeContext = TREASURY_CONTEXT;
+      const inner = Object.assign(new Error('Script evaluation failed'), {
+        cause: { code: 'evaluation_failed', detail: 'Validator returned False' },
+      });
+      submitGovActionMock.mockRejectedValue(
+        Object.assign(new Error('Script evaluation failed: evaluation_failed'), { cause: inner }),
+      );
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      await connect();
+      fillMetadata();
+      await fillTreasuryPanel();
+      const submit = signButton();
+      await waitFor(() => expect(submit.disabled).toBe(false), SLOW);
+      fireEvent.click(submit);
+
+      expect(await screen.findByText(EVALUATION_FAILED_MESSAGE, { exact: false }, SLOW)).toBeTruthy();
+      expect(screen.getByText('Validator returned False')).toBeTruthy();
+    });
+
+    it('restores a treasury draft and checks its recipients again', async () => {
+      committeeContext = TREASURY_CONTEXT;
+      const first = render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      fillMetadata();
+      await fillTreasuryPanel();
+      await waitFor(() => expect(loadGovActionDraft(window.localStorage, DRAFT_KEY)?.type).toBe('TreasuryWithdrawals'), SLOW);
+      first.unmount();
+
+      recipientStatus.set(RECIPIENT, 'not registered');
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      expect(((await screen.findByLabelText('Recipient 1 stake address', {}, SLOW)) as HTMLInputElement).value).toBe(RECIPIENT);
+      expect((await screen.findAllByText(RECIPIENT_UNREGISTERED, {}, SLOW)).length).toBeGreaterThan(0);
+    });
+
+    it('restores a treasury draft on a network that does not offer the type as an info action', async () => {
+      submissionSwitch = true;
+      window.localStorage.setItem(
+        govActionDraftKey('mainnet'),
+        JSON.stringify({
+          v: 2,
+          type: 'TreasuryWithdrawals',
+          title: 'A treasury withdrawal',
+          abstract: 'The abstract',
+          motivation: 'The motivation',
+          rationale: 'The rationale',
+          signAsAuthor: true,
+          authorName: DISPLAY_NAME,
+          references: [],
+          surveyRef: '',
+          panels: { TreasuryWithdrawals: { rows: [{ address: RECIPIENT, amountAda: '1' }] } },
+        }),
+      );
+      render(<SubmitGovAction network="mainnet" displayName={DISPLAY_NAME} />);
+
+      await waitFor(() => expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('A treasury withdrawal'), SLOW);
+      expect((screen.getByRole('radio', { name: /Info action/ }) as HTMLInputElement).checked).toBe(true);
+      expect(screen.queryByRole('radio', { name: /Treasury withdrawal/ })).toBeNull();
+      expect(screen.queryByLabelText('Recipient 1 stake address')).toBeNull();
     });
   });
 });
