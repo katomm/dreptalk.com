@@ -1396,13 +1396,18 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   // now (the user may have typed while the wallet prompt was open), not as it
   // was at the click.
   useEffect(() => {
-    if (!addOwnAfterConnectRef.current || !ownStakeAddress) return;
+    if (!addOwnAfterConnectRef.current) return;
+    if (!ownStakeAddress) {
+      // Connected but the address could not be derived: drop the pending add so a later reconnect cannot fill.
+      if (state.wallet.status === 'connected') addOwnAfterConnectRef.current = false;
+      return;
+    }
     addOwnAfterConnectRef.current = false;
     if (state.type !== 'TreasuryWithdrawals') return;
     const panel = state.panels.TreasuryWithdrawals;
     const rows = withAddressAdded(panel.rows, ownStakeAddress);
     if (rows !== panel.rows) dispatch({ kind: 'setPanel', type: 'TreasuryWithdrawals', state: { rows } });
-  }, [ownStakeAddress, state.type, state.panels.TreasuryWithdrawals]);
+  }, [ownStakeAddress, state.wallet.status, state.type, state.panels.TreasuryWithdrawals]);
 
   // The two context lines above the panel, each computed once rather than in
   // both the guard and the body it guards.

@@ -1761,16 +1761,22 @@ describe('SubmitGovAction', () => {
       const second = { name: 'Other Wallet', icon: '', enable: vi.fn(async () => api) };
       cardano.otherwallet = second;
       const scrollIntoView = vi.fn();
+      const originalScroll = Element.prototype.scrollIntoView;
       Element.prototype.scrollIntoView = scrollIntoView;
-      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
-      fireEvent.click(await screen.findByRole('radio', { name: /Treasury withdrawal/ }, SLOW));
-      await screen.findByLabelText('Recipient 1 stake address', {}, SLOW);
-      await screen.findByRole('button', { name: 'Change wallet' }, SLOW);
-      fireEvent.click(await screen.findByRole('button', { name: 'Connect wallet and add my stake address' }, SLOW));
-      await waitFor(() => expect(scrollIntoView).toHaveBeenCalled(), SLOW);
-      expect(document.activeElement).toBe(screen.getByRole('radio', { name: /Test Wallet/ }));
-      expect((walletEntry() as { enable: ReturnType<typeof vi.fn> }).enable).not.toHaveBeenCalled();
-      expect(second.enable).not.toHaveBeenCalled();
+      try {
+        render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+        fireEvent.click(await screen.findByRole('radio', { name: /Treasury withdrawal/ }, SLOW));
+        await screen.findByLabelText('Recipient 1 stake address', {}, SLOW);
+        await screen.findByRole('button', { name: 'Change wallet' }, SLOW);
+        fireEvent.click(await screen.findByRole('button', { name: 'Connect wallet and add my stake address' }, SLOW));
+        await waitFor(() => expect(scrollIntoView).toHaveBeenCalled(), SLOW);
+        expect(document.activeElement).toBe(screen.getByRole('radio', { name: /Test Wallet/ }));
+        expect((walletEntry() as { enable: ReturnType<typeof vi.fn> }).enable).not.toHaveBeenCalled();
+        expect(second.enable).not.toHaveBeenCalled();
+      } finally {
+        Element.prototype.scrollIntoView = originalScroll;
+        delete (window as unknown as { cardano: Record<string, unknown> }).cardano.otherwallet;
+      }
     });
 
     it('checks an address typed in uppercase under its lowercase form and lets it through', async () => {
