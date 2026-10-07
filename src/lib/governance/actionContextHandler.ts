@@ -25,6 +25,7 @@ import {
 } from './prevAction.js';
 import { parseHardForkVersion } from './onchain.js';
 import { pickConstitutionScriptHash } from './guardrailPick.js';
+import type { GuardrailContext } from './guardrailScript.js';
 import { getGovernanceActionTitlesByIds } from '../db/governance.js';
 import { getCommitteeTimeline } from '../db/committee.js';
 import { getAllCcMemberNames } from '../db/ccMemberName.js';
@@ -70,6 +71,8 @@ export interface ActionContextResponse {
     maxTermLength: number | null;
   };
   constitution?: { scriptHash: string | null };
+  /** TreasuryWithdrawals only: the guardrail the chain requires (see guardrailPick.ts). */
+  guardrail?: GuardrailContext;
 }
 
 function toGovActionRef(row: ProposalListRow, title: string | null): GovActionRef {

@@ -19,12 +19,14 @@ import {
   describeCommitteePanel,
   describeHardForkPanel,
   describeNewConstitutionPanel,
+  describeTreasuryPanel,
   type GovActionFormState,
 } from './govActionFormState.js';
 import type { PrevActionRef } from './prevAction.js';
 import type { ActionContextResponse } from './actionContextHandler.js';
 import type { EpochParamsRow } from '../koios/client.js';
 import type { CardanoNetwork } from '../config/network.js';
+import { formatTreasuryAda } from './treasuryWithdrawals.js';
 
 /**
  * Stands in for the anchor URL of a NewConstitution document that has not been
@@ -64,11 +66,14 @@ function removedEntry(credential: { hashHex: string; isScript: boolean }): Recor
  * The synthetic Koios `proposal_description` for the form as it stands, plus
  * the panel fields that are still missing. The payload shapes are the ones in
  * onchain.test.ts's fixtures, which were confirmed against real mainnet rows.
+ * A treasury withdrawal hands back a finished card as `exact` instead, with
+ * no payload, because the decoder rounds its amounts to whole ada.
  */
 function previewPayload(
   state: PreviewFormState,
   context: ActionContextResponse | null,
-): { payload: { tag: string; contents: unknown[] }; missing: string[] } {
+  network: CardanoNetwork,
+): { payload: { tag: string; contents: unknown[] } | null; missing: string[]; exact?: OnchainChanges } {
   const prev = prevSlot(effectivePrev(chosenPrev(state.type, state.panels), context));
 
   switch (state.type) {
@@ -128,6 +133,23 @@ function previewPayload(
         missing,
       };
     }
+
+    case 'TreasuryWithdrawals': {
+      const { payloadPart, missing } = describeTreasuryPanel(state.panels.TreasuryWithdrawals, context, network);
+      const rows = payloadPart?.rows ?? [];
+      const total = rows.reduce((sum, row) => sum + row.lovelace, 0n);
+      // Exact to the lovelace, the same row and total semantics as the
+      // action page's card (GaOnchainChanges.astro), without its rounding.
+      return {
+        payload: null,
+        missing,
+        exact: {
+          kind: 'treasury',
+          rows: rows.map((row) => ({ address: row.recipient.stakeAddress, ada: formatTreasuryAda(row.lovelace) })),
+          totalAda: formatTreasuryAda(total),
+        },
+      };
+    }
   }
 }
 
@@ -155,12 +177,10 @@ export function previewModelFromForm(
   epochParams: EpochParamsRow | null,
   network: CardanoNetwork,
 ): PreviewModel {
-  const { payload, missing: panelMissing } = previewPayload(state, context);
-  const onchain = decodeOnchainChanges(
-    JSON.stringify(payload),
-    epochParams ? JSON.stringify(epochParams) : null,
-    network,
-  );
+  const { payload, missing: panelMissing, exact } = previewPayload(state, context, network);
+  const onchain =
+    exact ??
+    (payload ? decodeOnchainChanges(JSON.stringify(payload), epochParams ? JSON.stringify(epochParams) : null, network) : null);
 
   const metadata = state.metadata;
   const missing = [...panelMissing];

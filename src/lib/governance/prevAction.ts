@@ -44,7 +44,8 @@ export type GovActionFormType =
   | 'HardForkInitiation'
   | 'NewConstitution'
   | 'UpdateCommittee'
-  | 'InfoAction';
+  | 'InfoAction'
+  | 'TreasuryWithdrawals';
 
 // The one runtime list of form types. Every other module that needs to
 // iterate, validate or default to a form type imports this instead of
@@ -55,6 +56,7 @@ export const GOV_ACTION_FORM_TYPES = [
   'HardForkInitiation',
   'NewConstitution',
   'UpdateCommittee',
+  'TreasuryWithdrawals',
 ] as const satisfies readonly GovActionFormType[];
 
 // Compile-time guard: fails to typecheck if a union member is ever added to
@@ -80,7 +82,7 @@ export function koiosProposalType(formType: GovActionFormType): string {
   return formType === 'UpdateCommittee' ? 'NewCommittee' : formType;
 }
 
-/** Returns the Koios proposal_type names in the form type's purpose chain, or null when the type is unchained (InfoAction). */
+/** Returns the Koios proposal_type names in the form type's purpose chain, or null when the type has none (InfoAction, TreasuryWithdrawals). */
 export function chainForType(type: GovActionFormType): readonly string[] | null {
   switch (type) {
     case 'NoConfidence':
@@ -91,8 +93,19 @@ export function chainForType(type: GovActionFormType): readonly string[] | null 
     case 'HardForkInitiation':
       return HARD_FORK_CHAIN;
     case 'InfoAction':
+    case 'TreasuryWithdrawals':
       return null;
   }
+}
+
+/**
+ * Whether the form loads a live context for the type, refetches it right
+ * before signing and shows a panel. Separate from chainForType because a
+ * treasury withdrawal has no purpose chain but does need the chain's
+ * guardrail state. InfoAction is the one type that needs nothing.
+ */
+export function needsContext(type: GovActionFormType): boolean {
+  return type !== 'InfoAction';
 }
 
 /**

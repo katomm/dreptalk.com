@@ -61,6 +61,7 @@ import {
   validateCommitteePanel,
   validateHardForkPanel,
   validateNewConstitutionPanel,
+  validateTreasuryPanel,
   contextChangeLines,
   PREV_ACTION_CHANGED,
 } from '@/lib/governance/govActionFormState.js';
@@ -690,6 +691,25 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
             remove: result.value.remove,
             add: result.value.add,
             quorum: result.value.quorum,
+          },
+        };
+      }
+
+      case 'TreasuryWithdrawals': {
+        const result = validateTreasuryPanel(state.panels.TreasuryWithdrawals, ctx, {
+          network,
+          recipients: state.recipients,
+        });
+        if (!result.ok) return result;
+        return {
+          ok: true,
+          spec: {
+            type: 'TreasuryWithdrawals',
+            withdrawals: result.value.withdrawals.map((w) => ({
+              rewardAddressHex: w.recipient.rewardAddressHex,
+              lovelace: w.lovelace,
+            })),
+            guardrail: result.value.guardrail,
           },
         };
       }

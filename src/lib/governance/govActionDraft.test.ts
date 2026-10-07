@@ -85,6 +85,18 @@ describe('saveGovActionDraft / loadGovActionDraft round trip', () => {
     saveGovActionDraft(storage, key, draft, SAVED_AT);
     expect(loadGovActionDraft(storage, key)).toEqual({ ...draft, savedAt: SAVED_AT });
   });
+
+  it('round-trips a treasury withdrawal draft with its recipient rows', () => {
+    const storage = makeFakeStorage();
+    const key = govActionDraftKey('preprod');
+    const draft: GovActionDraft = {
+      ...fullDraft,
+      type: 'TreasuryWithdrawals',
+      panels: { TreasuryWithdrawals: { rows: [{ address: 'stake_test1abc', amountAda: '12.5' }] } },
+    };
+    saveGovActionDraft(storage, key, draft, SAVED_AT);
+    expect(loadGovActionDraft(storage, key)).toEqual({ ...draft, savedAt: SAVED_AT });
+  });
 });
 
 describe('savedAt', () => {

@@ -16,11 +16,23 @@ import {
   validateNewConstitutionPanel,
   contextChangeLines,
   PREV_ACTION_CHANGED,
+  NO_RECIPIENT_CHECK,
+  validateTreasuryPanel,
   type GovActionFormState,
+  type RecipientCheckState,
 } from './govActionFormState.js';
 import type { ActionContextResponse } from './actionContextHandler.js';
 import type { GovActionDraft } from './govActionDraft.js';
 import { REFERENCES_MAX } from './infoActionLimits.js';
+import { encodeBech32 } from '../crypto/bech32.js';
+import { hexToBytes } from '../crypto/hex.js';
+import { GUARDRAIL_CHANGED_MESSAGE, GUARDRAIL_SCRIPT_HASH_HEX, GUARDRAIL_UNKNOWN_MESSAGE } from './guardrailScript.js';
+import {
+  RECIPIENT_UNREGISTERED,
+  RECIPIENTS_CHECKING,
+  RECIPIENTS_CHECK_FAILED,
+  STAKE_ADDRESS_INVALID,
+} from './treasuryWithdrawals.js';
 
 const REF_A = { txHashHex: 'a'.repeat(64), index: 0 };
 const REF_B = { txHashHex: 'b'.repeat(64), index: 1 };
@@ -1713,5 +1725,214 @@ describe('draftConflict', () => {
     });
     // closed-draft is no longer in openDrafts, but it is still the tracked slug.
     expect(draftConflict(s, [{ slug: 'draft-b' }], SITE_ORIGIN)).toBe(true);
+  });
+});
+
+const TREASURY_KEY_HEX = `e0${'ab'.repeat(28)}`;
+const TREASURY_ADDR = encodeBech32('stake_test', hexToBytes(TREASURY_KEY_HEX));
+const TREASURY_ADDR_2 = encodeBech32('stake_test', hexToBytes(`f0${'cd'.repeat(28)}`));
+const KNOWN_GUARDRAIL_CTX: ActionContextResponse = {
+  epoch: 500,
+  guardrail: { state: 'known', scriptHash: GUARDRAIL_SCRIPT_HASH_HEX },
+};
+
+function registeredFor(addresses: string[]): RecipientCheckState {
+  return { requestId: 1, byAddress: Object.fromEntries(addresses.map((a) => [a, 'registered' as const])) };
+}
+
+describe('treasury withdrawal panel state', () => {
+  it('starts with one empty recipient row and an empty registration check, and counts as blank', () => {
+    const state = initialGovActionFormState();
+    expect(state.panels.TreasuryWithdrawals).toEqual({ rows: [{ address: '', amountAda: '' }] });
+    expect(state.recipients).toEqual(NO_RECIPIENT_CHECK);
+    expect(isFormBlank(state, { authorName: '' })).toBe(true);
+  });
+
+  it('is not blank once a recipient row is typed into', () => {
+    const state = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'setPanel',
+      type: 'TreasuryWithdrawals',
+      state: { rows: [{ address: TREASURY_ADDR, amountAda: '' }] },
+    });
+    expect(isFormBlank(state, { authorName: '' })).toBe(false);
+  });
+
+  it('restores rows from a draft, coercing malformed ones and keeping at most twenty', () => {
+    const rows = [
+      { address: TREASURY_ADDR, amountAda: '1.5' },
+      { address: 42, amountAda: null },
+      'not a row',
+      ...Array.from({ length: 25 }, () => ({ address: 'x', amountAda: '1' })),
+    ];
+    const restored = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'restoreDraft',
+      draft: draft({ type: 'TreasuryWithdrawals', panels: { TreasuryWithdrawals: { rows } } }),
+    });
+    expect(restored.type).toBe('TreasuryWithdrawals');
+    expect(restored.panels.TreasuryWithdrawals.rows).toHaveLength(20);
+    expect(restored.panels.TreasuryWithdrawals.rows[0]).toEqual({ address: TREASURY_ADDR, amountAda: '1.5' });
+    expect(restored.panels.TreasuryWithdrawals.rows[1]).toEqual({ address: '', amountAda: '' });
+  });
+
+  it('restores one empty row from a draft that carries no treasury panel', () => {
+    const restored = govActionFormReducer(initialGovActionFormState(), { kind: 'restoreDraft', draft: draft() });
+    expect(restored.panels.TreasuryWithdrawals).toEqual({ rows: [{ address: '', amountAda: '' }] });
+  });
+});
+
+describe('recipient registration check', () => {
+  it('marks every asked address as checking under the new request id', () => {
+    const state = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'recipientsCheckRequested',
+      requestId: 3,
+      addresses: [TREASURY_ADDR, TREASURY_ADDR_2],
+    });
+    expect(state.recipients).toEqual({
+      requestId: 3,
+      byAddress: { [TREASURY_ADDR]: 'checking', [TREASURY_ADDR_2]: 'checking' },
+    });
+  });
+
+  it('files the answer of the latest request, a missing address as unregistered', () => {
+    let state = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'recipientsCheckRequested',
+      requestId: 1,
+      addresses: [TREASURY_ADDR, TREASURY_ADDR_2],
+    });
+    state = govActionFormReducer(state, { kind: 'recipientsChecked', requestId: 1, registered: { [TREASURY_ADDR]: true } });
+    expect(state.recipients.byAddress).toEqual({ [TREASURY_ADDR]: 'registered', [TREASURY_ADDR_2]: 'unregistered' });
+  });
+
+  it('drops an answer for an older request, so an edited row cannot be confirmed by a stale reply', () => {
+    let state = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'recipientsCheckRequested',
+      requestId: 1,
+      addresses: [TREASURY_ADDR],
+    });
+    // The row is edited to another address before the first answer arrives.
+    state = govActionFormReducer(state, { kind: 'recipientsCheckRequested', requestId: 2, addresses: [TREASURY_ADDR_2] });
+    state = govActionFormReducer(state, {
+      kind: 'recipientsChecked',
+      requestId: 1,
+      registered: { [TREASURY_ADDR]: true, [TREASURY_ADDR_2]: true },
+    });
+    expect(state.recipients).toEqual({ requestId: 2, byAddress: { [TREASURY_ADDR_2]: 'checking' } });
+    expect(
+      validateTreasuryPanel({ rows: [{ address: TREASURY_ADDR_2, amountAda: '1' }] }, KNOWN_GUARDRAIL_CTX, {
+        network: 'preprod',
+        recipients: state.recipients,
+      }),
+    ).toEqual({ ok: false, error: RECIPIENTS_CHECKING });
+  });
+
+  it('marks a failed lookup as failed and ignores a stale failure', () => {
+    let state = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'recipientsCheckRequested',
+      requestId: 5,
+      addresses: [TREASURY_ADDR],
+    });
+    const unchanged = govActionFormReducer(state, { kind: 'recipientsCheckFailed', requestId: 4 });
+    expect(unchanged).toBe(state);
+    state = govActionFormReducer(state, { kind: 'recipientsCheckFailed', requestId: 5 });
+    expect(state.recipients.byAddress).toEqual({ [TREASURY_ADDR]: 'failed' });
+  });
+
+  it('is cleared by discarding the draft', () => {
+    let state = govActionFormReducer(initialGovActionFormState(), {
+      kind: 'recipientsCheckRequested',
+      requestId: 1,
+      addresses: [TREASURY_ADDR],
+    });
+    state = govActionFormReducer(state, { kind: 'discardDraft', displayName: '' });
+    expect(state.recipients).toEqual(NO_RECIPIENT_CHECK);
+  });
+});
+
+describe('validateTreasuryPanel', () => {
+  const panel = { rows: [{ address: TREASURY_ADDR, amountAda: '1.5' }] };
+  const input = { network: 'preprod' as const, recipients: registeredFor([TREASURY_ADDR]) };
+
+  it('needs a guardrail state from the context', () => {
+    expect(validateTreasuryPanel(panel, { epoch: 500 }, input)).toEqual({ ok: false, error: GUARDRAIL_UNKNOWN_MESSAGE });
+    expect(validateTreasuryPanel(panel, null, input)).toEqual({ ok: false, error: GUARDRAIL_UNKNOWN_MESSAGE });
+  });
+
+  it('blocks a guardrail hash DRepTalk does not ship', () => {
+    const changed: ActionContextResponse = { epoch: 500, guardrail: { state: 'known', scriptHash: 'ab'.repeat(28) } };
+    expect(validateTreasuryPanel(panel, changed, input)).toEqual({ ok: false, error: GUARDRAIL_CHANGED_MESSAGE });
+  });
+
+  it('accepts a proven absent guardrail', () => {
+    const result = validateTreasuryPanel(panel, { epoch: 500, guardrail: { state: 'absent' } }, input);
+    expect(result.ok && result.value.guardrail).toEqual({ state: 'absent' });
+  });
+
+  it('reports the first row error before any registration state', () => {
+    expect(
+      validateTreasuryPanel({ rows: [{ address: 'stake_test1nope', amountAda: '1' }] }, KNOWN_GUARDRAIL_CTX, input),
+    ).toEqual({ ok: false, error: STAKE_ADDRESS_INVALID });
+  });
+
+  it('waits for, refuses, or reports the registration answer', () => {
+    const at = (status: 'checking' | 'unregistered' | 'failed') =>
+      validateTreasuryPanel(panel, KNOWN_GUARDRAIL_CTX, {
+        network: 'preprod',
+        recipients: { requestId: 1, byAddress: { [TREASURY_ADDR]: status } },
+      });
+    expect(at('checking')).toEqual({ ok: false, error: RECIPIENTS_CHECKING });
+    expect(at('unregistered')).toEqual({ ok: false, error: RECIPIENT_UNREGISTERED });
+    expect(at('failed')).toEqual({ ok: false, error: RECIPIENTS_CHECK_FAILED });
+    expect(
+      validateTreasuryPanel(panel, KNOWN_GUARDRAIL_CTX, { network: 'preprod', recipients: NO_RECIPIENT_CHECK }),
+    ).toEqual({ ok: false, error: RECIPIENTS_CHECKING });
+  });
+
+  it('returns the withdrawals and the canonical guardrail when everything checks out', () => {
+    expect(validateTreasuryPanel(panel, KNOWN_GUARDRAIL_CTX, input)).toEqual({
+      ok: true,
+      value: {
+        withdrawals: [
+          {
+            recipient: {
+              stakeAddress: TREASURY_ADDR,
+              rewardAddressHex: TREASURY_KEY_HEX,
+              credential: { kind: 'key', hashHex: 'ab'.repeat(28) },
+            },
+            lovelace: 1_500_000n,
+          },
+        ],
+        guardrail: { state: 'known', scriptHash: GUARDRAIL_SCRIPT_HASH_HEX },
+      },
+    });
+  });
+});
+
+describe('panelReadiness for a treasury withdrawal', () => {
+  it('counts as still checking without registration answers, and is ready with them', () => {
+    const panels = {
+      ...emptyPanelStates(),
+      TreasuryWithdrawals: { rows: [{ address: TREASURY_ADDR, amountAda: '1' }] },
+    };
+    expect(panelReadiness('TreasuryWithdrawals', panels, KNOWN_GUARDRAIL_CTX)).toEqual({
+      ok: false,
+      error: RECIPIENTS_CHECKING,
+    });
+    expect(
+      panelReadiness('TreasuryWithdrawals', panels, KNOWN_GUARDRAIL_CTX, {
+        network: 'preprod',
+        recipients: registeredFor([TREASURY_ADDR]),
+      }),
+    ).toEqual({ ok: true, error: '' });
+  });
+});
+
+describe('contextFailed with a code', () => {
+  it('keeps guardrail_unknown on the error state, and adds no code otherwise', () => {
+    let state = govActionFormReducer(initialGovActionFormState(), { kind: 'contextRequested', requestId: 1 });
+    state = govActionFormReducer(state, { kind: 'contextFailed', requestId: 1, code: 'guardrail_unknown' });
+    expect(state.context).toMatchObject({ status: 'error', code: 'guardrail_unknown' });
+    let plain = govActionFormReducer(initialGovActionFormState(), { kind: 'contextRequested', requestId: 2 });
+    plain = govActionFormReducer(plain, { kind: 'contextFailed', requestId: 2 });
+    expect('code' in plain.context).toBe(false);
   });
 });
