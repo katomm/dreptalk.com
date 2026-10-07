@@ -245,6 +245,10 @@ describe('thresholdSentence', () => {
     const odd: ProtocolParams = { ...P, dvtUpdateConstitution: 0.725 };
     expect(thresholdSentence('NewConstitution', odd)).toBe('DReps 72.5%, the committee votes.');
   });
+
+  it('TreasuryWithdrawals: DReps and a committee vote, no SPOs', () => {
+    expect(thresholdSentence('TreasuryWithdrawals', P)).toBe('DReps 67%, the committee votes.');
+  });
 });
 
 describe('decidersLine', () => {
@@ -266,5 +270,9 @@ describe('decidersLine', () => {
 
   it('HardForkInitiation: DReps, SPOs and the committee', () => {
     expect(decidersLine('HardForkInitiation')).toBe('Decided by DReps, SPOs and the committee');
+  });
+
+  it('TreasuryWithdrawals: DReps and the committee', () => {
+    expect(decidersLine('TreasuryWithdrawals')).toBe('Decided by DReps and the committee');
   });
 });

@@ -1314,6 +1314,8 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
           onChange={(type) => dispatch({ kind: 'setType', type })}
           params={params}
           deposit={deposit}
+          network={network}
+          submissionAvailable={govActionSubmissionAvailable(network)}
           disabled={busy}
         />
 
