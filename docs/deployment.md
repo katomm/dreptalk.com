@@ -10,7 +10,7 @@ Schema changes are applied per network with `npm run db:migrate:preprod` and `np
 
 The mainnet gov-sync worker has a service binding `SITE` to the app worker `dreptalk-com`, declared in `workers/gov-sync/wrangler.toml`. The cron asks the app through it for the newest Governance Review edition (`/api/review/latest.json`) and announces a new one to every user, since only the app bundles the editions. The preprod gov-sync config has no such binding on purpose, the review is mainnet only, so the phase does not run there.
 
-Both workers are also deployed automatically: Cloudflare Workers Builds watches the repository and redeploys the app and gov-sync workers on every merge to `main`, so the npm scripts above are for the first deploy, for preprod, and for re-shipping a single target by hand.
+All four workers are deployed automatically: Cloudflare Workers Builds watches the repository and redeploys the app and gov-sync workers of both networks, mainnet and preprod, on every merge to `main`. The npm scripts above are for the first deploy of a new worker and for re-shipping a single target by hand.
 
 A third worker, `drep-link` (`workers/drep-link/wrangler.toml`), serves the short-link domain [drep.link](https://drep.link) on mainnet only: `drep.link/<handle>` redirects to the DRep's profile, `drep.link/<drep id>` works for every DRep, and `drep.link/` is a small landing page. It only reads the mainnet D1. There is no preprod host. Ship it with `npm run deploy:link` (same confirmation prompt) or give it its own Workers Build with `npx wrangler deploy -c workers/drep-link/wrangler.toml` as the deploy command. Locally, `npm run dev:link` runs it against the local D1 with `CARDANO_NETWORK=preprod`.
 
