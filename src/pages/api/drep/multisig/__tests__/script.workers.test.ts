@@ -104,4 +104,12 @@ describe('GET /api/drep/multisig/script', () => {
     expect(await res.json()).toEqual({ value: SCRIPT_VALUE });
     expect(koiosMock.scriptInfo).toHaveBeenCalledWith(SCRIPT_HASH);
   });
+
+  it('returns 503 when Koios fails', async () => {
+    await seedUser('sc-u7', drepId(DREP_SCRIPT_HEADER, SCRIPT_HASH));
+    koiosMock.scriptInfo.mockRejectedValue(new Error('koios request failed: 500'));
+    const res = await GET(makeCtx({ id: 'sc-u7', roles: ['drep'] }));
+    expect(res.status).toBe(503);
+    expect(((await res.json()) as { error: string }).error).toBe('service unavailable');
+  });
 });

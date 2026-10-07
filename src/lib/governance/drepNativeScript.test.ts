@@ -79,4 +79,18 @@ describe('loadDrepNativeScript', () => {
     }
     expect(koios.scriptInfo).toHaveBeenCalledWith(HASH);
   });
+
+  it('maps a rejected Koios call to 503', async () => {
+    const koios = { scriptInfo: vi.fn(async () => { throw new Error('koios request failed: 500'); }) };
+    const r = await loadDrepNativeScript(koios, drepId(DREP_SCRIPT_HEADER, HASH));
+    expect(r).toEqual({ ok: false, status: 503, error: 'service unavailable' });
+  });
+
+  it('maps a script that throws while hashing (negative slot) to unsupported script', async () => {
+    const r = await loadDrepNativeScript(
+      koiosReturning({ script_hash: HASH, type: 'timelock', value: { type: 'before', slot: -1 } }),
+      drepId(DREP_SCRIPT_HEADER, HASH),
+    );
+    expect(r).toEqual({ ok: false, status: 422, error: 'unsupported script' });
+  });
 });

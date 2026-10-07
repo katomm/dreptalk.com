@@ -10,7 +10,7 @@ type KoiosClient = ReturnType<typeof createKoiosClient>;
 
 export type DrepNativeScriptResult =
   | { ok: true; script: NativeScript; value: unknown; hashHex: string }
-  | { ok: false; status: 422; error: string };
+  | { ok: false; status: 422 | 503; error: string };
 
 export async function loadDrepNativeScript(
   koios: Pick<KoiosClient, 'scriptInfo'>,
@@ -21,7 +21,13 @@ export async function loadDrepNativeScript(
     return { ok: false, status: 422, error: 'not a script drep' };
   }
 
-  const info = await koios.scriptInfo(parsedDrep.hashHex);
+  // Koios throws on HTTP errors, timeouts, invalid JSON and schema mismatches.
+  let info: Awaited<ReturnType<KoiosClient['scriptInfo']>>;
+  try {
+    info = await koios.scriptInfo(parsedDrep.hashHex);
+  } catch {
+    return { ok: false, status: 503, error: 'service unavailable' };
+  }
   if (!info) return { ok: false, status: 422, error: 'script not found' };
   if (info.type !== 'timelock') {
     return {
@@ -31,11 +37,17 @@ export async function loadDrepNativeScript(
     };
   }
 
-  const script = parseNativeScriptJson(info.value);
+  // Parsing or hashing can throw on values the parser accepts (e.g. a negative slot).
+  let script: NativeScript | null;
+  let hashMatches: boolean;
+  try {
+    script = parseNativeScriptJson(info.value);
+    hashMatches = script !== null && nativeScriptHash(script) === parsedDrep.hashHex;
+  } catch {
+    return { ok: false, status: 422, error: 'unsupported script' };
+  }
   if (!script) return { ok: false, status: 422, error: 'unsupported script' };
   // Recompute the hash so a wrong or tampered Koios answer is rejected.
-  if (nativeScriptHash(script) !== parsedDrep.hashHex) {
-    return { ok: false, status: 422, error: 'script hash mismatch' };
-  }
+  if (!hashMatches) return { ok: false, status: 422, error: 'script hash mismatch' };
   return { ok: true, script, value: info.value, hashHex: parsedDrep.hashHex };
 }
