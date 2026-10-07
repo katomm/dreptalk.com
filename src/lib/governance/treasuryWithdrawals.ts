@@ -112,6 +112,20 @@ export interface TreasuryRowInput {
 /** The blank row a fresh panel shows, and what the last removed row leaves behind. */
 export const EMPTY_TREASURY_ROW: TreasuryRowInput = { address: '', amountAda: '' };
 
+/**
+ * Puts an address into the first empty row, else appends a row. Returns the
+ * rows unchanged when the address is already listed (any case) or there is no
+ * room, so callers can compare references to see whether anything happened.
+ */
+export function withAddressAdded(rows: TreasuryRowInput[], address: string): TreasuryRowInput[] {
+  const wanted = address.trim().toLowerCase();
+  if (wanted === '' || rows.some((row) => row.address.trim().toLowerCase() === wanted)) return rows;
+  const empty = rows.findIndex((row) => row.address.trim() === '');
+  if (empty !== -1) return rows.map((row, i) => (i === empty ? { ...row, address } : row));
+  if (rows.length >= TREASURY_RECIPIENTS_MAX) return rows;
+  return [...rows, { address, amountAda: '' }];
+}
+
 /** True for a panel that holds nothing but one blank row, which is how a fresh form starts. */
 export function isEmptyTreasuryPanel(panel: { rows: readonly TreasuryRowInput[] }): boolean {
   return panel.rows.length === 1 && panel.rows[0].address === '' && panel.rows[0].amountAda === '';

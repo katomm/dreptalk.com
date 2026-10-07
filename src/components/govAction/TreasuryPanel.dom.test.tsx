@@ -170,4 +170,37 @@ describe('TreasuryPanel', () => {
       expect((screen.getByRole('button', { name: OWN }) as HTMLButtonElement).disabled).toBe(true);
     });
   });
+
+  describe('connect and add button', () => {
+    const CONNECT = 'Connect wallet and add my stake address';
+    const full = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({ address: `stake_test1x${i}`, amountAda: '1' }));
+
+    it('is shown before a wallet is connected and calls back', () => {
+      const onConnectAndAddOwn = vi.fn();
+      panel({ canConnectWallet: true, onConnectAndAddOwn });
+      fireEvent.click(screen.getByRole('button', { name: CONNECT }));
+      expect(onConnectAndAddOwn).toHaveBeenCalledTimes(1);
+    });
+
+    it('is hidden when no wallet can be connected', () => {
+      panel({ canConnectWallet: false, onConnectAndAddOwn: vi.fn() });
+      expect(screen.queryByRole('button', { name: CONNECT })).toBeNull();
+    });
+
+    it('is hidden once the wallet address is known', () => {
+      panel({ canConnectWallet: true, onConnectAndAddOwn: vi.fn(), ownStakeAddress: ADDR });
+      expect(screen.queryByRole('button', { name: CONNECT })).toBeNull();
+    });
+
+    it('is hidden at the row cap with no empty row', () => {
+      panel({ canConnectWallet: true, onConnectAndAddOwn: vi.fn(), value: { rows: full(TREASURY_RECIPIENTS_MAX) } });
+      expect(screen.queryByRole('button', { name: CONNECT })).toBeNull();
+    });
+
+    it('is disabled when the panel is disabled', () => {
+      panel({ canConnectWallet: true, onConnectAndAddOwn: vi.fn(), disabled: true });
+      expect((screen.getByRole('button', { name: CONNECT }) as HTMLButtonElement).disabled).toBe(true);
+    });
+  });
 });

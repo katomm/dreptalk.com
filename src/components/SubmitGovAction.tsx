@@ -24,7 +24,7 @@ import type { CSSProperties, ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { CopyButton } from '@/components/CopyButton.js';
-import { useCardanoWallets, rememberWallet } from '@/lib/wallet/useCardanoWallets.js';
+import { useCardanoWallets, rememberWallet, recallWallet } from '@/lib/wallet/useCardanoWallets.js';
 import { submitGovAction } from '@/lib/governance/govActionTx.js';
 import { govActionSubmissionAvailable, govActionTypeAvailable } from '@/lib/governance/submissionGate.js';
 import { collectWalletUtxos, totalLovelace } from '@/lib/governance/walletUtxos.js';
@@ -78,6 +78,7 @@ import {
   checkTreasuryRows,
   RECIPIENT_UNREGISTERED,
   RECIPIENTS_CHECK_FAILED_AT_SUBMIT,
+  withAddressAdded,
 } from '@/lib/governance/treasuryWithdrawals.js';
 import { guardrailDecision, GUARDRAIL_UNKNOWN_MESSAGE } from '@/lib/governance/guardrailScript.js';
 import { mapGuardrailBuildError } from '@/lib/governance/govActionErrors.js';
@@ -350,7 +351,18 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   // is exactly as unusable as a missing prop, since it would build a
   // reference URI with no origin at all.
   const draftSiteOrigin = siteOrigin || networkConfig.siteOrigin;
-  const { wallets, selected, setSelected } = useCardanoWallets();
+  const { wallets, selected, setSelected: setSelectedWallet } = useCardanoWallets();
+  // Whether the user clicked a wallet in the picker. The hook always fills a
+  // selection (remembered wallet, else the first one found), which says
+  // nothing about the user having chosen between several wallets.
+  const walletPickedRef = useRef(false);
+  const setSelected = (key: string) => {
+    walletPickedRef.current = true;
+    setSelectedWallet(key);
+  };
+  // Set while the recipient panel's connect button waits for the wallet.
+  const addOwnAfterConnectRef = useRef(false);
+  const [focusPickerToken, setFocusPickerToken] = useState(0);
   const [phase, setPhase] = useState<Phase>({ status: 'editing' });
   const [deposit, setDeposit] = useState<DepositState>({ status: 'loading' });
   // The /epoch_params row, kept raw: the preview feeds it to the shared
@@ -897,12 +909,12 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
     void readBalance(api, state.wallet.rewardAddressHex);
   }
 
-  async function handleConnect() {
+  async function handleConnect(): Promise<boolean> {
     // A second click while the first connect is still running does nothing:
     // the wallet is already showing its prompt.
-    if (state.wallet.status === 'connecting') return;
+    if (state.wallet.status === 'connecting') return false;
     const walletInfo = wallets.find((w) => w.key === selected);
-    if (!walletInfo) return;
+    if (!walletInfo) return false;
 
     /**
      * Back to no wallet, with the message next to the Connect button. Takes
@@ -926,7 +938,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
       api = (await walletInfo.raw.enable()) as unknown as Cip30Api;
     } catch (err) {
       failed(err);
-      return;
+      return false;
     }
 
     // Fail clearly before any tx is built when the wallet is on the wrong
@@ -935,7 +947,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
       await assertWalletNetwork(api, network);
     } catch (err) {
       failed(err);
-      return;
+      return false;
     }
 
     // The reward address is required regardless of author signing: it is
@@ -948,19 +960,38 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
       rewardAddressHex = (await api.getRewardAddresses())[0];
     } catch (err) {
       failed(err);
-      return;
+      return false;
     }
     if (!rewardAddressHex) {
       failed(
         'Your wallet exposes no reward address, so it cannot receive the deposit refund. Please use a different wallet.',
       );
-      return;
+      return false;
     }
 
     enabledApiRef.current = api;
     rememberWallet(selected);
     dispatch({ kind: 'walletConnected', rewardAddressHex });
     void readBalance(api, rewardAddressHex);
+    return true;
+  }
+
+  /**
+   * The recipient panel's connect button. One wallet, or one the user already
+   * chose or used last time, connects right away and the address is added once
+   * it is known. With several wallets and no choice yet, the picker is brought
+   * into view instead and nothing is connected.
+   */
+  async function handleConnectAndAddOwn() {
+    if (state.wallet.status !== 'none') return;
+    const decided = wallets.length === 1 || walletPickedRef.current || (selected !== '' && selected === recallWallet());
+    if (!decided) {
+      setFocusPickerToken((n) => n + 1);
+      return;
+    }
+    addOwnAfterConnectRef.current = true;
+    const ok = await handleConnect();
+    if (!ok) addOwnAfterConnectRef.current = false;
   }
 
   // ------------------------------------------------------------------
@@ -1341,6 +1372,8 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
             recipients={state.recipients}
             onRetryRecipients={() => setRecipientsAttempt((n) => n + 1)}
             ownStakeAddress={ownStakeAddress}
+            canConnectWallet={wallets.length > 0 && state.wallet.status === 'none'}
+            onConnectAndAddOwn={() => void handleConnectAndAddOwn()}
             disabled={busy}
           />
         );
@@ -1358,6 +1391,18 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
       ownStakeAddress = null;
     }
   }
+
+  // Finishes the recipient panel's connect button: reads the panel as it is
+  // now (the user may have typed while the wallet prompt was open), not as it
+  // was at the click.
+  useEffect(() => {
+    if (!addOwnAfterConnectRef.current || !ownStakeAddress) return;
+    addOwnAfterConnectRef.current = false;
+    if (state.type !== 'TreasuryWithdrawals') return;
+    const panel = state.panels.TreasuryWithdrawals;
+    const rows = withAddressAdded(panel.rows, ownStakeAddress);
+    if (rows !== panel.rows) dispatch({ kind: 'setPanel', type: 'TreasuryWithdrawals', state: { rows } });
+  }, [ownStakeAddress, state.type, state.panels.TreasuryWithdrawals]);
 
   // The two context lines above the panel, each computed once rather than in
   // both the guard and the body it guards.
@@ -1692,6 +1737,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
           deposit={deposit}
           reasons={reasons}
           onConnect={() => void handleConnect()}
+          focusPickerToken={focusPickerToken}
           onCheckAgain={handleCheckAgain}
           submitting={busy}
           connectError={phase.status === 'error' && phase.step === 'connect' ? phase.message : null}

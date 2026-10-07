@@ -1729,6 +1729,50 @@ describe('SubmitGovAction', () => {
       expect((screen.getByLabelText('Recipient 1 stake address') as HTMLInputElement).value).toBe(own);
     });
 
+    it('connects the only installed wallet from the recipient panel and fills its stake address', async () => {
+      committeeContext = TREASURY_CONTEXT;
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      fireEvent.click(await screen.findByRole('radio', { name: /Treasury withdrawal/ }, SLOW));
+      await screen.findByLabelText('Recipient 1 stake address', {}, SLOW);
+      fireEvent.click(await screen.findByRole('button', { name: 'Connect wallet and add my stake address' }, SLOW));
+      const own = encodeBech32('stake_test', hexToBytes(REWARD_ADDRESS));
+      await waitFor(
+        () => expect((screen.getByLabelText('Recipient 1 stake address') as HTMLInputElement).value).toBe(own),
+        SLOW,
+      );
+      expect(screen.queryByRole('button', { name: 'Connect wallet and add my stake address' })).toBeNull();
+    });
+
+    it('fills nothing and shows the wallet step error when the connect fails', async () => {
+      committeeContext = TREASURY_CONTEXT;
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      fireEvent.click(await screen.findByRole('radio', { name: /Treasury withdrawal/ }, SLOW));
+      await screen.findByLabelText('Recipient 1 stake address', {}, SLOW);
+      walletEntry().enable.mockRejectedValueOnce(new Error('User declined'));
+      fireEvent.click(await screen.findByRole('button', { name: 'Connect wallet and add my stake address' }, SLOW));
+      await screen.findByText(/declined/i, {}, SLOW);
+      expect((screen.getByLabelText('Recipient 1 stake address') as HTMLInputElement).value).toBe('');
+    });
+
+    it('points to the wallet picker instead of connecting when several wallets are installed', async () => {
+      committeeContext = TREASURY_CONTEXT;
+      const api = installWalletMock();
+      const cardano = (window as unknown as { cardano: Record<string, unknown> }).cardano;
+      const second = { name: 'Other Wallet', icon: '', enable: vi.fn(async () => api) };
+      cardano.otherwallet = second;
+      const scrollIntoView = vi.fn();
+      Element.prototype.scrollIntoView = scrollIntoView;
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      fireEvent.click(await screen.findByRole('radio', { name: /Treasury withdrawal/ }, SLOW));
+      await screen.findByLabelText('Recipient 1 stake address', {}, SLOW);
+      await screen.findByRole('button', { name: 'Change wallet' }, SLOW);
+      fireEvent.click(await screen.findByRole('button', { name: 'Connect wallet and add my stake address' }, SLOW));
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalled(), SLOW);
+      expect(document.activeElement).toBe(screen.getByRole('radio', { name: /Test Wallet/ }));
+      expect((walletEntry() as { enable: ReturnType<typeof vi.fn> }).enable).not.toHaveBeenCalled();
+      expect(second.enable).not.toHaveBeenCalled();
+    });
+
     it('checks an address typed in uppercase under its lowercase form and lets it through', async () => {
       committeeContext = TREASURY_CONTEXT;
       const fetchMock = installFetchMock();

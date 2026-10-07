@@ -9,6 +9,7 @@ import {
   checkTreasuryRows,
   EMPTY_TREASURY_ROW,
   formatLovelaceExact,
+  withAddressAdded,
   RECIPIENT_UNREGISTERED,
   TREASURY_RECIPIENTS_MAX,
 } from '@/lib/governance/treasuryWithdrawals.js';
@@ -27,6 +28,10 @@ export interface TreasuryPanelProps {
   onRetryRecipients: () => void;
   /** The connected wallet's stake address (bech32), null before a wallet is connected. */
   ownStakeAddress?: string | null;
+  /** True while a wallet exists to connect (installed, not connected yet). */
+  canConnectWallet?: boolean;
+  /** Starts the wallet step from here, the island fills the address once connected. */
+  onConnectAndAddOwn?: () => void;
   disabled?: boolean;
 }
 
@@ -50,6 +55,8 @@ export default function TreasuryPanel({
   recipients,
   onRetryRecipients,
   ownStakeAddress = null,
+  canConnectWallet = false,
+  onConnectAndAddOwn,
   disabled = false,
 }: TreasuryPanelProps) {
   const rows = value.rows;
@@ -68,18 +75,16 @@ export default function TreasuryPanel({
     if (rows.length >= TREASURY_RECIPIENTS_MAX) return;
     onChange({ rows: [...rows, EMPTY_TREASURY_ROW] });
   }
-  // Offered while the wallet's address is not listed yet and there is room for
-  // it: an empty row to fill, or space for a new one.
-  const firstEmptyRow = rows.findIndex((row) => row.address.trim() === '');
+  // Offered while there is room for the wallet's address: an empty row to
+  // fill, or space for a new one. The address itself, once known, must not be
+  // listed yet.
+  const hasRoom = rows.some((row) => row.address.trim() === '') || rows.length < TREASURY_RECIPIENTS_MAX;
   const ownNormalized = ownStakeAddress?.trim().toLowerCase() ?? '';
-  const canAddOwn =
-    ownNormalized !== '' &&
-    !rows.some((row) => row.address.trim().toLowerCase() === ownNormalized) &&
-    (firstEmptyRow !== -1 || rows.length < TREASURY_RECIPIENTS_MAX);
+  const canAddOwn = ownNormalized !== '' && hasRoom && withAddressAdded(rows, ownStakeAddress ?? '') !== rows;
+  const canConnectAndAdd = ownNormalized === '' && canConnectWallet && onConnectAndAddOwn !== undefined && hasRoom;
   function addOwn() {
     if (!ownStakeAddress) return;
-    if (firstEmptyRow !== -1) updateRow(firstEmptyRow, { address: ownStakeAddress });
-    else onChange({ rows: [...rows, { address: ownStakeAddress, amountAda: '' }] });
+    onChange({ rows: withAddressAdded(rows, ownStakeAddress) });
   }
 
   return (
@@ -171,6 +176,16 @@ export default function TreasuryPanel({
           style={{ ...linkButtonStyle, alignSelf: 'flex-start', cursor: disabled ? 'not-allowed' : 'pointer' }}
         >
           Add my wallet's stake address
+        </button>
+      )}
+      {canConnectAndAdd && (
+        <button
+          type="button"
+          onClick={onConnectAndAddOwn}
+          disabled={disabled}
+          style={{ ...linkButtonStyle, alignSelf: 'flex-start', cursor: disabled ? 'not-allowed' : 'pointer' }}
+        >
+          Connect wallet and add my stake address
         </button>
       )}
       <p style={{ ...mutedStyle, margin: 0 }}>Total {formatLovelaceExact(checked.totalLovelace)} tADA</p>

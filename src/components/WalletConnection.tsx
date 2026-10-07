@@ -26,6 +26,8 @@ interface WalletConnectionProps {
    * through to the failure.
    */
   requiresCip95?: boolean;
+  /** Bumping this opens the picker, for a caller that wants the user to choose a wallet now. */
+  revealToken?: number;
 }
 
 const cardStyle: CSSProperties = {
@@ -64,8 +66,14 @@ function monogram(name: string): string {
   return (name.trim()[0] ?? '?').toUpperCase();
 }
 
-export default function WalletConnection({ wallets, selected, onSelect, disabled, label = 'Connected wallet', note, requiresCip95 = false }: WalletConnectionProps) {
+export default function WalletConnection({ wallets, selected, onSelect, disabled, label = 'Connected wallet', note, requiresCip95 = false, revealToken = 0 }: WalletConnectionProps) {
   const [changing, setChanging] = useState(false);
+  // Derived during render so the picker is in the DOM by the time the caller's effect focuses it.
+  const [seenToken, setSeenToken] = useState(revealToken);
+  if (revealToken !== seenToken) {
+    setSeenToken(revealToken);
+    if (revealToken > 0) setChanging(true);
+  }
   const current = wallets.find((w) => w.key === selected) ?? wallets[0];
   const canChange = wallets.length > 1;
 

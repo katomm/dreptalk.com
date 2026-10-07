@@ -7,6 +7,7 @@
 // balance and submitting are the island's handlers, the readiness reasons come
 // from readiness.ts. The one button here opens the Review dialog, which holds
 // the actual signing step, so nobody signs without seeing the action first.
+import { useEffect, useRef } from 'react';
 import type { CSSProperties, Ref } from 'react';
 import type { CardanoWalletInfo } from '@/lib/wallet/useCardanoWallets.js';
 import type { DepositState, WalletState } from '@/lib/governance/govActionFormState.js';
@@ -38,6 +39,8 @@ export interface SignAndSubmitProps {
   /** The script error behind a guardrail rejection, shown in a disclosure under the message. */
   submitErrorDetail?: string | null;
   onUseDifferentWallet: () => void;
+  /** Bumped by the island to bring the wallet picker into view and focus it. */
+  focusPickerToken?: number;
 }
 
 const sectionStyle: CSSProperties = {
@@ -69,6 +72,17 @@ export default function SignAndSubmit(props: SignAndSubmitProps) {
   const connected = wallet.status === 'connected';
   const balanceKnown = connected && wallet.balance.status !== 'loading';
   const figures = balanceLine(deposit, wallet);
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const focusToken = props.focusPickerToken ?? 0;
+
+  useEffect(() => {
+    if (focusToken === 0) return;
+    const box = pickerRef.current;
+    if (!box) return;
+    box.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+    const radios = box.querySelectorAll<HTMLInputElement>('input[type="radio"]');
+    (Array.from(radios).find((r) => r.checked) ?? radios[0])?.focus({ preventScroll: true });
+  }, [focusToken]);
 
   return (
     <div style={sectionStyle}>
@@ -84,13 +98,16 @@ export default function SignAndSubmit(props: SignAndSubmitProps) {
         </div>
       ) : (
         <>
-          <WalletConnection
-            wallets={wallets}
-            selected={props.selected}
-            onSelect={props.onSelect}
-            disabled={connecting || submitting || connected}
-            label="Signing wallet"
-          />
+          <div ref={pickerRef} id="gov-action-wallet-picker">
+            <WalletConnection
+              wallets={wallets}
+              selected={props.selected}
+              onSelect={props.onSelect}
+              disabled={connecting || submitting || connected}
+              label="Signing wallet"
+              revealToken={focusToken}
+            />
+          </div>
 
           {!connected && (
             <button
