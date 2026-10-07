@@ -6,7 +6,9 @@
 // from Koios at request time: the protocol version for a hard fork, the
 // sitting committee and its quorum for a committee action, the constitution
 // script hash for a new constitution. InfoAction is unchained and gets only
-// the current epoch.
+// the current epoch. A treasury withdrawal has no chain and gets the guardrail
+// the chain requires instead (known or absent, 503 guardrail_unknown when
+// nothing proves it).
 //
 // Mirrors infoActionMetadataHandler.ts's dependency-injection style, but is
 // itself the single gate call site (the context policy needs no JWT and a
@@ -24,7 +26,8 @@ import {
   type GovActionRef,
 } from './prevAction.js';
 import { parseHardForkVersion } from './onchain.js';
-import { pickConstitutionScriptHash } from './guardrailPick.js';
+import { govActionSubmissionAvailable, govActionTypeAvailable } from './submissionGate.js';
+import { pickConstitutionScriptHash, type GuardrailPick } from './guardrailPick.js';
 import type { GuardrailContext } from './guardrailScript.js';
 import { getGovernanceActionTitlesByIds } from '../db/governance.js';
 import { getCommitteeTimeline } from '../db/committee.js';
@@ -35,6 +38,10 @@ import type { ProposalListRow, EpochParamsRow, CommitteeMember } from '../koios/
 // Proposal types whose ratified policy hash witnesses the constitution's
 // guardrails script in force (see guardrailPick.ts).
 const POLICY_HASH_WITNESS_TYPES = ['ParameterChange', 'TreasuryWithdrawals'] as const;
+
+// The constitution chain, read on its own for a treasury withdrawal, which
+// has no purpose chain to bring the constitution row along.
+const CONSTITUTION_TYPES = ['NewConstitution'] as const;
 
 function isGovActionFormType(value: string | null): value is GovActionFormType {
   return value !== null && (GOV_ACTION_FORM_TYPES as readonly string[]).includes(value);
@@ -152,6 +159,13 @@ export async function handleActionContext(
 
   const url = new URL(ctx.request.url);
   const typeParam = url.searchParams.get('type');
+  // A type this network does not offer answers exactly like the whole feature
+  // does where submission is off. Checked before the type is validated, so a
+  // mainnet request for a treasury withdrawal never reaches a Koios read.
+  const availability = { submissionAvailable: govActionSubmissionAvailable(net.network), network: net.network };
+  if (isGovActionFormType(typeParam) && !govActionTypeAvailable(typeParam, availability)) {
+    return new Response('Not found', { status: 404 });
+  }
   if (!isGovActionFormType(typeParam)) return jsonResponse({ error: 'invalid type' }, 400);
   const type = typeParam;
 
@@ -186,14 +200,33 @@ export async function handleActionContext(
       type === 'NoConfidence' || type === 'UpdateCommittee'
         ? Promise.all([getCommitteeTimeline(db), getAllCcMemberNames(db)]).catch(() => null)
         : null;
+    // A treasury withdrawal runs the constitution's guardrails script, so the
+    // route says which script the chain requires. Both witness rows are read
+    // explicitly because this type has no chain of its own, and a failed read
+    // is an unknown guardrail, never an absent one.
+    const guardrailPromise: Promise<GuardrailPick> | null =
+      type === 'TreasuryWithdrawals'
+        ? Promise.all([
+            deps.koios.lastRatifiedProposal(CONSTITUTION_TYPES),
+            deps.koios.lastRatifiedProposal(POLICY_HASH_WITNESS_TYPES),
+          ])
+            .then(([constitutionRows, policyRows]) =>
+              pickConstitutionScriptHash(pickLastEnacted(constitutionRows), pickLastEnacted(policyRows)),
+            )
+            .catch((err: unknown): GuardrailPick => {
+              console.error('[gov-action] context: guardrail read failed', err);
+              return { state: 'unknown' };
+            })
+        : null;
 
-    const [tip, prevResult, params, committeeCtx, policyRows, namesResult] = await Promise.all([
+    const [tip, prevResult, params, committeeCtx, policyRows, namesResult, guardrailPick] = await Promise.all([
       tipPromise,
       prevPromise,
       paramsPromise,
       committeePromise,
       policyRowPromise,
       namesPromise,
+      guardrailPromise,
     ]);
 
     const response: ActionContextResponse = { epoch: tip.epoch_no };
@@ -226,6 +259,13 @@ export async function handleActionContext(
       // 503 for an unknown guardrail.
       const pick = pickConstitutionScriptHash(constitutionRow, policyRow);
       response.constitution = { scriptHash: pick.state === 'known' ? pick.scriptHash : null };
+    }
+
+    if (type === 'TreasuryWithdrawals') {
+      if (!guardrailPick || guardrailPick.state === 'unknown') {
+        return jsonResponse({ error: 'guardrail_unknown' }, 503, { 'cache-control': 'no-store' });
+      }
+      response.guardrail = guardrailPick;
     }
 
     return jsonResponse(response, 200, { 'cache-control': 'no-store' });

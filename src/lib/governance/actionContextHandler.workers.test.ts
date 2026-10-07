@@ -556,4 +556,133 @@ describe('handleActionContext', () => {
     const json = (await res.json()) as { constitution: { scriptHash: string | null } };
     expect(json.constitution.scriptHash).toBe('fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64');
   });
+
+  const GUARDRAIL = 'fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64';
+  const ANCHOR = { url: 'ipfs://c', dataHash: 'cd'.repeat(32) };
+  const constitutionRow = (epoch: number, body: Record<string, unknown>) =>
+    row({
+      proposal_type: 'NewConstitution',
+      ratified_epoch: epoch,
+      proposal_description: { tag: 'NewConstitution', contents: [null, body] },
+    });
+  const treasuryRow = (epoch: number, hash: unknown) =>
+    row({
+      proposal_type: 'TreasuryWithdrawals',
+      ratified_epoch: epoch,
+      proposal_description: {
+        tag: 'TreasuryWithdrawals',
+        contents: [[[{ network: 'Testnet', credential: { keyHash: '60adcde454590dbfe5935f8bc29619fe608d7cdd631580cc78b67763' } }, 1000000]], hash],
+      },
+    });
+  const byType =
+    (constitution: ProposalListRow[], policy: ProposalListRow[]) =>
+    async (types: readonly string[]) =>
+      types.includes('NewConstitution') ? constitution : policy;
+
+  it('reports the known guardrail of a newest treasury withdrawal when no constitution was ratified', async () => {
+    const calls: string[][] = [];
+    const res = await handleActionContext(ctx('TreasuryWithdrawals'), {
+      koios: mockKoios({
+        lastRatifiedProposal: async (types) => {
+          calls.push([...types]);
+          return byType([], [treasuryRow(304, GUARDRAIL)])(types);
+        },
+        openProposals: async () => {
+          throw new Error('a treasury withdrawal has no chain to list');
+        },
+      }),
+      network: preprod,
+      env: testEnv,
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(await res.json()).toEqual({ epoch: 600, guardrail: { state: 'known', scriptHash: GUARDRAIL } });
+    expect(calls).toEqual(expect.arrayContaining([['NewConstitution'], ['ParameterChange', 'TreasuryWithdrawals']]));
+  });
+
+  it('reports absent when a newer constitution omits the script key', async () => {
+    const res = await handleActionContext(ctx('TreasuryWithdrawals'), {
+      koios: mockKoios({
+        lastRatifiedProposal: byType([constitutionRow(400, { anchor: ANCHOR })], [treasuryRow(300, GUARDRAIL)]),
+      }),
+      network: preprod,
+      env: testEnv,
+    });
+    expect(await res.json()).toEqual({ epoch: 600, guardrail: { state: 'absent' } });
+  });
+
+  it('reports absent when a newer constitution carries an explicit null script', async () => {
+    const res = await handleActionContext(ctx('TreasuryWithdrawals'), {
+      koios: mockKoios({
+        lastRatifiedProposal: byType([constitutionRow(400, { anchor: ANCHOR, script: null })], [treasuryRow(300, GUARDRAIL)]),
+      }),
+      network: preprod,
+      env: testEnv,
+    });
+    expect(await res.json()).toEqual({ epoch: 600, guardrail: { state: 'absent' } });
+  });
+
+  it('answers 503 guardrail_unknown when the guardrail reads fail', async () => {
+    const res = await handleActionContext(ctx('TreasuryWithdrawals'), {
+      koios: mockKoios({
+        lastRatifiedProposal: async () => {
+          throw new Error('koios request failed: 502');
+        },
+      }),
+      network: preprod,
+      env: testEnv,
+    });
+    expect(res.status).toBe(503);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(await res.json()).toEqual({ error: 'guardrail_unknown' });
+  });
+
+  it('answers 503 guardrail_unknown when the deciding row is unreadable', async () => {
+    const res = await handleActionContext(ctx('TreasuryWithdrawals'), {
+      koios: mockKoios({
+        lastRatifiedProposal: byType([constitutionRow(300, { anchor: ANCHOR, script: GUARDRAIL })], [treasuryRow(400, 'deadbeef')]),
+      }),
+      network: preprod,
+      env: testEnv,
+    });
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: 'guardrail_unknown' });
+  });
+
+  it('answers 503 guardrail_unknown when the deciding constitution row is malformed, never absent', async () => {
+    for (const body of [{ anchor: [] }, { anchor: {} }, { anchor: { url: 'ipfs://c' } }]) {
+      const res = await handleActionContext(ctx('TreasuryWithdrawals'), {
+        koios: mockKoios({ lastRatifiedProposal: byType([constitutionRow(400, body)], [treasuryRow(300, GUARDRAIL)]) }),
+        network: preprod,
+        env: testEnv,
+      });
+      expect(res.status).toBe(503);
+      expect(await res.json()).toEqual({ error: 'guardrail_unknown' });
+    }
+  });
+
+  it('answers 503 guardrail_unknown when nothing was ever ratified', async () => {
+    const res = await handleActionContext(ctx('TreasuryWithdrawals'), {
+      koios: mockKoios({ lastRatifiedProposal: async () => [] }),
+      network: preprod,
+      env: testEnv,
+    });
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: 'guardrail_unknown' });
+  });
+
+  it('keeps the generic 503 for a failed tip, distinct from guardrail_unknown', async () => {
+    const res = await handleActionContext(ctx('TreasuryWithdrawals'), {
+      koios: mockKoios({
+        tip: async () => {
+          throw new Error('koios request failed: 500');
+        },
+        lastRatifiedProposal: byType([], [treasuryRow(304, GUARDRAIL)]),
+      }),
+      network: preprod,
+      env: testEnv,
+    });
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: 'service unavailable' });
+  });
 });
