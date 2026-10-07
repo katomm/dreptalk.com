@@ -4,6 +4,7 @@
 
 import { formatAda } from './view.js';
 import { rewardAddressToStakeBech32 } from './stakeAccount.js';
+import { HEX_HASH_224_RE } from '../crypto/hex.js';
 import type { CardanoNetwork } from '../config/network.js';
 import type { ParamGroup, ParamChangeScope } from './thresholds.js';
 
@@ -342,24 +343,76 @@ export function parseHardForkVersion(payload: unknown): { major: number; minor: 
 }
 
 /**
+ * A guardrails script hash as one payload slot proves it: a 56-hex hash, a
+ * proven absence (an explicit null, or a well-formed constitution body
+ * without a script key), or a slot that could not be read. Unreadable never
+ * collapses into none: only a proof of absence may let a treasury withdrawal
+ * build without a policy.
+ */
+export type GuardrailLeaf = { kind: 'hash'; hex: string } | { kind: 'none' } | { kind: 'unreadable' };
+
+function guardrailLeafFromSlot(slot: unknown): GuardrailLeaf {
+  if (slot === null) return { kind: 'none' };
+  if (typeof slot === 'string' && HEX_HASH_224_RE.test(slot)) return { kind: 'hash', hex: slot.toLowerCase() };
+  return { kind: 'unreadable' };
+}
+
+/**
  * Policy hash a ParameterChange or TreasuryWithdrawals proposal was submitted
  * with, straight off the raw Koios proposal_description payload. The ledger
  * only accepts either action when its policy hash equals the constitution's
- * guardrails script hash at submission time, so the most recently ratified
- * of these proposals is a reliable witness of that script when no
- * NewConstitution action has ever been ratified. contents[2] is the policy
- * hash slot for both tags: null when the constitution carries no guardrails
- * script. Returns null for any other tag or a malformed/non-hex value.
+ * guardrails script hash at submission time, so a ratified one witnesses that
+ * script. The slot differs by tag: ParameterChange is [prevId, update,
+ * policyHash], TreasuryWithdrawals is [withdrawals, policyHash] (both checked
+ * on preprod Koios). The payload must have exactly that many slots, anything
+ * else is unreadable. Fail-closed trade-off: should Koios ever add a slot,
+ * every treasury withdrawal answers 503 guardrail_unknown and the
+ * NewConstitution prefill stays empty until this parser is updated. That is
+ * the safe direction, and a known risk noted in the execution record.
  */
-export function parseProposalPolicyHash(payload: unknown): string | null {
-  if (!payload || typeof payload !== 'object') return null;
+export function parseProposalPolicyHash(payload: unknown): GuardrailLeaf {
+  if (!payload || typeof payload !== 'object') return { kind: 'unreadable' };
   const obj = payload as { tag?: string; contents?: unknown };
-  if (obj.tag !== 'ParameterChange' && obj.tag !== 'TreasuryWithdrawals') return null;
-  const contents = Array.isArray(obj.contents) ? obj.contents : [];
-  const hash = contents[2];
-  if (typeof hash !== 'string') return null;
-  const lower = hash.toLowerCase();
-  return /^[0-9a-f]{56}$/.test(lower) ? lower : null;
+  const size = obj.tag === 'TreasuryWithdrawals' ? 2 : obj.tag === 'ParameterChange' ? 3 : 0;
+  if (size === 0 || !Array.isArray(obj.contents) || obj.contents.length !== size) return { kind: 'unreadable' };
+  return guardrailLeafFromSlot(obj.contents[size - 1]);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+const ANCHOR_DATA_HASH_RE = /^[0-9a-f]{64}$/i;
+
+/**
+ * The guardrails script hash a NewConstitution proposal sets. Koios omits the
+ * `script` key for a constitution without a guardrail (checked on preview
+ * 2026-10-06), so a missing key or an explicit null is a proven absence, but
+ * only on the exact shape Koios serves: contents is [prevId or null, body],
+ * the body is an object, and its anchor is an object with a string url and a
+ * 64-hex dataHash. Anything else (an array where an object belongs, an empty
+ * anchor, an extra slot) is unreadable, so a damaged row can never pass for a
+ * constitution without guardrails.
+ */
+export function parseConstitutionScriptHash(payload: unknown): GuardrailLeaf {
+  if (!isRecord(payload)) return { kind: 'unreadable' };
+  if (payload.tag !== 'NewConstitution' && payload.tag !== 'UpdateConstitution') return { kind: 'unreadable' };
+  const contents = payload.contents;
+  if (!Array.isArray(contents) || contents.length !== 2) return { kind: 'unreadable' };
+  const [prev, body] = contents;
+  if (prev !== null && !isRecord(prev)) return { kind: 'unreadable' };
+  if (!isRecord(body)) return { kind: 'unreadable' };
+  const anchor = body.anchor;
+  if (
+    !isRecord(anchor) ||
+    typeof anchor.url !== 'string' ||
+    typeof anchor.dataHash !== 'string' ||
+    !ANCHOR_DATA_HASH_RE.test(anchor.dataHash)
+  ) {
+    return { kind: 'unreadable' };
+  }
+  if (!('script' in body)) return { kind: 'none' };
+  return guardrailLeafFromSlot(body.script);
 }
 
 function decodeTreasury(contents: unknown[], network: CardanoNetwork): OnchainChanges {

@@ -23,53 +23,17 @@ import {
   type GovActionFormType,
   type GovActionRef,
 } from './prevAction.js';
-import { parseHardForkVersion, parseProposalPolicyHash, decodeOnchainChanges } from './onchain.js';
+import { parseHardForkVersion } from './onchain.js';
+import { pickConstitutionScriptHash } from './guardrailPick.js';
 import { getGovernanceActionTitlesByIds } from '../db/governance.js';
 import { getCommitteeTimeline } from '../db/committee.js';
 import { getAllCcMemberNames } from '../db/ccMemberName.js';
 import { buildCcNameIndex } from './ccNames.js';
 import type { ProposalListRow, EpochParamsRow, CommitteeMember } from '../koios/client.js';
 
-// Proposal types whose ledger-accepted policy hash witnesses the constitution's
-// guardrails script in force, for chains where no NewConstitution action has
-// ever been ratified (see parseProposalPolicyHash).
+// Proposal types whose ratified policy hash witnesses the constitution's
+// guardrails script in force (see guardrailPick.ts).
 const POLICY_HASH_WITNESS_TYPES = ['ParameterChange', 'TreasuryWithdrawals'] as const;
-
-/**
- * The guardrails script hash the constitution in force enforces, picked from
- * whichever of the two ratified rows is newer: a NewConstitution action (the
- * hash it set directly) or a ParameterChange/TreasuryWithdrawals action (the
- * policy hash the ledger required it to be submitted with). A chain such as
- * preprod's, where the constitution came from the Conway bootstrap and no
- * NewConstitution was ever ratified, only has the second source. Missing or
- * unparsable sources fall back to the other. Both missing, or a tie, return
- * whichever source is present, preferring the constitution row.
- */
-function pickConstitutionScriptHash(
-  constitutionRow: ProposalListRow | null,
-  policyRow: ProposalListRow | null,
-  network: NetworkConfig['network'],
-): string | null {
-  const constitutionScript =
-    constitutionRow?.proposal_description != null
-      ? (() => {
-          const changes = decodeOnchainChanges(JSON.stringify(constitutionRow.proposal_description), null, network);
-          return changes?.kind === 'constitution' ? changes.scriptHash : null;
-        })()
-      : null;
-  const policyHash =
-    policyRow?.proposal_description != null ? parseProposalPolicyHash(policyRow.proposal_description) : null;
-
-  if (constitutionScript !== null && policyHash !== null) {
-    const constitutionEpoch = constitutionRow?.ratified_epoch ?? null;
-    const policyEpoch = policyRow?.ratified_epoch ?? null;
-    if (policyEpoch !== null && (constitutionEpoch === null || policyEpoch > constitutionEpoch)) {
-      return policyHash;
-    }
-    return constitutionScript;
-  }
-  return constitutionScript ?? policyHash;
-}
 
 function isGovActionFormType(value: string | null): value is GovActionFormType {
   return value !== null && (GOV_ACTION_FORM_TYPES as readonly string[]).includes(value);
@@ -253,7 +217,12 @@ export async function handleActionContext(
     if (type === 'NewConstitution') {
       const constitutionRow = prevResult?.lastEnactedRow ?? null;
       const policyRow = policyRows?.[0] ?? null;
-      response.constitution = { scriptHash: pickConstitutionScriptHash(constitutionRow, policyRow, net.network) };
+      // The field is a prefill the user can edit, so a guardrail the chain
+      // does not prove (absent or unreadable) leaves it empty instead of
+      // failing the whole context. Only the treasury withdrawal type answers
+      // 503 for an unknown guardrail.
+      const pick = pickConstitutionScriptHash(constitutionRow, policyRow);
+      response.constitution = { scriptHash: pick.state === 'known' ? pick.scriptHash : null };
     }
 
     return jsonResponse(response, 200, { 'cache-control': 'no-store' });
