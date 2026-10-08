@@ -1,7 +1,8 @@
 // The panel's sidebar: what goes on chain, who decides and at what
 // threshold, the facts of the action, and the Continue button. Under 860 px
-// the cards flow below the parameters and only the action block stays fixed
-// at the bottom of the screen.
+// the cards flow below the parameters, and the action block is pinned to the
+// bottom of the screen while its own place here is still below it.
+import type { RefObject } from 'react';
 import {
   PARAM_DEFS,
   PARAM_KEYS,
@@ -30,6 +31,8 @@ export interface ParamSummaryProps {
   reason: string | null;
   canContinue: boolean;
   onContinue: () => void;
+  /** Marks the action block's place in the summary, the panel watches it to dock the block on narrow screens. */
+  actionSlotRef?: RefObject<HTMLDivElement | null>;
   disabled?: boolean;
 }
 
@@ -57,6 +60,7 @@ export default function ParamSummary({
   reason,
   canContinue,
   onContinue,
+  actionSlotRef,
   disabled = false,
 }: ParamSummaryProps) {
   const picked = PARAM_KEYS.filter((key) => value.picked.includes(key));
@@ -135,6 +139,7 @@ export default function ParamSummary({
         )}
       </div>
 
+      <div ref={actionSlotRef} className="pcp-action-slot" aria-hidden="true" />
       <div className="pcp-action">
         <div className="pcp-action__status">
           <span className="pcp-action__count">{count}</span>

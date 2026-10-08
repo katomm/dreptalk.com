@@ -1828,6 +1828,10 @@ tr.diff-block-del > th {
    the new saturation point, pools below the new minimum cost), the same amber
    as --c-cc. Track and bar tones are mixed from the theme tokens, so they
    follow the theme without tokens of their own. */
+:root {
+  /* Height the docked action bar reserves, also used to lift the preprod pill. */
+  --pcp-dock-h: 80px;
+}
 .pcp-panel {
   --warn: #c2410c;
   --pcp-track: color-mix(in srgb, var(--muted) 18%, var(--bg));
@@ -2395,6 +2399,11 @@ html[data-theme='dark'] .pcp-panel {
   font-family: var(--font-mono);
   font-size: 12px;
 }
+/* 1px so the observer always has an area to watch, the negative margin takes it back. */
+.pcp-action-slot {
+  height: 1px;
+  margin-bottom: -1px;
+}
 .pcp-action {
   display: flex;
   flex-direction: column;
@@ -2448,25 +2457,40 @@ html[data-theme='dark'] .pcp-panel {
   }
 }
 
-/* Narrow screens: the summary cards flow below the parameters, the action
-   block sits fixed at the bottom with the count and the reason or Ready. */
+/* Narrow screens: the summary cards flow below the parameters and the action
+   block is a compact row with the count and the reason or Ready. While its
+   own place in the summary is still below the screen (data-docked, set by the
+   panel), it is pinned to the bottom edge. Once that place scrolls into view,
+   or the user has scrolled past the panel to the fields below it, the block
+   sits in the summary and scrolls with the page. */
 @media (max-width: 860px) {
-  .pcp-panel {
-    padding-bottom: 7rem;
-  }
   .pcp-action {
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+  }
+  .pcp-panel[data-docked='true'] .pcp-action {
     position: fixed;
     left: 0;
     right: 0;
     bottom: 0;
     z-index: 40;
-    flex-direction: row;
-    align-items: center;
-    gap: 12px;
+    min-height: var(--pcp-dock-h);
     padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
-    background: var(--bg);
+    border: 0;
     border-top: 1px solid var(--border);
+    border-radius: 0;
+    background: var(--bg);
     box-shadow: var(--shadow);
+  }
+  /* The preprod testnet pill (Layout.astro) is fixed to the bottom right
+     corner, where the docked bar keeps its button. Lift it above the bar. */
+  body:has(.pcp-panel[data-docked='true']) .preprod-flag {
+    bottom: calc(var(--pcp-dock-h) + 10px + env(safe-area-inset-bottom, 0px));
   }
   .pcp-action__status {
     order: 0;

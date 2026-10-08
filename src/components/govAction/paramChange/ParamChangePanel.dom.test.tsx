@@ -4,7 +4,7 @@
 // Continue, the summary with who decides, the pool data failure and the open
 // competing proposal.
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, within, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, within, cleanup, act } from '@testing-library/react';
 import ParamChangePanel from './ParamChangePanel.js';
 import fixture from '../../../lib/governance/__fixtures__/poolEconomics660.json';
 import { economicsFromJson, type PoolEconomicsJson } from '../../../lib/governance/paramImpact.js';
@@ -128,5 +128,30 @@ describe('ParamChangePanel', () => {
     );
     expect(screen.getByText(/Another parameter change is open: Reduce minPoolCost to 75 ada\./)).toBeTruthy();
     expect(screen.getByText(/Both build on the same previous change, so only one of them can take effect\./)).toBeTruthy();
+  });
+
+  it('docks the action block only while its place in the summary is below the screen', async () => {
+    setup();
+    const panel = document.querySelector('.pcp-panel') as HTMLElement;
+    const slot = panel.querySelector('.pcp-action-slot') as HTMLElement;
+    expect(screen.getByRole('complementary', { name: 'Summary' }).contains(slot)).toBe(true);
+    let top = 0;
+    slot.getBoundingClientRect = () => ({ top }) as DOMRect;
+    const scrollTo = async (slotTop: number) => {
+      top = slotTop;
+      await act(async () => {
+        window.dispatchEvent(new Event('scroll'));
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+      });
+      return panel.getAttribute('data-docked');
+    };
+    // Below the screen: pinned to the bottom edge.
+    expect(await scrollTo(window.innerHeight + 600)).toBe('true');
+    // Its place has room on screen: back in the summary.
+    expect(await scrollTo(window.innerHeight - 200)).toBe('false');
+    // Scrolled past, on to the fields below the panel: stays in the summary.
+    expect(await scrollTo(-300)).toBe('false');
+    // A jump from below the panel straight back to its top docks it again.
+    expect(await scrollTo(window.innerHeight + 2000)).toBe('true');
   });
 });

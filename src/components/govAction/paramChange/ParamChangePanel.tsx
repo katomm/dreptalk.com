@@ -3,6 +3,7 @@
 // picked, and the summary with the Continue button. Presentational, the
 // rules live in paramDefs.ts and govActionFormState.ts, the impact model in
 // paramImpact.ts. The island owns the pool data fetch and passes its state.
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import PrevActionField from '../PrevActionField.js';
 import { InfoIcon } from '../icons.js';
 import ParamCard from './ParamCard.js';
@@ -47,6 +48,52 @@ export interface ParamChangePanelProps {
   disabled?: boolean;
 }
 
+// The docked action bar's height on narrow screens, the --pcp-dock-h of global.css.
+const DOCK_HEIGHT_PX = 80;
+
+/**
+ * Whether the action block's own place in the summary is still below the
+ * screen. Only then is the block pinned to the bottom edge (narrow screens,
+ * see global.css). Once the place scrolls into view, or above it because the
+ * user moved on to the fields below the panel, the block scrolls with the
+ * page. The bar's height is taken off the screen, so the pinned bar hands
+ * over to the inline block exactly where the block takes its place.
+ *
+ * Measured on scroll, resize and panel size changes, once per frame. An
+ * IntersectionObserver is not enough: it reports crossings only, and a jump
+ * from below the panel straight to its top (a fling, Home, a focus jump)
+ * crosses nothing, which left the bar undocked at the top of the page.
+ */
+function useDockedAction(panelRef: RefObject<HTMLDivElement | null>) {
+  const slotRef = useRef<HTMLDivElement>(null);
+  const [docked, setDocked] = useState(false);
+  useEffect(() => {
+    const slot = slotRef.current;
+    if (!slot) return;
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      setDocked(slot.getBoundingClientRect().top > window.innerHeight - DOCK_HEIGHT_PX);
+    };
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(measure);
+    };
+    measure();
+    window.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('resize', schedule);
+    // Cards added or removed, the Advanced disclosure, charts arriving: all move the slot without a scroll.
+    const resize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(schedule);
+    if (resize && panelRef.current) resize.observe(panelRef.current);
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      window.removeEventListener('scroll', schedule);
+      window.removeEventListener('resize', schedule);
+      resize?.disconnect();
+    };
+  }, [panelRef]);
+  return { slotRef, docked };
+}
+
 export default function ParamChangePanel({
   value,
   onChange,
@@ -77,6 +124,8 @@ export default function ParamChangePanel({
     if (parsed.ok) next[key] = parsed.value;
   }
   const model = modelParams(current, next);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const { slotRef, docked } = useDockedAction(panelRef);
   const picked = PARAM_KEYS.filter((key) => value.picked.includes(key));
   const unpicked = PARAM_KEYS.filter((key) => !value.picked.includes(key));
   const drepPct = drepThresholdPct('ParameterChange', protocolParams, scopeForKeys(picked));
@@ -89,7 +138,7 @@ export default function ParamChangePanel({
   };
 
   return (
-    <div className="pcp-panel">
+    <div ref={panelRef} className="pcp-panel" data-docked={docked ? 'true' : 'false'}>
       <div className="pcp-grid">
         <div className="pcp-main">
           {competing.map((row) => (
@@ -182,6 +231,7 @@ export default function ParamChangePanel({
           reason={reason}
           canContinue={validation.ok}
           onContinue={onContinue}
+          actionSlotRef={slotRef}
           disabled={disabled}
         />
       </div>
