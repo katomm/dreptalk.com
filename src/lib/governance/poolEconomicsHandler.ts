@@ -10,10 +10,9 @@ import { EPOCH_LENGTH_SECONDS, epochFromUnix, type NetworkConfig } from '@/lib/c
 import { currentNetwork, jsonResponse } from '@/lib/api/response.js';
 import { gateGovActionRequest, GOV_ACTION_RATE_POLICIES } from './govActionGate.js';
 import { govActionSubmissionAvailable, govActionTypeAvailable } from './submissionGate.js';
-import type { PoolListRow } from '../koios/client.js';
+import { KOIOS_PAGE_CAP, type PoolListRow } from '../koios/client.js';
 import type { PoolEconomicsJson } from './paramImpact.js';
 
-const PAGE = 1000;
 const MAX_PAGES = 20;
 
 export interface PoolEconomicsKoios {
@@ -44,9 +43,9 @@ async function readEconomics(koios: PoolEconomicsKoios): Promise<PoolEconomicsJs
   const rows: PoolListRow[] = [];
   for (let pageNo = 0; ; pageNo++) {
     if (pageNo === MAX_PAGES) return null;
-    const page = await koios.poolList(pageNo * PAGE);
+    const page = await koios.poolList(pageNo * KOIOS_PAGE_CAP);
     rows.push(...page);
-    if (page.length < PAGE) break;
+    if (page.length < KOIOS_PAGE_CAP) break;
   }
   const totals = await koios.totals();
   if (!totals?.supplyLovelace) return null;

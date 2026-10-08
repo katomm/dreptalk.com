@@ -562,6 +562,12 @@ describe('ParameterChange display of the staking parameters', () => {
     expect(view).toMatchObject({ rows: [{ label: 'Treasury Cut', newValue: '25%' }] });
   });
 
+  it('never throws on a rational with a fractional numerator', () => {
+    const v = { numerator: 1.5, denominator: 2 };
+    expect(() => decode({ treasuryCut: v })).not.toThrow();
+    expect(decode({ treasuryCut: v })).toMatchObject({ rows: [{ label: 'Treasury Cut', newValue: String(v) }] });
+  });
+
   it('counts k and a0 toward the technical group', () => {
     expect(
       parameterChangeScope(JSON.stringify({ tag: 'ParameterChange', contents: [null, { stakePoolTargetNum: 600 }, null] })),

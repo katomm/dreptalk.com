@@ -467,7 +467,7 @@ export type TxInfoCertsRow = z.infer<typeof txInfoCertsRowSchema>;
 // response, TX_INFO_MAX bounds the certs lookups.
 const ACCOUNT_UPDATE_HISTORY_MAX = 15;
 const TX_INFO_MAX = 25;
-const KOIOS_PAGE_CAP = 1000;
+export const KOIOS_PAGE_CAP = 1000;
 
 export function createKoiosClient(opts: KoiosClientOptions) {
   const fetchImpl = opts.fetchImpl ?? fetch;

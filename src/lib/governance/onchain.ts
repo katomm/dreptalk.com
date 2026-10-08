@@ -175,8 +175,10 @@ function payloadRational(v: unknown): Rational | null {
   if (typeof v === 'number') return rationalFromNumber(v);
   if (v && typeof v === 'object' && 'numerator' in v && 'denominator' in v) {
     const { numerator, denominator } = v as { numerator: unknown; denominator: unknown };
-    if (typeof numerator === 'number' && typeof denominator === 'number' && denominator > 0) {
-      return reduce({ n: BigInt(numerator), d: BigInt(denominator) });
+    // BigInt throws on a fraction or an unsafe number, and this decoder must
+    // never throw on a public page, so anything else falls back to raw display.
+    if (Number.isSafeInteger(numerator) && Number.isSafeInteger(denominator) && (denominator as number) > 0) {
+      return reduce({ n: BigInt(numerator as number), d: BigInt(denominator as number) });
     }
   }
   return null;

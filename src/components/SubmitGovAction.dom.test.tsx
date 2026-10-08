@@ -24,11 +24,17 @@ const SLOW = { timeout: 5000 };
 import SubmitGovAction from './SubmitGovAction.js';
 import { loadGovActionDraft, govActionDraftKey } from '@/lib/governance/govActionDraft.js';
 import { ccColdBech32 } from '@/lib/governance/committeeUpdate.js';
-import { GUARDRAIL_CHANGED_MESSAGE, GUARDRAIL_SCRIPT_HASH_HEX, GUARDRAIL_UNKNOWN_MESSAGE } from '@/lib/governance/guardrailScript.js';
+import {
+  GUARDRAIL_CHANGED_MESSAGE,
+  GUARDRAIL_REQUIREMENT_CHANGED_MESSAGE,
+  GUARDRAIL_SCRIPT_HASH_HEX,
+  GUARDRAIL_UNKNOWN_MESSAGE,
+} from '@/lib/governance/guardrailScript.js';
 import { RECIPIENT_UNREGISTERED, RECIPIENTS_CHECK_FAILED_AT_SUBMIT } from '@/lib/governance/treasuryWithdrawals.js';
 import { EVALUATION_FAILED_MESSAGE, PARAM_EVALUATION_FAILED_MESSAGE } from '@/lib/governance/govActionErrors.js';
 import { PREV_ACTION_CHANGED } from '@/lib/governance/govActionFormState.js';
 import { changesParagraph, valuesFromJson } from '@/lib/governance/paramDefs.js';
+import { INFO_ABSTRACT_MAX } from '@/lib/governance/infoActionLimits.js';
 import poolEconomicsFixture from '@/lib/governance/__fixtures__/poolEconomics660.json';
 import { encodeBech32 } from '@/lib/crypto/bech32.js';
 import { hexToBytes } from '@/lib/crypto/hex.js';
@@ -2000,7 +2006,9 @@ describe('SubmitGovAction', () => {
     /**
      * Loads the form with one guardrail state, fills the type's panel, then
      * answers the submit's own refetch with the other state. Both are
-     * buildable on their own, only the comparison with the shown one stops it.
+     * buildable on their own, only the comparison with the shown one stops it,
+     * with the message that asks for a second look rather than the one about
+     * a script DRepTalk does not know.
      */
     async function guardrailMoves(type: 'ParameterChange' | 'TreasuryWithdrawals', from: unknown, to: unknown) {
       const contextFor = (guardrail: unknown) =>
@@ -2019,7 +2027,8 @@ describe('SubmitGovAction', () => {
       committeeContext = contextFor(to);
       fireEvent.click(submit);
 
-      expect((await screen.findAllByText(GUARDRAIL_CHANGED_MESSAGE, {}, SLOW)).length).toBeGreaterThan(0);
+      expect((await screen.findAllByText(GUARDRAIL_REQUIREMENT_CHANGED_MESSAGE, {}, SLOW)).length).toBeGreaterThan(0);
+      expect(screen.queryByText(GUARDRAIL_CHANGED_MESSAGE)).toBeNull();
       expect(submitGovActionMock).not.toHaveBeenCalled();
       expect(api.signData).not.toHaveBeenCalled();
       expect(requestsTo(fetchMock, '/api/gov-action/metadata')).toBe(0);
@@ -2169,13 +2178,47 @@ describe('SubmitGovAction', () => {
       fireEvent.click(add);
       await waitFor(() => expect((screen.getByLabelText('Abstract') as HTMLTextAreaElement).value).toBe(paragraph));
 
-      // The same values a second time: already there, nothing is added.
-      fireEvent.click(screen.getByRole('button', { name: 'Add the changes to the abstract' }));
-      expect((screen.getByLabelText('Abstract') as HTMLTextAreaElement).value).toBe(paragraph);
+      // The same values a second time: already there, so the button says so and does nothing.
+      const added = screen.getByRole('button', { name: 'Changes added' }) as HTMLButtonElement;
+      expect(added.disabled).toBe(true);
+      expect(screen.queryByRole('button', { name: 'Add the changes to the abstract' })).toBeNull();
 
       const edited = `${paragraph}\n\nWhy now: the pool count has grown.`;
       fireEvent.change(screen.getByLabelText('Abstract'), { target: { value: edited } });
       await waitFor(() => expect(loadGovActionDraft(window.localStorage, DRAFT_KEY)?.abstract).toBe(edited), SLOW);
+    });
+
+    it('replaces an earlier changes block after a value change instead of adding a second one', async () => {
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      await fillParamPanel({ k: '600' });
+      const current = valuesFromJson(PARAM_CONTEXT.params);
+      const first = changesParagraph({ k: { n: 600n, d: 1n } }, current);
+      fireEvent.click(await screen.findByRole('button', { name: 'Add the changes to the abstract' }, SLOW));
+      await waitFor(() => expect((screen.getByLabelText('Abstract') as HTMLTextAreaElement).value).toBe(first));
+      const around = `Intro line.\n\n${first}\n\nWhy now: the pool count has grown.`;
+      fireEvent.change(screen.getByLabelText('Abstract'), { target: { value: around } });
+
+      fireEvent.change(screen.getByRole('textbox', { name: 'New Target number of pools' }), { target: { value: '700' } });
+      const second = changesParagraph({ k: { n: 700n, d: 1n } }, current);
+      fireEvent.click(await screen.findByRole('button', { name: 'Add the changes to the abstract' }, SLOW));
+
+      const expected = `Intro line.\n\n${second}\n\nWhy now: the pool count has grown.`;
+      await waitFor(() => expect((screen.getByLabelText('Abstract') as HTMLTextAreaElement).value).toBe(expected));
+      const value = (screen.getByLabelText('Abstract') as HTMLTextAreaElement).value;
+      expect(value.split('Changes:').length).toBe(2);
+      expect(value).toContain('500 to 700.');
+      expect(value).not.toContain('500 to 600.');
+      expect((screen.getByRole('button', { name: 'Changes added' }) as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    it('disables adding the changes when the abstract has no room for them', async () => {
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      await fillParamPanel({ k: '600' });
+      fireEvent.change(screen.getByLabelText('Abstract'), { target: { value: 'x'.repeat(INFO_ABSTRACT_MAX - 10) } });
+
+      const add = (await screen.findByRole('button', { name: 'Add the changes to the abstract' }, SLOW)) as HTMLButtonElement;
+      await waitFor(() => expect(add.disabled).toBe(true));
+      expect(screen.getByText('The abstract has no room for the changes paragraph.')).toBeTruthy();
     });
 
     it('Continue focuses the title field', async () => {

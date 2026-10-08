@@ -84,7 +84,7 @@ import {
 import {
   guardrailDecision,
   sameGuardrail,
-  GUARDRAIL_CHANGED_MESSAGE,
+  GUARDRAIL_REQUIREMENT_CHANGED_MESSAGE,
   GUARDRAIL_UNKNOWN_MESSAGE,
 } from '@/lib/governance/guardrailScript.js';
 import { isStalePrevError, mapGuardrailBuildError } from '@/lib/governance/govActionErrors.js';
@@ -283,6 +283,13 @@ const CONTEXT_ERROR_MESSAGES: ReadonlyMap<string, string> = new Map([['guardrail
  * fails refStillPresent too, and a null prev only passes on a chain that is
  * still without a root.
  */
+/**
+ * A changes block as changesParagraph writes it: the "Changes:" line, a blank
+ * line, then one "- " line per parameter. Stops before the newline after the
+ * last bullet, so the text that follows keeps its spacing on a replace.
+ */
+const GENERATED_CHANGES_BLOCK = /^Changes:\n\n- [^\n]*(?:\n- [^\n]*)*/m;
+
 function preSignatureProblem(
   type: GovActionFormType,
   prev: PrevActionRef | null,
@@ -297,7 +304,7 @@ function preSignatureProblem(
     if (!decision.ok) return decision.message;
     // known and absent are both buildable, so a move between them since the
     // review is caught by comparing with what the form showed.
-    if (!sameGuardrail(shown?.guardrail, fresh?.guardrail)) return GUARDRAIL_CHANGED_MESSAGE;
+    if (!sameGuardrail(shown?.guardrail, fresh?.guardrail)) return GUARDRAIL_REQUIREMENT_CHANGED_MESSAGE;
     if (type === 'TreasuryWithdrawals') return recipientsProblem;
   }
   if (!fresh?.prev) return 'Could not re-check the current chain state. Please try again.';
@@ -796,7 +803,11 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   // "Add the changes to the abstract": the parameter change's own summary
   // paragraph, written into the abstract only on that click and editable
   // there like any typed text. Built from the picked values that can go on
-  // chain, so a half-typed or out-of-range value never lands in the text.
+  // chain, so a half-typed or out-of-range value never ends up in the text.
+  // A block written by an earlier click (same shape as changesParagraph
+  // writes it) is replaced in place, so changed values never leave a second,
+  // outdated block next to the current one. A block the user reworded out of
+  // that shape is left alone and the paragraph is appended.
   // ------------------------------------------------------------------
   const paramChangesParagraph = useMemo(() => {
     if (state.type !== 'ParameterChange') return '';
@@ -810,10 +821,16 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
     }
     return changesParagraph(next, current);
   }, [state.type, state.panels.ParameterChange, contextData]);
-  const abstractWithChanges = metadata.abstract.trimEnd()
-    ? `${metadata.abstract.trimEnd()}\n\n${paramChangesParagraph}`
-    : paramChangesParagraph;
-  const changesAlreadyAdded = paramChangesParagraph !== '' && metadata.abstract.includes(paramChangesParagraph);
+  const earlierChangesBlock = GENERATED_CHANGES_BLOCK.exec(metadata.abstract)?.[0] ?? null;
+  // The whole block compared, so a block that still lists a parameter the
+  // user has since removed counts as outdated, not as added.
+  const changesAlreadyAdded = paramChangesParagraph !== '' && earlierChangesBlock === paramChangesParagraph;
+  const abstractWithChanges =
+    earlierChangesBlock !== null
+      ? metadata.abstract.replace(earlierChangesBlock, () => paramChangesParagraph)
+      : metadata.abstract.trimEnd()
+        ? `${metadata.abstract.trimEnd()}\n\n${paramChangesParagraph}`
+        : paramChangesParagraph;
   // Already there means nothing is added, so the limit only matters otherwise.
   const changesRoomLeft = changesAlreadyAdded || abstractWithChanges.length <= INFO_ABSTRACT_MAX;
   function addChangesToAbstract() {
@@ -1677,10 +1694,10 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
                 <button
                   type="button"
                   onClick={addChangesToAbstract}
-                  disabled={busy || !changesRoomLeft}
+                  disabled={busy || changesAlreadyAdded || !changesRoomLeft}
                   style={linkButtonStyle}
                 >
-                  Add the changes to the abstract
+                  {changesAlreadyAdded ? 'Changes added' : 'Add the changes to the abstract'}
                 </button>
                 {!changesRoomLeft && (
                   <span style={{ ...helpStyle, margin: '0.25rem 0 0' }}>The abstract has no room for the changes paragraph.</span>
