@@ -9,8 +9,6 @@ export interface PoolEconomicsJson {
   epoch: number;
   supplyLovelace: string;
   reservesLovelace: string;
-  treasuryLovelace: string;
-  feesLovelace: string | null;
   /** [active stake in ada, pledge in ada, fixed cost in lovelace], sorted by stake, largest first. */
   pools: [number, number, string][];
 }
@@ -106,8 +104,9 @@ export function rewardCurves(eco: PoolEconomics, from: ModelParams, to: ModelPar
   });
 }
 
-const BIN_ADA = 25;
-const BIN_MAX_ADA = 500;
+/** Width of a fixed cost bin, and where the last, open-ended bin starts. */
+export const BIN_ADA = 25;
+export const BIN_MAX_ADA = 500;
 
 export function minPoolCostImpact(eco: PoolEconomics, currentLovelace: bigint, nextLovelace: bigint) {
   const bins: { fromAda: number; toAda: number | null; count: number }[] = [];

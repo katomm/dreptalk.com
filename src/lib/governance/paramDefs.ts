@@ -105,6 +105,11 @@ export function formatParamValue(key: ParamKey, value: Rational): string {
   return formatRationalDecimal(value);
 }
 
+/** The parameter's DRep group as the panel labels it. */
+export function groupLabel(key: ParamKey): string {
+  return PARAM_DEFS[key].group === 'technical' ? 'Technical' : 'Economic';
+}
+
 /** The DRep groups a set of picked parameters touches. None is security-relevant. */
 export function scopeForKeys(keys: readonly ParamKey[]): ParamChangeScope {
   const groups = [...new Set(keys.map((key) => PARAM_DEFS[key].group))];
@@ -127,14 +132,6 @@ export function changesParagraph(next: ParamValues, current: ParamValues): strin
     ];
   });
   return lines.length ? `Changes:\n\n${lines.join('\n')}` : '';
-}
-
-/** The canonical value as the input field shows it (no unit, no grouping). */
-export function inputFromValue(key: ParamKey, value: Rational): string {
-  const def = PARAM_DEFS[key];
-  if (def.input === 'ada') return formatRationalDecimal({ n: value.n, d: value.d * 1_000_000n });
-  if (def.input === 'percent') return formatRationalDecimal({ n: value.n * 100n, d: value.d });
-  return formatRationalDecimal(value);
 }
 
 /** The range error or the unchanged error for a parsed value, or null when the value can go on chain. */

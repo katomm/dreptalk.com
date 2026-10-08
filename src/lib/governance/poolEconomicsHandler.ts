@@ -19,10 +19,8 @@ export interface PoolEconomicsKoios {
   poolList(offset: number): Promise<PoolListRow[]>;
   totals(): Promise<{
     epochNo: number;
-    treasuryLovelace: string;
     reservesLovelace: string;
     supplyLovelace: string | null;
-    feesLovelace: string | null;
   } | null>;
 }
 
@@ -57,8 +55,6 @@ async function readEconomics(koios: PoolEconomicsKoios): Promise<PoolEconomicsJs
     epoch: totals.epochNo,
     supplyLovelace: totals.supplyLovelace,
     reservesLovelace: totals.reservesLovelace,
-    treasuryLovelace: totals.treasuryLovelace,
-    feesLovelace: totals.feesLovelace,
     pools,
   };
 }

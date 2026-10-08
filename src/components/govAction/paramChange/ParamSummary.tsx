@@ -6,8 +6,8 @@
 import type { RefObject } from 'react';
 import {
   PARAM_DEFS,
-  PARAM_KEYS,
   formatParamValue,
+  groupLabel,
   parseParamInput,
   type ParamKey,
   type ParamValues,
@@ -64,7 +64,7 @@ export default function ParamSummary({
   actionSlotRef,
   disabled = false,
 }: ParamSummaryProps) {
-  const picked = PARAM_KEYS.filter((key) => value.picked.includes(key));
+  const { picked } = value;
   const ccPct = ccQuorum && ccQuorum.denominator > 0 ? (ccQuorum.numerator / ccQuorum.denominator) * 100 : null;
   const count = `${picked.length} change${picked.length === 1 ? '' : 's'}`;
 
@@ -82,7 +82,7 @@ export default function ParamSummary({
             return (
               <div key={key} className="pcp-ocx" data-state={errors[key] ? 'invalid' : 'ok'}>
                 <span>
-                  <span className="pcp-ocx__grp">{def.group === 'technical' ? 'Technical' : 'Economic'}</span>
+                  <span className="pcp-ocx__grp">{groupLabel(key)}</span>
                   <span className="pcp-ocx__name">{def.short}</span>
                 </span>
                 <span className="pcp-ocx__val">

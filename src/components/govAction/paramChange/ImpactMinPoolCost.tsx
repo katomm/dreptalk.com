@@ -2,11 +2,11 @@
 // costs in 25 ada bins, every bin that covers costs below the new minimum
 // highlighted, with markers for the current and the new minimum.
 import { memo, useMemo } from 'react';
-import { minPoolCostImpact, type PoolEconomics } from '@/lib/governance/paramImpact.js';
+import { BIN_ADA, BIN_MAX_ADA, minPoolCostImpact, type PoolEconomics } from '@/lib/governance/paramImpact.js';
 import { formatParamValue } from '@/lib/governance/paramDefs.js';
+import { LegendItem, Stat } from './chart.js';
 
-const BIN_ADA = 25;
-const TICKS = [0, 100, 200, 300, 400, 500];
+const TICKS = [0, 100, 200, 300, 400, BIN_MAX_ADA];
 
 export default memo(function ImpactMinPoolCost({
   eco,
@@ -54,23 +54,17 @@ export default memo(function ImpactMinPoolCost({
       <div className="pcp-bins__x" aria-hidden="true">
         {TICKS.map((ada) => (
           <span key={ada} className="pcp-tick" style={{ left: `${xPct(ada)}%` }}>
-            {ada === 500 ? '500+ ₳' : `${ada} ₳`}
+            {ada === BIN_MAX_ADA ? `${BIN_MAX_ADA}+ ₳` : `${ada} ₳`}
           </span>
         ))}
       </div>
       <div className="pcp-legend">
-        <span className="pcp-legend__item"><i className="pcp-swatch" style={{ background: 'var(--pcp-bar)' }} />Pools by fixed cost</span>
-        <span className="pcp-legend__item"><i className="pcp-swatch" style={{ background: 'var(--warn)' }} />Covers costs below the new minimum</span>
+        <LegendItem color="var(--pcp-bar)">Pools by fixed cost</LegendItem>
+        <LegendItem color="var(--warn)">Covers costs below the new minimum</LegendItem>
       </div>
       <div className="pcp-stats">
-        <div className="pcp-stat">
-          <div className="pcp-stat__k">Pools charging less than {nextLabel}</div>
-          <div className="pcp-stat__v"><span className="pcp-nb">{below}</span></div>
-        </div>
-        <div className="pcp-stat">
-          <div className="pcp-stat__k">Pools at the current minimum</div>
-          <div className="pcp-stat__v"><span className="pcp-nb">{atCurrent}</span></div>
-        </div>
+        <Stat label={<>Pools charging less than {nextLabel}</>} value={below} />
+        <Stat label="Pools at the current minimum" value={atCurrent} />
       </div>
       <p className="pcp-why">The minimum is enforced when a pool registers or updates its parameters.</p>
     </>

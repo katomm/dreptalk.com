@@ -2,7 +2,7 @@
 // against the old and the new point, and how much stake ends up above it.
 import { memo, useMemo } from 'react';
 import { saturation, type ModelParams, type PoolEconomics } from '@/lib/governance/paramImpact.js';
-import { adaCompact, linear } from './chart.js';
+import { adaCompact, LegendItem, linear, Stat } from './chart.js';
 
 const SHOWN_POOLS = 300;
 const W = 600;
@@ -40,28 +40,19 @@ export default memo(function ImpactSaturation({ eco, from, to }: { eco: PoolEcon
         <line x1={0} x2={W} y1={y(s.pointTo)} y2={y(s.pointTo)} stroke="var(--accent)" strokeWidth={1.5} strokeDasharray="6 3" vectorEffect="non-scaling-stroke" />
       </svg>
       <div className="pcp-legend">
-        <span className="pcp-legend__item"><i className="pcp-swatch" style={{ background: 'var(--pcp-bar)' }} />Largest {top.length} pools by active stake</span>
-        <span className="pcp-legend__item"><i className="pcp-swatch" style={{ background: 'var(--warn)' }} />Above the new saturation point</span>
-        <span className="pcp-legend__item"><i className="pcp-swatch pcp-swatch--line" style={{ background: 'var(--accent)' }} />New point {adaCompact(s.pointTo)}</span>
-        <span className="pcp-legend__item"><i className="pcp-swatch pcp-swatch--line" style={{ background: 'var(--muted)' }} />Now {adaCompact(s.pointFrom)}</span>
+        <LegendItem color="var(--pcp-bar)">Largest {top.length} pools by active stake</LegendItem>
+        <LegendItem color="var(--warn)">Above the new saturation point</LegendItem>
+        <LegendItem color="var(--accent)" line>
+          New point {adaCompact(s.pointTo)}
+        </LegendItem>
+        <LegendItem color="var(--muted)" line>
+          Now {adaCompact(s.pointFrom)}
+        </LegendItem>
       </div>
       <div className="pcp-stats">
-        <div className="pcp-stat">
-          <div className="pcp-stat__k">Saturation point</div>
-          <div className="pcp-stat__v">
-            <span className="pcp-nb">{adaCompact(s.pointTo)}</span> <small className="pcp-nb">from {adaCompact(s.pointFrom)}</small>
-          </div>
-        </div>
-        <div className="pcp-stat">
-          <div className="pcp-stat__k">Pools above it</div>
-          <div className="pcp-stat__v">
-            <span className="pcp-nb">{s.aboveTo}</span> <small className="pcp-nb">from {s.aboveFrom}</small>
-          </div>
-        </div>
-        <div className="pcp-stat">
-          <div className="pcp-stat__k">Stake above the cap</div>
-          <div className="pcp-stat__v"><span className="pcp-nb">{adaCompact(s.excessTo)}</span></div>
-        </div>
+        <Stat label="Saturation point" value={adaCompact(s.pointTo)} from={adaCompact(s.pointFrom)} />
+        <Stat label="Pools above it" value={s.aboveTo} from={s.aboveFrom} />
+        <Stat label="Stake above the cap" value={adaCompact(s.excessTo)} />
       </div>
       {kTo > kFrom && (
         <p className="pcp-why">

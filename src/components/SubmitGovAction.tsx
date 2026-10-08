@@ -66,6 +66,7 @@ import {
   validateNewConstitutionPanel,
   validateTreasuryPanel,
   validateParamChangePanel,
+  validParamValues,
   contextChangeLines,
   PREV_ACTION_CHANGED,
 } from '@/lib/governance/govActionFormState.js';
@@ -88,8 +89,7 @@ import {
   GUARDRAIL_UNKNOWN_MESSAGE,
 } from '@/lib/governance/guardrailScript.js';
 import { isStalePrevError, mapGuardrailBuildError } from '@/lib/governance/govActionErrors.js';
-import { changesParagraph, checkParamValue, parseParamInput, valuesFromJson, PARAM_KEYS } from '@/lib/governance/paramDefs.js';
-import type { ParamValues } from '@/lib/governance/paramDefs.js';
+import { changesParagraph, valuesFromJson } from '@/lib/governance/paramDefs.js';
 import { economicsFromJson } from '@/lib/governance/paramImpact.js';
 import type { PoolEconomicsJson } from '@/lib/governance/paramImpact.js';
 import type { GovActionFormType, PrevActionRef } from '@/lib/governance/prevAction.js';
@@ -271,6 +271,13 @@ function mapSubmitError(
 const CONTEXT_ERROR_MESSAGES: ReadonlyMap<string, string> = new Map([['guardrail_unknown', GUARDRAIL_UNKNOWN_MESSAGE]]);
 
 /**
+ * A changes block as changesParagraph writes it: the "Changes:" line, a blank
+ * line, then one "- " line per parameter. Stops before the newline after the
+ * last bullet, so the text that follows keeps its spacing on a replace.
+ */
+const GENERATED_CHANGES_BLOCK = /^Changes:\n\n- [^\n]*(?:\n- [^\n]*)*/m;
+
+/**
  * What stops a submit right after the context refetch, before the author
  * signature and before anything is pinned, or null when nothing does. The
  * guardrail-checked types (treasury withdrawal, parameter change) first need
@@ -283,13 +290,6 @@ const CONTEXT_ERROR_MESSAGES: ReadonlyMap<string, string> = new Map([['guardrail
  * fails refStillPresent too, and a null prev only passes on a chain that is
  * still without a root.
  */
-/**
- * A changes block as changesParagraph writes it: the "Changes:" line, a blank
- * line, then one "- " line per parameter. Stops before the newline after the
- * last bullet, so the text that follows keeps its spacing on a replace.
- */
-const GENERATED_CHANGES_BLOCK = /^Changes:\n\n- [^\n]*(?:\n- [^\n]*)*/m;
-
 function preSignatureProblem(
   type: GovActionFormType,
   prev: PrevActionRef | null,
@@ -812,14 +812,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   const paramChangesParagraph = useMemo(() => {
     if (state.type !== 'ParameterChange') return '';
     const current = valuesFromJson(contextData?.params);
-    const next: ParamValues = {};
-    const panel = state.panels.ParameterChange;
-    for (const key of PARAM_KEYS) {
-      if (!panel.picked.includes(key)) continue;
-      const parsed = parseParamInput(key, panel.inputs[key] ?? '');
-      if (parsed.ok && checkParamValue(key, parsed.value, current[key] ?? null) === null) next[key] = parsed.value;
-    }
-    return changesParagraph(next, current);
+    return changesParagraph(validParamValues(state.panels.ParameterChange, current), current);
   }, [state.type, state.panels.ParameterChange, contextData]);
   const earlierChangesBlock = GENERATED_CHANGES_BLOCK.exec(metadata.abstract)?.[0] ?? null;
   // The whole block compared, so a block that still lists a parameter the

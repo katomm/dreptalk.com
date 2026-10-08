@@ -4,6 +4,7 @@
 import {
   PARAM_DEFS,
   formatParamValue,
+  groupLabel,
   parseParamInput,
   type ParamKey,
 } from '@/lib/governance/paramDefs.js';
@@ -111,22 +112,21 @@ function Impact({ paramKey, current, next, economics, onRetryEconomics, model, a
   }
 }
 
-export default function ParamCard(props: ParamCardProps) {
-  const { paramKey, raw, current, error, onInput, onRemove, disabled = false } = props;
+export default function ParamCard({ raw, error, onInput, onRemove, disabled = false, ...impact }: ParamCardProps) {
+  const { paramKey, current } = impact;
   const def = PARAM_DEFS[paramKey];
   const parsed = parseParamInput(paramKey, raw);
   const next = parsed.ok ? parsed.value : null;
   const unit = def.input === 'ada' ? '₳' : def.input === 'percent' ? '%' : null;
-  const state = error ? 'invalid' : 'ok';
   return (
-    <fieldset aria-label={def.title} className="pcp-card" data-state={state}>
+    <fieldset aria-label={def.title} className="pcp-card" data-state={error ? 'invalid' : 'ok'}>
       <div className="pcp-card__head">
         <div className="pcp-card__name">
           <div className="pcp-card__title">{def.title}</div>
           <div className="pcp-card__key">{def.key === 'minPoolCost' ? def.ledgerKey : `${def.short} · ${def.ledgerKey}`}</div>
         </div>
         <div className="pcp-card__side">
-          <span className="pcp-group">{def.group === 'technical' ? 'Technical' : 'Economic'} group</span>
+          <span className="pcp-group">{groupLabel(paramKey)} group</span>
           <button type="button" className="pcp-card__remove" onClick={onRemove} disabled={disabled}>
             Remove
           </button>
@@ -166,16 +166,7 @@ export default function ParamCard(props: ParamCardProps) {
       {next && !error && (
         <div className="pcp-impact">
           <p className="pcp-label">Impact</p>
-          <Impact
-            paramKey={paramKey}
-            current={current}
-            next={next}
-            economics={props.economics}
-            onRetryEconomics={props.onRetryEconomics}
-            model={props.model}
-            a0Picked={props.a0Picked}
-            kAndA0={props.kAndA0}
-          />
+          <Impact {...impact} next={next} />
         </div>
       )}
     </fieldset>

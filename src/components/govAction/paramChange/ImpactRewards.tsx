@@ -10,7 +10,7 @@ import {
   type ModelParams,
   type PoolEconomics,
 } from '@/lib/governance/paramImpact.js';
-import { linear, signedPct } from './chart.js';
+import { LegendItem, linear, signedPct, Stat } from './chart.js';
 
 const W = 600;
 const H = 170;
@@ -99,19 +99,15 @@ export default memo(function ImpactRewards({
       </div>
       <div className="pcp-legend">
         {CURVE_PLEDGES.map((pledge, i) => (
-          <span key={pledge} className="pcp-legend__item">
-            <i className="pcp-swatch" style={{ background: COLORS[i] }} />
+          <LegendItem key={pledge} color={COLORS[i]}>
             {pledgeLabel(pledge)}
-          </span>
+          </LegendItem>
         ))}
         <span className="pcp-legend__note">Pool stake against the change in its maximum rewards{together ? ', k and a0 together' : ''}</span>
       </div>
       <div className="pcp-stats">
         {ref.map((r) => (
-          <div className="pcp-stat" key={r.label}>
-            <div className="pcp-stat__k">{r.label}</div>
-            <div className="pcp-stat__v"><span className="pcp-nb">{signedPct(r.change)}</span></div>
-          </div>
+          <Stat key={r.label} label={r.label} value={signedPct(r.change)} />
         ))}
       </div>
       <p className="pcp-why">Maximum rewards at full block production, before fees.</p>

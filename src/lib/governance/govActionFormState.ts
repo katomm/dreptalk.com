@@ -503,6 +503,7 @@ export function panelStatesFromDraft(draft: GovActionDraft): PanelStates {
 function coerceParamChangePanel(raw: unknown): ParamChangePanelState {
   if (!isPlainObject(raw)) return { prev: null, picked: [], inputs: {} };
   const pickedRaw = Array.isArray(raw.picked) ? raw.picked : [];
+  // PARAM_KEYS order, which every reader of picked relies on.
   const picked = PARAM_KEYS.filter((key) => pickedRaw.includes(key));
   const inputs: Partial<Record<ParamKey, string>> = {};
   if (isPlainObject(raw.inputs)) {
@@ -1719,6 +1720,16 @@ export function paramFieldErrors(
   return out;
 }
 
+/** The picked values that can go on chain. A value with a field error, or none typed, stays out. */
+export function validParamValues(panel: ParamChangePanelState, current: ParamValues): ParamValues {
+  const out: ParamValues = {};
+  for (const key of panel.picked) {
+    const check = paramFieldCheck(key, panel.inputs[key], current[key] ?? null);
+    if (check.ok) out[key] = check.value;
+  }
+  return out;
+}
+
 export function validateParamChangePanel(
   panel: ParamChangePanelState,
   context: ActionContextResponse | null,
@@ -1728,8 +1739,7 @@ export function validateParamChangePanel(
   if (panel.picked.length === 0) return { ok: false, error: 'Pick at least one parameter to change.' };
   const current = valuesFromJson(context?.params);
   const values: ParamValues = {};
-  for (const key of PARAM_KEYS) {
-    if (!panel.picked.includes(key)) continue;
+  for (const key of panel.picked) {
     const now = current[key] ?? null;
     if (!now) {
       return {
@@ -1755,8 +1765,7 @@ export function describeParamChangePanel(
 ): { payloadPart: Record<string, unknown>; missing: string[] } {
   const payloadPart: Record<string, unknown> = {};
   const missing: string[] = [];
-  for (const key of PARAM_KEYS) {
-    if (!panel.picked.includes(key)) continue;
+  for (const key of panel.picked) {
     const parsed = parseParamInput(key, panel.inputs[key] ?? '');
     if (!parsed.ok) {
       missing.push(PARAM_DEFS[key].title);

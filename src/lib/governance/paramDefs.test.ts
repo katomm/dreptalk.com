@@ -7,7 +7,6 @@ import {
   currentParamValues,
   scopeForKeys,
   formatParamValue,
-  inputFromValue,
   parseParamInput,
   valuesFromJson,
   valuesToJson,
@@ -122,7 +121,6 @@ describe('scope and changes paragraph', () => {
 describe('display', () => {
   it('groups integers like the GA page', () => {
     expect(formatParamValue('k', r(2000n, 1n))).toBe('2,000');
-    expect(inputFromValue('k', r(2000n, 1n))).toBe('2000');
     expect(checkParamValue('k', r(2001n, 1n), null)).toBe(
       'The constitution allows 250 to 2,000. The guardrails script would reject this action, so it cannot be submitted.',
     );
@@ -133,11 +131,6 @@ describe('display', () => {
     expect(formatParamValue('minPoolCost', r(170000001n, 1n))).toBe('170.000001 ₳');
     expect(formatParamValue('rho', r(3001n, 1000000n))).toBe('0.3001%');
     expect(formatParamValue('tau', r(1n, 4n))).toBe('25%');
-  });
-  it('turns a value back into what the input shows', () => {
-    expect(inputFromValue('minPoolCost', r(170000000n, 1n))).toBe('170');
-    expect(inputFromValue('rho', r(3n, 1000n))).toBe('0.3');
-    expect(inputFromValue('tau', r(1n, 5n))).toBe('20');
   });
 });
 

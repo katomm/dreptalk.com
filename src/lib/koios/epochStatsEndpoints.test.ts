@@ -17,7 +17,7 @@ describe('createKoiosClient.totals', () => {
 
     const row = await client.totals(540);
 
-    expect(row).toEqual({ epochNo: 540, treasuryLovelace: '111', reservesLovelace: '222', circulationLovelace: null, supplyLovelace: null, feesLovelace: null });
+    expect(row).toEqual({ epochNo: 540, treasuryLovelace: '111', reservesLovelace: '222', circulationLovelace: null, supplyLovelace: null });
     const url = fetchImpl.mock.calls[0][0] as string;
     expect(url).toContain('/totals?');
     expect(url).toContain('_epoch_no=540');

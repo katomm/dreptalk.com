@@ -2,7 +2,7 @@
 // the treasury's cut of it and what is left for stakers and pools.
 import { memo, useMemo } from 'react';
 import { budget, type ModelParams, type PoolEconomics } from '@/lib/governance/paramImpact.js';
-import { adaCompact } from './chart.js';
+import { adaCompact, Stat } from './chart.js';
 
 export default memo(function ImpactBudget({ eco, from, to }: { eco: PoolEconomics; from: ModelParams; to: ModelParams }) {
   const b = useMemo(() => budget(eco, from, to), [eco, from, to]);
@@ -15,12 +15,7 @@ export default memo(function ImpactBudget({ eco, from, to }: { eco: PoolEconomic
     <>
       <div className="pcp-stats">
         {tiles.map((t) => (
-          <div className="pcp-stat" key={t.label}>
-            <div className="pcp-stat__k">{t.label}</div>
-            <div className="pcp-stat__v">
-              <span className="pcp-nb">{adaCompact(t.to)}</span> <small className="pcp-nb">from {adaCompact(t.from)}</small>
-            </div>
-          </div>
+          <Stat key={t.label} label={t.label} value={adaCompact(t.to)} from={adaCompact(t.from)} />
         ))}
       </div>
       <p className="pcp-why">

@@ -415,7 +415,6 @@ const totalsRowSchema = z.object({
   reserves: z.string(),
   circulation: z.string().nullable().optional(),
   supply: z.string().nullable().optional(),
-  fees: z.string().nullable().optional(),
 }).passthrough();
 
 // /pool_list row, reduced with select= to what the parameter change impact
@@ -952,7 +951,7 @@ export function createKoiosClient(opts: KoiosClientOptions) {
 
     // Treasury, reserves, and circulating supply balances (lovelace), the
     // latest epoch by default, or one specific epoch for the stats backfill.
-    async totals(epochNo?: number): Promise<{ epochNo: number; treasuryLovelace: string; reservesLovelace: string; circulationLovelace: string | null; supplyLovelace: string | null; feesLovelace: string | null } | null> {
+    async totals(epochNo?: number): Promise<{ epochNo: number; treasuryLovelace: string; reservesLovelace: string; circulationLovelace: string | null; supplyLovelace: string | null } | null> {
       const path = epochNo != null ? `/totals?_epoch_no=${epochNo}` : '/totals?order=epoch_no.desc&limit=1';
       const data = await request(path, { method: 'GET' });
       const row = z.array(totalsRowSchema).parse(data)[0] ?? null;
@@ -963,7 +962,6 @@ export function createKoiosClient(opts: KoiosClientOptions) {
         reservesLovelace: row.reserves,
         circulationLovelace: row.circulation ?? null,
         supplyLovelace: row.supply ?? null,
-        feesLovelace: row.fees ?? null,
       };
     },
 

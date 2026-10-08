@@ -12,16 +12,15 @@ import {
   PARAM_DEFS,
   PARAM_KEYS,
   formatParamValue,
-  parseParamInput,
   scopeForKeys,
   valuesFromJson,
   type ParamKey,
-  type ParamValues,
 } from '@/lib/governance/paramDefs.js';
 import { modelParams, type ModelParams, type PoolEconomics } from '@/lib/governance/paramImpact.js';
 import {
   paramFieldErrors,
   validateParamChangePanel,
+  validParamValues,
   type DepositState,
   type ParamChangePanelState,
 } from '@/lib/governance/govActionFormState.js';
@@ -171,16 +170,11 @@ export default function ParamChangePanel({
 
   // The live impact reads every picked value that can go on chain. A value
   // with a field error stays out, so one bad field never skews another card.
-  const next: ParamValues = {};
-  for (const key of value.picked) {
-    if (errors[key]) continue;
-    const parsed = parseParamInput(key, value.inputs[key] ?? '');
-    if (parsed.ok) next[key] = parsed.value;
-  }
+  const next = validParamValues(value, current);
   const model = useStableModel(modelParams(current, next));
   const panelRef = useRef<HTMLDivElement>(null);
   const { slotRef, docked } = useDockedAction(panelRef);
-  const picked = PARAM_KEYS.filter((key) => value.picked.includes(key));
+  const { picked } = value;
   const unpicked = PARAM_KEYS.filter((key) => !value.picked.includes(key));
   const drepPct = drepThresholdPct('ParameterChange', protocolParams, scopeForKeys(picked));
   // The island already shows the guardrail problem, the summary does not repeat it.
