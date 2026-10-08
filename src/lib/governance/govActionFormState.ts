@@ -22,7 +22,9 @@ import { shortenHash } from './onchain.js';
 import { CONSTITUTION_DOCUMENT_MAX_BYTES, REFERENCES_MAX } from './infoActionLimits.js';
 import type { GovActionDraft } from './govActionDraft.js';
 import { draftSlugsFromReferences } from './draftLink.js';
-import type { ParamKey } from './paramDefs.js';
+import { checkParamValue, PARAM_DEFS, PARAM_KEYS, parseParamInput, valuesFromJson } from './paramDefs.js';
+import type { ParamKey, ParamValues } from './paramDefs.js';
+import type { Rational } from '../format/rational.js';
 import type { ActionContextResponse } from './actionContextHandler.js';
 import { parseColdCredential, validateCommitteeUpdate } from './committeeUpdate.js';
 import type {
@@ -494,9 +496,22 @@ export function panelStatesFromDraft(draft: GovActionDraft): PanelStates {
     NewConstitution: coerceNewConstitutionPanel(draft.panels.NewConstitution),
     UpdateCommittee: coerceUpdateCommitteePanel(draft.panels.UpdateCommittee),
     TreasuryWithdrawals: coerceTreasuryPanel(draft.panels.TreasuryWithdrawals),
-    // A later task replaces this with real coercion of the stored panel.
-    ParameterChange: { prev: null, picked: [], inputs: {} },
+    ParameterChange: coerceParamChangePanel(draft.panels.ParameterChange),
   };
+}
+
+function coerceParamChangePanel(raw: unknown): ParamChangePanelState {
+  if (!isPlainObject(raw)) return { prev: null, picked: [], inputs: {} };
+  const pickedRaw = Array.isArray(raw.picked) ? raw.picked : [];
+  const picked = PARAM_KEYS.filter((key) => pickedRaw.includes(key));
+  const inputs: Partial<Record<ParamKey, string>> = {};
+  if (isPlainObject(raw.inputs)) {
+    for (const key of PARAM_KEYS) {
+      const v = raw.inputs[key];
+      if (typeof v === 'string') inputs[key] = v.slice(0, 32);
+    }
+  }
+  return { prev: coercePrev(raw.prev), picked, inputs };
 }
 
 // ---------------------------------------------------------------------------
@@ -1094,7 +1109,7 @@ export function chosenPrev(type: GovActionFormType, panels: PanelStates): PrevAc
       // No purpose chain: the guardrail state takes the previous action's place.
       return null;
     case 'ParameterChange':
-      return null;
+      return panels.ParameterChange.prev;
   }
 }
 
@@ -1661,7 +1676,97 @@ export function panelReadiness(
       const result = validateTreasuryPanel(panels.TreasuryWithdrawals, context, env);
       return result.ok ? { ok: true, error: '' } : { ok: false, error: result.error };
     }
-    case 'ParameterChange':
-      return { ok: false, error: 'Parameter changes are not available yet.' };
+    case 'ParameterChange': {
+      const result = validateParamChangePanel(panels.ParameterChange, context);
+      return result.ok ? { ok: true, error: '' } : { ok: false, error: result.error };
+    }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Parameter change panel
+// ---------------------------------------------------------------------------
+
+export interface ParamChangePanelValue {
+  values: ParamValues;
+  guardrail: GuardrailContext;
+}
+
+function paramFieldCheck(
+  key: ParamKey,
+  raw: string | undefined,
+  current: Rational | null,
+): { ok: true; value: Rational } | { ok: false; error: string } {
+  const parsed = parseParamInput(key, raw ?? '');
+  if (!parsed.ok) return parsed;
+  const problem = checkParamValue(key, parsed.value, current);
+  return problem ? { ok: false, error: problem } : parsed;
+}
+
+/** Errors for the cards: picked parameters with a typed value that cannot go on chain. */
+export function paramFieldErrors(
+  panel: ParamChangePanelState,
+  context: ActionContextResponse | null,
+): Partial<Record<ParamKey, string>> {
+  const current = valuesFromJson(context?.params);
+  const out: Partial<Record<ParamKey, string>> = {};
+  for (const key of panel.picked) {
+    const raw = panel.inputs[key];
+    if (raw === undefined || raw.trim() === '') continue;
+    const check = paramFieldCheck(key, raw, current[key] ?? null);
+    if (!check.ok) out[key] = check.error;
+  }
+  return out;
+}
+
+export function validateParamChangePanel(
+  panel: ParamChangePanelState,
+  context: ActionContextResponse | null,
+): PanelValidation<ParamChangePanelValue> {
+  const decision = guardrailDecision(context?.guardrail);
+  if (!decision.ok) return { ok: false, error: decision.message };
+  if (panel.picked.length === 0) return { ok: false, error: 'Pick at least one parameter to change.' };
+  const current = valuesFromJson(context?.params);
+  const values: ParamValues = {};
+  for (const key of PARAM_KEYS) {
+    if (!panel.picked.includes(key)) continue;
+    const now = current[key] ?? null;
+    if (!now) {
+      return {
+        ok: false,
+        error: `The current value of ${PARAM_DEFS[key].title} could not be read from the chain. Reload the page to try again.`,
+      };
+    }
+    const check = paramFieldCheck(key, panel.inputs[key], now);
+    if (!check.ok) return { ok: false, error: `${PARAM_DEFS[key].title}: ${check.error}` };
+    values[key] = check.value;
+  }
+  return { ok: true, value: { values, guardrail: decision.guardrail } };
+}
+
+/**
+ * The panel read leniently for the preview: the ledger-keyed map of every
+ * picked value that parses (range errors included, the preview shows what
+ * would be proposed), and the titles of the picked parameters that do not.
+ */
+export function describeParamChangePanel(
+  panel: ParamChangePanelState,
+  context: ActionContextResponse | null,
+): { payloadPart: Record<string, unknown>; missing: string[] } {
+  const payloadPart: Record<string, unknown> = {};
+  const missing: string[] = [];
+  for (const key of PARAM_KEYS) {
+    if (!panel.picked.includes(key)) continue;
+    const parsed = parseParamInput(key, panel.inputs[key] ?? '');
+    if (!parsed.ok) {
+      missing.push(PARAM_DEFS[key].title);
+      continue;
+    }
+    const def = PARAM_DEFS[key];
+    const { n, d } = parsed.value;
+    payloadPart[def.ledgerKey] =
+      def.input === 'int' || def.input === 'ada' ? (n / d).toString() : { numerator: Number(n), denominator: Number(d) };
+  }
+  if (!guardrailDecision(context?.guardrail).ok) missing.push('Guardrails script');
+  return { payloadPart, missing };
 }

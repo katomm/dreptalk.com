@@ -19,6 +19,7 @@ import {
   describeCommitteePanel,
   describeHardForkPanel,
   describeNewConstitutionPanel,
+  describeParamChangePanel,
   describeTreasuryPanel,
   type GovActionFormState,
 } from './govActionFormState.js';
@@ -154,8 +155,11 @@ function previewOnchain(
       };
     }
 
-    case 'ParameterChange':
-      return { onchain: null, missing: [] };
+    case 'ParameterChange': {
+      const { payloadPart, missing } = describeParamChangePanel(state.panels.ParameterChange, context);
+      const policy = context?.guardrail?.state === 'known' ? context.guardrail.scriptHash : null;
+      return { onchain: decode({ tag: 'ParameterChange', contents: [prev, payloadPart, policy] }), missing };
+    }
   }
 }
 

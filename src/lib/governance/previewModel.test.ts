@@ -446,3 +446,42 @@ describe('treasury withdrawal preview', () => {
     expect(model.missing).toEqual(['Recipient 2', 'Amount 2', 'Guardrails script']);
   });
 });
+
+describe('parameter change preview', () => {
+  const PARAMS_ROW = {
+    epoch_no: 500,
+    gov_action_deposit: 100_000_000_000,
+    protocol_major: 10,
+    protocol_minor: 0,
+    optimal_pool_count: 500,
+    influence: 0.3,
+    min_pool_cost: 170000000,
+    monetary_expand_rate: 0.003,
+    treasury_growth_rate: 0.2,
+  } as unknown as EpochParamsRow;
+  const ctx = {
+    epoch: 500,
+    prev: { lastEnacted: null, open: [] },
+    guardrail: { state: 'known', scriptHash: SCRIPT_HASH },
+  } as ActionContextResponse;
+  const build = (inputs: Record<string, string>, picked: ('k' | 'a0' | 'minPoolCost')[]) => {
+    const base = form('ParameterChange', { ParameterChange: { prev: null, picked, inputs } });
+    return previewModelFromForm(base, ctx, PARAMS_ROW, 'preprod');
+  };
+
+  it('shows old and new values exactly', () => {
+    const result = build({ k: '600', minPoolCost: '170.000001' }, ['k', 'minPoolCost']);
+    expect(result.missing).toEqual([]);
+    const card = JSON.stringify(result.onchain);
+    expect(card).toContain(
+      JSON.stringify({ group: 'Technical', label: 'Target Number of Pools (k)', oldValue: '500', newValue: '600' }),
+    );
+    expect(card).toContain(
+      JSON.stringify({ group: 'Economic', label: 'Min Pool Cost', oldValue: '170 ₳', newValue: '170.000001 ₳' }),
+    );
+  });
+
+  it('lists a half-typed parameter under missing', () => {
+    expect(build({ a0: '0.35%' }, ['a0']).missing).toEqual(['Pledge influence']);
+  });
+});
