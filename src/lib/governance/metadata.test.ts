@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
+  anchorFetchCandidates,
+  dedicatedGatewayFromEnv,
+  fetchAnchorDoc,
   fetchAnchorMetadata,
   IPFS_GATEWAYS,
   MAX_ANCHOR_BYTES,
@@ -210,11 +213,81 @@ describe('fetchAnchorMetadata', () => {
     const res = await fetchAnchorMetadata('ipfs://QmDead/meta.json', 'ab'.repeat(32), {
       fetchImpl: async () => {
         calls++;
-        return resp('rate limited', { status: 429, contentType: 'text/plain' });
+        return resp('bad gateway', { status: 502, contentType: 'text/plain' });
       },
     });
     expect(calls).toBe(IPFS_GATEWAYS.length);
     expect(res.status).toBe('fetch-failed');
+  });
+
+  it('reports rate-limited when every gateway answers 429', async () => {
+    let calls = 0;
+    const res = await fetchAnchorMetadata('ipfs://QmDead/meta.json', 'ab'.repeat(32), {
+      fetchImpl: async () => {
+        calls++;
+        return resp('<html>slow down</html>', { status: 429, contentType: 'text/html' });
+      },
+    });
+    expect(calls).toBe(IPFS_GATEWAYS.length);
+    expect(res.status).toBe('rate-limited');
+  });
+
+  it('keeps the rate limit over a later html 200, instead of the last status', async () => {
+    // The 2026-10 failure: Pinata 429s the shared egress, a later gateway serves
+    // an html page, and the stored status claimed a content-type verdict.
+    const res = await fetchAnchorDoc('ipfs://QmCid/meta.json', 'ab'.repeat(32), {
+      fetchImpl: async (url) =>
+        String(url).startsWith(IPFS_GATEWAYS[0])
+          ? resp('<html>429</html>', { status: 429, contentType: 'text/html' })
+          : resp('<html>gateway page</html>', { contentType: 'text/html' }),
+    });
+    expect(res.status).toBe('rate-limited');
+  });
+
+  it('keeps a transient 5xx over a later html 200', async () => {
+    const res = await fetchAnchorDoc('ipfs://QmCid/meta.json', 'ab'.repeat(32), {
+      fetchImpl: async (url) =>
+        String(url).startsWith(IPFS_GATEWAYS[0])
+          ? resp('down', { status: 503, contentType: 'text/plain' })
+          : resp('<html>gateway page</html>', { contentType: 'text/html' }),
+    });
+    expect(res.status).toBe('fetch-failed');
+  });
+
+  it('treats a timeout as a transient miss that outranks an html 200', async () => {
+    const res = await fetchAnchorDoc('ipfs://QmCid/meta.json', 'ab'.repeat(32), {
+      timeoutMs: 5,
+      fetchImpl: async (url, init) => {
+        if (!String(url).startsWith(IPFS_GATEWAYS[0])) return resp('<html>x</html>', { contentType: 'text/html' });
+        return new Promise<Response>((_, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+        });
+      },
+    });
+    expect(res.status).toBe('fetch-failed');
+  });
+
+  it('still reports bad-content-type when every source that answered served html', async () => {
+    const res = await fetchAnchorDoc('ipfs://QmCid/meta.json', 'ab'.repeat(32), {
+      fetchImpl: async (url) =>
+        String(url).startsWith(IPFS_GATEWAYS[0])
+          ? resp('not here', { status: 404, contentType: 'text/plain' })
+          : resp('<html>not json</html>', { contentType: 'text/html' }),
+    });
+    expect(res.status).toBe('bad-content-type');
+  });
+
+  it('lets a hash mismatch after a rate limit stand as the verdict', async () => {
+    const json = jsonOf(doc);
+    let calls = 0;
+    const res = await fetchAnchorDoc('ipfs://QmCid/meta.json', 'ab'.repeat(32), {
+      fetchImpl: async () => {
+        calls++;
+        return calls === 1 ? resp('slow down', { status: 429, contentType: 'text/plain' }) : resp(json);
+      },
+    });
+    expect(calls).toBe(2);
+    expect(res.status).toBe('hash-mismatch');
   });
 
   it('stops at the first gateway that delivers bytes, even when they fail verification', async () => {
@@ -614,5 +687,157 @@ describe('resolveAnchorUrl', () => {
       expect(gw).not.toMatch(/ipfs\.io|dweb\.link|w3s\.link|nftstorage\.link/);
     }
     expect(IPFS_GATEWAYS.length).toBeGreaterThan(1);
+  });
+
+  it('no longer lists ipfs.decoo.io, which serves html for every cid', () => {
+    expect(IPFS_GATEWAYS.some((gw) => gw.includes('decoo'))).toBe(false);
+    expect(resolveAnchorUrls('ipfs://QmCid').join(' ')).not.toContain('decoo');
+  });
+
+  it('keeps reader links on the public gateway', () => {
+    expect(resolveAnchorUrl('ipfs://QmCid/m.json')).toBe('https://gateway.pinata.cloud/ipfs/QmCid/m.json');
+  });
+});
+
+const GATEWAY = { url: 'https://dedicated.mypinata.cloud', token: 'tok-123' };
+const TOKEN_HEADER = 'x-pinata-gateway-token';
+
+describe('dedicatedGatewayFromEnv', () => {
+  it('needs both secrets', () => {
+    expect(dedicatedGatewayFromEnv(undefined, undefined)).toBeNull();
+    expect(dedicatedGatewayFromEnv('https://dedicated.mypinata.cloud', undefined)).toBeNull();
+    expect(dedicatedGatewayFromEnv('https://dedicated.mypinata.cloud', '  ')).toBeNull();
+    expect(dedicatedGatewayFromEnv(undefined, 'tok-123')).toBeNull();
+    expect(dedicatedGatewayFromEnv('', 'tok-123')).toBeNull();
+  });
+
+  it('reduces the url to its https origin', () => {
+    expect(dedicatedGatewayFromEnv('https://dedicated.mypinata.cloud/', 'tok-123')).toEqual(GATEWAY);
+    expect(dedicatedGatewayFromEnv('https://dedicated.mypinata.cloud/ipfs/', ' tok-123 ')).toEqual(GATEWAY);
+  });
+
+  it('rejects a non-https or unparseable url', () => {
+    expect(dedicatedGatewayFromEnv('http://dedicated.mypinata.cloud', 'tok-123')).toBeNull();
+    expect(dedicatedGatewayFromEnv('dedicated.mypinata.cloud', 'tok-123')).toBeNull();
+  });
+});
+
+describe('anchorFetchCandidates', () => {
+  it('is exactly the public list, without headers, when no gateway is configured', () => {
+    for (const gateway of [undefined, null]) {
+      expect(anchorFetchCandidates('ipfs://QmCid/m.json', gateway)).toEqual(
+        IPFS_GATEWAYS.map((gw) => ({ url: `${gw}QmCid/m.json` })),
+      );
+    }
+  });
+
+  it('puts the dedicated gateway first for ipfs://, the token on it alone', () => {
+    const c = anchorFetchCandidates('ipfs://QmCid/m.json', GATEWAY);
+    expect(c).toEqual([
+      { url: 'https://dedicated.mypinata.cloud/ipfs/QmCid/m.json', headers: { [TOKEN_HEADER]: 'tok-123' } },
+      ...IPFS_GATEWAYS.map((gw) => ({ url: `${gw}QmCid/m.json` })),
+    ]);
+    expect(c.slice(1).every((x) => x.headers === undefined)).toBe(true);
+  });
+
+  it('keeps a gateway https anchor\'s own host first, then the dedicated gateway', () => {
+    const c = anchorFetchCandidates('https://my-org.mypinata.cloud/ipfs/QmCid', GATEWAY);
+    expect(c.map((x) => x.url)).toEqual([
+      'https://my-org.mypinata.cloud/ipfs/QmCid',
+      'https://dedicated.mypinata.cloud/ipfs/QmCid',
+      ...IPFS_GATEWAYS.map((gw) => `${gw}QmCid`),
+    ]);
+    expect(c[0].headers).toBeUndefined();
+    expect(c[1].headers).toEqual({ [TOKEN_HEADER]: 'tok-123' });
+  });
+
+  it('sends the token when the anchor itself names the dedicated host, without a duplicate', () => {
+    const c = anchorFetchCandidates('https://dedicated.mypinata.cloud/ipfs/QmCid', GATEWAY);
+    expect(c[0]).toEqual({ url: 'https://dedicated.mypinata.cloud/ipfs/QmCid', headers: { [TOKEN_HEADER]: 'tok-123' } });
+    expect(c.filter((x) => x.url.startsWith('https://dedicated.')).length).toBe(1);
+  });
+
+  it('adds no gateway to a plain http(s) anchor or an unsupported scheme', () => {
+    expect(anchorFetchCandidates('https://example.com/m.json', GATEWAY)).toEqual([{ url: 'https://example.com/m.json' }]);
+    expect(anchorFetchCandidates('ftp://example.com/m.json', GATEWAY)).toEqual([]);
+  });
+});
+
+describe('fetchAnchorDoc with a dedicated gateway', () => {
+  type Call = { url: string; headers: Record<string, string>; redirect?: RequestRedirect };
+  const record = (calls: Call[], answer: (url: string) => Response) =>
+    (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({
+        url: String(url),
+        headers: Object.fromEntries(new Headers(init?.headers).entries()),
+        redirect: init?.redirect,
+      });
+      return answer(String(url));
+    }) as typeof fetch;
+
+  it('reads through the dedicated gateway first, with the token header', async () => {
+    const json = jsonOf(doc);
+    const calls: Call[] = [];
+    const res = await fetchAnchorDoc('ipfs://QmCid/meta.json', hashOf(json), {
+      gateway: GATEWAY,
+      fetchImpl: record(calls, () => resp(json)),
+    });
+    expect(res.status).toBe('ok');
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe('https://dedicated.mypinata.cloud/ipfs/QmCid/meta.json');
+    expect(calls[0].headers[TOKEN_HEADER]).toBe('tok-123');
+  });
+
+  it('never sends the token to a public gateway when falling back', async () => {
+    const json = jsonOf(doc);
+    const calls: Call[] = [];
+    const res = await fetchAnchorDoc('ipfs://QmCid/meta.json', hashOf(json), {
+      gateway: GATEWAY,
+      fetchImpl: record(calls, (url) =>
+        url.startsWith('https://dedicated.') ? resp('nope', { status: 401, contentType: 'text/plain' }) : resp(json),
+      ),
+    });
+    expect(res.status).toBe('ok');
+    expect(calls.map((c) => c.url)).toEqual([
+      'https://dedicated.mypinata.cloud/ipfs/QmCid/meta.json',
+      `${IPFS_GATEWAYS[0]}QmCid/meta.json`,
+    ]);
+    expect(calls[1].headers[TOKEN_HEADER]).toBeUndefined();
+  });
+
+  it('follows a same-origin redirect with the token, by hand', async () => {
+    const json = jsonOf(doc);
+    const calls: Call[] = [];
+    const res = await fetchAnchorDoc('ipfs://QmCid', hashOf(json), {
+      gateway: GATEWAY,
+      fetchImpl: record(calls, (url) =>
+        url.endsWith('/QmCid')
+          ? new Response(null, { status: 301, headers: { location: '/ipfs/QmCid/' } })
+          : resp(json),
+      ),
+    });
+    expect(res.status).toBe('ok');
+    expect(calls.map((c) => [c.url, c.redirect, c.headers[TOKEN_HEADER]])).toEqual([
+      ['https://dedicated.mypinata.cloud/ipfs/QmCid', 'manual', 'tok-123'],
+      ['https://dedicated.mypinata.cloud/ipfs/QmCid/', 'manual', 'tok-123'],
+    ]);
+  });
+
+  it('refuses to carry the token across a redirect to another host', async () => {
+    const json = jsonOf(doc);
+    const calls: Call[] = [];
+    const res = await fetchAnchorDoc('ipfs://QmCid', hashOf(json), {
+      gateway: GATEWAY,
+      fetchImpl: record(calls, (url) =>
+        url.startsWith('https://dedicated.')
+          ? new Response(null, { status: 302, headers: { location: 'https://elsewhere.example/ipfs/QmCid' } })
+          : resp(json),
+      ),
+    });
+    expect(res.status).toBe('ok');
+    expect(calls.some((c) => c.url.startsWith('https://elsewhere.'))).toBe(false);
+    expect(calls.filter((c) => c.headers[TOKEN_HEADER]).map((c) => c.url)).toEqual([
+      'https://dedicated.mypinata.cloud/ipfs/QmCid',
+    ]);
   });
 });

@@ -70,7 +70,7 @@ export const votePhases: readonly SyncPhaseDef<VoteSyncContext>[] = [
     // the votes phase to avoid hammering anchor hosts. Not the primary phase.
     name: 'rationales',
     run: async (ctx) => {
-      const r = await syncVoteRationales({ db: ctx.db, now: Date.now(), paceMs: VOTE_PACE_MS });
+      const r = await syncVoteRationales({ db: ctx.db, now: Date.now(), gateway: ctx.gateway, paceMs: VOTE_PACE_MS });
       console.log(`[vote-rationales] fetched=${r.fetched} ok=${r.ok} empty=${r.empty} failed=${r.failed}`);
       return { items: r.ok, failed: r.failed };
     },
@@ -81,7 +81,7 @@ export const votePhases: readonly SyncPhaseDef<VoteSyncContext>[] = [
     // rationale and the member's self-declared name from one fetch. Tiny set.
     name: 'committee-meta',
     run: async (ctx) => {
-      const r = await syncCommitteeVoteMeta({ db: ctx.db, now: Date.now(), paceMs: VOTE_PACE_MS });
+      const r = await syncCommitteeVoteMeta({ db: ctx.db, now: Date.now(), gateway: ctx.gateway, paceMs: VOTE_PACE_MS });
       if (r.fetched > 0) console.log(`[committee-meta] fetched=${r.fetched} ok=${r.ok} named=${r.named} failed=${r.failed}`);
       return { items: r.named, failed: r.failed };
     },

@@ -11,6 +11,10 @@ describe('describeMissingBody', () => {
     expect(state.message).toContain('still');
   });
 
+  it('reads a rate-limited anchor as still syncing', () => {
+    expect(describeMissingBody({ ...base, anchorStatus: 'rate-limited' }).syncing).toBe(true);
+  });
+
   it('keeps reporting syncing while the backfill has attempts left', () => {
     expect(describeMissingBody({ ...base, metaAttempts: META_REEXTRACT_MAX_ATTEMPTS - 1 }).syncing).toBe(true);
   });

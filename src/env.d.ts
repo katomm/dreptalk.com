@@ -108,6 +108,16 @@ declare namespace Cloudflare {
      * garbage collected, which is the safe direction to fail.
      */
     PINATA_GOV_GROUP_ID?: string;
+    /**
+     * gov-sync only, secret: origin of the dedicated Pinata IPFS gateway
+     * (https://<name>.mypinata.cloud) the anchor fetch tries before the public
+     * gateways, which rate limit Cloudflare's shared egress. Needs
+     * PINATA_GATEWAY_KEY as well, either one alone is ignored. Never sent to the
+     * browser, logged, stored or linked: reader links keep the public gateway.
+     */
+    PINATA_GATEWAY_URL?: string;
+    /** gov-sync only, secret: access token for PINATA_GATEWAY_URL, sent as x-pinata-gateway-token to that host only. */
+    PINATA_GATEWAY_KEY?: string;
   }
 }
 
