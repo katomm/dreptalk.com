@@ -153,5 +153,8 @@ describe('ParamChangePanel', () => {
     expect(await scrollTo(-300)).toBe('false');
     // A jump from below the panel straight back to its top docks it again.
     expect(await scrollTo(window.innerHeight + 2000)).toBe('true');
+    // A panel wide enough for the summary column never docks, the summary is sticky there.
+    panel.getBoundingClientRect = () => ({ left: 0, right: 960, width: 960 }) as DOMRect;
+    expect(await scrollTo(window.innerHeight + 2000)).toBe('false');
   });
 });

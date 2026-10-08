@@ -17,7 +17,7 @@ export default function ImpactBudget({ eco, from, to }: { eco: PoolEconomics; fr
           <div className="pcp-stat" key={t.label}>
             <div className="pcp-stat__k">{t.label}</div>
             <div className="pcp-stat__v">
-              {adaCompact(t.to)} <small>from {adaCompact(t.from)}</small>
+              <span className="pcp-nb">{adaCompact(t.to)}</span> <small className="pcp-nb">from {adaCompact(t.from)}</small>
             </div>
           </div>
         ))}

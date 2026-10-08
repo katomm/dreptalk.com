@@ -48,8 +48,12 @@ export interface ParamChangePanelProps {
   disabled?: boolean;
 }
 
-// The docked action bar's height on narrow screens, the --pcp-dock-h of global.css.
+// The docked action bar's height, the --pcp-dock-h of global.css.
 const DOCK_HEIGHT_PX = 80;
+// The panel width from which the summary sits next to the cards, the
+// @container pcp-panel breakpoint of global.css. Below it the layout is one
+// column and the action block docks.
+const TWO_COLUMN_MIN_PX = 880;
 
 /**
  * Whether the action block's own place in the summary is still below the
@@ -58,6 +62,9 @@ const DOCK_HEIGHT_PX = 80;
  * user moved on to the fields below the panel, the block scrolls with the
  * page. The bar's height is taken off the screen, so the pinned bar hands
  * over to the inline block exactly where the block takes its place.
+ *
+ * Only in the one-column layout (panel narrower than TWO_COLUMN_MIN_PX):
+ * next to the cards the summary is sticky and never needs to dock.
  *
  * Measured on scroll, resize and panel size changes, once per frame. An
  * IntersectionObserver is not enough: it reports crossings only, and a jump
@@ -73,7 +80,15 @@ function useDockedAction(panelRef: RefObject<HTMLDivElement | null>) {
     let frame = 0;
     const measure = () => {
       frame = 0;
-      setDocked(slot.getBoundingClientRect().top > window.innerHeight - DOCK_HEIGHT_PX);
+      const panel = panelRef.current;
+      const box = panel?.getBoundingClientRect();
+      const oneColumn = !box || box.width < TWO_COLUMN_MIN_PX;
+      setDocked(oneColumn && slot.getBoundingClientRect().top > window.innerHeight - DOCK_HEIGHT_PX);
+      // The docked bar spans the screen, its content lines up with the panel.
+      if (panel && box) {
+        panel.style.setProperty('--pcp-dock-l', `${Math.max(0, Math.round(box.left))}px`);
+        panel.style.setProperty('--pcp-dock-r', `${Math.max(0, Math.round(document.documentElement.clientWidth - box.right))}px`);
+      }
     };
     const schedule = () => {
       if (!frame) frame = requestAnimationFrame(measure);

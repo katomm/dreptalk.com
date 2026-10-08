@@ -59,12 +59,12 @@ function RangeScale({ paramKey, current, next }: { paramKey: ParamKey; current: 
       <div className="pcp-scale__ok" />
       {current && (
         <div className="pcp-mark pcp-mark--now" style={{ left: `${pos(current)}%` }}>
-          <span>now</span>
+          <span className="pcp-marklabel">now</span>
         </div>
       )}
       {next && (
         <div className="pcp-mark pcp-mark--new" style={{ left: `${pos(next)}%` }}>
-          <span>{outside ? 'outside' : 'new'}</span>
+          <span className="pcp-marklabel">{outside ? 'outside' : 'new'}</span>
         </div>
       )}
       <span className="pcp-scale__end pcp-scale__end--min">{formatParamValue(paramKey, def.min)}</span>

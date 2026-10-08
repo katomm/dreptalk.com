@@ -37,23 +37,27 @@ export default function ImpactSaturation({ eco, from, to }: { eco: PoolEconomics
         <line x1={0} x2={W} y1={y(s.pointTo)} y2={y(s.pointTo)} stroke="var(--accent)" strokeWidth={1.5} strokeDasharray="6 3" vectorEffect="non-scaling-stroke" />
       </svg>
       <div className="pcp-legend">
-        <span><i className="pcp-swatch" style={{ background: 'var(--pcp-bar)' }} />Largest {top.length} pools by active stake</span>
-        <span><i className="pcp-swatch" style={{ background: 'var(--warn)' }} />Above the new saturation point</span>
-        <span><i className="pcp-swatch pcp-swatch--line" style={{ background: 'var(--accent)' }} />New point {adaCompact(s.pointTo)}</span>
-        <span><i className="pcp-swatch pcp-swatch--line" style={{ background: 'var(--muted)' }} />Now {adaCompact(s.pointFrom)}</span>
+        <span className="pcp-legend__item"><i className="pcp-swatch" style={{ background: 'var(--pcp-bar)' }} />Largest {top.length} pools by active stake</span>
+        <span className="pcp-legend__item"><i className="pcp-swatch" style={{ background: 'var(--warn)' }} />Above the new saturation point</span>
+        <span className="pcp-legend__item"><i className="pcp-swatch pcp-swatch--line" style={{ background: 'var(--accent)' }} />New point {adaCompact(s.pointTo)}</span>
+        <span className="pcp-legend__item"><i className="pcp-swatch pcp-swatch--line" style={{ background: 'var(--muted)' }} />Now {adaCompact(s.pointFrom)}</span>
       </div>
       <div className="pcp-stats">
         <div className="pcp-stat">
           <div className="pcp-stat__k">Saturation point</div>
-          <div className="pcp-stat__v">{adaCompact(s.pointTo)} <small>from {adaCompact(s.pointFrom)}</small></div>
+          <div className="pcp-stat__v">
+            <span className="pcp-nb">{adaCompact(s.pointTo)}</span> <small className="pcp-nb">from {adaCompact(s.pointFrom)}</small>
+          </div>
         </div>
         <div className="pcp-stat">
           <div className="pcp-stat__k">Pools above it</div>
-          <div className="pcp-stat__v">{s.aboveTo} <small>from {s.aboveFrom}</small></div>
+          <div className="pcp-stat__v">
+            <span className="pcp-nb">{s.aboveTo}</span> <small className="pcp-nb">from {s.aboveFrom}</small>
+          </div>
         </div>
         <div className="pcp-stat">
           <div className="pcp-stat__k">Stake above the cap</div>
-          <div className="pcp-stat__v">{adaCompact(s.excessTo)}</div>
+          <div className="pcp-stat__v"><span className="pcp-nb">{adaCompact(s.excessTo)}</span></div>
         </div>
       </div>
       {to.k > from.k && (

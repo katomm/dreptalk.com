@@ -41,31 +41,31 @@ export default function ImpactMinPoolCost({
           />
         ))}
         <div className="pcp-bins__mark pcp-bins__mark--now" style={{ left: `${xPct(currentAda)}%` }}>
-          {labelNow && <span>now</span>}
+          {labelNow && <span className="pcp-marklabel">now</span>}
         </div>
         <div className="pcp-bins__mark pcp-bins__mark--new" style={{ left: `${xPct(nextAda)}%` }}>
-          <span>new</span>
+          <span className="pcp-marklabel">new</span>
         </div>
       </div>
       <div className="pcp-bins__x" aria-hidden="true">
         {TICKS.map((ada) => (
-          <span key={ada} style={{ left: `${xPct(ada)}%` }}>
+          <span key={ada} className="pcp-tick" style={{ left: `${xPct(ada)}%` }}>
             {ada === 500 ? '500+ ₳' : `${ada} ₳`}
           </span>
         ))}
       </div>
       <div className="pcp-legend">
-        <span><i className="pcp-swatch" style={{ background: 'var(--pcp-bar)' }} />Pools by fixed cost</span>
-        <span><i className="pcp-swatch" style={{ background: 'var(--warn)' }} />At or below the new minimum</span>
+        <span className="pcp-legend__item"><i className="pcp-swatch" style={{ background: 'var(--pcp-bar)' }} />Pools by fixed cost</span>
+        <span className="pcp-legend__item"><i className="pcp-swatch" style={{ background: 'var(--warn)' }} />At or below the new minimum</span>
       </div>
       <div className="pcp-stats">
         <div className="pcp-stat">
           <div className="pcp-stat__k">Pools charging less than {nextLabel}</div>
-          <div className="pcp-stat__v">{below}</div>
+          <div className="pcp-stat__v"><span className="pcp-nb">{below}</span></div>
         </div>
         <div className="pcp-stat">
           <div className="pcp-stat__k">Pools at the current minimum</div>
-          <div className="pcp-stat__v">{atCurrent}</div>
+          <div className="pcp-stat__v"><span className="pcp-nb">{atCurrent}</span></div>
         </div>
       </div>
       <p className="pcp-why">The minimum is enforced when a pool registers or updates its parameters.</p>

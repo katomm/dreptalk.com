@@ -1823,8 +1823,9 @@ tr.diff-block-del > th {
 
 
 /* Parameter change panel (/ga/new)
-   Global because the panel is a React island and the narrow layout needs a
-   media query. --warn marks what the change pushes over a limit (pools above
+   Global because the panel is a React island. The layout follows the panel's
+   own width (container queries), since the /ga/new form column is narrower
+   than the viewport: two columns from 880px of panel, one column below. --warn marks what the change pushes over a limit (pools above
    the new saturation point, pools below the new minimum cost), the same amber
    as --c-cc. Track and bar tones are mixed from the theme tokens, so they
    follow the theme without tokens of their own. */
@@ -1833,6 +1834,7 @@ tr.diff-block-del > th {
   --pcp-dock-h: 80px;
 }
 .pcp-panel {
+  container: pcp-panel / inline-size;
   --warn: #c2410c;
   --pcp-track: color-mix(in srgb, var(--muted) 18%, var(--bg));
   --pcp-bar: color-mix(in srgb, var(--muted) 36%, var(--bg));
@@ -2065,7 +2067,7 @@ html[data-theme='dark'] .pcp-panel {
 .pcp-card[data-state='invalid'] .pcp-mark--new {
   background: var(--danger);
 }
-.pcp-mark span {
+.pcp-marklabel {
   position: absolute;
   top: -18px;
   left: 50%;
@@ -2075,14 +2077,20 @@ html[data-theme='dark'] .pcp-panel {
   white-space: nowrap;
 }
 /* "now" sits below the track and "new" above it, so the two never collide. */
-.pcp-mark--now span {
+.pcp-mark--now .pcp-marklabel {
   top: 22px;
   color: var(--muted);
 }
-.pcp-mark--new span {
+.pcp-mark--new .pcp-marklabel {
   color: var(--accent);
 }
-.pcp-card[data-state='invalid'] .pcp-mark--new span {
+.pcp-bins__mark--now .pcp-marklabel {
+  color: var(--muted);
+}
+.pcp-bins__mark--new .pcp-marklabel {
+  color: var(--accent);
+}
+.pcp-card[data-state='invalid'] .pcp-mark--new .pcp-marklabel {
   color: var(--danger);
 }
 .pcp-scale__end {
@@ -2105,6 +2113,7 @@ html[data-theme='dark'] .pcp-panel {
 
 /* Impact */
 .pcp-impact {
+  container: pcp-impact / inline-size;
   border-top: 1px solid var(--border);
   margin-top: 6px;
   padding-top: 14px;
@@ -2134,16 +2143,14 @@ html[data-theme='dark'] .pcp-panel {
   width: 34px;
   height: 170px;
 }
-.pcp-plot__y span,
-.pcp-plot__x span,
-.pcp-bins__x span {
+.pcp-tick {
   position: absolute;
   font-size: 11px;
   color: var(--muted);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-.pcp-plot__y span {
+.pcp-plot__y .pcp-tick {
   right: 0;
   transform: translateY(-50%);
 }
@@ -2156,15 +2163,15 @@ html[data-theme='dark'] .pcp-panel {
   position: relative;
   height: 20px;
 }
-.pcp-plot__x span,
-.pcp-bins__x span {
+.pcp-plot__x .pcp-tick,
+.pcp-bins__x .pcp-tick {
   top: 4px;
   transform: translateX(-50%);
 }
-.pcp-bins__x span:first-child {
+.pcp-bins__x .pcp-tick:first-child {
   transform: none;
 }
-.pcp-bins__x span:last-child {
+.pcp-bins__x .pcp-tick:last-child {
   transform: translateX(-100%);
 }
 .pcp-bins {
@@ -2197,21 +2204,6 @@ html[data-theme='dark'] .pcp-panel {
 .pcp-bins__mark--new {
   background: var(--accent);
 }
-.pcp-bins__mark span {
-  position: absolute;
-  top: -18px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 10.5px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-.pcp-bins__mark--now span {
-  color: var(--muted);
-}
-.pcp-bins__mark--new span {
-  color: var(--accent);
-}
 .pcp-legend {
   display: flex;
   flex-wrap: wrap;
@@ -2219,6 +2211,13 @@ html[data-theme='dark'] .pcp-panel {
   font-size: 11.5px;
   color: var(--muted);
   margin-top: 6px;
+}
+.pcp-legend__item {
+  white-space: nowrap;
+}
+/* Keeps an amount and its unit, or a "from" figure, on one line. */
+.pcp-nb {
+  white-space: nowrap;
 }
 .pcp-swatch {
   display: inline-block;
@@ -2399,7 +2398,7 @@ html[data-theme='dark'] .pcp-panel {
   font-family: var(--font-mono);
   font-size: 12px;
 }
-/* 1px so the observer always has an area to watch, the negative margin takes it back. */
+/* The panel measures this 1px marker to dock the action block, the negative margin takes the pixel back. */
 .pcp-action-slot {
   height: 1px;
   margin-bottom: -1px;
@@ -2447,7 +2446,8 @@ html[data-theme='dark'] .pcp-panel {
   cursor: not-allowed;
 }
 
-@media (min-width: 861px) {
+/* Wide panel: the summary sits next to the cards and stays in view. */
+@container pcp-panel (min-width: 880px) {
   .pcp-grid {
     grid-template-columns: minmax(0, 1fr) 300px;
   }
@@ -2457,13 +2457,15 @@ html[data-theme='dark'] .pcp-panel {
   }
 }
 
-/* Narrow screens: the summary cards flow below the parameters and the action
+/* Narrow panel: the summary cards flow below the parameters and the action
    block is a compact row with the count and the reason or Ready. While its
    own place in the summary is still below the screen (data-docked, set by the
-   panel), it is pinned to the bottom edge. Once that place scrolls into view,
-   or the user has scrolled past the panel to the fields below it, the block
-   sits in the summary and scrolls with the page. */
-@media (max-width: 860px) {
+   panel only in this layout), it is pinned to the bottom edge, its content
+   lined up with the panel (--pcp-dock-l and --pcp-dock-r, also set by the
+   panel). Once that place scrolls into view, or the user has scrolled past
+   the panel to the fields below it, the block sits in the summary and
+   scrolls with the page. */
+@container pcp-panel (max-width: 879.98px) {
   .pcp-action {
     flex-direction: row;
     align-items: center;
@@ -2480,17 +2482,13 @@ html[data-theme='dark'] .pcp-panel {
     bottom: 0;
     z-index: 40;
     min-height: var(--pcp-dock-h);
-    padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+    padding: 10px max(16px, var(--pcp-dock-r, 16px)) calc(10px + env(safe-area-inset-bottom))
+      max(16px, var(--pcp-dock-l, 16px));
     border: 0;
     border-top: 1px solid var(--border);
     border-radius: 0;
     background: var(--bg);
     box-shadow: var(--shadow);
-  }
-  /* The preprod testnet pill (Layout.astro) is fixed to the bottom right
-     corner, where the docked bar keeps its button. Lift it above the bar. */
-  body:has(.pcp-panel[data-docked='true']) .preprod-flag {
-    bottom: calc(var(--pcp-dock-h) + 10px + env(safe-area-inset-bottom, 0px));
   }
   .pcp-action__status {
     order: 0;
@@ -2517,8 +2515,14 @@ html[data-theme='dark'] .pcp-panel {
     padding: 10px 14px;
   }
 }
-/* Phones: one tile per row, label and figure side by side. */
-@media (max-width: 560px) {
+/* The preprod testnet pill (Layout.astro) is fixed to the bottom right
+   corner, where the docked bar keeps its button. Lift it above the bar. The
+   panel only docks in its one-column layout, so this needs no query. */
+body:has(.pcp-panel[data-docked='true']) .preprod-flag {
+  bottom: calc(var(--pcp-dock-h) + 10px + env(safe-area-inset-bottom, 0px));
+}
+/* Narrow impact sections: one tile per row, label and figure side by side. */
+@container pcp-impact (max-width: 480px) {
   .pcp-stats {
     grid-template-columns: minmax(0, 1fr);
     gap: 6px;
@@ -2532,8 +2536,9 @@ html[data-theme='dark'] .pcp-panel {
   }
   .pcp-stat__v {
     text-align: right;
-    white-space: nowrap;
   }
+}
+@media (max-width: 560px) {
   .pcp-action__reason,
   .pcp-action__ready {
     font-size: 12px;
