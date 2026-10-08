@@ -30,10 +30,23 @@ describe('govActionTypeAvailable', () => {
     }
   });
 
-  // The switch is ON here, so only the treasury rule can refuse: deleting the
-  // TreasuryWithdrawals line in govActionTypeAvailable makes this test fail.
-  it('refuses only treasury withdrawals on mainnet with submission switched on', () => {
+  // The switch is ON here, so only the guardrail rule can refuse: emptying
+  // GUARDRAIL_FORM_TYPES makes this test fail.
+  it('refuses only the guardrail types on mainnet with submission switched on', () => {
     const on = { submissionAvailable: true, network: 'mainnet' } as const;
-    expect(GOV_ACTION_FORM_TYPES.filter((type) => !govActionTypeAvailable(type, on))).toEqual(['TreasuryWithdrawals']);
+    expect(GOV_ACTION_FORM_TYPES.filter((type) => !govActionTypeAvailable(type, on))).toEqual([
+      'TreasuryWithdrawals',
+      'ParameterChange',
+    ]);
+  });
+});
+
+describe('ParameterChange availability', () => {
+  it('offers parameter changes on preprod only, whatever the switch says', () => {
+    expect(govActionTypeAvailable('ParameterChange', { submissionAvailable: true, network: 'preprod' })).toBe(true);
+    expect(govActionTypeAvailable('ParameterChange', { submissionAvailable: true, network: 'mainnet' })).toBe(false);
+    expect(govActionTypeAvailable('ParameterChange', { submissionAvailable: false, network: 'preprod' })).toBe(false);
+    // Control: a type without a guardrail follows the switch on mainnet.
+    expect(govActionTypeAvailable('InfoAction', { submissionAvailable: true, network: 'mainnet' })).toBe(true);
   });
 });

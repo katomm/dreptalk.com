@@ -22,6 +22,7 @@ import { shortenHash } from './onchain.js';
 import { CONSTITUTION_DOCUMENT_MAX_BYTES, REFERENCES_MAX } from './infoActionLimits.js';
 import type { GovActionDraft } from './govActionDraft.js';
 import { draftSlugsFromReferences } from './draftLink.js';
+import type { ParamKey } from './paramDefs.js';
 import type { ActionContextResponse } from './actionContextHandler.js';
 import { parseColdCredential, validateCommitteeUpdate } from './committeeUpdate.js';
 import type {
@@ -126,12 +127,20 @@ export interface TreasuryPanelState {
   rows: TreasuryRowInput[];
 }
 
+/** The parameters picked for change, in PARAM_KEYS order, and every typed value (kept when a chip is unpicked). */
+export interface ParamChangePanelState {
+  prev: PrevActionRef | null;
+  picked: ParamKey[];
+  inputs: Partial<Record<ParamKey, string>>;
+}
+
 export interface PanelStates {
   NoConfidence: NoConfidencePanelState;
   HardForkInitiation: HardForkPanelState;
   NewConstitution: NewConstitutionPanelState;
   UpdateCommittee: UpdateCommitteePanelState;
   TreasuryWithdrawals: TreasuryPanelState;
+  ParameterChange: ParamChangePanelState;
 }
 
 /**
@@ -352,6 +361,7 @@ export function emptyPanelStates(): PanelStates {
     NewConstitution: { prev: null, text: '', scriptHashHex: null },
     UpdateCommittee: { prev: null, removeHex: [], removeFree: [], add: [], quorum: null },
     TreasuryWithdrawals: { rows: [EMPTY_TREASURY_ROW] },
+    ParameterChange: { prev: null, picked: [], inputs: {} },
   };
 }
 
@@ -484,6 +494,8 @@ export function panelStatesFromDraft(draft: GovActionDraft): PanelStates {
     NewConstitution: coerceNewConstitutionPanel(draft.panels.NewConstitution),
     UpdateCommittee: coerceUpdateCommitteePanel(draft.panels.UpdateCommittee),
     TreasuryWithdrawals: coerceTreasuryPanel(draft.panels.TreasuryWithdrawals),
+    // A later task replaces this with real coercion of the stored panel.
+    ParameterChange: { prev: null, picked: [], inputs: {} },
   };
 }
 
@@ -1081,6 +1093,8 @@ export function chosenPrev(type: GovActionFormType, panels: PanelStates): PrevAc
     case 'TreasuryWithdrawals':
       // No purpose chain: the guardrail state takes the previous action's place.
       return null;
+    case 'ParameterChange':
+      return null;
   }
 }
 
@@ -1185,7 +1199,10 @@ function panelsAreEmpty(panels: PanelStates): boolean {
     panels.UpdateCommittee.removeFree.length === 0 &&
     panels.UpdateCommittee.add.length === 0 &&
     panels.UpdateCommittee.quorum === null &&
-    isEmptyTreasuryPanel(panels.TreasuryWithdrawals)
+    isEmptyTreasuryPanel(panels.TreasuryWithdrawals) &&
+    panels.ParameterChange.prev === null &&
+    panels.ParameterChange.picked.length === 0 &&
+    Object.keys(panels.ParameterChange.inputs).length === 0
   );
 }
 
@@ -1644,5 +1661,7 @@ export function panelReadiness(
       const result = validateTreasuryPanel(panels.TreasuryWithdrawals, context, env);
       return result.ok ? { ok: true, error: '' } : { ok: false, error: result.error };
     }
+    case 'ParameterChange':
+      return { ok: false, error: 'Parameter changes are not available yet.' };
   }
 }

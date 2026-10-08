@@ -857,6 +857,9 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
           },
         };
       }
+
+      case 'ParameterChange':
+        return { ok: false, error: 'Parameter changes are not available yet.' };
     }
   }
 

@@ -153,6 +153,9 @@ function previewOnchain(
         missing,
       };
     }
+
+    case 'ParameterChange':
+      return { onchain: null, missing: [] };
   }
 }
 

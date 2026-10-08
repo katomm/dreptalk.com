@@ -83,8 +83,8 @@ function plan(input: ThresholdInput, p: ProtocolParams): { drep: number | null; 
 }
 
 // The action types SPOs vote on at all (CIP-1694). ParameterChange is absent
-// because there it depends on the changed parameters, and this sentence is
-// only used for the types the submit form offers.
+// because there it depends on the changed parameters, which the caller passes
+// as a scope.
 const SPO_VOTING_TYPES = new Set(['NoConfidence', 'NewCommittee', 'HardForkInitiation']);
 
 /** A threshold fraction as a percentage string, trailing zeros trimmed. */
@@ -106,12 +106,12 @@ function thresholdPctLabel(fraction: number | null): string {
  * no-confidence motion has passed, the ledger switches to the
  * *_committee_no_confidence thresholds, a state this form does not model.
  */
-export function thresholdSentence(type: GovActionFormType, p: ProtocolParams): string {
+export function thresholdSentence(type: GovActionFormType, p: ProtocolParams, paramScope?: ParamChangeScope): string {
   // The form's type names differ from Koios's in one place (UpdateCommittee
   // vs NewCommittee), which prevAction.ts owns, so there is exactly one
   // threshold table here and one mapping there.
   const koiosType = koiosProposalType(type);
-  const pl = plan({ type: koiosType, drepYesPct: null, spoYesPct: null, ccYesPct: null }, p);
+  const pl = plan({ type: koiosType, drepYesPct: null, spoYesPct: null, ccYesPct: null, paramScope }, p);
   if (!pl) return 'No ratification thresholds, an InfoAction is advisory and never enacts.';
 
   // Whether SPOs vote at all is a property of the action type, not of the
@@ -119,12 +119,22 @@ export function thresholdSentence(type: GovActionFormType, p: ProtocolParams): s
   // type SPOs do vote on, and the card must then say unknown, not go silent.
   const parts = [`DReps ${thresholdPctLabel(pl.drep)}`];
   if (SPO_VOTING_TYPES.has(koiosType)) parts.push(`SPOs ${thresholdPctLabel(pl.spo)}`);
+  if (koiosType === 'ParameterChange' && paramScope) {
+    parts.push(paramScope.touchesSecurity ? `SPOs ${thresholdPctLabel(pl.spo)}` : 'stake pools do not vote on these parameters');
+  }
   parts.push(pl.cc ? 'the committee votes' : 'the committee does not vote');
   const suffix =
     koiosType === 'NoConfidence' || koiosType === 'NewCommittee'
       ? ' (normal state, after a no-confidence vote different committee thresholds apply)'
       : '';
   return `${parts.join(', ')}${suffix}.`;
+}
+
+/** The DRep threshold in percent (one decimal) for a type and parameter scope, null while unknown. */
+export function drepThresholdPct(type: GovActionFormType, p: ProtocolParams | null, paramScope?: ParamChangeScope): number | null {
+  if (!p) return null;
+  const pl = plan({ type: koiosProposalType(type), drepYesPct: null, spoYesPct: null, ccYesPct: null, paramScope }, p);
+  return pl?.drep == null ? null : Math.round(pl.drep * 1000) / 10;
 }
 
 // Non-null placeholder params for decidersLine's plan() probe. Only the

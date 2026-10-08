@@ -65,6 +65,7 @@ const PANEL_LABEL: Record<GovActionFormType, string> = {
   NewConstitution: 'constitution',
   UpdateCommittee: 'committee',
   TreasuryWithdrawals: 'treasury withdrawal',
+  ParameterChange: 'parameter change',
 };
 
 /**

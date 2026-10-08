@@ -192,3 +192,12 @@ describe('treasury withdrawals in the type list', () => {
     expect(GOV_ACTION_FORM_TYPES.filter((type) => !needsContext(type))).toEqual(['InfoAction']);
   });
 });
+
+describe('ParameterChange', () => {
+  it('gives ParameterChange its own chain', () => {
+    expect(chainForType('ParameterChange')).toEqual(['ParameterChange']);
+    expect(koiosProposalType('ParameterChange')).toBe('ParameterChange');
+    expect(needsContext('ParameterChange')).toBe(true);
+    expect(GOV_ACTION_FORM_TYPES).toContain('ParameterChange');
+  });
+});
