@@ -11,6 +11,7 @@ import type { DepositState } from '@/lib/governance/govActionFormState.js';
 import { formatAdaPlain } from '@/lib/format/ada.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import { govActionTypeAvailable } from '@/lib/governance/submissionGate.js';
+import { OFFERED_PARAM_SCOPE } from '@/lib/governance/paramDefs.js';
 
 export interface TypeSelectorProps {
   value: GovActionFormType;
@@ -65,6 +66,12 @@ const TYPES: { type: GovActionFormType; label: string; summary: string }[] = [
     summary:
       "Pays ada from the treasury to one or more registered stake addresses. The constitution's guardrails script checks the action before it can be submitted.",
   },
+  {
+    type: 'ParameterChange',
+    label: 'Protocol parameter change',
+    summary:
+      "Changes staking parameters: k, a0, minimum pool cost, monetary expansion or treasury cut. Decided by DReps and the Constitutional Committee. Stake pools do not vote on these parameters. Checked by the constitution's guardrails script.",
+  },
 ];
 
 /** The label the selector shows for a type, reused wherever the form names the type it builds. */
@@ -115,7 +122,7 @@ export default function TypeSelector({ value, onChange, params, deposit, network
               </span>
               <span style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--muted)', marginTop: '0.25rem' }}>
                 {params
-                  ? thresholdSentence(t.type, params)
+                  ? thresholdSentence(t.type, params, t.type === 'ParameterChange' ? OFFERED_PARAM_SCOPE : undefined)
                   : 'Loading the current voting thresholds...'}
               </span>
               <span style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--muted)', marginTop: '0.15rem' }}>
