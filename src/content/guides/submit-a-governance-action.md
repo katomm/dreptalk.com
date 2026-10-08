@@ -113,7 +113,8 @@ rewards. On DRepTalk it is available on preprod for now.
   runs that check before your wallet signs. If the script rejects the change,
   nothing is signed and the page tells you why.
 - **Add the changes to the abstract** is an optional button that adds a
-  "Changes" paragraph with the old and new values to your abstract.
+  "Changes" paragraph with the old and new values to your abstract. After you
+  change a value, the same button replaces that paragraph with the new values.
 
 ## After you submit
 
