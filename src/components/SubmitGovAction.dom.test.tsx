@@ -149,6 +149,9 @@ const EPOCH_PARAMS_ROW = {
   pvt_motion_no_confidence: 0.51,
   pvt_committee_normal: 0.51,
   pvt_hard_fork_initiation: 0.51,
+  // The staking parameters in force, for the old values in the review of a parameter change.
+  optimal_pool_count: 500,
+  influence: 0.3,
 };
 
 const COMMITTEE_CONTEXT = {
@@ -2102,6 +2105,24 @@ describe('SubmitGovAction', () => {
         values: { k: { n: 600n, d: 1n }, a0: { n: 7n, d: 20n } },
         guardrail: { state: 'known', scriptHash: GUARDRAIL_SCRIPT_HASH_HEX },
       });
+    });
+
+    it('shows the changed parameters in the review', async () => {
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      fillMetadata();
+      await fillParamPanel({ k: '600', a0: '0.35' });
+      fireEvent.click(await screen.findByRole('button', { name: 'Review and submit' }));
+
+      const dialog = await screen.findByRole('dialog', {}, SLOW);
+      const rowOf = (label: string) => within(dialog).getByText(label).closest('li') as HTMLElement;
+      await within(dialog).findByText('On-chain changes', {}, SLOW);
+      const k = rowOf('Target Number of Pools (k)');
+      expect(within(k).getByText('500')).toBeTruthy();
+      expect(within(k).getByText('600')).toBeTruthy();
+      const a0 = rowOf('Pledge Influence (a0)');
+      expect(within(a0).getByText('Technical')).toBeTruthy();
+      expect(within(a0).getByText('0.3')).toBeTruthy();
+      expect(within(a0).getByText('0.35')).toBeTruthy();
     });
 
     /** Fills the form on the given chain, then answers the submit's refetch with a root that moved. */
