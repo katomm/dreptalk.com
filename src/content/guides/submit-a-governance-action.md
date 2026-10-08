@@ -15,7 +15,7 @@ faqs:
   - q: "Do I need a wallet to write a governance action?"
     a: "No. You can fill in the form, save it as a draft and review it without a wallet. You only connect a wallet in the last step, to pay the deposit and sign."
   - q: "Which governance actions can I submit?"
-    a: "Info actions, motions of no confidence, hard fork initiations, new constitutions, committee updates and, on preprod, treasury withdrawals. Parameter changes are not offered yet."
+    a: "Info actions, motions of no confidence, hard fork initiations, new constitutions, committee updates and, on preprod, treasury withdrawals and staking parameter changes. Parameter changes beyond the five staking parameters are not offered yet."
   - q: "Why does a treasury withdrawal need my stake address to be registered?"
     a: "The ledger only pays treasury withdrawals to registered stake addresses. DRepTalk checks every recipient before you sign, so the transaction does not fail on-chain."
   - q: "Can I change a governance action after I submit it?"
@@ -54,8 +54,8 @@ action** card on your home page.
    new constitution and a committee update each build on the last action of
    their kind, and DRepTalk fills in that previous action for you. A hard fork
    asks for the protocol version, a new constitution for the constitution
-   document, a committee update for the members and the quorum, and a treasury
-   withdrawal for its recipients.
+   document, a committee update for the members and the quorum, a treasury
+   withdrawal for its recipients, and a parameter change for the new values.
 3. **Write the metadata.** Every action carries a title (up to 80 characters),
    an abstract, a motivation and a rationale, plus up to ten references. Link
    your Proposal Drafts thread with **Link a Proposal Draft**, so DRepTalk
@@ -91,6 +91,29 @@ addresses. On DRepTalk it is available on preprod for now.
 - The transaction needs about 5 ada in plain ada UTxOs as collateral. It is only
   spent if the script check fails on-chain, which the check before signing is
   there to prevent.
+
+## Protocol parameter changes
+
+A parameter change sets new values for the staking parameters that shape pool
+rewards. On DRepTalk it is available on preprod for now.
+
+- Pick any of five parameters, and several can go into one action: the target
+  number of pools (k), the pledge influence (a0), the minimum pool cost, the
+  monetary expansion (rho) and the treasury cut (tau).
+- The form shows each parameter's current value and the range the constitution
+  allows. It blocks values outside that range and values equal to the current one.
+- Impact panels show what the new values would do: the saturation point and the
+  pools above it, the maximum pool rewards by stake and pledge, the pools below a
+  new minimum cost, and how the reserve draw splits between the treasury and
+  stakers. They are a model at full block production and before fees, so read
+  them as an estimate.
+- DReps and the Constitutional Committee decide these changes. Stake pools do
+  not vote on these five parameters.
+- The constitution's guardrails script checks every parameter change. DRepTalk
+  runs that check before your wallet signs. If the script rejects the change,
+  nothing is signed and the page tells you why.
+- **Add the changes to the abstract** is an optional button that adds a
+  "Changes" paragraph with the old and new values to your abstract.
 
 ## After you submit
 

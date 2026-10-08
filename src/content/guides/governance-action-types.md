@@ -27,7 +27,7 @@ A hard fork initiation moves the network to a new protocol major version, introd
 
 ## Protocol parameter changes
 
-This action adjusts one or more on-chain protocol parameters, such as transaction fees, block sizes, or economic constants. It is voted on by **DReps and the constitutional committee**. For parameters classified as security-relevant, **SPOs** also have a vote.
+This action adjusts one or more on-chain protocol parameters, such as transaction fees, block sizes, or economic constants. It is voted on by **DReps and the constitutional committee**. For parameters classified as security-relevant, **SPOs** also have a vote. DRepTalk can submit changes to the five staking parameters on preprod, see [Submit a governance action](/help/submit-a-governance-action/).
 
 ## Treasury withdrawals
 
