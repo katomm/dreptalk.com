@@ -8,7 +8,8 @@
 // script hash for a new constitution. InfoAction is unchained and gets only
 // the current epoch. A treasury withdrawal has no chain and gets the guardrail
 // the chain requires instead (known or absent, 503 guardrail_unknown when
-// nothing proves it).
+// nothing proves it). A parameter change gets its chain, the guardrail, the
+// committee quorum and the parameters in force.
 //
 // Mirrors infoActionMetadataHandler.ts's dependency-injection style, but is
 // itself the single gate call site (the context policy needs no JWT and a
@@ -29,6 +30,7 @@ import { parseHardForkVersion } from './onchain.js';
 import { govActionSubmissionAvailable, govActionTypeAvailable } from './submissionGate.js';
 import { pickConstitutionScriptHash, type GuardrailPick } from './guardrailPick.js';
 import type { GuardrailContext } from './guardrailScript.js';
+import { currentParamValues, valuesToJson, type ParamValuesJson } from './paramDefs.js';
 import { getGovernanceActionTitlesByIds } from '../db/governance.js';
 import { getCommitteeTimeline } from '../db/committee.js';
 import { getAllCcMemberNames } from '../db/ccMemberName.js';
@@ -78,7 +80,9 @@ export interface ActionContextResponse {
     maxTermLength: number | null;
   };
   constitution?: { scriptHash: string | null };
-  /** TreasuryWithdrawals only: the guardrail the chain requires (see guardrailPick.ts). */
+  /** ParameterChange only: the five staking parameters in force, exact (see paramDefs.ts). */
+  params?: ParamValuesJson;
+  /** TreasuryWithdrawals and ParameterChange: the guardrail the chain requires (see guardrailPick.ts). */
   guardrail?: GuardrailContext;
 }
 
@@ -177,10 +181,14 @@ export async function handleActionContext(
     const chain = chainForType(type);
     const tipPromise = deps.koios.tip();
     const prevPromise = chain ? buildPrevContext(deps.koios, db, chain) : null;
-    const needsEpochParams = type === 'HardForkInitiation' || type === 'NoConfidence' || type === 'UpdateCommittee';
+    const isGuardrailType = type === 'TreasuryWithdrawals' || type === 'ParameterChange';
+    const needsEpochParams =
+      type === 'HardForkInitiation' || type === 'NoConfidence' || type === 'UpdateCommittee' || type === 'ParameterChange';
     const paramsPromise = needsEpochParams ? deps.koios.epochParams() : null;
     const committeePromise =
-      type === 'NoConfidence' || type === 'UpdateCommittee' ? deps.koios.committeeContext() : null;
+      type === 'NoConfidence' || type === 'UpdateCommittee' || type === 'ParameterChange'
+        ? deps.koios.committeeContext()
+        : null;
     // preprod's constitution came from the Conway bootstrap with no
     // NewConstitution ever ratified, so the last ratified ParameterChange or
     // TreasuryWithdrawals is the only witness of the guardrails script in
@@ -200,12 +208,12 @@ export async function handleActionContext(
       type === 'NoConfidence' || type === 'UpdateCommittee'
         ? Promise.all([getCommitteeTimeline(db), getAllCcMemberNames(db)]).catch(() => null)
         : null;
-    // A treasury withdrawal runs the constitution's guardrails script, so the
+    // A treasury withdrawal or parameter change runs the constitution's guardrails script, so the
     // route says which script the chain requires. Both witness rows are read
     // explicitly because this type has no chain of its own, and a failed read
     // is an unknown guardrail, never an absent one.
     const guardrailPromise: Promise<GuardrailPick> | null =
-      type === 'TreasuryWithdrawals'
+      isGuardrailType
         ? Promise.all([
             deps.koios.lastRatifiedProposal(CONSTITUTION_TYPES),
             deps.koios.lastRatifiedProposal(POLICY_HASH_WITNESS_TYPES),
@@ -261,7 +269,11 @@ export async function handleActionContext(
       response.constitution = { scriptHash: pick.state === 'known' ? pick.scriptHash : null };
     }
 
-    if (type === 'TreasuryWithdrawals') {
+    if (type === 'ParameterChange') {
+      response.params = valuesToJson(currentParamValues(params as Record<string, unknown> | null));
+    }
+
+    if (isGuardrailType) {
       if (!guardrailPick || guardrailPick.state === 'unknown') {
         return jsonResponse({ error: 'guardrail_unknown' }, 503, { 'cache-control': 'no-store' });
       }
