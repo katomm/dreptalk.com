@@ -27,7 +27,7 @@ import {
   type GovActionRef,
 } from './prevAction.js';
 import { parseHardForkVersion } from './onchain.js';
-import { govActionSubmissionAvailable, govActionTypeAvailable } from './submissionGate.js';
+import { GUARDRAIL_FORM_TYPES, govActionSubmissionAvailable, govActionTypeAvailable } from './submissionGate.js';
 import { pickConstitutionScriptHash, type GuardrailPick } from './guardrailPick.js';
 import type { GuardrailContext } from './guardrailScript.js';
 import { currentParamValues, valuesToJson, type ParamValuesJson } from './paramDefs.js';
@@ -181,7 +181,7 @@ export async function handleActionContext(
     const chain = chainForType(type);
     const tipPromise = deps.koios.tip();
     const prevPromise = chain ? buildPrevContext(deps.koios, db, chain) : null;
-    const isGuardrailType = type === 'TreasuryWithdrawals' || type === 'ParameterChange';
+    const isGuardrailType = GUARDRAIL_FORM_TYPES.has(type);
     const needsEpochParams =
       type === 'HardForkInitiation' || type === 'NoConfidence' || type === 'UpdateCommittee' || type === 'ParameterChange';
     const paramsPromise = needsEpochParams ? deps.koios.epochParams() : null;

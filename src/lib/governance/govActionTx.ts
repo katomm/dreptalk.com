@@ -9,7 +9,7 @@
 
 import { Anchor, Data, RewardAccount, Url, type GovernanceAction } from '@evolution-sdk/evolution';
 import { makeClient, signAndSubmit } from './drepTx.js';
-import { buildGovernanceAction, type GovActionSpec } from './govActionParts.js';
+import { buildGovernanceAction, isGuardrailSpec, type GovActionSpec } from './govActionParts.js';
 import { guardrailDecision, type GuardrailContext } from './guardrailScript.js';
 import { guardrailPlutusScript } from './guardrailPlutusScript.js';
 import { makeGuardrailEvaluator } from './guardrailEvaluator.js';
@@ -23,7 +23,7 @@ import {
 import { dreptalkCip20Metadatum, DREPTALK_CIP20_LABEL } from '../cardano/tx.js';
 import { hexToBytes } from '../crypto/hex.js';
 import type { CardanoNetwork } from '../config/network.js';
-import { GUARDRAIL_FORM_TYPES, govActionSubmissionAvailable, govActionTypeAvailable } from './submissionGate.js';
+import { govActionSubmissionAvailable, govActionTypeAvailable } from './submissionGate.js';
 
 export interface SubmitGovActionOpts {
   /** CIP-30 wallet API obtained from cardano[walletId].enable(). */
@@ -95,8 +95,7 @@ export async function submitGovAction(opts: SubmitGovActionOpts): Promise<{ txHa
   if (!submissionAvailable) {
     throw new Error('Governance action submission is preprod only.');
   }
-  const needsGuardrail = GUARDRAIL_FORM_TYPES.has(opts.action.type);
-  if (needsGuardrail && !govActionTypeAvailable(opts.action.type, { submissionAvailable, network: opts.network })) {
+  if (isGuardrailSpec(opts.action) && !govActionTypeAvailable(opts.action.type, { submissionAvailable, network: opts.network })) {
     throw new Error(
       opts.action.type === 'ParameterChange' ? 'Parameter changes are preprod only.' : 'Treasury withdrawals are preprod only.',
     );
@@ -104,7 +103,7 @@ export async function submitGovAction(opts: SubmitGovActionOpts): Promise<{ txHa
 
   // Check the guardrail before anything is built, and use its canonical form from here on.
   let action = opts.action;
-  if (action.type === 'TreasuryWithdrawals' || action.type === 'ParameterChange') {
+  if (isGuardrailSpec(action)) {
     const decision = guardrailDecision(action.guardrail);
     if (!decision.ok) throw new Error(decision.message);
     action = { ...action, guardrail: decision.guardrail };
@@ -132,7 +131,7 @@ export async function submitGovAction(opts: SubmitGovActionOpts): Promise<{ txHa
   const inputs = pickInputsToCover(availableUtxos, requiredLovelace);
 
   const txb = makeClient(opts.network, opts.origin, opts.walletApi).newTx();
-  const guardrail = action.type === 'TreasuryWithdrawals' || action.type === 'ParameterChange' ? action.guardrail : null;
+  const guardrail = isGuardrailSpec(action) ? action.guardrail : null;
   const proposed = guardrail
     ? queueGuardrailProposeOps(txb, { action: governanceAction, rewardAccount, anchor, guardrail })
     : txb.propose({ governanceAction, rewardAccount, anchor });

@@ -26,7 +26,7 @@ import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { CopyButton } from '@/components/CopyButton.js';
 import { useCardanoWallets, rememberWallet, recallWallet } from '@/lib/wallet/useCardanoWallets.js';
 import { submitGovAction } from '@/lib/governance/govActionTx.js';
-import { govActionSubmissionAvailable, govActionTypeAvailable } from '@/lib/governance/submissionGate.js';
+import { GUARDRAIL_FORM_TYPES, govActionSubmissionAvailable, govActionTypeAvailable } from '@/lib/governance/submissionGate.js';
 import { collectWalletUtxos, totalLovelace } from '@/lib/governance/walletUtxos.js';
 import { fetchStakeRegistration, fetchStakeRegistrations, rewardAddressToStakeBech32 } from '@/lib/governance/stakeAccount.js';
 import { KEEP_STAKE_KEY_REGISTERED, latestRefundEpoch } from '@/lib/governance/depositRefund.js';
@@ -297,7 +297,7 @@ function preSignatureProblem(
   fresh: ActionContextResponse | null,
   recipientsProblem: string | null,
 ): string | null {
-  if (type === 'TreasuryWithdrawals' || type === 'ParameterChange') {
+  if (GUARDRAIL_FORM_TYPES.has(type)) {
     // A failed refetch (null) is a guardrail nobody could check, which
     // guardrailDecision words as GUARDRAIL_UNKNOWN_MESSAGE.
     const decision = guardrailDecision(fresh?.guardrail);

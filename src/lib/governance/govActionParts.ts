@@ -25,6 +25,7 @@ import { hexToBytes } from '../crypto/hex.js';
 import type { GuardrailContext } from './guardrailScript.js';
 import { buildParamUpdate } from './paramUpdate.js';
 import type { ParamValues } from './paramDefs.js';
+import { GUARDRAIL_FORM_TYPES } from './submissionGate.js';
 
 /** The typed inputs for every governance action this app can submit. */
 export type GovActionSpec =
@@ -59,6 +60,13 @@ export type GovActionSpec =
       values: ParamValues;
       guardrail: GuardrailContext;
     };
+
+/** A spec whose action carries the constitution's guardrails script. */
+export type GuardrailGovActionSpec = Extract<GovActionSpec, { type: 'TreasuryWithdrawals' | 'ParameterChange' }>;
+
+export function isGuardrailSpec(spec: GovActionSpec): spec is GuardrailGovActionSpec {
+  return GUARDRAIL_FORM_TYPES.has(spec.type);
+}
 
 /** Builds the SDK GovActionId from a PrevActionRef, or null when the chain has no prior root. */
 function buildPrevGovActionId(prev: PrevActionRef | null): GovernanceAction.GovActionId | null {

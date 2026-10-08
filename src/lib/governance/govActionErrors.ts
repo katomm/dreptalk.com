@@ -41,9 +41,15 @@ function findFailureCause(err: unknown): EvaluationFailureCause | null {
   return null;
 }
 
+/** The sentence for a rejected guardrail evaluation, per type. Any type not listed gets the treasury wording. */
+const EVALUATION_FAILED_BY_TYPE: Partial<Record<GovActionFormType, string>> = {
+  TreasuryWithdrawals: EVALUATION_FAILED_MESSAGE,
+  ParameterChange: PARAM_EVALUATION_FAILED_MESSAGE,
+};
+
 /** The submit form's wording for a guardrail or collateral failure, or null for any other error. */
-export function mapGuardrailBuildError(err: unknown, type?: GovActionFormType): MappedBuildError | null {
-  const failed = type === 'ParameterChange' ? PARAM_EVALUATION_FAILED_MESSAGE : EVALUATION_FAILED_MESSAGE;
+export function mapGuardrailBuildError(err: unknown, type: GovActionFormType): MappedBuildError | null {
+  const failed = EVALUATION_FAILED_BY_TYPE[type] ?? EVALUATION_FAILED_MESSAGE;
   const cause = findFailureCause(err);
   if (cause?.code === 'evaluation_failed') return { message: failed, detail: cause.detail };
   if (cause?.code === 'unsupported_parameter_change') return { message: UNSUPPORTED_PARAMETER_CHANGE_MESSAGE, detail: null };
