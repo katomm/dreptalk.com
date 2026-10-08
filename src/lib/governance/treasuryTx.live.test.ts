@@ -1,6 +1,6 @@
 // LIVE preprod build of a guardrail-checked treasury withdrawal (gated, see
 // __fixtures__/liveWallet.ts for the wallet it needs). Nothing is submitted.
-// It drives queueTreasuryProposeOps against a read-only client on preprod
+// It drives queueGuardrailProposeOps against a read-only client on preprod
 // Koios directly, with the SDK's own provider evaluator (Koios /ogmios, no
 // token), so it proves the propose redeemer, the attached script, the
 // collateral and the evaluation against the live chain before any deploy.
@@ -20,7 +20,7 @@ import {
 } from '@evolution-sdk/evolution';
 import { LIVE, PREPROD_KOIOS, loadDrepKey } from './__fixtures__/liveWallet.js';
 import { buildGovernanceAction } from './govActionParts.js';
-import { queueTreasuryProposeOps, type GovActionTxBuilder } from './govActionTx.js';
+import { queueGuardrailProposeOps, type GovActionTxBuilder } from './govActionTx.js';
 import { pickConstitutionScriptHash } from './guardrailPick.js';
 import { GUARDRAIL_SCRIPT_HASH_HEX } from './guardrailScript.js';
 import { pickLastEnacted } from './prevAction.js';
@@ -83,7 +83,7 @@ describe.skipIf(!LIVE)('LIVE preprod treasury withdrawal build', () => {
 
     let built: Awaited<ReturnType<GovActionTxBuilder['build']>>;
     try {
-      built = await queueTreasuryProposeOps(client.newTx() as unknown as GovActionTxBuilder, {
+      built = await queueGuardrailProposeOps(client.newTx() as unknown as GovActionTxBuilder, {
         action,
         rewardAccount,
         anchor,

@@ -239,3 +239,30 @@ describe('buildGovernanceAction TreasuryWithdrawals', () => {
     expect(decoded.policyHash ? ScriptHash.toHex(decoded.policyHash) : null).toBe(GUARDRAIL_SCRIPT_HASH_HEX);
   });
 });
+
+describe('ParameterChange', () => {
+  const GUARDRAIL = 'fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64';
+  it('builds the action with the previous id, the update and the guardrail', () => {
+    const action = buildGovernanceAction({
+      type: 'ParameterChange',
+      prev: { txHashHex: 'ab'.repeat(32), index: 1 },
+      values: { k: { n: 600n, d: 1n } },
+      guardrail: { state: 'known', scriptHash: GUARDRAIL },
+    });
+    if (action._tag !== 'ParameterChangeAction') throw new Error(action._tag);
+    expect(action.protocolParamUpdate.nOpt).toBe(600n);
+    expect(action.policyHash ? ScriptHash.toHex(action.policyHash) : null).toBe(GUARDRAIL);
+    expect(action.govActionId).not.toBeNull();
+  });
+  it('leaves the policy hash empty for a proven absence', () => {
+    const action = buildGovernanceAction({
+      type: 'ParameterChange',
+      prev: null,
+      values: { tau: { n: 1n, d: 4n } },
+      guardrail: { state: 'absent' },
+    });
+    if (action._tag !== 'ParameterChangeAction') throw new Error(action._tag);
+    expect(action.policyHash).toBeNull();
+    expect(action.govActionId).toBeNull();
+  });
+});
