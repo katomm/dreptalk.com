@@ -32,6 +32,7 @@
     "test:live": "DREPTALK_LIVE=1 vitest run src/lib/governance/drepTx.live.test.ts",
     "test:live:submit": "DREPTALK_LIVE=1 vitest run src/lib/governance/scriptVoteTx.live.test.ts",
     "test:live:treasury": "DREPTALK_LIVE=1 vitest run src/lib/governance/treasuryTx.live.test.ts",
+    "test:devnet": "vitest run -c vitest.devnet.config.ts",
     "preflight": "bash scripts/preflight.sh",
     "check:deployed": "node scripts/check-deployed-assets.mjs",
     "assets:help": "node scripts/generate-help-illustrations.mjs",
@@ -51,7 +52,7 @@
     "@astrojs/cloudflare": "~14.2.2",
     "@astrojs/markdown-remark": "7.2.4",
     "@astrojs/react": "^6.0.5",
-    "@evolution-sdk/evolution": "0.5.17",
+    "@evolution-sdk/evolution": "0.6.0",
     "@noble/curves": "^2.4.0",
     "@stricahq/cardano-identicon": "^1.0.0",
     "astro": "~7.2.9",
@@ -74,6 +75,11 @@
     "@biomejs/biome": "^2.5.12",
     "@cloudflare/vitest-pool-workers": "^0.22.0",
     "@cloudflare/workers-types": "^5.20260906.1",
+    "@effect/platform": "^0.96.3",
+    "@effect/platform-node": "^0.106.0",
+    "@evolution-sdk/aiken-uplc": "2.0.20",
+    "@evolution-sdk/devnet": "3.0.21",
+    "@evolution-sdk/scalus-uplc": "2.0.20",
     "@testing-library/react": "^16.3.3",
     "@types/jsonld": "^1.5.15",
     "@types/node": "^26.4.1",
@@ -98,6 +104,9 @@
     "devalue": "^5.9.1",
     "http-cache-semantics": "^4.3.0",
     "source-map-js": "^1.2.2",
-    "smol-toml": "^1.9.0"
+    "smol-toml": "^1.9.0",
+    "cip-179": {
+      "@evolution-sdk/evolution": "$@evolution-sdk/evolution"
+    }
   }
 }

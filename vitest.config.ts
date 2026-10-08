@@ -12,7 +12,7 @@ export default defineConfig({
           name: 'node',
           environment: 'node',
           include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'config/**/*.test.ts'],
-          exclude: ['src/**/*.workers.test.ts', 'node_modules/**'],
+          exclude: ['src/**/*.workers.test.ts', 'src/**/*.devnet.test.ts', 'node_modules/**'],
         },
         resolve: {
           alias: { '@': new URL('./src', import.meta.url).pathname },
