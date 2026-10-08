@@ -14,7 +14,7 @@
 // The environment is file-scoped on purpose: the node and workers test
 // projects keep their own environments.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, fireEvent, cleanup, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, waitFor, act, within } from '@testing-library/react';
 
 // The submit path awaits several mocked round trips while the wallet hook
 // keeps re-scanning on its own interval, so the default one second can be
@@ -26,7 +26,10 @@ import { loadGovActionDraft, govActionDraftKey } from '@/lib/governance/govActio
 import { ccColdBech32 } from '@/lib/governance/committeeUpdate.js';
 import { GUARDRAIL_CHANGED_MESSAGE, GUARDRAIL_SCRIPT_HASH_HEX, GUARDRAIL_UNKNOWN_MESSAGE } from '@/lib/governance/guardrailScript.js';
 import { RECIPIENT_UNREGISTERED, RECIPIENTS_CHECK_FAILED_AT_SUBMIT } from '@/lib/governance/treasuryWithdrawals.js';
-import { EVALUATION_FAILED_MESSAGE } from '@/lib/governance/govActionErrors.js';
+import { EVALUATION_FAILED_MESSAGE, PARAM_EVALUATION_FAILED_MESSAGE } from '@/lib/governance/govActionErrors.js';
+import { PREV_ACTION_CHANGED } from '@/lib/governance/govActionFormState.js';
+import { changesParagraph, valuesFromJson } from '@/lib/governance/paramDefs.js';
+import poolEconomicsFixture from '@/lib/governance/__fixtures__/poolEconomics660.json';
 import { encodeBech32 } from '@/lib/crypto/bech32.js';
 import { hexToBytes } from '@/lib/crypto/hex.js';
 
@@ -263,6 +266,37 @@ const RECIPIENT_HEX = `e0${'ab'.repeat(28)}`;
 const RECIPIENT = encodeBech32('stake_test', hexToBytes(RECIPIENT_HEX));
 const TREASURY_CONTEXT = { epoch: 500, guardrail: { state: 'known', scriptHash: GUARDRAIL_SCRIPT_HASH_HEX } };
 
+// A parameter change chain with no root yet, the guardrail in force and the
+// staking parameters in force (k 500, a0 0.3, minPoolCost 170 ada, rho 0.3%,
+// tau 20%).
+const PARAM_CONTEXT = {
+  epoch: 660,
+  prev: { lastEnacted: null, open: [] },
+  guardrail: { state: 'known', scriptHash: GUARDRAIL_SCRIPT_HASH_HEX },
+  committee: { members: [], quorum: { numerator: 2, denominator: 3 }, maxTermLength: null },
+  params: {
+    k: { n: '500', d: '1' },
+    a0: { n: '3', d: '10' },
+    minPoolCost: { n: '170000000', d: '1' },
+    rho: { n: '3', d: '1000' },
+    tau: { n: '1', d: '5' },
+  },
+};
+
+/** The same parameters on a chain whose root is the enacted change with the given tx hash. */
+function paramContextWithRoot(txHash: string) {
+  return {
+    ...PARAM_CONTEXT,
+    prev: {
+      lastEnacted: { txHash, index: 0, id: `gov_action1${txHash.slice(0, 8)}`, type: 'ParameterChange', title: 'An enacted change', proposedEpoch: 600 },
+      open: [],
+    },
+  };
+}
+
+/** How many of the next /api/gov-action/pool-economics requests answer 503. Reset in beforeEach. */
+let poolEconomicsFailures = 0;
+
 // Holds every /api/gov-action/context response open on the given promise
 // instead of answering at once, for the test that has to catch a second
 // request starting while the first (the submit's own freshness refetch) is
@@ -302,6 +336,13 @@ function installFetchMock() {
         return new Response(JSON.stringify(contextError), { status: 503, headers: { 'content-type': 'application/json' } });
       }
       return contextHold ? await contextHold : jsonResponse(committeeContext);
+    }
+    if (url.includes('/api/gov-action/pool-economics')) {
+      if (poolEconomicsFailures > 0) {
+        poolEconomicsFailures -= 1;
+        return new Response('unavailable', { status: 503 });
+      }
+      return jsonResponse(poolEconomicsFixture);
     }
     if (url.includes('/api/gov-action/status')) {
       return statusImpl ? await statusImpl() : jsonResponse({ synced: false, slug: null, draft: null });
@@ -391,6 +432,25 @@ async function fillTreasuryPanel(address = RECIPIENT, amount = '1') {
   fireEvent.change(screen.getByLabelText('Recipient 1 amount in tADA'), { target: { value: amount } });
 }
 
+/** Switches to ParameterChange and types the given values into their cards, picking each by its chip. */
+async function fillParamPanel(inputs: { k?: string; a0?: string }) {
+  fireEvent.click(await screen.findByRole('radio', { name: /Protocol parameter change/ }, SLOW));
+  await screen.findByRole('button', { name: 'k' }, SLOW);
+  if (inputs.k !== undefined) {
+    fireEvent.click(screen.getByRole('button', { name: 'k' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'New Target number of pools' }), { target: { value: inputs.k } });
+  }
+  if (inputs.a0 !== undefined) {
+    fireEvent.click(screen.getByRole('button', { name: 'a0' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'New Pledge influence' }), { target: { value: inputs.a0 } });
+  }
+}
+
+/** The requests the island sent whose URL contains the fragment. */
+function requestsTo(fetchMock: ReturnType<typeof installFetchMock>, fragment: string): number {
+  return fetchMock.mock.calls.filter(([input]) => String(input).includes(fragment)).length;
+}
+
 describe('SubmitGovAction', () => {
   beforeEach(() => {
     window.localStorage.clear();
@@ -406,6 +466,7 @@ describe('SubmitGovAction', () => {
     contextError = null;
     accountInfoFails = false;
     submissionSwitch = null;
+    poolEconomicsFailures = 0;
     installFetchMock();
     installWalletMock();
   });
@@ -1930,6 +1991,200 @@ describe('SubmitGovAction', () => {
       expect((screen.getByRole('radio', { name: /Info action/ }) as HTMLInputElement).checked).toBe(true);
       expect(screen.queryByRole('radio', { name: /Treasury withdrawal/ })).toBeNull();
       expect(screen.queryByLabelText('Recipient 1 stake address')).toBeNull();
+    });
+  });
+  describe('guardrail moved since the form loaded', () => {
+    const KNOWN = { state: 'known', scriptHash: GUARDRAIL_SCRIPT_HASH_HEX };
+    const ABSENT = { state: 'absent' };
+
+    /**
+     * Loads the form with one guardrail state, fills the type's panel, then
+     * answers the submit's own refetch with the other state. Both are
+     * buildable on their own, only the comparison with the shown one stops it.
+     */
+    async function guardrailMoves(type: 'ParameterChange' | 'TreasuryWithdrawals', from: unknown, to: unknown) {
+      const contextFor = (guardrail: unknown) =>
+        type === 'ParameterChange' ? { ...PARAM_CONTEXT, guardrail } : { epoch: 500, guardrail };
+      committeeContext = contextFor(from);
+      const fetchMock = installFetchMock();
+      const api = installWalletMock();
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      await connect();
+      fillMetadata();
+      if (type === 'ParameterChange') await fillParamPanel({ k: '600' });
+      else await fillTreasuryPanel();
+      const submit = signButton();
+      await waitFor(() => expect(submit.disabled).toBe(false), SLOW);
+
+      committeeContext = contextFor(to);
+      fireEvent.click(submit);
+
+      expect((await screen.findAllByText(GUARDRAIL_CHANGED_MESSAGE, {}, SLOW)).length).toBeGreaterThan(0);
+      expect(submitGovActionMock).not.toHaveBeenCalled();
+      expect(api.signData).not.toHaveBeenCalled();
+      expect(requestsTo(fetchMock, '/api/gov-action/metadata')).toBe(0);
+    }
+
+    it('stops a parameter change before signing when the guardrail moved from known to absent', async () => {
+      await guardrailMoves('ParameterChange', KNOWN, ABSENT);
+    });
+
+    it('stops a parameter change before signing when the guardrail moved from absent to known', async () => {
+      await guardrailMoves('ParameterChange', ABSENT, KNOWN);
+    });
+
+    it('stops a treasury withdrawal before signing when the guardrail moved from known to absent', async () => {
+      await guardrailMoves('TreasuryWithdrawals', KNOWN, ABSENT);
+    });
+
+    it('stops a treasury withdrawal before signing when the guardrail moved from absent to known', async () => {
+      await guardrailMoves('TreasuryWithdrawals', ABSENT, KNOWN);
+    });
+  });
+
+  describe('parameter changes', () => {
+    beforeEach(() => {
+      committeeContext = PARAM_CONTEXT;
+    });
+
+    it('offers the parameter change card on preprod and loads the pool data once', async () => {
+      const fetchMock = installFetchMock();
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      await fillParamPanel({});
+      await waitFor(() => expect(requestsTo(fetchMock, '/api/gov-action/pool-economics')).toBe(1), SLOW);
+      expect(requestsTo(fetchMock, '/api/gov-action/context?type=ParameterChange')).toBe(1);
+
+      fireEvent.click(screen.getByRole('radio', { name: /Info action/ }));
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'k' })).toBeNull());
+      fireEvent.click(screen.getByRole('radio', { name: /Protocol parameter change/ }));
+      await screen.findByRole('button', { name: 'k' }, SLOW);
+      expect(requestsTo(fetchMock, '/api/gov-action/pool-economics')).toBe(1);
+    });
+
+    it('retries the pool data after a failure', async () => {
+      poolEconomicsFailures = 1;
+      const fetchMock = installFetchMock();
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      await fillParamPanel({ k: '600' });
+      expect((await screen.findAllByText('Impact figures are unavailable right now.', {}, SLOW)).length).toBeGreaterThan(0);
+
+      fireEvent.click(screen.getAllByRole('button', { name: 'Try again' })[0]);
+      await waitFor(() => expect(screen.queryByText('Impact figures are unavailable right now.')).toBeNull(), SLOW);
+      expect(requestsTo(fetchMock, '/api/gov-action/pool-economics')).toBe(2);
+      const card = screen.getByRole('group', { name: 'Target number of pools' });
+      expect(within(card).getAllByText(/64\.9M ₳/).length).toBeGreaterThan(0);
+    });
+
+    it('builds a ParameterChange spec with the chosen previous action and the exact values', async () => {
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      await connect();
+      fillMetadata();
+      await fillParamPanel({ k: '600', a0: '0.35' });
+
+      const submit = signButton();
+      await waitFor(() => expect(submit.disabled).toBe(false), SLOW);
+      fireEvent.click(submit);
+
+      await waitFor(() => expect(submitGovActionMock).toHaveBeenCalledTimes(1), SLOW);
+      const opts = submitGovActionMock.mock.calls[0][0] as { action: unknown };
+      expect(opts.action).toEqual({
+        type: 'ParameterChange',
+        prev: null,
+        values: { k: { n: 600n, d: 1n }, a0: { n: 7n, d: 20n } },
+        guardrail: { state: 'known', scriptHash: GUARDRAIL_SCRIPT_HASH_HEX },
+      });
+    });
+
+    /** Fills the form on the given chain, then answers the submit's refetch with a root that moved. */
+    async function rootMoves(loaded: unknown) {
+      committeeContext = loaded;
+      const fetchMock = installFetchMock();
+      const api = installWalletMock();
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      await connect();
+      fillMetadata();
+      await fillParamPanel({ k: '600' });
+      const submit = signButton();
+      await waitFor(() => expect(submit.disabled).toBe(false), SLOW);
+
+      committeeContext = paramContextWithRoot('9'.repeat(64));
+      fireEvent.click(submit);
+
+      expect((await screen.findAllByText(PREV_ACTION_CHANGED, { exact: false }, SLOW)).length).toBeGreaterThan(0);
+      expect(api.signData).not.toHaveBeenCalled();
+      expect(requestsTo(fetchMock, '/api/gov-action/metadata')).toBe(0);
+      expect(submitGovActionMock).not.toHaveBeenCalled();
+    }
+
+    it('stops before signing when the chain root moved from none to a change', async () => {
+      await rootMoves(PARAM_CONTEXT);
+    });
+
+    it('stops before signing when the chain root moved from one change to another', async () => {
+      await rootMoves(paramContextWithRoot('d'.repeat(64)));
+    });
+
+    it('words a guardrail rejection for a parameter change', async () => {
+      const inner = Object.assign(new Error('Script evaluation failed'), {
+        cause: { code: 'evaluation_failed', detail: 'Validator returned False' },
+      });
+      submitGovActionMock.mockRejectedValue(
+        Object.assign(new Error('Script evaluation failed: evaluation_failed'), { cause: inner }),
+      );
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      await connect();
+      fillMetadata();
+      await fillParamPanel({ k: '600' });
+      const submit = signButton();
+      await waitFor(() => expect(submit.disabled).toBe(false), SLOW);
+      fireEvent.click(submit);
+
+      expect(await screen.findByText(PARAM_EVALUATION_FAILED_MESSAGE, { exact: false }, SLOW)).toBeTruthy();
+    });
+
+    it('names a stale previous action even when the form built on a null root', async () => {
+      submitGovActionMock.mockRejectedValue(new Error('ConwayGovFailure (InvalidPrevGovActionId ...)'));
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      await connect();
+      fillMetadata();
+      await fillParamPanel({ k: '600' });
+      const submit = signButton();
+      await waitFor(() => expect(submit.disabled).toBe(false), SLOW);
+      fireEvent.click(submit);
+
+      await waitFor(() => expect(submitGovActionMock).toHaveBeenCalledTimes(1), SLOW);
+      expect((submitGovActionMock.mock.calls[0][0] as { action: { prev: unknown } }).action.prev).toBeNull();
+      expect((await screen.findAllByText(PREV_ACTION_CHANGED, { exact: false }, SLOW)).length).toBeGreaterThan(0);
+    });
+
+    it('adds the changes paragraph to the abstract only on request', async () => {
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      await fillParamPanel({ k: '600' });
+      const abstract = screen.getByLabelText('Abstract') as HTMLTextAreaElement;
+      expect(abstract.value).toBe('');
+
+      const paragraph = changesParagraph({ k: { n: 600n, d: 1n } }, valuesFromJson(PARAM_CONTEXT.params));
+      expect(paragraph).toContain('500 to 600. The constitution allows 250 to 2,000.');
+      const add = await screen.findByRole('button', { name: 'Add the changes to the abstract' }, SLOW);
+      fireEvent.click(add);
+      await waitFor(() => expect((screen.getByLabelText('Abstract') as HTMLTextAreaElement).value).toBe(paragraph));
+
+      // The same values a second time: already there, nothing is added.
+      fireEvent.click(screen.getByRole('button', { name: 'Add the changes to the abstract' }));
+      expect((screen.getByLabelText('Abstract') as HTMLTextAreaElement).value).toBe(paragraph);
+
+      const edited = `${paragraph}\n\nWhy now: the pool count has grown.`;
+      fireEvent.change(screen.getByLabelText('Abstract'), { target: { value: edited } });
+      await waitFor(() => expect(loadGovActionDraft(window.localStorage, DRAFT_KEY)?.abstract).toBe(edited), SLOW);
+    });
+
+    it('Continue focuses the title field', async () => {
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      await fillParamPanel({ k: '600' });
+      const next = screen.getByRole('button', { name: 'Continue to rationale' }) as HTMLButtonElement;
+      await waitFor(() => expect(next.disabled).toBe(false), SLOW);
+      fireEvent.click(next);
+      expect(document.activeElement).toBe(document.getElementById('ia-title'));
     });
   });
 });

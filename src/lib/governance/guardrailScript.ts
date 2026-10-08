@@ -54,3 +54,9 @@ export function guardrailDecision(guardrail: GuardrailContext | null | undefined
   }
   return { ok: false, message: GUARDRAIL_CHANGED_MESSAGE };
 }
+
+/** Whether two guardrail readings name the same requirement: both absent, or the same hash. */
+export function sameGuardrail(a: GuardrailContext | null | undefined, b: GuardrailContext | null | undefined): boolean {
+  if (!a || !b || a.state !== b.state) return false;
+  return a.state === 'absent' || a.scriptHash.toLowerCase() === (b as { scriptHash: string }).scriptHash.toLowerCase();
+}
