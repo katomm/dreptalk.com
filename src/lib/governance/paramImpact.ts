@@ -21,6 +21,9 @@ export interface PoolEconomics {
   pools: { stake: number; pledge: number; costLovelace: bigint }[];
 }
 
+/** The parameters the reward model reads. Two or more of them picked share one combined rewards chart. */
+export const REWARD_KEYS = ['k', 'a0', 'rho', 'tau'] as const;
+
 export interface ModelParams {
   k: number;
   a0: number;
@@ -73,15 +76,19 @@ export function saturation(eco: PoolEconomics, kFrom: number, kTo: number) {
   const pointTo = eco.totalStakeAda / kTo;
   let aboveFrom = 0;
   let aboveTo = 0;
+  let excessFrom = 0;
   let excessTo = 0;
   for (const pool of eco.pools) {
-    if (pool.stake > pointFrom) aboveFrom++;
+    if (pool.stake > pointFrom) {
+      aboveFrom++;
+      excessFrom += pool.stake - pointFrom;
+    }
     if (pool.stake > pointTo) {
       aboveTo++;
       excessTo += pool.stake - pointTo;
     }
   }
-  return { pointFrom, pointTo, aboveFrom, aboveTo, excessTo };
+  return { pointFrom, pointTo, aboveFrom, aboveTo, excessFrom, excessTo };
 }
 
 /** Relative change of a pool's maximum rewards (0.01 is +1%), the pot included. */
@@ -93,15 +100,45 @@ export function rewardChange(eco: PoolEconomics, from: ModelParams, to: ModelPar
 
 export const CURVE_PLEDGES = [1e6, 10e6, 30e6] as const;
 
-/** One curve per pledge level, pool stake 2M to 80M ada in 1M steps, starting at the pledge. */
+/** Points along the stake axis of the rewards chart. */
+const CURVE_STEPS = 120;
+
+/**
+ * One curve per pledge level over pool stake, on a range relative to the
+ * network: from 2% of the new saturation point to 1.5 times the higher of the
+ * two points. A curve starts at its pledge, a pledge beyond the range has no
+ * curve. Both saturation points are sampled exactly, so the kink is sharp.
+ */
 export function rewardCurves(eco: PoolEconomics, from: ModelParams, to: ModelParams) {
-  return CURVE_PLEDGES.map((pledge) => {
-    const points: [number, number][] = [];
-    for (let stake = Math.max(2e6, pledge); stake <= 80e6; stake += 1e6) {
-      points.push([stake, rewardChange(eco, from, to, stake, pledge)]);
-    }
+  const { pointFrom, pointTo } = saturation(eco, from.k, to.k);
+  const xMin = 0.02 * pointTo;
+  const xMax = 1.5 * Math.max(pointFrom, pointTo);
+  const grid: number[] = [];
+  for (let i = 0; i <= CURVE_STEPS; i++) grid.push(xMin + ((xMax - xMin) * i) / CURVE_STEPS);
+  grid.push(pointFrom, pointTo);
+  const curves = CURVE_PLEDGES.filter((pledge) => pledge <= xMax).map((pledge) => {
+    const start = Math.max(xMin, pledge);
+    const stakes = [...new Set([start, ...grid.filter((stake) => stake > start)])].sort((a, b) => a - b);
+    const points: [number, number][] = stakes.map((stake) => [stake, rewardChange(eco, from, to, stake, pledge)]);
     return { pledge, points };
   });
+  return { xMin, xMax, pointFrom, pointTo, curves };
+}
+
+/**
+ * Three reference pools relative to the new saturation point: half of it with
+ * 1M ada pledge, the same pool with 30% of its stake as pledge, and a pool at
+ * 90% of it with 30% pledge.
+ */
+export function samplePools(eco: PoolEconomics, kTo: number): { stake: number; pledge: number }[] {
+  const point = eco.totalStakeAda / kTo;
+  const half = 0.5 * point;
+  const near = 0.9 * point;
+  return [
+    { stake: half, pledge: Math.min(1e6, half) },
+    { stake: half, pledge: 0.3 * half },
+    { stake: near, pledge: 0.3 * near },
+  ];
 }
 
 /** Width of a fixed cost bin, and where the last, open-ended bin starts. */

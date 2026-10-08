@@ -9,12 +9,15 @@ import {
   type ParamKey,
 } from '@/lib/governance/paramDefs.js';
 import { compareRational, formatLovelaceExact, formatRationalDecimal, rationalToNumber, reduce, type Rational } from '@/lib/format/rational.js';
+import type { ReactNode } from 'react';
 import type { ModelParams } from '@/lib/governance/paramImpact.js';
+import type { CardanoNetwork } from '@/lib/config/network.js';
 import type { PoolEconomicsState } from './ParamChangePanel.js';
 import ImpactSaturation from './ImpactSaturation.js';
-import ImpactRewards from './ImpactRewards.js';
+import ImpactRewards, { type RewardBasis } from './ImpactRewards.js';
 import ImpactMinPoolCost from './ImpactMinPoolCost.js';
 import ImpactBudget from './ImpactBudget.js';
+import { DataSource } from './chart.js';
 
 export interface ParamCardProps {
   paramKey: ParamKey;
@@ -27,10 +30,11 @@ export interface ParamCardProps {
   onRetryEconomics: () => void;
   /** The impact model before and after, built from every valid picked value. Null when it cannot be built. */
   model: { from: ModelParams; to: ModelParams } | null;
-  /** Whether a0 is picked too: then the rewards chart lives on the a0 card. */
-  a0Picked: boolean;
-  /** Whether k and a0 both change, for the rewards chart legend. */
-  kAndA0: boolean;
+  /** Where the rewards chart goes: on this card, in the combined section below the cards, or nowhere for this card. */
+  rewards: 'here' | 'combined' | null;
+  /** The picked reward parameter changes the rewards chart is calculated with. */
+  rewardBasis: readonly RewardBasis[];
+  network: CardanoNetwork;
   onInput: (raw: string) => void;
   onRemove: () => void;
   disabled?: boolean;
@@ -74,42 +78,63 @@ function RangeScale({ paramKey, current, next }: { paramKey: ParamKey; current: 
   );
 }
 
-type ImpactProps = Pick<ParamCardProps, 'paramKey' | 'current' | 'economics' | 'onRetryEconomics' | 'model' | 'a0Picked' | 'kAndA0'> & { next: Rational };
-
-function Impact({ paramKey, current, next, economics, onRetryEconomics, model, a0Picked, kAndA0 }: ImpactProps) {
+/** The pool data while it loads or after it failed, shared with the combined section. Null once it is ready. */
+export function EconomicsPending({ economics, onRetry }: { economics: PoolEconomicsState; onRetry: () => void }) {
   if (economics.status === 'loading') return <p className="pcp-why">Loading pool data...</p>;
   if (economics.status === 'error') {
     return (
       <p className="pcp-why">
         <span>Impact figures are unavailable right now.</span>{' '}
-        <button type="button" className="pcp-linkbtn" onClick={onRetryEconomics}>
+        <button type="button" className="pcp-linkbtn" onClick={onRetry}>
           Try again
         </button>
       </p>
     );
   }
+  return null;
+}
+
+type ImpactProps = Pick<
+  ParamCardProps,
+  'paramKey' | 'current' | 'economics' | 'onRetryEconomics' | 'model' | 'rewards' | 'rewardBasis' | 'network'
+> & { next: Rational };
+
+function Impact({ paramKey, current, next, economics, onRetryEconomics, model, rewards, rewardBasis, network }: ImpactProps) {
+  // The combined section below the cards shows the pool data state and the chart for a0.
+  if (paramKey === 'a0' && rewards === 'combined') {
+    return <p className="pcp-why">Its effect on pool rewards is shown under Combined impact below.</p>;
+  }
+  if (economics.status !== 'ready') return <EconomicsPending economics={economics} onRetry={onRetryEconomics} />;
   if (!model || !current) return null;
   const eco = economics.data;
+  const rewardsChart = <ImpactRewards eco={eco} from={model.from} to={model.to} basis={rewardBasis} />;
+  let body: ReactNode;
   switch (paramKey) {
     case 'k':
-      return (
+      body = (
         <>
           <ImpactSaturation eco={eco} from={model.from} to={model.to} />
-          {!a0Picked && (
-            <div className="pcp-impact__more">
-              <ImpactRewards eco={eco} from={model.from} to={model.to} together={false} />
-            </div>
-          )}
+          {rewards === 'here' && <div className="pcp-impact__more">{rewardsChart}</div>}
         </>
       );
+      break;
     case 'a0':
-      return <ImpactRewards eco={eco} from={model.from} to={model.to} together={kAndA0} />;
+      body = rewardsChart;
+      break;
     case 'minPoolCost':
-      return <ImpactMinPoolCost eco={eco} currentLovelace={current.n / current.d} nextLovelace={next.n / next.d} />;
+      body = <ImpactMinPoolCost eco={eco} currentLovelace={current.n / current.d} nextLovelace={next.n / next.d} />;
+      break;
     case 'rho':
     case 'tau':
-      return <ImpactBudget eco={eco} from={model.from} to={model.to} />;
+      body = <ImpactBudget eco={eco} from={model.from} to={model.to} />;
+      break;
   }
+  return (
+    <>
+      {body}
+      <DataSource network={network} epoch={eco.epoch} />
+    </>
+  );
 }
 
 export default function ParamCard({ raw, error, onInput, onRemove, disabled = false, ...impact }: ParamCardProps) {

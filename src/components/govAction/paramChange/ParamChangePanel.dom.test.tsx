@@ -48,6 +48,9 @@ function setup(value: { prev: null; picked: never[]; inputs: Record<string, stri
   return { onChange, onContinue };
 }
 
+/** The rewards chart caption inside a card or section. */
+const caption = (root: HTMLElement) => root.querySelector('.pcp-caption')?.textContent;
+
 describe('ParamChangePanel', () => {
   it('shows the card with old value, input, range and the saturation impact', () => {
     setup();
@@ -59,6 +62,64 @@ describe('ParamChangePanel', () => {
     // The same figures show in a stat tile and in the sentence or the legend.
     expect(within(card).getAllByText(/101/).length).toBeGreaterThan(0);
     expect(within(card).getAllByText(/64\.9M ₳/).length).toBeGreaterThan(0);
+  });
+
+  it('shows stake over saturation with its before value and the delegator sentence for a higher k', () => {
+    setup();
+    const card = screen.getByRole('group', { name: 'Target number of pools' });
+    const tile = within(card).getByText('Stake over saturation').closest('.pcp-stat') as HTMLElement;
+    expect(tile.textContent).toBe('Stake over saturation875M ₳ from 103.7M ₳');
+    expect(
+      within(card).getByText(
+        "These pools' maximum rewards are capped lower, so their delegators would earn less unless they move to a smaller pool. A higher k also changes the pledge bonus of pools below it.",
+      ),
+    ).toBeTruthy();
+    expect(within(card).getByRole('img', { name: /2 largest pools are clipped/ })).toBeTruthy();
+  });
+
+  it('keeps the rewards chart on the k card when k is the only reward parameter', () => {
+    setup();
+    const card = screen.getByRole('group', { name: 'Target number of pools' });
+    expect(screen.queryByText('Combined impact of this proposal')).toBeNull();
+    expect(caption(card)).toBe('Calculated with k 500 → 600');
+    expect(within(card).getByText('Maximum rewards at full block production, before fees.')).toBeTruthy();
+    expect(within(card).getByText('Preprod pool data, epoch 660')).toBeTruthy();
+  });
+
+  it('keeps the rewards chart on the a0 card when a0 is the only reward parameter', () => {
+    setup({ prev: null, picked: ['a0', 'minPoolCost'] as never[], inputs: { a0: '0.35', minPoolCost: '200' } });
+    expect(screen.queryByText('Combined impact of this proposal')).toBeNull();
+    expect(caption(screen.getByRole('group', { name: 'Pledge influence' }))).toBe('Calculated with a0 0.3 → 0.35');
+    // Every impact section names its data source.
+    expect(screen.getAllByText('Preprod pool data, epoch 660')).toHaveLength(2);
+  });
+
+  it('moves the rewards chart into a combined section with two reward parameters', () => {
+    setup({ prev: null, picked: ['k', 'a0'] as never[], inputs: { k: '600', a0: '0.35' } });
+    const section = screen.getByRole('region', { name: 'Combined impact of this proposal' });
+    expect(caption(section)).toBe('Calculated with k 500 → 600 and a0 0.3 → 0.35');
+    expect(within(section).getByText('Maximum rewards at full block production, before fees.')).toBeTruthy();
+    expect(within(section).getByText('Preprod pool data, epoch 660')).toBeTruthy();
+    // The reference pools sit relative to the new saturation point of 64.9M ada.
+    expect([...section.querySelectorAll('.pcp-stat')].map((tile) => tile.textContent)).toEqual([
+      '32.4M ₳ pool, 1M ₳ pledge-3.6%',
+      '32.4M ₳ pool, 9.7M ₳ pledge-2.4%',
+      '58.4M ₳ pool, 17.5M ₳ pledge-1.1%',
+    ]);
+    const a0 = screen.getByRole('group', { name: 'Pledge influence' });
+    expect(within(a0).getByText('Its effect on pool rewards is shown under Combined impact below.')).toBeTruthy();
+    expect(within(a0).queryByText('Maximum rewards at full block production, before fees.')).toBeNull();
+    const k = screen.getByRole('group', { name: 'Target number of pools' });
+    expect(within(k).queryByText('Maximum rewards at full block production, before fees.')).toBeNull();
+    expect(within(k).getByText('Stake over saturation')).toBeTruthy();
+  });
+
+  it('leaves a reward change with a field error out of the combined caption', () => {
+    setup({ prev: null, picked: ['k', 'rho', 'tau'] as never[], inputs: { k: '600', rho: '0.35', tau: '35' } });
+    const section = screen.getByRole('region', { name: 'Combined impact of this proposal' });
+    expect(caption(section)).toBe('Calculated with k 500 → 600 and rho 0.3% → 0.35%');
+    // rho keeps its budget panel in its own card.
+    expect(within(screen.getByRole('group', { name: 'Monetary expansion' })).getByText('From the reserve per epoch')).toBeTruthy();
   });
 
   it('picks a parameter from its chip and prefills nothing', () => {

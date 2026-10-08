@@ -2136,17 +2136,114 @@ html[data-theme='dark'] .pcp-panel {
 .pcp-chart--rewards {
   height: 170px;
 }
+/* A chart with its y ticks in a column left of the plot. --pcp-y-w is that
+   column's width, wider for ada ticks than for percentages. */
 .pcp-plot {
+  --pcp-y-w: 40px;
   position: relative;
-  padding-left: 40px;
+  padding-left: var(--pcp-y-w);
   margin-top: 6px;
+}
+.pcp-plot--ada {
+  --pcp-y-w: 50px;
+}
+.pcp-plot__frame {
+  position: relative;
 }
 .pcp-plot__y {
   position: absolute;
-  left: 0;
+  left: calc(-1 * var(--pcp-y-w));
   top: 0;
-  width: 34px;
-  height: 170px;
+  width: calc(var(--pcp-y-w) - 6px);
+  height: 100%;
+}
+.pcp-axis-title {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 0 0 4px calc(-1 * var(--pcp-y-w));
+}
+.pcp-axis-title--x {
+  margin: 0;
+  text-align: center;
+}
+/* The basis of the rewards chart, right above it. */
+.pcp-caption {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+  margin: 0 0 8px;
+}
+/* Where the pool figures come from, at the end of each impact section. */
+.pcp-source {
+  font-size: 11.5px;
+  color: var(--muted);
+  margin: 10px 0 0;
+}
+/* Real values of the clipped saturation bars, in a strip above them. */
+.pcp-clips {
+  display: flex;
+  gap: 10px;
+  height: 16px;
+  align-items: flex-end;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+/* Labels at the right end of the saturation lines, the higher one above its line, the lower one below. */
+.pcp-linelabel {
+  position: absolute;
+  right: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+  padding: 0 3px;
+  border-radius: 3px;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+.pcp-linelabel--above {
+  transform: translateY(calc(-100% - 2px));
+}
+.pcp-linelabel--below {
+  transform: translateY(2px);
+}
+.pcp-linelabel--now,
+.pcp-vlabel--now {
+  color: var(--muted);
+}
+.pcp-linelabel--new,
+.pcp-vlabel--new {
+  color: var(--accent);
+}
+/* Labels of the vertical saturation lines in the rewards chart, in a strip above the plot. */
+.pcp-vlabels {
+  position: relative;
+  height: 16px;
+}
+.pcp-vlabels--two {
+  height: 30px;
+}
+.pcp-vlabel {
+  position: absolute;
+  top: 0;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 14px;
+  white-space: nowrap;
+}
+.pcp-vlabel--right {
+  transform: translateX(4px);
+}
+.pcp-vlabel--left {
+  transform: translateX(calc(-100% - 4px));
+}
+.pcp-vlabel--below {
+  top: 14px;
+  transform: translateX(4px);
+}
+.pcp-combined__title {
+  margin: 0;
 }
 .pcp-tick {
   position: absolute;
@@ -2173,9 +2270,11 @@ html[data-theme='dark'] .pcp-panel {
   top: 4px;
   transform: translateX(-50%);
 }
+.pcp-plot__x--ends .pcp-tick:first-child,
 .pcp-bins__x .pcp-tick:first-child {
   transform: none;
 }
+.pcp-plot__x--ends .pcp-tick:last-child,
 .pcp-bins__x .pcp-tick:last-child {
   transform: translateX(-100%);
 }

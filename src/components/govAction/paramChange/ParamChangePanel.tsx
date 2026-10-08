@@ -3,10 +3,12 @@
 // picked, and the summary with the Continue button. Presentational, the
 // rules live in paramDefs.ts and govActionFormState.ts, the impact model in
 // paramImpact.ts. The island owns the pool data fetch and passes its state.
-import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react';
 import PrevActionField from '../PrevActionField.js';
 import { InfoIcon } from '../icons.js';
-import ParamCard from './ParamCard.js';
+import ParamCard, { EconomicsPending } from './ParamCard.js';
+import ImpactRewards, { type RewardBasis } from './ImpactRewards.js';
+import { DataSource } from './chart.js';
 import ParamSummary from './ParamSummary.js';
 import {
   PARAM_DEFS,
@@ -15,8 +17,9 @@ import {
   scopeForKeys,
   valuesFromJson,
   type ParamKey,
+  type ParamValues,
 } from '@/lib/governance/paramDefs.js';
-import { modelParams, type ModelParams, type PoolEconomics } from '@/lib/governance/paramImpact.js';
+import { modelParams, REWARD_KEYS, type ModelParams, type PoolEconomics } from '@/lib/governance/paramImpact.js';
 import {
   paramFieldErrors,
   validateParamChangePanel,
@@ -143,6 +146,22 @@ function useStableModel(model: ImpactModel): ImpactModel {
   );
 }
 
+/**
+ * The picked reward parameter changes with a valid value, formatted for the
+ * rewards chart caption. Keyed by its content, so the memoized chart keeps
+ * its props while an unrelated field changes.
+ */
+function useRewardBasis(keys: readonly ParamKey[], current: ParamValues, next: ParamValues): readonly RewardBasis[] {
+  const list: RewardBasis[] = [];
+  for (const key of keys) {
+    const from = current[key];
+    const to = next[key];
+    if (from && to) list.push({ short: PARAM_DEFS[key].short, from: formatParamValue(key, from), to: formatParamValue(key, to) });
+  }
+  const json = JSON.stringify(list);
+  return useMemo(() => JSON.parse(json) as RewardBasis[], [json]);
+}
+
 export default function ParamChangePanel({
   value,
   onChange,
@@ -176,6 +195,14 @@ export default function ParamChangePanel({
   const { slotRef, docked } = useDockedAction(panelRef);
   const { picked } = value;
   const unpicked = PARAM_KEYS.filter((key) => !value.picked.includes(key));
+  // The rewards chart reads k, a0, rho and tau together. With two or more of
+  // them picked it moves out of the cards into one combined section, with one
+  // it stays on the k or a0 card.
+  const rewardKeys = picked.filter((key) => (REWARD_KEYS as readonly ParamKey[]).includes(key));
+  const combined = rewardKeys.length >= 2;
+  const rewardsHost = rewardKeys.length === 1 && (rewardKeys[0] === 'k' || rewardKeys[0] === 'a0') ? rewardKeys[0] : null;
+  const rewardBasis = useRewardBasis(rewardKeys, current, next);
+  const combinedId = useId();
   const drepPct = drepThresholdPct('ParameterChange', protocolParams, scopeForKeys(picked));
   // The island already shows the guardrail problem, the summary does not repeat it.
   const reason = !validation.ok && guardrail.ok ? validation.error : null;
@@ -252,13 +279,32 @@ export default function ParamChangePanel({
               economics={economics}
               onRetryEconomics={onRetryEconomics}
               model={model}
-              a0Picked={picked.includes('a0')}
-              kAndA0={next.k !== undefined && next.a0 !== undefined}
+              rewards={combined ? 'combined' : rewardsHost === key ? 'here' : null}
+              rewardBasis={rewardBasis}
+              network={networkConfig.network}
               onInput={(raw) => onChange({ ...value, inputs: { ...value.inputs, [key]: raw } })}
               onRemove={() => toggle(key)}
               disabled={disabled}
             />
           ))}
+
+          {combined && rewardBasis.length > 0 && (
+            <section className="pcp-card pcp-combined" aria-labelledby={combinedId}>
+              <h3 id={combinedId} className="pcp-card__title pcp-combined__title">
+                Combined impact of this proposal
+              </h3>
+              <div className="pcp-impact">
+                {economics.status === 'ready' && model ? (
+                  <>
+                    <ImpactRewards eco={economics.data} from={model.from} to={model.to} basis={rewardBasis} />
+                    <DataSource network={networkConfig.network} epoch={economics.data.epoch} />
+                  </>
+                ) : (
+                  <EconomicsPending economics={economics} onRetry={onRetryEconomics} />
+                )}
+              </div>
+            </section>
+          )}
 
           {unpicked.map((key) => {
             const now = current[key];

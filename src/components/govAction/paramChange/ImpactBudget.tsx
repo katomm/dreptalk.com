@@ -21,7 +21,6 @@ export default memo(function ImpactBudget({ eco, from, to }: { eco: PoolEconomic
       <p className="pcp-why">
         Theoretical budget at full block production, before fees. Rewards that are not paid out go back to the reserve.
       </p>
-      <p className="pcp-why">Based on the reserve at epoch {eco.epoch}.</p>
     </>
   );
 });

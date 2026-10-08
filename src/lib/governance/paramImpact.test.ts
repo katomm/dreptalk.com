@@ -7,6 +7,7 @@ import {
   modelParams,
   rewardChange,
   rewardCurves,
+  samplePools,
   saturation,
   type PoolEconomicsJson,
 } from './paramImpact.js';
@@ -33,6 +34,13 @@ describe('saturation', () => {
     expect(s.aboveTo).toBe(101);
     expect(s.excessTo / 1e9).toBeCloseTo(0.875, 2);
   });
+  it('sums the stake over the old point too', () => {
+    const s = saturation(eco, 500, 600);
+    expect(s.excessFrom / 1e6).toBeCloseTo(103.74, 1);
+    // An unchanged k gives the same excess before and after.
+    const same = saturation(eco, 500, 500);
+    expect(same.excessFrom).toBe(same.excessTo);
+  });
 });
 
 describe('rewardChange', () => {
@@ -47,10 +55,51 @@ describe('rewardChange', () => {
   it('includes a changed reward pot', () => {
     expect(rewardChange(eco, now, { ...pkg, tau: 0.3 }, 60e6, 30e6) * 100).toBeCloseTo(-11.66, 1);
   });
-  it('gives three curves over pool stake', () => {
-    const curves = rewardCurves(eco, now, pkg);
+  it('gives three curves over a stake range relative to the saturation point', () => {
+    const { xMin, xMax, pointFrom, pointTo, curves } = rewardCurves(eco, now, pkg);
+    expect(pointTo).toBeCloseTo(eco.totalStakeAda / 600, 3);
+    // 2% of the new point to 1.5 times the higher, old point.
+    expect(xMin / 1e6).toBeCloseTo(1.297, 2);
+    expect(xMax / 1e6).toBeCloseTo(116.766, 2);
+    expect(xMax).toBeCloseTo(1.5 * pointFrom, 3);
     expect(curves.map((c) => c.pledge)).toEqual([1e6, 10e6, 30e6]);
+    // A curve starts at its pledge, or at the range start when the pledge is below it.
+    expect(curves[0].points[0][0]).toBeCloseTo(xMin, 3);
     expect(curves[2].points[0][0]).toBe(30e6);
+    for (const c of curves) expect(c.points.at(-1)![0]).toBeCloseTo(xMax, 3);
+    // Both saturation points are sampled, so the kink is drawn where it is.
+    expect(curves[1].points.some(([stake]) => stake === pointTo)).toBe(true);
+    expect(curves[1].points.some(([stake]) => stake === pointFrom)).toBe(true);
+  });
+  it('drops a curve whose pledge lies beyond the stake range', () => {
+    // 8B ada of stake and k 600: the range ends at 1.5 times 16M, so the 30M pledge has no curve.
+    const tiny = { ...eco, totalStakeAda: 8e9 };
+    expect(rewardCurves(tiny, now, { ...now, k: 600 }).curves.map((c) => c.pledge)).toEqual([1e6, 10e6]);
+  });
+});
+
+describe('samplePools', () => {
+  it('places the three reference pools relative to the new saturation point', () => {
+    const point = eco.totalStakeAda / 600;
+    const [small, pledged, near] = samplePools(eco, 600);
+    expect(small.stake / 1e6).toBeCloseTo(32.435, 2);
+    expect(small).toEqual({ stake: point / 2, pledge: 1e6 });
+    expect(pledged.stake).toBe(point / 2);
+    expect(pledged.pledge / 1e6).toBeCloseTo(9.731, 2);
+    expect(near.stake / 1e6).toBeCloseTo(58.383, 2);
+    expect(near.pledge).toBeCloseTo(0.3 * near.stake, 3);
+  });
+  it('gives the package k 600 and a0 0.35 for the three pools', () => {
+    const pkg = { ...now, k: 600, a0: 0.35 };
+    const changes = samplePools(eco, 600).map((p) => rewardChange(eco, now, pkg, p.stake, p.pledge) * 100);
+    expect(changes[0]).toBeCloseTo(-3.56, 1);
+    expect(changes[1]).toBeCloseTo(-2.43, 1);
+    expect(changes[2]).toBeCloseTo(-1.05, 1);
+  });
+  it('never gives a pledge above the stake', () => {
+    const tiny = { ...eco, totalStakeAda: 500e6 };
+    const [small] = samplePools(tiny, 600);
+    expect(small.pledge).toBe(small.stake);
   });
 });
 
