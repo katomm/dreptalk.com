@@ -16,6 +16,11 @@ const OK = { redeemers: [{ redeemer_tag: 'propose', redeemer_index: 0, ex_units:
 const UNAVAILABLE = { ok: false, cause: { code: 'evaluator_unavailable', detail: null } };
 
 describe('evaluateThroughRoute', () => {
+  it('carries unsupported_parameter_change as its own cause', async () => {
+    const outcome = await evaluateThroughRoute('aa', 'https://x', answer(400, { error: 'unsupported_parameter_change' }));
+    expect(outcome).toEqual({ ok: false, cause: { code: 'unsupported_parameter_change', detail: null } });
+  });
+
   it('posts the hex to the route and returns EvalRedeemers with bigint ExUnits', async () => {
     const fetchImpl = answer(200, OK);
     const outcome = await evaluateThroughRoute('84a0', 'https://preprod.dreptalk.com', fetchImpl);

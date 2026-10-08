@@ -6,6 +6,7 @@ import {
   COLLATERAL_TOKENS_MESSAGE,
   EVALUATION_FAILED_MESSAGE,
   EVALUATOR_UNAVAILABLE_MESSAGE,
+  isStalePrevError,
   mapGuardrailBuildError,
 } from './govActionErrors.js';
 
@@ -72,5 +73,28 @@ describe('mapGuardrailBuildError', () => {
     );
     expect(EVALUATION_FAILED_MESSAGE).toBe("The constitution's guardrails script rejected this withdrawal.");
     expect(EVALUATOR_UNAVAILABLE_MESSAGE).toBe('Could not reach the script evaluator. No transaction was signed.');
+  });
+});
+
+describe('per-type wording', () => {
+  it('words the guardrail rejection per type', () => {
+    const err = new Error('evaluation_failed', { cause: { code: 'evaluation_failed', detail: 'boom' } });
+    expect(mapGuardrailBuildError(err, 'TreasuryWithdrawals')?.message).toBe("The constitution's guardrails script rejected this withdrawal.");
+    expect(mapGuardrailBuildError(err, 'ParameterChange')?.message).toBe(
+      "The constitution's guardrails script rejected this parameter change.",
+    );
+  });
+
+  it('words an unsupported parameter change', () => {
+    const err = new Error('unsupported_parameter_change', { cause: { code: 'unsupported_parameter_change', detail: null } });
+    expect(mapGuardrailBuildError(err, 'ParameterChange')?.message).toBe(
+      "DRepTalk only submits changes to k, a0, minPoolCost, rho and tau within the constitution's limits.",
+    );
+  });
+
+  it('recognizes a stale previous action with and without a hash', () => {
+    expect(isStalePrevError('ConwayGovFailure (InvalidPrevGovActionId (ProposalProcedure ...))', null)).toBe(true);
+    expect(isStalePrevError(`... ${'ab'.repeat(32)} ...`, 'AB'.repeat(32))).toBe(true);
+    expect(isStalePrevError('BadInputsUTxO', null)).toBe(false);
   });
 });

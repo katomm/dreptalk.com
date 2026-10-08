@@ -13,7 +13,8 @@ export interface EvalRedeemerJson {
 export type EvaluateResponse =
   | { redeemers: EvalRedeemerJson[] }
   | { error: 'evaluation_failed'; detail: string }
-  | { error: 'evaluator_unavailable' };
+  | { error: 'evaluator_unavailable' }
+  | { error: 'unsupported_parameter_change' };
 
 /**
  * What the browser adapter puts into the SDK's EvaluationError as its cause,
@@ -21,7 +22,7 @@ export type EvaluateResponse =
  * failed build.
  */
 export interface EvaluationFailureCause {
-  code: 'evaluation_failed' | 'evaluator_unavailable';
+  code: 'evaluation_failed' | 'evaluator_unavailable' | 'unsupported_parameter_change';
   detail: string | null;
 }
 

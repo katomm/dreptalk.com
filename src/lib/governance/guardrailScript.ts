@@ -32,7 +32,7 @@ export const GUARDRAIL_SCRIPT_CBOR_HEX = '59085101010032323232323232323232323232
 export type GuardrailContext = { state: 'known'; scriptHash: string } | { state: 'absent' };
 
 export const GUARDRAIL_CHANGED_MESSAGE =
-  "The constitution's guardrails script changed. DRepTalk cannot submit treasury withdrawals until it knows the new script.";
+  "The constitution's guardrails script changed. DRepTalk cannot submit treasury withdrawals or parameter changes until it knows the new script.";
 
 export const GUARDRAIL_UNKNOWN_MESSAGE =
   'The guardrails script could not be checked. Nothing was published or signed. Try again later.';

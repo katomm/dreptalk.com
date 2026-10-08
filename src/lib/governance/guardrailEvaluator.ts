@@ -50,6 +50,7 @@ function readEvaluateResponse(body: unknown): EvaluateResponse | null {
     return { error: 'evaluation_failed', detail: typeof body.detail === 'string' ? body.detail : '' };
   }
   if (body.error === 'evaluator_unavailable') return { error: 'evaluator_unavailable' };
+  if (body.error === 'unsupported_parameter_change') return { error: 'unsupported_parameter_change' };
   return null;
 }
 
@@ -90,6 +91,9 @@ export async function evaluateThroughRoute(txCborHex: string, origin: string, fe
     }
     if (res.status === 422 && 'error' in body && body.error === 'evaluation_failed') {
       return { ok: false, cause: { code: 'evaluation_failed', detail: body.detail } };
+    }
+    if (res.status === 400 && 'error' in body && body.error === 'unsupported_parameter_change') {
+      return { ok: false, cause: { code: 'unsupported_parameter_change', detail: null } };
     }
     return UNAVAILABLE;
   } catch {
