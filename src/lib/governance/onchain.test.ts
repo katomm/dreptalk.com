@@ -517,3 +517,54 @@ describe('lineagePredecessorTxIds', () => {
     expect(lineagePredecessorTxIds([null, 'not json', JSON.stringify({ tag: 'InfoAction' })])).toEqual([]);
   });
 });
+describe('ParameterChange display of the staking parameters', () => {
+  const decode = (map: Record<string, unknown>, ep: Record<string, unknown> = {}) =>
+    decodeOnchainChanges(
+      JSON.stringify({ tag: 'ParameterChange', contents: [null, map, null] }),
+      JSON.stringify(ep),
+      'mainnet',
+    );
+
+  it('groups k and a0 as technical with their old values', () => {
+    const view = decode(
+      { stakePoolTargetNum: 600, poolPledgeInfluence: 0.35 },
+      { optimal_pool_count: 500, influence: 0.3 },
+    );
+    expect(view).toEqual({
+      kind: 'params',
+      rows: [
+        { group: 'Technical', label: 'Target Number of Pools (k)', oldValue: '500', newValue: '600' },
+        { group: 'Technical', label: 'Pledge Influence (a0)', oldValue: '0.3', newValue: '0.35' },
+      ],
+    });
+  });
+
+  it('never hides a small change in rho or minPoolCost', () => {
+    const view = decode(
+      { monetaryExpansion: 0.003001, minPoolCost: 170000001 },
+      { monetary_expand_rate: 0.003, min_pool_cost: '170000000' },
+    );
+    expect(view).toMatchObject({
+      rows: [
+        { label: 'Monetary Expansion', oldValue: '0.3%', newValue: '0.3001%' },
+        { label: 'Min Pool Cost', oldValue: '170 ₳', newValue: '170.000001 ₳' },
+      ],
+    });
+  });
+
+  it('groups an integer given as a numeric string, as the preview passes it', () => {
+    const view = decode({ stakePoolTargetNum: '2000' }, { optimal_pool_count: 500 });
+    expect(view).toMatchObject({ rows: [{ oldValue: '500', newValue: '2,000' }] });
+  });
+
+  it('reads a rational given as numerator and denominator', () => {
+    const view = decode({ treasuryCut: { numerator: 1, denominator: 4 } });
+    expect(view).toMatchObject({ rows: [{ label: 'Treasury Cut', newValue: '25%' }] });
+  });
+
+  it('counts k and a0 toward the technical group', () => {
+    expect(
+      parameterChangeScope(JSON.stringify({ tag: 'ParameterChange', contents: [null, { stakePoolTargetNum: 600 }, null] })),
+    ).toEqual({ groups: ['technical'], touchesSecurity: false });
+  });
+});

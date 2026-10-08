@@ -6,10 +6,11 @@ import { formatAda } from './view.js';
 import { rewardAddressToStakeBech32 } from './stakeAccount.js';
 import { HEX_HASH_224_RE, HEX_HASH_256_RE } from '../crypto/hex.js';
 import { isRecord } from '../util/isRecord.js';
+import { formatLovelaceExact, formatRationalDecimal, formatRationalPercent, rationalFromNumber, reduce, type Rational } from '../format/rational.js';
 import type { CardanoNetwork } from '../config/network.js';
 import type { ParamGroup, ParamChangeScope } from './thresholds.js';
 
-export type Fmt = 'lovelace' | 'ratio' | 'int' | 'bytes' | 'exUnits' | 'costModels';
+export type Fmt = 'lovelace' | 'ratio' | 'decimal' | 'percent' | 'int' | 'bytes' | 'exUnits' | 'costModels';
 
 export interface ParamMeta {
   snake: string;
@@ -29,8 +30,8 @@ export const PARAM_REGISTRY: Record<string, ParamMeta> = {
   committeeMaxTermLength: { snake: 'committee_max_term_length', group: 'Governance', label: 'Committee Max Term Length', format: 'int' },
   govActionLifetime: { snake: 'gov_action_lifetime', group: 'Governance', label: 'Governance Action Lifetime', format: 'int' },
   dRepActivity: { snake: 'drep_activity', group: 'Governance', label: 'DRep Activity', format: 'int' },
-  treasuryCut: { snake: 'treasury_growth_rate', group: 'Economic', label: 'Treasury Cut', format: 'ratio' },
-  monetaryExpansion: { snake: 'monetary_expand_rate', group: 'Economic', label: 'Monetary Expansion', format: 'ratio' },
+  treasuryCut: { snake: 'treasury_growth_rate', group: 'Economic', label: 'Treasury Cut', format: 'percent' },
+  monetaryExpansion: { snake: 'monetary_expand_rate', group: 'Economic', label: 'Monetary Expansion', format: 'percent' },
   minFeeA: { snake: 'min_fee_a', group: 'Economic', label: 'Min Fee Coefficient (a)', format: 'int' },
   minFeeB: { snake: 'min_fee_b', group: 'Economic', label: 'Min Fee Constant (b)', format: 'lovelace' },
   minFeeRefScriptCostPerByte: { snake: 'min_fee_ref_script_cost_per_byte', group: 'Economic', label: 'Ref Script Cost per Byte', format: 'lovelace' },
@@ -46,6 +47,9 @@ export const PARAM_REGISTRY: Record<string, ParamMeta> = {
   maxBlockExecutionUnits: { snake: '', group: 'Technical', label: 'Max Block Execution Units', format: 'exUnits' },
   collateralPercentage: { snake: 'collateral_percent', group: 'Technical', label: 'Collateral Percentage', format: 'int' },
   maxCollateralInputs: { snake: 'max_collateral_inputs', group: 'Technical', label: 'Max Collateral Inputs', format: 'int' },
+  stakePoolTargetNum: { snake: 'optimal_pool_count', group: 'Technical', label: 'Target Number of Pools (k)', format: 'int' },
+  poolPledgeInfluence: { snake: 'influence', group: 'Technical', label: 'Pledge Influence (a0)', format: 'decimal' },
+  poolRetireMaxEpoch: { snake: 'max_epoch', group: 'Technical', label: 'Pool Retire Max Epoch (eMax)', format: 'int' },
   costModels: { snake: 'cost_models', group: 'Technical', label: 'Cost Models', format: 'costModels' },
 };
 
@@ -166,10 +170,33 @@ function fmtExUnits(v: unknown): string {
   return String(v);
 }
 
+/** A payload rational: a JSON number (the ledger's decimal form) or { numerator, denominator }. */
+function payloadRational(v: unknown): Rational | null {
+  if (typeof v === 'number') return rationalFromNumber(v);
+  if (v && typeof v === 'object' && 'numerator' in v && 'denominator' in v) {
+    const { numerator, denominator } = v as { numerator: unknown; denominator: unknown };
+    if (typeof numerator === 'number' && typeof denominator === 'number' && denominator > 0) {
+      return reduce({ n: BigInt(numerator), d: BigInt(denominator) });
+    }
+  }
+  return null;
+}
+
 export function formatValue(fmt: Fmt, v: unknown): string {
   switch (fmt) {
-    case 'lovelace':
-      return formatAda(String(v)) ?? String(v);
+    case 'lovelace': {
+      // Exact, so a sub-ada change is never shown as no change.
+      const s = typeof v === 'number' ? (Number.isSafeInteger(v) ? String(v) : null) : typeof v === 'string' ? v : null;
+      return s !== null && /^\d+$/.test(s) ? formatLovelaceExact(BigInt(s)) : (formatAda(String(v)) ?? String(v));
+    }
+    case 'decimal': {
+      const q = payloadRational(v);
+      return q ? formatRationalDecimal(q) : String(v);
+    }
+    case 'percent': {
+      const q = payloadRational(v);
+      return q ? formatRationalPercent(q) : String(v);
+    }
     case 'ratio':
       return fmtRatio(v);
     case 'bytes':
@@ -179,7 +206,9 @@ export function formatValue(fmt: Fmt, v: unknown): string {
     case 'costModels':
       return 'Updated';
     default:
-      return typeof v === 'number' ? groupNum(v) : String(v);
+      if (typeof v === 'number') return groupNum(v);
+      if (typeof v === 'string' && /^\d+$/.test(v)) return BigInt(v).toLocaleString('en-US');
+      return String(v);
   }
 }
 
