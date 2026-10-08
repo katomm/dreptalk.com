@@ -1,4 +1,4 @@
-import { esc, fmt, svgOpen, type Format } from './svg.js';
+import { esc, fmt, svgOpen, type Format, thresholdLabel } from './svg.js';
 import type { CompareSpec } from './schema.js';
 
 /**
@@ -30,7 +30,7 @@ export function renderCompare(s: CompareSpec): string {
     if (p.threshold != null) {
       const tx = x(p.threshold);
       out += `<line class="rv-thr" x1="${tx.toFixed(1)}" x2="${tx.toFixed(1)}" y1="${top - 6}" y2="${top + p.rows.length * rowH + 2}"/>`;
-      out += `<text class="rv-ann" x="${(tx + 4).toFixed(1)}" y="${top - 8}">${esc(`${fmt(p.threshold, f)} bar`)}</text>`;
+      out += `<text class="rv-ann" x="${(tx + 4).toFixed(1)}" y="${top - 8}">${esc(thresholdLabel(p.threshold, f))}</text>`;
     }
   });
   return out + '</svg>';

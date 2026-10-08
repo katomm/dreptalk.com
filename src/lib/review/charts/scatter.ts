@@ -1,4 +1,4 @@
-import { esc, fmt, frame, span, svgOpen, ticksFor, type Format } from './svg.js';
+import { esc, fmt, frame, span, svgOpen, ticksFor, type Format, thresholdLabel } from './svg.js';
 import type { ScatterSpec } from './schema.js';
 
 /**
@@ -41,7 +41,7 @@ export function renderScatter(s: ScatterSpec): string {
   if (s.threshold != null) {
     const ty = fr.y(s.threshold);
     out += `<line class="rv-thr" x1="${fr.x0}" x2="${fr.x1}" y1="${ty.toFixed(1)}" y2="${ty.toFixed(1)}"/>`;
-    out += `<text class="rv-ann" x="${fr.x0 + 4}" y="${(ty - 9).toFixed(1)}">${esc(`${fmt(s.threshold, yf)} bar`)}</text>`;
+    out += `<text class="rv-ann" x="${fr.x0 + 4}" y="${(ty - 9).toFixed(1)}">${esc(thresholdLabel(s.threshold, yf))}</text>`;
   }
 
   const tone = { yes: 's1', no: 's2', abstain: 's3' } as const;

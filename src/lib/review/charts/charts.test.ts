@@ -83,6 +83,15 @@ describe('renderChart', () => {
       expect(svg, spec.type).not.toMatch(/NaN|Infinity/);
     }
   });
+  it('keeps a long row label inside the frame and a value label off the threshold line', () => {
+    const svg = renderChart({ type: 'hbars', title: 'h', sources: ['a', 'b'], format: '%', threshold: 67, max: 100, rows: [{ label: 'The Ikigai reimbursement', value: 65.2 }, { label: 'The Governance Incentives Framework', value: 1.7, tone: 'no' }] });
+    const labelX = Number(/<text x="([\d.]+)" y="[\d.]+" text-anchor="end">The Governance/.exec(svg)?.[1]);
+    expect(labelX - 'The Governance Incentives Framework'.length * 7.2).toBeGreaterThanOrEqual(0);
+    const lineX = Number(/class="rv-thr" x1="([\d.]+)"/.exec(svg)?.[1]);
+    const valueX = Number(/class="rv-lbl" x="([\d.]+)" y="[\d.]+">65\.2%/.exec(svg)?.[1]);
+    expect(valueX).toBeGreaterThan(lineX);
+    expect(svg).toContain('67% needed');
+  });
   it('gives every mark a title', () => {
     for (const spec of [line,
       { type: 'bars' as const, title: 'b', sources: ['x'], epochSource: 'e', epochs: [1, 2, 3], values: [5, 6, 7], highlight: [2, 3] as [number, number] },
@@ -209,7 +218,7 @@ describe('matrix, before/after and timeline', () => {
     const svg = renderChart(beforeAfter);
     expect(svg.match(/class="rv-dot rv-s3"/g)?.length).toBe(2);
     expect(svg.match(/class="rv-dot rv-s1"/g)?.length).toBe(2);
-    expect(svg).toContain('67.0% bar');
+    expect(svg).toContain('67% needed');
     expect(svg).toContain('39.8M');
   });
   it('renders every event on the epoch axis', () => {
@@ -257,8 +266,8 @@ describe('budget and compare', () => {
   });
   it('draws each panel with its own bar', () => {
     const svg = renderChart(compare);
-    expect(svg).toContain('67.0% bar');
-    expect(svg).toContain('51.0% bar');
+    expect(svg).toContain('67% needed');
+    expect(svg).toContain('51% needed');
     expect(svg.match(/class="rv-bar/g)?.length).toBe(4);
   });
 });
