@@ -26,7 +26,7 @@
 // Amounts render compact ("5.27B ₳"): the sidebar is 300px wide and these are the
 // largest numbers on the site. formatAdaCompact is BigInt-safe on the raw strings.
 import { formatAdaCompact } from '../format/ada.js';
-import { pct4, round2 } from '../format/pct.js';
+import { pct4 } from '../format/pct.js';
 
 /** Compact ada for a raw lovelace amount, two decimals so 10.89B and 10.52B differ. */
 function ada(lovelace: bigint): string {
@@ -165,12 +165,25 @@ export function alwaysAbstainIsNoSide(actionType: string, body: 'DRep' | 'SPO'):
  * vote on a hard fork needs no exception: its no side already holds the
  * always-abstain stake the ledger counts as No (see alwaysAbstainIsNoSide).
  */
-export function ratificationYesPct(input: {
+export function ratificationYesPct(input: RatificationInput): number | null {
+  const parts = ratificationParts(input);
+  return parts ? pct4(parts.yes, parts.counted) : null;
+}
+
+interface RatificationInput {
   actionType: string;
   body: 'DRep' | 'SPO';
   yesPower: number | string | null;
   noSidePower: string | null;
-}): number | null {
+}
+
+interface RatificationParts {
+  yes: bigint;
+  counted: bigint;
+}
+
+/** Yes and the ratification denominator in lovelace, null where ratificationYesPct declines. */
+function ratificationParts(input: RatificationInput): RatificationParts | null {
   if (input.yesPower === null || input.noSidePower === null || !ancIsNoSide(input.actionType)) return null;
   let yes: bigint;
   let noSide: bigint;
@@ -181,7 +194,7 @@ export function ratificationYesPct(input: {
     return null;
   }
   const counted = yes + noSide;
-  return counted > 0n ? pct4(yes, counted) : null;
+  return counted > 0n ? { yes, counted } : null;
 }
 
 /**
@@ -192,9 +205,15 @@ export function ratificationYesPct(input: {
  * delegations of the day it is asked, so they can describe a later ledger state.
  * When they reproduce the pct, the derived value only adds precision (a stored
  * 56.15 is really 56.149, so it reads 56.1 and not 56.2).
+ *
+ * The exact ratio is rounded half up to hundredths in BigInt, the way Koios rounds.
+ * Rounding the truncated four-decimal share as a float would misjudge the boundary:
+ * an exact 1.00501 truncates to 1.005, which Math.round turns into 1.00 against a
+ * stored 1.01.
  */
-export function bucketsReproduceTally(storedPct: number, derivedPct: number): boolean {
-  return Math.abs(round2(derivedPct) - storedPct) < 1e-9;
+export function bucketsReproduceTally(storedPct: number, parts: RatificationParts): boolean {
+  const hundredths = ((parts.yes * 20_000n) / parts.counted + 1n) / 2n;
+  return hundredths === BigInt(Math.round(storedPct * 100));
 }
 
 export interface BodyTallyInput {
@@ -211,8 +230,8 @@ export interface BodyTallyInput {
  * surface shows a percentage next to amounts that give a different one.
  */
 export function bucketsDrifted(input: BodyTallyInput): boolean {
-  const derived = ratificationYesPct(input);
-  return input.storedPct != null && derived != null && !bucketsReproduceTally(input.storedPct, derived);
+  const parts = ratificationParts(input);
+  return input.storedPct != null && parts != null && !bucketsReproduceTally(input.storedPct, parts);
 }
 
 /**
@@ -221,8 +240,10 @@ export function bucketsDrifted(input: BodyTallyInput): boolean {
  */
 export function shownYesPct(input: BodyTallyInput): number | null {
   if (input.storedPct == null) return null;
-  const derived = ratificationYesPct(input);
-  return derived != null && bucketsReproduceTally(input.storedPct, derived) ? derived : input.storedPct;
+  const parts = ratificationParts(input);
+  return parts != null && bucketsReproduceTally(input.storedPct, parts)
+    ? pct4(parts.yes, parts.counted)
+    : input.storedPct;
 }
 
 export function buildBodyStake(input: BodyStakeInput): BodyStakeView | null {
@@ -259,10 +280,11 @@ export function buildBodyStake(input: BodyStakeInput): BodyStakeView | null {
   const aaCounted = alwaysAbstainIsNoSide(input.actionType, input.body);
 
   // What is left of the No side once the identifiable parts come off is the stake
-  // that never voted and carries the default No. Clamped: a Koios snapshot taken
-  // mid-update can report a No side smaller than its own parts.
-  const defaultNoRaw = noSide - activeNo - alwaysNoConfidence - (aaCounted ? alwaysAbstain : 0n);
-  const defaultNo = defaultNoRaw > 0n ? defaultNoRaw : 0n;
+  // that never voted and carries the default No. A No side smaller than its own
+  // parts (a Koios snapshot taken mid-update) has no honest split: the segments
+  // would add up to more than the total, so the caller keeps the plain counted bar.
+  const defaultNo = noSide - activeNo - alwaysNoConfidence - (aaCounted ? alwaysAbstain : 0n);
+  if (defaultNo < 0n) return null;
 
   const counted = activeYes + noSide;
   const excluded = aaCounted ? activeAbstain : activeAbstain + alwaysAbstain;

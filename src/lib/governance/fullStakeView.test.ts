@@ -224,11 +224,29 @@ describe('buildBodyStake', () => {
   });
 
   describe('edge cases', () => {
-    it('clamps the default No to zero when a snapshot reports a No side below its own parts', () => {
-      const view = buildBodyStake(
-        makeInput({ activeNoPower: 80, noSidePower: '50', alwaysNoConfidencePower: '10' }),
-      )!;
+    it('declines a No side smaller than its own parts, whose segments would exceed the total', () => {
+      expect(
+        buildBodyStake(makeInput({ activeNoPower: 80, noSidePower: '50', alwaysNoConfidencePower: '10' })),
+      ).toBeNull();
+      // Hard fork SPO: always-abstain is a part of the No side too.
+      expect(
+        buildBodyStake(
+          makeInput({
+            actionType: 'HardForkInitiation',
+            body: 'SPO',
+            activeYesPower: 60,
+            activeAbstainPower: 10,
+            noSidePower: '40',
+            alwaysAbstainPower: '50',
+          }),
+        ),
+      ).toBeNull();
+    });
+
+    it('keeps a No side made up exactly of its parts, with no default No left', () => {
+      const view = buildBodyStake(makeInput({ activeNoPower: 40, noSidePower: '50', alwaysNoConfidencePower: '10' }))!;
       expect(view.segments.find((s) => s.key === 'defaultNo')).toBeUndefined();
+      expect(view.segments.reduce((t, s) => t + s.pct, 0)).toBeCloseTo(100, 2);
     });
 
     it('returns null when the body holds no stake at all', () => {
@@ -281,6 +299,19 @@ describe('ratificationYesPct and the tally consistency gate', () => {
     expect(bucketsDrifted({ ...plomin, storedPct: 65.99 })).toBe(true);
   });
 
+  it('rounds the exact ratio half up, so a boundary share matches its stored value', () => {
+    // Exactly 1.00501%: the truncated four-decimal 1.005 would round to 1.00 as a float.
+    const parts = { yes: 100_501n, counted: 10_000_000n };
+    expect(bucketsReproduceTally(1.01, parts)).toBe(true);
+    expect(bucketsReproduceTally(1.0, parts)).toBe(false);
+    const boundary = { actionType: 'InfoAction', body: 'DRep' as const, yesPower: 100501, noSidePower: '9899499' };
+    expect(bucketsDrifted({ ...boundary, storedPct: 1.01 })).toBe(false);
+    expect(shownYesPct({ ...boundary, storedPct: 1.01 })).toBe(1.005);
+    // An exact half rounds up, one lovelace below it rounds down.
+    expect(bucketsReproduceTally(56.15, { yes: 56_145n, counted: 100_000n })).toBe(true);
+    expect(bucketsReproduceTally(56.15, { yes: 5_614_499n, counted: 10_000_000n })).toBe(false);
+  });
+
   it('refines the stored share only when the buckets reproduce it', () => {
     const body = { actionType: 'NewCommittee', body: 'SPO' as const, ...ccUpdate };
     // Same snapshot: 56.1487 rounds back to 56.15, so it reads 56.1 and never 56.2.
@@ -289,7 +320,7 @@ describe('ratificationYesPct and the tally consistency gate', () => {
     // Buckets from a later ledger state than the frozen tally: the stored share stays.
     expect(shownYesPct({ ...body, storedPct: 57.16 })).toBe(57.16);
     expect(bucketsDrifted({ ...body, storedPct: 57.16 })).toBe(true);
-    expect(bucketsReproduceTally(8.97, 8.9408)).toBe(false);
+    expect(bucketsReproduceTally(8.97, { yes: 89_408n, counted: 1_000_000n })).toBe(false);
     // Missing buckets or a missing tally never count as drift.
     expect(bucketsDrifted({ ...body, storedPct: 57.16, noSidePower: null })).toBe(false);
     expect(bucketsDrifted({ ...body, storedPct: null })).toBe(false);
