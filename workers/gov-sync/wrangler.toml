@@ -49,7 +49,9 @@ crons = ["*/5 * * * *", "2-59/5 * * * *", "*/20 * * * *", "0 */6 * * *"]
 # CARDANO_NETWORK is intentionally NOT set here: unset defaults to mainnet in
 # production. For local preprod runs, set it in workers/gov-sync/.dev.vars
 # (gitignored) or pass --var CARDANO_NETWORK:preprod. KOIOS_API_KEY is an
-# optional secret for higher rate limits.
+# optional secret for higher rate limits. PINATA_GATEWAY_URL and
+# PINATA_GATEWAY_KEY are optional secrets for a dedicated IPFS gateway the
+# anchor fetch tries first (see docs/deployment.md).
 
 # Service binding to the app worker, mainnet only (deliberately absent from
 # [env.preprod], and its absence is what keeps the phase off there): the

@@ -29,6 +29,13 @@ npx wrangler secret put KOIOS_API_KEY --name dreptalk-com-preprod
 npx wrangler secret put KOIOS_API_KEY --name dreptalk-gov-sync-preprod
 ```
 
+The cron worker reads every `ipfs://` anchor (governance actions, vote rationales, DRep profiles, committee metadata) through public IPFS gateways, and the shared ones rate limit Cloudflare's egress addresses with HTTP 429. Two optional secrets on the gov-sync workers only put a dedicated Pinata gateway in front of that list: `PINATA_GATEWAY_URL`, the gateway's origin (`https://<name>.mypinata.cloud`, no path), and `PINATA_GATEWAY_KEY`, a gateway access token that is sent as the `x-pinata-gateway-token` header to that host and nowhere else. Both are needed, either one alone is ignored, and without them (local dev, tests, a network not set up yet) the anchor fetch uses the public gateways exactly as before. Neither value reaches the browser, a log line or a stored row, and links shown to readers keep pointing at the public Pinata gateway. Set on preprod, mainnet follows with the same commands against `dreptalk-gov-sync`:
+
+```sh
+npx wrangler secret put PINATA_GATEWAY_URL --name dreptalk-gov-sync-preprod
+npx wrangler secret put PINATA_GATEWAY_KEY --name dreptalk-gov-sync-preprod
+```
+
 ---
 
 See also: [Development](development.md) · [README](../README.md)
