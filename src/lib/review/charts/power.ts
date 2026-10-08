@@ -1,4 +1,4 @@
-import { esc, fmt, span, svgOpen, type Format } from './svg.js';
+import { esc, fmt, span, svgOpen, type Format, thresholdLabel } from './svg.js';
 import type { PowerSpec } from './schema.js';
 
 /**
@@ -28,6 +28,6 @@ export function renderPower(s: PowerSpec): string {
     }
     out += `<text class="rv-lbl" x="${(x1 + 8).toFixed(1)}" y="${y + 16}">${esc(`${r.share.toFixed(1)}%`)}</text>`;
   });
-  if (s.threshold != null) out += `<text class="rv-muted" x="${(x1 + 8).toFixed(1)}" y="${H - 8}">${esc(`bar ${s.threshold}%`)}</text>`;
+  if (s.threshold != null) out += `<text class="rv-muted" x="${(x1 + 8).toFixed(1)}" y="${H - 8}">${esc(thresholdLabel(s.threshold, '%'))}</text>`;
   return out + '</svg>';
 }

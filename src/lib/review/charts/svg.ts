@@ -16,6 +16,14 @@ export function fmt(v: number, f: Format): string {
   return Math.round(v).toLocaleString('en-US');
 }
 
+// The annotation on a threshold line: "67% needed". A whole-number threshold
+// drops the decimal, and the word says what the line means without the
+// series' own vocabulary ("bar").
+export function thresholdLabel(v: number, f: Format): string {
+  const shown = f === '%' && Number.isInteger(v) ? `${v}%` : fmt(v, f);
+  return `${shown} needed`;
+}
+
 export interface Frame {
   W: number; H: number; x0: number; x1: number; y0: number; y1: number;
   y: (v: number) => number;

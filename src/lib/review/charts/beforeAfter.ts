@@ -1,4 +1,4 @@
-import { esc, fmt as baseFmt, svgOpen, type Format } from './svg.js';
+import { esc, fmt as baseFmt, svgOpen, type Format, thresholdLabel } from './svg.js';
 
 /** A moved amount keeps one decimal, so ₳39.8M does not print as 40M next to ₳18.3M. */
 const fmt = (v: number, f: Format): string => (f === 'M' && !Number.isInteger(v) ? `${v.toFixed(1)}M` : baseFmt(v, f));
@@ -23,7 +23,7 @@ export function renderBeforeAfter(s: BeforeAfterSpec): string {
     out += `<line class="rv-axis" x1="${x0}" x2="${x1}" y1="${y}" y2="${y}"/>`;
     if (p.threshold != null) {
       out += `<line class="rv-thr" x1="${x(p.threshold).toFixed(1)}" x2="${x(p.threshold).toFixed(1)}" y1="${y - 22}" y2="${y + 22}"/>`;
-      out += `<text class="rv-ann" x="${(x(p.threshold) + 5).toFixed(1)}" y="${y - 24}">${esc(`${fmt(p.threshold, f)} bar`)}</text>`;
+      out += `<text class="rv-ann" x="${(x(p.threshold) + 5).toFixed(1)}" y="${y - 24}">${esc(thresholdLabel(p.threshold, f))}</text>`;
     }
     const bx = x(p.before.value), ax = x(p.after.value);
     out += `<line class="rv-link" x1="${bx.toFixed(1)}" x2="${ax.toFixed(1)}" y1="${y}" y2="${y}"/>`;
