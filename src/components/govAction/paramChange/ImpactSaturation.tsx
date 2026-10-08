@@ -1,26 +1,29 @@
-// What a new k does to the saturation point: the largest 300 pools as bars
-// against the old and the new point, and how much stake ends up over it.
+// What a new k does to the saturation point: the largest pools as bars (30
+// to 300 of them, see shownPoolCount) against the old and the new point, and how much stake ends up over it.
 // The bars live in a stretched SVG, the axis ticks and line labels in HTML
 // around it, so the labels keep their size on a phone.
 import { memo, useMemo } from 'react';
-import { saturation, type ModelParams, type PoolEconomics } from '@/lib/governance/paramImpact.js';
+import { saturation, shownPoolCount, type ModelParams, type PoolEconomics } from '@/lib/governance/paramImpact.js';
 import { adaCompact, LegendItem, linear, niceTicks, Stat } from './chart.js';
 
-const SHOWN_POOLS = 300;
 const W = 600;
-const H = 160;
+const H = 220;
 // Headroom above the bars so the higher dashed line never touches the top edge.
 const TOP = 8;
 // At most this many clipped bars get their real value as a label.
 const CLIP_LABELS = 3;
-// Rank ticks in between the first and the last pool, the last one needs this much room.
-const RANK_STEP = 100;
+// Rank ticks in between the first and the last pool: a step of about a third
+// of the count, rounded to 10, 25, 50 or 100, and the last tick needs half a step of room.
+const rankStep = (count: number) => [10, 25, 50, 100].find((step) => step * 3.5 >= count) ?? 100;
 
 export default memo(function ImpactSaturation({ eco, from, to }: { eco: PoolEconomics; from: ModelParams; to: ModelParams }) {
   const { k: kFrom } = from;
   const { k: kTo } = to;
-  const s = useMemo(() => saturation(eco, kFrom, kTo), [eco, kFrom, kTo]);
-  const top = eco.pools.slice(0, SHOWN_POOLS);
+  const { s, shown } = useMemo(
+    () => ({ s: saturation(eco, kFrom, kTo), shown: shownPoolCount(eco, kFrom, kTo) }),
+    [eco, kFrom, kTo],
+  );
+  const top = eco.pools.slice(0, shown);
   // A few very large pools would flatten the chart, so bars are clipped.
   const clip = Math.max(s.pointFrom, s.pointTo) * 1.35;
   const clipped = top.filter((pool) => pool.stake > clip);
@@ -30,7 +33,8 @@ export default memo(function ImpactSaturation({ eco, from, to }: { eco: PoolEcon
   const bw = W / Math.max(top.length, 1);
   const rankX = (rank: number) => (((rank - 0.5) * bw) / W) * 100;
   const ranks = [1];
-  for (let r = RANK_STEP; r <= top.length - RANK_STEP / 2; r += RANK_STEP) ranks.push(r);
+  const step = rankStep(top.length);
+  for (let r = step; r <= top.length - step / 2; r += step) ranks.push(r);
   if (top.length > 1) ranks.push(top.length);
   // The higher line carries its label above it, the lower one below, so the two never collide.
   const fromHigher = s.pointFrom >= s.pointTo;
@@ -49,6 +53,7 @@ export default memo(function ImpactSaturation({ eco, from, to }: { eco: PoolEcon
         <div className="pcp-plot__area">
           {clipped.length > 0 && (
             <div className="pcp-clips" aria-hidden="true">
+              <span>Clipped:</span>
               {clipped.slice(0, CLIP_LABELS).map((pool, i) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: labels are positional, two pools can share a stake
                 <span key={i} className="pcp-nb">

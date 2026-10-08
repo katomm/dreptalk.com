@@ -2131,7 +2131,7 @@ html[data-theme='dark'] .pcp-panel {
   width: 100%;
 }
 .pcp-chart--sat {
-  height: 160px;
+  height: 220px;
 }
 .pcp-chart--rewards {
   height: 170px;
@@ -2627,6 +2627,9 @@ body:has(.pcp-panel[data-docked='true']) .preprod-flag {
 }
 /* Narrow impact sections: one tile per row, label and figure side by side. */
 @container pcp-impact (max-width: 480px) {
+  .pcp-chart--sat {
+    height: 170px;
+  }
   .pcp-stats {
     grid-template-columns: minmax(0, 1fr);
     gap: 6px;

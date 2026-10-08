@@ -91,6 +91,23 @@ export function saturation(eco: PoolEconomics, kFrom: number, kTo: number) {
   return { pointFrom, pointTo, aboveFrom, aboveTo, excessFrom, excessTo };
 }
 
+/** Bounds of the saturation chart's pool count, and the share of the lower saturation point a shown pool reaches at least. */
+export const SHOWN_POOLS_MIN = 30;
+export const SHOWN_POOLS_MAX = 300;
+const SHOWN_POOLS_SHARE = 0.01;
+
+/**
+ * How many of the largest pools the saturation chart shows: every pool with
+ * at least 1% of the lower of the two saturation points, at least 30 and at
+ * most 300, never more than there are. Pools are sorted largest first.
+ */
+export function shownPoolCount(eco: PoolEconomics, kFrom: number, kTo: number): number {
+  const floor = SHOWN_POOLS_SHARE * Math.min(eco.totalStakeAda / kFrom, eco.totalStakeAda / kTo);
+  let count = 0;
+  while (count < eco.pools.length && eco.pools[count].stake >= floor) count++;
+  return Math.min(eco.pools.length, Math.max(SHOWN_POOLS_MIN, Math.min(SHOWN_POOLS_MAX, count)));
+}
+
 /** Relative change of a pool's maximum rewards (0.01 is +1%), the pot included. */
 export function rewardChange(eco: PoolEconomics, from: ModelParams, to: ModelParams, stake: number, pledge: number): number {
   const before = maxPool(stake, pledge, from.k, from.a0, eco.totalStakeAda) * pot(eco, from);

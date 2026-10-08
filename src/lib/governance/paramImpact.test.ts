@@ -9,6 +9,7 @@ import {
   rewardCurves,
   samplePools,
   saturation,
+  shownPoolCount,
   type PoolEconomicsJson,
 } from './paramImpact.js';
 
@@ -40,6 +41,25 @@ describe('saturation', () => {
     // An unchanged k gives the same excess before and after.
     const same = saturation(eco, 500, 500);
     expect(same.excessFrom).toBe(same.excessTo);
+  });
+});
+
+describe('shownPoolCount', () => {
+  it('shows the full 300 pools on mainnet epoch 660', () => {
+    // About 1000 pools hold at least 1% of the 64.9M point, the cap wins.
+    expect(shownPoolCount(eco, 500, 600)).toBe(300);
+  });
+  it('stops at the pools under 1% of the lower saturation point', () => {
+    // Keep the 40 largest pools and shrink the rest below 1% of 64.9M.
+    const few = { ...eco, pools: eco.pools.map((p, i) => (i < 40 ? p : { ...p, stake: 0.5e6 })) };
+    expect(shownPoolCount(few, 500, 600)).toBe(40);
+    // The lower point decides: with k 2000 the 1% floor is about 195k, so every pool counts again.
+    expect(shownPoolCount(few, 500, 2000)).toBe(300);
+  });
+  it('shows at least 30 pools and never more than there are', () => {
+    const tiny = { ...eco, pools: eco.pools.map((p, i) => (i < 3 ? p : { ...p, stake: 1 })) };
+    expect(shownPoolCount(tiny, 500, 600)).toBe(30);
+    expect(shownPoolCount({ ...eco, pools: eco.pools.slice(0, 12) }, 500, 600)).toBe(12);
   });
 });
 
