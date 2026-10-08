@@ -97,4 +97,11 @@ describe('per-type wording', () => {
     expect(isStalePrevError(`... ${'ab'.repeat(32)} ...`, 'AB'.repeat(32))).toBe(true);
     expect(isStalePrevError('BadInputsUTxO', null)).toBe(false);
   });
+
+  it("matches Ogmios' wording of a stale previous action", () => {
+    // Shortened from the devnet's real submitTransaction rejection.
+    const ogmios =
+      '{"error":{"code":3159,"message":"The transaction contains invalid or missing reference to previous (ratified) governance proposals. ...","data":{"invalidOrMissingPreviousProposals":[{"type":"protocolParametersUpdate"}]}}}';
+    expect(isStalePrevError(ogmios, null)).toBe(true);
+  });
 });

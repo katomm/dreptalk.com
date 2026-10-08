@@ -63,10 +63,12 @@ export function mapGuardrailBuildError(err: unknown, type?: GovActionFormType): 
 
 /**
  * Whether a submit error says the previous governance action no longer fits
- * the chain. Matches the ledger's Conway failure name, so it works when the
- * form built on a null root too, and the chosen tx hash as before.
+ * the chain. Matches the ledger's Conway failure name and Ogmios' wording of
+ * it (submit error 3159, field invalidOrMissingPreviousProposals, seen on a
+ * devnet), so it works when the form built on a null root too, and the
+ * chosen tx hash as before.
  */
 export function isStalePrevError(raw: string, prevTxHashHex: string | null): boolean {
-  if (/InvalidPrevGovActionId|PrevGovActionId/i.test(raw)) return true;
+  if (/InvalidPrevGovActionId|PrevGovActionId|invalidOrMissingPreviousProposals/i.test(raw)) return true;
   return prevTxHashHex !== null && raw.toLowerCase().includes(prevTxHashHex.toLowerCase());
 }
