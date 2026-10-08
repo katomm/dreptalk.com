@@ -26,6 +26,7 @@ import {
   type ParamChangePanelState,
 } from '@/lib/governance/govActionFormState.js';
 import { guardrailDecision } from '@/lib/governance/guardrailScript.js';
+import { matchesRef } from '@/lib/governance/prevAction.js';
 import { drepThresholdPct } from '@/lib/governance/thresholds.js';
 import type { ActionContextResponse } from '@/lib/governance/actionContextHandler.js';
 import type { ProtocolParams } from '@/lib/db/protocolParams.js';
@@ -124,7 +125,11 @@ export default function ParamChangePanel({
   disabled = false,
 }: ParamChangePanelProps) {
   const prevContext = context.prev ?? { lastEnacted: null, open: [] };
-  const competing = prevContext.open.filter((row) => row.type === 'ParameterChange');
+  // An open parameter change the user builds on is the chain this action
+  // extends, so only the others compete with it.
+  const competing = prevContext.open.filter(
+    (row) => row.type === 'ParameterChange' && !(value.prev && matchesRef(value.prev, row)),
+  );
   const current = valuesFromJson(context.params);
   const errors = paramFieldErrors(value, context);
   const validation = validateParamChangePanel(value, context);
@@ -161,8 +166,9 @@ export default function ParamChangePanel({
               <InfoIcon />
               <div className="callout__body">
                 <p className="pcp-callout__text">
-                  Another parameter change is open: {row.title ?? `${row.id.slice(0, 16)}...`}. Both build on the same
-                  previous change, so only one of them can take effect.
+                  Another parameter change is open: {row.title ?? `${row.id.slice(0, 16)}...`}. Only one parameter
+                  change can take effect from the same previous action. If that one is enacted first, this one can no
+                  longer pass.
                 </p>
                 <a href={`/ga/${row.id}/`}>View the open proposal</a>
               </div>
@@ -182,18 +188,26 @@ export default function ParamChangePanel({
             <div className="pcp-chips">
               {PARAM_KEYS.map((key) => {
                 const on = value.picked.includes(key);
+                // Color alone would hide the invalid state from some readers, so it also shows "!" and names it.
+                const invalid = on && Boolean(errors[key]);
                 return (
                   <button
                     key={key}
                     type="button"
                     className="pcp-chip"
                     aria-pressed={on}
-                    data-state={on && errors[key] ? 'invalid' : 'ok'}
+                    aria-label={invalid ? `${PARAM_DEFS[key].short}, value not valid` : undefined}
+                    data-state={invalid ? 'invalid' : 'ok'}
                     title={PARAM_DEFS[key].title}
                     onClick={() => toggle(key)}
                     disabled={disabled}
                   >
                     {PARAM_DEFS[key].short}
+                    {invalid && (
+                      <span className="pcp-chip__mark" aria-hidden="true">
+                        !
+                      </span>
+                    )}
                   </button>
                 );
               })}

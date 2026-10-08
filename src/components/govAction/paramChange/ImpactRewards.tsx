@@ -16,7 +16,8 @@ const H = 170;
 const X_MIN = 2e6;
 const X_MAX = 80e6;
 const X_TICKS = [10e6, 30e6, 50e6, 70e6];
-const COLORS = ['var(--muted)', 'var(--accent)', 'var(--gov-parameter)'];
+// The zero line is var(--muted), so no curve uses it.
+const COLORS = ['var(--gov-committee)', 'var(--accent)', 'var(--gov-parameter)'];
 const pledgeLabel = (pledge: number) => `${pledge / 1e6}M ₳ pledge`;
 
 export default function ImpactRewards({

@@ -60,6 +60,10 @@ describe('minPoolCostImpact', () => {
     expect(minPoolCostImpact(eco, 170_000_000n, 170_000_001n).below).toBe(500);
     expect(minPoolCostImpact(eco, 170_000_000n, 340_000_000n).below).toBe(556);
   });
+  it('counts the pools at exactly the current minimum', () => {
+    expect(minPoolCostImpact(eco, 170_000_000n, 200_000_000n).atCurrent).toBe(500);
+    expect(minPoolCostImpact(eco, 170_000_001n, 200_000_000n).atCurrent).toBe(0);
+  });
   it('bins fixed costs in 25 ada steps up to 500 ada plus one open bin', () => {
     const { bins } = minPoolCostImpact(eco, 170_000_000n, 200_000_000n);
     expect(bins).toHaveLength(21);

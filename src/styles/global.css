@@ -1825,9 +1825,10 @@ tr.diff-block-del > th {
 /* Parameter change panel (/ga/new)
    Global because the panel is a React island. The layout follows the panel's
    own width (container queries), since the /ga/new form column is narrower
-   than the viewport: two columns from 880px of panel, one column below. --warn marks what the change pushes over a limit (pools above
-   the new saturation point, pools below the new minimum cost), the same amber
-   as --c-cc. Track and bar tones are mixed from the theme tokens, so they
+   than the viewport: two columns from 880px of panel, one column below.
+   --warn marks what the change pushes over a limit (pools above the new
+   saturation point, pools below the new minimum cost), the same amber as
+   --c-cc. Track and bar tones are mixed from the theme tokens, so they
    follow the theme without tokens of their own. */
 :root {
   /* Height the docked action bar reserves, also used to lift the preprod pill. */
@@ -1893,6 +1894,10 @@ html[data-theme='dark'] .pcp-panel {
   background: var(--danger);
   border-color: var(--danger);
   color: var(--on-accent);
+}
+.pcp-chip__mark {
+  margin-left: 4px;
+  font-weight: 800;
 }
 .pcp-chip:disabled {
   cursor: not-allowed;

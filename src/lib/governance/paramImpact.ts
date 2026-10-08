@@ -110,19 +110,19 @@ const BIN_ADA = 25;
 const BIN_MAX_ADA = 500;
 
 export function minPoolCostImpact(eco: PoolEconomics, currentLovelace: bigint, nextLovelace: bigint) {
-  // @biome-ignore lint/nursery/noUnusedVariables: currentLovelace is kept for the panel to read the marker
-  void currentLovelace;
   const bins: { fromAda: number; toAda: number | null; count: number }[] = [];
   for (let from = 0; from < BIN_MAX_ADA; from += BIN_ADA) bins.push({ fromAda: from, toAda: from + BIN_ADA, count: 0 });
   bins.push({ fromAda: BIN_MAX_ADA, toAda: null, count: 0 });
   let below = 0;
+  let atCurrent = 0;
   for (const pool of eco.pools) {
     if (pool.costLovelace < nextLovelace) below++;
+    if (pool.costLovelace === currentLovelace) atCurrent++;
     const ada = Number(pool.costLovelace / 1_000_000n);
     const index = ada >= BIN_MAX_ADA ? bins.length - 1 : Math.floor(ada / BIN_ADA);
     bins[index].count++;
   }
-  return { below, bins };
+  return { below, atCurrent, bins };
 }
 
 export function budget(eco: PoolEconomics, from: ModelParams, to: ModelParams) {

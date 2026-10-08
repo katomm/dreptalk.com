@@ -1,6 +1,6 @@
 // What a new minimum pool cost means for the pools of today: their fixed
-// costs in 25 ada bins, the bins at or below the new minimum highlighted,
-// with markers for the current and the new minimum.
+// costs in 25 ada bins, every bin that covers costs below the new minimum
+// highlighted, with markers for the current and the new minimum.
 import { minPoolCostImpact, type PoolEconomics } from '@/lib/governance/paramImpact.js';
 import { formatParamValue } from '@/lib/governance/paramDefs.js';
 
@@ -16,8 +16,7 @@ export default function ImpactMinPoolCost({
   currentLovelace: bigint;
   nextLovelace: bigint;
 }) {
-  const { below, bins } = minPoolCostImpact(eco, currentLovelace, nextLovelace);
-  const atCurrent = eco.pools.filter((pool) => pool.costLovelace === currentLovelace).length;
+  const { below, atCurrent, bins } = minPoolCostImpact(eco, currentLovelace, nextLovelace);
   const most = Math.max(1, ...bins.map((b) => b.count));
   const nextAda = Number(nextLovelace) / 1e6;
   const currentAda = Number(currentLovelace) / 1e6;
@@ -36,7 +35,8 @@ export default function ImpactMinPoolCost({
           <div
             key={bin.fromAda}
             className="pcp-bins__bar"
-            data-hit={bin.toAda !== null && bin.toAda <= nextAda ? 'true' : undefined}
+            // A bin starting below the new minimum covers costs under it, even when its top is above.
+            data-hit={bin.fromAda < nextAda ? 'true' : undefined}
             style={{ height: `${(bin.count / most) * 100}%` }}
           />
         ))}
@@ -56,7 +56,7 @@ export default function ImpactMinPoolCost({
       </div>
       <div className="pcp-legend">
         <span className="pcp-legend__item"><i className="pcp-swatch" style={{ background: 'var(--pcp-bar)' }} />Pools by fixed cost</span>
-        <span className="pcp-legend__item"><i className="pcp-swatch" style={{ background: 'var(--warn)' }} />At or below the new minimum</span>
+        <span className="pcp-legend__item"><i className="pcp-swatch" style={{ background: 'var(--warn)' }} />Covers costs below the new minimum</span>
       </div>
       <div className="pcp-stats">
         <div className="pcp-stat">

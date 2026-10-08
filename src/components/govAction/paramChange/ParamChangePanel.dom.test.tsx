@@ -71,7 +71,9 @@ describe('ParamChangePanel', () => {
     setup({ prev: null, picked: ['tau'] as never[], inputs: { tau: '35' } });
     expect(screen.getByText('The constitution allows 10% to 30%. The guardrails script would reject this action, so it cannot be submitted.')).toBeTruthy();
     expect((screen.getByRole('button', { name: 'Continue to rationale' }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByRole('button', { name: 'tau' }).getAttribute('data-state')).toBe('invalid');
+    const chip = screen.getByRole('button', { name: 'tau, value not valid' });
+    expect(chip.getAttribute('data-state')).toBe('invalid');
+    expect(chip.textContent).toBe('tau!');
   });
 
   it('blocks an unchanged value', () => {
@@ -109,13 +111,20 @@ describe('ParamChangePanel', () => {
     expect(onChange).toHaveBeenCalledWith({ prev: null, picked: ['k'], inputs: { k: '600', a0: '0.35' } });
   });
 
-  it('shows the open competing proposal', () => {
-    const open = { txHash: 'ef'.repeat(32), index: 0, id: 'gov_action1x', type: 'ParameterChange', title: 'Reduce minPoolCost to 75 ada', proposedEpoch: 654 };
+  const OPEN_CHANGE = {
+    txHash: 'ef'.repeat(32),
+    index: 0,
+    id: 'gov_action1x',
+    type: 'ParameterChange',
+    title: 'Reduce minPoolCost to 75 ada',
+    proposedEpoch: 654,
+  };
+  const renderWithOpen = (prev: { txHashHex: string; index: number } | null) =>
     render(
       <ParamChangePanel
-        value={{ prev: null, picked: [], inputs: {} }}
+        value={{ prev, picked: [], inputs: {} }}
         onChange={vi.fn()}
-        context={{ ...(context as object), prev: { lastEnacted: null, open: [open] } } as never}
+        context={{ ...(context as object), prev: { lastEnacted: null, open: [OPEN_CHANGE] } } as never}
         economics={{ status: 'loading' }}
         protocolParams={PARAMS}
         onRetryEconomics={vi.fn()}
@@ -126,8 +135,20 @@ describe('ParamChangePanel', () => {
         onContinue={vi.fn()}
       />,
     );
+
+  it('shows the open competing proposal', () => {
+    renderWithOpen(null);
     expect(screen.getByText(/Another parameter change is open: Reduce minPoolCost to 75 ada\./)).toBeTruthy();
-    expect(screen.getByText(/Both build on the same previous change, so only one of them can take effect\./)).toBeTruthy();
+    expect(
+      screen.getByText(
+        /Only one parameter change can take effect from the same previous action\. If that one is enacted first, this one can no longer pass\./,
+      ),
+    ).toBeTruthy();
+  });
+
+  it('does not call the open proposal competing when the action builds on it', () => {
+    renderWithOpen({ txHashHex: OPEN_CHANGE.txHash, index: OPEN_CHANGE.index });
+    expect(screen.queryByText(/Another parameter change is open/)).toBeNull();
   });
 
   it('docks the action block only while its place in the summary is below the screen', async () => {
