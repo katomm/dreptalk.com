@@ -9,6 +9,7 @@ import { isRecord } from '../util/isRecord.js';
 import { formatLovelaceExact, formatRationalDecimal, formatRationalPercent, rationalFromNumber, reduce, type Rational } from '../format/rational.js';
 import type { CardanoNetwork } from '../config/network.js';
 import type { ParamGroup, ParamChangeScope } from './thresholds.js';
+import { paramListLabel } from './paramDefs.js';
 
 export type Fmt = 'lovelace' | 'ratio' | 'decimal' | 'percent' | 'int' | 'bytes' | 'exUnits' | 'costModels';
 
@@ -22,35 +23,37 @@ export interface ParamMeta {
 // camelCase ledger param name → display metadata + the snake_case epoch_params key
 // used for old→new. snake '' means "no comparable scalar in epoch_params" (new only).
 // All keys here were observed in real preprod/mainnet payloads or are standard
-// Conway-updatable parameters; unknown keys fall back to a humanized label.
+// Conway-updatable parameters, unknown keys fall back to a humanized label.
+// Labels are sentence case. The five parameters the submit form offers take
+// theirs from paramDefs.ts, so the form and this list never drift apart.
 export const PARAM_REGISTRY: Record<string, ParamMeta> = {
-  govActionDeposit: { snake: 'gov_action_deposit', group: 'Governance', label: 'Governance Action Deposit', format: 'lovelace' },
-  dRepDeposit: { snake: 'drep_deposit', group: 'Governance', label: 'DRep Deposit', format: 'lovelace' },
-  committeeMinSize: { snake: 'committee_min_size', group: 'Governance', label: 'Committee Min Size', format: 'int' },
-  committeeMaxTermLength: { snake: 'committee_max_term_length', group: 'Governance', label: 'Committee Max Term Length', format: 'int' },
-  govActionLifetime: { snake: 'gov_action_lifetime', group: 'Governance', label: 'Governance Action Lifetime', format: 'int' },
-  dRepActivity: { snake: 'drep_activity', group: 'Governance', label: 'DRep Activity', format: 'int' },
-  treasuryCut: { snake: 'treasury_growth_rate', group: 'Economic', label: 'Treasury Cut', format: 'percent' },
-  monetaryExpansion: { snake: 'monetary_expand_rate', group: 'Economic', label: 'Monetary Expansion', format: 'percent' },
-  minFeeA: { snake: 'min_fee_a', group: 'Economic', label: 'Min Fee Coefficient (a)', format: 'int' },
-  minFeeB: { snake: 'min_fee_b', group: 'Economic', label: 'Min Fee Constant (b)', format: 'lovelace' },
-  minFeeRefScriptCostPerByte: { snake: 'min_fee_ref_script_cost_per_byte', group: 'Economic', label: 'Ref Script Cost per Byte', format: 'lovelace' },
-  minPoolCost: { snake: 'min_pool_cost', group: 'Economic', label: 'Min Pool Cost', format: 'lovelace' },
-  keyDeposit: { snake: 'key_deposit', group: 'Economic', label: 'Key Deposit', format: 'lovelace' },
-  poolDeposit: { snake: 'pool_deposit', group: 'Economic', label: 'Pool Deposit', format: 'lovelace' },
-  coinsPerUTxOByte: { snake: 'coins_per_utxo_size', group: 'Economic', label: 'Coins per UTxO Byte', format: 'lovelace' },
-  maxBlockBodySize: { snake: 'max_block_size', group: 'Network', label: 'Max Block Body Size', format: 'bytes' },
-  maxTxSize: { snake: 'max_tx_size', group: 'Network', label: 'Max Tx Size', format: 'bytes' },
-  maxBlockHeaderSize: { snake: 'max_bh_size', group: 'Network', label: 'Max Block Header Size', format: 'bytes' },
-  maxValueSize: { snake: 'max_val_size', group: 'Network', label: 'Max Value Size', format: 'bytes' },
-  maxTxExecutionUnits: { snake: '', group: 'Technical', label: 'Max Tx Execution Units', format: 'exUnits' },
-  maxBlockExecutionUnits: { snake: '', group: 'Technical', label: 'Max Block Execution Units', format: 'exUnits' },
-  collateralPercentage: { snake: 'collateral_percent', group: 'Technical', label: 'Collateral Percentage', format: 'int' },
-  maxCollateralInputs: { snake: 'max_collateral_inputs', group: 'Technical', label: 'Max Collateral Inputs', format: 'int' },
-  stakePoolTargetNum: { snake: 'optimal_pool_count', group: 'Technical', label: 'Target Number of Pools (k)', format: 'int' },
-  poolPledgeInfluence: { snake: 'influence', group: 'Technical', label: 'Pledge Influence (a0)', format: 'decimal' },
-  poolRetireMaxEpoch: { snake: 'max_epoch', group: 'Technical', label: 'Pool Retire Max Epoch (eMax)', format: 'int' },
-  costModels: { snake: 'cost_models', group: 'Technical', label: 'Cost Models', format: 'costModels' },
+  govActionDeposit: { snake: 'gov_action_deposit', group: 'Governance', label: 'Governance action deposit', format: 'lovelace' },
+  dRepDeposit: { snake: 'drep_deposit', group: 'Governance', label: 'DRep deposit', format: 'lovelace' },
+  committeeMinSize: { snake: 'committee_min_size', group: 'Governance', label: 'Committee min size', format: 'int' },
+  committeeMaxTermLength: { snake: 'committee_max_term_length', group: 'Governance', label: 'Committee max term length', format: 'int' },
+  govActionLifetime: { snake: 'gov_action_lifetime', group: 'Governance', label: 'Governance action lifetime', format: 'int' },
+  dRepActivity: { snake: 'drep_activity', group: 'Governance', label: 'DRep activity', format: 'int' },
+  treasuryCut: { snake: 'treasury_growth_rate', group: 'Economic', label: paramListLabel('tau'), format: 'percent' },
+  monetaryExpansion: { snake: 'monetary_expand_rate', group: 'Economic', label: paramListLabel('rho'), format: 'percent' },
+  minFeeA: { snake: 'min_fee_a', group: 'Economic', label: 'Min fee coefficient (a)', format: 'int' },
+  minFeeB: { snake: 'min_fee_b', group: 'Economic', label: 'Min fee constant (b)', format: 'lovelace' },
+  minFeeRefScriptCostPerByte: { snake: 'min_fee_ref_script_cost_per_byte', group: 'Economic', label: 'Ref script cost per byte', format: 'lovelace' },
+  minPoolCost: { snake: 'min_pool_cost', group: 'Economic', label: paramListLabel('minPoolCost'), format: 'lovelace' },
+  keyDeposit: { snake: 'key_deposit', group: 'Economic', label: 'Key deposit', format: 'lovelace' },
+  poolDeposit: { snake: 'pool_deposit', group: 'Economic', label: 'Pool deposit', format: 'lovelace' },
+  coinsPerUTxOByte: { snake: 'coins_per_utxo_size', group: 'Economic', label: 'Coins per UTxO byte', format: 'lovelace' },
+  maxBlockBodySize: { snake: 'max_block_size', group: 'Network', label: 'Max block body size', format: 'bytes' },
+  maxTxSize: { snake: 'max_tx_size', group: 'Network', label: 'Max tx size', format: 'bytes' },
+  maxBlockHeaderSize: { snake: 'max_bh_size', group: 'Network', label: 'Max block header size', format: 'bytes' },
+  maxValueSize: { snake: 'max_val_size', group: 'Network', label: 'Max value size', format: 'bytes' },
+  maxTxExecutionUnits: { snake: '', group: 'Technical', label: 'Max tx execution units', format: 'exUnits' },
+  maxBlockExecutionUnits: { snake: '', group: 'Technical', label: 'Max block execution units', format: 'exUnits' },
+  collateralPercentage: { snake: 'collateral_percent', group: 'Technical', label: 'Collateral percentage', format: 'int' },
+  maxCollateralInputs: { snake: 'max_collateral_inputs', group: 'Technical', label: 'Max collateral inputs', format: 'int' },
+  stakePoolTargetNum: { snake: 'optimal_pool_count', group: 'Technical', label: paramListLabel('k'), format: 'int' },
+  poolPledgeInfluence: { snake: 'influence', group: 'Technical', label: paramListLabel('a0'), format: 'decimal' },
+  poolRetireMaxEpoch: { snake: 'max_epoch', group: 'Technical', label: 'Pool retire max epoch (eMax)', format: 'int' },
+  costModels: { snake: 'cost_models', group: 'Technical', label: 'Cost models', format: 'costModels' },
 };
 
 // The security-relevant parameters: the constitution's "Parameters Critical to the
@@ -215,7 +218,8 @@ export function formatValue(fmt: Fmt, v: unknown): string {
 }
 
 export function humanizeKey(key: string): string {
-  return key.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/^./, (c) => c.toUpperCase());
+  // Sentence case like the registry labels: "someNewParam" reads "Some new param".
+  return key.replace(/([a-z0-9])([A-Z])/g, (_, a: string, b: string) => `${a} ${b.toLowerCase()}`).replace(/^./, (c) => c.toUpperCase());
 }
 
 interface RewardAccount {

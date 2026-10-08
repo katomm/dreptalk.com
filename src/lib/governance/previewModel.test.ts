@@ -474,10 +474,10 @@ describe('parameter change preview', () => {
     expect(result.missing).toEqual([]);
     const card = JSON.stringify(result.onchain);
     expect(card).toContain(
-      JSON.stringify({ group: 'Technical', label: 'Target Number of Pools (k)', oldValue: '500', newValue: '600' }),
+      JSON.stringify({ group: 'Technical', label: 'Target number of pools (k)', oldValue: '500', newValue: '600' }),
     );
     expect(card).toContain(
-      JSON.stringify({ group: 'Economic', label: 'Min Pool Cost', oldValue: '170 ₳', newValue: '170.000001 ₳' }),
+      JSON.stringify({ group: 'Economic', label: 'Minimum pool cost', oldValue: '170 ₳', newValue: '170.000001 ₳' }),
     );
   });
 

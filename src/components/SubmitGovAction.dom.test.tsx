@@ -2116,10 +2116,10 @@ describe('SubmitGovAction', () => {
       const dialog = await screen.findByRole('dialog', {}, SLOW);
       const rowOf = (label: string) => within(dialog).getByText(label).closest('li') as HTMLElement;
       await within(dialog).findByText('On-chain changes', {}, SLOW);
-      const k = rowOf('Target Number of Pools (k)');
+      const k = rowOf('Target number of pools (k)');
       expect(within(k).getByText('500')).toBeTruthy();
       expect(within(k).getByText('600')).toBeTruthy();
-      const a0 = rowOf('Pledge Influence (a0)');
+      const a0 = rowOf('Pledge influence (a0)');
       expect(within(a0).getByText('Technical')).toBeTruthy();
       expect(within(a0).getByText('0.3')).toBeTruthy();
       expect(within(a0).getByText('0.35')).toBeTruthy();

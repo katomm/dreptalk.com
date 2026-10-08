@@ -72,6 +72,17 @@ export const PARAM_DEFS: Record<ParamKey, ParamDef> = {
   },
 };
 
+/**
+ * The parameter's name in lists that also show other parameters (the
+ * on-chain changes on the action page, the review and the action rows):
+ * the title with the short name in parentheses. minPoolCost has no short
+ * name of its own, its title says it all.
+ */
+export function paramListLabel(key: ParamKey): string {
+  const def = PARAM_DEFS[key];
+  return key === 'minPoolCost' ? def.title : `${def.title} (${def.short})`;
+}
+
 /** The DRep groups the offered parameters touch. None is security-relevant, so stake pools never vote. */
 export const OFFERED_PARAM_SCOPE: ParamChangeScope = { groups: ['technical', 'economic'], touchesSecurity: false };
 

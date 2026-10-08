@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { PARAM_DEFS, PARAM_KEYS, paramListLabel } from './paramDefs.js';
 import {
   formatValue,
   humanizeKey,
@@ -41,9 +42,29 @@ describe('formatValue', () => {
   });
 });
 
+describe('PARAM_REGISTRY labels', () => {
+  it('takes the five offered parameters from paramDefs, title with the short name', () => {
+    expect(PARAM_KEYS.map((key) => PARAM_REGISTRY[PARAM_DEFS[key].ledgerKey].label)).toEqual([
+      'Target number of pools (k)',
+      'Pledge influence (a0)',
+      'Minimum pool cost',
+      'Monetary expansion (rho)',
+      'Treasury cut (tau)',
+    ]);
+    for (const key of PARAM_KEYS) expect(PARAM_REGISTRY[PARAM_DEFS[key].ledgerKey].label).toBe(paramListLabel(key));
+  });
+  it('writes every label in sentence case', () => {
+    for (const { label } of Object.values(PARAM_REGISTRY)) {
+      // After the first word only names stay capitalized: DRep, UTxO.
+      const words = label.split(' ').slice(1).filter((w) => !['DRep', 'UTxO'].includes(w));
+      expect(words.filter((w) => /^[A-Z]/.test(w)), label).toEqual([]);
+    }
+  });
+});
+
 describe('humanizeKey', () => {
   it('splits camelCase and capitalises', () => {
-    expect(humanizeKey('someNewParam')).toBe('Some New Param');
+    expect(humanizeKey('someNewParam')).toBe('Some new param');
   });
 });
 
@@ -52,7 +73,7 @@ describe('PARAM_REGISTRY', () => {
     expect(PARAM_REGISTRY.govActionDeposit).toEqual({
       snake: 'gov_action_deposit',
       group: 'Governance',
-      label: 'Governance Action Deposit',
+      label: 'Governance action deposit',
       format: 'lovelace',
     });
   });
@@ -91,7 +112,7 @@ describe('decodeOnchainChanges', () => {
     const p = JSON.stringify({ tag: 'ParameterChange', contents: [null, { govActionDeposit: 1000000000 }, 'fa'] });
     expect(decodeOnchainChanges(p, EP, 'preprod')).toEqual({
       kind: 'params',
-      rows: [{ group: 'Governance', label: 'Governance Action Deposit', oldValue: '100,000 ₳', newValue: '1,000 ₳' }],
+      rows: [{ group: 'Governance', label: 'Governance action deposit', oldValue: '100,000 ₳', newValue: '1,000 ₳' }],
     });
   });
 
@@ -99,7 +120,7 @@ describe('decodeOnchainChanges', () => {
     const p = JSON.stringify({ tag: 'ParameterChange', contents: [null, { someNewParam: 5 }, 'fa'] });
     expect(decodeOnchainChanges(p, EP, 'preprod')).toEqual({
       kind: 'params',
-      rows: [{ group: 'Other', label: 'Some New Param', oldValue: null, newValue: '5' }],
+      rows: [{ group: 'Other', label: 'Some new param', oldValue: null, newValue: '5' }],
     });
   });
 
@@ -392,7 +413,7 @@ describe('summarizeOnchain', () => {
     const p = JSON.stringify({ tag: 'ParameterChange', contents: [null, { minPoolCost: 170000000 }, 'fa'] });
     const s = summarizeOnchain(decodeOnchainChanges(p, EP, 'preprod'));
     expect(s?.tone).toBe('change');
-    expect(s?.prefix).toBe('Min Pool Cost');
+    expect(s?.prefix).toBe('Minimum pool cost');
     expect(s?.value).toBe('170 ₳');
   });
 
@@ -533,8 +554,8 @@ describe('ParameterChange display of the staking parameters', () => {
     expect(view).toEqual({
       kind: 'params',
       rows: [
-        { group: 'Technical', label: 'Target Number of Pools (k)', oldValue: '500', newValue: '600' },
-        { group: 'Technical', label: 'Pledge Influence (a0)', oldValue: '0.3', newValue: '0.35' },
+        { group: 'Technical', label: 'Target number of pools (k)', oldValue: '500', newValue: '600' },
+        { group: 'Technical', label: 'Pledge influence (a0)', oldValue: '0.3', newValue: '0.35' },
       ],
     });
   });
@@ -546,8 +567,8 @@ describe('ParameterChange display of the staking parameters', () => {
     );
     expect(view).toMatchObject({
       rows: [
-        { label: 'Monetary Expansion', oldValue: '0.3%', newValue: '0.3001%' },
-        { label: 'Min Pool Cost', oldValue: '170 ₳', newValue: '170.000001 ₳' },
+        { label: 'Monetary expansion (rho)', oldValue: '0.3%', newValue: '0.3001%' },
+        { label: 'Minimum pool cost', oldValue: '170 ₳', newValue: '170.000001 ₳' },
       ],
     });
   });
@@ -559,13 +580,13 @@ describe('ParameterChange display of the staking parameters', () => {
 
   it('reads a rational given as numerator and denominator', () => {
     const view = decode({ treasuryCut: { numerator: 1, denominator: 4 } });
-    expect(view).toMatchObject({ rows: [{ label: 'Treasury Cut', newValue: '25%' }] });
+    expect(view).toMatchObject({ rows: [{ label: 'Treasury cut (tau)', newValue: '25%' }] });
   });
 
   it('never throws on a rational with a fractional numerator', () => {
     const v = { numerator: 1.5, denominator: 2 };
     expect(() => decode({ treasuryCut: v })).not.toThrow();
-    expect(decode({ treasuryCut: v })).toMatchObject({ rows: [{ label: 'Treasury Cut', newValue: String(v) }] });
+    expect(decode({ treasuryCut: v })).toMatchObject({ rows: [{ label: 'Treasury cut (tau)', newValue: String(v) }] });
   });
 
   it('counts k and a0 toward the technical group', () => {

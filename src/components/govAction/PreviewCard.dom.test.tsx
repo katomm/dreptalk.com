@@ -104,11 +104,11 @@ describe('PreviewCard parameter change', () => {
   it('lists every changed parameter with its group, the old value struck through and the new one', () => {
     card(paramPreviewOf({ k: '600', minPoolCost: '170.000001' }, { optimal_pool_count: 500, min_pool_cost: '170000000' }));
     expect(screen.getByText('On-chain changes')).toBeTruthy();
-    const k = rowOf('Target Number of Pools (k)');
+    const k = rowOf('Target number of pools (k)');
     expect(within(k).getByText('Technical')).toBeTruthy();
     expect(within(k).getByText('500').style.textDecoration).toBe('line-through');
     expect(within(k).getByText('600')).toBeTruthy();
-    const cost = rowOf('Min Pool Cost');
+    const cost = rowOf('Minimum pool cost');
     expect(within(cost).getByText('Economic')).toBeTruthy();
     expect(within(cost).getByText('170 ₳').style.textDecoration).toBe('line-through');
     expect(within(cost).getByText('170.000001 ₳')).toBeTruthy();
@@ -116,7 +116,7 @@ describe('PreviewCard parameter change', () => {
 
   it('shows only the new value when the value in force is unknown', () => {
     card(paramPreviewOf({ k: '600' }, null));
-    const k = rowOf('Target Number of Pools (k)');
+    const k = rowOf('Target number of pools (k)');
     expect(within(k).getByText('600')).toBeTruthy();
     expect(within(k).queryByText('500')).toBeNull();
     expect(k.querySelector('.ocx__old')).toBeNull();
