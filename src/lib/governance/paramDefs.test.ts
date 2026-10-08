@@ -1,4 +1,3 @@
-// src/lib/governance/paramDefs.test.ts
 import { describe, it, expect } from 'vitest';
 import {
   PARAM_DEFS,

@@ -208,10 +208,12 @@ export async function handleActionContext(
       type === 'NoConfidence' || type === 'UpdateCommittee'
         ? Promise.all([getCommitteeTimeline(db), getAllCcMemberNames(db)]).catch(() => null)
         : null;
-    // A treasury withdrawal or parameter change runs the constitution's guardrails script, so the
-    // route says which script the chain requires. Both witness rows are read
-    // explicitly because this type has no chain of its own, and a failed read
-    // is an unknown guardrail, never an absent one.
+    // A treasury withdrawal or parameter change runs the constitution's
+    // guardrails script, so the route says which script the chain requires.
+    // Both witness rows are read explicitly because the guardrail comes from
+    // the constitution chain, which neither type belongs to (a parameter
+    // change has its own chain, a treasury withdrawal none), and a failed
+    // read is an unknown guardrail, never an absent one.
     const guardrailPromise: Promise<GuardrailPick> | null =
       isGuardrailType
         ? Promise.all([

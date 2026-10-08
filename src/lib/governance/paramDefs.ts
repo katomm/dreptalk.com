@@ -1,4 +1,3 @@
-// src/lib/governance/paramDefs.ts
 // The five staking parameters the submit form can change, as one table: the
 // single source for the panel, the impact model, the evaluate route's check
 // and the tests. Bounds are the constitution's guardrails

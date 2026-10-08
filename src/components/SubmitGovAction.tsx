@@ -823,7 +823,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   }, [state.type, state.panels.ParameterChange, contextData]);
   const earlierChangesBlock = GENERATED_CHANGES_BLOCK.exec(metadata.abstract)?.[0] ?? null;
   // The whole block compared, so a block that still lists a parameter the
-  // user has since removed counts as outdated, not as added.
+  // user has since removed counts as outdated.
   const changesAlreadyAdded = paramChangesParagraph !== '' && earlierChangesBlock === paramChangesParagraph;
   const abstractWithChanges =
     earlierChangesBlock !== null

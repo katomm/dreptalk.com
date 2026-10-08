@@ -60,8 +60,9 @@ function readEvaluateResponse(body: unknown): EvaluateResponse | null {
  * try, and every failure (network, status, primitive or array JSON, a
  * malformed field, a throwing ExUnits) comes back as the typed unavailable
  * cause. A rejection here would surface through Effect.promise as a defect
- * instead of an EvaluationError, past the wording the island maps. Every
- * answer other than a 200 with redeemers or a 422 evaluation_failed (400,
+ * instead of an EvaluationError, past the wording the island maps. A 422
+ * evaluation_failed and a 400 unsupported_parameter_change are causes of
+ * their own. Every other answer than a 200 with redeemers (any other 400,
  * 401, 413, 429, 503) means the evaluator could not be used.
  */
 export async function evaluateThroughRoute(txCborHex: string, origin: string, fetchImpl?: typeof fetch): Promise<RouteOutcome> {

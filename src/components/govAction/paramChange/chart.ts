@@ -1,4 +1,3 @@
-// src/components/govAction/paramChange/chart.ts
 // Small helpers for the inline SVG charts. Compact ada labels, percentage
 // labels and linear scales, nothing else.
 export const adaCompact = (ada: number): string =>

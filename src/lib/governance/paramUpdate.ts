@@ -1,4 +1,3 @@
-// src/lib/governance/paramUpdate.ts
 // The SDK side of the parameter table: ParamValues to a ProtocolParamUpdate
 // with exactly the picked fields, and back. parseParamUpdate is also the
 // evaluate route's check that a transaction proposes nothing DRepTalk does

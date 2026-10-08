@@ -1,6 +1,7 @@
 // The panel's sidebar: what goes on chain, who decides and at what
-// threshold, the facts of the action, and the Continue button. Under 860 px
-// the cards flow below the parameters, and the action block is pinned to the
+// threshold, the facts of the action, and the Continue button. While the
+// panel is narrower than 880px (a container query on the panel, see
+// global.css) the cards flow below the parameters, and the action block is pinned to the
 // bottom of the screen while its own place here is still below it.
 import type { RefObject } from 'react';
 import {

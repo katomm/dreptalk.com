@@ -3,9 +3,9 @@
 // plus TreasuryWithdrawals, whose policy hash makes the ledger run the
 // constitution's guardrails script (the redeemer and the script itself are
 // added in govActionTx.ts), and ParameterChange, which carries the same policy
-// hash for the same reason. No
-// network access, so govActionTx.ts and its tests both depend on this leaf
-// module for construction and keep signing and submission separate.
+// hash for the same reason. No network access, so govActionTx.ts and its
+// tests both depend on this leaf module for construction and keep signing and
+// submission separate.
 
 import {
   Anchor,

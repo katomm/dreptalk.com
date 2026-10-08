@@ -1,10 +1,11 @@
 // Client-side builder for a Conway governance-action proposal, covering every
 // type the submit form offers: the five unwitnessed types plus
-// TreasuryWithdrawals and ParameterChange, whose policy hash makes the ledger run the
-// constitution's guardrails script through a propose redeemer.
+// TreasuryWithdrawals and ParameterChange, whose policy hash makes the ledger
+// run the constitution's guardrails script through a propose redeemer.
 // Non-custodial: the connected wallet signs and submits, the server holds no
 // key and only evaluates the guardrail (see guardrailEvaluator.ts). Behind the
-// submission switch, and for treasury withdrawals preprod only.
+// submission switch, and for treasury withdrawals and parameter changes
+// preprod only.
 
 import { Anchor, Data, RewardAccount, Url, type GovernanceAction } from '@evolution-sdk/evolution';
 import { makeClient, signAndSubmit } from './drepTx.js';
@@ -80,11 +81,12 @@ export function queueGuardrailProposeOps(
  * The wallet extension performs signing and submission, the server is never
  * involved in key operations. The CIP-20 attribution tag (label 674) is
  * attached so chain observers can identify DRepTalk-originated actions. A
- * treasury withdrawal with a known guardrail is evaluated through the
- * evaluate route, which the SDK calls once for the unevaluated redeemer.
+ * treasury withdrawal or parameter change with a known guardrail is evaluated
+ * through the evaluate route, which the SDK calls once for the unevaluated
+ * redeemer.
  *
- * Rejected outright where submission is off, and a treasury withdrawal
- * wherever the type is unavailable. Requires a live wallet and a reachable
+ * Rejected outright where submission is off, and a treasury withdrawal or
+ * parameter change wherever the type is unavailable. Requires a live wallet and a reachable
  * Koios provider, not unit-testable offline beyond the guards and the propose
  * wiring (see govActionTx.test.ts).
  */
