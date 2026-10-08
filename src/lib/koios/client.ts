@@ -968,10 +968,11 @@ export function createKoiosClient(opts: KoiosClientOptions) {
     },
 
     // One page (Koios caps at 1,000 rows) of registered pools, reduced to
-    // stake, pledge and fixed cost. Callers page with offset until a page is
+    // stake, pledge and fixed cost. The order column must be in select=, or
+    // Koios answers 400. Callers page with offset until a page is
     // shorter than KOIOS_PAGE_CAP.
     async poolList(offset = 0): Promise<PoolListRow[]> {
-      const path = `/pool_list?pool_status=eq.registered&select=active_stake,pledge,fixed_cost&order=pool_id_bech32.asc&offset=${offset}&limit=${KOIOS_PAGE_CAP}`;
+      const path = `/pool_list?pool_status=eq.registered&select=pool_id_bech32,active_stake,pledge,fixed_cost&order=pool_id_bech32.asc&offset=${offset}&limit=${KOIOS_PAGE_CAP}`;
       const data = await request(path, { method: 'GET' });
       return z.array(poolListRowSchema).parse(data);
     },
