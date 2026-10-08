@@ -1,5 +1,6 @@
 // What a new k does to the saturation point: the largest 300 pools as bars
 // against the old and the new point, and how much stake ends up above it.
+import { memo, useMemo } from 'react';
 import { saturation, type ModelParams, type PoolEconomics } from '@/lib/governance/paramImpact.js';
 import { adaCompact, linear } from './chart.js';
 
@@ -9,8 +10,10 @@ const H = 160;
 // Headroom above the bars so the higher dashed line never touches the top edge.
 const TOP = 8;
 
-export default function ImpactSaturation({ eco, from, to }: { eco: PoolEconomics; from: ModelParams; to: ModelParams }) {
-  const s = saturation(eco, from.k, to.k);
+export default memo(function ImpactSaturation({ eco, from, to }: { eco: PoolEconomics; from: ModelParams; to: ModelParams }) {
+  const { k: kFrom } = from;
+  const { k: kTo } = to;
+  const s = useMemo(() => saturation(eco, kFrom, kTo), [eco, kFrom, kTo]);
   const top = eco.pools.slice(0, SHOWN_POOLS);
   // A few very large pools would flatten the chart, so bars are clipped.
   const clip = Math.max(s.pointFrom, s.pointTo) * 1.35;
@@ -60,15 +63,15 @@ export default function ImpactSaturation({ eco, from, to }: { eco: PoolEconomics
           <div className="pcp-stat__v"><span className="pcp-nb">{adaCompact(s.excessTo)}</span></div>
         </div>
       </div>
-      {to.k > from.k && (
+      {kTo > kFrom && (
         <p className="pcp-why">
           Delegators of the {s.aboveTo} pools above the new point earn less until they move to a smaller pool. A higher k
           also changes the pledge bonus of pools below it, see the rewards chart.
         </p>
       )}
-      {to.k < from.k && (
+      {kTo < kFrom && (
         <p className="pcp-why">A lower k raises the saturation point, so large pools can grow further before rewards are capped.</p>
       )}
     </>
   );
-}
+});

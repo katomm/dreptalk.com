@@ -77,7 +77,8 @@ export async function handlePoolEconomics(
   const key = new Request(new URL(`/api/gov-action/pool-economics/cache/${net.network}/${epoch}`, ctx.request.url));
   try {
     const hit = await cache.match(key);
-    if (hit) return jsonResponse(await hit.json(), 200, NO_STORE);
+    // The cached body is already the JSON answer, so it is passed through as is.
+    if (hit) return new Response(hit.body, { status: 200, headers: { 'content-type': 'application/json', ...NO_STORE } });
     const data = await readEconomics(deps.koios);
     if (!data) return jsonResponse({ error: 'pool_data_unavailable' }, 503, NO_STORE);
     if (data.epoch === epoch) {

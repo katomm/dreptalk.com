@@ -3,7 +3,7 @@
 // picked, and the summary with the Continue button. Presentational, the
 // rules live in paramDefs.ts and govActionFormState.ts, the impact model in
 // paramImpact.ts. The island owns the pool data fetch and passes its state.
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import PrevActionField from '../PrevActionField.js';
 import { InfoIcon } from '../icons.js';
 import ParamCard from './ParamCard.js';
@@ -18,7 +18,7 @@ import {
   type ParamKey,
   type ParamValues,
 } from '@/lib/governance/paramDefs.js';
-import { modelParams, type PoolEconomics } from '@/lib/governance/paramImpact.js';
+import { modelParams, type ModelParams, type PoolEconomics } from '@/lib/governance/paramImpact.js';
 import {
   paramFieldErrors,
   validateParamChangePanel,
@@ -79,6 +79,8 @@ function useDockedAction(panelRef: RefObject<HTMLDivElement | null>) {
     const slot = slotRef.current;
     if (!slot) return;
     let frame = 0;
+    let dockL = '';
+    let dockR = '';
     const measure = () => {
       frame = 0;
       const panel = panelRef.current;
@@ -86,9 +88,18 @@ function useDockedAction(panelRef: RefObject<HTMLDivElement | null>) {
       const oneColumn = !box || box.width < TWO_COLUMN_MIN_PX;
       setDocked(oneColumn && slot.getBoundingClientRect().top > window.innerHeight - DOCK_HEIGHT_PX);
       // The docked bar spans the screen, its content lines up with the panel.
+      // Written only on a change, a scroll alone does not move the panel sideways.
       if (panel && box) {
-        panel.style.setProperty('--pcp-dock-l', `${Math.max(0, Math.round(box.left))}px`);
-        panel.style.setProperty('--pcp-dock-r', `${Math.max(0, Math.round(document.documentElement.clientWidth - box.right))}px`);
+        const l = `${Math.max(0, Math.round(box.left))}px`;
+        const r = `${Math.max(0, Math.round(document.documentElement.clientWidth - box.right))}px`;
+        if (l !== dockL) {
+          dockL = l;
+          panel.style.setProperty('--pcp-dock-l', l);
+        }
+        if (r !== dockR) {
+          dockR = r;
+          panel.style.setProperty('--pcp-dock-r', r);
+        }
       }
     };
     const schedule = () => {
@@ -108,6 +119,29 @@ function useDockedAction(panelRef: RefObject<HTMLDivElement | null>) {
     };
   }, [panelRef]);
   return { slotRef, docked };
+}
+
+type ImpactModel = { from: ModelParams; to: ModelParams } | null;
+
+/**
+ * The impact model with a stable identity: modelParams builds new objects on
+ * every render, this keeps the previous ones until one of the eight numbers
+ * changes, so the memoized charts skip a render for an edit elsewhere.
+ */
+function useStableModel(model: ImpactModel): ImpactModel {
+  const ready = model !== null;
+  const { k: kFrom, a0: a0From, rho: rhoFrom, tau: tauFrom } = model?.from ?? {};
+  const { k: kTo, a0: a0To, rho: rhoTo, tau: tauTo } = model?.to ?? {};
+  return useMemo(
+    () =>
+      ready
+        ? {
+            from: { k: kFrom!, a0: a0From!, rho: rhoFrom!, tau: tauFrom! },
+            to: { k: kTo!, a0: a0To!, rho: rhoTo!, tau: tauTo! },
+          }
+        : null,
+    [ready, kFrom, a0From, rhoFrom, tauFrom, kTo, a0To, rhoTo, tauTo],
+  );
 }
 
 export default function ParamChangePanel({
@@ -130,7 +164,7 @@ export default function ParamChangePanel({
   const competing = prevContext.open.filter(
     (row) => row.type === 'ParameterChange' && !(value.prev && matchesRef(value.prev, row)),
   );
-  const current = valuesFromJson(context.params);
+  const current = useMemo(() => valuesFromJson(context.params), [context.params]);
   const errors = paramFieldErrors(value, context);
   const validation = validateParamChangePanel(value, context);
   const guardrail = guardrailDecision(context.guardrail);
@@ -143,7 +177,7 @@ export default function ParamChangePanel({
     const parsed = parseParamInput(key, value.inputs[key] ?? '');
     if (parsed.ok) next[key] = parsed.value;
   }
-  const model = modelParams(current, next);
+  const model = useStableModel(modelParams(current, next));
   const panelRef = useRef<HTMLDivElement>(null);
   const { slotRef, docked } = useDockedAction(panelRef);
   const picked = PARAM_KEYS.filter((key) => value.picked.includes(key));

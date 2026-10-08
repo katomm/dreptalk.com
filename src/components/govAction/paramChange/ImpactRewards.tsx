@@ -2,6 +2,7 @@
 // over pool stake, plus three reference pools as tiles. The lines live in a
 // stretched SVG, the axis labels in HTML around it, so the labels keep their
 // size on a phone.
+import { memo, useMemo } from 'react';
 import {
   CURVE_PLEDGES,
   rewardChange,
@@ -20,7 +21,7 @@ const X_TICKS = [10e6, 30e6, 50e6, 70e6];
 const COLORS = ['var(--gov-committee)', 'var(--accent)', 'var(--gov-parameter)'];
 const pledgeLabel = (pledge: number) => `${pledge / 1e6}M ₳ pledge`;
 
-export default function ImpactRewards({
+export default memo(function ImpactRewards({
   eco,
   from,
   to,
@@ -32,7 +33,18 @@ export default function ImpactRewards({
   /** k and a0 both change, the curves show them combined. */
   together: boolean;
 }) {
-  const curves = rewardCurves(eco, from, to);
+  // One memo for the curves and the reference pools, both read the same model.
+  const { curves, ref } = useMemo(
+    () => ({
+      curves: rewardCurves(eco, from, to),
+      ref: [
+        { label: '30M ₳ pool, 1M pledge', change: rewardChange(eco, from, to, 30e6, 1e6) },
+        { label: '30M ₳ pool, 10M pledge', change: rewardChange(eco, from, to, 30e6, 10e6) },
+        { label: '60M ₳ pool, 30M pledge', change: rewardChange(eco, from, to, 60e6, 30e6) },
+      ],
+    }),
+    [eco, from, to],
+  );
   const pcts = curves.flatMap((c) => c.points.map(([, change]) => change * 100));
   // Keep a minimal span around zero so the 5% grid never collapses when the curves are flat.
   const lo = Math.min(-5, Math.floor(Math.min(...pcts) / 5) * 5);
@@ -43,11 +55,6 @@ export default function ImpactRewards({
   const grid: number[] = [];
   for (let v = hi; v >= lo; v -= 5) grid.push(v);
 
-  const ref = [
-    { label: '30M ₳ pool, 1M pledge', change: rewardChange(eco, from, to, 30e6, 1e6) },
-    { label: '30M ₳ pool, 10M pledge', change: rewardChange(eco, from, to, 30e6, 10e6) },
-    { label: '60M ₳ pool, 30M pledge', change: rewardChange(eco, from, to, 60e6, 30e6) },
-  ];
   const summary = `Change in a pool's maximum rewards by pool stake, for ${CURVE_PLEDGES.map((p) => `${p / 1e6}M`).join(', ')} ₳ pledge. ${ref
     .map((r) => `${r.label}: ${signedPct(r.change)}`)
     .join('. ')}.`;
@@ -116,4 +123,4 @@ export default function ImpactRewards({
       )}
     </>
   );
-}
+});

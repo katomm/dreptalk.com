@@ -1,13 +1,14 @@
 // What a new minimum pool cost means for the pools of today: their fixed
 // costs in 25 ada bins, every bin that covers costs below the new minimum
 // highlighted, with markers for the current and the new minimum.
+import { memo, useMemo } from 'react';
 import { minPoolCostImpact, type PoolEconomics } from '@/lib/governance/paramImpact.js';
 import { formatParamValue } from '@/lib/governance/paramDefs.js';
 
 const BIN_ADA = 25;
 const TICKS = [0, 100, 200, 300, 400, 500];
 
-export default function ImpactMinPoolCost({
+export default memo(function ImpactMinPoolCost({
   eco,
   currentLovelace,
   nextLovelace,
@@ -16,7 +17,10 @@ export default function ImpactMinPoolCost({
   currentLovelace: bigint;
   nextLovelace: bigint;
 }) {
-  const { below, atCurrent, bins } = minPoolCostImpact(eco, currentLovelace, nextLovelace);
+  const { below, atCurrent, bins } = useMemo(
+    () => minPoolCostImpact(eco, currentLovelace, nextLovelace),
+    [eco, currentLovelace, nextLovelace],
+  );
   const most = Math.max(1, ...bins.map((b) => b.count));
   const nextAda = Number(nextLovelace) / 1e6;
   const currentAda = Number(currentLovelace) / 1e6;
@@ -71,4 +75,4 @@ export default function ImpactMinPoolCost({
       <p className="pcp-why">The minimum is enforced when a pool registers or updates its parameters.</p>
     </>
   );
-}
+});
