@@ -6,6 +6,7 @@
 
 import { formatAda, formatAdaCompact } from '../format/ada.js';
 import { epochStartUnix, type NetworkConfig } from '../config/network.js';
+import { excerptFromHtmlWithMarkdown, excerptFromMarkdown } from '../forum/excerpt.js';
 import { buildBodyStake, shownYesPct } from './fullStakeView.js';
 import type { Body } from './thresholds.js';
 
@@ -19,6 +20,22 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** "TreasuryWithdrawals" -> "Treasury Withdrawals". */
 export function readableType(type: string): string {
   return type.replace(/([a-z0-9])([A-Z])/g, '$1 $2');
+}
+
+/**
+ * Meta description for a governance action topic: the "On-chain governance
+ * action (Type)." prefix followed by the proposal's own abstract as plain text
+ * (leading link or "Proposal as pdf:" pointer lines skipped). Null when the
+ * abstract and the stored opening post (the fallback) have no prose.
+ */
+export function governanceActionDescription(type: string, abstract: string | null | undefined, openingHtml?: string | null, maxLen = 155): string | null {
+  const prefix = `On-chain governance action (${readableType(type)}).`;
+  const budget = maxLen - prefix.length - 1;
+  if (budget < 20) return null;
+  const text =
+    (abstract ? excerptFromMarkdown(abstract, budget) : '') ||
+    (openingHtml ? excerptFromHtmlWithMarkdown(openingHtml, budget) : '');
+  return text ? `${prefix} ${text}` : null;
 }
 
 export type StatusTone = 'active' | 'positive' | 'negative' | 'neutral';

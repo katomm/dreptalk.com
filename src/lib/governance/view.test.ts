@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  governanceActionDescription,
   readableType,
   formatAda,
   statusBadge,
@@ -610,5 +611,33 @@ describe('shortGovActionId', () => {
 
   it('returns non-id strings unchanged', () => {
     expect(shortGovActionId('2025 Net Change Limit')).toBe('2025 Net Change Limit');
+  });
+});
+
+describe('governanceActionDescription', () => {
+  // Shaped like a stored Treasury Withdrawal abstract that opens with a PDF pointer.
+  const abstract = '**Proposal as pdf:** https://example.com/blockfrost.pdf\n\nThis proposal funds **Blockfrost** to maintain and extend [Cardano indexing](https://example.com/idx).';
+
+  it('uses the abstract as plain text after the type prefix', () => {
+    const out = governanceActionDescription('TreasuryWithdrawals', abstract);
+    expect(out).toBe('On-chain governance action (Treasury Withdrawals). This proposal funds Blockfrost to maintain and extend Cardano indexing.');
+    expect(out).not.toContain('*');
+    expect(out!.length).toBeLessThanOrEqual(155);
+  });
+
+  it('truncates to the limit', () => {
+    const out = governanceActionDescription('TreasuryWithdrawals', 'word '.repeat(100));
+    expect(out!.length).toBeLessThanOrEqual(155);
+    expect(out!.endsWith('...')).toBe(true);
+  });
+
+  it('falls back to the opening post, skipping the generated intro and pointer', () => {
+    const html = '<p><strong>On-chain governance action</strong> (Treasury Withdrawals).</p><p>**Proposal as pdf:** https://example.com/p.pdf</p><p>Funds the indexer.</p>';
+    expect(governanceActionDescription('TreasuryWithdrawals', null, html)).toBe('On-chain governance action (Treasury Withdrawals). Funds the indexer.');
+  });
+
+  it('returns null with no abstract or only pointer lines', () => {
+    expect(governanceActionDescription('InfoAction', null)).toBeNull();
+    expect(governanceActionDescription('InfoAction', '**Proposal as pdf:** https://example.com/p.pdf')).toBeNull();
   });
 });

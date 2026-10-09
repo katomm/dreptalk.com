@@ -20,7 +20,8 @@
 // 2: help cards gained the guide illustration and a two-column layout.
 // 5: avatars stored as webp now render as the DRep's own picture, not an identicon.
 // 6: the review card centres its title between the header and the figure.
-export const OG_CARD_VERSION = 6;
+// 7: governance action card subtitles are plain text from the abstract Markdown.
+export const OG_CARD_VERSION = 7;
 
 // djb2, base36. Not cryptographic: a compact fingerprint whose only job is to
 // change when the inputs change. A collision merely misses a cache-bust (i.e.
