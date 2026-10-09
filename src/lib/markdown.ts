@@ -27,7 +27,9 @@ import { Marked } from 'marked';
 // not hoist them and a named `{ FilterXSS }` import resolves to undefined. The default
 // export is the module.exports object with FilterXSS attached, so reach it through that.
 import xssModule from 'xss';
-import { ALLOWED_TAGS } from './sanitizedHtmlGrammar.js';
+import { ALLOWED_TAGS, shiftContentHeadings } from './sanitizedHtmlGrammar.js';
+
+export { shiftContentHeadings };
 import { escapeHtml } from './html/escape.js';
 
 const { FilterXSS, escapeAttrValue } = xssModule as unknown as typeof import('xss');
@@ -257,11 +259,11 @@ export function linkifyChainIds(html: string): string {
 
 /**
  * Final display-time enhancement applied to stored rationale/post HTML before it
- * is set as innerHTML: link on-chain identifiers into chips, then ensure all
- * links open in a new tab.
+ * is set as innerHTML: link on-chain identifiers into chips, ensure all links open
+ * in a new tab, and demote content headings below the page's h1.
  */
 export function enhanceStoredHtml(html: string): string {
-  return ensureLinkTarget(linkifyChainIds(html));
+  return shiftContentHeadings(ensureLinkTarget(linkifyChainIds(html)));
 }
 
 /**

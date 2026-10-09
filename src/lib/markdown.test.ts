@@ -5,8 +5,9 @@
  * Positive cases assert that safe Markdown is rendered correctly.
  */
 
+import { richDiff } from './forum/htmlDiff';
 import { describe, it, expect } from 'vitest';
-import { enhanceStoredHtml, ensureLinkTarget, linkifyChainIds, renderMarkdown } from './markdown';
+import { enhanceStoredHtml, ensureLinkTarget, linkifyChainIds, renderMarkdown, shiftContentHeadings } from './markdown';
 
 // Helpers for negative assertions.
 function assertInert(html: string, label: string): void {
@@ -574,5 +575,50 @@ describe('internal hrefs', () => {
     // leading slash-or-backslash characters must be rejected, not just "//".
     const out = renderMarkdown('<a href="/\\evil.example">x</a>');
     expect(out).toContain('href=""');
+  });
+});
+
+describe('shiftContentHeadings', () => {
+  it('demotes every heading level by one and caps at h6', () => {
+    const html = '<h1>a</h1><h2>b</h2><h3>c</h3><h4>d</h4><h5>e</h5><h6>f</h6>';
+    expect(shiftContentHeadings(html)).toBe('<h2>a</h2><h3>b</h3><h4>c</h4><h5>d</h5><h6>e</h6><h6>f</h6>');
+  });
+
+  it('handles heading tags with attributes, as in rich diff output', () => {
+    const html = '<h1 class="diff-block-add">a</h1><h4 class="diff-block-del">b</h4>';
+    expect(shiftContentHeadings(html)).toBe('<h2 class="diff-block-add">a</h2><h5 class="diff-block-del">b</h5>');
+    const diff = richDiff('<h1>Old</h1><p>x</p>', '<h1>New</h1><p>x</p>');
+    expect(shiftContentHeadings(diff.html)).not.toMatch(/<h1[\s>]/);
+    expect(shiftContentHeadings(diff.html)).toMatch(/<h2[\s>]/);
+  });
+
+  it('does not touch heading-like text inside quoted attribute values', () => {
+    const a = '<a href="/x<h1 >">t</a>';
+    const b = "<a href='/x<h1 >' title=\"<h2>\">t</a>";
+    expect(shiftContentHeadings(a)).toBe(a);
+    expect(shiftContentHeadings(b)).toBe(b);
+  });
+
+  it('shifts uppercase tags', () => {
+    expect(shiftContentHeadings('<H1>a</H1>')).toBe('<H2>a</H2>');
+  });
+
+  it('leaves fenced code containing heading text unchanged', () => {
+    const out = enhanceStoredHtml(renderMarkdown('```\n# not a heading\n<h1>x</h1>\n```'));
+    expect(out).toContain('# not a heading');
+    expect(out).toContain('&lt;h1&gt;x&lt;/h1&gt;');
+    expect(out).not.toMatch(/<h[1-6][\s>]/);
+  });
+
+  it('leaves escaped literal heading text and other tags alone', () => {
+    expect(shiftContentHeadings('<p>&lt;h1&gt; <hr></p>')).toBe('<p>&lt;h1&gt; <hr></p>');
+  });
+
+  it('enhanceStoredHtml turns a markdown "# Title" into an h2 and emits no h1', () => {
+    const out = enhanceStoredHtml(renderMarkdown('# Title\n\n## Sub\n\n#### Deep'));
+    expect(out).toContain('<h2>Title</h2>');
+    expect(out).toContain('<h3>Sub</h3>');
+    expect(out).toContain('<h5>Deep</h5>');
+    expect(out).not.toMatch(/<h1[\s>]/);
   });
 });

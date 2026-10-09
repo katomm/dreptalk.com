@@ -20,6 +20,7 @@
 // post shows it as a link.
 
 import { richDiff } from './htmlDiff.js';
+import { shiftContentHeadings } from '../sanitizedHtmlGrammar.js';
 import { clampVersionPair, formatVersionTime, statText, versionLabel } from './historyView.js';
 import { lineDiffWithWords } from './lineDiff.js';
 
@@ -131,7 +132,7 @@ export async function openHistoryModal(postId: string): Promise<void> {
       : '';
     const pane = showSource
       ? `${notice}<div class="diff-source">${renderSourceDiff(versions[from].bodyMd, versions[to].bodyMd)}</div>`
-      : `<div class="prose">${diff.html}</div>`;
+      : `<div class="prose">${shiftContentHeadings(diff.html)}</div>`;
     const stat = diff.degraded ? '' : ` &middot; ${statText(diff.added, diff.removed, diff.changed)}`;
 
     dialog.innerHTML = `
