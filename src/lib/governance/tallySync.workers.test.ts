@@ -20,14 +20,14 @@ const NOW = 1_754_000_000_000;
 
 let seq = 0;
 // Inserts an active GA and returns { id, proposalId, topicId }.
-async function insertActive(expiryEpoch: number | null) {
+async function insertActive(expiryEpoch: number | null, type = 'TreasuryWithdrawals') {
   seq++;
   const id = `gtx${seq}#0`;
   const proposalId = `gov_action_${seq}`;
   const topicId = `gtopic-${seq}`;
   await db().batch([
     buildInsertGovernanceAction(db(), {
-      id, proposalId, type: 'TreasuryWithdrawals', title: 't', abstract: null, rationaleHtml: null,
+      id, proposalId, type, title: 't', abstract: null, rationaleHtml: null,
       anchorUrl: null, anchorHash: null, anchorStatus: 'ok', returnAddress: 'stake_x',
       deposit: '100000000000', submittedEpoch: 287, expiryEpoch, metaVersion: 0, topicId, now: NOW,
     }),
@@ -245,6 +245,38 @@ describe('syncGovernanceTallies', () => {
     expect(got!.drepAlwaysNoConfidencePower).toBe('4123456789012345');
     expect(got!.spoAlwaysAbstainPower).toBe('888777666555');
     expect(got!.spoAlwaysNoConfidencePower).toBe('111222333444');
+  });
+
+  it('stores the hard fork SPO tally as Koios reports it and counts always-abstain once in the eligible stake', async () => {
+    // Koios today for the van Rossem hard fork (epoch 643, threshold 51%). Its no side
+    // already holds the always-abstain pools, so folding them in again would store 44.05%
+    // and an eligible stake of 25.41B, more than the 21.41B active that epoch.
+    const a = await insertActive(400, 'HardForkInitiation');
+    await syncGovernanceTallies({
+      koios: fakeTallyKoios([lifeRow(a.txHash)], {
+        ...summary,
+        proposal_type: 'HardForkInitiation',
+        pool_yes_pct: 53.02,
+        pool_no_pct: 46.98,
+        pool_active_yes_vote_power: '10445177677947930',
+        pool_active_no_vote_power: '0',
+        pool_active_abstain_vote_power: '1699130913945099',
+        pool_no_vote_power: '9254034669953667',
+        pool_passive_always_abstain_vote_power: '4010227408074541',
+        pool_passive_always_no_confidence_vote_power: '52023987145075',
+      }),
+      db: db(),
+      currentEpoch: 293,
+      now: NOW + 10,
+    });
+    const got = await getGovernanceActionByTopicId(db(), a.topicId);
+    expect(got!.spoYesPct).toBe(53.02);
+    expect(got!.spoNoPct).toBe(46.98);
+    expect(got!.spoYesPct!).toBeGreaterThanOrEqual(51);
+    expect(got!.spoEligiblePower!).toBeCloseTo(
+      Number(10_445_177_677_947_930n + 9_254_034_669_953_667n + 1_699_130_913_945_099n),
+      -3,
+    );
   });
 
   it('reads back no DRep amounts when they contradict the stored percentage', async () => {

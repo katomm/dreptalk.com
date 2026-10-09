@@ -203,9 +203,9 @@ const votingSummarySchema = z
     pool_abstain_votes_cast: z.number().nullable().optional(),
     pool_yes_pct: z.number().nullable().optional(),
     pool_no_pct: z.number().nullable().optional(),
-    // Raw stake-power buckets (lovelace strings). Needed to recompute the SPO
-    // percentage for HardForkInitiation, where Koios' pool_*_pct does not match
-    // the ledger (see spoTallyPct in koios/corrections.ts).
+    // Raw stake-power buckets (lovelace strings) for the eligible stake and the
+    // full-stake breakdown. On a hard fork pool_no_vote_power already holds the
+    // always-abstain pools (see eligibleStake in koios/corrections.ts).
     pool_active_yes_vote_power: z.string().nullable().optional(),
     pool_active_no_vote_power: z.string().nullable().optional(),
     pool_active_abstain_vote_power: z.string().nullable().optional(),
