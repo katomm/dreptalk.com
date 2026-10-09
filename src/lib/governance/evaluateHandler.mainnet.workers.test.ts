@@ -14,7 +14,7 @@ vi.mock('./submissionGate.js', async (importOriginal) => {
 });
 
 const { handleEvaluate } = await import('./evaluateHandler.js');
-const { buildEvalTxHex } = await import('./__fixtures__/evaluateTx.js');
+const { buildEvalTxHex, paramChangeProposal } = await import('./__fixtures__/evaluateTx.js');
 
 const mainnet = { network: 'mainnet', networkId: 1 } as never;
 const preprod = { network: 'preprod', networkId: 0 } as never;
@@ -27,11 +27,11 @@ const OGMIOS_OK = {
   id: null,
 };
 
-function ctx(user: boolean = true) {
+function ctx(user: boolean = true, txCborHex: string = buildEvalTxHex()) {
   const request = new Request('https://dreptalk.com/api/gov-action/evaluate', {
     method: 'POST',
     headers: { 'sec-fetch-site': 'same-origin', 'content-type': 'application/json' },
-    body: JSON.stringify({ txCborHex: buildEvalTxHex() }),
+    body: JSON.stringify({ txCborHex }),
   });
   return { request, locals: { user: user ? { id: crypto.randomUUID(), roles: [] } : null } as App.Locals };
 }
@@ -48,6 +48,13 @@ describe('handleEvaluate with submission switched on for mainnet', () => {
   it('404s a treasury evaluation on mainnet without calling Koios', async () => {
     const fetchImpl = upstream();
     const res = await handleEvaluate(ctx(), deps(mainnet, fetchImpl));
+    expect(res.status).toBe(404);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('404s a parameter change evaluation on mainnet without calling Koios', async () => {
+    const fetchImpl = upstream();
+    const res = await handleEvaluate(ctx(true, buildEvalTxHex({ proposals: [paramChangeProposal()] })), deps(mainnet, fetchImpl));
     expect(res.status).toBe(404);
     expect(fetchImpl).not.toHaveBeenCalled();
   });

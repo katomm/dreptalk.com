@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
-// The treasury withdrawal card: offered where the type is available, with
-// the deciders line from thresholds.ts and the guardrails sentence, and
-// absent where the type is not.
+// The treasury withdrawal and parameter change cards: offered where the type
+// is available, with the deciders line and threshold sentence from
+// thresholds.ts, and absent where the type is not.
 import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
 import TypeSelector from './TypeSelector.js';
@@ -31,5 +31,19 @@ describe('TypeSelector', () => {
     render(<TypeSelector {...props} network="mainnet" submissionAvailable />);
     expect(screen.getByRole('radio', { name: /Info action/ })).toBeTruthy();
     expect(screen.queryByRole('radio', { name: /Treasury withdrawal/ })).toBeNull();
+  });
+
+  it('offers a parameter change on preprod, with the threshold of the groups DRepTalk can change', () => {
+    const params = { dvtPpTechnical: 0.67, dvtPpEconomic: 0.6, dvtPpGov: 0.75, dvtPpNetwork: 0.67 } as never;
+    render(<TypeSelector {...props} params={params} network="preprod" submissionAvailable />);
+    const card = screen.getByRole('radio', { name: /Protocol parameter change/ }).closest('label');
+    expect(card?.textContent).toContain('DReps 67%, stake pools do not vote on these parameters, the committee votes.');
+    expect(card?.textContent).toContain('Stake pools do not vote on these parameters.');
+  });
+
+  it('leaves the parameter change card out on mainnet', () => {
+    render(<TypeSelector {...props} network="mainnet" submissionAvailable />);
+    expect(screen.getByRole('radio', { name: /Info action/ })).toBeTruthy();
+    expect(screen.queryByRole('radio', { name: /Protocol parameter change/ })).toBeNull();
   });
 });

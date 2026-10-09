@@ -18,9 +18,14 @@ import {
   PREV_ACTION_CHANGED,
   NO_RECIPIENT_CHECK,
   validateTreasuryPanel,
+  chosenPrev,
+  panelStatesFromDraft,
+  validateParamChangePanel,
+  paramFieldErrors,
   type GovActionFormState,
   type RecipientCheckState,
 } from './govActionFormState.js';
+import type { ParamKey } from './paramDefs.js';
 import type { ActionContextResponse } from './actionContextHandler.js';
 import type { GovActionDraft } from './govActionDraft.js';
 import { REFERENCES_MAX } from './infoActionLimits.js';
@@ -1938,5 +1943,94 @@ describe('contextFailed with a code', () => {
     plain = govActionFormReducer(plain, { kind: 'contextFailed', requestId: 2 });
     expect(plain.context).toMatchObject({ status: 'error' });
     expect(plain.context.status === 'error' && plain.context.code).toBeUndefined();
+  });
+});
+
+describe('parameter change panel', () => {
+  const GUARDRAIL = 'fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64';
+  const context = {
+    epoch: 300,
+    prev: { lastEnacted: null, open: [] },
+    guardrail: { state: 'known', scriptHash: GUARDRAIL },
+    params: {
+      k: { n: '500', d: '1' },
+      a0: { n: '3', d: '10' },
+      minPoolCost: { n: '170000000', d: '1' },
+      rho: { n: '3', d: '1000' },
+      tau: { n: '1', d: '5' },
+    },
+  } as ActionContextResponse;
+  const panel = (picked: ParamKey[], inputs: Partial<Record<ParamKey, string>>) => ({ prev: null, picked, inputs });
+
+  it('starts empty and is untouched', () => {
+    expect(emptyPanelStates().ParameterChange).toEqual({ prev: null, picked: [], inputs: {} });
+    expect(isFormBlank(initialGovActionFormState(), { authorName: '' })).toBe(true);
+    const touched = { ...initialGovActionFormState(), panels: { ...emptyPanelStates(), ParameterChange: panel(['k'], {}) } };
+    expect(isFormBlank(touched, { authorName: '' })).toBe(false);
+  });
+
+  it('asks for at least one parameter', () => {
+    expect(validateParamChangePanel(panel([], {}), context)).toEqual({
+      ok: false,
+      error: 'Pick at least one parameter to change.',
+    });
+  });
+
+  it('validates every picked value and returns exact values', () => {
+    const result = validateParamChangePanel(panel(['k', 'a0'], { k: '600', a0: '0.35' }), context);
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        values: { k: { n: 600n, d: 1n }, a0: { n: 7n, d: 20n } },
+        guardrail: { state: 'known', scriptHash: GUARDRAIL },
+      },
+    });
+  });
+
+  it('reports the first problem in parameter order', () => {
+    expect(validateParamChangePanel(panel(['k', 'tau'], { k: '600', tau: '35' }), context)).toEqual({
+      ok: false,
+      error:
+        'Treasury cut: The constitution allows 10% to 30%. The guardrails script would reject this action, so it cannot be submitted.',
+    });
+    expect(validateParamChangePanel(panel(['k'], { k: '500' }), context)).toEqual({
+      ok: false,
+      error: 'Target number of pools: Target number of pools has the same value as now. Change it or remove it.',
+    });
+  });
+
+  it('blocks a parameter whose current value is unknown', () => {
+    const noParams = { ...context, params: {} } as ActionContextResponse;
+    expect(validateParamChangePanel(panel(['k'], { k: '600' }), noParams)).toEqual({
+      ok: false,
+      error: 'The current value of Target number of pools could not be read from the chain. Reload the page to try again.',
+    });
+  });
+
+  it('gives per-field errors for the cards', () => {
+    expect(paramFieldErrors(panel(['k', 'a0'], { k: '600', a0: '0.3501' }), context)).toEqual({
+      a0: 'Use at most 3 decimal places.',
+    });
+  });
+
+  it('keeps the panel through a draft and drops what is malformed', () => {
+    const state = {
+      ...initialGovActionFormState(),
+      type: 'ParameterChange' as const,
+      panels: { ...emptyPanelStates(), ParameterChange: panel(['k', 'tau'], { k: '600', tau: '25', a0: '0.4' }) },
+    };
+    const stored = draftFromState(state);
+    const restored = panelStatesFromDraft(JSON.parse(JSON.stringify(stored)));
+    expect(restored.ParameterChange).toEqual(panel(['k', 'tau'], { k: '600', tau: '25', a0: '0.4' }));
+    expect(
+      panelStatesFromDraft(
+        draft({ panels: { ParameterChange: { picked: ['k', 'zz', 'k'], inputs: { k: 7, zz: 'x' } } } }),
+      ).ParameterChange,
+    ).toEqual(panel(['k'], {}));
+  });
+
+  it('chains through the chosen previous action', () => {
+    const prev = { txHashHex: 'ab'.repeat(32), index: 0 };
+    expect(chosenPrev('ParameterChange', { ...emptyPanelStates(), ParameterChange: { prev, picked: [], inputs: {} } })).toEqual(prev);
   });
 });

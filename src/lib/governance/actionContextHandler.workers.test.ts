@@ -685,4 +685,60 @@ describe('handleActionContext', () => {
     expect(res.status).toBe(503);
     expect(await res.json()).toEqual({ error: 'service unavailable' });
   });
+
+  const paramRow = (epoch: number) =>
+    row({
+      proposal_tx_hash: 'cd'.repeat(32),
+      proposal_type: 'ParameterChange',
+      ratified_epoch: epoch,
+      proposal_description: { tag: 'ParameterChange', contents: [null, { minPoolCost: 170000000 }, GUARDRAIL] },
+    });
+
+  it('answers the chain, the guardrail, the committee quorum and the parameters in force for a parameter change', async () => {
+    const res = await handleActionContext(ctx('ParameterChange'), {
+      koios: mockKoios({
+        lastRatifiedProposal: async (types) =>
+          types.includes('NewConstitution') ? [] : [paramRow(310)],
+        openProposals: async () => [row({ proposal_type: 'ParameterChange', proposal_tx_hash: 'ef'.repeat(32), proposal_id: 'gov_action1open' })],
+        epochParams: async () => ({
+          optimal_pool_count: 500,
+          influence: 0.3,
+          min_pool_cost: '170000000',
+          monetary_expand_rate: 0.003,
+          treasury_growth_rate: 0.2,
+        }),
+        committeeContext: async () => ({ members: [], quorum: { numerator: 2, denominator: 3 } }),
+      }),
+      network: preprod,
+      env: testEnv,
+    });
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as Record<string, unknown>;
+    expect(json.guardrail).toEqual({ state: 'known', scriptHash: GUARDRAIL });
+    expect((json.prev as { lastEnacted: { txHash: string } }).lastEnacted.txHash).toBe('cd'.repeat(32));
+    expect((json.prev as { open: unknown[] }).open).toHaveLength(1);
+    expect((json.committee as { quorum: unknown }).quorum).toEqual({ numerator: 2, denominator: 3 });
+    expect(json.params).toEqual({
+      k: { n: '500', d: '1' },
+      a0: { n: '3', d: '10' },
+      minPoolCost: { n: '170000000', d: '1' },
+      rho: { n: '3', d: '1000' },
+      tau: { n: '1', d: '5' },
+    });
+  });
+
+  it('answers 503 guardrail_unknown for a parameter change when the guardrail cannot be read', async () => {
+    const res = await handleActionContext(ctx('ParameterChange'), {
+      koios: mockKoios({
+        lastRatifiedProposal: async (types) => {
+          if (types.includes('NewConstitution')) throw new Error('koios down');
+          return [];
+        },
+      }),
+      network: preprod,
+      env: testEnv,
+    });
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: 'guardrail_unknown' });
+  });
 });

@@ -37,9 +37,9 @@ function koios() {
 }
 
 describe('handleActionContext with submission switched on for mainnet', () => {
-  it('404s a treasury withdrawal on mainnet without touching Koios', async () => {
+  it.each(['TreasuryWithdrawals', 'ParameterChange'])('404s %s on mainnet without touching Koios', async (type) => {
     const k = koios();
-    const res = await handleActionContext(ctx('TreasuryWithdrawals'), { koios: k, network: mainnet, env: testEnv });
+    const res = await handleActionContext(ctx(type), { koios: k, network: mainnet, env: testEnv });
     expect(res.status).toBe(404);
     expect(k.tip).not.toHaveBeenCalled();
     expect(k.lastRatifiedProposal).not.toHaveBeenCalled();

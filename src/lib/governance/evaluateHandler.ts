@@ -1,6 +1,6 @@
 /// <reference types="@cloudflare/workers-types" />
-// POST /api/gov-action/evaluate: the Plutus evaluation of a treasury
-// withdrawal's guardrail check, run through Koios /ogmios with the server's
+// POST /api/gov-action/evaluate: the Plutus evaluation of the guardrail check
+// of a treasury withdrawal or a parameter change, run through Koios /ogmios with the server's
 // Koios token. Session gated like every gov-action route and narrow on
 // purpose: the public Koios proxy stays read-only and unfiltered, so this is
 // the one place DRepTalk evaluates a script, and checkEvaluableTx keeps it to
@@ -10,9 +10,10 @@ import type { NetworkConfig } from '@/lib/config/network.js';
 import { currentNetwork, jsonResponse } from '@/lib/api/response.js';
 import { readBodyLimited } from '@/lib/http/bodyLimit.js';
 import { gateGovActionRequest, GOV_ACTION_RATE_POLICIES } from './govActionGate.js';
-import { govActionSubmissionAvailable, govActionTypeAvailable } from './submissionGate.js';
+import { GUARDRAIL_FORM_TYPES, govActionSubmissionAvailable, govActionTypeAvailable } from './submissionGate.js';
 import { GUARDRAIL_SCRIPT_HASH_HEX } from './guardrailScript.js';
 import { mapOgmiosEvaluation } from './evaluateContract.js';
+import { OFFERED_CDDL_KEYS, parseParamUpdate, paramUpdateKeysInTx } from './paramUpdate.js';
 
 /** A maximum transaction is 16,384 bytes, 32,768 hex characters, plus the JSON wrapper. */
 export const EVALUATE_BODY_MAX_BYTES = 40 * 1024;
@@ -34,11 +35,19 @@ export interface EvaluateHandlerDeps {
  * every redeemer is a propose redeemer, every proposal's policy hash is null
  * or the guardrail, and every Plutus script in the witness set is the
  * guardrail. Together that leaves the constitution's guardrails script as the
- * only script Ogmios can run for it.
+ * only script Ogmios can run for it. A parameter change may only set the
+ * offered parameters within the constitution's bounds, checked on the decoded
+ * transaction and again on the raw bytes.
  */
 export function checkEvaluableTx(
   tx: Transaction.Transaction,
-): { ok: true } | { ok: false; error: 'no_proposals' | 'foreign_policy_hash' | 'non_propose_redeemer' | 'foreign_script' } {
+  txCborHex: string,
+):
+  | { ok: true }
+  | {
+      ok: false;
+      error: 'no_proposals' | 'foreign_policy_hash' | 'non_propose_redeemer' | 'foreign_script' | 'unsupported_parameter_change';
+    } {
   const proposals = tx.body.proposalProcedures?.procedures ?? [];
   if (proposals.length === 0) return { ok: false, error: 'no_proposals' };
   for (const proposal of proposals) {
@@ -47,6 +56,9 @@ export function checkEvaluableTx(
       if (action.policyHash !== null && ScriptHash.toHex(action.policyHash) !== GUARDRAIL_SCRIPT_HASH_HEX) {
         return { ok: false, error: 'foreign_policy_hash' };
       }
+    }
+    if (action._tag === 'ParameterChangeAction' && !parseParamUpdate(action.protocolParamUpdate).ok) {
+      return { ok: false, error: 'unsupported_parameter_change' };
     }
   }
   const redeemers = tx.witnessSet.redeemers?.toArray() ?? [];
@@ -60,6 +72,12 @@ export function checkEvaluableTx(
     if (ScriptHash.toHex(ScriptHash.fromScript(script)) !== GUARDRAIL_SCRIPT_HASH_HEX) {
       return { ok: false, error: 'foreign_script' };
     }
+  }
+  // The SDK decoder drops CBOR keys it does not know, so the submitted bytes
+  // are checked on their own: every update map may only hold the offered keys.
+  const rawKeys = paramUpdateKeysInTx(txCborHex);
+  if (rawKeys === null || rawKeys.some((keys) => keys.some((key) => !OFFERED_CDDL_KEYS.has(key)))) {
+    return { ok: false, error: 'unsupported_parameter_change' };
   }
   return { ok: true };
 }
@@ -79,7 +97,9 @@ export async function handleEvaluate(
   const gate = await gateGovActionRequest(ctx, GOV_ACTION_RATE_POLICIES.evaluate, { network: net, env: deps.env });
   if (gate instanceof Response) return gate;
   const availability = { submissionAvailable: govActionSubmissionAvailable(net.network), network: net.network };
-  if (!govActionTypeAvailable('TreasuryWithdrawals', availability)) return new Response('Not found', { status: 404 });
+  if (![...GUARDRAIL_FORM_TYPES].some((t) => govActionTypeAvailable(t, availability))) {
+    return new Response('Not found', { status: 404 });
+  }
 
   const declared = Number(ctx.request.headers.get('content-length'));
   if (Number.isFinite(declared) && declared > EVALUATE_BODY_MAX_BYTES) {
@@ -107,7 +127,7 @@ export async function handleEvaluate(
   } catch {
     return jsonResponse({ error: 'invalid_transaction' }, 400, NO_STORE);
   }
-  const check = checkEvaluableTx(tx);
+  const check = checkEvaluableTx(tx, txCborHex);
   if (!check.ok) return jsonResponse({ error: check.error }, 400, NO_STORE);
 
   const fetchImpl = deps.fetchImpl ?? fetch;

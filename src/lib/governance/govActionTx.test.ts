@@ -26,7 +26,7 @@ vi.mock('./submissionGate.js', async (importOriginal) => {
   return { ...actual, govActionSubmissionAvailable: vi.fn(actual.govActionSubmissionAvailable) };
 });
 
-import { submitGovAction, queueTreasuryProposeOps, type GovActionTxBuilder } from './govActionTx.js';
+import { submitGovAction, queueGuardrailProposeOps, type GovActionTxBuilder } from './govActionTx.js';
 import { collectWalletUtxos } from './walletUtxos.js';
 import { makeClient, signAndSubmit } from './drepTx.js';
 import { makeGuardrailEvaluator } from './guardrailEvaluator.js';
@@ -107,6 +107,12 @@ const treasury = (guardrail: GuardrailContext) => ({
   withdrawals: [{ rewardAddressHex: RECIPIENT_HEX, lovelace: 1_000_000n }],
   guardrail,
 });
+const paramChange = (guardrail: GuardrailContext) => ({
+  type: 'ParameterChange' as const,
+  prev: null,
+  values: { k: { n: 600n, d: 1n } },
+  guardrail,
+});
 const KNOWN: GuardrailContext = { state: 'known', scriptHash: GUARDRAIL_SCRIPT_HASH_HEX };
 
 describe('submitGovAction for a treasury withdrawal', () => {
@@ -176,6 +182,33 @@ describe('submitGovAction for a treasury withdrawal', () => {
     }
   });
 
+  it('refuses a parameter change on mainnet even with submission switched on there', async () => {
+    const actual = await vi.importActual<typeof import('./submissionGate.js')>('./submissionGate.js');
+    const gate = vi.mocked(govActionSubmissionAvailable);
+    gate.mockReturnValue(true);
+    try {
+      fakeBuilder();
+      await expect(submitGovAction({ ...baseOpts, network: 'mainnet', action: paramChange(KNOWN) })).rejects.toThrow(
+        /^Parameter changes are preprod only\.$/,
+      );
+      expect(makeClient).not.toHaveBeenCalled();
+    } finally {
+      gate.mockImplementation(actual.govActionSubmissionAvailable);
+    }
+  });
+
+  it('proposes a parameter change with the guardrail redeemer, script and evaluator', async () => {
+    const builder = fakeBuilder();
+    await submitGovAction({ ...baseOpts, network: 'preprod', action: paramChange(KNOWN) });
+
+    const arg = builder.propose.mock.calls[0][0];
+    expect(arg.governanceAction._tag).toBe('ParameterChangeAction');
+    expect(ScriptHash.toHex(arg.governanceAction.policyHash)).toBe(GUARDRAIL_SCRIPT_HASH_HEX);
+    expect(arg.label).toBe('guardrail');
+    expect(builder.attachScript).toHaveBeenCalledTimes(1);
+    expect(makeGuardrailEvaluator).toHaveBeenCalledWith('https://x');
+  });
+
   it('lets an info action through on mainnet with submission switched on there', async () => {
     const actual = await vi.importActual<typeof import('./submissionGate.js')>('./submissionGate.js');
     const gate = vi.mocked(govActionSubmissionAvailable);
@@ -198,11 +231,11 @@ describe('submitGovAction for a treasury withdrawal', () => {
   });
 });
 
-describe('queueTreasuryProposeOps', () => {
+describe('queueGuardrailProposeOps', () => {
   it('chains propose and attachScript and returns the builder', () => {
     const builder = fakeBuilder();
     const action = buildGovernanceAction(treasury(KNOWN));
-    const out = queueTreasuryProposeOps(builder as unknown as GovActionTxBuilder, {
+    const out = queueGuardrailProposeOps(builder as unknown as GovActionTxBuilder, {
       action,
       rewardAccount: {} as never,
       anchor: {} as never,

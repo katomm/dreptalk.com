@@ -1824,3 +1824,836 @@ tr.diff-block-del > th {
   line-height: 1.6;
 }
 
+
+/* Parameter change panel (/ga/new)
+   Global because the panel is a React island. The layout follows the panel's
+   own width (container queries), since the /ga/new form column is narrower
+   than the viewport: two columns from 880px of panel, one column below.
+   --warn marks what the change pushes over a limit (pools above the new
+   saturation point, pools below the new minimum cost), the same amber as
+   --c-cc. Track and bar tones are mixed from the theme tokens, so they
+   follow the theme without tokens of their own. */
+:root {
+  /* Height the docked action bar reserves, also used to lift the preprod pill. */
+  --pcp-dock-h: 80px;
+}
+.pcp-panel {
+  container: pcp-panel / inline-size;
+  --warn: #c2410c;
+  --pcp-track: color-mix(in srgb, var(--muted) 18%, var(--bg));
+  --pcp-bar: color-mix(in srgb, var(--muted) 36%, var(--bg));
+}
+html[data-theme='dark'] .pcp-panel {
+  --warn: #f59e0b;
+}
+.pcp-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+.pcp-main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+.pcp-callout__text {
+  margin: 0 0 4px;
+}
+.pcp-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+.pcp-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.pcp-chip {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--fg);
+  cursor: pointer;
+}
+.pcp-chip:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.pcp-chip[aria-pressed='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+.pcp-chip[aria-pressed='true'][data-state='invalid'] {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--on-accent);
+}
+.pcp-chip__mark {
+  margin-left: 4px;
+  font-weight: 800;
+}
+.pcp-chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* One card per picked parameter */
+.pcp-card {
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  box-shadow: var(--shadow);
+  padding: 18px 18px 16px;
+  min-width: 0;
+}
+.pcp-card[data-state='invalid'] {
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
+}
+.pcp-card__head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px 12px;
+  align-items: flex-start;
+}
+.pcp-card__name {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+.pcp-card__title {
+  font-weight: 700;
+  font-size: 16px;
+}
+.pcp-card__key {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.pcp-card__side {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+.pcp-group {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.pcp-card__remove {
+  font: inherit;
+  font-size: 12px;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.pcp-card__remove:hover:not(:disabled) {
+  color: var(--danger);
+}
+.pcp-valrow {
+  display: flex;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 12px 0 4px;
+  flex-wrap: wrap;
+}
+.pcp-old {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
+.pcp-to {
+  color: var(--muted);
+}
+.pcp-inp {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1.5px solid var(--accent);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 0 10px;
+}
+.pcp-inp:focus-within {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 2px;
+}
+.pcp-inp input {
+  font: inherit;
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--accent);
+  width: 7.5rem;
+  max-width: 50vw;
+  border: 0;
+  background: transparent;
+  padding: 4px 0;
+  outline: none;
+}
+@supports (field-sizing: content) {
+  .pcp-inp input {
+    field-sizing: content;
+    width: auto;
+    min-width: 3ch;
+    max-width: 11ch;
+  }
+}
+.pcp-inp__unit {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 15px;
+}
+.pcp-card[data-state='invalid'] .pcp-inp {
+  border-color: var(--danger);
+}
+.pcp-card[data-state='invalid'] .pcp-inp input {
+  color: var(--danger);
+}
+.pcp-delta {
+  font-size: 13px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* The constitution's range with the current and the new value on it */
+.pcp-scale {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--pcp-track);
+  margin: 28px 4px 34px;
+}
+.pcp-scale__ok {
+  position: absolute;
+  inset: 0;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) 22%, var(--pcp-track));
+}
+.pcp-mark {
+  position: absolute;
+  top: -7px;
+  width: 3px;
+  height: 20px;
+  border-radius: 2px;
+  transform: translateX(-50%);
+}
+.pcp-mark--now {
+  background: var(--muted);
+}
+.pcp-mark--new {
+  background: var(--accent);
+  width: 4px;
+}
+.pcp-card[data-state='invalid'] .pcp-mark--new {
+  background: var(--danger);
+}
+.pcp-marklabel {
+  position: absolute;
+  top: -18px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+/* "now" sits below the track and "new" above it, so the two never collide. */
+.pcp-mark--now .pcp-marklabel {
+  top: 22px;
+  color: var(--muted);
+}
+.pcp-mark--new .pcp-marklabel {
+  color: var(--accent);
+}
+.pcp-bins__mark--now .pcp-marklabel {
+  color: var(--muted);
+}
+.pcp-bins__mark--new .pcp-marklabel {
+  color: var(--accent);
+}
+.pcp-card[data-state='invalid'] .pcp-mark--new .pcp-marklabel {
+  color: var(--danger);
+}
+.pcp-scale__end {
+  position: absolute;
+  top: 15px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.pcp-scale__end--min {
+  left: 0;
+}
+.pcp-scale__end--max {
+  right: 0;
+}
+.pcp-err {
+  color: var(--danger);
+  font-size: 13.5px;
+  margin: -10px 0 6px;
+}
+
+/* Impact */
+.pcp-impact {
+  container: pcp-impact / inline-size;
+  border-top: 1px solid var(--border);
+  margin-top: 6px;
+  padding-top: 14px;
+}
+.pcp-impact__more {
+  margin-top: 18px;
+}
+.pcp-chart {
+  display: block;
+  width: 100%;
+}
+.pcp-chart--sat {
+  height: 220px;
+}
+.pcp-chart--rewards {
+  height: 170px;
+}
+/* A chart with its y ticks in a column left of the plot. --pcp-y-w is that
+   column's width, wider for ada ticks than for percentages. */
+.pcp-plot {
+  --pcp-y-w: 40px;
+  position: relative;
+  padding-left: var(--pcp-y-w);
+  margin-top: 6px;
+}
+.pcp-plot--ada {
+  --pcp-y-w: 50px;
+}
+.pcp-plot__frame {
+  position: relative;
+}
+.pcp-plot__y {
+  position: absolute;
+  left: calc(-1 * var(--pcp-y-w));
+  top: 0;
+  width: calc(var(--pcp-y-w) - 6px);
+  height: 100%;
+}
+.pcp-axis-title {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 0 0 4px calc(-1 * var(--pcp-y-w));
+}
+.pcp-axis-title--x {
+  margin: 0;
+  text-align: center;
+}
+/* The basis of the rewards chart, right above it. */
+.pcp-caption {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+  margin: 0 0 8px;
+}
+/* Where the pool figures come from, at the end of each impact section. */
+.pcp-source {
+  font-size: 11.5px;
+  color: var(--muted);
+  margin: 10px 0 0;
+}
+/* Real values of the clipped saturation bars, in a strip above them. */
+.pcp-clips {
+  display: flex;
+  gap: 10px;
+  height: 16px;
+  align-items: flex-end;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+/* Labels at the right end of the saturation lines, the higher one above its line, the lower one below. */
+.pcp-linelabel {
+  position: absolute;
+  right: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+  padding: 0 3px;
+  border-radius: 3px;
+  white-space: nowrap;
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+.pcp-linelabel--above {
+  transform: translateY(calc(-100% - 2px));
+}
+.pcp-linelabel--below {
+  transform: translateY(2px);
+}
+.pcp-linelabel--now,
+.pcp-vlabel--now {
+  color: var(--muted);
+}
+.pcp-linelabel--new,
+.pcp-vlabel--new {
+  color: var(--accent);
+}
+/* Labels of the vertical saturation lines in the rewards chart, in a strip above the plot. */
+.pcp-vlabels {
+  position: relative;
+  height: 16px;
+}
+.pcp-vlabels--two {
+  height: 30px;
+}
+.pcp-vlabel {
+  position: absolute;
+  top: 0;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 14px;
+  white-space: nowrap;
+}
+.pcp-vlabel--right {
+  transform: translateX(4px);
+}
+.pcp-vlabel--left {
+  transform: translateX(calc(-100% - 4px));
+}
+.pcp-vlabel--below {
+  top: 14px;
+  transform: translateX(4px);
+}
+.pcp-combined__title {
+  margin: 0;
+}
+.pcp-tick {
+  position: absolute;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.pcp-plot__y .pcp-tick {
+  right: 0;
+  transform: translateY(-50%);
+}
+.pcp-plot__area {
+  position: relative;
+  min-width: 0;
+}
+.pcp-plot__x,
+.pcp-bins__x {
+  position: relative;
+  height: 20px;
+}
+.pcp-plot__x .pcp-tick,
+.pcp-bins__x .pcp-tick {
+  top: 4px;
+  transform: translateX(-50%);
+}
+.pcp-plot__x--ends .pcp-tick:first-child,
+.pcp-bins__x .pcp-tick:first-child {
+  transform: none;
+}
+.pcp-plot__x--ends .pcp-tick:last-child,
+.pcp-bins__x .pcp-tick:last-child {
+  transform: translateX(-100%);
+}
+.pcp-bins {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 90px;
+  margin-top: 24px;
+  border-bottom: 1px solid var(--border);
+}
+.pcp-bins__bar {
+  flex: 1;
+  background: var(--pcp-bar);
+  border-radius: 3px 3px 0 0;
+}
+.pcp-bins__bar[data-hit='true'] {
+  background: var(--warn);
+}
+.pcp-bins__mark {
+  position: absolute;
+  top: -4px;
+  bottom: 0;
+  width: 2px;
+  transform: translateX(-50%);
+}
+.pcp-bins__mark--now {
+  background: var(--muted);
+}
+.pcp-bins__mark--new {
+  background: var(--accent);
+}
+.pcp-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+.pcp-legend__item {
+  white-space: nowrap;
+}
+/* Keeps an amount and its unit, or a "from" figure, on one line. */
+.pcp-nb {
+  white-space: nowrap;
+}
+.pcp-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 5px;
+  vertical-align: -1px;
+}
+.pcp-swatch--line {
+  height: 2px;
+  vertical-align: 3px;
+}
+.pcp-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.pcp-stat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 9px 11px;
+  min-width: 0;
+}
+.pcp-stat__k {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.pcp-stat__v {
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.pcp-stat__v small {
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 12px;
+}
+.pcp-why {
+  font-size: 13.5px;
+  color: var(--muted);
+  margin: 10px 0 0;
+}
+.pcp-linkbtn {
+  font: inherit;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.pcp-addrow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.pcp-addrow b {
+  color: var(--fg);
+}
+.pcp-addrow button {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+/* Summary */
+.pcp-side {
+  min-width: 0;
+}
+.pcp-scard {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  background: var(--surface);
+  margin-bottom: 14px;
+}
+.pcp-scard__title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin: 0 0 10px;
+}
+.pcp-scard__empty {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--muted);
+}
+.pcp-ocx {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+.pcp-ocx:last-child {
+  border-bottom: 0;
+}
+.pcp-ocx__grp {
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-right: 6px;
+  font-weight: 700;
+}
+.pcp-ocx__name {
+  font-weight: 600;
+}
+.pcp-ocx__val {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.pcp-ocx__old {
+  color: var(--muted);
+  text-decoration: line-through;
+  margin-right: 6px;
+}
+.pcp-ocx__new {
+  font-weight: 700;
+}
+.pcp-ocx[data-state='invalid'] .pcp-ocx__new {
+  color: var(--danger);
+}
+.pcp-who {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 14px;
+  padding: 4px 0;
+}
+.pcp-thr {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--pcp-track);
+  position: relative;
+  margin: 4px 0 10px;
+}
+.pcp-thr i {
+  position: absolute;
+  top: -3px;
+  width: 2px;
+  height: 12px;
+  background: var(--fg);
+  transform: translateX(-50%);
+}
+.pcp-kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13.5px;
+  padding: 3px 0;
+}
+.pcp-kv span:first-child {
+  color: var(--muted);
+}
+.pcp-kv span:last-child {
+  text-align: right;
+}
+.pcp-mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+/* The panel measures this 1px marker to dock the action block, the negative margin takes the pixel back. */
+.pcp-action-slot {
+  height: 1px;
+  margin-bottom: -1px;
+}
+.pcp-action {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pcp-action__status {
+  order: 2;
+}
+.pcp-action__count,
+.pcp-action__ready {
+  display: none;
+}
+.pcp-action__reason {
+  font-size: 12.5px;
+  color: var(--danger);
+  margin: 0;
+}
+.pcp-action__ready {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--c-pos);
+  font-weight: 600;
+}
+.pcp-btn {
+  width: 100%;
+  font: inherit;
+  font-weight: 600;
+  font-size: 15px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: var(--accent);
+  color: var(--on-accent);
+  cursor: pointer;
+}
+.pcp-btn:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+.pcp-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Wide panel: the summary sits next to the cards and stays in view. */
+@container pcp-panel (min-width: 880px) {
+  .pcp-grid {
+    grid-template-columns: minmax(0, 1fr) 300px;
+  }
+  .pcp-side {
+    position: sticky;
+    top: 16px;
+  }
+}
+
+/* Narrow panel: the summary cards flow below the parameters and the action
+   block is a compact row with the count and the reason or Ready. While its
+   own place in the summary is still below the screen (data-docked, set by the
+   panel only in this layout), it is pinned to the bottom edge, its content
+   lined up with the panel (--pcp-dock-l and --pcp-dock-r, also set by the
+   panel). Once that place scrolls into view, or the user has scrolled past
+   the panel to the fields below it, the block sits in the summary and
+   scrolls with the page. */
+@container pcp-panel (max-width: 879.98px) {
+  .pcp-action {
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+  }
+  .pcp-panel[data-docked='true'] .pcp-action {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    min-height: var(--pcp-dock-h);
+    padding: 10px max(16px, var(--pcp-dock-r, 16px)) calc(10px + env(safe-area-inset-bottom))
+      max(16px, var(--pcp-dock-l, 16px));
+    border: 0;
+    border-top: 1px solid var(--border);
+    border-radius: 0;
+    background: var(--bg);
+    box-shadow: var(--shadow);
+  }
+  .pcp-action__status {
+    order: 0;
+    flex: 1;
+    min-width: 0;
+  }
+  .pcp-action__count {
+    display: block;
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .pcp-action__ready {
+    display: block;
+  }
+  .pcp-action__reason {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .pcp-btn {
+    width: auto;
+    flex-shrink: 0;
+    padding: 10px 14px;
+  }
+}
+/* The preprod testnet pill (Layout.astro) is fixed to the bottom right
+   corner, where the docked bar keeps its button. Lift it above the bar. The
+   panel only docks in its one-column layout, so this needs no query. */
+body:has(.pcp-panel[data-docked='true']) .preprod-flag {
+  bottom: calc(var(--pcp-dock-h) + 10px + env(safe-area-inset-bottom, 0px));
+}
+/* Narrow impact sections: one tile per row, label and figure side by side. */
+@container pcp-impact (max-width: 480px) {
+  .pcp-chart--sat {
+    height: 170px;
+  }
+  .pcp-stats {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+  .pcp-stat {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    padding: 7px 11px;
+  }
+  .pcp-stat__v {
+    text-align: right;
+  }
+}
+@media (max-width: 560px) {
+  .pcp-action__reason,
+  .pcp-action__ready {
+    font-size: 12px;
+  }
+  .pcp-btn {
+    font-size: 14px;
+  }
+}

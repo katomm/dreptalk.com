@@ -6,6 +6,7 @@ import {
   COLLATERAL_TOKENS_MESSAGE,
   EVALUATION_FAILED_MESSAGE,
   EVALUATOR_UNAVAILABLE_MESSAGE,
+  isStalePrevError,
   mapGuardrailBuildError,
 } from './govActionErrors.js';
 
@@ -23,20 +24,20 @@ describe('mapGuardrailBuildError', () => {
       code: 'evaluation_failed',
       detail: 'Validator returned False',
     });
-    expect(mapGuardrailBuildError(err)).toEqual({ message: EVALUATION_FAILED_MESSAGE, detail: 'Validator returned False' });
+    expect(mapGuardrailBuildError(err, 'TreasuryWithdrawals')).toEqual({ message: EVALUATION_FAILED_MESSAGE, detail: 'Validator returned False' });
   });
 
   it('words an unreachable evaluator', () => {
     const err = wrapped('Script evaluation failed: evaluator_unavailable', { code: 'evaluator_unavailable', detail: null });
-    expect(mapGuardrailBuildError(err)).toEqual({ message: EVALUATOR_UNAVAILABLE_MESSAGE, detail: null });
+    expect(mapGuardrailBuildError(err, 'TreasuryWithdrawals')).toEqual({ message: EVALUATOR_UNAVAILABLE_MESSAGE, detail: null });
   });
 
   it('falls back to the message when the cause chain is gone', () => {
-    expect(mapGuardrailBuildError(new Error('Script evaluation failed: evaluator_unavailable'))).toEqual({
+    expect(mapGuardrailBuildError(new Error('Script evaluation failed: evaluator_unavailable'), 'TreasuryWithdrawals')).toEqual({
       message: EVALUATOR_UNAVAILABLE_MESSAGE,
       detail: null,
     });
-    expect(mapGuardrailBuildError(new Error('Script evaluation failed: evaluation_failed'))).toEqual({
+    expect(mapGuardrailBuildError(new Error('Script evaluation failed: evaluation_failed'), 'TreasuryWithdrawals')).toEqual({
       message: EVALUATION_FAILED_MESSAGE,
       detail: null,
     });
@@ -47,20 +48,20 @@ describe('mapGuardrailBuildError', () => {
       'No suitable UTxOs available for collateral. All available UTxOs are either already selected or have reference scripts.',
       'Insufficient collateral available. Need 5000000 lovelace, but only found 3000000 lovelace.',
     ]) {
-      expect(mapGuardrailBuildError(new Error(raw))).toEqual({ message: COLLATERAL_SELECTION_MESSAGE, detail: null });
+      expect(mapGuardrailBuildError(new Error(raw), 'TreasuryWithdrawals')).toEqual({ message: COLLATERAL_SELECTION_MESSAGE, detail: null });
     }
   });
 
   it('words a collateral return below the minimum UTxO as a token problem', () => {
     const raw =
       'Collateral return (1000000 lovelace) is below minimum UTxO requirement (1500000 lovelace). This can happen when collateral inputs have many tokens. Consider selecting UTxOs with pure ADA for collateral, or provide more collateral.';
-    expect(mapGuardrailBuildError(new Error(raw))).toEqual({ message: COLLATERAL_TOKENS_MESSAGE, detail: null });
+    expect(mapGuardrailBuildError(new Error(raw), 'TreasuryWithdrawals')).toEqual({ message: COLLATERAL_TOKENS_MESSAGE, detail: null });
   });
 
   it('leaves every other error, a CIP-30 one included, to the caller', () => {
-    expect(mapGuardrailBuildError(new Error('user declined'))).toBeNull();
-    expect(mapGuardrailBuildError({ code: 2, info: 'user declined' })).toBeNull();
-    expect(mapGuardrailBuildError(null)).toBeNull();
+    expect(mapGuardrailBuildError(new Error('user declined'), 'TreasuryWithdrawals')).toBeNull();
+    expect(mapGuardrailBuildError({ code: 2, info: 'user declined' }, 'TreasuryWithdrawals')).toBeNull();
+    expect(mapGuardrailBuildError(null, 'TreasuryWithdrawals')).toBeNull();
   });
 
   it('uses the spec sentences', () => {
@@ -72,5 +73,35 @@ describe('mapGuardrailBuildError', () => {
     );
     expect(EVALUATION_FAILED_MESSAGE).toBe("The constitution's guardrails script rejected this withdrawal.");
     expect(EVALUATOR_UNAVAILABLE_MESSAGE).toBe('Could not reach the script evaluator. No transaction was signed.');
+  });
+});
+
+describe('per-type wording', () => {
+  it('words the guardrail rejection per type', () => {
+    const err = new Error('evaluation_failed', { cause: { code: 'evaluation_failed', detail: 'boom' } });
+    expect(mapGuardrailBuildError(err, 'TreasuryWithdrawals')?.message).toBe("The constitution's guardrails script rejected this withdrawal.");
+    expect(mapGuardrailBuildError(err, 'ParameterChange')?.message).toBe(
+      "The constitution's guardrails script rejected this parameter change.",
+    );
+  });
+
+  it('words an unsupported parameter change', () => {
+    const err = new Error('unsupported_parameter_change', { cause: { code: 'unsupported_parameter_change', detail: null } });
+    expect(mapGuardrailBuildError(err, 'ParameterChange')?.message).toBe(
+      "DRepTalk only submits changes to k, a0, minPoolCost, rho and tau within the constitution's limits.",
+    );
+  });
+
+  it('recognizes a stale previous action with and without a hash', () => {
+    expect(isStalePrevError('ConwayGovFailure (InvalidPrevGovActionId (ProposalProcedure ...))', null)).toBe(true);
+    expect(isStalePrevError(`... ${'ab'.repeat(32)} ...`, 'AB'.repeat(32))).toBe(true);
+    expect(isStalePrevError('BadInputsUTxO', null)).toBe(false);
+  });
+
+  it("matches Ogmios' wording of a stale previous action", () => {
+    // Shortened from the devnet's real submitTransaction rejection.
+    const ogmios =
+      '{"error":{"code":3159,"message":"The transaction contains invalid or missing reference to previous (ratified) governance proposals. ...","data":{"invalidOrMissingPreviousProposals":[{"type":"protocolParametersUpdate"}]}}}';
+    expect(isStalePrevError(ogmios, null)).toBe(true);
   });
 });

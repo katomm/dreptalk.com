@@ -5,6 +5,7 @@
 // every upstream answer to the route's typed contract.
 import { describe, it, expect, vi } from 'vitest';
 import { env } from 'cloudflare:test';
+import { CBOR, ProtocolParamUpdate } from '@evolution-sdk/evolution';
 import { handleEvaluate, EVALUATE_BODY_MAX_BYTES } from './evaluateHandler.js';
 import { GOV_ACTION_RATE_POLICIES } from './govActionGate.js';
 import * as rate from '../rate.js';
@@ -13,6 +14,7 @@ import {
   buildEvalTxHex,
   guardrailPlutusFixture,
   infoProposal,
+  paramChangeProposal,
   treasuryProposal,
 } from './__fixtures__/evaluateTx.js';
 
@@ -146,6 +148,33 @@ describe('handleEvaluate transaction checks', () => {
 
   it('rejects a foreign Plutus script next to the guardrail', async () => {
     expect(await rejected(buildEvalTxHex({ scripts: [guardrailPlutusFixture(), FOREIGN_PLUTUS_SCRIPT] }))).toBe('foreign_script');
+  });
+
+  it('rejects a parameter change that touches a parameter DRepTalk does not offer', async () => {
+    const update = new ProtocolParamUpdate.ProtocolParamUpdate({ nOpt: 600n, maxTxSize: 20_000n });
+    expect(await rejected(buildEvalTxHex({ proposals: [paramChangeProposal(update)] }))).toBe('unsupported_parameter_change');
+  });
+
+  it('rejects a parameter change outside the constitution bounds', async () => {
+    const update = new ProtocolParamUpdate.ProtocolParamUpdate({ nOpt: 2001n });
+    expect(await rejected(buildEvalTxHex({ proposals: [paramChangeProposal(update)] }))).toBe('unsupported_parameter_change');
+  });
+
+  it('rejects a parameter change whose raw bytes carry a key the SDK decoder drops', async () => {
+    // Splice key 99 into the update map of an otherwise valid transaction.
+    const tx = CBOR.fromCBORHex(buildEvalTxHex({ proposals: [paramChangeProposal()] })) as CBOR.CBOR[];
+    const body = tx[0] as Map<CBOR.CBOR, CBOR.CBOR>;
+    const raw = body.get(20n) as CBOR.CBOR;
+    const list = (raw !== null && typeof raw === 'object' && '_tag' in raw ? (raw as { value: CBOR.CBOR[] }).value : raw) as CBOR.CBOR[][];
+    const action = list[0][2] as CBOR.CBOR[];
+    action[2] = new Map<CBOR.CBOR, CBOR.CBOR>([...(action[2] as Map<CBOR.CBOR, CBOR.CBOR>), [99n, 1n]]);
+    expect(await rejected(CBOR.toCBORHex(tx))).toBe('unsupported_parameter_change');
+  });
+
+  it('accepts a parameter change of the offered parameters', async () => {
+    const txCborHex = buildEvalTxHex({ proposals: [paramChangeProposal()] });
+    const res = await handleEvaluate(ctx(JSON.stringify({ txCborHex })), deps(upstream(200, OGMIOS_OK)));
+    expect(res.status).toBe(200);
   });
 
   it('accepts a null policy hash and an info proposal next to the guardrail one', async () => {

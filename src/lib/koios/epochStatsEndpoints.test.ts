@@ -17,7 +17,7 @@ describe('createKoiosClient.totals', () => {
 
     const row = await client.totals(540);
 
-    expect(row).toEqual({ epochNo: 540, treasuryLovelace: '111', reservesLovelace: '222', circulationLovelace: null });
+    expect(row).toEqual({ epochNo: 540, treasuryLovelace: '111', reservesLovelace: '222', circulationLovelace: null, supplyLovelace: null });
     const url = fetchImpl.mock.calls[0][0] as string;
     expect(url).toContain('/totals?');
     expect(url).toContain('_epoch_no=540');
@@ -74,5 +74,22 @@ describe('createKoiosClient.firstDrepPowerEpoch', () => {
     const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
 
     expect(await client.firstDrepPowerEpoch()).toBeNull();
+  });
+});
+
+describe('createKoiosClient.poolList', () => {
+  // Koios (PostgREST) answers 400 "column record.pool_id_bech32 does not
+  // exist" when the order column is missing from select=.
+  it('selects the column it orders by', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([]));
+    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
+
+    await client.poolList(1000);
+
+    const url = new URL(fetchImpl.mock.calls[0][0] as string);
+    const order = (url.searchParams.get('order') ?? '').split('.')[0];
+    expect(order).not.toBe('');
+    expect(url.searchParams.get('select')?.split(',')).toContain(order);
+    expect(url.searchParams.get('offset')).toBe('1000');
   });
 });

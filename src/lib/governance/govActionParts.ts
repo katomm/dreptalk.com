@@ -2,9 +2,10 @@
 // governance action type the submit form offers: the five unwitnessed types
 // plus TreasuryWithdrawals, whose policy hash makes the ledger run the
 // constitution's guardrails script (the redeemer and the script itself are
-// added in govActionTx.ts). ParameterChange is the one type left out. No
-// network access, so govActionTx.ts and its tests both depend on this leaf
-// module for construction and keep signing and submission separate.
+// added in govActionTx.ts), and ParameterChange, which carries the same policy
+// hash for the same reason. No network access, so govActionTx.ts and its
+// tests both depend on this leaf module for construction and keep signing and
+// submission separate.
 
 import {
   Anchor,
@@ -22,6 +23,9 @@ import { formatGovActionKey, type PrevActionRef } from './prevAction.js';
 import type { ColdCredential } from './committeeUpdate.js';
 import { hexToBytes } from '../crypto/hex.js';
 import type { GuardrailContext } from './guardrailScript.js';
+import { buildParamUpdate } from './paramUpdate.js';
+import type { ParamValues } from './paramDefs.js';
+import { GUARDRAIL_FORM_TYPES } from './submissionGate.js';
 
 /** The typed inputs for every governance action this app can submit. */
 export type GovActionSpec =
@@ -48,7 +52,21 @@ export type GovActionSpec =
       withdrawals: { rewardAddressHex: string; lovelace: bigint }[];
       /** The checked guardrail: a known hash becomes the policy hash, a proven absence leaves it null. */
       guardrail: GuardrailContext;
+    }
+  | {
+      type: 'ParameterChange';
+      prev: PrevActionRef | null;
+      /** The checked values, canonical units (see paramDefs.ts). */
+      values: ParamValues;
+      guardrail: GuardrailContext;
     };
+
+/** A spec whose action carries the constitution's guardrails script. */
+export type GuardrailGovActionSpec = Extract<GovActionSpec, { type: 'TreasuryWithdrawals' | 'ParameterChange' }>;
+
+export function isGuardrailSpec(spec: GovActionSpec): spec is GuardrailGovActionSpec {
+  return GUARDRAIL_FORM_TYPES.has(spec.type);
+}
 
 /** Builds the SDK GovActionId from a PrevActionRef, or null when the chain has no prior root. */
 function buildPrevGovActionId(prev: PrevActionRef | null): GovernanceAction.GovActionId | null {
@@ -133,5 +151,13 @@ export function buildGovernanceAction(spec: GovActionSpec): GovernanceAction.Gov
           spec.guardrail.state === 'known' ? ScriptHash.fromBytes(hexToBytes(spec.guardrail.scriptHash)) : null,
       });
     }
+
+    case 'ParameterChange':
+      return new GovernanceAction.ParameterChangeAction({
+        govActionId: buildPrevGovActionId(spec.prev),
+        protocolParamUpdate: buildParamUpdate(spec.values),
+        policyHash:
+          spec.guardrail.state === 'known' ? ScriptHash.fromBytes(hexToBytes(spec.guardrail.scriptHash)) : null,
+      });
   }
 }

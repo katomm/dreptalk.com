@@ -26,7 +26,7 @@ import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { CopyButton } from '@/components/CopyButton.js';
 import { useCardanoWallets, rememberWallet, recallWallet } from '@/lib/wallet/useCardanoWallets.js';
 import { submitGovAction } from '@/lib/governance/govActionTx.js';
-import { govActionSubmissionAvailable, govActionTypeAvailable } from '@/lib/governance/submissionGate.js';
+import { GUARDRAIL_FORM_TYPES, govActionSubmissionAvailable, govActionTypeAvailable } from '@/lib/governance/submissionGate.js';
 import { collectWalletUtxos, totalLovelace } from '@/lib/governance/walletUtxos.js';
 import { fetchStakeRegistration, fetchStakeRegistrations, rewardAddressToStakeBech32 } from '@/lib/governance/stakeAccount.js';
 import { KEEP_STAKE_KEY_REGISTERED, latestRefundEpoch } from '@/lib/governance/depositRefund.js';
@@ -65,6 +65,8 @@ import {
   validateHardForkPanel,
   validateNewConstitutionPanel,
   validateTreasuryPanel,
+  validateParamChangePanel,
+  validParamValues,
   contextChangeLines,
   PREV_ACTION_CHANGED,
 } from '@/lib/governance/govActionFormState.js';
@@ -80,8 +82,16 @@ import {
   RECIPIENTS_CHECK_FAILED_AT_SUBMIT,
   withAddressAdded,
 } from '@/lib/governance/treasuryWithdrawals.js';
-import { guardrailDecision, GUARDRAIL_UNKNOWN_MESSAGE } from '@/lib/governance/guardrailScript.js';
-import { mapGuardrailBuildError } from '@/lib/governance/govActionErrors.js';
+import {
+  guardrailDecision,
+  sameGuardrail,
+  GUARDRAIL_REQUIREMENT_CHANGED_MESSAGE,
+  GUARDRAIL_UNKNOWN_MESSAGE,
+} from '@/lib/governance/guardrailScript.js';
+import { isStalePrevError, mapGuardrailBuildError } from '@/lib/governance/govActionErrors.js';
+import { changesParagraph, valuesFromJson } from '@/lib/governance/paramDefs.js';
+import { economicsFromJson } from '@/lib/governance/paramImpact.js';
+import type { PoolEconomicsJson } from '@/lib/governance/paramImpact.js';
 import type { GovActionFormType, PrevActionRef } from '@/lib/governance/prevAction.js';
 import type { GovActionSpec } from '@/lib/governance/govActionParts.js';
 import type { ActionContextResponse } from '@/lib/governance/actionContextHandler.js';
@@ -93,6 +103,8 @@ import HardForkPanel from '@/components/govAction/HardForkPanel.js';
 import NewConstitutionPanel from '@/components/govAction/NewConstitutionPanel.js';
 import UpdateCommitteePanel from '@/components/govAction/UpdateCommitteePanel.js';
 import TreasuryPanel from '@/components/govAction/TreasuryPanel.js';
+import ParamChangePanel from '@/components/govAction/paramChange/ParamChangePanel.js';
+import type { PoolEconomicsState } from '@/components/govAction/paramChange/ParamChangePanel.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import { resolveNetwork, txExplorerUrl } from '@/lib/config/network.js';
 import { readableError } from '@/lib/wallet/walletError.js';
@@ -222,7 +234,11 @@ const INSUFFICIENT_FUNDS_RE = /^Insufficient tADA for the deposit: need (\d+) lo
  */
 const WALLET_ACCOUNT_CHANGED = 'The wallet account changed. Connect the wallet again.';
 
-function mapSubmitError(err: unknown, prev: PrevActionRef | null): { message: string; detail?: string | null } {
+function mapSubmitError(
+  err: unknown,
+  prev: PrevActionRef | null,
+  type: GovActionFormType,
+): { message: string; detail?: string | null } {
   const raw = err instanceof Error ? err.message : String(err);
   const m = INSUFFICIENT_FUNDS_RE.exec(raw);
   if (m) {
@@ -239,10 +255,10 @@ function mapSubmitError(err: unknown, prev: PrevActionRef | null): { message: st
   }
   // The guardrail evaluation and the collateral it needs come with their own
   // wording, the script error itself goes into a disclosure.
-  const guardrail = mapGuardrailBuildError(err);
+  const guardrail = mapGuardrailBuildError(err, type);
   if (guardrail) return guardrail;
   const readable = readableError(err);
-  if (prev && raw.toLowerCase().includes(prev.txHashHex.toLowerCase())) {
+  if (isStalePrevError(raw, prev?.txHashHex ?? null)) {
     return { message: `${readable} ${PREV_ACTION_CHANGED}` };
   }
   return { message: readable };
@@ -255,26 +271,41 @@ function mapSubmitError(err: unknown, prev: PrevActionRef | null): { message: st
 const CONTEXT_ERROR_MESSAGES: ReadonlyMap<string, string> = new Map([['guardrail_unknown', GUARDRAIL_UNKNOWN_MESSAGE]]);
 
 /**
+ * A changes block as changesParagraph writes it: the "Changes:" line, a blank
+ * line, then one "- " line per parameter. Stops before the newline after the
+ * last bullet, so the text that follows keeps its spacing on a replace.
+ */
+const GENERATED_CHANGES_BLOCK = /^Changes:\n\n- [^\n]*(?:\n- [^\n]*)*/m;
+
+/**
  * What stops a submit right after the context refetch, before the author
- * signature and before anything is pinned, or null when nothing does. A
- * treasury withdrawal has no chain to re-check: a guardrails script that
- * changed since the page loaded, or one nothing proves any more, takes the
- * chain checks' place, and the recipients' registration (read again at the
- * same point) comes second. The chained types need a fresh chain state whose
- * root still holds the previous action the form chose.
+ * signature and before anything is pinned, or null when nothing does. The
+ * guardrail-checked types (treasury withdrawal, parameter change) first need
+ * a guardrail that is buildable now and unchanged since the form showed it.
+ * A treasury withdrawal has no chain to re-check, so the recipients'
+ * registration (read again at the same point) comes next and last. The
+ * chained types need a fresh chain state whose root still holds the previous
+ * action the form chose. `prev` is already resolved against the shown root
+ * (effectivePrev), so a root that moved under a "use the root" selection
+ * fails refStillPresent too, and a null prev only passes on a chain that is
+ * still without a root.
  */
 function preSignatureProblem(
   type: GovActionFormType,
   prev: PrevActionRef | null,
+  shown: ActionContextResponse | null,
   fresh: ActionContextResponse | null,
   recipientsProblem: string | null,
 ): string | null {
-  if (type === 'TreasuryWithdrawals') {
+  if (GUARDRAIL_FORM_TYPES.has(type)) {
     // A failed refetch (null) is a guardrail nobody could check, which
     // guardrailDecision words as GUARDRAIL_UNKNOWN_MESSAGE.
     const decision = guardrailDecision(fresh?.guardrail);
     if (!decision.ok) return decision.message;
-    return recipientsProblem;
+    // known and absent are both buildable, so a move between them since the
+    // review is caught by comparing with what the form showed.
+    if (!sameGuardrail(shown?.guardrail, fresh?.guardrail)) return GUARDRAIL_REQUIREMENT_CHANGED_MESSAGE;
+    if (type === 'TreasuryWithdrawals') return recipientsProblem;
   }
   if (!fresh?.prev) return 'Could not re-check the current chain state. Please try again.';
   if (!refStillPresent(prev, fresh.prev)) return PREV_ACTION_CHANGED;
@@ -533,6 +564,30 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
     };
   }, []);
 
+  // The governance action lifetime for the parameter change summary, from the
+  // same /epoch_params row the deposit comes from, null when it is missing.
+  const lifetimeRaw: unknown = epochParamsRow?.gov_action_lifetime;
+  const govActionLifetime = typeof lifetimeRaw === 'number' ? lifetimeRaw : null;
+
+  // The pool distribution for the impact panels, read when the parameter
+  // change type is first chosen, and again on "Try again" after a failure.
+  // A failure is not fatal: the panels say the figures are unavailable and
+  // the form keeps working.
+  const [economics, setEconomics] = useState<PoolEconomicsState>({ status: 'loading' });
+  const [economicsAttempt, setEconomicsAttempt] = useState(0);
+  const economicsLoaded = useRef(-1);
+  useEffect(() => {
+    if (state.type !== 'ParameterChange' || economicsLoaded.current === economicsAttempt) return;
+    economicsLoaded.current = economicsAttempt;
+    setEconomics({ status: 'loading' });
+    fetchWithTimeout(`${window.location.origin}/api/gov-action/pool-economics`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(String(res.status));
+        setEconomics({ status: 'ready', data: economicsFromJson((await res.json()) as PoolEconomicsJson) });
+      })
+      .catch(() => setEconomics({ status: 'error' }));
+  }, [state.type, economicsAttempt]);
+
   // Live ledger context for the chosen type: the purpose chain's root and open
   // rows, plus whatever the type's panel needs. InfoAction is unchained and
   // needs none, so it costs no request.
@@ -745,6 +800,38 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   }, [reviewOpen]);
 
   // ------------------------------------------------------------------
+  // "Add the changes to the abstract": the parameter change's own summary
+  // paragraph, written into the abstract only on that click and editable
+  // there like any typed text. Built from the picked values that can go on
+  // chain, so a half-typed or out-of-range value never ends up in the text.
+  // A block written by an earlier click (same shape as changesParagraph
+  // writes it) is replaced in place, so changed values never leave a second,
+  // outdated block next to the current one. A block the user reworded out of
+  // that shape is left alone and the paragraph is appended.
+  // ------------------------------------------------------------------
+  const paramChangesParagraph = useMemo(() => {
+    if (state.type !== 'ParameterChange') return '';
+    const current = valuesFromJson(contextData?.params);
+    return changesParagraph(validParamValues(state.panels.ParameterChange, current), current);
+  }, [state.type, state.panels.ParameterChange, contextData]);
+  const earlierChangesBlock = GENERATED_CHANGES_BLOCK.exec(metadata.abstract)?.[0] ?? null;
+  // The whole block compared, so a block that still lists a parameter the
+  // user has since removed counts as outdated.
+  const changesAlreadyAdded = paramChangesParagraph !== '' && earlierChangesBlock === paramChangesParagraph;
+  const abstractWithChanges =
+    earlierChangesBlock !== null
+      ? metadata.abstract.replace(earlierChangesBlock, () => paramChangesParagraph)
+      : metadata.abstract.trimEnd()
+        ? `${metadata.abstract.trimEnd()}\n\n${paramChangesParagraph}`
+        : paramChangesParagraph;
+  // Already there means nothing is added, so the limit only matters otherwise.
+  const changesRoomLeft = changesAlreadyAdded || abstractWithChanges.length <= INFO_ABSTRACT_MAX;
+  function addChangesToAbstract() {
+    if (!paramChangesParagraph || changesAlreadyAdded || !changesRoomLeft) return;
+    setMetadata({ abstract: abstractWithChanges });
+  }
+
+  // ------------------------------------------------------------------
   // References row editor (optional, like GovTool's reference links).
   // ------------------------------------------------------------------
   function setMetadata(patch: Partial<typeof metadata>) {
@@ -856,6 +943,12 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
             guardrail: result.value.guardrail,
           },
         };
+      }
+
+      case 'ParameterChange': {
+        const result = validateParamChangePanel({ ...state.panels.ParameterChange, prev }, ctx);
+        if (!result.ok) return result;
+        return { ok: true, spec: { type: 'ParameterChange', prev, values: result.value.values, guardrail: result.value.guardrail } };
       }
     }
   }
@@ -1123,7 +1216,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
           state.type === 'TreasuryWithdrawals' ? recheckRecipients() : Promise.resolve(null),
         ]);
         fresh = loaded;
-        const problem = preSignatureProblem(state.type, prev, fresh, recipientsProblem);
+        const problem = preSignatureProblem(state.type, prev, contextData, fresh, recipientsProblem);
         if (problem) {
           setPhase({ status: 'error', message: problem, step: 'submit' });
           return;
@@ -1250,7 +1343,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
       // route and the sync both key on) is always this tx hash at index 0.
       setPhase({ status: 'success', txHash, authored: metadata.signAsAuthor, refundEpoch: latestRefundEpoch(epochParamsRow) });
     } catch (err) {
-      setPhase({ status: 'error', ...mapSubmitError(err, prev), step: 'submit' });
+      setPhase({ status: 'error', ...mapSubmitError(err, prev, state.type), step: 'submit' });
     }
   }
 
@@ -1374,6 +1467,27 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
             ownStakeAddress={ownStakeAddress}
             canConnectWallet={wallets.length > 0 && state.wallet.status === 'none'}
             onConnectAndAddOwn={() => void handleConnectAndAddOwn()}
+            disabled={busy}
+          />
+        );
+      case 'ParameterChange':
+        return (
+          <ParamChangePanel
+            value={state.panels.ParameterChange}
+            onChange={(panel) => dispatch({ kind: 'setPanel', type: 'ParameterChange', state: panel })}
+            context={contextData}
+            economics={economics}
+            onRetryEconomics={() => setEconomicsAttempt((n) => n + 1)}
+            protocolParams={params}
+            ccQuorum={contextData.committee?.quorum ?? null}
+            deposit={deposit}
+            govActionLifetime={govActionLifetime}
+            networkConfig={networkConfig}
+            onContinue={() => {
+              const title = document.getElementById('ia-title');
+              title?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              title?.focus({ preventScroll: true });
+            }}
             disabled={busy}
           />
         );
@@ -1568,6 +1682,21 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
               helpText={false}
               mentions={false}
             />
+            {f.key === 'abstract' && state.type === 'ParameterChange' && paramChangesParagraph !== '' && (
+              <div style={{ marginTop: '0.375rem' }}>
+                <button
+                  type="button"
+                  onClick={addChangesToAbstract}
+                  disabled={busy || changesAlreadyAdded || !changesRoomLeft}
+                  style={linkButtonStyle}
+                >
+                  {changesAlreadyAdded ? 'Changes added' : 'Add the changes to the abstract'}
+                </button>
+                {!changesRoomLeft && (
+                  <span style={{ ...helpStyle, margin: '0.25rem 0 0' }}>The abstract has no room for the changes paragraph.</span>
+                )}
+              </div>
+            )}
           </CountedField>
         ))}
 

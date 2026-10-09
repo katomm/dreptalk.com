@@ -132,7 +132,29 @@ function MemberRow({
 function OnchainChangesCard({ changes, names }: { changes: OnchainChanges; names?: Map<string, string> }) {
   let body: ReactNode = null;
 
-  if (changes.kind === 'hardfork') {
+  if (changes.kind === 'params' && changes.rows.length > 0) {
+    // Same rows as GaOnchainChanges.astro: group, parameter, the value in force
+    // struck through and the new value. A row without an old value shows only the new one.
+    body = (
+      <ul className="ocx__rows" style={rowsStyle}>
+        {changes.rows.map((row) => (
+          <li key={row.label} className="ocx__row" style={rowStyle}>
+            <span className="ocx__group" style={groupStyle}>{row.group}</span>
+            <span className="ocx__name" style={nameStyle}>{row.label}</span>
+            <span className="ocx__val" style={valStyle}>
+              {row.oldValue !== null && (
+                <>
+                  <span className="ocx__old" style={oldStyle}>{row.oldValue}</span>
+                  <span className="ocx__arrow" style={mutedStyle}>&rarr;</span>
+                </>
+              )}
+              <span className="ocx__new" style={newStyle}>{row.newValue}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    );
+  } else if (changes.kind === 'hardfork') {
     body = (
       <p className="ocx__single" style={{ fontSize: '0.9375rem', margin: '0.4rem 0 0' }}>
         Protocol Version{' '}
@@ -248,9 +270,8 @@ function OnchainChangesCard({ changes, names }: { changes: OnchainChanges; names
     );
   }
 
-  // Nothing to show: an empty committee diff, an empty treasury list, or a
-  // params payload, which this form does not produce because it offers no
-  // ParameterChange (see govActionParts.ts).
+  // Nothing to show: an empty committee diff, an empty treasury list or an
+  // empty parameter list.
   if (body === null) return null;
 
   return (

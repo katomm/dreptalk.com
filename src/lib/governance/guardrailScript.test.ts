@@ -9,6 +9,7 @@ import {
   GUARDRAIL_SCRIPT_HASH_HEX,
   GUARDRAIL_UNKNOWN_MESSAGE,
   guardrailDecision,
+  sameGuardrail,
 } from './guardrailScript.js';
 import { guardrailPlutusScript } from './guardrailPlutusScript.js';
 
@@ -54,10 +55,21 @@ describe('guardrailDecision', () => {
 
   it('uses the spec sentences', () => {
     expect(GUARDRAIL_CHANGED_MESSAGE).toBe(
-      "The constitution's guardrails script changed. DRepTalk cannot submit treasury withdrawals until it knows the new script.",
+      "The constitution's guardrails script changed. DRepTalk cannot submit treasury withdrawals or parameter changes until it knows the new script.",
     );
     expect(GUARDRAIL_UNKNOWN_MESSAGE).toBe(
       'The guardrails script could not be checked. Nothing was published or signed. Try again later.',
     );
+  });
+});
+
+describe('sameGuardrail', () => {
+  const KNOWN = { state: 'known', scriptHash: GUARDRAIL_SCRIPT_HASH_HEX } as const;
+  it('compares state and normalized hash', () => {
+    expect(sameGuardrail(KNOWN, { state: 'known', scriptHash: GUARDRAIL_SCRIPT_HASH_HEX.toUpperCase() })).toBe(true);
+    expect(sameGuardrail({ state: 'absent' }, { state: 'absent' })).toBe(true);
+    expect(sameGuardrail(KNOWN, { state: 'absent' })).toBe(false);
+    expect(sameGuardrail({ state: 'absent' }, KNOWN)).toBe(false);
+    expect(sameGuardrail(KNOWN, undefined)).toBe(false);
   });
 });

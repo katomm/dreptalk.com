@@ -396,6 +396,12 @@ const epochParamsRowSchema = z.object({
   pvt_hard_fork_initiation: z.number().nullable().optional(),
   pvtpp_security_group: z.number().nullable().optional(),
   committee_min_size: z.number().nullable().optional(),
+  optimal_pool_count: z.number().nullable().optional(),
+  influence: z.number().nullable().optional(),
+  monetary_expand_rate: z.number().nullable().optional(),
+  treasury_growth_rate: z.number().nullable().optional(),
+  min_pool_cost: z.union([z.string(), z.number()]).nullable().optional(),
+  max_epoch: z.number().nullable().optional(),
 }).passthrough();
 
 export type EpochParamsRow = z.infer<typeof epochParamsRowSchema>;
@@ -408,7 +414,17 @@ const totalsRowSchema = z.object({
   treasury: z.string(),
   reserves: z.string(),
   circulation: z.string().nullable().optional(),
+  supply: z.string().nullable().optional(),
 }).passthrough();
+
+// /pool_list row, reduced with select= to what the parameter change impact
+// model needs. Lovelace amounts arrive as strings.
+const poolListRowSchema = z.object({
+  active_stake: z.string().nullable(),
+  pledge: z.string().nullable(),
+  fixed_cost: z.string().nullable(),
+}).passthrough();
+export type PoolListRow = z.infer<typeof poolListRowSchema>;
 
 // /drep_delegators row: a stake account currently vote-delegated to a DRep.
 // epoch_no is the epoch of the NEWEST delegation cert (validated live), so it
@@ -450,7 +466,7 @@ export type TxInfoCertsRow = z.infer<typeof txInfoCertsRowSchema>;
 // response, TX_INFO_MAX bounds the certs lookups.
 const ACCOUNT_UPDATE_HISTORY_MAX = 15;
 const TX_INFO_MAX = 25;
-const KOIOS_PAGE_CAP = 1000;
+export const KOIOS_PAGE_CAP = 1000;
 
 export function createKoiosClient(opts: KoiosClientOptions) {
   const fetchImpl = opts.fetchImpl ?? fetch;
@@ -935,7 +951,7 @@ export function createKoiosClient(opts: KoiosClientOptions) {
 
     // Treasury, reserves, and circulating supply balances (lovelace), the
     // latest epoch by default, or one specific epoch for the stats backfill.
-    async totals(epochNo?: number): Promise<{ epochNo: number; treasuryLovelace: string; reservesLovelace: string; circulationLovelace: string | null } | null> {
+    async totals(epochNo?: number): Promise<{ epochNo: number; treasuryLovelace: string; reservesLovelace: string; circulationLovelace: string | null; supplyLovelace: string | null } | null> {
       const path = epochNo != null ? `/totals?_epoch_no=${epochNo}` : '/totals?order=epoch_no.desc&limit=1';
       const data = await request(path, { method: 'GET' });
       const row = z.array(totalsRowSchema).parse(data)[0] ?? null;
@@ -945,7 +961,18 @@ export function createKoiosClient(opts: KoiosClientOptions) {
         treasuryLovelace: row.treasury,
         reservesLovelace: row.reserves,
         circulationLovelace: row.circulation ?? null,
+        supplyLovelace: row.supply ?? null,
       };
+    },
+
+    // One page (Koios caps at 1,000 rows) of registered pools, reduced to
+    // stake, pledge and fixed cost. The order column must be in select=, or
+    // Koios answers 400. Callers page with offset until a page is
+    // shorter than KOIOS_PAGE_CAP.
+    async poolList(offset = 0): Promise<PoolListRow[]> {
+      const path = `/pool_list?pool_status=eq.registered&select=pool_id_bech32,active_stake,pledge,fixed_cost&order=pool_id_bech32.asc&offset=${offset}&limit=${KOIOS_PAGE_CAP}`;
+      const data = await request(path, { method: 'GET' });
+      return z.array(poolListRowSchema).parse(data);
     },
 
     // Oldest epoch with DRep voting power data on this network, from

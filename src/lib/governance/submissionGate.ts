@@ -18,17 +18,20 @@ export interface TypeAvailabilityInput {
   network: CardanoNetwork;
 }
 
+/** Types whose action carries the constitution's guardrails script, wired and tested on preprod only. */
+export const GUARDRAIL_FORM_TYPES: ReadonlySet<GovActionFormType> = new Set(['TreasuryWithdrawals', 'ParameterChange']);
+
 /**
  * Whether a type can be submitted. Takes the switch's answer as a value
  * instead of computing it, so a caller that learns it from elsewhere (the
  * mainnet design passes it from the server with the session's roles) feeds
  * the same rule. Nothing is available where submission is off. Treasury
- * withdrawals run the constitution's guardrails script, wired and tested on
- * preprod only, so they stay unavailable on every other network whatever the
- * switch says.
+ * withdrawals and parameter changes run the constitution's guardrails script,
+ * wired and tested on preprod only, so they stay unavailable on every other
+ * network whatever the switch says.
  */
 export function govActionTypeAvailable(type: GovActionFormType, input: TypeAvailabilityInput): boolean {
   if (!input.submissionAvailable) return false;
-  if (type === 'TreasuryWithdrawals') return input.network === 'preprod';
+  if (GUARDRAIL_FORM_TYPES.has(type)) return input.network === 'preprod';
   return true;
 }

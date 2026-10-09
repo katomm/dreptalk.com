@@ -25,6 +25,7 @@ export const GOV_ACTION_RATE_POLICIES = {
   document: { rateKey: 'gov-action-doc', rateMax: 10, rateWindowSec: 60, requireJwt: true },
   context: { rateKey: 'gov-action-ctx', rateMax: 30, rateWindowSec: 60, requireJwt: false },
   status: { rateKey: 'gov-action-status', rateMax: 60, rateWindowSec: 60, requireJwt: false },
+  economics: { rateKey: 'gov-action-econ', rateMax: 30, rateWindowSec: 60, requireJwt: false },
   evaluate: { rateKey: 'gov-action-eval', rateMax: 20, rateWindowSec: 60, requireJwt: false },
 } as const satisfies Record<string, GovActionGatePolicy>;
 

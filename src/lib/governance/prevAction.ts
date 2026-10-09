@@ -45,7 +45,8 @@ export type GovActionFormType =
   | 'NewConstitution'
   | 'UpdateCommittee'
   | 'InfoAction'
-  | 'TreasuryWithdrawals';
+  | 'TreasuryWithdrawals'
+  | 'ParameterChange';
 
 // The one runtime list of form types. Every other module that needs to
 // iterate, validate or default to a form type imports this instead of
@@ -57,6 +58,7 @@ export const GOV_ACTION_FORM_TYPES = [
   'NewConstitution',
   'UpdateCommittee',
   'TreasuryWithdrawals',
+  'ParameterChange',
 ] as const satisfies readonly GovActionFormType[];
 
 // Compile-time guard: fails to typecheck if a union member is ever added to
@@ -71,6 +73,7 @@ void _exhaustiveFormTypes;
 const COMMITTEE_CHAIN = ['NoConfidence', 'NewCommittee'] as const;
 const CONSTITUTION_CHAIN = ['NewConstitution'] as const;
 const HARD_FORK_CHAIN = ['HardForkInitiation'] as const;
+const PARAMETER_CHANGE_CHAIN = ['ParameterChange'] as const;
 
 /**
  * The Koios proposal_type name for a form type. The two vocabularies differ in
@@ -92,6 +95,8 @@ export function chainForType(type: GovActionFormType): readonly string[] | null 
       return CONSTITUTION_CHAIN;
     case 'HardForkInitiation':
       return HARD_FORK_CHAIN;
+    case 'ParameterChange':
+      return PARAMETER_CHANGE_CHAIN;
     case 'InfoAction':
     case 'TreasuryWithdrawals':
       return null;

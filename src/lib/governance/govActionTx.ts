@@ -1,14 +1,15 @@
 // Client-side builder for a Conway governance-action proposal, covering every
 // type the submit form offers: the five unwitnessed types plus
-// TreasuryWithdrawals, whose policy hash makes the ledger run the
-// constitution's guardrails script through a propose redeemer.
+// TreasuryWithdrawals and ParameterChange, whose policy hash makes the ledger
+// run the constitution's guardrails script through a propose redeemer.
 // Non-custodial: the connected wallet signs and submits, the server holds no
 // key and only evaluates the guardrail (see guardrailEvaluator.ts). Behind the
-// submission switch, and for treasury withdrawals preprod only.
+// submission switch, and for treasury withdrawals and parameter changes
+// preprod only.
 
 import { Anchor, Data, RewardAccount, Url, type GovernanceAction } from '@evolution-sdk/evolution';
 import { makeClient, signAndSubmit } from './drepTx.js';
-import { buildGovernanceAction, type GovActionSpec } from './govActionParts.js';
+import { buildGovernanceAction, isGuardrailSpec, type GovActionSpec } from './govActionParts.js';
 import { guardrailDecision, type GuardrailContext } from './guardrailScript.js';
 import { guardrailPlutusScript } from './guardrailPlutusScript.js';
 import { makeGuardrailEvaluator } from './guardrailEvaluator.js';
@@ -38,7 +39,7 @@ export interface SubmitGovActionOpts {
   anchorHashHex: string;
   /** Current govActionDeposit protocol parameter, in lovelace. Sizes input selection only. */
   govActionDepositLovelace: bigint;
-  /** The governance action to propose. A treasury withdrawal carries its checked guardrail. */
+  /** The governance action to propose. A treasury withdrawal or parameter change carries its checked guardrail. */
   action: GovActionSpec;
 }
 
@@ -46,7 +47,8 @@ export interface SubmitGovActionOpts {
 export type GovActionTxBuilder = ReturnType<ReturnType<typeof makeClient>['newTx']>;
 
 /**
- * Queues a treasury withdrawal proposal. With a known guardrail the proposal
+ * Queues a proposal checked by the constitution's guardrails script, a
+ * treasury withdrawal or a parameter change. With a known guardrail the proposal
  * carries the propose redeemer and the script rides in the witness set, so
  * the ledger can run it. The redeemer is the unit constructor: the guardrail
  * does not inspect it (preview dry runs with three different redeemers gave
@@ -55,7 +57,7 @@ export type GovActionTxBuilder = ReturnType<ReturnType<typeof makeClient>['newTx
  * apart from the builder it is given, so a live test can drive it against a
  * read-only client.
  */
-export function queueTreasuryProposeOps(
+export function queueGuardrailProposeOps(
   txb: GovActionTxBuilder,
   opts: {
     action: GovernanceAction.GovernanceAction;
@@ -79,11 +81,12 @@ export function queueTreasuryProposeOps(
  * The wallet extension performs signing and submission, the server is never
  * involved in key operations. The CIP-20 attribution tag (label 674) is
  * attached so chain observers can identify DRepTalk-originated actions. A
- * treasury withdrawal with a known guardrail is evaluated through the
- * evaluate route, which the SDK calls once for the unevaluated redeemer.
+ * treasury withdrawal or parameter change with a known guardrail is evaluated
+ * through the evaluate route, which the SDK calls once for the unevaluated
+ * redeemer.
  *
- * Rejected outright where submission is off, and a treasury withdrawal
- * wherever the type is unavailable. Requires a live wallet and a reachable
+ * Rejected outright where submission is off, and a treasury withdrawal or
+ * parameter change wherever the type is unavailable. Requires a live wallet and a reachable
  * Koios provider, not unit-testable offline beyond the guards and the propose
  * wiring (see govActionTx.test.ts).
  */
@@ -92,16 +95,15 @@ export async function submitGovAction(opts: SubmitGovActionOpts): Promise<{ txHa
   if (!submissionAvailable) {
     throw new Error('Governance action submission is preprod only.');
   }
-  if (
-    opts.action.type === 'TreasuryWithdrawals' &&
-    !govActionTypeAvailable('TreasuryWithdrawals', { submissionAvailable, network: opts.network })
-  ) {
-    throw new Error('Treasury withdrawals are preprod only.');
+  if (isGuardrailSpec(opts.action) && !govActionTypeAvailable(opts.action.type, { submissionAvailable, network: opts.network })) {
+    throw new Error(
+      opts.action.type === 'ParameterChange' ? 'Parameter changes are preprod only.' : 'Treasury withdrawals are preprod only.',
+    );
   }
 
   // Check the guardrail before anything is built, and use its canonical form from here on.
   let action = opts.action;
-  if (action.type === 'TreasuryWithdrawals') {
+  if (isGuardrailSpec(action)) {
     const decision = guardrailDecision(action.guardrail);
     if (!decision.ok) throw new Error(decision.message);
     action = { ...action, guardrail: decision.guardrail };
@@ -129,15 +131,12 @@ export async function submitGovAction(opts: SubmitGovActionOpts): Promise<{ txHa
   const inputs = pickInputsToCover(availableUtxos, requiredLovelace);
 
   const txb = makeClient(opts.network, opts.origin, opts.walletApi).newTx();
-  const proposed =
-    action.type === 'TreasuryWithdrawals'
-      ? queueTreasuryProposeOps(txb, { action: governanceAction, rewardAccount, anchor, guardrail: action.guardrail })
-      : txb.propose({ governanceAction, rewardAccount, anchor });
+  const guardrail = isGuardrailSpec(action) ? action.guardrail : null;
+  const proposed = guardrail
+    ? queueGuardrailProposeOps(txb, { action: governanceAction, rewardAccount, anchor, guardrail })
+    : txb.propose({ governanceAction, rewardAccount, anchor });
   // Only a known guardrail adds a redeemer, and only a redeemer needs evaluating.
-  const evaluator =
-    action.type === 'TreasuryWithdrawals' && action.guardrail.state === 'known'
-      ? makeGuardrailEvaluator(opts.origin)
-      : undefined;
+  const evaluator = guardrail?.state === 'known' ? makeGuardrailEvaluator(opts.origin) : undefined;
 
   const built = await proposed
     .attachMetadata({ label: DREPTALK_CIP20_LABEL, metadata: dreptalkCip20Metadatum() })

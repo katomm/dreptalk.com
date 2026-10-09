@@ -9,6 +9,7 @@ import {
   PlutusV3,
   ProposalProcedure,
   ProposalProcedures,
+  ProtocolParamUpdate,
   Redeemer,
   Redeemers,
   RewardAccount,
@@ -50,6 +51,20 @@ export function treasuryProposal(policyHashHex: string | null = GUARDRAIL_SCRIPT
   return proposal(
     new GovernanceAction.TreasuryWithdrawalsAction({
       withdrawals: new Map([[RewardAccount.fromBech32(FIXTURE_RECIPIENT), 1_000_000n]]),
+      policyHash: policyHashHex === null ? null : ScriptHash.fromHex(policyHashHex),
+    }),
+  );
+}
+
+/** A parameter change proposal with the given update (default: k 600) and the guardrail as policy hash. */
+export function paramChangeProposal(
+  update: ProtocolParamUpdate.ProtocolParamUpdate = new ProtocolParamUpdate.ProtocolParamUpdate({ nOpt: 600n }),
+  policyHashHex: string | null = GUARDRAIL_SCRIPT_HASH_HEX,
+): ProposalProcedure.ProposalProcedure {
+  return proposal(
+    new GovernanceAction.ParameterChangeAction({
+      govActionId: null,
+      protocolParamUpdate: update,
       policyHash: policyHashHex === null ? null : ScriptHash.fromHex(policyHashHex),
     }),
   );

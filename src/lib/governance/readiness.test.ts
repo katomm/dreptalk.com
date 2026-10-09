@@ -224,4 +224,13 @@ describe('readinessReasons', () => {
       ),
     ).toBe('Fix the treasury withdrawal changes above');
   });
+
+  it('names the parameter change panel without repeating "changes"', () => {
+    expect(
+      messageFor(
+        ready({ type: 'ParameterChange', contextStatus: 'ready', panelValidation: { ok: false, error: 'x' } }),
+        'panel',
+      ),
+    ).toBe('Fix the parameter changes above');
+  });
 });
