@@ -1060,3 +1060,45 @@ describe('syncDreps delegator counts', () => {
     expect(secondRunResult.observedDelegatorCounts.get(id)).toBe(7);
   });
 });
+
+const GATEWAY = { url: 'https://dedicated.mypinata.cloud', token: 'tok-drep' };
+type GatewayCall = { url: string; token: string | null };
+function recordingFetch(calls: GatewayCall[], answer: (url: string) => Response): typeof fetch {
+  return (async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(url), token: new Headers(init?.headers).get('x-pinata-gateway-token') });
+    return answer(String(url));
+  }) as typeof fetch;
+}
+
+describe('syncDreps dedicated gateway', () => {
+  it('reads an ipfs profile anchor through the dedicated gateway first, with the token', async () => {
+    const id = 'drep1-gateway';
+    const { koios } = fakeKoios({
+      pages: [[listRow(id)]],
+      infoById: new Map([[id, infoRow(id, { meta_url: 'ipfs://QmProfile/drep.jsonld', meta_hash: profileHash })]]),
+    });
+    const calls: GatewayCall[] = [];
+    const result = await syncDreps({
+      koios, db: env.DB, now: NOW, gateway: GATEWAY,
+      fetchImpl: recordingFetch(calls, () => jsonResponse(profileJson)),
+    });
+    expect(result).toMatchObject({ anchorsFetched: 1, failed: 0 });
+    expect(calls).toEqual([{ url: 'https://dedicated.mypinata.cloud/ipfs/QmProfile/drep.jsonld', token: 'tok-drep' }]);
+    const stored = await getDrepById(env.DB, id);
+    expect(stored!.anchorStatus).toBe('ok');
+    expect(stored!.anchorUrl).toBe('ipfs://QmProfile/drep.jsonld');
+  });
+
+  it('records rate-limited when every public gateway answers 429', async () => {
+    const id = 'drep1-limited';
+    const { koios } = fakeKoios({
+      pages: [[listRow(id)]],
+      infoById: new Map([[id, infoRow(id, { meta_url: 'ipfs://QmLimited', meta_hash: profileHash })]]),
+    });
+    await syncDreps({
+      koios, db: env.DB, now: NOW,
+      fetchImpl: async () => new Response('<html>429</html>', { status: 429, headers: { 'content-type': 'text/html' } }),
+    });
+    expect((await getDrepById(env.DB, id))!.anchorStatus).toBe('rate-limited');
+  });
+});

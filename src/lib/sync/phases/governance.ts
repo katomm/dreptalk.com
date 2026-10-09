@@ -89,7 +89,7 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
     primary: true,
     run: async (ctx) => {
       const disc = await syncGovernanceActions({
-        koios: ctx.koios, db: ctx.db, network: ctx.cfg.network, now: ctx.now, rand: randSuffix,
+        koios: ctx.koios, db: ctx.db, network: ctx.cfg.network, now: ctx.now, rand: randSuffix, gateway: ctx.gateway,
       });
       console.log(
         `[gov-sync] total=${disc.total} created=${disc.created} deferred=${disc.deferred}` +
@@ -111,7 +111,7 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
     name: 'gov-deferred-topics',
     run: async (ctx) => {
       const r = await createDeferredGovTopics({
-        db: ctx.db, network: ctx.cfg.network, now: ctx.now, rand: randSuffix, fetchImpl: fetch, limit: 10,
+        db: ctx.db, network: ctx.cfg.network, now: ctx.now, rand: randSuffix, fetchImpl: fetch, gateway: ctx.gateway, limit: 10,
       });
       if (r.scanned > 0) {
         console.log(`[gov-deferred-topics] scanned=${r.scanned} created=${r.created} deferred=${r.deferred} failed=${r.failed}`);
@@ -192,7 +192,7 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
     name: 'metadata',
     when: heavyOnly,
     run: async (ctx) => {
-      const metaBackfill = await backfillActionMetadata({ db: ctx.db, network: ctx.cfg.network, now: Date.now(), fetchImpl: fetch, limit: 10 });
+      const metaBackfill = await backfillActionMetadata({ db: ctx.db, network: ctx.cfg.network, now: Date.now(), fetchImpl: fetch, gateway: ctx.gateway, limit: 10 });
       console.log(`[gov-meta-backfill] scanned=${metaBackfill.scanned} updated=${metaBackfill.updated} failed=${metaBackfill.failed}`);
       return { items: metaBackfill.updated, failed: metaBackfill.failed };
     },

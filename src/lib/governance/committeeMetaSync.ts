@@ -4,7 +4,7 @@
 // the rendered rationale (action_rationale, read by the Positions tab) and the
 // member's self-declared name (cc_member_name). CC votes are excluded from the
 // DRep rationale queue (power-gated, role='DRep'), so they need their own pass.
-import { fetchAnchorDoc } from './metadata.js';
+import { fetchAnchorDoc, type DedicatedGateway } from './metadata.js';
 import { extractVoteRationaleComment } from './voteRationaleAnchor.js';
 import { renderMarkdown } from '../markdown.js';
 import { namesFromAuthors } from './ccNames.js';
@@ -54,8 +54,10 @@ export interface CommitteeMetaSyncResult { fetched: number; ok: number; named: n
 
 export async function syncCommitteeVoteMeta(deps: {
   db: D1Database; now: number; fetchImpl?: typeof fetch; limit?: number; paceMs?: number;
+  /** Dedicated IPFS gateway for anchor reads (gov-sync secrets), null when unset. */
+  gateway?: DedicatedGateway | null;
 }): Promise<CommitteeMetaSyncResult> {
-  const { db, now, fetchImpl, paceMs = 0 } = deps;
+  const { db, now, fetchImpl, gateway, paceMs = 0 } = deps;
   const jobs = await getCommitteeMetaQueue(db, { limit: deps.limit ?? DEFAULT_LIMIT, now });
   let ok = 0;
   let named = 0;
@@ -63,7 +65,7 @@ export async function syncCommitteeVoteMeta(deps: {
   for (const [i, job] of jobs.entries()) {
     if (paceMs > 0 && i > 0) await new Promise((r) => setTimeout(r, paceMs));
     // db enables the self-hosted D1 short circuit for dreptalk-hosted anchors.
-    const res = await fetchAnchorDoc(job.anchorUrl, job.anchorHash, { fetchImpl, db });
+    const res = await fetchAnchorDoc(job.anchorUrl, job.anchorHash, { fetchImpl, gateway, db });
     const createdAt = job.blockTime != null ? job.blockTime * 1000 : now;
     if (res.status !== 'ok') {
       await upsertActionRationale(db, { gaId: job.gaId, voterId: job.voterId, bodyHtml: null, source: 'onchain', anchorUrl: job.anchorUrl, status: 'failed', createdAt, now });

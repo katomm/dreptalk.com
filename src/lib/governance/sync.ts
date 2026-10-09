@@ -18,6 +18,7 @@ import {
   META_REEXTRACT_MAX_ATTEMPTS,
   type AnchorResult,
   type AnchorReference,
+  type DedicatedGateway,
 } from './metadata.js';
 import { draftSlugsFromReferences } from './draftLink.js';
 import { resolveDraftTopic, buildDraftLinkStatements } from '../db/draftLinks.js';
@@ -89,6 +90,8 @@ export interface GovSyncDeps {
   rand: () => string;
   /** Anchor fetch implementation (injected for tests). */
   fetchImpl?: typeof fetch;
+  /** Dedicated IPFS gateway for anchor reads (gov-sync secrets), null when unset. */
+  gateway?: DedicatedGateway | null;
 }
 
 /**
@@ -134,7 +137,7 @@ function composeFirstPostMd(p: FirstPostFields, abstract: string | null, network
  * asking again, through any gateway, cannot turn it into a readable title.
  */
 function anchorMayStillAnswer(status: string): boolean {
-  return status === 'fetch-failed' || status === 'bad-content-type';
+  return status === 'fetch-failed' || status === 'rate-limited' || status === 'bad-content-type';
 }
 
 /**
@@ -150,11 +153,11 @@ async function rereadActionAnchor(
   /** This network's origin, for recognizing Proposal Drafts thread links in the
    * references. A link is only written when the action already has its topic. */
   siteOrigin: string,
-  fetchImpl?: typeof fetch,
+  fetchDeps: { fetchImpl?: typeof fetch; gateway?: DedicatedGateway | null },
 ): Promise<AnchorResult> {
   const result: AnchorResult =
     ga.anchorUrl && ga.anchorHash
-      ? await fetchAnchorMetadata(ga.anchorUrl, ga.anchorHash, { fetchImpl, db })
+      ? await fetchAnchorMetadata(ga.anchorUrl, ga.anchorHash, { ...fetchDeps, db })
       : { status: 'unsupported-url', metadata: null };
   if (result.status !== 'ok') {
     await incrementActionMetaAttempts(db, ga.id);
@@ -276,7 +279,7 @@ async function openGovActionTopic(
 }
 
 export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResult> {
-  const { koios, db, network, now, rand, fetchImpl } = deps;
+  const { koios, db, network, now, rand, fetchImpl, gateway } = deps;
 
   const proposals = await koios.proposalList();
   const known = await getKnownActionIds(db);
@@ -309,7 +312,7 @@ export async function syncGovernanceActions(deps: GovSyncDeps): Promise<SyncResu
       // Fetch + verify the off-chain anchor when present; tolerate failures.
       const anchor =
         p.meta_url && p.meta_hash
-          ? await fetchAnchorMetadata(p.meta_url, p.meta_hash, { fetchImpl, db })
+          ? await fetchAnchorMetadata(p.meta_url, p.meta_hash, { fetchImpl, gateway, db })
           : { status: 'no-anchor' as const, metadata: null };
 
       const meta = anchor.metadata;
@@ -439,6 +442,8 @@ export interface DeferredTopicDeps {
   rand: () => string;
   /** Anchor fetch implementation (injected for tests). */
   fetchImpl?: typeof fetch;
+  /** Dedicated IPFS gateway for anchor reads (gov-sync secrets), null when unset. */
+  gateway?: DedicatedGateway | null;
   /** Max waiting actions to handle per run (bounds anchor fetches per tick). */
   limit: number;
 }
@@ -455,7 +460,7 @@ export interface DeferredTopicDeps {
  * phase writes nothing, so it is safe to call every tick.
  */
 export async function createDeferredGovTopics(deps: DeferredTopicDeps): Promise<DeferredTopicResult> {
-  const { db, network, now, rand, fetchImpl, limit } = deps;
+  const { db, network, now, rand, fetchImpl, gateway, limit } = deps;
   const cfg = resolveNetwork(network);
   const candidates = await getActionsAwaitingTopic(db, limit);
   let created = 0;
@@ -469,7 +474,7 @@ export async function createDeferredGovTopics(deps: DeferredTopicDeps): Promise<
       let references = ga.references;
 
       if (!title && ga.anchorUrl && ga.anchorHash && ga.metaAttempts < DEFERRED_TOPIC_MAX_ATTEMPTS) {
-        const result = await rereadActionAnchor(db, ga, cfg.siteOrigin, fetchImpl);
+        const result = await rereadActionAnchor(db, ga, cfg.siteOrigin, { fetchImpl, gateway });
         if (result.status === 'ok') {
           title = result.metadata.title;
           abstract = result.metadata.abstract;
@@ -514,6 +519,8 @@ export interface MetaBackfillDeps {
   now: number;
   /** Anchor fetch implementation (injected for tests). */
   fetchImpl?: typeof fetch;
+  /** Dedicated IPFS gateway for anchor reads (gov-sync secrets), null when unset. */
+  gateway?: DedicatedGateway | null;
   /** Max actions to re-extract this run (bounds anchor fetches per cron tick). */
   limit: number;
 }
@@ -535,7 +542,7 @@ export interface MetaBackfillDeps {
  * (the row is now current, just empty).
  */
 export async function backfillActionMetadata(deps: MetaBackfillDeps): Promise<MetaBackfillResult> {
-  const { db, network, fetchImpl, limit } = deps;
+  const { db, network, fetchImpl, gateway, limit } = deps;
   const { siteOrigin } = resolveNetwork(network);
   const candidates = await getActionsNeedingMetaReextract(db, META_EXTRACT_VERSION, limit, META_REEXTRACT_MAX_ATTEMPTS);
   let updated = 0;
@@ -547,7 +554,7 @@ export async function backfillActionMetadata(deps: MetaBackfillDeps): Promise<Me
       // keeps its old version, so it stays a candidate until it exhausts its
       // attempt budget. The topic title and opening post are reconciled
       // separately by backfillGovTopicTitles, so this stays on the action row.
-      if ((await rereadActionAnchor(db, ga, siteOrigin, fetchImpl)).status === 'ok') updated++;
+      if ((await rereadActionAnchor(db, ga, siteOrigin, { fetchImpl, gateway })).status === 'ok') updated++;
       else failed++;
     } catch {
       failed++;

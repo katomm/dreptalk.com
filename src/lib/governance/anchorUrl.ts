@@ -19,15 +19,21 @@
  * ipfs:// anchor on the site into "could not be retrieved", even though the
  * document was perfectly reachable elsewhere.
  *
+ * ipfs.decoo.io used to be the third entry and was dropped once it started
+ * answering 200 with an HTML page for every CID.
+ *
  * Trusting the gateway is not required: whatever it hands back must still hash
  * to the on-chain anchor hash (see verifyAnchorDoc), so a hostile or broken
  * gateway can withhold a document but never substitute one. The first entry is
  * also the one used for reader-facing anchor links.
+ *
+ * The server-side fetch path may put a dedicated, token-gated gateway in front
+ * of this list (see anchorFetchCandidates in metadata.ts). That gateway never
+ * appears here: this module is bundled into browser islands.
  */
 export const IPFS_GATEWAYS = [
   'https://gateway.pinata.cloud/ipfs/',
   'https://ipfs.filebase.io/ipfs/',
-  'https://ipfs.decoo.io/ipfs/',
 ] as const;
 
 /**
@@ -40,6 +46,24 @@ export const IPFS_GATEWAYS = [
 function gatewayCidPath(url: URL): string | null {
   const m = /^\/ipfs\/([^/]+)(\/.*)?$/.exec(url.pathname);
   return m ? m[1] + (m[2] ?? '') : null;
+}
+
+/**
+ * The "<cid>[/path]" an anchor names, for an ipfs:// URL or a path-style
+ * gateway https URL, or null for anything else (a plain http(s) URL, an
+ * unsupported scheme, an unparseable string). The server-side fetch path uses
+ * it to ask further gateways for the same content.
+ */
+export function anchorCidPath(raw: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+  if (url.protocol === 'https:' || url.protocol === 'http:') return gatewayCidPath(url);
+  if (url.protocol === 'ipfs:') return (url.host + url.pathname).replace(/^\/+/, '') || null;
+  return null;
 }
 
 /**

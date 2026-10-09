@@ -70,3 +70,30 @@ describe('syncCommitteeVoteMeta self-hosted anchors', () => {
     expect(rat?.body_html).toContain('CC agrees');
   });
 });
+
+const GATEWAY = { url: 'https://dedicated.mypinata.cloud', token: 'tok-cc' };
+type GatewayCall = { url: string; token: string | null };
+function recordingFetch(calls: GatewayCall[], answer: (url: string) => Response): typeof fetch {
+  return (async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(url), token: new Headers(init?.headers).get('x-pinata-gateway-token') });
+    return answer(String(url));
+  }) as typeof fetch;
+}
+
+describe('syncCommitteeVoteMeta dedicated gateway', () => {
+  it('reads an ipfs CC anchor through the dedicated gateway first, with the token', async () => {
+    const doc = JSON.stringify({ authors: [{ name: 'Gateway Council' }], body: { comment: 'Read via the gateway.' } });
+    await seedCcVote('gaCCgw', 'ccVoterGw', 'HOTCCGW', 'ipfs://QmCcAnchor', hashHex(doc), 1234);
+    const calls: GatewayCall[] = [];
+    const r = await syncCommitteeVoteMeta({
+      db: db(), now: 999, gateway: GATEWAY,
+      fetchImpl: recordingFetch(calls, (url) =>
+        url.startsWith('https://dedicated.') ? new Response('slow down', { status: 429 }) : new Response(doc),
+      ),
+    });
+    expect(r.named).toBe(1);
+    expect(calls[0]).toEqual({ url: 'https://dedicated.mypinata.cloud/ipfs/QmCcAnchor', token: 'tok-cc' });
+    // The fallback to the public gateway carries no token.
+    expect(calls.slice(1).every((c) => c.token === null)).toBe(true);
+  });
+});

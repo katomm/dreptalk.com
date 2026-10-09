@@ -25,6 +25,7 @@
 
 import { resolveNetwork } from '../../../src/lib/config/network.js';
 import { createKoiosClient } from '../../../src/lib/koios/client.js';
+import { dedicatedGatewayFromEnv } from '../../../src/lib/governance/metadata.js';
 import { resolveCronKind } from '../../../src/lib/freshness.js';
 import { recordSyncRun, type PhaseFn } from '../../../src/lib/sync/runRecorder.js';
 import { runPhases } from '../../../src/lib/sync/phases/registry.js';
@@ -76,7 +77,10 @@ function buildCore(env: Env): CoreSyncContext {
     retries: 2,
     retryDelayMs: 500,
   });
-  return { db: env.DB, koios, cfg, now: Date.now() };
+  // Dedicated Pinata gateway for anchor reads: the public gateways rate limit
+  // this worker's shared egress. Both secrets or neither, and never logged.
+  const gateway = dedicatedGatewayFromEnv(env.PINATA_GATEWAY_URL, env.PINATA_GATEWAY_KEY);
+  return { db: env.DB, koios, cfg, now: Date.now(), gateway };
 }
 
 export default {

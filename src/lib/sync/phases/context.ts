@@ -6,6 +6,7 @@
 
 import type { NetworkConfig } from '../../config/network.js';
 import type { createKoiosClient } from '../../koios/client.js';
+import type { DedicatedGateway } from '../../governance/metadata.js';
 
 export type GovSyncKoios = ReturnType<typeof createKoiosClient>;
 
@@ -15,4 +16,10 @@ export interface CoreSyncContext {
   cfg: NetworkConfig;
   /** Run start in unix ms. Phases needing a fresh timestamp call Date.now() themselves. */
   now: number;
+  /**
+   * Dedicated IPFS gateway for anchor reads, from the PINATA_GATEWAY_* secrets.
+   * On the core because the governance, vote and DRep phases all read anchors.
+   * Null or absent means the public gateway list alone.
+   */
+  gateway?: DedicatedGateway | null;
 }

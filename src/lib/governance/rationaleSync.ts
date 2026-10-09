@@ -4,6 +4,7 @@
 // Positions tab. Bounded per run (limit) and paced, so the 20-min cron stays lean.
 import { getRationaleFetchQueue, upsertActionRationale } from '../db/actionRationale.js';
 import { fetchVoteRationale } from './voteRationaleAnchor.js';
+import type { DedicatedGateway } from './metadata.js';
 
 // Fetch rationales for voters with at least 10,000 ada of voting power. Set low
 // enough to cover small-but-active DReps who write thoughtful rationales, while
@@ -21,9 +22,11 @@ export interface RationaleSyncResult { fetched: number; ok: number; empty: numbe
 
 export async function syncVoteRationales(deps: {
   db: D1Database; now: number; fetchImpl?: typeof fetch;
+  /** Dedicated IPFS gateway for anchor reads (gov-sync secrets), null when unset. */
+  gateway?: DedicatedGateway | null;
   minPower?: number; limit?: number; paceMs?: number;
 }): Promise<RationaleSyncResult> {
-  const { db, now, fetchImpl, paceMs = 0 } = deps;
+  const { db, now, fetchImpl, gateway, paceMs = 0 } = deps;
   const minPower = deps.minPower ?? VOTE_RATIONALE_MIN_POWER_LOVELACE;
   const limit = deps.limit ?? DEFAULT_LIMIT;
 
@@ -34,7 +37,7 @@ export async function syncVoteRationales(deps: {
   for (const [i, job] of jobs.entries()) {
     if (paceMs > 0 && i > 0) await new Promise((r) => setTimeout(r, paceMs));
     // db enables the self-hosted D1 short circuit for dreptalk-hosted anchors.
-    const res = await fetchVoteRationale(job.anchorUrl, job.anchorHash, { db, fetchImpl });
+    const res = await fetchVoteRationale(job.anchorUrl, job.anchorHash, { db, fetchImpl, gateway });
     const createdAt = job.blockTime != null ? job.blockTime * 1000 : now;
     await upsertActionRationale(db, {
       gaId: job.gaId, voterId: job.voterId,

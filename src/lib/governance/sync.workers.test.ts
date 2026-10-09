@@ -1585,3 +1585,119 @@ describe('proposal drafts linking', () => {
     expect(await state(`${tx}#0`, draft.id)).toEqual({ link: null, locked: 0 });
   });
 });
+
+describe('dedicated ipfs gateway', () => {
+  const gateway = { url: 'https://dedicated.mypinata.cloud', token: 'tok-gov' };
+  const TOKEN_HEADER = 'x-pinata-gateway-token';
+  type Call = { url: string; token: string | null };
+
+  // Records each request and answers from `answer`, so the walk order and the
+  // header on every request can be asserted.
+  function recordingFetch(calls: Call[], answer: (url: string) => Response): typeof fetch {
+    return (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), token: new Headers(init?.headers).get(TOKEN_HEADER) });
+      return answer(String(url));
+    }) as typeof fetch;
+  }
+  const json = () => new Response(anchorJson, { headers: { 'content-type': 'application/json' } });
+  const ipfsProposal = (tx: string, cid: string): ProposalListRow => ({
+    proposal_id: `gov_action1${tx.slice(0, 6)}`,
+    proposal_tx_hash: tx.repeat(32),
+    proposal_index: 0,
+    proposal_type: 'InfoAction',
+    deposit: '100000000000',
+    return_address: 'stake_test1gw',
+    proposed_epoch: 300,
+    expiration: 310,
+    block_time: 1_700_002_000,
+    meta_url: `ipfs://${cid}`,
+    meta_hash: anchorHash,
+  });
+
+  it('discovery reads an ipfs anchor through the dedicated gateway first, with the token', async () => {
+    const calls: Call[] = [];
+    let n = 0;
+    await syncGovernanceActions({
+      koios: fakeKoios([ipfsProposal('3c', 'QmGovDiscovery')]),
+      db: env.DB,
+      network: 'preprod',
+      now: 1_700_002_000_000,
+      rand: () => `gw${n++}`,
+      fetchImpl: recordingFetch(calls, json),
+      gateway,
+    });
+    expect(calls).toEqual([{ url: 'https://dedicated.mypinata.cloud/ipfs/QmGovDiscovery', token: 'tok-gov' }]);
+    const row = await env.DB.prepare('SELECT anchor_status, anchor_url FROM governance_actions WHERE id = ?')
+      .bind(`${'3c'.repeat(32)}#0`)
+      .first<{ anchor_status: string; anchor_url: string }>();
+    // The stored row keeps the on-chain URL, never the dedicated one.
+    expect(row).toEqual({ anchor_status: 'ok', anchor_url: 'ipfs://QmGovDiscovery' });
+  });
+
+  it('discovery stores rate-limited, not a content-type verdict, and defers the thread', async () => {
+    // Every public gateway: 429 from the first, an html page from the next.
+    const calls: Call[] = [];
+    let n = 0;
+    await syncGovernanceActions({
+      koios: fakeKoios([ipfsProposal('3d', 'QmGovLimited')]),
+      db: env.DB,
+      network: 'preprod',
+      now: 1_700_002_100_000,
+      rand: () => `gl${n++}`,
+      fetchImpl: recordingFetch(calls, (url) =>
+        url.startsWith('https://gateway.pinata.cloud/')
+          ? new Response('<html>429</html>', { status: 429, headers: { 'content-type': 'text/html' } })
+          : new Response('<html>page</html>', { headers: { 'content-type': 'text/html' } }),
+      ),
+    });
+    expect(calls.every((c) => c.token === null)).toBe(true);
+    const row = await env.DB.prepare('SELECT anchor_status, topic_id FROM governance_actions WHERE id = ?')
+      .bind(`${'3d'.repeat(32)}#0`)
+      .first<{ anchor_status: string; topic_id: string | null }>();
+    expect(row!.anchor_status).toBe('rate-limited');
+    // A rate limit is a transport miss: the thread waits for a readable title.
+    expect(row!.topic_id).toBeNull();
+  });
+
+  it('deferred topics and the metadata backfill pass the gateway through', async () => {
+    let n = 0;
+    await syncGovernanceActions({
+      koios: fakeKoios([ipfsProposal('3e', 'QmGovDeferred')]),
+      db: env.DB,
+      network: 'preprod',
+      now: 1_700_002_200_000,
+      rand: () => `gd${n++}`,
+      fetchImpl: async () => new Response('slow down', { status: 429 }),
+    });
+
+    const deferredCalls: Call[] = [];
+    const r = await createDeferredGovTopics({
+      db: env.DB,
+      network: 'preprod',
+      now: 1_700_002_300_000,
+      rand: () => `gd${n++}`,
+      fetchImpl: recordingFetch(deferredCalls, (url) =>
+        url.startsWith('https://dedicated.') ? new Response('slow down', { status: 429 }) : json(),
+      ),
+      gateway,
+      limit: 10,
+    });
+    expect(r).toMatchObject({ created: 1 });
+    expect(deferredCalls[0]).toEqual({ url: 'https://dedicated.mypinata.cloud/ipfs/QmGovDeferred', token: 'tok-gov' });
+    expect(deferredCalls.slice(1).every((c) => c.token === null)).toBe(true);
+
+    await env.DB.prepare('UPDATE governance_actions SET meta_version = 0 WHERE id = ?')
+      .bind(`${'3e'.repeat(32)}#0`)
+      .run();
+    const backfillCalls: Call[] = [];
+    await backfillActionMetadata({
+      db: env.DB,
+      network: 'preprod',
+      now: 1_700_002_400_000,
+      fetchImpl: recordingFetch(backfillCalls, json),
+      gateway,
+      limit: 10,
+    });
+    expect(backfillCalls).toEqual([{ url: 'https://dedicated.mypinata.cloud/ipfs/QmGovDeferred', token: 'tok-gov' }]);
+  });
+});

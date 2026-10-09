@@ -11,7 +11,7 @@
 // caller still creates the thread, just without trusted metadata.
 
 import { blake2b256 } from '../crypto/blake.js';
-import { resolveAnchorUrl, resolveAnchorUrls } from './anchorUrl.js';
+import { anchorCidPath, resolveAnchorUrl, resolveAnchorUrls } from './anchorUrl.js';
 import { readBodyLimited } from '../http/bodyLimit.js';
 import { bytesToHex, HEX_HASH_256_RE } from '../crypto/hex.js';
 import {
@@ -101,7 +101,7 @@ export const CIP108_REFERENCE_POLICY: ReferenceListPolicy = {
 // island can import it without pulling this module's Markdown renderer and
 // hasher into the browser bundle. Re-exported here because every existing
 // call site imports it from metadata.js.
-export { IPFS_GATEWAYS, resolveAnchorUrl, resolveAnchorUrls } from './anchorUrl.js';
+export { IPFS_GATEWAYS, anchorCidPath, resolveAnchorUrl, resolveAnchorUrls } from './anchorUrl.js';
 
 /**
  * One entry of CIP-108 `body.references`, reduced to what we display. The `uri`
@@ -127,6 +127,9 @@ export type AnchorStatus =
   | 'ok'
   | 'unsupported-url'
   | 'fetch-failed'
+  // A source answered 429. Transient like fetch-failed, kept apart so a rate
+  // limit is not mistaken for a dead anchor when reading the stored status.
+  | 'rate-limited'
   | 'too-large'
   | 'bad-content-type'
   | 'hash-mismatch'
@@ -443,6 +446,107 @@ export type AnchorDocResult =
 const TEXT_ENCODER = new TextEncoder();
 
 /**
+ * A dedicated IPFS gateway (a Pinata https://<name>.mypinata.cloud host) and the
+ * access token it requires, for the server-side anchor fetch only. Built from
+ * the gov-sync Worker secrets PINATA_GATEWAY_URL and PINATA_GATEWAY_KEY. The
+ * shared public gateways rate limit Cloudflare's egress addresses, a dedicated
+ * gateway does not. Neither value may reach a browser, a log line, a stored row
+ * or a page link: anchor rows keep the on-chain URL, never a resolved one.
+ */
+export interface DedicatedGateway {
+  /** Origin of the gateway, e.g. https://name.mypinata.cloud. */
+  url: string;
+  /** Sent as the x-pinata-gateway-token request header, only to `url`. */
+  token: string;
+}
+
+/** Header name Pinata reads a dedicated gateway's access token from. */
+const GATEWAY_TOKEN_HEADER = 'x-pinata-gateway-token';
+
+/**
+ * The dedicated gateway config from the two Worker secrets, or null when it is
+ * not usable. Both halves are required: a URL without its token would only
+ * collect 401s, a token without a URL has nowhere to go. The URL must be https
+ * and is reduced to its origin, so a stray trailing slash or path cannot
+ * produce a malformed candidate. Unset or invalid means the public list alone,
+ * exactly as before the dedicated gateway existed.
+ */
+export function dedicatedGatewayFromEnv(
+  url: string | undefined | null,
+  token: string | undefined | null,
+): DedicatedGateway | null {
+  const key = token?.trim();
+  if (!url || !key) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(url.trim());
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== 'https:') return null;
+  return { url: parsed.origin, token: key };
+}
+
+/** One source the anchor fetch may try, with any headers only it may receive. */
+export interface AnchorCandidate {
+  url: string;
+  headers?: Record<string, string>;
+}
+
+/**
+ * Every source for an on-chain anchor, in the order the fetch walks them. The
+ * public order comes from resolveAnchorUrls. A configured dedicated gateway is
+ * added for anything that names an IPFS CID: first for ipfs://, and right after
+ * the anchor's own host for a path-style gateway https URL (that host may be a
+ * private gateway that is the only one with the file pinned, see
+ * resolveAnchorUrls). A plain http(s) anchor gets no gateway at all. The token
+ * header travels on the dedicated candidate alone, never on a public one.
+ */
+export function anchorFetchCandidates(raw: string, dedicated?: DedicatedGateway | null): AnchorCandidate[] {
+  const publicUrls = resolveAnchorUrls(raw);
+  const cidPath = dedicated ? anchorCidPath(raw) : null;
+  if (!dedicated || !cidPath || publicUrls.length === 0) return publicUrls.map((url) => ({ url }));
+
+  const own: AnchorCandidate = {
+    url: `${dedicated.url}/ipfs/${cidPath}`,
+    headers: { [GATEWAY_TOKEN_HEADER]: dedicated.token },
+  };
+  const rest = publicUrls.filter((u) => u !== own.url).map((url) => ({ url }));
+  if (/^\s*ipfs:/i.test(raw)) return [own, ...rest];
+  // A gateway https anchor: keep its own host first unless that host is the
+  // dedicated gateway itself, which then goes first with its token.
+  const anchorIsDedicated = publicUrls[0] === own.url;
+  return anchorIsDedicated ? [own, ...rest] : [rest[0], own, ...rest.slice(1)];
+}
+
+/** Dependencies of the anchor fetch, all optional so tests inject only what they need. */
+export interface AnchorFetchDeps {
+  fetchImpl?: typeof fetch;
+  timeoutMs?: number;
+  /** D1 handle for self-hosted document reads. */
+  db?: D1Database;
+  /** Dedicated IPFS gateway tried before the public ones, server side only. */
+  gateway?: DedicatedGateway | null;
+}
+
+// How a failed candidate ranks when several failed: the stored status is the
+// most informative one, never simply the last. A rate limit or a transient
+// transport error (5xx, timeout, connection) beats an HTML 200, because the
+// source that refused might well have served the JSON. An HTML 200 beats a
+// plain miss (404 and other 4xx), since it is a statement about the content at
+// that CID rather than an absence.
+type FetchMiss = { status: Exclude<AnchorStatus, 'ok'>; rank: number };
+const MISS_RATE_LIMITED: FetchMiss = { status: 'rate-limited', rank: 3 };
+const MISS_TRANSIENT: FetchMiss = { status: 'fetch-failed', rank: 2 };
+const MISS_BAD_CONTENT_TYPE: FetchMiss = { status: 'bad-content-type', rank: 1 };
+const MISS_NOT_SERVED: FetchMiss = { status: 'fetch-failed', rank: 0 };
+
+// Same-origin redirects a token-carrying candidate may follow by hand. The
+// header must never travel to another host, so automatic redirect following is
+// off for those requests.
+const MAX_TOKEN_REDIRECTS = 3;
+
+/**
  * Fetches, verifies, and parses an on-chain anchor, returning the raw JSON doc.
  *
  * This is the shared security pipeline (scheme allowlist, timeout, size cap,
@@ -458,13 +562,13 @@ const TEXT_ENCODER = new TextEncoder();
  *
  * @param anchorUrl  on-chain anchor URL (untrusted)
  * @param anchorHash on-chain blake2b-256 hash, hex (untrusted but authoritative)
- * @param deps       injectable fetch + timeout for testing, plus the D1 handle
- *                   for self-hosted document reads
+ * @param deps       injectable fetch + timeout for testing, the D1 handle for
+ *                   self-hosted document reads, and the dedicated gateway
  */
 export async function fetchAnchorDoc(
   anchorUrl: string,
   anchorHash: string,
-  deps: { fetchImpl?: typeof fetch; timeoutMs?: number; db?: D1Database } = {},
+  deps: AnchorFetchDeps = {},
 ): Promise<AnchorDocResult> {
   const self = selfHostedRef(anchorUrl);
   if (self) {
@@ -476,60 +580,85 @@ export async function fetchAnchorDoc(
   const fetchImpl = deps.fetchImpl ?? fetch;
   const timeoutMs = deps.timeoutMs ?? ANCHOR_FETCH_TIMEOUT_MS;
 
-  const candidates = resolveAnchorUrls(anchorUrl);
+  const candidates = anchorFetchCandidates(anchorUrl, deps.gateway);
   if (candidates.length === 0) return { status: 'unsupported-url', doc: null };
 
   // Walk the candidates (one per IPFS gateway; a single URL for http(s)) until
   // one hands over bytes. Only a transport-level miss moves on: once any source
   // delivers a body, the verdict is about the document itself, and asking a
-  // different gateway for the same CID cannot change it.
-  let status: Exclude<AnchorStatus, 'ok'> = 'fetch-failed';
-  for (const resolved of candidates) {
-    const attempt = await fetchAnchorBytes(resolved, fetchImpl, timeoutMs);
-    if (attempt.bytes) return verifyAnchorDoc(attempt.bytes, anchorHash);
-    status = attempt.status;
-    if (status !== 'fetch-failed' && status !== 'bad-content-type') break;
+  // different gateway for the same CID cannot change it. Too large also ends
+  // the walk, every gateway would serve the same oversized bytes.
+  let best: FetchMiss | null = null;
+  for (const candidate of candidates) {
+    const attempt = await fetchAnchorBytes(candidate, fetchImpl, timeoutMs);
+    if ('bytes' in attempt) return verifyAnchorDoc(attempt.bytes, anchorHash);
+    if (attempt.status === 'too-large') return { status: 'too-large', doc: null };
+    if (!best || attempt.rank > best.rank) best = attempt;
   }
-  return { status, doc: null };
+  return { status: best?.status ?? 'fetch-failed', doc: null };
 }
 
 /**
- * One GET against one resolved anchor URL, with the timeout, content-type check
+ * One GET against one anchor candidate, with the timeout, content-type check
  * and size cap applied. Returns the raw bytes on success (verification is the
- * caller's job) or the failure status that describes why this source is out.
+ * caller's job) or the miss that describes why this source is out.
  */
 async function fetchAnchorBytes(
-  resolved: string,
+  candidate: AnchorCandidate,
   fetchImpl: typeof fetch,
   timeoutMs: number,
-): Promise<{ bytes: Uint8Array | null; status: Exclude<AnchorStatus, 'ok'> }> {
+): Promise<{ bytes: Uint8Array } | FetchMiss | { status: 'too-large' }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetchImpl(resolved, {
-      method: 'GET',
-      redirect: 'follow',
-      signal: controller.signal,
-      headers: { accept: 'application/json, text/plain' },
-    });
-    if (!res.ok) return { bytes: null, status: 'fetch-failed' };
-    if (!looksLikeJsonOrText(res.headers.get('content-type'))) {
-      return { bytes: null, status: 'bad-content-type' };
-    }
+    const res = await getFollowingRedirects(candidate, fetchImpl, controller.signal);
+    if (!res) return MISS_NOT_SERVED;
+    if (res.status === 429) return MISS_RATE_LIMITED;
+    if (res.status >= 500) return MISS_TRANSIENT;
+    if (!res.ok) return MISS_NOT_SERVED;
+    // A 200 with the wrong type, typically an HTML page in place of the JSON.
+    if (!looksLikeJsonOrText(res.headers.get('content-type'))) return MISS_BAD_CONTENT_TYPE;
     const declared = Number(res.headers.get('content-length'));
-    if (Number.isFinite(declared) && declared > MAX_ANCHOR_BYTES) {
-      return { bytes: null, status: 'too-large' };
-    }
+    if (Number.isFinite(declared) && declared > MAX_ANCHOR_BYTES) return { status: 'too-large' };
     // Content-Length is only a fast path; the bounded reader enforces the cap
     // even for chunked or lying senders without buffering past the limit.
     const read = await readBodyLimited(res.body, MAX_ANCHOR_BYTES);
-    if (!read.ok) return { bytes: null, status: 'too-large' };
-    return { bytes: read.bytes, status: 'fetch-failed' };
+    if (!read.ok) return { status: 'too-large' };
+    return { bytes: read.bytes };
   } catch {
-    return { bytes: null, status: 'fetch-failed' };
+    // Timeout (abort) or a connection failure: a transient transport miss.
+    return MISS_TRANSIENT;
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * The GET itself. A candidate without headers lets the runtime follow
+ * redirects as before. A candidate that carries a header (the dedicated
+ * gateway's token) follows them by hand and only within its own origin, so
+ * the token can never be forwarded to a host a redirect points at. A redirect
+ * elsewhere, or one hop too many, is null (a miss).
+ */
+async function getFollowingRedirects(
+  candidate: AnchorCandidate,
+  fetchImpl: typeof fetch,
+  signal: AbortSignal,
+): Promise<Response | null> {
+  const headers = { accept: 'application/json, text/plain', ...candidate.headers };
+  if (!candidate.headers) return fetchImpl(candidate.url, { method: 'GET', redirect: 'follow', signal, headers });
+
+  const origin = new URL(candidate.url).origin;
+  let url = candidate.url;
+  for (let hop = 0; hop <= MAX_TOKEN_REDIRECTS; hop++) {
+    const res = await fetchImpl(url, { method: 'GET', redirect: 'manual', signal, headers });
+    const location = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null;
+    if (!location) return res;
+    const next = new URL(location, url);
+    if (next.origin !== origin) return null;
+    url = next.href;
+  }
+  return null;
 }
 
 /**
@@ -581,12 +710,12 @@ function matchesReserialized(doc: unknown, want: string): boolean {
  *
  * @param anchorUrl  on-chain anchor URL (untrusted)
  * @param anchorHash on-chain blake2b-256 hash, hex (untrusted but authoritative)
- * @param deps       injectable fetch + timeout for testing
+ * @param deps       see fetchAnchorDoc
  */
 export async function fetchAnchorMetadata(
   anchorUrl: string,
   anchorHash: string,
-  deps: { fetchImpl?: typeof fetch; timeoutMs?: number; db?: D1Database } = {},
+  deps: AnchorFetchDeps = {},
 ): Promise<AnchorResult> {
   const result = await fetchAnchorDoc(anchorUrl, anchorHash, deps);
   if (result.status !== 'ok') return { status: result.status, metadata: null };

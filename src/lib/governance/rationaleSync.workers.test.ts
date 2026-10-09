@@ -104,3 +104,28 @@ describe('syncVoteRationales self-hosted anchors', () => {
     expect(r).toMatchObject({ failed: 1, ok: 0 });
   });
 });
+
+const GATEWAY = { url: 'https://dedicated.mypinata.cloud', token: 'tok-rat' };
+type GatewayCall = { url: string; token: string | null };
+function recordingFetch(calls: GatewayCall[], answer: (url: string) => Response): typeof fetch {
+  return (async (url: string | URL | Request, init?: RequestInit) => {
+    calls.push({ url: String(url), token: new Headers(init?.headers).get('x-pinata-gateway-token') });
+    return answer(String(url));
+  }) as typeof fetch;
+}
+
+describe('syncVoteRationales dedicated gateway', () => {
+  it('reads an ipfs rationale through the dedicated gateway first, with the token', async () => {
+    const ga = `${'d'.repeat(64)}#0`;
+    const hash = hashOf(body);
+    await env.DB.batch([
+      env.DB.prepare(`INSERT OR REPLACE INTO dreps (drep_id, hex, voting_power, status, last_synced_at, created_at) VALUES ('drep1gw','ab','9000000000000','active',0,0)`),
+      env.DB.prepare(`INSERT OR REPLACE INTO drep_votes (ga_id, voter_role, voter_id, vote, meta_url, meta_hash, block_time, synced_at) VALUES (?,?,?,?,?,?,?,?)`).bind(ga,'DRep','drep1gw','yes','ipfs://QmRationale',hash,1700000000,1700000100),
+    ]);
+    const calls: GatewayCall[] = [];
+    const fetchImpl = recordingFetch(calls, () => new Response(body, { headers: { 'content-type': 'application/json' } }));
+    const r = await syncVoteRationales({ db: env.DB, now: 1_800_000_000_000, fetchImpl, gateway: GATEWAY, limit: 10 });
+    expect(r.ok).toBe(1);
+    expect(calls).toEqual([{ url: 'https://dedicated.mypinata.cloud/ipfs/QmRationale', token: 'tok-rat' }]);
+  });
+});

@@ -7,7 +7,7 @@
 // the CIP-136 prose, so neither form renders blank. The doc is untrusted:
 // verified by hash in fetchAnchorDoc, then sanitized and rendered here before it
 // is ever stored.
-import { fetchAnchorDoc, jsonLdValue } from './metadata.js';
+import { fetchAnchorDoc, jsonLdValue, type AnchorFetchDeps } from './metadata.js';
 import { sanitizeExternalMultiline } from '../validation/input.js';
 import { renderMarkdown } from '../markdown.js';
 import { MAX_VOTE_RATIONALE } from './voteRationale.js';
@@ -69,7 +69,7 @@ export function extractVoteRationaleComment(doc: unknown): string | null {
 export async function fetchVoteRationale(
   anchorUrl: string,
   anchorHash: string,
-  deps: { db?: D1Database; fetchImpl?: typeof fetch; timeoutMs?: number } = {},
+  deps: AnchorFetchDeps = {},
 ): Promise<VoteRationaleFetch> {
   const res = await fetchAnchorDoc(anchorUrl, anchorHash, deps);
   if (res.status !== 'ok') return { status: 'failed' };

@@ -90,7 +90,7 @@ export const drepPhases: readonly SyncPhaseDef<DrepSyncContext>[] = [
       // with its status write.
       const followedDrepIds = await getFollowedDrepIds(ctx.db);
       const r = await syncDreps({
-        koios: ctx.koios, db: ctx.db, fetchImpl: fetch, now: Date.now(), maxAnchorFetches: DREP_ANCHOR_LIMIT,
+        koios: ctx.koios, db: ctx.db, fetchImpl: fetch, gateway: ctx.gateway, now: Date.now(), maxAnchorFetches: DREP_ANCHOR_LIMIT,
         // Inline base64 avatars are decoded and stored in R2 during the sync (they
         // are self-contained); linked images are handled by the avatars phase below.
         bucket: ctx.avatars ?? undefined,

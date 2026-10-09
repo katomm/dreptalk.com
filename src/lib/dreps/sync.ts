@@ -18,7 +18,9 @@ import { assignSlugs } from './slug.js';
 import { SPECIAL_DREP_IDS } from './special.js';
 import { epochFromUnix, type NetworkConfig } from '../config/network.js';
 import { gcDrepMetadata } from '../db/drepMetadata.js';
-import { fetchAnchorDoc, extractCip119Profile, PROFILE_EXTRACT_VERSION } from '../governance/metadata.js';
+import {
+  fetchAnchorDoc, extractCip119Profile, PROFILE_EXTRACT_VERSION, type DedicatedGateway,
+} from '../governance/metadata.js';
 import { ingestDataUriAvatar, type ImageDownscaler } from './avatarStore.js';
 
 // Koios paginates drep_list at 1000 rows; page through by incrementing offset.
@@ -66,6 +68,8 @@ export interface DrepSyncDeps {
   now: number;
   /** Anchor fetch implementation (injected for tests). */
   fetchImpl?: typeof fetch;
+  /** Dedicated IPFS gateway for anchor reads (gov-sync secrets), null when unset. */
+  gateway?: DedicatedGateway | null;
   /**
    * R2 bucket for inline `data:` avatars embedded in a CIP-119 doc: the sync
    * decodes and stores them here directly (no work-queue round-trip), since the
@@ -188,7 +192,7 @@ async function resolveProfile(
     // short-circuits them when db is present); the D1 read still counts against
     // the anchor budget since it does the same per-DRep work.
     const result = canFetch
-      ? await fetchAnchorDoc(metaUrl, metaHash, { fetchImpl: deps.fetchImpl, db: deps.db })
+      ? await fetchAnchorDoc(metaUrl, metaHash, { fetchImpl: deps.fetchImpl, gateway: deps.gateway, db: deps.db })
       : { status: 'deferred' as const, doc: null };
     if (result.status === 'ok') {
       const cip119 = extractCip119Profile(result.doc);
