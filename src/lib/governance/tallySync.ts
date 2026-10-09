@@ -10,7 +10,7 @@
 // to enacted. Per-action failures are isolated.
 
 import type { ProposalListRow, VotingSummary, ProposalVoteRow, VoteListRow, PoolInfoRow, EpochParamsRow } from '../koios/client.js';
-import { spoTallyPct, spoEligiblePower } from '../koios/corrections.js';
+import { spoEligiblePower } from '../koios/corrections.js';
 import {
   getStaleSyncableActions,
   getVoteStaleSyncableActions,
@@ -274,7 +274,6 @@ export function votePowers(s: VotingSummary | null) {
 
 /** Maps a Koios voting summary onto the tally-update fields (null-tolerant). */
 function tallyFields(s: VotingSummary | null): GovernanceTally {
-  const spo = s ? spoTallyPct(s) : null;
   return {
     drepYes: s?.drep_yes_votes_cast ?? null,
     drepNo: s?.drep_no_votes_cast ?? null,
@@ -289,8 +288,8 @@ function tallyFields(s: VotingSummary | null): GovernanceTally {
     spoEligiblePower: spoEligiblePower(s),
     drepYesPct: s?.drep_yes_pct ?? null,
     drepNoPct: s?.drep_no_pct ?? null,
-    spoYesPct: spo?.yesPct ?? null,
-    spoNoPct: spo?.noPct ?? null,
+    spoYesPct: s?.pool_yes_pct ?? null,
+    spoNoPct: s?.pool_no_pct ?? null,
     ccYesPct: s?.committee_yes_pct ?? null,
     ccNoPct: s?.committee_no_pct ?? null,
     drepVotedPower: votedPower(s),

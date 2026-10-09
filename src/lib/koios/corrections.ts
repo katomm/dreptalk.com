@@ -1,6 +1,6 @@
 // Ledger-accurate corrections for known Koios upstream bugs in governance vote
-// tallies. Koios' aggregated pool percentages match the Conway ledger for most
-// action types, but a few need a recompute from the raw power buckets. Every such
+// tallies. Koios' aggregated DRep and pool percentages match the Conway ledger, the
+// committee tally needs a recompute from the counted members. Every such
 // Koios workaround lives here, in one discoverable place with its rationale,
 // instead of being scattered through the view and sync layers (view.ts stays free
 // of ledger rules; tallySync.ts imports these when mapping a summary to the stored
@@ -8,50 +8,20 @@
 import type { VotingSummary } from './client.js';
 import { activeCommitteeMembersAtBoundary, type CommitteeMemberTerm } from './committeeTimeline.js';
 import { round2 } from '../format/pct.js';
-
-/** Parses a Koios lovelace power string to a number; null when absent. The
-    magnitudes (up to ~2.1e16) exceed Number.MAX_SAFE_INTEGER, but the lost
-    precision is in the lowest lovelace and irrelevant to a 2-decimal percentage. */
-function powerNum(v: string | null | undefined): number | null {
-  return v == null ? null : Number(v);
-}
-
-/**
- * SPO yes/no percentages for the tally. Koios' pool_yes_pct / pool_no_pct are
- * correct for every action type EXCEPT HardForkInitiation. The Conway ledger does
- * NOT honour the always-abstain reward-account default for hard forks: a pool that
- * did not vote (including one whose reward account delegates to AlwaysAbstain or
- * AlwaysNoConfidence) counts as No and stays in the denominator; only an explicit
- * Abstain vote leaves it. (cardano-ledger Conway Ratify.hs, spoAcceptedRatio:
- * "For HardForkInitiation ... if an SPO didn't vote, their vote will always count
- * as No.") Koios instead drops the always-abstain stake from the denominator for
- * hard forks too, which inflates yes%. For that one type we recompute from the raw
- * power buckets, folding the always-abstain stake back into the No side:
- *   yesPct = yes / (yes + no_vote_power + always_abstain)
- * The always-no-confidence stake needs no term of its own: no_vote_power already
- * contains it (see eligibleStake below).
- * Falls back to Koios' percentages for every other type, and for hard forks when
- * the power fields are absent (older Koios) or the denominator is zero.
- */
-export function spoTallyPct(s: VotingSummary): { yesPct: number | null; noPct: number | null } {
-  const fallback = { yesPct: s.pool_yes_pct ?? null, noPct: s.pool_no_pct ?? null };
-  if (s.proposal_type !== 'HardForkInitiation') return fallback;
-  const yes = powerNum(s.pool_active_yes_vote_power);
-  const no = powerNum(s.pool_no_vote_power);
-  if (yes == null || no == null) return fallback;
-  // pool_no_vote_power already carries the always-no-confidence bucket (see
-  // eligibleStake below), so only the always-abstain stake is folded back in here.
-  const noSide = no + (powerNum(s.pool_passive_always_abstain_vote_power) ?? 0);
-  const denom = yes + noSide;
-  if (denom <= 0) return fallback;
-  return { yesPct: round2((yes / denom) * 100), noPct: round2((noSide / denom) * 100) };
-}
+import { alwaysAbstainIsNoSide } from '../governance/fullStakeView.js';
 
 /**
  * Total eligible voting stake (lovelace) for one body: the turnout denominator,
  * and the base the full-stake breakdown is drawn against.
  *
  *   eligible = active yes + no side + active abstain + always-abstain
+ *
+ * except for the SPO vote on a hard fork, where the ledger counts the always-abstain
+ * pools as No and Koios already folds them into pool_no_vote_power (see
+ * alwaysAbstainIsNoSide in governance/fullStakeView.ts for the verification), so the
+ * bucket is not added a second time. Koios used to report it separately for hard
+ * forks and a recompute here folded it back in. Since Koios changed that, its
+ * pool_yes_pct is the ledger figure for every action type and the tally takes it as is.
  *
  * The No side (drep_no_vote_power / pool_no_vote_power) is a single Koios figure
  * that already folds in three things: the cast No votes, the non-voting default No,
@@ -79,7 +49,7 @@ export function eligibleStake(s: VotingSummary | null, body: 'DRep' | 'SPO'): nu
           s.pool_active_yes_vote_power,
           s.pool_no_vote_power,
           s.pool_active_abstain_vote_power,
-          s.pool_passive_always_abstain_vote_power,
+          alwaysAbstainIsNoSide(s.proposal_type ?? '', 'SPO') ? null : s.pool_passive_always_abstain_vote_power,
         ];
   if (parts.every((v) => v == null)) return null;
   return parts.reduce((sum, v) => sum + (v == null ? 0 : Number(v)), 0);

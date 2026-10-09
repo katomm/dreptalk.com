@@ -1,68 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import type { VotingSummary } from './client.js';
 import type { CommitteeMemberTerm } from './committeeTimeline.js';
 import {
   ccFinalVotesByMember,
   ccTallyPct,
   finalCcVoteByMember,
   spoEligiblePower,
-  spoTallyPct,
   type CcVote,
 } from './corrections.js';
-
-describe('spoTallyPct', () => {
-  it('passes Koios percentages through unchanged for non-hard-fork actions', () => {
-    const s: VotingSummary = {
-      proposal_type: 'TreasuryWithdrawals',
-      pool_yes_pct: 73.1,
-      pool_no_pct: 26.9,
-      // Power buckets present but must be ignored for non-hard-fork types.
-      pool_active_yes_vote_power: '1000',
-      pool_no_vote_power: '500',
-      pool_passive_always_abstain_vote_power: '9000',
-    };
-    expect(spoTallyPct(s)).toEqual({ yesPct: 73.1, noPct: 26.9 });
-  });
-
-  it('recomputes a hard fork by folding always-abstain back into the denominator', () => {
-    // Real mainnet Van Rossem PV11 hard fork snapshot. Koios reports 51.64 / 48.36
-    // (always-abstain wrongly dropped from the denominator); the ledger-correct
-    // value folds always-abstain back into the No side. Always-no-confidence gets
-    // no term of its own: pool_no_vote_power already contains it, which is exactly
-    // why Koios' own 51.64 is reproducible as yes / (yes + pool_no_vote_power).
-    const s: VotingSummary = {
-      proposal_type: 'HardForkInitiation',
-      pool_yes_pct: 51.64,
-      pool_no_pct: 48.36,
-      pool_active_yes_vote_power: '7207875459435309',
-      pool_no_vote_power: '6749855063953702',
-      pool_passive_always_abstain_vote_power: '6928038498115586',
-      pool_passive_always_no_confidence_vote_power: '54457503120251',
-    };
-    // Koios' own figure is reproducible from the two raw fields, which pins the
-    // composition of pool_no_vote_power and rules out a separate ANC term.
-    const koiosPct =
-      (Number(s.pool_active_yes_vote_power) /
-        (Number(s.pool_active_yes_vote_power) + Number(s.pool_no_vote_power))) *
-      100;
-    expect(koiosPct).toBeCloseTo(51.64, 2);
-
-    const { yesPct, noPct } = spoTallyPct(s);
-    expect(yesPct).toBeCloseTo(34.51, 2);
-    expect(noPct).toBeCloseTo(65.49, 2);
-    // Well below the 51% hard-fork SPO threshold, unlike Koios' inflated 51.64%.
-    expect(yesPct!).toBeLessThan(51);
-  });
-
-  it('falls back to Koios percentages for a hard fork when the power fields are absent', () => {
-    const s: VotingSummary = {
-      proposal_type: 'HardForkInitiation',
-      pool_yes_pct: 51.64,
-      pool_no_pct: 48.36,
-    };
-    expect(spoTallyPct(s)).toEqual({ yesPct: 51.64, noPct: 48.36 });
-  });
-});
 
 describe('spoEligiblePower', () => {
   it('sums active yes/abstain + always-abstain + pool_no_vote_power', () => {
@@ -86,6 +30,27 @@ describe('spoEligiblePower', () => {
       pool_passive_always_no_confidence_vote_power: '1000',
     } as any;
     expect(spoEligiblePower(withAnc)).toBe(10_000);
+  });
+
+  it('counts always-abstain once on a hard fork, where pool_no_vote_power already holds it', () => {
+    // Koios today for the van Rossem hard fork (epoch 643): yes + no side + voted
+    // abstain is 21.40B of 21.41B active stake. Adding the always-abstain bucket
+    // would claim 25.41B, more stake than exists.
+    const vanRossem = {
+      proposal_type: 'HardForkInitiation',
+      pool_active_yes_vote_power: '10445177677947930',
+      pool_no_vote_power: '9254034669953667',
+      pool_active_abstain_vote_power: '1699130913945099',
+      pool_passive_always_abstain_vote_power: '4010227408074541',
+      pool_passive_always_no_confidence_vote_power: '52023987145075',
+    } as any;
+    const counted = 10_445_177_677_947_930n + 9_254_034_669_953_667n + 1_699_130_913_945_099n;
+    expect(spoEligiblePower(vanRossem)).toBeCloseTo(Number(counted), -3);
+    // Every other type keeps the bucket outside the No side and sums it in.
+    expect(spoEligiblePower({ ...vanRossem, proposal_type: 'InfoAction' })).toBeCloseTo(
+      Number(counted + 4_010_227_408_074_541n),
+      -3,
+    );
   });
 
   it('treats absent summands as 0', () => {

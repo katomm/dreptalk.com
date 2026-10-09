@@ -30,8 +30,6 @@ import {
   type RoleTallyInput,
   type RowVotingInput,
 } from './view.js';
-import { spoTallyPct } from '../koios/corrections.js';
-import type { VotingSummary } from '../koios/client.js';
 import { resolveNetwork } from '../config/network.js';
 
 describe('readableType / formatAda', () => {
@@ -376,25 +374,13 @@ describe('overviewRowVoting', () => {
     expect(cc.composition?.yes).toBe(75);
   });
 
-  it('hard fork initiation: SPO ratification bar uses the spoTallyPct recompute, DRep with 0 cast still listed with null vote', () => {
-    // Koios' raw pool_yes_pct (buggy for hard forks) would read 95, but the
-    // recompute folding always-abstain/always-no-confidence back into No gives 60.
-    const summary = {
-      proposal_type: 'HardForkInitiation',
-      pool_yes_pct: 95,
-      pool_no_pct: 5,
-      pool_active_yes_vote_power: '600',
-      pool_no_vote_power: '100',
-      pool_passive_always_abstain_vote_power: '300',
-      pool_passive_always_no_confidence_vote_power: '0',
-    } as unknown as VotingSummary;
-    const recomputed = spoTallyPct(summary);
-    expect(recomputed.yesPct).not.toBe(95); // sanity: Koios pct != recompute
+  it('hard fork initiation: SPO ratification bar shows the synced pct, DRep with 0 cast still listed with null vote', () => {
+    const synced = { yesPct: 53.02, noPct: 46.98 };
 
     const a = makeRow({
       type: 'HardForkInitiation',
       drepYesPct: null, drepNoPct: null, // bootstrap: no DRep cast yet
-      spoYesPct: recomputed.yesPct, spoNoPct: recomputed.noPct,
+      spoYesPct: synced.yesPct, spoNoPct: synced.noPct,
       ccYesPct: 100, ccNoPct: 0,
       spoYes: 6, spoNo: 4, spoAbstain: 0,
       ccYes: 5, ccNo: 0, ccAbstain: 0,
@@ -406,7 +392,7 @@ describe('overviewRowVoting', () => {
     expect(result.absentBodies).toEqual([]);
 
     const spo = result.bodies[1];
-    expect(spo.composition?.yes).toBe(recomputed.yesPct);
+    expect(spo.composition?.yes).toBe(synced.yesPct);
 
     const drep = result.bodies[0];
     expect(drep.composition).toBeNull(); // bootstrap: no DRep pct synced
