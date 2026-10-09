@@ -51,3 +51,15 @@ describe('categories config', () => {
     expect(isDiscussion(PROPOSAL_DRAFTS_CATEGORY_SLUG)).toBe(true);
   });
 });
+
+describe('category meta descriptions', () => {
+  it('every category has a search description of 80 to 155 characters', () => {
+    for (const c of CATEGORIES) {
+      const d = c.metaDescription ?? c.description;
+      // governance-actions is overridden in the page with its own copy
+      if (c.slug === 'governance-actions') continue;
+      expect(d.length, c.slug).toBeGreaterThanOrEqual(80);
+      expect(d.length, c.slug).toBeLessThanOrEqual(155);
+    }
+  });
+});

@@ -92,7 +92,7 @@ const metaTitle = isGovernanceCategory
   : `${category?.name ?? ''} - DRepTalk`;
 const metaDescription = isGovernanceCategory
   ? 'Every on-chain Cardano governance action gets its own thread. Track treasury withdrawals, parameter changes, and votes, with live tallies and DRep deliberation.'
-  : (category?.description ?? '');
+  : (category?.metaDescription ?? category?.description ?? '');
 // Governance actions get their own sort modes (a DRep wants trending / closing
 // soon, not the newest submission); discussion categories stay activity-ordered.
 const sort = parseGovSort(Astro.url.searchParams.get('sort'));

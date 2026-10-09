@@ -1,5 +1,11 @@
 // Pure view-model helpers for the DRep profile. No I/O.
 import { parseSignupRef } from '../analytics/signupRef.js';
+import { clipExcerpt } from '../forum/view.js';
+
+/** Meta description limit shared with the other page types. */
+const META_DESCRIPTION_MAX = 155;
+/** Smallest name budget worth keeping the long closing sentence for. */
+const MIN_NAME_CHARS = 30;
 
 /**
  * Canonical profile path for a DRep: the SEO slug when one is assigned, else
@@ -74,7 +80,17 @@ export function drepMetaDescription(p: {
     p.votesCast > 0
       ? `${p.votesCast} recorded on-chain ${p.votesCast === 1 ? 'vote' : 'votes'}`
       : 'no recorded on-chain votes yet';
-  return `${p.displayName}: ${role} with ${p.votingPowerFormatted} voting power and ${votes}. See the full voting record, rationales, and delegation on DRepTalk.`;
+  const facts = `${role} with ${p.votingPowerFormatted} voting power and ${votes}.`;
+  // The display name is user text and can be long. Clip only the name, and drop
+  // to a shorter closing sentence before squeezing the name below a readable size.
+  const tails = [' See the full voting record, rationales, and delegation on DRepTalk.', ' See the voting record on DRepTalk.', ''];
+  for (const tail of tails) {
+    const budget = META_DESCRIPTION_MAX - `: ${facts}${tail}`.length;
+    if (budget >= Math.min(Array.from(p.displayName).length, MIN_NAME_CHARS)) {
+      return `${clipExcerpt(p.displayName, budget)}: ${facts}${tail}`;
+    }
+  }
+  return clipExcerpt(`${p.displayName}: ${facts}`, META_DESCRIPTION_MAX);
 }
 
 /**
