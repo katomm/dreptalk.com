@@ -22,6 +22,21 @@ describe('drepMetaDescription', () => {
     expect(d).toContain('2.5M ₳');
     expect(d).toContain('47 recorded on-chain votes');
   });
+  it('keeps the full text when it already fits', () => {
+    const d = drepMetaDescription({ displayName: 'Yoroi Wallet', votingPowerFormatted: '2.5M ₳', votesCast: 47 });
+    expect(d.length).toBeLessThanOrEqual(155);
+    expect(d.endsWith('delegation on DRepTalk.')).toBe(true);
+  });
+  it.each([
+    ['ABBA with good music to success', 1, false],
+    ['A very long DRep display name that goes on and on and on and on and on and on and on', 1234, false],
+    ['x'.repeat(200), 0, true],
+    ['Emoji 😀 name '.repeat(12), 2, false],
+  ])('stays within 155 code points for %s', (displayName, votesCast, retired) => {
+    const d = drepMetaDescription({ displayName, votingPowerFormatted: '1.23M ₳', votesCast, retired });
+    expect(Array.from(d).length).toBeLessThanOrEqual(155);
+    expect(d).toContain('DRep with 1.23M ₳ voting power');
+  });
 });
 
 describe('drepProfileSummary', () => {

@@ -8,16 +8,18 @@ export interface Category {
   slug: string;
   name: string;
   description: string;
+  /** Longer search-result description for the category page (100 to 155 characters). Falls back to `description`. */
+  metaDescription?: string;
   kind: CategoryKind;
   position: number;
 }
 
 export const CATEGORIES: Category[] = [
   { slug: 'governance-actions', name: 'Governance Actions', description: 'On-chain governance actions, one thread each, opened automatically.', kind: 'governance', position: 1 },
-  { slug: 'proposal-drafts', name: 'Proposal Drafts', description: 'Governance action ideas and drafts, discussed before they go on-chain.', kind: 'discussion', position: 2 },
-  { slug: 'constitution', name: 'Constitution and Guardrails', description: 'The Cardano Constitution, guardrails, and amendments.', kind: 'discussion', position: 3 },
-  { slug: 'budget', name: 'Budget and Treasury', description: 'Treasury withdrawals and the budget process.', kind: 'discussion', position: 4 },
-  { slug: 'general', name: 'General and Off-topic', description: 'General Cardano governance discussion.', kind: 'discussion', position: 5 },
+  { slug: 'proposal-drafts', name: 'Proposal Drafts', description: 'Governance action ideas and drafts, discussed before they go on-chain.', metaDescription: 'A place to share and refine Cardano governance action ideas and drafts, and gather community feedback before they are submitted on-chain.', kind: 'discussion', position: 2 },
+  { slug: 'constitution', name: 'Constitution and Guardrails', description: 'The Cardano Constitution, guardrails, and amendments.', metaDescription: 'Discuss the Cardano Constitution, its guardrails and proposed amendments, and how they shape what governance actions can and cannot do.', kind: 'discussion', position: 3 },
+  { slug: 'budget', name: 'Budget and Treasury', description: 'Treasury withdrawals and the budget process.', metaDescription: 'Discuss Cardano treasury withdrawals and the budget process, including proposals that ask for funds and how the community weighs them.', kind: 'discussion', position: 4 },
+  { slug: 'general', name: 'General and Off-topic', description: 'General Cardano governance discussion.', metaDescription: 'General Cardano governance discussion and off-topic conversation for DReps, delegators and anyone following how the chain is governed.', kind: 'discussion', position: 5 },
   { slug: 'surveys', name: 'Surveys', description: 'On-chain CIP-179 surveys linked to governance actions, one thread each, opened automatically.', kind: 'survey', position: 6 },
 ];
 
