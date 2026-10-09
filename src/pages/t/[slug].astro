@@ -47,7 +47,7 @@ import {
   type CompareCandidateRow,
   type CompareAction,
 } from '@/lib/db/governance.js';
-import { headlineComposition, isSpoLedType, isCcEligible } from '@/lib/governance/view.js';
+import { headlineComposition, isSpoLedType, isCcEligible, governanceActionDescription } from '@/lib/governance/view.js';
 import { lateVoterIds } from '@/lib/governance/lateVotes.js';
 import { getVotesByGaId, getActionVoters, countActionVoters, getViewerVote, getActionSpoVoters, countActionSpoVoters, getActionVoterRank, getVoteTrendRows, listDrepVotePowers, type ActionVoterRow, type TrendVoteRow } from '@/lib/db/drepVotes.js';
 import { getCommitteeVotes, getCommitteeTimeline, getActionCcVoteRows } from '@/lib/db/committee.js';
@@ -601,9 +601,10 @@ const firstPostDate = topic
 
 // Meta description / schema text from the opening post; deeper pages (where
 // the thread page does not carry it) fall back to a generic line.
-const openingExcerpt = thread.openingPost?.body_html
-  ? excerptFromHtml(thread.openingPost.body_html)
-  : '';
+// A governance action prefers its own metadata abstract, converted from Markdown.
+const openingExcerpt = govAction
+  ? (governanceActionDescription(govAction.type, govAction.abstract, thread.openingPost?.body_html) ?? '')
+  : (thread.openingPost?.body_html ? excerptFromHtml(thread.openingPost.body_html) : '');
 const metaDescription =
   openingExcerpt || (topic ? `Discussion of ${topic.title} on DRepTalk.` : 'Discussion on DRepTalk.');
 

@@ -111,14 +111,22 @@ export function htmlToText(html: string): string {
  * plain-text meta descriptions and JSON-LD text derived from sanitized post HTML.
  */
 export function excerptFromHtml(html: string, maxLen = 155): string {
-  const text = htmlToText(html);
-  if (text.length <= maxLen) return text;
-  // Cut on a word boundary so the excerpt never ends mid-word (the ellipsis
-  // takes one of the maxLen characters). Back off to the last space within
-  // budget; a single over-long token with no space still gets a hard cut.
-  const slice = text.slice(0, maxLen - 1);
+  return clipExcerpt(htmlToText(html), maxLen);
+}
+
+/**
+ * Truncates plain text to at most `maxLen` characters in total, the "..." suffix
+ * included. Cuts on code points (never inside a surrogate pair) and prefers a
+ * word boundary.
+ */
+export function clipExcerpt(text: string, maxLen: number): string {
+  const chars = Array.from(text);
+  if (chars.length <= maxLen) return text;
+  // Back off to the last space within budget (the ellipsis takes 3 characters).
+  // A single over-long token with no space still gets a hard cut.
+  const slice = chars.slice(0, Math.max(0, maxLen - 3));
   const lastSpace = slice.lastIndexOf(' ');
-  const clipped = lastSpace > 0 ? slice.slice(0, lastSpace) : slice.trimEnd();
+  const clipped = (lastSpace > 0 ? slice.slice(0, lastSpace) : slice).join('').trimEnd();
   return `${clipped}...`;
 }
 

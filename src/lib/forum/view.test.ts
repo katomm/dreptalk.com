@@ -191,7 +191,7 @@ describe('excerptFromHtml', () => {
   });
 
   it('hard-cuts a single over-long token with no space', () => {
-    expect(excerptFromHtml('<p>Supercalifragilistic</p>', 10)).toBe('Supercali...');
+    expect(excerptFromHtml('<p>Supercalifragilistic</p>', 10)).toBe('Superca...');
   });
 
   it('handles empty input', () => {
@@ -262,5 +262,22 @@ describe('activeLabel', () => {
 
   it('returns null when no dreps or spos are active', () => {
     expect(activeLabel({ dreps: 0, spos: 0, delegators: 100 })).toBeNull();
+  });
+});
+
+describe('excerpt truncation limits', () => {
+  it('never exceeds maxLen including the ellipsis', () => {
+    const out = excerptFromHtml('word '.repeat(100), 155);
+    expect(Array.from(out).length).toBeLessThanOrEqual(155);
+    expect(out.endsWith('...')).toBe(true);
+  });
+
+  it('does not split a surrogate pair', () => {
+    const out = excerptFromHtml('a'.repeat(153) + '\u{1F600}' + 'b'.repeat(20), 155);
+    expect(Array.from(out).length).toBeLessThanOrEqual(155);
+    expect(out).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+    const emoji = excerptFromHtml('a'.repeat(150) + '\u{1F600}' + 'b'.repeat(20), 155);
+    expect(Array.from(emoji).length).toBeLessThanOrEqual(155);
+    expect(emoji.endsWith('...')).toBe(true);
   });
 });

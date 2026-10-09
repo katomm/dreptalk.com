@@ -6,6 +6,7 @@
 import { epochCountdown, headlineComposition, readableType, statusBadge } from '../governance/view.js';
 import type { RowVotingInput } from '../governance/view.js';
 import { excerptFromHtml, truncateIdMiddle } from '../forum/view.js';
+import { excerptFromMarkdown } from '../forum/excerpt.js';
 import { computeVotingPowerDelta, formatTrendDelta } from '../dreps/votingPowerTrend.js';
 import { formatAda, formatAdaCompact } from '../format/ada.js';
 import { isoDate } from '../format/date.js';
@@ -65,7 +66,7 @@ export function govCardModel(
     typeLabel: readableType(a.type),
     title: clamp(a.title?.trim() || readableType(a.type), 96),
     // The metadata abstract as a subtitle under the title, mirroring the DRep bio.
-    subtitle: a.abstract ? excerptFromHtml(a.abstract, 140) : null,
+    subtitle: a.abstract ? excerptFromMarkdown(a.abstract, 140) : null,
     status: { label: badge.label, color: tone, tint: tint(tone) },
     meta,
     tally: t ? { yesPct: t.yesPct, role: t.role } : null,
