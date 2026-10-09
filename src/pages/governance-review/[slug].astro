@@ -8,6 +8,7 @@ import ReviewAlsoDecided from '@/components/review/ReviewAlsoDecided.astro';
 import ReviewNumbers from '@/components/review/ReviewNumbers.astro';
 import ReviewSources from '@/components/review/ReviewSources.astro';
 import { loadEditions, editionSlug, formatWindowDates } from '@/lib/review/editions.js';
+import { reviewMeta } from '@/lib/review/meta.js';
 import { govActionHref } from '@/lib/review/links.js';
 import { parseSlug, parseEditionNumber } from '@/lib/review/windows.js';
 import { buildBreadcrumbLd } from '@/lib/jsonld/breadcrumb.js';
@@ -59,6 +60,7 @@ const packUrl = `https://github.com/katomm/dreptalk.com/blob/main/${packPath}`;
 const packBlobUrl = `https://api.github.com/repos/katomm/dreptalk.com/git/blobs/${d.packBlob}`;
 const packBlobShort = d.packBlob.slice(0, 12);
 const dataAsOf = new Date(d.dataAsOf).toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+const meta = reviewMeta(d.title, d.standfirst);
 const articleLd = {
   '@context': 'https://schema.org',
   '@type': 'Article',
@@ -84,7 +86,7 @@ const ogImage = `/og/governance-review/${slug}.png?v=${ogCardVersion([d.title, d
 Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
 ---
 
-<Layout title={`${d.title} - Governance Review - DRepTalk`} description={d.standfirst} ogImage={ogImage}>
+<Layout title={meta.title} description={meta.description} ogImage={ogImage}>
   <JsonLd data={articleLd} />
   <JsonLd data={crumbs} />
   <div class="rv-layout">
