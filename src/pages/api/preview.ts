@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { enhanceStoredHtml, renderMarkdown } from '@/lib/markdown.js';
+import { enhanceStoredHtml, renderMarkdown, shiftContentHeadings } from '@/lib/markdown.js';
 import { resolveBodyMentions } from '@/lib/forum/handlers.js';
 import { checkRate } from '@/lib/rate.js';
 import { jsonResponse, runtimeEnv } from '@/lib/api/response';
@@ -108,7 +108,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const { mentions } = db
     ? await resolveBodyMentions(db, rawMd)
     : { mentions: new Map<string, never>() };
-  const html = renderMarkdown(rawMd, { mentions });
+  // Same final heading demotion as the published post, so the preview matches.
+  const html = shiftContentHeadings(renderMarkdown(rawMd, { mentions }));
 
   return jsonResponse({ html });
 };

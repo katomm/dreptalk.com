@@ -217,7 +217,7 @@ body {
   flex-direction: column;
 }
 
-h1, h2, h3, h4 {
+h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-display);
   font-weight: 700;
   line-height: 1.2;
@@ -396,7 +396,10 @@ main.container {
 }
 .prose h1,
 .prose h2,
-.prose h3 {
+.prose h3,
+.prose h4,
+.prose h5,
+.prose h6 {
   margin: 1.6rem 0 0.6rem;
 }
 .prose a {

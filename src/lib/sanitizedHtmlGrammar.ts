@@ -58,3 +58,23 @@ export const STRUCTURAL_TAGS: ReadonlySet<string> = new Set([
 export const DIFF_CLASSES: ReadonlySet<string> = new Set([
   'diff-add', 'diff-del', 'diff-meta', 'diff-block-add', 'diff-block-del',
 ]);
+
+// One complete tag. Quoted attribute values are consumed whole, so heading-like
+// text inside an attribute (href="/x<h1 >") is never mistaken for a tag.
+const ANY_TAG =
+  /<(\/?)([A-Za-z][\w-]*)((?:\s+[^\s"'>\/=]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>]+))?)*\s*\/?)>/g;
+
+/**
+ * Demote every heading in rendered content by one level (h1 to h2 ... h5 to h6,
+ * h6 stays h6) so user and proposal content never emits an <h1>: the page title
+ * owns that. Display-time, so it also covers HTML stored before this rule
+ * existed. Not idempotent, apply exactly once per render. Lives here (no
+ * imports) so the browser history modal can use it without pulling in marked.
+ */
+export function shiftContentHeadings(html: string): string {
+  return html.replace(ANY_TAG, (m: string, slash: string, name: string, rest: string): string => {
+    const level = /^h([1-6])$/i.exec(name);
+    if (!level) return m;
+    return `<${slash}${name[0]}${Math.min(6, Number(level[1]) + 1)}${rest}>`;
+  });
+}

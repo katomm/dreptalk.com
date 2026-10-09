@@ -34,7 +34,7 @@ describe('POST /api/preview, forum bodyMd path', () => {
     const res = await call({ bodyMd: '# Title\n\nSome *body*.' });
     expect(res.status).toBe(200);
     const json = (await res.json()) as { html: string };
-    expect(json.html).toContain('<h1>Title</h1>');
+    expect(json.html).toContain('<h2>Title</h2>');
     expect(json.html).toContain('<em>body</em>');
     // The forum path never enhanced the stored HTML at preview time (that runs
     // at display time), and the parts mode must not change that.
