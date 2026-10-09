@@ -1,7 +1,8 @@
 // What a new k does to the saturation point: the largest pools as bars (30
-// to 300 of them, see shownPoolCount) against the old and the new point, and how much stake ends up over it.
-// The bars live in a stretched SVG, the axis ticks and line labels in HTML
-// around it, so the labels keep their size on a phone.
+// to 300 of them, see shownPoolCount) against the old and the new point,
+// and how much stake ends up over it. The bars live in a stretched SVG, the
+// axis ticks and line labels in HTML around it, so the labels keep their
+// size on a phone.
 import { memo, useMemo } from 'react';
 import { saturation, shownPoolCount, type ModelParams, type PoolEconomics } from '@/lib/governance/paramImpact.js';
 import { adaCompact, LegendItem, linear, niceTicks, Stat } from './chart.js';

@@ -28,9 +28,15 @@ export interface ParamCardProps {
   error: string | undefined;
   economics: PoolEconomicsState;
   onRetryEconomics: () => void;
-  /** The impact model before and after, built from every valid picked value. Null when it cannot be built. */
+  /**
+   * The impact model before and after, built from every valid picked value. Null when it cannot be
+   * built.
+   */
   model: { from: ModelParams; to: ModelParams } | null;
-  /** Where the rewards chart goes: on this card, in the combined section below the cards, or nowhere for this card. */
+  /**
+   * Where the rewards chart goes: on this card, in the combined section below the cards, or nowhere
+   * for this card.
+   */
   rewards: 'here' | 'combined' | null;
   /** The picked reward parameter changes the rewards chart is calculated with. */
   rewardBasis: readonly RewardBasis[];
@@ -78,7 +84,10 @@ function RangeScale({ paramKey, current, next }: { paramKey: ParamKey; current: 
   );
 }
 
-/** The pool data while it loads or after it failed, shared with the combined section. Null once it is ready. */
+/**
+ * The pool data while it loads or after it failed, shared with the combined section. Null once it
+ * is ready.
+ */
 export function EconomicsPending({ economics, onRetry }: { economics: PoolEconomicsState; onRetry: () => void }) {
   if (economics.status === 'loading') return <p className="pcp-why">Loading pool data...</p>;
   if (economics.status === 'error') {
@@ -109,6 +118,8 @@ function Impact({ paramKey, current, next, economics, onRetryEconomics, model, r
   const eco = economics.data;
   const rewardsChart = <ImpactRewards eco={eco} from={model.from} to={model.to} basis={rewardBasis} />;
   let body: ReactNode;
+  // The budget cards read the epoch totals, every other card the pool list.
+  let source: 'pools' | 'totals' = 'pools';
   switch (paramKey) {
     case 'k':
       body = (
@@ -127,12 +138,13 @@ function Impact({ paramKey, current, next, economics, onRetryEconomics, model, r
     case 'rho':
     case 'tau':
       body = <ImpactBudget eco={eco} from={model.from} to={model.to} />;
+      source = 'totals';
       break;
   }
   return (
     <>
       {body}
-      <DataSource network={network} epoch={eco.epoch} />
+      <DataSource network={network} epoch={eco.epoch} source={source} />
     </>
   );
 }

@@ -110,7 +110,8 @@ function useDockedAction(panelRef: RefObject<HTMLDivElement | null>) {
     measure();
     window.addEventListener('scroll', schedule, { passive: true });
     window.addEventListener('resize', schedule);
-    // Cards added or removed, the Advanced disclosure, charts arriving: all move the slot without a scroll.
+    // Cards added or removed, the Advanced disclosure, charts arriving: all move the slot without a
+    // scroll.
     const resize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(schedule);
     if (resize && panelRef.current) resize.observe(panelRef.current);
     return () => {
@@ -147,19 +148,26 @@ function useStableModel(model: ImpactModel): ImpactModel {
 }
 
 /**
+ * The rewards chart caption entry for one reward parameter, null unless it has a valid new value.
+ */
+function basisEntry(key: ParamKey, current: ParamValues, next: ParamValues): RewardBasis | null {
+  const from = current[key];
+  const to = next[key];
+  return from && to ? { short: PARAM_DEFS[key].short, from: formatParamValue(key, from), to: formatParamValue(key, to) } : null;
+}
+
+/**
  * The picked reward parameter changes with a valid value, formatted for the
- * rewards chart caption. Keyed by its content, so the memoized chart keeps
+ * rewards chart caption, in the order of REWARD_KEYS (the chip order). Rebuilt
+ * only when one of the formatted values changes, so the memoized chart keeps
  * its props while an unrelated field changes.
  */
-function useRewardBasis(keys: readonly ParamKey[], current: ParamValues, next: ParamValues): readonly RewardBasis[] {
-  const list: RewardBasis[] = [];
-  for (const key of keys) {
-    const from = current[key];
-    const to = next[key];
-    if (from && to) list.push({ short: PARAM_DEFS[key].short, from: formatParamValue(key, from), to: formatParamValue(key, to) });
-  }
-  const json = JSON.stringify(list);
-  return useMemo(() => JSON.parse(json) as RewardBasis[], [json]);
+function useRewardBasis(current: ParamValues, next: ParamValues): readonly RewardBasis[] {
+  const list = REWARD_KEYS.map((key) => basisEntry(key, current, next)).filter((e): e is RewardBasis => e !== null);
+  const signature = list.map((e) => `${e.short}|${e.from}|${e.to}`).join(';');
+  const stable = useRef({ signature, list });
+  if (stable.current.signature !== signature) stable.current = { signature, list };
+  return stable.current.list;
 }
 
 export default function ParamChangePanel({
@@ -196,12 +204,13 @@ export default function ParamChangePanel({
   const { picked } = value;
   const unpicked = PARAM_KEYS.filter((key) => !value.picked.includes(key));
   // The rewards chart reads k, a0, rho and tau together. With two or more of
-  // them picked it moves out of the cards into one combined section, with one
-  // it stays on the k or a0 card.
-  const rewardKeys = picked.filter((key) => (REWARD_KEYS as readonly ParamKey[]).includes(key));
+  // them holding a valid value it moves out of the cards into one combined
+  // section, with one it stays on the k or a0 card. A picked chip without a
+  // value yet does not count, so the chart stays put until a value is typed.
+  const rewardKeys = picked.filter((key) => (REWARD_KEYS as readonly ParamKey[]).includes(key) && next[key]);
   const combined = rewardKeys.length >= 2;
   const rewardsHost = rewardKeys.length === 1 && (rewardKeys[0] === 'k' || rewardKeys[0] === 'a0') ? rewardKeys[0] : null;
-  const rewardBasis = useRewardBasis(rewardKeys, current, next);
+  const rewardBasis = useRewardBasis(current, next);
   const combinedId = useId();
   const drepPct = drepThresholdPct('ParameterChange', protocolParams, scopeForKeys(picked));
   // The island already shows the guardrail problem, the summary does not repeat it.
@@ -243,7 +252,8 @@ export default function ParamChangePanel({
             <div className="pcp-chips">
               {PARAM_KEYS.map((key) => {
                 const on = value.picked.includes(key);
-                // Color alone would hide the invalid state from some readers, so it also shows "!" and names it.
+                // Color alone would hide the invalid state from some readers, so it also shows "!"
+                // and names it.
                 const invalid = on && Boolean(errors[key]);
                 return (
                   <button

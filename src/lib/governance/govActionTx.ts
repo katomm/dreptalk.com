@@ -31,7 +31,9 @@ export interface SubmitGovActionOpts {
   network: CardanoNetwork;
   /** window.location.origin, used as the base for the /api/koios proxy and the evaluate route. */
   origin: string;
-  /** Reward address (hex) that receives the deposit refund when the action expires or is enacted. */
+  /**
+   * Reward address (hex) that receives the deposit refund when the action expires or is enacted.
+   */
   rewardAddressHex: string;
   /** Hosted metadata URL returned by POST /api/info-action/metadata. */
   anchorUrl: string;
@@ -39,11 +41,17 @@ export interface SubmitGovActionOpts {
   anchorHashHex: string;
   /** Current govActionDeposit protocol parameter, in lovelace. Sizes input selection only. */
   govActionDepositLovelace: bigint;
-  /** The governance action to propose. A treasury withdrawal or parameter change carries its checked guardrail. */
+  /**
+   * The governance action to propose. A treasury withdrawal or parameter change carries its checked
+   * guardrail.
+   */
   action: GovActionSpec;
 }
 
-/** The tx builder submitGovAction chains onto, derived from makeClient so the SDK's param shapes are never re-declared. */
+/**
+ * The tx builder submitGovAction chains onto, derived from makeClient so the SDK's param shapes are
+ * never re-declared.
+ */
 export type GovActionTxBuilder = ReturnType<ReturnType<typeof makeClient>['newTx']>;
 
 /**
@@ -86,9 +94,9 @@ export function queueGuardrailProposeOps(
  * redeemer.
  *
  * Rejected outright where submission is off, and a treasury withdrawal or
- * parameter change wherever the type is unavailable. Requires a live wallet and a reachable
- * Koios provider, not unit-testable offline beyond the guards and the propose
- * wiring (see govActionTx.test.ts).
+ * parameter change wherever the type is unavailable. Requires a live wallet
+ * and a reachable Koios provider, not unit-testable offline beyond the guards
+ * and the propose wiring (see govActionTx.test.ts).
  */
 export async function submitGovAction(opts: SubmitGovActionOpts): Promise<{ txHash: string }> {
   const submissionAvailable = govActionSubmissionAvailable(opts.network);

@@ -198,7 +198,9 @@ export interface SubmitGovActionProps {
 // Pure helpers
 // ---------------------------------------------------------------------------
 
-/** Parses the passthrough `gov_action_deposit` Koios field (number or numeric string) to lovelace. */
+/**
+ * Parses the passthrough `gov_action_deposit` Koios field (number or numeric string) to lovelace.
+ */
 function parseDepositLovelace(raw: unknown): bigint | null {
   if (typeof raw === 'number' && Number.isFinite(raw) && raw >= 0) return BigInt(Math.trunc(raw));
   if (typeof raw === 'string' && /^\d+$/.test(raw)) return BigInt(raw);
@@ -320,7 +322,6 @@ const helpStyle: CSSProperties = { display: 'block', fontSize: '0.8125rem', colo
 const labelRowStyle: CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.5rem' };
 const counterStyle: CSSProperties = { fontSize: '0.75rem', color: 'var(--muted)', flexShrink: 0 };
 
-/** A labelled field with a live "used / max" counter and a helper line, matching DrepProfileFields' CountedField. */
 // The three CIP-108 Markdown fields, in form order.
 const MARKDOWN_FIELDS = [
   { key: 'abstract', label: 'Abstract', max: INFO_ABSTRACT_MAX, help: 'Brief summary of what this proposal is about.', placeholder: 'What is this proposal about?', rows: 4 },
@@ -328,6 +329,10 @@ const MARKDOWN_FIELDS = [
   { key: 'rationale', label: 'Rationale', max: INFO_RATIONALE_MAX, help: 'Detailed reasoning behind the proposal.', placeholder: 'Explain the reasoning in detail...', rows: 10 },
 ] as const;
 
+/**
+ * A labelled field with a live "used / max" counter and a helper line, matching DrepProfileFields'
+ * CountedField.
+ */
 function CountedField(props: { id: string; label: string; count: number; max: number; help: string; children: ReactNode }) {
   return (
     <div>
@@ -1512,7 +1517,8 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   useEffect(() => {
     if (!addOwnAfterConnectRef.current) return;
     if (!ownStakeAddress) {
-      // Connected but the address could not be derived: drop the pending add so a later reconnect cannot fill.
+      // Connected but the address could not be derived: drop the pending add so a later reconnect
+      // cannot fill.
       if (state.wallet.status === 'connected') addOwnAfterConnectRef.current = false;
       return;
     }

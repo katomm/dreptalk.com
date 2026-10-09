@@ -1,8 +1,9 @@
 // The panel's sidebar: what goes on chain, who decides and at what
 // threshold, the facts of the action, and the Continue button. While the
 // panel is narrower than 880px (a container query on the panel, see
-// global.css) the cards flow below the parameters, and the action block is pinned to the
-// bottom of the screen while its own place here is still below it.
+// global.css) the cards flow below the parameters, and the action block is
+// pinned to the bottom of the screen while its own place here is still below
+// it.
 import type { RefObject } from 'react';
 import {
   PARAM_DEFS,
@@ -32,7 +33,10 @@ export interface ParamSummaryProps {
   reason: string | null;
   canContinue: boolean;
   onContinue: () => void;
-  /** Marks the action block's place in the summary, the panel watches it to dock the block on narrow screens. */
+  /**
+   * Marks the action block's place in the summary, the panel watches it to dock the block on narrow
+   * screens.
+   */
   actionSlotRef?: RefObject<HTMLDivElement | null>;
   disabled?: boolean;
 }
@@ -66,7 +70,8 @@ export default function ParamSummary({
 }: ParamSummaryProps) {
   const { picked } = value;
   const ccPct = ccQuorum && ccQuorum.denominator > 0 ? (ccQuorum.numerator / ccQuorum.denominator) * 100 : null;
-  const count = `${picked.length} change${picked.length === 1 ? '' : 's'}`;
+  // No count before anything is picked, the card above already asks for a parameter.
+  const count = picked.length ? `${picked.length} change${picked.length === 1 ? '' : 's'}` : null;
 
   return (
     <aside className="pcp-side" aria-label="Summary">
@@ -143,7 +148,7 @@ export default function ParamSummary({
       <div ref={actionSlotRef} className="pcp-action-slot" aria-hidden="true" />
       <div className="pcp-action">
         <div className="pcp-action__status">
-          <span className="pcp-action__count">{count}</span>
+          {count && <span className="pcp-action__count">{count}</span>}
           {reason ? (
             <p className="pcp-action__reason">{reason}</p>
           ) : (

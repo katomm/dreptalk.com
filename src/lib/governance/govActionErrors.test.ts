@@ -1,5 +1,6 @@
-// Unit tests for mapGuardrailBuildError: the build failures a treasury
-// withdrawal adds, worded for the submit form.
+// Unit tests for mapGuardrailBuildError and isStalePrevError: the build
+// failures a guardrail-checked proposal (treasury withdrawal or parameter
+// change) adds, worded for the submit form, and the stale previous action.
 import { describe, it, expect } from 'vitest';
 import {
   COLLATERAL_SELECTION_MESSAGE,
