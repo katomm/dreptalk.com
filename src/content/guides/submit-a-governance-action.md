@@ -87,7 +87,8 @@ addresses. On DRepTalk it is available on preprod for now.
   connects it for you.
 - The constitution's guardrails script checks every treasury withdrawal. DRepTalk
   runs that check before your wallet signs. If the script rejects the
-  withdrawal, nothing is signed and the page tells you why.
+  withdrawal, nothing is signed. The page says the script rejected it and,
+  when the script reports an error, shows it under **Details**.
 - The transaction needs about 5 ada in plain ada UTxOs as collateral. It is only
   spent if the script check fails on-chain, which the check before signing is
   there to prevent.
@@ -111,7 +112,8 @@ rewards. On DRepTalk it is available on preprod for now.
   not vote on these five parameters.
 - The constitution's guardrails script checks every parameter change. DRepTalk
   runs that check before your wallet signs. If the script rejects the change,
-  nothing is signed and the page tells you why.
+  nothing is signed. The page says the script rejected it and, when the
+  script reports an error, shows it under **Details**.
 - **Add the changes to the abstract** is an optional button that adds a
   "Changes" paragraph with the old and new values to your abstract. After you
   change a value, the same button replaces that paragraph with the new values.

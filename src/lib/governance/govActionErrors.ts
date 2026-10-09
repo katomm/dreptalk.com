@@ -41,7 +41,10 @@ function findFailureCause(err: unknown): EvaluationFailureCause | null {
   return null;
 }
 
-/** The sentence for a rejected guardrail evaluation, per type. Any type not listed gets the treasury wording. */
+/**
+ * The sentence for a rejected guardrail evaluation, per type. Any type not listed gets the treasury
+ * wording.
+ */
 const EVALUATION_FAILED_BY_TYPE: Partial<Record<GovActionFormType, string>> = {
   TreasuryWithdrawals: EVALUATION_FAILED_MESSAGE,
   ParameterChange: PARAM_EVALUATION_FAILED_MESSAGE,
@@ -75,6 +78,6 @@ export function mapGuardrailBuildError(err: unknown, type: GovActionFormType): M
  * chosen tx hash as before.
  */
 export function isStalePrevError(raw: string, prevTxHashHex: string | null): boolean {
-  if (/InvalidPrevGovActionId|PrevGovActionId|invalidOrMissingPreviousProposals/i.test(raw)) return true;
+  if (/PrevGovActionId|invalidOrMissingPreviousProposals/i.test(raw)) return true;
   return prevTxHashHex !== null && raw.toLowerCase().includes(prevTxHashHex.toLowerCase());
 }

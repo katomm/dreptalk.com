@@ -114,6 +114,31 @@ describe('ParamChangePanel', () => {
     expect(within(k).getByText('Stake over saturation')).toBeTruthy();
   });
 
+  it('keeps the rewards chart on the k card while a second reward chip has no value yet', () => {
+    setup({ prev: null, picked: ['k', 'a0'] as never[], inputs: { k: '600' } });
+    expect(screen.queryByText('Combined impact of this proposal')).toBeNull();
+    const card = screen.getByRole('group', { name: 'Target number of pools' });
+    expect(caption(card)).toBe('Calculated with k 500 → 600');
+    const a0 = screen.getByRole('group', { name: 'Pledge influence' });
+    expect(within(a0).queryByText('Its effect on pool rewards is shown under Combined impact below.')).toBeNull();
+  });
+
+  it('names the epoch totals as the source of the reserve budget', () => {
+    setup({ prev: null, picked: ['minPoolCost', 'rho'] as never[], inputs: { minPoolCost: '200', rho: '0.25' } });
+    const rho = screen.getByRole('group', { name: 'Monetary expansion' });
+    expect(within(rho).getByText('Preprod epoch totals, epoch 660')).toBeTruthy();
+    const cost = screen.getByRole('group', { name: 'Minimum pool cost' });
+    expect(within(cost).getByText('Preprod pool data, epoch 660')).toBeTruthy();
+  });
+
+  it('shows no change count before a parameter is picked', () => {
+    setup({ prev: null, picked: [], inputs: {} });
+    const summary = screen.getByRole('complementary', { name: 'Summary' });
+    expect(within(summary).getByText('Pick a parameter to start.')).toBeTruthy();
+    expect(summary.querySelector('.pcp-action__count')).toBeNull();
+    expect(within(summary).queryByText(/0 changes/)).toBeNull();
+  });
+
   it('leaves a reward change with a field error out of the combined caption', () => {
     setup({ prev: null, picked: ['k', 'rho', 'tau'] as never[], inputs: { k: '600', rho: '0.35', tau: '35' } });
     const section = screen.getByRole('region', { name: 'Combined impact of this proposal' });
@@ -150,6 +175,7 @@ describe('ParamChangePanel', () => {
     expect(within(summary).getByText('0.35')).toBeTruthy();
     expect(within(summary).getByText('67% yes')).toBeTruthy();
     expect(within(summary).getByText('do not vote on these')).toBeTruthy();
+    expect(within(summary).getByText('2 changes')).toBeTruthy();
     fireEvent.click(within(summary).getByRole('button', { name: 'Continue to rationale' }));
     expect(onContinue).toHaveBeenCalled();
   });

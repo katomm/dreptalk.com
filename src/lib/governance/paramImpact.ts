@@ -9,7 +9,9 @@ export interface PoolEconomicsJson {
   epoch: number;
   supplyLovelace: string;
   reservesLovelace: string;
-  /** [active stake in ada, pledge in ada, fixed cost in lovelace], sorted by stake, largest first. */
+  /**
+   * [active stake in ada, pledge in ada, fixed cost in lovelace], sorted by stake, largest first.
+   */
   pools: [number, number, string][];
 }
 
@@ -21,7 +23,10 @@ export interface PoolEconomics {
   pools: { stake: number; pledge: number; costLovelace: bigint }[];
 }
 
-/** The parameters the reward model reads. Two or more of them picked share one combined rewards chart. */
+/**
+ * The parameters the reward model reads. Two or more of them with a valid new value share one
+ * combined rewards chart.
+ */
 export const REWARD_KEYS = ['k', 'a0', 'rho', 'tau'] as const;
 
 export interface ModelParams {
@@ -31,7 +36,10 @@ export interface ModelParams {
   tau: number;
 }
 
-/** Lovelace string to ada, keeping the fraction (the model works in floats, the fraction matters for the anchors). */
+/**
+ * Lovelace string to ada, keeping the fraction (the model works in floats, the fraction matters for
+ * the anchors).
+ */
 const lovelaceToAda = (lovelace: string): number => {
   const v = BigInt(lovelace);
   return Number(v / 1_000_000n) + Number(v % 1_000_000n) / 1_000_000;
@@ -46,7 +54,10 @@ export function economicsFromJson(json: PoolEconomicsJson): PoolEconomics {
   };
 }
 
-/** The model inputs before and after: the package's value where it has one, the current value otherwise. */
+/**
+ * The model inputs before and after: the package's value where it has one, the current value
+ * otherwise.
+ */
 export function modelParams(current: ParamValues, next: ParamValues): { from: ModelParams; to: ModelParams } | null {
   const pick = (key: 'k' | 'a0' | 'rho' | 'tau', source: ParamValues) => {
     const v = source[key] ?? current[key];
@@ -58,7 +69,9 @@ export function modelParams(current: ParamValues, next: ParamValues): { from: Mo
   return { from: from as ModelParams, to: to as ModelParams };
 }
 
-/** The ledger's maximum pool reward share (Shelley spec, maxPool), before multiplying by the pot. */
+/**
+ * The ledger's maximum pool reward share (Shelley spec, maxPool), before multiplying by the pot.
+ */
 export function maxPool(stake: number, pledge: number, k: number, a0: number, totalStake: number): number {
   const z0 = 1 / k;
   const sigma = Math.min(stake / totalStake, z0);
@@ -91,7 +104,10 @@ export function saturation(eco: PoolEconomics, kFrom: number, kTo: number) {
   return { pointFrom, pointTo, aboveFrom, aboveTo, excessFrom, excessTo };
 }
 
-/** Bounds of the saturation chart's pool count, and the share of the lower saturation point a shown pool reaches at least. */
+/**
+ * Bounds of the saturation chart's pool count, and the share of the lower saturation point a shown
+ * pool reaches at least.
+ */
 export const SHOWN_POOLS_MIN = 30;
 export const SHOWN_POOLS_MAX = 300;
 const SHOWN_POOLS_SHARE = 0.01;

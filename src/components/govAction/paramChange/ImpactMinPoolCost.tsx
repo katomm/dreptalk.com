@@ -39,7 +39,8 @@ export default memo(function ImpactMinPoolCost({
           <div
             key={bin.fromAda}
             className="pcp-bins__bar"
-            // A bin starting below the new minimum covers costs under it, even when its top is above.
+            // A bin starting below the new minimum covers costs under it,
+            // even when its top is above.
             data-hit={bin.fromAda < nextAda ? 'true' : undefined}
             style={{ height: `${(bin.count / most) * 100}%` }}
           />

@@ -567,7 +567,7 @@ export function decodeOnchainChanges(
 // pair (a single param, the protocol version), 'plain' is neutral prose. Returns
 // null when there is nothing worth a line (info actions carry no on-chain change).
 export interface OnchainSummary {
-  prefix: string | null; // leading label, e.g. "Requesting", "Min Pool Cost", "Protocol"
+  prefix: string | null; // leading label, e.g. "Requesting", "Minimum pool cost", "Protocol"
   oldValue: string | null; // struck-through previous value (change tone only)
   value: string; // the new or headline value
   tone: 'amount' | 'change' | 'plain';
