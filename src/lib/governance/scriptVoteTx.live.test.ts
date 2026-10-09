@@ -1,19 +1,21 @@
 // LIVE preprod e2e (gated, see __fixtures__/liveWallet.ts for the wallet it
 // needs). It needs outbound network to preprod Koios, so it is NOT a CI test,
-// the deterministic conversion guard lives in scriptVoteTx.test.ts. This test
-// SUBMITS a real vote transaction on preprod. Run it with
-// `npm run test:live:submit`.
+// the deterministic conversion guard lives in scriptVoteTx.test.ts. Run it with
+// `npm run test:live:script-vote`.
 //
-// It reproduces the proven native-script vote flow (preprod tx d20239...):
+// It walks the native-script vote flow of the multisig panel against real
+// preprod funding, and stops before submitting:
 //   1. Build a native-script DRep vote tx where the voter credential is a script
 //      hash, the script is attached, and there is NO addSigner and NO redeemer.
 //   2. Produce the member witness by signing the tx BODY HASH with the ed25519
 //      DRep key directly (the cardano-signer / raw-key path), NOT via the wallet.
-//   3. Fold the witness in and submit; assert a 64-hex tx hash.
+//   3. Fold the witness in with assembleScriptVoteTx, add the funding witness
+//      the way the panel's partial signTx does, and check every signature.
 //
-// The native script used is an any-of-one over the test wallet's own DRep key,
-// so the script hash defines the scriptDrepId and the single member witness
-// satisfies it. This needs no external script fixture.
+// The native script is an any-of-one over the test wallet's own DRep key. Its
+// script DRep is not registered on preprod, and registering one would make a
+// second DRep for the shared test wallet, so the ledger would reject the vote.
+// The test therefore never submits: submitTx on its wallet adapter throws.
 import { describe, it, expect } from 'vitest';
 import {
   Address,
@@ -21,24 +23,30 @@ import {
   Ed25519Signature,
   NativeScripts,
   ScriptHash,
+  Transaction,
+  TransactionBody,
+  TransactionHash,
   TransactionWitnessSet,
   VKey,
 } from '@evolution-sdk/evolution';
-import { LIVE, PREPROD_KOIOS, loadDrepKey } from './__fixtures__/liveWallet.js';
+import { LIVE, PREPROD_KOIOS, loadDrepKey, loadPaymentKey } from './__fixtures__/liveWallet.js';
 import { bytesToHex } from '../crypto/hex.js';
+import { verifyEd25519 } from '../crypto/ed25519.js';
 import type { NativeScript } from '../cardano/nativeScript.js';
 import type { WalletApi } from './drepTx.js';
 import { assembleScriptVoteTx, buildScriptDRepVoteTx } from './scriptVoteTx.js';
 
 const ORIGIN = 'https://preprod.dreptalk.com';
 
+type Signer = { pubKey: Uint8Array; sign: (m: Uint8Array) => Uint8Array };
 
-// A read-only wallet adapter over the test wallet: getUtxos/getUsedAddresses for
-// funding, submitTx for submission. signTx/signData are unused on the native-script
-// path (member witnesses are produced from the body hash), so they throw.
-function makeReadWallet(paymentAddress: string): WalletApi {
+// A wallet adapter over the test wallet: getUsedAddresses for funding and a
+// payment key signTx like the panel's partial sign. submitTx records the tx
+// and throws, so nothing ever reaches the chain.
+function makeWallet(paymentAddress: string, payment: Signer) {
   const addressHex = bytesToHex(Address.toBytes(Address.fromBech32(paymentAddress)));
-  return {
+  const submitted: string[] = [];
+  const api: WalletApi = {
     async getUsedAddresses() {
       return [addressHex];
     },
@@ -54,37 +62,30 @@ function makeReadWallet(paymentAddress: string): WalletApi {
       // this path; return empty rather than re-serialize SDK UTxOs to CBOR.
       return [];
     },
-    async signTx() {
-      throw new Error('signTx is not used on the native-script vote path');
+    async signTx(txHex: string) {
+      return witnessSetHex(payment, bodyHashOf(txHex));
     },
     async signData() {
       throw new Error('signData is not used on the native-script vote path');
     },
     async submitTx(txCborHex: string) {
-      // Submit the assembled tx straight to Koios (the read client has no submit;
-      // a real flow submits via the CIP-30 wallet). Koios returns the tx hash.
-      const res = await fetch(`${PREPROD_KOIOS}/submittx`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/cbor' },
-        body: hexBytes(txCborHex) as BodyInit,
-      });
-      if (!res.ok) throw new Error(`Koios submittx failed: ${res.status} ${await res.text()}`);
-      return (await res.json()) as string;
+      submitted.push(txCborHex);
+      throw new Error('this test never submits');
     },
   };
+  return { api, submitted };
 }
 
-// Build a member witness set hex by signing the tx body hash with the DRep key,
-// exactly as the cardano-signer paste path does off-band.
-function memberWitnessHex(opts: {
-  pubKey: Uint8Array;
-  bodyHashHex: string;
-  sign: (m: Uint8Array) => Uint8Array;
-}): string {
-  const sigBytes = opts.sign(hexBytes(opts.bodyHashHex));
+function bodyHashOf(txHex: string): string {
+  return bytesToHex(TransactionHash.toBytes(TransactionBody.toHash(Transaction.fromCBORHex(txHex).body)));
+}
+
+// Build a witness set hex by signing the tx body hash with one key, exactly as
+// the cardano-signer paste path does off-band.
+function witnessSetHex(key: Signer, bodyHashHex: string): string {
   const witness = new TransactionWitnessSet.VKeyWitness({
-    vkey: VKey.fromBytes(opts.pubKey),
-    signature: Ed25519Signature.fromBytes(sigBytes),
+    vkey: VKey.fromBytes(key.pubKey),
+    signature: Ed25519Signature.fromBytes(key.sign(hexBytes(bodyHashHex))),
   });
   const set = new TransactionWitnessSet.TransactionWitnessSet({ vkeyWitnesses: [witness] });
   return TransactionWitnessSet.toCBORHex(set);
@@ -97,8 +98,9 @@ function hexBytes(hex: string): Uint8Array {
 }
 
 describe.skipIf(!LIVE)('LIVE preprod script-vote e2e', () => {
-  it('builds, assembles from a member witness, and submits a native-script DRep vote', async () => {
+  it('builds a native-script DRep vote, folds in the member and funding witnesses, and every signature holds', async () => {
     const { paymentAddress, pubKey, keyHash, sign } = loadDrepKey();
+    const payment = loadPaymentKey();
 
     // any-of-one native script over the wallet's own DRep key hash.
     const nativeScript: NativeScript = { type: 'any', scripts: [{ type: 'sig', keyHash: bytesToHex(keyHash) }] };
@@ -124,10 +126,10 @@ describe.skipIf(!LIVE)('LIVE preprod script-vote e2e', () => {
     expect(active, 'no active preprod proposal to vote on').toBeTruthy();
     const govActionId = `${active!.proposal_tx_hash}#${active!.proposal_index}`;
 
-    const walletApi = makeReadWallet(paymentAddress);
+    const wallet = makeWallet(paymentAddress, payment);
 
     const { unsignedTxHex, bodyHashHex } = await buildScriptDRepVoteTx({
-      walletApi,
+      walletApi: wallet.api,
       network: 'preprod',
       scriptDrepId,
       nativeScript,
@@ -138,15 +140,38 @@ describe.skipIf(!LIVE)('LIVE preprod script-vote e2e', () => {
     expect(unsignedTxHex).toMatch(/^[0-9a-f]+$/);
     expect(bodyHashHex).toMatch(/^[0-9a-f]{64}$/);
 
-    const witnessHex = memberWitnessHex({ pubKey, bodyHashHex, sign });
+    // assembleScriptVoteTx folds the member witness in and hands the tx to
+    // submitTx, which records it and throws.
+    await expect(
+      assembleScriptVoteTx({
+        unsignedTxHex,
+        witnessHexes: [witnessSetHex({ pubKey, sign }, bodyHashHex)],
+        network: 'preprod',
+        origin: ORIGIN,
+        walletApi: wallet.api,
+      }),
+    ).rejects.toThrow('this test never submits');
+    expect(wallet.submitted).toHaveLength(1);
+    const assembledHex = wallet.submitted[0];
 
-    const { txHash } = await assembleScriptVoteTx({
-      unsignedTxHex,
-      witnessHexes: [witnessHex],
-      network: 'preprod',
-      origin: ORIGIN,
-      walletApi,
-    });
-    expect(txHash).toMatch(/^[0-9a-f]{64}$/);
+    // The funding witness, as the multisig panel adds it before its submit.
+    const finalHex = Transaction.addVKeyWitnessesHex(assembledHex, await wallet.api.signTx(assembledHex, true));
+    const finalTx = Transaction.fromCBORHex(finalHex);
+
+    expect(bodyHashOf(finalHex)).toBe(bodyHashHex);
+    expect(finalTx.witnessSet.nativeScripts ?? []).toHaveLength(1);
+    expect(finalTx.witnessSet.redeemers).toBeUndefined();
+
+    const witnesses = finalTx.witnessSet.vkeyWitnesses ?? [];
+    const signers = witnesses.map((w) => bytesToHex(VKey.toBytes(w.vkey))).sort();
+    expect(signers).toEqual([bytesToHex(pubKey), bytesToHex(payment.pubKey)].sort());
+    for (const w of witnesses) {
+      const result = await verifyEd25519(
+        Ed25519Signature.toBytes(w.signature),
+        hexBytes(bodyHashHex),
+        VKey.toBytes(w.vkey),
+      );
+      expect(result.ok).toBe(true);
+    }
   }, 90_000);
 });
