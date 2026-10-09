@@ -22,14 +22,26 @@ if (LIVE && MNEMONIC === '') {
 
 export const PREPROD_KOIOS = 'https://preprod.koios.rest/api/v1';
 
+// The public key and a detached signer for one key of the test wallet.
+function deriveKey(path: string) {
+  const entropy = mnemonicToEntropy(MNEMONIC, wordlist);
+  const root = E.Bip32PrivateKey.fromBip39Entropy(entropy, '');
+  const prv = E.Bip32PrivateKey.toPrivateKey(E.Bip32PrivateKey.derivePath(root, path));
+  const pubKey = E.VKey.toBytes(E.PrivateKey.toPublicKey(prv));
+  const sign = (msg: Uint8Array) => E.Ed25519Signature.toBytes(E.PrivateKey.sign(prv, msg));
+  return { pubKey, sign };
+}
+
 // Derive the DRep signing material (account 0, role 3, index 0) and the
 // account 0 base payment address from the test wallet mnemonic.
 export function loadDrepKey() {
-  const entropy = mnemonicToEntropy(MNEMONIC, wordlist);
-  const root = E.Bip32PrivateKey.fromBip39Entropy(entropy, '');
-  const prv = E.Bip32PrivateKey.toPrivateKey(E.Bip32PrivateKey.derivePath(root, "1852'/1815'/0'/3/0"));
-  const pubKey = E.VKey.toBytes(E.PrivateKey.toPublicKey(prv));
-  const sign = (msg: Uint8Array) => E.Ed25519Signature.toBytes(E.PrivateKey.sign(prv, msg));
+  const { pubKey, sign } = deriveKey("1852'/1815'/0'/3/0");
   const paymentAddress = Address.toBech32(addressFromSeed(MNEMONIC, { networkId: 0 }).address);
   return { paymentAddress, pubKey, keyHash: blake2b224(pubKey), sign };
+}
+
+// The account 0 payment key (role 0, index 0), which signs for the inputs of
+// the base payment address, the way the wallet's own signTx does.
+export function loadPaymentKey() {
+  return deriveKey("1852'/1815'/0'/0/0");
 }
