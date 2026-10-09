@@ -76,6 +76,19 @@ describe('listDecidedOutcomeRows', () => {
     expect(rows.map((r) => r.gaId)).toEqual(['ga_expired']);
   });
 
+  it('drops SPO amounts that contradict the frozen percentage', async () => {
+    await seedAction('ga_drift', 'InfoAction', {
+      title: 'Drifted', topicId: null, status: 'closed', submittedEpoch: 590, decidedEpoch: 600,
+      thresholdsJson: null, drepYesPct: null, spoYesPct: 55.1,
+      spoYesPower: 1000, spoNoPower: 200, spoAbstainPower: 50,
+      spoAlwaysAbstainPower: '9', spoAlwaysNoConfidencePower: '12', spoNoSidePower: '250',
+    });
+    const [row] = await listDecidedOutcomeRows(env.DB);
+    expect(row.spoYesPct).toBe(55.1);
+    expect(row.spoYesPower).toBeNull();
+    expect(row.spoNoSidePower).toBeNull();
+  });
+
   it('maps every field, including all SPO columns when set and when null', async () => {
     await seedTopic('t1', 'my-action-slug');
     await seedAction('ga_full', 'ParameterChange', {
@@ -86,7 +99,7 @@ describe('listDecidedOutcomeRows', () => {
       decidedEpoch: 600,
       thresholdsJson: '{"drep":67,"spo":null,"cc":60}',
       drepYesPct: 72.5,
-      spoYesPct: 55.1,
+      spoYesPct: 80, // 1000 of 1000 + 250, so the buckets survive (see bucketsDrifted)
       spoYesPower: 1000,
       spoNoPower: 200,
       spoAbstainPower: 50,
@@ -125,7 +138,7 @@ describe('listDecidedOutcomeRows', () => {
       decidedEpoch: 600,
       thresholdsJson: '{"drep":67,"spo":null,"cc":60}',
       drepYesPct: 72.5,
-      spoYesPct: 55.1,
+      spoYesPct: 80,
       spoYesPower: 1000,
       spoNoPower: 200,
       spoAbstainPower: 50,

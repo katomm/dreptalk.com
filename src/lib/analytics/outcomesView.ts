@@ -6,7 +6,7 @@
 // Number's safe-integer range. No I/O, deterministic, unit-tested.
 import type { DecidedOutcomeRow, LineageActionRow } from '../db/hubOutcomes.js';
 import { pct4 } from '../format/pct.js';
-import { ancIsNoSide } from '../governance/fullStakeView.js';
+import { alwaysAbstainIsNoSide, ancIsNoSide } from '../governance/fullStakeView.js';
 import { lineagePredecessor } from '../governance/onchain.js';
 import { readThresholdSnapshot } from '../governance/thresholds.js';
 import { median } from './median.js';
@@ -108,7 +108,9 @@ interface SpoTurnoutReading {
  * 0088), so the engaged denominator takes it back out of the No side rather
  * than subtracting it twice. They stay null when that bucket is missing, and
  * for the one action type where the ledger counts the bucket as Yes instead
- * (ancIsNoSide), where the No side does not hold it.
+ * (ancIsNoSide), where the No side does not hold it. On a hard fork the No side
+ * also holds the always-abstain bucket (alwaysAbstainIsNoSide), so it is not
+ * added to the denominator again and comes out of the engaged one as well.
  */
 function spoTurnout(row: DecidedOutcomeRow): SpoTurnoutReading | null {
   if (
@@ -133,14 +135,16 @@ function spoTurnout(row: DecidedOutcomeRow): SpoTurnoutReading | null {
   const yes = BigInt(row.spoYesPower);
   const no = BigInt(row.spoNoPower);
   const abstain = BigInt(row.spoAbstainPower);
+  const aaInNoSide = alwaysAbstainIsNoSide(row.type, 'SPO');
   const numerator = yes + no + abstain;
-  const denominator = yes + noSide + abstain + alwaysAbstain;
+  const denominator = yes + noSide + abstain + (aaInNoSide ? 0n : alwaysAbstain);
   if (alwaysNoConfidence == null || !ancIsNoSide(row.type)) {
     return { turnoutPct: pct4(numerator, denominator), engagedTurnoutPct: null, defaultStancePct: null };
   }
   // Clamped: a snapshot taken mid-update can report a No side smaller than
   // the default bucket folded into it.
-  const noSideWithoutDefault = noSide > alwaysNoConfidence ? noSide - alwaysNoConfidence : 0n;
+  const defaultsInNoSide = alwaysNoConfidence + (aaInNoSide ? alwaysAbstain : 0n);
+  const noSideWithoutDefault = noSide > defaultsInNoSide ? noSide - defaultsInNoSide : 0n;
   const engagedDenominator = yes + noSideWithoutDefault + abstain;
   return {
     turnoutPct: pct4(numerator, denominator),

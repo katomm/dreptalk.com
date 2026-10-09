@@ -63,10 +63,17 @@ const hasThreshold = hasOnchainThreshold(action.type);
 // (active actions not yet snapshotted). Never render an old action's threshold from
 // today's params.
 const snapshot = readThresholdSnapshot(action.thresholdsJson);
+
+// Eligible bodies for this action type (reuses the overview's per-type eligibility +
+// participation), enriched with the honest composition and its amounts.
+const { bodies } = overviewRowVoting(action, opts, { paramTouchesSecurity });
+// The verdict is judged on the same yes share the row shows (see bodyComposition).
+const shownYes = (body: 'DRep' | 'SPO' | 'CC'): number | null =>
+  bodies.find((b) => b.body === body)?.composition?.yes ?? null;
 const liveThresholds =
   !snapshot && hasThreshold && params
     ? evaluateThresholds(
-        { type: action.type, drepYesPct: action.drepYesPct, spoYesPct: action.spoYesPct, ccYesPct: action.ccYesPct, paramScope },
+        { type: action.type, drepYesPct: shownYes('DRep'), spoYesPct: shownYes('SPO'), ccYesPct: shownYes('CC'), paramScope },
         params,
       )
     : null;
@@ -75,9 +82,6 @@ const thresholdPctFor = (body: 'DRep' | 'SPO' | 'CC'): number | null =>
     ? (body === 'DRep' ? snapshot.drep : body === 'SPO' ? snapshot.spo : snapshot.cc)
     : liveThresholds?.find((x) => x.body === body)?.thresholdPct ?? null;
 
-// Eligible bodies for this action type (reuses the overview's per-type eligibility +
-// participation), enriched with the honest composition and its amounts.
-const { bodies } = overviewRowVoting(action, opts, { paramTouchesSecurity });
 const rows = bodies.map((b) => {
   const thr = thresholdPctFor(b.body);
   const t = liveThresholds?.find((x) => x.body === b.body) ?? null;
@@ -107,10 +111,9 @@ const rows = bodies.map((b) => {
   };
 });
 
-// Whether every rendered body states its own denominator inline. When they do, the
-// "no on-chain threshold" note below drops the eligible/abstain clause, which only
-// describes the pre-capture fallback rendering.
-const allStated = rows.every((r) => r.stake != null);
+// Whether every stake body states its own denominator inline (CC names its seat basis
+// itself), which lets the note below drop its counted-stake clause.
+const allStated = rows.every((r) => r.body === 'CC' || r.stake != null);
 
 // Names the bodies that cannot vote on this action type ("SPOs do not vote on
 // treasury withdrawals"), shown here rather than repeated on every overview row.
@@ -167,7 +170,7 @@ const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now
               <>
                 <div class="vbody__lead">
                   <span class="vbody__yes"><b>{fmtPctFine(r.composition.yes)}</b> yes</span>
-                  <span class="vbody__basis">of the counted stake</span>
+                  <span class="vbody__basis">{r.body === 'CC' ? 'of the counted seats' : 'of the counted stake'}</span>
                 </div>
 
                 <div class="vbody__bar"><CompositionBar bar={r.composition} thresholdPct={r.thresholdPct} /></div>

@@ -37,6 +37,17 @@ describe('listDecidedActionsForRepresentation', () => {
     expect(rows[1].totalDrepPower).toBeNull(); // epoch 539 has no stats row
   });
 
+  it('drops voted power backfilled from a later ledger state than the frozen tally', async () => {
+    await seedStats(540, '1000', 800);
+    // 60 / (60 + 40) is 60%, which reproduces the stored 60 and keeps the power.
+    await seedAction('gaSame', 540, { drep_yes_pct: 60, drep_yes_power: 60, drep_no_side_power: '40' });
+    // The same buckets against a frozen 55 describe a different snapshot.
+    await seedAction('gaDrift', 540, { drep_yes_pct: 55, drep_yes_power: 60, drep_no_side_power: '40' });
+    const rows = await listDecidedActionsForRepresentation(env.DB);
+    const byId = Object.fromEntries(rows.map((r) => [r.id, r.votedPower]));
+    expect(byId).toEqual({ gaSame: 700, gaDrift: null });
+  });
+
   it('resolves the topic slug when the action has a topic', async () => {
     // topics NOT NULL columns beyond id/slug/title/created_at: category_slug,
     // author_id, last_post_at (no default, unlike pinned/locked/deleted/... below).

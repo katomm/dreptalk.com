@@ -94,6 +94,24 @@ describe('buildSpoSnapshot', () => {
     expect(v.eligible).toBe(1);
   });
 
+  it('counts always-abstain once on a hard fork, where the No side already holds it', () => {
+    // yes 60 + voted abstain 10 = 70 voted. The No side of 40 holds the 20 on
+    // always-abstain, so every pool = 60 + 40 + 10 = 110, and the pools without a
+    // default stance = 60 + (40 - 20) + 10 = 90.
+    const v = buildSpoSnapshot([
+      row({
+        type: 'HardForkInitiation',
+        spoYesPower: 60,
+        spoNoPower: 0,
+        spoAbstainPower: 10,
+        spoNoSidePower: '40',
+        spoAlwaysAbstainPower: '20',
+        spoAlwaysNoConfidencePower: '0',
+      }),
+    ]);
+    expect(v.actions[0]).toMatchObject({ turnoutPct: 63.6363, engagedTurnoutPct: 77.7777, defaultStancePct: 18.1818 });
+  });
+
   it('computes turnout with BigInt across TEXT fields past 2^53', () => {
     // yes 2e12 + no 5e11 + abstain 1e11 = 2.6e12 numerator.
     // denominator adds a noSide past 2^53 and an alwaysAbstain of 5e15:

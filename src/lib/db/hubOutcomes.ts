@@ -3,6 +3,7 @@
 // writes here, the columns are populated by the tally sync elsewhere. title
 // and topicSlug come from a LEFT JOIN against topics (an action without a
 // forum topic still counts, so the join must not filter it out).
+import { bucketsDrifted } from '../governance/fullStakeView.js';
 
 export interface DecidedOutcomeRow {
   gaId: string;
@@ -64,24 +65,31 @@ export async function listDecidedOutcomeRows(db: D1Database): Promise<DecidedOut
         )
         .all<DecidedOutcomeD1Row>()
     ).results ?? [];
-  return rows.map((r) => ({
-    gaId: r.id,
-    title: r.title,
-    topicSlug: r.topic_slug,
-    type: r.type,
-    status: r.status,
-    submittedEpoch: r.submitted_epoch,
-    decidedEpoch: r.decided_epoch,
-    thresholdsJson: r.thresholds_json,
-    drepYesPct: r.drep_yes_pct,
-    spoYesPct: r.spo_yes_pct,
-    spoYesPower: r.spo_yes_power,
-    spoNoPower: r.spo_no_power,
-    spoAbstainPower: r.spo_abstain_power,
-    spoAlwaysAbstainPower: r.spo_always_abstain_power,
-    spoAlwaysNoConfidencePower: r.spo_always_no_confidence_power,
-    spoNoSidePower: r.spo_no_side_power,
-  }));
+  return rows.map((r) => {
+    // SPO amounts that contradict the frozen percentage stay out, as on the
+    // action page (see bucketsDrifted), so turnout is not read off a later ledger state.
+    const spoDrifted = bucketsDrifted({
+      actionType: r.type, body: 'SPO', storedPct: r.spo_yes_pct, yesPower: r.spo_yes_power, noSidePower: r.spo_no_side_power,
+    });
+    return {
+      gaId: r.id,
+      title: r.title,
+      topicSlug: r.topic_slug,
+      type: r.type,
+      status: r.status,
+      submittedEpoch: r.submitted_epoch,
+      decidedEpoch: r.decided_epoch,
+      thresholdsJson: r.thresholds_json,
+      drepYesPct: r.drep_yes_pct,
+      spoYesPct: r.spo_yes_pct,
+      spoYesPower: spoDrifted ? null : r.spo_yes_power,
+      spoNoPower: spoDrifted ? null : r.spo_no_power,
+      spoAbstainPower: spoDrifted ? null : r.spo_abstain_power,
+      spoAlwaysAbstainPower: spoDrifted ? null : r.spo_always_abstain_power,
+      spoAlwaysNoConfidencePower: spoDrifted ? null : r.spo_always_no_confidence_power,
+      spoNoSidePower: spoDrifted ? null : r.spo_no_side_power,
+    };
+  });
 }
 
 /**

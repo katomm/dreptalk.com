@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { buildBodyStake, type BodyStakeInput } from './fullStakeView.js';
+import { buildBodyStake, bucketsDrifted, bucketsReproduceTally, ratificationYesPct, shownYesPct, type BodyStakeInput } from './fullStakeView.js';
 
 function makeInput(overrides: Partial<BodyStakeInput> = {}): BodyStakeInput {
   return {
     actionType: 'ParameterChange',
+    body: 'DRep',
     activeYesPower: 10,
     activeNoPower: 0,
     activeAbstainPower: 0,
@@ -23,6 +24,7 @@ function makeInput(overrides: Partial<BodyStakeInput> = {}): BodyStakeInput {
 const MAINNET_NEW_COMMITTEE = {
   drep: {
     actionType: 'NewCommittee',
+    body: 'DRep',
     activeYesPower: 3_495_040_778_691_676,
     activeNoPower: 14_080_895_011_611,
     activeAbstainPower: 23_769_302_134_251,
@@ -33,6 +35,7 @@ const MAINNET_NEW_COMMITTEE = {
   } satisfies BodyStakeInput,
   spo: {
     actionType: 'NewCommittee',
+    body: 'SPO',
     activeYesPower: 5_566_247_741_885_681,
     activeNoPower: 2_007_788_303_239,
     activeAbstainPower: 492_792_127_920_271,
@@ -42,6 +45,21 @@ const MAINNET_NEW_COMMITTEE = {
     approvalThresholdPct: 51,
   } satisfies BodyStakeInput,
 };
+
+// The SPO side of the van Rossem hard fork (gov_action1lh2x3…, ratified epoch 643),
+// as stored on mainnet. yes + no side + voted abstain is 21.40B of the epoch's 21.41B
+// active stake, so the 4.33B always-abstain bucket is already inside the no side.
+const MAINNET_VAN_ROSSEM_SPO = {
+  actionType: 'HardForkInitiation',
+  body: 'SPO',
+  activeYesPower: 10_445_177_677_947_930,
+  activeNoPower: 0,
+  activeAbstainPower: 1_699_130_913_945_099,
+  noSidePower: '9254034669953667',
+  alwaysAbstainPower: '4329479686219479',
+  alwaysNoConfidencePower: '52023987145075',
+  approvalThresholdPct: 51,
+} satisfies BodyStakeInput;
 
 const pctOf = (v: ReturnType<typeof buildBodyStake>, key: string): number =>
   v!.segments.find((s) => s.key === key)?.pct ?? 0;
@@ -148,14 +166,87 @@ describe('buildBodyStake', () => {
       const sum = view.segments.reduce((t, s) => t + s.pct, 0);
       expect(sum).toBeCloseTo(100, 2);
     });
+
+    it('keeps always-abstain outside the tally on a non hard fork action', () => {
+      expect(view.segments.find((s) => s.key === 'alwaysAbstain')!.counted).toBe(false);
+    });
+  });
+
+  describe('mainnet van Rossem hard fork, SPO body', () => {
+    const view = buildBodyStake(MAINNET_VAN_ROSSEM_SPO)!;
+
+    it('counts yes and the no side, which reproduces the 53.02% Koios reports', () => {
+      expect(view.countedLabel).toBe('19.7B ₳');
+      const counted = 10_445_177_677_947_930n + 9_254_034_669_953_667n;
+      expect(Number((10_445_177_677_947_930n * 1_000_000n) / counted) / 10_000).toBeCloseTo(53.02, 2);
+    });
+
+    it('totals the epoch active stake, with the always-abstain bucket counted once', () => {
+      // 21.40B, the epoch's active stake. Summing the bucket on top would give 25.73B.
+      expect(view.totalLabel).toBe('21.4B ₳');
+      expect(view.excludedLabel).toBe('1.7B ₳');
+      expect(view.countedSharePct).toBeCloseTo(92.06, 1);
+      expect(view.turnoutPct).toBeCloseTo(56.75, 1);
+    });
+
+    it('shows always-abstain as counted No, split out of the default No', () => {
+      const aa = view.segments.find((s) => s.key === 'alwaysAbstain')!;
+      expect(aa).toMatchObject({ counted: true, amountLabel: '4.33B ₳', label: 'Always abstain, counted as No' });
+      // 9.25B no side minus 4.33B always-abstain minus 52.02M always-no-confidence.
+      expect(view.segments.find((s) => s.key === 'defaultNo')!.amountLabel).toBe('4.87B ₳');
+    });
+
+    it('keeps the counted segments contiguous from the left, voted abstain last', () => {
+      expect(view.segments.map((s) => [s.key, s.counted])).toEqual([
+        ['yes', true],
+        ['defaultNo', true],
+        ['alwaysNoConfidence', true],
+        ['alwaysAbstain', true],
+        ['activeAbstain', false],
+      ]);
+      const countedSum = view.segments.filter((s) => s.counted).reduce((t, s) => t + s.pct, 0);
+      expect(countedSum).toBeCloseTo(view.countedSharePct, 2);
+    });
+
+    it('segment shares sum to 100% of the full stake', () => {
+      const sum = view.segments.reduce((t, s) => t + s.pct, 0);
+      expect(sum).toBeCloseTo(100, 2);
+    });
+
+    it('leaves the DRep side of a hard fork on the default rule', () => {
+      const drep = buildBodyStake({ ...MAINNET_VAN_ROSSEM_SPO, body: 'DRep' })!;
+      expect(drep.segments.find((s) => s.key === 'alwaysAbstain')).toMatchObject({
+        counted: false,
+        label: 'Always abstain',
+      });
+      expect(drep.excludedLabel).toBe('6.03B ₳');
+    });
   });
 
   describe('edge cases', () => {
-    it('clamps the default No to zero when a snapshot reports a No side below its own parts', () => {
-      const view = buildBodyStake(
-        makeInput({ activeNoPower: 80, noSidePower: '50', alwaysNoConfidencePower: '10' }),
-      )!;
+    it('declines a No side smaller than its own parts, whose segments would exceed the total', () => {
+      expect(
+        buildBodyStake(makeInput({ activeNoPower: 80, noSidePower: '50', alwaysNoConfidencePower: '10' })),
+      ).toBeNull();
+      // Hard fork SPO: always-abstain is a part of the No side too.
+      expect(
+        buildBodyStake(
+          makeInput({
+            actionType: 'HardForkInitiation',
+            body: 'SPO',
+            activeYesPower: 60,
+            activeAbstainPower: 10,
+            noSidePower: '40',
+            alwaysAbstainPower: '50',
+          }),
+        ),
+      ).toBeNull();
+    });
+
+    it('keeps a No side made up exactly of its parts, with no default No left', () => {
+      const view = buildBodyStake(makeInput({ activeNoPower: 40, noSidePower: '50', alwaysNoConfidencePower: '10' }))!;
       expect(view.segments.find((s) => s.key === 'defaultNo')).toBeUndefined();
+      expect(view.segments.reduce((t, s) => t + s.pct, 0)).toBeCloseTo(100, 2);
     });
 
     it('returns null when the body holds no stake at all', () => {
@@ -168,5 +259,71 @@ describe('buildBodyStake', () => {
       const view = buildBodyStake(makeInput({ activeYesPower: 10, noSidePower: '90' }))!;
       expect(view.segments.map((s) => s.key)).toEqual(['yes', 'defaultNo']);
     });
+  });
+});
+
+describe('ratificationYesPct and the tally consistency gate', () => {
+  // Update Constitutional Committee 2026, SPO side as stored on mainnet: the buckets
+  // and the frozen 56.15 come from the same snapshot.
+  const ccUpdate = { yesPower: 6190687758990589, noSidePower: '4834832027344520' };
+
+  it('derives the four-decimal share from yes and the no side', () => {
+    expect(ratificationYesPct({ actionType: 'NewCommittee', body: 'SPO', ...ccUpdate })).toBe(56.1487);
+  });
+
+  it('declines NoConfidence and missing columns', () => {
+    expect(ratificationYesPct({ actionType: 'NoConfidence', body: 'DRep', ...ccUpdate })).toBeNull();
+    expect(ratificationYesPct({ actionType: 'HardForkInitiation', body: 'DRep', ...ccUpdate })).toBe(56.1487);
+    expect(ratificationYesPct({ actionType: 'InfoAction', body: 'SPO', yesPower: null, noSidePower: '1' })).toBeNull();
+    expect(ratificationYesPct({ actionType: 'InfoAction', body: 'SPO', yesPower: 1, noSidePower: 'x' })).toBeNull();
+  });
+
+  it('reads the SPO side of a hard fork off the no side, which already holds always-abstain', () => {
+    const vanRossem = {
+      actionType: 'HardForkInitiation',
+      body: 'SPO' as const,
+      yesPower: MAINNET_VAN_ROSSEM_SPO.activeYesPower,
+      noSidePower: MAINNET_VAN_ROSSEM_SPO.noSidePower,
+    };
+    expect(ratificationYesPct(vanRossem)).toBe(53.0233);
+    // Both stored mainnet hard forks were frozen from an earlier snapshot than their
+    // buckets (52.4 vs 53.02, Plomin 65.99 vs 65.03), so the gate drops the buckets.
+    expect(bucketsDrifted({ ...vanRossem, storedPct: 52.4 })).toBe(true);
+    const plomin = {
+      actionType: 'HardForkInitiation',
+      body: 'SPO' as const,
+      yesPower: 13608245232045680,
+      noSidePower: '7316382819243798',
+    };
+    expect(ratificationYesPct(plomin)).toBeCloseTo(65.03, 2);
+    expect(bucketsDrifted({ ...plomin, storedPct: 65.99 })).toBe(true);
+  });
+
+  it('rounds the exact ratio half up, so a boundary share matches its stored value', () => {
+    // Exactly 1.00501%: the truncated four-decimal 1.005 would round to 1.00 as a float.
+    const parts = { yes: 100_501n, counted: 10_000_000n };
+    expect(bucketsReproduceTally(1.01, parts)).toBe(true);
+    expect(bucketsReproduceTally(1.0, parts)).toBe(false);
+    const boundary = { actionType: 'InfoAction', body: 'DRep' as const, yesPower: 100501, noSidePower: '9899499' };
+    expect(bucketsDrifted({ ...boundary, storedPct: 1.01 })).toBe(false);
+    expect(shownYesPct({ ...boundary, storedPct: 1.01 })).toBe(1.005);
+    // An exact half rounds up, one lovelace below it rounds down.
+    expect(bucketsReproduceTally(56.15, { yes: 56_145n, counted: 100_000n })).toBe(true);
+    expect(bucketsReproduceTally(56.15, { yes: 5_614_499n, counted: 10_000_000n })).toBe(false);
+  });
+
+  it('refines the stored share only when the buckets reproduce it', () => {
+    const body = { actionType: 'NewCommittee', body: 'SPO' as const, ...ccUpdate };
+    // Same snapshot: 56.1487 rounds back to 56.15, so it reads 56.1 and never 56.2.
+    expect(shownYesPct({ ...body, storedPct: 56.15 })).toBe(56.1487);
+    expect(bucketsDrifted({ ...body, storedPct: 56.15 })).toBe(false);
+    // Buckets from a later ledger state than the frozen tally: the stored share stays.
+    expect(shownYesPct({ ...body, storedPct: 57.16 })).toBe(57.16);
+    expect(bucketsDrifted({ ...body, storedPct: 57.16 })).toBe(true);
+    expect(bucketsReproduceTally(8.97, { yes: 89_408n, counted: 1_000_000n })).toBe(false);
+    // Missing buckets or a missing tally never count as drift.
+    expect(bucketsDrifted({ ...body, storedPct: 57.16, noSidePower: null })).toBe(false);
+    expect(bucketsDrifted({ ...body, storedPct: null })).toBe(false);
+    expect(shownYesPct({ ...body, storedPct: null })).toBeNull();
   });
 });

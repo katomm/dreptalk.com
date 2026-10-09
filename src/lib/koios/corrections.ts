@@ -7,6 +7,7 @@
 // tally). Pure functions, no I/O.
 import type { VotingSummary } from './client.js';
 import { activeCommitteeMembersAtBoundary, type CommitteeMemberTerm } from './committeeTimeline.js';
+import { round2 } from '../format/pct.js';
 
 /** Parses a Koios lovelace power string to a number; null when absent. The
     magnitudes (up to ~2.1e16) exceed Number.MAX_SAFE_INTEGER, but the lost
@@ -43,7 +44,6 @@ export function spoTallyPct(s: VotingSummary): { yesPct: number | null; noPct: n
   const noSide = no + (powerNum(s.pool_passive_always_abstain_vote_power) ?? 0);
   const denom = yes + noSide;
   if (denom <= 0) return fallback;
-  const round2 = (n: number) => Math.round(n * 100) / 100;
   return { yesPct: round2((yes / denom) * 100), noPct: round2((noSide / denom) * 100) };
 }
 
@@ -163,7 +163,6 @@ export function ccTallyPct(
   }
 
   const denom = active.size - abstain;
-  const round2 = (n: number) => Math.round(n * 100) / 100;
   const yesPct = denom <= 0 ? null : round2((yes / denom) * 100);
   const noPct = denom <= 0 ? null : round2(((denom - yes) / denom) * 100);
   return { yesPct, noPct, yes, no, abstain };

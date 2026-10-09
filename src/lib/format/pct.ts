@@ -5,3 +5,8 @@ export function pct4(part: bigint, whole: bigint): number {
   if (whole <= 0n) return 0;
   return Number((part * 1_000_000n) / whole) / 10_000;
 }
+
+/** Two-decimal rounding, the precision Koios reports and the tally stores. */
+export function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}

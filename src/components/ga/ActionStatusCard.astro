@@ -16,7 +16,8 @@ const netCfg = resolveNetwork(network);
 
 // Derive epoch dates only when an epoch is known; never invent dates. Expiry
 // and decided stay at epoch boundaries, where those genuinely happen; the
-// submission date preference lives in submittedDateLabel.
+// submission date preference lives in submittedDateLabel. Both read "Start of
+// epoch N", since the last epoch that accepts votes is N - 1.
 const submittedDate = submittedDateLabel(action.submittedAt, action.submittedEpoch, netCfg);
 const expiryDate = action.expiryEpoch != null
   ? formatEpochDate(epochStartUnix(action.expiryEpoch, netCfg))
@@ -50,13 +51,13 @@ function decidedLabel(status: string): string {
     {action.expiryEpoch != null && (
       <>
         <dt>Voting ends</dt>
-        <dd>Epoch {action.expiryEpoch}{expiryDate && <> ({expiryDate})</>}</dd>
+        <dd>Start of epoch {action.expiryEpoch}{expiryDate && <> ({expiryDate})</>}</dd>
       </>
     )}
     {action.decidedEpoch != null && (
       <>
         <dt>{decidedLabel(action.status)}</dt>
-        <dd>Epoch {action.decidedEpoch}{decidedDate && <> ({decidedDate})</>}</dd>
+        <dd>Start of epoch {action.decidedEpoch}{decidedDate && <> ({decidedDate})</>}</dd>
       </>
     )}
   </dl>

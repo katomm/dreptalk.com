@@ -21,6 +21,7 @@ import { EPOCH_STATS_METRICS, type EpochStatsMetricKey } from '../analytics/epoc
 import type { EpochStatsRow } from '../analytics/epochStats.js';
 import { epochFromUnix, type NetworkConfig } from '../config/network.js';
 import { readThresholdSnapshot } from '../governance/thresholds.js';
+import { bucketsDrifted, shownYesPct, type BodyTallyInput } from '../governance/fullStakeView.js';
 import { govActionHref } from './links.js';
 import { NCL_PERIODS, type NclPeriod } from '../../../config/ncl-periods.js';
 import { nclStatusFor } from '../governance/ncl.js';
@@ -252,9 +253,24 @@ function closeEpoch(r: ActionDbRow): { epoch: number | null; derived: boolean } 
   return { epoch, derived: epoch != null && r.ratified_epoch == null && r.status === 'enacted' };
 }
 
+/** One body's tally inputs off a pack row, for shownYesPct and bucketsDrifted. */
+function packBody(r: ActionDbRow, body: 'DRep' | 'SPO'): BodyTallyInput {
+  const drep = body === 'DRep';
+  return {
+    actionType: r.type,
+    body,
+    storedPct: drep ? r.drep_yes_pct : r.spo_yes_pct,
+    yesPower: drep ? r.drep_yes_power : r.spo_yes_power,
+    noSidePower: drep ? r.drep_no_side_power : r.spo_no_side_power,
+  };
+}
+
 export function toPackAction(r: ActionDbRow, from: number, to: number): PackAction {
   const th = readThresholdSnapshot(r.thresholds_json);
   const close = closeEpoch(r);
+  // Amounts that contradict the frozen percentage stay out (see bucketsDrifted).
+  const drepDrifted = bucketsDrifted(packBody(r, 'DRep'));
+  const spoDrifted = bucketsDrifted(packBody(r, 'SPO'));
   const action: PackAction = {
     id: r.id,
     url: govActionHref(r.id),
@@ -269,13 +285,17 @@ export function toPackAction(r: ActionDbRow, from: number, to: number): PackActi
     withdrawalAda: r.type === 'TreasuryWithdrawals' ? withdrawalAda(r.onchain_payload) : null,
     tally: {
       drep: {
-        yes: r.drep_yes, no: r.drep_no, abstain: r.drep_abstain, yesPct: r.drep_yes_pct, noPct: r.drep_no_pct,
-        yesPowerAda: lovelaceToAda(r.drep_yes_power), noPowerAda: lovelaceToAda(r.drep_no_power), abstainPowerAda: lovelaceToAda(r.drep_abstain_power),
+        yes: r.drep_yes, no: r.drep_no, abstain: r.drep_abstain, yesPct: shownYesPct(packBody(r, 'DRep')), noPct: r.drep_no_pct,
+        yesPowerAda: drepDrifted ? null : lovelaceToAda(r.drep_yes_power),
+        noPowerAda: drepDrifted ? null : lovelaceToAda(r.drep_no_power),
+        abstainPowerAda: drepDrifted ? null : lovelaceToAda(r.drep_abstain_power),
         abstainExcluded: true,
       },
       spo: {
-        yes: r.spo_yes, no: r.spo_no, abstain: r.spo_abstain, yesPct: r.spo_yes_pct, noPct: r.spo_no_pct,
-        yesPowerAda: lovelaceToAda(r.spo_yes_power), noSidePowerAda: lovelaceToAda(r.spo_no_side_power), eligiblePowerAda: lovelaceToAda(r.spo_eligible_power),
+        yes: r.spo_yes, no: r.spo_no, abstain: r.spo_abstain, yesPct: shownYesPct(packBody(r, 'SPO')), noPct: r.spo_no_pct,
+        yesPowerAda: spoDrifted ? null : lovelaceToAda(r.spo_yes_power),
+        noSidePowerAda: spoDrifted ? null : lovelaceToAda(r.spo_no_side_power),
+        eligiblePowerAda: spoDrifted ? null : lovelaceToAda(r.spo_eligible_power),
         tallyEpoch: r.tally_epoch,
       },
       cc: { yes: r.cc_yes, no: r.cc_no, abstain: r.cc_abstain, yesPct: r.cc_yes_pct, abstainExcluded: true },
