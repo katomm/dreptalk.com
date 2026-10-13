@@ -43,6 +43,21 @@ updates:
       # version that never ships. Keep it in step with workers-og instead.
       - dependency-name: "satori"
         versions: [">=0.16.0"]
+      # @effect/platform and @effect/platform-node are devDependencies only so
+      # that @evolution-sdk/devnet resolves its peers. devnet 3.0.21 requires
+      # @effect/platform ^0.96 and @effect/platform-node ^0.106, so updates outside
+      # these ranges break npm ci with ERESOLVE. Move them together with devnet
+      # once a devnet release accepts the newer pair.
+      - dependency-name: "@effect/platform"
+        versions: [">=0.97.0"]
+      - dependency-name: "@effect/platform-node"
+        versions: [">=0.107.0"]
+      # vitest 5 cannot install: @cloudflare/vitest-pool-workers caps its vitest
+      # peer at ^4.1 up to and including 0.23.0, its current release. Drop this
+      # once the pool accepts vitest 5.
+      - dependency-name: "vitest"
+        update-types:
+          - version-update:semver-major
   # GitHub Actions used by the CI workflow.
   - package-ecosystem: github-actions
     directory: "/"
