@@ -23,14 +23,13 @@ updates:
       # prerenderEnvironment: 'node' is broken in a build too: the plugin that
       # stubs `cloudflare:` imports is only registered for `astro dev`, so
       # prerendered routes die on the middleware's cloudflare:workers import.
-      # @astrojs/markdown-remark 7.3 belongs to the same astro release train.
-      # Drop these three once the adapter can prerender with a custom entrypoint.
+      # Drop these two once the adapter can prerender with a custom entrypoint.
+      # @astrojs/markdown-remark 7.3 is not held: astro 7.2.10 lists it as its
+      # peer, and the app builds with it on adapter 14.2.
       - dependency-name: "astro"
         versions: [">=7.3.0"]
       - dependency-name: "@astrojs/cloudflare"
         versions: [">=14.3.0"]
-      - dependency-name: "@astrojs/markdown-remark"
-        versions: [">=7.3.0"]
       # typescript 7 cannot install: @astrojs/check caps its peer range at
       # ^5 || ^6 up to and including 0.9.10, its current release. Drop this once
       # @astrojs/check widens the range.

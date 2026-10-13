@@ -349,7 +349,9 @@ describe('">" inside an <a> attribute value (tag boundary)', () => {
 
   it('does not double-encode an ampersand in an ordinary query string', () => {
     const out = renderMarkdown('[text](https://example.com/a?x=1&y=2)');
-    expect(out).toContain('href="https://example.com/a?x=1&y=2"');
+    // marked encodes the ampersand as an entity from 18.1 on, which is the same
+    // href to a browser. What must never happen is encoding it twice.
+    expect(out).toMatch(/href="https:\/\/example\.com\/a\?x=1(&|&amp;)y=2"/);
     expect(out).not.toContain('&amp;amp;');
   });
 
