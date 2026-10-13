@@ -48,6 +48,23 @@ describe('parseSignerOutput', () => {
     expect(parseSignerOutput(text)).toEqual({ kind: 'cose', signatureHex: COSE_SIGN1, keyHex: COSE_KEY });
   });
 
+  it('prefers the COSE pair when a cardano-hw-cli message sign output also carries signatureHex/publicKeyHex', () => {
+    // cardano-hw-cli `message sign` writes both pairs. Its signatureHex signs the
+    // COSE Sig_structure, not the raw challenge, so the raw verifier would reject it.
+    const COSE_SIGN1 = '845829a20127' + 'cd'.repeat(40);
+    const COSE_KEY = 'a40101032720062158201a' + 'ef'.repeat(31);
+    const text = JSON.stringify({
+      messageHex: 'aabb',
+      isHashed: false,
+      addressHex: 'cc'.repeat(28),
+      signatureHex: SIG,
+      publicKeyHex: PUB,
+      COSE_Sign1_hex: COSE_SIGN1,
+      COSE_Key_hex: COSE_KEY,
+    });
+    expect(parseSignerOutput(text)).toEqual({ kind: 'cose', signatureHex: COSE_SIGN1, keyHex: COSE_KEY });
+  });
+
   it('rejects a COSE object with non-hex fields', () => {
     expect(parseSignerOutput(JSON.stringify({ COSE_Sign1_hex: 'zz', COSE_Key_hex: 'a4' }))).toBeNull();
   });

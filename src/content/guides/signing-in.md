@@ -35,7 +35,10 @@ registered, active DRep. If your wallet is not yet a registered DRep, you can
 
 **Multisig and script DReps.** A DRep controlled by a native multisig script signs
 in with the "This is a multisig / script DRep" toggle: enter the script DRep ID and
-prove membership by signing with one of the script's authorized keys. Plutus-script
+prove membership by signing with one of the script's authorized keys. If that key
+lives on a Ledger or Trezor, open "Key on a Ledger or Trezor?" in the cardano-signer
+tab: it shows the matching [cardano-hw-cli](https://github.com/vacuumlabs/cardano-hw-cli)
+command, and you paste the file it writes. Plutus-script
 DReps cannot sign in, since they have no member keys to sign with.
 
 ## Proposers

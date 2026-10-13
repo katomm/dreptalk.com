@@ -669,6 +669,11 @@ function SignerTab({ network, loginState, onLoginStateChange }: SignerTabProps) 
   const command = challenge
     ? `cardano-signer sign --data-hex "${dataHex}" --secret-key ${keyFile} --json`
     : '';
+  // DRep keys held on a Ledger or Trezor cannot be exported to a .skey file.
+  // cardano-hw-cli signs on the device and writes a COSE pair the verifier accepts.
+  const hwCommand = challenge && role === 'drep'
+    ? `cardano-hw-cli message sign --message-hex "${dataHex}" --signing-path-hwsfile drep.hwsfile --out-file signed.json`
+    : '';
 
   async function copyCommand() {
     if (!command) return;
@@ -777,6 +782,18 @@ function SignerTab({ network, loginState, onLoginStateChange }: SignerTabProps) 
               >
                 {copied ? 'Copied' : 'Copy command'}
               </button>
+            )}
+            {hwCommand && (
+              <details style={{ marginTop: '0.6rem' }}>
+                <summary style={{ cursor: 'pointer', fontSize: '0.8125rem', color: 'var(--muted)' }}>
+                  Key on a Ledger or Trezor?
+                </summary>
+                <p style={{ margin: '0.5rem 0', fontSize: '0.8125rem', color: 'var(--muted)', lineHeight: 1.5 }}>
+                  Sign on the device with cardano-hw-cli instead, using the hardware signing file of your DRep key (for a multisig DRep, a key from its script).
+                  Then paste the contents of signed.json below.
+                </p>
+                <code style={codeBlockStyle}>{hwCommand}</code>
+              </details>
             )}
           </div>
 

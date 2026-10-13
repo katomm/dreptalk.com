@@ -14,6 +14,7 @@ export type OfflineRole = 'spo' | 'cc' | 'drep';
 // cardano-signer prints two shapes depending on the flags used:
 //   plain  (--data-hex):  { signature, publicKey }            -> raw Ed25519
 //   CIP-30 (--cip30):     { COSE_Sign1_hex, COSE_Key_hex }    -> COSE_Sign1 + COSE_Key
+// cardano-hw-cli message sign (keys on a Ledger or Trezor) prints the COSE pair too.
 // The raw pair routes to the raw verifier; the COSE pair reuses the wallet's
 // CIP-8 verifier (the same COSE structure a CIP-30 wallet produces). COSE only
 // applies to DRep sign-in: a single key cannot COSE-sign for a script address,
@@ -36,7 +37,8 @@ interface Deps {
  * Extracts the signer material from whatever the user pasted. Accepts:
  *  - cardano-signer plain JSON ({signature, publicKey} or {signatureHex,
  *    publicKeyHex}) -> a raw Ed25519 pair;
- *  - cardano-signer --cip30 JSON ({COSE_Sign1_hex, COSE_Key_hex}) -> a COSE pair;
+ *  - cardano-signer --cip30 or cardano-hw-cli message sign JSON
+ *    ({COSE_Sign1_hex, COSE_Key_hex}) -> a COSE pair, preferred when both exist;
  *  - two bare hex strings in any order (disambiguated by length) -> raw.
  * Returns null if nothing valid is found, so the caller never sends junk.
  */
@@ -48,22 +50,25 @@ export function parseSignerOutput(text: string): SignerOutput | null {
   if (trimmed.startsWith('{')) {
     try {
       const obj = JSON.parse(trimmed) as Record<string, unknown>;
+      // CIP-30 COSE output (cardano-signer --cip30, cardano-hw-cli message sign):
+      // { COSE_Sign1_hex, COSE_Key_hex }. Checked first because cardano-hw-cli
+      // also writes signatureHex/publicKeyHex, and that signature covers the COSE
+      // Sig_structure rather than the raw challenge.
+      const coseSig = firstString(obj.COSE_Sign1_hex, obj.cose_sign1_hex);
+      const coseKey = firstString(obj.COSE_Key_hex, obj.cose_key_hex);
+      if (coseSig && coseKey) {
+        const signatureHex = coseSig.toLowerCase();
+        const keyHex = coseKey.toLowerCase();
+        return isHex(signatureHex, MAX_SIG_HEX_LEN) && isHex(keyHex, MAX_KEY_HEX_LEN)
+          ? { kind: 'cose', signatureHex, keyHex }
+          : null;
+      }
       // Plain raw output: { signature, publicKey }.
       const sig = firstString(obj.signature, obj.signatureHex);
       const pub = firstString(obj.publicKey, obj.publicKeyHex, obj.pubKey);
       if (sig && pub) {
         const out = { signatureHex: sig.toLowerCase(), publicKeyHex: pub.toLowerCase() };
         return isValidRawPair(out) ? { kind: 'raw', ...out } : null;
-      }
-      // CIP-30 COSE output (cardano-signer --cip30): { COSE_Sign1_hex, COSE_Key_hex }.
-      const coseSig = firstString(obj.COSE_Sign1_hex, obj.cose_sign1_hex);
-      const coseKey = firstString(obj.COSE_Key_hex, obj.cose_key_hex);
-      if (coseSig && coseKey) {
-        const signatureHex = coseSig.toLowerCase();
-        const keyHex = coseKey.toLowerCase();
-        if (isHex(signatureHex, MAX_SIG_HEX_LEN) && isHex(keyHex, MAX_KEY_HEX_LEN)) {
-          return { kind: 'cose', signatureHex, keyHex };
-        }
       }
       return null;
     } catch {
