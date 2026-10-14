@@ -25,6 +25,10 @@ export const GET: APIRoute = async ({ site }) => {
     { path: '/help/' },
     { path: '/match/' },
     { path: '/analytics/' },
+    { path: '/discussions/' },
+    { path: '/dreps/' },
+    { path: '/dreps/movers/' },
+    { path: '/treasury/' },
     { path: '/governance-review/' },
     ...(await getCollection('review')).map((e) => ({
       path: `/governance-review/${slugFor(e.data.epochFrom, e.data.epochTo)}/`,
