@@ -11,7 +11,10 @@
 //        (default: dist/server and dist/client/_astro, each checked on its own)
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
-import { init, parse } from 'es-module-lexer';
+// The minimal entry keeps the v2 record shape (n, d) this script reads. The main
+// entry of es-module-lexer 3 returns records with other field names, and reading
+// n/d from those finds no imports at all, which would pass every build.
+import { init, parse } from 'es-module-lexer/minimal';
 
 const roots = (process.argv.length > 2 ? process.argv.slice(2) : ['dist/server', 'dist/client/_astro']).map((d) => resolve(d));
 
@@ -27,10 +30,19 @@ function jsFiles(dir) {
 // miscounts import-like text inside strings or comments and misses legal forms
 // such as string-named bindings. Only static imports and re-exports (d === -1)
 // count, and only relative specifiers point at other chunks.
-await init;
+await init();
 function staticRelativeImports(source) {
   const [imports] = parse(source);
   return imports.filter((i) => i.d === -1 && i.n && /^\.{1,2}\//.test(i.n)).map((i) => i.n);
+}
+
+// Self-test before trusting the lexer: a static import and a re-export must come
+// back as static relative edges and a dynamic import must not. If the record
+// shape ever changes again, this fails loudly instead of every build passing.
+const probe = staticRelativeImports("import a from './a.js'; export { b } from '../b.js'; import('./c.js');");
+if (probe.join(',') !== './a.js,../b.js') {
+  console.error(`check-chunk-cycles: import lexer self-test failed (got [${probe.join(', ')}]).`);
+  process.exit(1);
 }
 
 function cyclesIn(root) {
@@ -60,11 +72,12 @@ function cyclesIn(root) {
   for (const file of files) if (!state.has(file)) visit(file, []);
 
   const label = relative(process.cwd(), root) || root;
+  const edgeCount = [...edges.values()].reduce((n, e) => n + e.length, 0);
   if (cycles.length > 0) {
     console.error(`${label}: chunks import each other (${cycles.length} cycle(s)):`);
     for (const cycle of cycles) console.error(`  ${cycle.map((f) => relative(root, f)).join(' -> ')}`);
   } else {
-    console.log(`${label}: no import cycles between ${files.length} chunks.`);
+    console.log(`${label}: no import cycles between ${files.length} chunks (${edgeCount} imports checked).`);
   }
   return cycles.length;
 }
