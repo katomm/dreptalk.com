@@ -29,7 +29,7 @@ import {
 } from '@/lib/governance/govActionFormState.js';
 import { guardrailDecision } from '@/lib/governance/guardrailScript.js';
 import { matchesRef } from '@/lib/governance/prevAction.js';
-import { drepThresholdPct } from '@/lib/governance/thresholds.js';
+import { drepThresholdPct, spoThresholdPct } from '@/lib/governance/thresholds.js';
 import type { ActionContextResponse } from '@/lib/governance/actionContextHandler.js';
 import type { ProtocolParams } from '@/lib/db/protocolParams.js';
 import type { NetworkConfig } from '@/lib/config/network.js';
@@ -212,7 +212,9 @@ export default function ParamChangePanel({
   const rewardsHost = rewardKeys.length === 1 && (rewardKeys[0] === 'k' || rewardKeys[0] === 'a0') ? rewardKeys[0] : null;
   const rewardBasis = useRewardBasis(current, next);
   const combinedId = useId();
-  const drepPct = drepThresholdPct('ParameterChange', protocolParams, scopeForKeys(picked));
+  const scope = scopeForKeys(picked);
+  const drepPct = drepThresholdPct('ParameterChange', protocolParams, scope);
+  const spoPct = spoThresholdPct(protocolParams, scope);
   // The island already shows the guardrail problem, the summary does not repeat it.
   const reason = !validation.ok && guardrail.ok ? validation.error : null;
 
@@ -337,6 +339,8 @@ export default function ParamChangePanel({
           current={current}
           errors={errors}
           drepPct={drepPct}
+          spoVotes={scope.touchesSecurity}
+          spoPct={spoPct}
           ccQuorum={ccQuorum}
           deposit={deposit}
           govActionLifetime={govActionLifetime}

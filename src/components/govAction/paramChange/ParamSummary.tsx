@@ -24,6 +24,10 @@ export interface ParamSummaryProps {
   errors: Partial<Record<ParamKey, string>>;
   /** DRep threshold in percent for the picked groups, null while unknown. */
   drepPct: number | null;
+  /** Whether the picked parameters bring the stake pool vote. */
+  spoVotes: boolean;
+  /** SPO threshold in percent, null while unknown. */
+  spoPct: number | null;
   ccQuorum: { numerator: number; denominator: number } | null;
   deposit: DepositState;
   govActionLifetime: number | null;
@@ -58,6 +62,8 @@ export default function ParamSummary({
   current,
   errors,
   drepPct,
+  spoVotes,
+  spoPct,
   ccQuorum,
   deposit,
   govActionLifetime,
@@ -116,10 +122,22 @@ export default function ParamSummary({
         <div className="pcp-thr" aria-hidden="true">
           {ccPct !== null && <i style={{ left: `${ccPct}%` }} />}
         </div>
-        <div className="pcp-kv">
-          <span>Stake pools</span>
-          <span>do not vote on these</span>
-        </div>
+        {spoVotes ? (
+          <>
+            <div className="pcp-who">
+              <span>Stake pools</span>
+              <b>{spoPct === null ? 'unknown' : `${spoPct}% yes`}</b>
+            </div>
+            <div className="pcp-thr" aria-hidden="true">
+              {spoPct !== null && <i style={{ left: `${spoPct}%` }} />}
+            </div>
+          </>
+        ) : (
+          <div className="pcp-kv">
+            <span>Stake pools</span>
+            <span>do not vote on these</span>
+          </div>
+        )}
       </div>
 
       <div className="pcp-scard pcp-scard--facts">

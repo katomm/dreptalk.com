@@ -2316,6 +2316,65 @@ html[data-theme='dark'] .pcp-panel {
 .pcp-bins__mark--new {
   background: var(--accent);
 }
+/* Minimum ada chart of the UTxO cost per byte card: name, paired bars, values. */
+.pcp-utxo {
+  display: grid;
+  gap: 10px;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.pcp-utxo__row {
+  display: grid;
+  grid-template-columns: 9rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 12px;
+}
+.pcp-utxo__name {
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  min-width: 0;
+}
+.pcp-utxo__bytes {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.pcp-utxo__bars {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.pcp-utxo__bar {
+  display: block;
+  height: 0.5rem;
+  border-radius: 2px;
+}
+.pcp-utxo__bar--now {
+  background: var(--pcp-bar);
+}
+.pcp-utxo__bar--new {
+  background: var(--accent);
+}
+.pcp-utxo__val {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.pcp-utxo__val b {
+  color: var(--fg);
+}
+@media (max-width: 480px) {
+  .pcp-utxo__row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .pcp-utxo__bars {
+    grid-column: 1 / -1;
+    order: 3;
+  }
+}
 .pcp-legend {
   display: flex;
   flex-wrap: wrap;

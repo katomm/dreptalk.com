@@ -17,6 +17,7 @@ import ImpactSaturation from './ImpactSaturation.js';
 import ImpactRewards, { type RewardBasis } from './ImpactRewards.js';
 import ImpactMinPoolCost from './ImpactMinPoolCost.js';
 import ImpactBudget from './ImpactBudget.js';
+import ImpactUtxoCost from './ImpactUtxoCost.js';
 import { DataSource } from './chart.js';
 
 export interface ParamCardProps {
@@ -110,6 +111,10 @@ type ImpactProps = Pick<
 > & { next: Rational };
 
 function Impact({ paramKey, current, next, economics, onRetryEconomics, model, rewards, rewardBasis, network }: ImpactProps) {
+  // The minimum ada chart reads no pool data, so it skips the pool data gate.
+  if (paramKey === 'utxoCostPerByte') {
+    return current ? <ImpactUtxoCost currentLovelace={current.n / current.d} nextLovelace={next.n / next.d} /> : null;
+  }
   // The combined section below the cards shows the pool data state and the chart for a0.
   if (paramKey === 'a0' && rewards === 'combined') {
     return <p className="pcp-why">Its effect on pool rewards is shown under Combined impact below.</p>;
@@ -165,6 +170,7 @@ export default function ParamCard({ raw, error, onInput, onRemove, disabled = fa
         </div>
         <div className="pcp-card__side">
           <span className="pcp-group">{groupLabel(paramKey)} group</span>
+          {def.security && <span className="pcp-group">Stake pools vote</span>}
           <button type="button" className="pcp-card__remove" onClick={onRemove} disabled={disabled}>
             Remove
           </button>
