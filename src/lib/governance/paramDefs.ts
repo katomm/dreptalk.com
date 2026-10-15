@@ -1,10 +1,10 @@
-// The five staking parameters the submit form can change, as one table: the
-// single source for the panel, the impact model, the evaluate route's check
-// and the tests. Bounds are the constitution's guardrails
+// The six parameters the submit form can change, as one table: the single
+// source for the panel, the impact model, the evaluate route's check and the
+// tests. Bounds are the constitution's guardrails
 // (IntersectMBO/plutus cardano-constitution/data/defaultConstitution.json,
-// keys "8", "9", "16", "10", "11", fetched 2026-10-07). The devnet test
-// proves them against the deployed script, and where the two disagree the
-// script wins. Leaf module, no SDK import.
+// keys "8", "9", "16", "10", "11" fetched 2026-10-07, "17" fetched
+// 2026-10-15). The devnet test proves them against the deployed script, and
+// where the two disagree the script wins. Leaf module, no SDK import.
 import {
   compareRational,
   equalRational,
@@ -18,28 +18,32 @@ import {
 } from '../format/rational.js';
 import type { ParamChangeScope } from './thresholds.js';
 
-export type ParamKey = 'k' | 'a0' | 'minPoolCost' | 'rho' | 'tau';
-export const PARAM_KEYS: readonly ParamKey[] = ['k', 'a0', 'minPoolCost', 'rho', 'tau'];
+export type ParamKey = 'k' | 'a0' | 'minPoolCost' | 'rho' | 'tau' | 'utxoCostPerByte';
+export const PARAM_KEYS: readonly ParamKey[] = ['k', 'a0', 'minPoolCost', 'rho', 'tau', 'utxoCostPerByte'];
 export type ParamValues = Partial<Record<ParamKey, Rational>>;
 
 export interface ParamDef {
   key: ParamKey;
   /** The camelCase key in the on-chain payload (Koios proposal_description). */
-  ledgerKey: 'stakePoolTargetNum' | 'poolPledgeInfluence' | 'minPoolCost' | 'monetaryExpansion' | 'treasuryCut';
+  ledgerKey: 'stakePoolTargetNum' | 'poolPledgeInfluence' | 'minPoolCost' | 'monetaryExpansion' | 'treasuryCut' | 'coinsPerUTxOByte';
   /** The field on the SDK's ProtocolParamUpdate. */
-  sdkField: 'nOpt' | 'poolPledgeInfluence' | 'minPoolCost' | 'expansionRate' | 'treasuryGrowthRate';
-  cddlKey: 8 | 9 | 16 | 10 | 11;
+  sdkField: 'nOpt' | 'poolPledgeInfluence' | 'minPoolCost' | 'expansionRate' | 'treasuryGrowthRate' | 'adaPerUtxoByte';
+  cddlKey: 8 | 9 | 16 | 10 | 11 | 17;
   group: 'technical' | 'economic';
   title: string;
   short: string;
-  /** How the field is typed: a whole number, a decimal, ada, or percent. */
-  input: 'int' | 'decimal' | 'ada' | 'percent';
+  /** How the field is typed: a whole number, whole lovelace, a decimal, ada, or percent. */
+  input: 'int' | 'lovelace' | 'decimal' | 'ada' | 'percent';
   places: number;
   /** Bounds in the canonical unit: the integer, the rational, or lovelace. */
   min: Rational;
   max: Rational;
   /** The key in Koios /epoch_params. */
-  koiosKey: 'optimal_pool_count' | 'influence' | 'min_pool_cost' | 'monetary_expand_rate' | 'treasury_growth_rate';
+  /** Security-relevant (constitution PARAM-03a): stake pools vote on top of DReps and the committee. */
+  security: boolean;
+  /** Lists show the title alone, the short name is just the ledger key. */
+  listByTitle: boolean;
+  koiosKey: 'optimal_pool_count' | 'influence' | 'min_pool_cost' | 'monetary_expand_rate' | 'treasury_growth_rate' | 'coins_per_utxo_size';
 }
 
 const q = (n: bigint, d = 1n): Rational => ({ n, d });
@@ -48,42 +52,52 @@ export const PARAM_DEFS: Record<ParamKey, ParamDef> = {
   k: {
     key: 'k', ledgerKey: 'stakePoolTargetNum', sdkField: 'nOpt', cddlKey: 8, group: 'technical',
     title: 'Target number of pools', short: 'k', input: 'int', places: 0,
-    min: q(250n), max: q(2000n), koiosKey: 'optimal_pool_count',
+    min: q(250n), max: q(2000n), koiosKey: 'optimal_pool_count', security: false, listByTitle: false,
   },
   a0: {
     key: 'a0', ledgerKey: 'poolPledgeInfluence', sdkField: 'poolPledgeInfluence', cddlKey: 9, group: 'technical',
     title: 'Pledge influence', short: 'a0', input: 'decimal', places: 3,
-    min: q(1n, 10n), max: q(1n), koiosKey: 'influence',
+    min: q(1n, 10n), max: q(1n), koiosKey: 'influence', security: false, listByTitle: false,
   },
   minPoolCost: {
     key: 'minPoolCost', ledgerKey: 'minPoolCost', sdkField: 'minPoolCost', cddlKey: 16, group: 'economic',
     title: 'Minimum pool cost', short: 'minPoolCost', input: 'ada', places: 6,
-    min: q(0n), max: q(500_000_000n), koiosKey: 'min_pool_cost',
+    min: q(0n), max: q(500_000_000n), koiosKey: 'min_pool_cost', security: false, listByTitle: true,
   },
   rho: {
     key: 'rho', ledgerKey: 'monetaryExpansion', sdkField: 'expansionRate', cddlKey: 10, group: 'economic',
     title: 'Monetary expansion', short: 'rho', input: 'percent', places: 4,
-    min: q(1n, 1000n), max: q(5n, 1000n), koiosKey: 'monetary_expand_rate',
+    min: q(1n, 1000n), max: q(5n, 1000n), koiosKey: 'monetary_expand_rate', security: false, listByTitle: false,
   },
   tau: {
     key: 'tau', ledgerKey: 'treasuryCut', sdkField: 'treasuryGrowthRate', cddlKey: 11, group: 'economic',
     title: 'Treasury cut', short: 'tau', input: 'percent', places: 2,
-    min: q(1n, 10n), max: q(3n, 10n), koiosKey: 'treasury_growth_rate',
+    min: q(1n, 10n), max: q(3n, 10n), koiosKey: 'treasury_growth_rate', security: false, listByTitle: false,
+  },
+  utxoCostPerByte: {
+    key: 'utxoCostPerByte', ledgerKey: 'coinsPerUTxOByte', sdkField: 'adaPerUtxoByte', cddlKey: 17, group: 'economic',
+    title: 'UTxO cost per byte', short: 'utxoCostPerByte', input: 'lovelace', places: 0,
+    min: q(3000n), max: q(6500n), koiosKey: 'coins_per_utxo_size', security: true, listByTitle: true,
   },
 };
 
 /**
  * The parameter's name in lists that also show other parameters (the
  * on-chain changes on the action page, the review and the action rows):
- * the title with the short name in parentheses. minPoolCost has no short
- * name of its own, its title says it all.
+ * the title with the short name in parentheses. Parameters flagged listByTitle
+ * have no short name of their own, their title says it all.
  */
 export function paramListLabel(key: ParamKey): string {
   const def = PARAM_DEFS[key];
-  return key === 'minPoolCost' ? def.title : `${def.title} (${def.short})`;
+  return def.listByTitle ? def.title : `${def.title} (${def.short})`;
 }
 
-/** The DRep groups the offered parameters touch. None is security-relevant, so stake pools never vote. */
+/** The titles of the security-relevant parameters, in table order. */
+export function securityParamTitles(): string[] {
+  return PARAM_KEYS.filter((key) => PARAM_DEFS[key].security).map((key) => PARAM_DEFS[key].title);
+}
+
+/** The type card's scope before any pick, replaced by offeredParamChangeSentence in Task 4. */
 export const OFFERED_PARAM_SCOPE: ParamChangeScope = { groups: ['technical', 'economic'], touchesSecurity: false };
 
 /** Scales a typed number into the canonical unit. */
@@ -112,6 +126,7 @@ export function formatParamValue(key: ParamKey, value: Rational): string {
   const def = PARAM_DEFS[key];
   if (def.input === 'ada') return formatLovelaceExact(value.n / value.d);
   if (def.input === 'percent') return formatRationalPercent(value);
+  if (def.input === 'lovelace') return `${(value.n / value.d).toLocaleString('en-US')} lovelace/byte`;
   if (def.input === 'int') return (value.n / value.d).toLocaleString('en-US');
   return formatRationalDecimal(value);
 }
@@ -121,10 +136,10 @@ export function groupLabel(key: ParamKey): string {
   return PARAM_DEFS[key].group === 'technical' ? 'Technical' : 'Economic';
 }
 
-/** The DRep groups a set of picked parameters touches. None is security-relevant. */
+/** The DRep groups a set of picked parameters touches, and whether stake pools vote. */
 export function scopeForKeys(keys: readonly ParamKey[]): ParamChangeScope {
   const groups = [...new Set(keys.map((key) => PARAM_DEFS[key].group))];
-  return { groups, touchesSecurity: false };
+  return { groups, touchesSecurity: keys.some((key) => PARAM_DEFS[key].security) };
 }
 
 /**
@@ -139,7 +154,7 @@ export function changesParagraph(next: ParamValues, current: ParamValues): strin
     if (!to || !from) return [];
     const def = PARAM_DEFS[key];
     return [
-      `- ${def.title} (${def.short}): ${formatParamValue(key, from)} to ${formatParamValue(key, to)}. The constitution allows ${formatParamValue(key, def.min)} to ${formatParamValue(key, def.max)}.`,
+      `- ${paramListLabel(key)}: ${formatParamValue(key, from)} to ${formatParamValue(key, to)}. The constitution allows ${formatParamValue(key, def.min)} to ${formatParamValue(key, def.max)}.`,
     ];
   });
   return lines.length ? `Changes:\n\n${lines.join('\n')}` : '';

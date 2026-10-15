@@ -56,6 +56,7 @@ function deltaLabel(key: ParamKey, next: Rational, current: Rational): string {
   if (input === 'ada') return `${sign}${formatLovelaceExact(diff.n / diff.d)}`;
   if (input === 'percent') return `${sign}${formatRationalDecimal({ n: diff.n * 100n, d: diff.d })} pp`;
   if (input === 'int') return `${sign}${(diff.n / diff.d).toLocaleString('en-US')}`;
+  if (input === 'lovelace') return `${sign}${(diff.n / diff.d).toLocaleString('en-US')} lovelace/byte`;
   return `${sign}${formatRationalDecimal(diff)}`;
 }
 
@@ -160,7 +161,7 @@ export default function ParamCard({ raw, error, onInput, onRemove, disabled = fa
       <div className="pcp-card__head">
         <div className="pcp-card__name">
           <div className="pcp-card__title">{def.title}</div>
-          <div className="pcp-card__key">{def.key === 'minPoolCost' ? def.ledgerKey : `${def.short} · ${def.ledgerKey}`}</div>
+          <div className="pcp-card__key">{def.listByTitle ? def.ledgerKey : `${def.short} · ${def.ledgerKey}`}</div>
         </div>
         <div className="pcp-card__side">
           <span className="pcp-group">{groupLabel(paramKey)} group</span>
@@ -189,6 +190,9 @@ export default function ParamCard({ raw, error, onInput, onRemove, disabled = fa
           />
           {unit && <span className="pcp-inp__unit">{unit}</span>}
         </span>
+        {def.input === 'lovelace' && next && (
+          <span className="pcp-inp__hint">{formatLovelaceExact(next.n / next.d)} per byte</span>
+        )}
         {next && current && <span className="pcp-delta">{deltaLabel(paramKey, next, current)}</span>}
       </div>
 

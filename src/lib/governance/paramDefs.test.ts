@@ -7,14 +7,17 @@ import {
   currentParamValues,
   scopeForKeys,
   formatParamValue,
+  paramListLabel,
   parseParamInput,
+  securityParamTitles,
   valuesFromJson,
   valuesToJson,
 } from './paramDefs.js';
+import { SECURITY_PARAMS } from './onchain.js';
 const r = (n: bigint, d: bigint) => ({ n, d });
 
-// The five entries of IntersectMBO/plutus cardano-constitution/data/defaultConstitution.json
-// (fetched 2026-10-07) that the table copies, predicates verbatim minus the comments.
+// The six entries of IntersectMBO/plutus cardano-constitution/data/defaultConstitution.json
+// (fetched 2026-10-07, key 17 on 2026-10-15) that the table copies, predicates verbatim minus the comments.
 const GUARDRAIL_CONFIG: Record<string, { predicates: Record<string, unknown>[] }> = {
   '8': { predicates: [{ minValue: 250 }, { maxValue: 2000 }, { minValue: 0 }, { notEqual: 0 }] },
   '9': {
@@ -40,6 +43,7 @@ const GUARDRAIL_CONFIG: Record<string, { predicates: Record<string, unknown>[] }
     ],
   },
   '16': { predicates: [{ minValue: 0 }, { maxValue: 500000000 }] },
+  '17': { predicates: [{ minValue: 3000 }, { maxValue: 6500 }, { notEqual: 0 }, { minValue: 0 }] },
 };
 
 describe('PARAM_DEFS', () => {
@@ -109,10 +113,14 @@ describe('scope and changes paragraph', () => {
   it('derives the touched groups from the picked parameters', () => {
     expect(scopeForKeys(['minPoolCost'])).toEqual({ groups: ['economic'], touchesSecurity: false });
     expect(scopeForKeys(['k', 'tau'])).toEqual({ groups: ['technical', 'economic'], touchesSecurity: false });
+    expect(scopeForKeys(['k', 'utxoCostPerByte'])).toEqual({ groups: ['technical', 'economic'], touchesSecurity: true });
   });
   it('writes one line per changed parameter with its range', () => {
     expect(changesParagraph({ k: r(600n, 1n), tau: r(1n, 4n) }, { k: r(500n, 1n), tau: r(1n, 5n) })).toBe(
       'Changes:\n\n- Target number of pools (k): 500 to 600. The constitution allows 250 to 2,000.\n- Treasury cut (tau): 20% to 25%. The constitution allows 10% to 30%.',
+    );
+    expect(changesParagraph({ minPoolCost: r(200_000_000n, 1n), utxoCostPerByte: r(3500n, 1n) }, { minPoolCost: r(170_000_000n, 1n), utxoCostPerByte: r(4310n, 1n) })).toBe(
+      'Changes:\n\n- Minimum pool cost: 170 ₳ to 200 ₳. The constitution allows 0 ₳ to 500 ₳.\n- UTxO cost per byte: 4,310 lovelace/byte to 3,500 lovelace/byte. The constitution allows 3,000 lovelace/byte to 6,500 lovelace/byte.',
     );
     expect(changesParagraph({}, {})).toBe('');
   });
@@ -135,7 +143,7 @@ describe('display', () => {
 });
 
 describe('currentParamValues', () => {
-  it('reads the five keys from an epoch_params row', () => {
+  it('reads the six keys from an epoch_params row', () => {
     expect(
       currentParamValues({
         optimal_pool_count: 500,
@@ -154,5 +162,43 @@ describe('currentParamValues', () => {
   it('round-trips through JSON', () => {
     const v = { k: r(600n, 1n), rho: r(7n, 2000n) };
     expect(valuesFromJson(JSON.parse(JSON.stringify(valuesToJson(v))))).toEqual(v);
+  });
+});
+
+describe('utxoCostPerByte', () => {
+  it('is a whole lovelace number in the guardrail range', () => {
+    expect(parseParamInput('utxoCostPerByte', '4310')).toEqual({ ok: true, value: r(4310n, 1n) });
+    expect(parseParamInput('utxoCostPerByte', '4310.5')).toEqual({ ok: false, error: 'Enter a whole number.' });
+    expect(parseParamInput('utxoCostPerByte', '')).toMatchObject({ ok: false });
+    expect(parseParamInput('utxoCostPerByte', '3e3')).toMatchObject({ ok: false });
+    // A single comma is a decimal separator for parseDecimal, as for k.
+    expect(parseParamInput('utxoCostPerByte', '4,310')).toEqual({ ok: false, error: 'Enter a whole number.' });
+    expect(checkParamValue('utxoCostPerByte', r(2999n, 1n), null)).toBe(
+      'The constitution allows 3,000 lovelace/byte to 6,500 lovelace/byte. The guardrails script would reject this action, so it cannot be submitted.',
+    );
+    expect(checkParamValue('utxoCostPerByte', r(3000n, 1n), null)).toBeNull();
+    expect(checkParamValue('utxoCostPerByte', r(6500n, 1n), null)).toBeNull();
+    expect(checkParamValue('utxoCostPerByte', r(6501n, 1n), null)).not.toBeNull();
+  });
+  it('prints the unit', () => {
+    expect(formatParamValue('utxoCostPerByte', r(4310n, 1n))).toBe('4,310 lovelace/byte');
+  });
+  it('reads the current value from epoch_params', () => {
+    expect(currentParamValues({ coins_per_utxo_size: '4310' }).utxoCostPerByte).toEqual(r(4310n, 1n));
+    expect(currentParamValues({ coins_per_utxo_size: 4310 }).utxoCostPerByte).toEqual(r(4310n, 1n));
+  });
+});
+
+describe('flags', () => {
+  it('marks exactly the security-relevant parameters', () => {
+    for (const key of PARAM_KEYS) expect([key, PARAM_DEFS[key].security]).toEqual([key, SECURITY_PARAMS.has(PARAM_DEFS[key].ledgerKey)]);
+  });
+  it('lists parameters whose short name is their key by title only', () => {
+    expect(paramListLabel('minPoolCost')).toBe('Minimum pool cost');
+    expect(paramListLabel('utxoCostPerByte')).toBe('UTxO cost per byte');
+    expect(paramListLabel('k')).toBe('Target number of pools (k)');
+  });
+  it('names the security parameters', () => {
+    expect(securityParamTitles()).toEqual(['UTxO cost per byte']);
   });
 });

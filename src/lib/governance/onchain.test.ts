@@ -43,13 +43,14 @@ describe('formatValue', () => {
 });
 
 describe('PARAM_REGISTRY labels', () => {
-  it('takes the five offered parameters from paramDefs, title with the short name', () => {
+  it('takes the six offered parameters from paramDefs, title with the short name', () => {
     expect(PARAM_KEYS.map((key) => PARAM_REGISTRY[PARAM_DEFS[key].ledgerKey].label)).toEqual([
       'Target number of pools (k)',
       'Pledge influence (a0)',
       'Minimum pool cost',
       'Monetary expansion (rho)',
       'Treasury cut (tau)',
+      'UTxO cost per byte',
     ]);
     for (const key of PARAM_KEYS) expect(PARAM_REGISTRY[PARAM_DEFS[key].ledgerKey].label).toBe(paramListLabel(key));
   });

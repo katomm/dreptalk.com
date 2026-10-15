@@ -41,7 +41,7 @@ export const PARAM_REGISTRY: Record<string, ParamMeta> = {
   minPoolCost: { snake: 'min_pool_cost', group: 'Economic', label: paramListLabel('minPoolCost'), format: 'lovelace' },
   keyDeposit: { snake: 'key_deposit', group: 'Economic', label: 'Key deposit', format: 'lovelace' },
   poolDeposit: { snake: 'pool_deposit', group: 'Economic', label: 'Pool deposit', format: 'lovelace' },
-  coinsPerUTxOByte: { snake: 'coins_per_utxo_size', group: 'Economic', label: 'Coins per UTxO byte', format: 'lovelace' },
+  coinsPerUTxOByte: { snake: 'coins_per_utxo_size', group: 'Economic', label: paramListLabel('utxoCostPerByte'), format: 'lovelace' },
   maxBlockBodySize: { snake: 'max_block_size', group: 'Network', label: 'Max block body size', format: 'bytes' },
   maxTxSize: { snake: 'max_tx_size', group: 'Network', label: 'Max tx size', format: 'bytes' },
   maxBlockHeaderSize: { snake: 'max_bh_size', group: 'Network', label: 'Max block header size', format: 'bytes' },

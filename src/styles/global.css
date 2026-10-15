@@ -2032,6 +2032,11 @@ html[data-theme='dark'] .pcp-panel {
 .pcp-card[data-state='invalid'] .pcp-inp input {
   color: var(--danger);
 }
+.pcp-inp__hint {
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
 .pcp-delta {
   font-size: 13px;
   font-weight: 700;
