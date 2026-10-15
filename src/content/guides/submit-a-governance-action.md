@@ -15,7 +15,7 @@ faqs:
   - q: "Do I need a wallet to write a governance action?"
     a: "No. You can fill in the form, save it as a draft and review it without a wallet. You only connect a wallet in the last step, to pay the deposit and sign."
   - q: "Which governance actions can I submit?"
-    a: "Info actions, motions of no confidence, hard fork initiations, new constitutions, committee updates and, on preprod, treasury withdrawals and staking parameter changes. Parameter changes beyond the five staking parameters are not offered yet."
+    a: "Info actions, motions of no confidence, hard fork initiations, new constitutions, committee updates and, on preprod, treasury withdrawals and staking parameter changes. Parameter changes beyond the five staking parameters and the UTxO cost per byte are not offered yet."
   - q: "Why does a treasury withdrawal need my stake address to be registered?"
     a: "The ledger only pays treasury withdrawals to registered stake addresses. DRepTalk checks every recipient before you sign, so the transaction does not fail on-chain."
   - q: "Can I change a governance action after I submit it?"
@@ -96,11 +96,11 @@ addresses. On DRepTalk it is available on preprod for now.
 ## Protocol parameter changes
 
 A parameter change sets new values for the staking parameters that shape pool
-rewards. On DRepTalk it is available on preprod for now.
+rewards, and for the UTxO cost per byte. On DRepTalk it is available on preprod for now.
 
-- Pick any of five parameters, and several can go into one action: the target
+- Pick any of six parameters, and several can go into one action: the target
   number of pools (k), the pledge influence (a0), the minimum pool cost, the
-  monetary expansion (rho) and the treasury cut (tau).
+  monetary expansion (rho), the treasury cut (tau) and the UTxO cost per byte.
 - The form shows each parameter's current value and the range the constitution
   allows. It blocks values outside that range and values equal to the current one.
 - Impact panels show what the new values would do: the saturation point and the
@@ -108,8 +108,14 @@ rewards. On DRepTalk it is available on preprod for now.
   new minimum cost, and how the reserve draw splits between the treasury and
   stakers. They are a model at full block production and before fees, so read
   them as an estimate.
-- DReps and the Constitutional Committee decide these changes. Stake pools do
-  not vote on these five parameters.
+- The UTxO cost per byte sets the minimum ada every new output must hold. It
+  can range from 3,000 to 6,500 lovelace per byte, and today it is 4,310, which
+  puts a plain ada output at about 0.97 ada. Its impact panel shows the minimum
+  ada of four example outputs, now and with your value, and the minimum ada of a
+  10 KB reference script. Existing UTxOs keep their ada.
+- DReps and the Constitutional Committee decide these changes. Stake pools also
+  vote when the UTxO cost per byte changes, because it is a security-relevant
+  parameter.
 - The constitution's guardrails script checks every parameter change. DRepTalk
   runs that check before your wallet signs. If the script rejects the change,
   nothing is signed. The page says the script rejected it and, when the
