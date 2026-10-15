@@ -2118,6 +2118,13 @@ html[data-theme='dark'] .pcp-panel {
 .pcp-scale__end--max {
   right: 0;
 }
+/* End labels with a unit are long, so they sit a line below the "now" label. */
+.pcp-scale--unit {
+  margin-bottom: 54px;
+}
+.pcp-scale--unit .pcp-scale__end {
+  top: 36px;
+}
 .pcp-err {
   color: var(--danger);
   font-size: 13.5px;
@@ -2496,7 +2503,8 @@ html[data-theme='dark'] .pcp-panel {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 2px 8px;
   padding: 6px 0;
   border-bottom: 1px solid var(--border);
   font-size: 14px;
@@ -2516,6 +2524,9 @@ html[data-theme='dark'] .pcp-panel {
   font-weight: 600;
 }
 .pcp-ocx__val {
+  /* A long value (with a unit) drops under the name and wraps, old above new. */
+  margin-left: auto;
+  max-width: 100%;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }

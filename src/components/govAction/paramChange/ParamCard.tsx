@@ -68,7 +68,7 @@ function RangeScale({ paramKey, current, next }: { paramKey: ParamKey; current: 
   const pos = (r: Rational) => Math.max(0, Math.min(100, ((rationalToNumber(r) - min) / (max - min)) * 100));
   const outside = next !== null && (compareRational(next, def.min) < 0 || compareRational(next, def.max) > 0);
   return (
-    <div className="pcp-scale">
+    <div className={def.input === 'lovelace' ? 'pcp-scale pcp-scale--unit' : 'pcp-scale'}>
       <div className="pcp-scale__ok" />
       {current && (
         <div className="pcp-mark pcp-mark--now" style={{ left: `${pos(current)}%` }}>
