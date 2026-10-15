@@ -187,16 +187,22 @@ function payloadRational(v: unknown): Rational | null {
   return null;
 }
 
+/** A payload amount as a whole-number string, or null when it is anything else. */
+function wholeAmount(v: unknown): string | null {
+  const s = typeof v === 'number' ? (Number.isSafeInteger(v) ? String(v) : null) : typeof v === 'string' ? v : null;
+  return s !== null && /^\d+$/.test(s) ? s : null;
+}
+
 export function formatValue(fmt: Fmt, v: unknown): string {
   switch (fmt) {
     case 'lovelace': {
       // Exact, so a sub-ada change is never shown as no change.
-      const s = typeof v === 'number' ? (Number.isSafeInteger(v) ? String(v) : null) : typeof v === 'string' ? v : null;
-      return s !== null && /^\d+$/.test(s) ? formatLovelaceExact(BigInt(s)) : (formatAda(String(v)) ?? String(v));
+      const s = wholeAmount(v);
+      return s !== null ? formatLovelaceExact(BigInt(s)) : (formatAda(String(v)) ?? String(v));
     }
     case 'lovelacePerByte': {
-      const s = typeof v === 'number' ? (Number.isSafeInteger(v) ? String(v) : null) : typeof v === 'string' ? v : null;
-      return s !== null && /^\d+$/.test(s) ? `${BigInt(s).toLocaleString('en-US')} lovelace/byte` : String(v);
+      const s = wholeAmount(v);
+      return s !== null ? `${BigInt(s).toLocaleString('en-US')} lovelace/byte` : String(v);
     }
     case 'decimal': {
       const q = payloadRational(v);

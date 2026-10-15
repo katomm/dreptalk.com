@@ -12,15 +12,16 @@ const ada2 = (lovelace: bigint) =>
 const SCALE = Number(barScaleMaxLovelace(PARAM_DEFS.utxoCostPerByte.max.n));
 
 export default memo(function ImpactUtxoCost({ currentLovelace, nextLovelace }: { currentLovelace: bigint; nextLovelace: bigint }) {
-  const plain = EXAMPLE_OUTPUTS[0];
-  const summary = `Plain ada output: ${ada2(minAdaLovelace(plain.bytes, currentLovelace))} ₳ now, ${ada2(minAdaLovelace(plain.bytes, nextLovelace))} ₳ new.`;
+  const minAda = (bytes: number) => ({ now: minAdaLovelace(bytes, currentLovelace), next: minAdaLovelace(bytes, nextLovelace) });
+  const plain = minAda(EXAMPLE_OUTPUTS[0].bytes);
+  const script = minAda(REFERENCE_SCRIPT_OUTPUT.bytes);
+  const summary = `Plain ada output: ${ada2(plain.now)} ₳ now, ${ada2(plain.next)} ₳ new.`;
   const width = (lovelace: bigint) => `${(Number(lovelace) / SCALE) * 100}%`;
   return (
     <>
       <fieldset className="pcp-utxo" aria-label={summary}>
         {EXAMPLE_OUTPUTS.map((out) => {
-          const now = minAdaLovelace(out.bytes, currentLovelace);
-          const next = minAdaLovelace(out.bytes, nextLovelace);
+          const { now, next } = minAda(out.bytes);
           return (
             <div key={out.id} className="pcp-utxo__row">
               <span className="pcp-utxo__name">
@@ -43,12 +44,8 @@ export default memo(function ImpactUtxoCost({ currentLovelace, nextLovelace }: {
         <LegendItem color="var(--accent)">New</LegendItem>
       </div>
       <div className="pcp-stats">
-        <Stat label="Plain ada output" value={`${ada2(minAdaLovelace(plain.bytes, nextLovelace))} ₳`} from={`${ada2(minAdaLovelace(plain.bytes, currentLovelace))} ₳`} />
-        <Stat
-          label={REFERENCE_SCRIPT_OUTPUT.label}
-          value={`${ada2(minAdaLovelace(REFERENCE_SCRIPT_OUTPUT.bytes, nextLovelace))} ₳`}
-          from={`${ada2(minAdaLovelace(REFERENCE_SCRIPT_OUTPUT.bytes, currentLovelace))} ₳`}
-        />
+        <Stat label="Plain ada output" value={`${ada2(plain.next)} ₳`} from={`${ada2(plain.now)} ₳`} />
+        <Stat label={REFERENCE_SCRIPT_OUTPUT.label} value={`${ada2(script.next)} ₳`} from={`${ada2(script.now)} ₳`} />
       </div>
       <p className="pcp-why">
         Minimum ada per output is (160 + output size in bytes) × cost per byte. It is checked only when a transaction creates an output, existing UTxOs keep their ada.

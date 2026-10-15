@@ -106,8 +106,11 @@ function thresholdPctLabel(fraction: number | null): string {
  * closing clause, because the figures describe the normal state only: once a
  * no-confidence motion has passed, the ledger switches to the
  * *_committee_no_confidence thresholds, a state this form does not model.
+ * ParameterChange gets the offered-parameters sentence, because whether
+ * stake pools vote depends on the parameters picked later.
  */
 export function thresholdSentence(type: GovActionFormType, p: ProtocolParams): string {
+  if (type === 'ParameterChange') return offeredParamChangeSentence(p);
   // The form's type names differ from Koios's in one place (UpdateCommittee
   // vs NewCommittee), which prevAction.ts owns, so there is exactly one
   // threshold table here and one mapping there.
@@ -143,15 +146,19 @@ export function offeredParamChangeSentence(p: ProtocolParams): string {
 
 /** The SPO threshold in percent (one decimal) for a picked parameter scope, null when pools do not vote or the figure is unknown. */
 export function spoThresholdPct(p: ProtocolParams | null, scope: ParamChangeScope): number | null {
-  if (!p || !scope.touchesSecurity || p.pvtSecurityGroup == null) return null;
-  return Math.round(p.pvtSecurityGroup * 1000) / 10;
+  return p ? toPct(planParameterChange(scope, p).spo) : null;
 }
 
 /** The DRep threshold in percent (one decimal) for a type and parameter scope, null while unknown. */
 export function drepThresholdPct(type: GovActionFormType, p: ProtocolParams | null, paramScope?: ParamChangeScope): number | null {
   if (!p) return null;
   const pl = plan({ type: koiosProposalType(type), drepYesPct: null, spoYesPct: null, ccYesPct: null, paramScope }, p);
-  return pl?.drep == null ? null : Math.round(pl.drep * 1000) / 10;
+  return toPct(pl?.drep ?? null);
+}
+
+/** A threshold fraction in percent with one decimal, null while unknown. */
+function toPct(fraction: number | null): number | null {
+  return fraction == null ? null : Math.round(fraction * 1000) / 10;
 }
 
 // Non-null placeholder params for decidersLine's plan() probe. Only the

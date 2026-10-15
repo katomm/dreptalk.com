@@ -57,7 +57,7 @@ function deltaLabel(key: ParamKey, next: Rational, current: Rational): string {
   if (input === 'ada') return `${sign}${formatLovelaceExact(diff.n / diff.d)}`;
   if (input === 'percent') return `${sign}${formatRationalDecimal({ n: diff.n * 100n, d: diff.d })} pp`;
   if (input === 'int') return `${sign}${(diff.n / diff.d).toLocaleString('en-US')}`;
-  if (input === 'lovelace') return `${sign}${(diff.n / diff.d).toLocaleString('en-US')} lovelace/byte`;
+  if (input === 'lovelace') return `${sign}${formatParamValue(key, diff)}`;
   return `${sign}${formatRationalDecimal(diff)}`;
 }
 

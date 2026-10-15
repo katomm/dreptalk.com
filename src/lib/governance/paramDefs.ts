@@ -38,11 +38,11 @@ export interface ParamDef {
   /** Bounds in the canonical unit: the integer, the rational, or lovelace. */
   min: Rational;
   max: Rational;
-  /** The key in Koios /epoch_params. */
   /** Security-relevant (constitution PARAM-03a): stake pools vote on top of DReps and the committee. */
   security: boolean;
   /** Lists show the title alone, the short name is just the ledger key. */
   listByTitle: boolean;
+  /** The key in Koios /epoch_params. */
   koiosKey: 'optimal_pool_count' | 'influence' | 'min_pool_cost' | 'monetary_expand_rate' | 'treasury_growth_rate' | 'coins_per_utxo_size';
 }
 

@@ -5,7 +5,7 @@
 // the cards can never disagree with the Voting Information card on a GA page.
 import type { CSSProperties } from 'react';
 import type { GovActionFormType } from '@/lib/governance/prevAction.js';
-import { thresholdSentence, decidersLine, offeredParamChangeSentence } from '@/lib/governance/thresholds.js';
+import { thresholdSentence, decidersLine } from '@/lib/governance/thresholds.js';
 import type { ProtocolParams } from '@/lib/db/protocolParams.js';
 import type { DepositState } from '@/lib/governance/govActionFormState.js';
 import { formatAdaPlain } from '@/lib/format/ada.js';
@@ -120,11 +120,7 @@ export default function TypeSelector({ value, onChange, params, deposit, network
                 {t.summary}
               </span>
               <span style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--muted)', marginTop: '0.25rem' }}>
-                {params
-                  ? t.type === 'ParameterChange'
-                    ? offeredParamChangeSentence(params)
-                    : thresholdSentence(t.type, params)
-                  : 'Loading the current voting thresholds...'}
+                {params ? thresholdSentence(t.type, params) : 'Loading the current voting thresholds...'}
               </span>
               <span style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--muted)', marginTop: '0.15rem' }}>
                 {depositText}
