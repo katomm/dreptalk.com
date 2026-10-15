@@ -257,6 +257,8 @@ describe('parameter change on a devnet', () => {
       ['rho 5/1000', typed({ rho: '0.5' })],
       ['tau 1/10', typed({ tau: '10' })],
       ['tau 3/10', typed({ tau: '30' })],
+      ['utxoCostPerByte 3000', typed({ utxoCostPerByte: '3000' })],
+      ['utxoCostPerByte 6500', typed({ utxoCostPerByte: '6500' })],
     ];
     const invalid: [string, ProtocolParamUpdate.ProtocolParamUpdate][] = [
       ['k 249', new ProtocolParamUpdate.ProtocolParamUpdate({ nOpt: 249n })],
@@ -268,6 +270,8 @@ describe('parameter change on a devnet', () => {
       ['rho 5001/1000000', new ProtocolParamUpdate.ProtocolParamUpdate({ expansionRate: ui(5001n, 1_000_000n) })],
       ['tau 999/10000', new ProtocolParamUpdate.ProtocolParamUpdate({ treasuryGrowthRate: ui(999n, 10_000n) })],
       ['tau 3001/10000', new ProtocolParamUpdate.ProtocolParamUpdate({ treasuryGrowthRate: ui(3001n, 10_000n) })],
+      ['utxoCostPerByte 2999', new ProtocolParamUpdate.ProtocolParamUpdate({ adaPerUtxoByte: 2999n })],
+      ['utxoCostPerByte 6501', new ProtocolParamUpdate.ProtocolParamUpdate({ adaPerUtxoByte: 6501n })],
     ];
 
     for (const [label, values] of valid) {
