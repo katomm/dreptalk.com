@@ -6,6 +6,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { env } from 'cloudflare:test';
 import { CBOR, ProtocolParamUpdate } from '@evolution-sdk/evolution';
+import { buildParamUpdate } from './paramUpdate.js';
 import { handleEvaluate, EVALUATE_BODY_MAX_BYTES } from './evaluateHandler.js';
 import { GOV_ACTION_RATE_POLICIES } from './govActionGate.js';
 import * as rate from '../rate.js';
@@ -173,6 +174,13 @@ describe('handleEvaluate transaction checks', () => {
 
   it('accepts a parameter change of the offered parameters', async () => {
     const txCborHex = buildEvalTxHex({ proposals: [paramChangeProposal()] });
+    const res = await handleEvaluate(ctx(JSON.stringify({ txCborHex })), deps(upstream(200, OGMIOS_OK)));
+    expect(res.status).toBe(200);
+  });
+
+  it('accepts a parameter change of utxoCostPerByte alone', async () => {
+    const update = buildParamUpdate({ utxoCostPerByte: { n: 3500n, d: 1n } });
+    const txCborHex = buildEvalTxHex({ proposals: [paramChangeProposal(update)] });
     const res = await handleEvaluate(ctx(JSON.stringify({ txCborHex })), deps(upstream(200, OGMIOS_OK)));
     expect(res.status).toBe(200);
   });

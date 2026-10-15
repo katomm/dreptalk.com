@@ -89,7 +89,7 @@ describe('per-type wording', () => {
   it('words an unsupported parameter change', () => {
     const err = new Error('unsupported_parameter_change', { cause: { code: 'unsupported_parameter_change', detail: null } });
     expect(mapGuardrailBuildError(err, 'ParameterChange')?.message).toBe(
-      "DRepTalk only submits changes to k, a0, minPoolCost, rho and tau within the constitution's limits.",
+      "DRepTalk only submits changes to k, a0, minPoolCost, rho, tau and utxoCostPerByte within the constitution's limits.",
     );
   });
 

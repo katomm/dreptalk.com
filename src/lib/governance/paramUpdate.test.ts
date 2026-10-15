@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { CBOR, NonnegativeInterval, ProtocolParamUpdate, UnitInterval } from '@evolution-sdk/evolution';
 import { buildEvalTxHex, paramChangeProposal } from './__fixtures__/evaluateTx.js';
-import { buildParamUpdate, paramUpdateKeysInTx, parseParamUpdate } from './paramUpdate.js';
+import { OFFERED_CDDL_KEYS, buildParamUpdate, paramUpdateKeysInTx, parseParamUpdate } from './paramUpdate.js';
 
 const r = (n: bigint, d: bigint) => ({ n, d });
 
@@ -58,5 +58,20 @@ describe('paramUpdateKeysInTx', () => {
   });
   it('answers null for bytes that are no transaction', () => {
     expect(paramUpdateKeysInTx('ff')).toBeNull();
+  });
+});
+
+describe('utxoCostPerByte', () => {
+  it('builds and parses key 17 as whole lovelace', () => {
+    const update = buildParamUpdate({ utxoCostPerByte: { n: 3500n, d: 1n } });
+    expect(update.adaPerUtxoByte).toBe(3500n);
+    expect(parseParamUpdate(update)).toEqual({ ok: true, values: { utxoCostPerByte: { n: 3500n, d: 1n } } });
+  });
+  it('refuses a value outside the guardrail range', () => {
+    const update = new ProtocolParamUpdate.ProtocolParamUpdate({ adaPerUtxoByte: 2999n } as never);
+    expect(parseParamUpdate(update)).toEqual({ ok: false, reason: 'out_of_range', field: 'adaPerUtxoByte' });
+  });
+  it('offers CDDL key 17', () => {
+    expect(OFFERED_CDDL_KEYS.has(17)).toBe(true);
   });
 });

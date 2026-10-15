@@ -21,6 +21,7 @@ import {
   chosenPrev,
   panelStatesFromDraft,
   validateParamChangePanel,
+  describeParamChangePanel,
   paramFieldErrors,
   type GovActionFormState,
   type RecipientCheckState,
@@ -2027,6 +2028,37 @@ describe('parameter change panel', () => {
         draft({ panels: { ParameterChange: { picked: ['k', 'zz', 'k'], inputs: { k: 7, zz: 'x' } } } }),
       ).ParameterChange,
     ).toEqual(panel(['k'], {}));
+  });
+
+  it('restores a draft with utxoCostPerByte picked, including an unparsable input', () => {
+    const saved = draftFromState({
+      ...initialGovActionFormState(),
+      type: 'ParameterChange' as const,
+      panels: { ...emptyPanelStates(), ParameterChange: panel(['k', 'utxoCostPerByte'], { k: '600', utxoCostPerByte: '35OO' }) },
+    });
+    const restored = panelStatesFromDraft(JSON.parse(JSON.stringify(saved)));
+    expect(restored.ParameterChange).toEqual(panel(['k', 'utxoCostPerByte'], { k: '600', utxoCostPerByte: '35OO' }));
+  });
+
+  it('restores a draft with utxoCostPerByte picked and no input yet', () => {
+    const saved = draftFromState({
+      ...initialGovActionFormState(),
+      type: 'ParameterChange' as const,
+      panels: { ...emptyPanelStates(), ParameterChange: panel(['utxoCostPerByte'], {}) },
+    });
+    expect(panelStatesFromDraft(JSON.parse(JSON.stringify(saved))).ParameterChange).toEqual(panel(['utxoCostPerByte'], {}));
+  });
+
+  it('restores an old draft without utxoCostPerByte unchanged', () => {
+    // Shape of a draft saved before the sixth parameter existed.
+    const old = draft({ panels: { ParameterChange: { prev: null, picked: ['tau'], inputs: { tau: '25' } } } });
+    expect(panelStatesFromDraft(old).ParameterChange).toEqual(panel(['tau'], { tau: '25' }));
+  });
+
+  it('puts utxoCostPerByte in the preview payload as a whole number', () => {
+    const { payloadPart, missing } = describeParamChangePanel(panel(['utxoCostPerByte'], { utxoCostPerByte: '3500' }), null);
+    expect(payloadPart).toEqual({ coinsPerUTxOByte: '3500' });
+    expect(missing).toEqual(['Guardrails script']);
   });
 
   it('chains through the chosen previous action', () => {

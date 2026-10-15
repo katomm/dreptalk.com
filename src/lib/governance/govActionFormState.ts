@@ -1774,7 +1774,9 @@ export function describeParamChangePanel(
     const def = PARAM_DEFS[key];
     const { n, d } = parsed.value;
     payloadPart[def.ledgerKey] =
-      def.input === 'int' || def.input === 'ada' ? (n / d).toString() : { numerator: Number(n), denominator: Number(d) };
+      def.input === 'int' || def.input === 'ada' || def.input === 'lovelace'
+        ? (n / d).toString()
+        : { numerator: Number(n), denominator: Number(d) };
   }
   if (!guardrailDecision(context?.guardrail).ok) missing.push('Guardrails script');
   return { payloadPart, missing };
