@@ -11,7 +11,7 @@ import type { CardanoNetwork } from '../config/network.js';
 import type { ParamGroup, ParamChangeScope } from './thresholds.js';
 import { paramListLabel } from './paramDefs.js';
 
-export type Fmt = 'lovelace' | 'ratio' | 'decimal' | 'percent' | 'int' | 'bytes' | 'exUnits' | 'costModels';
+export type Fmt = 'lovelace' | 'lovelacePerByte' | 'ratio' | 'decimal' | 'percent' | 'int' | 'bytes' | 'exUnits' | 'costModels';
 
 export interface ParamMeta {
   snake: string;
@@ -24,7 +24,7 @@ export interface ParamMeta {
 // used for old→new. snake '' means "no comparable scalar in epoch_params" (new only).
 // All keys here were observed in real preprod/mainnet payloads or are standard
 // Conway-updatable parameters, unknown keys fall back to a humanized label.
-// Labels are sentence case. The five parameters the submit form offers take
+// Labels are sentence case. The six parameters the submit form offers take
 // theirs from paramDefs.ts, so the form and this list never drift apart.
 export const PARAM_REGISTRY: Record<string, ParamMeta> = {
   govActionDeposit: { snake: 'gov_action_deposit', group: 'Governance', label: 'Governance action deposit', format: 'lovelace' },
@@ -41,7 +41,7 @@ export const PARAM_REGISTRY: Record<string, ParamMeta> = {
   minPoolCost: { snake: 'min_pool_cost', group: 'Economic', label: paramListLabel('minPoolCost'), format: 'lovelace' },
   keyDeposit: { snake: 'key_deposit', group: 'Economic', label: 'Key deposit', format: 'lovelace' },
   poolDeposit: { snake: 'pool_deposit', group: 'Economic', label: 'Pool deposit', format: 'lovelace' },
-  coinsPerUTxOByte: { snake: 'coins_per_utxo_size', group: 'Economic', label: paramListLabel('utxoCostPerByte'), format: 'lovelace' },
+  coinsPerUTxOByte: { snake: 'coins_per_utxo_size', group: 'Economic', label: paramListLabel('utxoCostPerByte'), format: 'lovelacePerByte' },
   maxBlockBodySize: { snake: 'max_block_size', group: 'Network', label: 'Max block body size', format: 'bytes' },
   maxTxSize: { snake: 'max_tx_size', group: 'Network', label: 'Max tx size', format: 'bytes' },
   maxBlockHeaderSize: { snake: 'max_bh_size', group: 'Network', label: 'Max block header size', format: 'bytes' },
@@ -193,6 +193,10 @@ export function formatValue(fmt: Fmt, v: unknown): string {
       // Exact, so a sub-ada change is never shown as no change.
       const s = typeof v === 'number' ? (Number.isSafeInteger(v) ? String(v) : null) : typeof v === 'string' ? v : null;
       return s !== null && /^\d+$/.test(s) ? formatLovelaceExact(BigInt(s)) : (formatAda(String(v)) ?? String(v));
+    }
+    case 'lovelacePerByte': {
+      const s = typeof v === 'number' ? (Number.isSafeInteger(v) ? String(v) : null) : typeof v === 'string' ? v : null;
+      return s !== null && /^\d+$/.test(s) ? `${BigInt(s).toLocaleString('en-US')} lovelace/byte` : String(v);
     }
     case 'decimal': {
       const q = payloadRational(v);

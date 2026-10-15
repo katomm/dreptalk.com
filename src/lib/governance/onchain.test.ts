@@ -42,6 +42,17 @@ describe('formatValue', () => {
   });
 });
 
+describe('coinsPerUTxOByte', () => {
+  it('prints lovelace per byte like the submit form', () => {
+    expect(formatValue('lovelacePerByte', 4310)).toBe('4,310 lovelace/byte');
+    expect(formatValue('lovelacePerByte', '4310')).toBe('4,310 lovelace/byte');
+    expect(() => formatValue('lovelacePerByte', { numerator: 4310, denominator: 1 })).not.toThrow();
+  });
+  it('labels the parameter like the submit form', () => {
+    expect(PARAM_REGISTRY.coinsPerUTxOByte).toMatchObject({ label: 'UTxO cost per byte', format: 'lovelacePerByte' });
+  });
+});
+
 describe('PARAM_REGISTRY labels', () => {
   it('takes the six offered parameters from paramDefs, title with the short name', () => {
     expect(PARAM_KEYS.map((key) => PARAM_REGISTRY[PARAM_DEFS[key].ledgerKey].label)).toEqual([
