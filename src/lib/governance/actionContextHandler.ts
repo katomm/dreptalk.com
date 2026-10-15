@@ -80,7 +80,7 @@ export interface ActionContextResponse {
     maxTermLength: number | null;
   };
   constitution?: { scriptHash: string | null };
-  /** ParameterChange only: the five staking parameters in force, exact (see paramDefs.ts). */
+  /** ParameterChange only: the six offered parameters in force, exact (see paramDefs.ts). */
   params?: ParamValuesJson;
   /** TreasuryWithdrawals and ParameterChange: the guardrail the chain requires (see guardrailPick.ts). */
   guardrail?: GuardrailContext;

@@ -25,7 +25,7 @@ describe('parseParamUpdate', () => {
     const values = { k: r(600n, 1n), minPoolCost: r(170_000_001n, 1n), tau: r(1n, 4n) };
     expect(parseParamUpdate(buildParamUpdate(values))).toEqual({ ok: true, values });
   });
-  it('refuses any field outside the five', () => {
+  it('refuses any field outside the six offered ones', () => {
     const update = new ProtocolParamUpdate.ProtocolParamUpdate({ nOpt: 600n, maxTxSize: 20000n });
     expect(parseParamUpdate(update)).toEqual({ ok: false, reason: 'foreign_key', field: 'maxTxSize' });
   });

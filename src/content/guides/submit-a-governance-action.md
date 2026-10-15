@@ -4,7 +4,7 @@ description: "How to put a Cardano governance action on-chain with DRepTalk: pic
 cardLabel: "Submit a governance action"
 category: "Understanding governance"
 order: 7
-updated: 2026-10-07
+updated: 2026-10-16
 faqs:
   - q: "Who can submit a governance action on DRepTalk?"
     a: "Anyone who is signed in. You do not need to be a DRep, an SPO or a committee member. Any ada holder can propose a governance action on Cardano."

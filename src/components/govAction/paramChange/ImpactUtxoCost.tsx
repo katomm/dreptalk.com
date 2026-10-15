@@ -33,7 +33,7 @@ export default memo(function ImpactUtxoCost({ currentLovelace, nextLovelace }: {
                 <i className="pcp-utxo__bar pcp-utxo__bar--new" style={{ width: width(next) }} />
               </span>
               <span className="pcp-utxo__val">
-                {ada2(now)} → <b>{ada2(next)} ₳</b>
+                {ada2(now)} <span aria-hidden="true">→</span> <b>{ada2(next)} ₳</b>
               </span>
             </div>
           );
