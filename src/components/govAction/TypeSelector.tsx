@@ -5,13 +5,12 @@
 // the cards can never disagree with the Voting Information card on a GA page.
 import type { CSSProperties } from 'react';
 import type { GovActionFormType } from '@/lib/governance/prevAction.js';
-import { thresholdSentence, decidersLine } from '@/lib/governance/thresholds.js';
+import { thresholdSentence, decidersLine, offeredParamChangeSentence } from '@/lib/governance/thresholds.js';
 import type { ProtocolParams } from '@/lib/db/protocolParams.js';
 import type { DepositState } from '@/lib/governance/govActionFormState.js';
 import { formatAdaPlain } from '@/lib/format/ada.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import { govActionTypeAvailable } from '@/lib/governance/submissionGate.js';
-import { OFFERED_PARAM_SCOPE } from '@/lib/governance/paramDefs.js';
 
 export interface TypeSelectorProps {
   value: GovActionFormType;
@@ -70,7 +69,7 @@ const TYPES: { type: GovActionFormType; label: string; summary: string }[] = [
     type: 'ParameterChange',
     label: 'Protocol parameter change',
     summary:
-      "Changes staking parameters: k, a0, minimum pool cost, monetary expansion or treasury cut. Decided by DReps and the Constitutional Committee. Stake pools do not vote on these parameters. Checked by the constitution's guardrails script.",
+      "Changes staking parameters (k, a0, minimum pool cost, monetary expansion, treasury cut) or the UTxO cost per byte. Checked by the constitution's guardrails script.",
   },
 ];
 
@@ -122,7 +121,9 @@ export default function TypeSelector({ value, onChange, params, deposit, network
               </span>
               <span style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--muted)', marginTop: '0.25rem' }}>
                 {params
-                  ? thresholdSentence(t.type, params, t.type === 'ParameterChange' ? OFFERED_PARAM_SCOPE : undefined)
+                  ? t.type === 'ParameterChange'
+                    ? offeredParamChangeSentence(params)
+                    : thresholdSentence(t.type, params)
                   : 'Loading the current voting thresholds...'}
               </span>
               <span style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--muted)', marginTop: '0.15rem' }}>

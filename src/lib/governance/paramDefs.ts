@@ -97,9 +97,6 @@ export function securityParamTitles(): string[] {
   return PARAM_KEYS.filter((key) => PARAM_DEFS[key].security).map((key) => PARAM_DEFS[key].title);
 }
 
-/** The type card's scope before any pick, replaced by offeredParamChangeSentence in Task 4. */
-export const OFFERED_PARAM_SCOPE: ParamChangeScope = { groups: ['technical', 'economic'], touchesSecurity: false };
-
 /** Scales a typed number into the canonical unit. */
 function fromTyped(def: ParamDef, typed: Rational): Rational {
   if (def.input === 'ada') return reduce({ n: typed.n * 1_000_000n, d: typed.d });
