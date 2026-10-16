@@ -2059,6 +2059,28 @@ describe('SubmitGovAction', () => {
       committeeContext = PARAM_CONTEXT;
     });
 
+    it('notes the 90 day guardrail and the linked draft age next to the draft link', async () => {
+      installFetchMock();
+      const now = Date.now();
+      const drafts = [
+        { slug: 'young-draft-a1b2', title: 'Young draft', createdAt: now - 12 * 86_400_000 - 60_000, own: true },
+        { slug: 'old-draft-c3d4', title: 'Old draft', createdAt: now - 120 * 86_400_000, own: false },
+      ];
+      render(
+        <SubmitGovAction network="preprod" displayName={DISPLAY_NAME} openDrafts={drafts} siteOrigin="https://preprod.dreptalk.com" />,
+      );
+      await fillParamPanel({});
+      expect(screen.queryByText(/days normally pass/)).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'utxoCostPerByte' }));
+      const select = screen.getByLabelText('Link a Proposal Draft');
+      const note = () => select.parentElement?.textContent ?? '';
+      expect(note()).toContain('No Proposal Draft is linked yet.');
+      fireEvent.change(select, { target: { value: 'young-draft-a1b2' } });
+      expect(note()).toContain('Your linked draft was published 12 days ago.');
+      fireEvent.change(select, { target: { value: 'old-draft-c3d4' } });
+      expect(note()).toContain('Your linked draft was published 120 days ago, at least the 90 days');
+    });
+
     it('offers the parameter change card on preprod and loads the pool data once', async () => {
       const fetchMock = installFetchMock();
       render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);

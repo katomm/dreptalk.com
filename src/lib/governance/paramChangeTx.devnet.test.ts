@@ -5,9 +5,11 @@
 // on purpose: without Docker the cluster start fails loudly instead of the
 // suite passing with zero tests.
 //
-// The tests share one cluster and run in order: the bounds only build, the
-// lifecycle enacts the first change, the stale previous id case and the exact
-// rationals case build on that enacted change.
+// The tests share one cluster and run in order, every enacting case names
+// the change the case before it enacted: the bounds only build, the lifecycle
+// enacts the first change, the stale previous id case and the exact rationals
+// case build on that enacted change, and the utxoCostPerByte case builds on
+// the rationals one.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   Anchor,
@@ -16,6 +18,8 @@ import {
   GovernanceAction,
   KeyHash,
   NonnegativeInterval,
+  PoolKeyHash,
+  PoolParams,
   ProtocolParamUpdate,
   RewardAccount,
   ScriptHash,
@@ -24,6 +28,7 @@ import {
   UnitInterval,
   Url,
   VotingProcedures,
+  VrfKeyHash,
   type UTxO,
 } from '@evolution-sdk/evolution';
 import { startDevnet, show, type DevnetClient, type DevnetHandle } from './__devnet__/cluster.js';
@@ -40,6 +45,7 @@ const GUARDRAIL_HASH = ScriptHash.fromHex(GUARDRAIL_SCRIPT_HASH_HEX);
 /** DEFAULT_CONWAY_GENESIS.govActionDeposit, refunded to the reward account on enactment. */
 const GOV_ACTION_DEPOSIT = 50_000_000_000n;
 const PROPOSER = 0;
+const POOL_OPERATOR = 1;
 const BOUNDS_ACCOUNT = 2;
 const COMMITTEE = [3, 4] as const;
 
@@ -94,6 +100,7 @@ interface OgmiosParams {
   monetaryExpansion: string;
   treasuryExpansion: string;
   minStakePoolCost: Lovelace;
+  minUtxoDepositCoefficient: number;
 }
 
 describe('parameter change on a devnet', () => {
@@ -174,15 +181,20 @@ describe('parameter change on a devnet', () => {
   }
 
   /**
-   * DRep yes from the proposer, committee yes from accounts 3 and 4. One
-   * after the other: every Ogmios HTTP call opens its own node socket
-   * connection, and parallel builds made the node refuse some of them
+   * DRep yes from the proposer, committee yes from accounts 3 and 4, and
+   * with a pool also a stake pool yes from its operator. One after the
+   * other: every Ogmios HTTP call opens its own node socket connection, and
+   * parallel builds made the node refuse some of them
    * (Ogmios log "resource exhausted", HTTP 500 "Something went wrong").
    */
-  async function voteAll(txHash: TransactionHash.TransactionHash): Promise<string[]> {
+  async function voteAll(txHash: TransactionHash.TransactionHash, pool?: PoolKeyHash.PoolKeyHash): Promise<string[]> {
     const id = new GovernanceAction.GovActionId({ transactionId: txHash, govActionIndex: 0n });
     const drep = new VotingProcedures.DRepVoter({ drep: DRep.fromKeyHash(wallet(PROPOSER).keyHash) });
     const hashes = [await voteYes('DRep vote', wallet(PROPOSER), drep, id)];
+    if (pool) {
+      const spo = new VotingProcedures.StakePoolVoter({ poolKeyHash: pool });
+      hashes.push(await voteYes('SPO vote', wallet(POOL_OPERATOR), spo, id));
+    }
     for (const i of COMMITTEE) {
       const voter = new VotingProcedures.ConstitutionalCommitteeVoter({ credential: wallet(i).keyHash });
       hashes.push(await voteYes(`CC vote ${i}`, wallet(i), voter, id));
@@ -205,7 +217,7 @@ describe('parameter change on a devnet', () => {
     const started = Date.now();
     devnet = await startDevnet('dreptalk-param-change');
     console.log(`[devnet] cluster up in ${Date.now() - started} ms`);
-    for (const i of [PROPOSER, BOUNDS_ACCOUNT, ...COMMITTEE]) {
+    for (const i of [PROPOSER, POOL_OPERATOR, BOUNDS_ACCOUNT, ...COMMITTEE]) {
       const client = devnet.client(i);
       const address = await client.address();
       const credential = address.paymentCredential;
@@ -257,6 +269,8 @@ describe('parameter change on a devnet', () => {
       ['rho 5/1000', typed({ rho: '0.5' })],
       ['tau 1/10', typed({ tau: '10' })],
       ['tau 3/10', typed({ tau: '30' })],
+      ['utxoCostPerByte 3000', typed({ utxoCostPerByte: '3000' })],
+      ['utxoCostPerByte 6500', typed({ utxoCostPerByte: '6500' })],
     ];
     const invalid: [string, ProtocolParamUpdate.ProtocolParamUpdate][] = [
       ['k 249', new ProtocolParamUpdate.ProtocolParamUpdate({ nOpt: 249n })],
@@ -268,6 +282,8 @@ describe('parameter change on a devnet', () => {
       ['rho 5001/1000000', new ProtocolParamUpdate.ProtocolParamUpdate({ expansionRate: ui(5001n, 1_000_000n) })],
       ['tau 999/10000', new ProtocolParamUpdate.ProtocolParamUpdate({ treasuryGrowthRate: ui(999n, 10_000n) })],
       ['tau 3001/10000', new ProtocolParamUpdate.ProtocolParamUpdate({ treasuryGrowthRate: ui(3001n, 10_000n) })],
+      ['utxoCostPerByte 2999', new ProtocolParamUpdate.ProtocolParamUpdate({ adaPerUtxoByte: 2999n })],
+      ['utxoCostPerByte 6501', new ProtocolParamUpdate.ProtocolParamUpdate({ adaPerUtxoByte: 6501n })],
     ];
 
     for (const [label, values] of valid) {
@@ -424,5 +440,76 @@ describe('parameter change on a devnet', () => {
     expect(after.monetaryExpansion).toBe('7/2000');
     expect(after.treasuryExpansion).toBe('1/4');
     expect(after.desiredNumberOfStakePools).toBe(600);
+    enacted = { txHashHex: TransactionHash.toHex(proposeTx), index: 0 };
+  });
+
+  it('a change of utxoCostPerByte is voted by DReps, SPOs and the committee and enacted', async () => {
+    if (!enacted) throw new Error('needs the enacted change from the rationals test');
+    const started = Date.now();
+    const operator = wallet(POOL_OPERATOR);
+    const proposer = wallet(PROPOSER);
+
+    // utxoCostPerByte is in the security group, so stake pools vote on it.
+    // The genesis pool has no cold key we hold, so account 1 runs a pool of
+    // its own with its payment key as the cold key, which the seed wallet
+    // signs for. Any 32 bytes do as the VRF key hash, the pool never forges.
+    const operatorStake = operator.address.stakingCredential;
+    if (!operatorStake) throw new Error('The pool operator needs a stake credential.');
+    const poolKeyHash = PoolKeyHash.fromHex(KeyHash.toHex(operator.keyHash));
+    const poolParams = new PoolParams.PoolParams({
+      operator: poolKeyHash,
+      vrfKeyhash: VrfKeyHash.fromHex('11'.repeat(32)),
+      pledge: 0n,
+      cost: BigInt((await protocolParams()).minStakePoolCost.ada.lovelace),
+      margin: ui(0n, 1n),
+      rewardAccount: new RewardAccount.RewardAccount({ networkId: 0, stakeCredential: operatorStake }),
+      poolOwners: [],
+      relays: [],
+    });
+    const poolTx = await operator.client
+      .newTx()
+      .registerPool({ poolParams })
+      .build({ availableUtxos: [dev().genesisUtxo(POOL_OPERATOR)] })
+      .then((b) => b.sign())
+      .then((b) => b.submit());
+    await settle('pool registration', operator, poolTx);
+    const delegateTx = await proposer.client
+      .newTx()
+      .delegateToPool({ stakeCredential: proposer.address.stakingCredential!, poolKeyHash })
+      .build()
+      .then((b) => b.sign())
+      .then((b) => b.submit());
+    await settle('stake delegation to the pool', proposer, delegateTx);
+    console.log(`[devnet] pool tx ${TransactionHash.toHex(poolTx)}, delegation tx ${TransactionHash.toHex(delegateTx)}`);
+
+    // The SPO threshold is ppSecurityGroup 0.6 of the active pool stake. The
+    // genesis pool 8a219b69 never votes, and the Conway rules count a silent
+    // pool as No unless its reward account delegates to always abstain. Its stake
+    // is 0 here (its genesis stake key holds no funds), so our pool holds all
+    // the pool stake and its vote alone meets the threshold. Without that vote
+    // the change stays unenacted, which a run without it showed.
+    const poolIdHex = PoolKeyHash.toHex(poolKeyHash);
+    const stakeStarted = Date.now();
+    const distribution = await dev().waitFor('the pool to have voting stake', async () => {
+      // cardano-cli answers [pool id hex, lovelace, delegated DRep] per pool.
+      const spos = await dev().cli<[string, number, unknown][]>(['query', 'spo-stake-distribution', '--all-spos']);
+      const ours = spos.find(([id]) => id === poolIdHex);
+      if (ours && ours[1] > 0) return spos;
+      throw new Error(`spo-stake-distribution ${show(spos)}`);
+    }, 60_000);
+    console.log(`[devnet] spo-stake-distribution after ${Date.now() - stakeStarted} ms:`, show(distribution));
+
+    const signed = await buildProposal(typed({ utxoCostPerByte: '3500' }), enacted);
+    const proposeTx = await signed.sign().then((b) => b.submit());
+    await settle('utxoCostPerByte proposal', proposer, proposeTx);
+    const voteTxs = await voteAll(proposeTx, poolKeyHash);
+    const votedAt = Date.now();
+    console.log(`[devnet] utxoCostPerByte proposal ${TransactionHash.toHex(proposeTx)}, votes ${voteTxs.join(', ')}`);
+
+    const after = await waitForParams('utxoCostPerByte 3500 enacted', (p) => p.minUtxoDepositCoefficient === 3500);
+    console.log(`[devnet] utxoCostPerByte vote to enactment ${Date.now() - votedAt} ms, case in ${Date.now() - started} ms`);
+    expect(after.minUtxoDepositCoefficient).toBe(3500);
+    expect(after.monetaryExpansion).toBe('7/2000');
+    enacted = { txHashHex: TransactionHash.toHex(proposeTx), index: 0 };
   });
 });

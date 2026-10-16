@@ -18,23 +18,23 @@ const context = {
   prev: { lastEnacted: null, open: [] },
   guardrail: { state: 'known', scriptHash: GUARDRAIL },
   committee: { members: [], quorum: { numerator: 2, denominator: 3 }, maxTermLength: null },
-  params: { k: { n: '500', d: '1' }, a0: { n: '3', d: '10' }, minPoolCost: { n: '170000000', d: '1' }, rho: { n: '3', d: '1000' }, tau: { n: '1', d: '5' } },
+  params: { k: { n: '500', d: '1' }, a0: { n: '3', d: '10' }, minPoolCost: { n: '170000000', d: '1' }, rho: { n: '3', d: '1000' }, tau: { n: '1', d: '5' }, utxoCostPerByte: { n: '4310', d: '1' } },
 } as never;
 
 // A full config: the previous-action field dates the open proposals from the epoch anchor.
 const PREPROD = resolveNetwork('preprod');
 
 // Technical and economic thresholds differ on purpose, so the summary shows which groups count.
-const PARAMS = { dvtPpTechnical: 0.67, dvtPpEconomic: 0.6, dvtPpGov: 0.75, dvtPpNetwork: 0.67 } as never;
+const PARAMS = { dvtPpTechnical: 0.67, dvtPpEconomic: 0.6, dvtPpGov: 0.75, dvtPpNetwork: 0.67, pvtSecurityGroup: 0.51 } as never;
 
-function setup(value: { prev: null; picked: never[]; inputs: Record<string, string> } = { prev: null, picked: ['k'] as never[], inputs: { k: '600' } }, economics: unknown = { status: 'ready', data: economicsFromJson(fixture as PoolEconomicsJson) }) {
+function setup(value: { prev: null; picked: never[]; inputs: Record<string, string> } = { prev: null, picked: ['k'] as never[], inputs: { k: '600' } }, economics: unknown = { status: 'ready', data: economicsFromJson(fixture as PoolEconomicsJson) }, ctx: unknown = context) {
   const onChange = vi.fn();
   const onContinue = vi.fn();
   render(
     <ParamChangePanel
       value={value as never}
       onChange={onChange}
-      context={context}
+      context={ctx as never}
       economics={economics as never}
       protocolParams={PARAMS}
       onRetryEconomics={vi.fn()}
@@ -52,6 +52,49 @@ function setup(value: { prev: null; picked: never[]; inputs: Record<string, stri
 const caption = (root: HTMLElement) => root.querySelector('.pcp-caption')?.textContent;
 
 describe('ParamChangePanel', () => {
+  it('shows the minimum ada chart, the stake pool badge and the SPO threshold for utxoCostPerByte', () => {
+    setup({ prev: null, picked: ['utxoCostPerByte'] as never[], inputs: { utxoCostPerByte: '3500' } });
+    const card = screen.getByRole('group', { name: 'UTxO cost per byte' });
+    expect(within(card).getByText('Stake pools vote')).toBeTruthy();
+    expect(within(card).getByText('0.0035 ₳ per byte')).toBeTruthy();
+    expect(within(card).getByText('-810 lovelace/byte')).toBeTruthy();
+    const chart = within(card).getByRole('group', { name: /Plain ada output: 0\.996 ₳ now, 0\.809 ₳ new/ });
+    // The rows stay readable text, only the bars are hidden from assistive tech.
+    expect(within(chart).getByText('10 tokens, 1 policy')).toBeTruthy();
+    const summary = screen.getByRole('complementary', { name: 'Summary' });
+    expect(within(summary).getByText('51% yes')).toBeTruthy();
+    expect(within(summary).queryByText('do not vote on these')).toBeNull();
+  });
+
+  it.each([{ status: 'loading' }, { status: 'error' }])('shows the chart while the pool data is $status', (economics) => {
+    setup({ prev: null, picked: ['utxoCostPerByte'] as never[], inputs: { utxoCostPerByte: '3500' } }, economics);
+    const card = screen.getByRole('group', { name: 'UTxO cost per byte' });
+    expect(within(card).getByRole('group', { name: /Plain ada output/ })).toBeTruthy();
+  });
+
+  it('keeps the no-vote row for staking parameters only', () => {
+    setup();
+    const summary = screen.getByRole('complementary', { name: 'Summary' });
+    expect(within(summary).getByText('do not vote on these')).toBeTruthy();
+  });
+
+  it('points to Proposal Drafts on the cards the 90 day guardrail covers, and only there', () => {
+    setup({ prev: null, picked: ['minPoolCost', 'utxoCostPerByte', 'k'] as never[], inputs: {} });
+    const utxo = screen.getByRole('group', { name: 'UTxO cost per byte' });
+    expect(utxo.textContent).toContain('at least 90 days normally pass between publishing an off-chain proposal for this parameter and submitting it on chain (PARAM-04a)');
+    expect(within(utxo).getByRole('link', { name: 'Proposal Drafts' }).getAttribute('href')).toBe('/c/proposal-drafts/');
+    expect(screen.getByRole('group', { name: 'Minimum pool cost' }).textContent).toContain('(PARAM-06a)');
+    expect(screen.getByRole('group', { name: 'Target number of pools' }).textContent).not.toContain('90 days');
+  });
+
+  it('shows no chart and does not throw when the current utxoCostPerByte is unknown', () => {
+    const params = { ...(context as { params: Record<string, unknown> }).params };
+    delete params.utxoCostPerByte;
+    setup({ prev: null, picked: ['utxoCostPerByte'] as never[], inputs: { utxoCostPerByte: '3500' } }, undefined, { ...(context as object), params });
+    const card = screen.getByRole('group', { name: 'UTxO cost per byte' });
+    expect(within(card).queryByRole('group', { name: /Plain ada output/ })).toBeNull();
+  });
+
   it('shows the card with old value, input, range and the saturation impact', () => {
     setup();
     const card = screen.getByRole('group', { name: 'Target number of pools' });

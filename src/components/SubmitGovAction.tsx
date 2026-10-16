@@ -90,6 +90,7 @@ import {
 } from '@/lib/governance/guardrailScript.js';
 import { isStalePrevError, mapGuardrailBuildError } from '@/lib/governance/govActionErrors.js';
 import { changesParagraph, valuesFromJson } from '@/lib/governance/paramDefs.js';
+import { draftConsultationNote } from '@/lib/governance/consultation.js';
 import { economicsFromJson } from '@/lib/governance/paramImpact.js';
 import type { PoolEconomicsJson } from '@/lib/governance/paramImpact.js';
 import type { GovActionFormType, PrevActionRef } from '@/lib/governance/prevAction.js';
@@ -877,6 +878,19 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
       selectedSlug: selectedDraftSlug,
     });
   }
+  // PARAM-04a and PARAM-06a: what the constitution asks before submitting
+  // the picked parameters, and how long the linked draft has been public.
+  // A tracked draft that fell out of the open list has no known age.
+  const consultationNote =
+    state.type === 'ParameterChange'
+      ? draftConsultationNote(
+          state.panels.ParameterChange.picked,
+          selectedDraftSlug
+            ? { createdAt: openDrafts.find((d) => d.slug === selectedDraftSlug)?.createdAt ?? null }
+            : null,
+          Date.now(),
+        )
+      : null;
   function handleUnlinkDraft() {
     dispatch({ kind: 'unlinkDraft', siteOrigin: draftSiteOrigin, selectedSlug: selectedDraftSlug });
   }
@@ -1712,6 +1726,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
           linkedDraftLabel={linkedDraftRef?.label ?? ''}
           onLink={handleLinkDraft}
           onUnlink={handleUnlinkDraft}
+          note={consultationNote}
           error={state.draftLinkError}
           disabled={busy}
         />

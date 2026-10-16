@@ -4,7 +4,7 @@ description: "The kinds of on-chain governance actions on Cardano, what each one
 cardLabel: "Governance action types"
 category: "Understanding governance"
 order: 2
-updated: 2026-09-18
+updated: 2026-10-16
 ---
 
 On Cardano, governance is exercised through **governance actions**: on-chain proposals that the community votes on. There are seven distinct action types defined in CIP-1694 (the Conway era governance rules), each with its own purpose and its own set of voters.
@@ -27,7 +27,7 @@ A hard fork initiation moves the network to a new protocol major version, introd
 
 ## Protocol parameter changes
 
-This action adjusts one or more on-chain protocol parameters, such as transaction fees, block sizes, or economic constants. It is voted on by **DReps and the constitutional committee**. For parameters classified as security-relevant, **SPOs** also have a vote. DRepTalk can submit changes to the five staking parameters on preprod, see [Submit a governance action](/help/submit-a-governance-action/).
+This action adjusts one or more on-chain protocol parameters, such as transaction fees, block sizes, or economic constants. It is voted on by **DReps and the constitutional committee**. For parameters classified as security-relevant, **SPOs** also have a vote. DRepTalk can submit changes to the five staking parameters and to the UTxO cost per byte on preprod. Stake pools vote on the UTxO cost per byte but not on the staking parameters. See [Submit a governance action](/help/submit-a-governance-action/).
 
 ## Treasury withdrawals
 

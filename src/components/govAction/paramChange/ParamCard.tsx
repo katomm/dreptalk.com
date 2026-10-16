@@ -17,6 +17,9 @@ import ImpactSaturation from './ImpactSaturation.js';
 import ImpactRewards, { type RewardBasis } from './ImpactRewards.js';
 import ImpactMinPoolCost from './ImpactMinPoolCost.js';
 import ImpactBudget from './ImpactBudget.js';
+import ImpactUtxoCost from './ImpactUtxoCost.js';
+import { InfoIcon } from '../icons.js';
+import { CONSULTATION_DAYS } from '@/lib/governance/consultation.js';
 import { DataSource } from './chart.js';
 
 export interface ParamCardProps {
@@ -56,6 +59,7 @@ function deltaLabel(key: ParamKey, next: Rational, current: Rational): string {
   if (input === 'ada') return `${sign}${formatLovelaceExact(diff.n / diff.d)}`;
   if (input === 'percent') return `${sign}${formatRationalDecimal({ n: diff.n * 100n, d: diff.d })} pp`;
   if (input === 'int') return `${sign}${(diff.n / diff.d).toLocaleString('en-US')}`;
+  if (input === 'lovelace') return `${sign}${formatParamValue(key, diff)}`;
   return `${sign}${formatRationalDecimal(diff)}`;
 }
 
@@ -66,7 +70,7 @@ function RangeScale({ paramKey, current, next }: { paramKey: ParamKey; current: 
   const pos = (r: Rational) => Math.max(0, Math.min(100, ((rationalToNumber(r) - min) / (max - min)) * 100));
   const outside = next !== null && (compareRational(next, def.min) < 0 || compareRational(next, def.max) > 0);
   return (
-    <div className="pcp-scale">
+    <div className={def.input === 'lovelace' ? 'pcp-scale pcp-scale--unit' : 'pcp-scale'}>
       <div className="pcp-scale__ok" />
       {current && (
         <div className="pcp-mark pcp-mark--now" style={{ left: `${pos(current)}%` }}>
@@ -109,6 +113,10 @@ type ImpactProps = Pick<
 > & { next: Rational };
 
 function Impact({ paramKey, current, next, economics, onRetryEconomics, model, rewards, rewardBasis, network }: ImpactProps) {
+  // The minimum ada chart reads no pool data, so it skips the pool data gate.
+  if (paramKey === 'utxoCostPerByte') {
+    return current ? <ImpactUtxoCost currentLovelace={current.n / current.d} nextLovelace={next.n / next.d} /> : null;
+  }
   // The combined section below the cards shows the pool data state and the chart for a0.
   if (paramKey === 'a0' && rewards === 'combined') {
     return <p className="pcp-why">Its effect on pool rewards is shown under Combined impact below.</p>;
@@ -160,10 +168,11 @@ export default function ParamCard({ raw, error, onInput, onRemove, disabled = fa
       <div className="pcp-card__head">
         <div className="pcp-card__name">
           <div className="pcp-card__title">{def.title}</div>
-          <div className="pcp-card__key">{def.key === 'minPoolCost' ? def.ledgerKey : `${def.short} · ${def.ledgerKey}`}</div>
+          <div className="pcp-card__key">{def.listByTitle ? def.ledgerKey : `${def.short} · ${def.ledgerKey}`}</div>
         </div>
         <div className="pcp-card__side">
           <span className="pcp-group">{groupLabel(paramKey)} group</span>
+          {def.security && <span className="pcp-group">Stake pools vote</span>}
           <button type="button" className="pcp-card__remove" onClick={onRemove} disabled={disabled}>
             Remove
           </button>
@@ -189,10 +198,26 @@ export default function ParamCard({ raw, error, onInput, onRemove, disabled = fa
           />
           {unit && <span className="pcp-inp__unit">{unit}</span>}
         </span>
+        {def.input === 'lovelace' && next && (
+          <span className="pcp-inp__hint">{formatLovelaceExact(next.n / next.d)} per byte</span>
+        )}
         {next && current && <span className="pcp-delta">{deltaLabel(paramKey, next, current)}</span>}
       </div>
 
       <RangeScale paramKey={paramKey} current={current} next={next} />
+
+      {def.consultation && (
+        <div className="callout callout--info">
+          <InfoIcon />
+          <div className="callout__body">
+            <p className="pcp-callout__text">
+              The constitution asks that at least {CONSULTATION_DAYS} days normally pass between publishing an off-chain
+              proposal for this parameter and submitting it on chain (<span className="pcp-nowrap">{def.consultation}</span>). Start a discussion in{' '}
+              <a href="/c/proposal-drafts/">Proposal Drafts</a> and link it in the next step.
+            </p>
+          </div>
+        </div>
+      )}
 
       {error && (
         <p className="pcp-err" role="alert">

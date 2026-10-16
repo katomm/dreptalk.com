@@ -9,8 +9,9 @@ import {
   thresholdSentence,
   decidersLine,
   drepThresholdPct,
+  offeredParamChangeSentence,
+  spoThresholdPct,
 } from './thresholds.js';
-import { OFFERED_PARAM_SCOPE } from './paramDefs.js';
 import type { BodyResult } from './thresholds.js';
 import type { ProtocolParams } from '../db/protocolParams.js';
 
@@ -277,14 +278,30 @@ describe('decidersLine', () => {
   it('TreasuryWithdrawals: DReps and the committee', () => {
     expect(decidersLine('TreasuryWithdrawals')).toBe('Decided by DReps and the committee');
   });
+
+  it('ParameterChange: stake pools only for the security parameter', () => {
+    expect(decidersLine('ParameterChange')).toBe('Decided by DReps and the committee, and by stake pools when UTxO cost per byte changes');
+  });
 });
 
 describe('parameter change thresholds', () => {
-  it('words the offered parameter scope instead of the all-groups fallback', () => {
-    const p = { ...P, dvtPpTechnical: 0.67, dvtPpEconomic: 0.67, dvtPpGov: 0.75, dvtPpNetwork: 0.67 };
-    expect(thresholdSentence('ParameterChange', p, OFFERED_PARAM_SCOPE)).toBe(
-      'DReps 67%, stake pools do not vote on these parameters, the committee votes.',
+  it('words the offered parameters, naming when stake pools vote', () => {
+    const p = { ...P, dvtPpTechnical: 0.67, dvtPpEconomic: 0.67, dvtPpGov: 0.75, dvtPpNetwork: 0.67, pvtSecurityGroup: 0.51 };
+    expect(offeredParamChangeSentence(p)).toBe(
+      'DReps 67%, stake pools 51% when UTxO cost per byte is included, the committee votes.',
     );
+  });
+
+  it('says unknown for an unsynced SPO figure', () => {
+    const p = { ...P, dvtPpTechnical: 0.67, dvtPpEconomic: 0.67, pvtSecurityGroup: null };
+    expect(offeredParamChangeSentence(p)).toContain('stake pools unknown when UTxO cost per byte is included');
+  });
+
+  it('gives the SPO percentage only for a security scope', () => {
+    const p = { ...P, pvtSecurityGroup: 0.51 };
+    expect(spoThresholdPct(p, { groups: ['economic'], touchesSecurity: true })).toBe(51);
+    expect(spoThresholdPct(p, { groups: ['economic'], touchesSecurity: false })).toBeNull();
+    expect(spoThresholdPct(null, { groups: ['economic'], touchesSecurity: true })).toBeNull();
   });
 
   it('gives the DRep percentage of the touched groups', () => {

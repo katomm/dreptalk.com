@@ -704,6 +704,7 @@ describe('handleActionContext', () => {
           optimal_pool_count: 500,
           influence: 0.3,
           min_pool_cost: '170000000',
+          coins_per_utxo_size: '4310',
           monetary_expand_rate: 0.003,
           treasury_growth_rate: 0.2,
         }),
@@ -722,6 +723,7 @@ describe('handleActionContext', () => {
       k: { n: '500', d: '1' },
       a0: { n: '3', d: '10' },
       minPoolCost: { n: '170000000', d: '1' },
+      utxoCostPerByte: { n: '4310', d: '1' },
       rho: { n: '3', d: '1000' },
       tau: { n: '1', d: '5' },
     });

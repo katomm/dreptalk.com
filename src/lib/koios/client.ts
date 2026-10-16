@@ -401,6 +401,7 @@ const epochParamsRowSchema = z.object({
   monetary_expand_rate: z.number().nullable().optional(),
   treasury_growth_rate: z.number().nullable().optional(),
   min_pool_cost: z.union([z.string(), z.number()]).nullable().optional(),
+  coins_per_utxo_size: z.union([z.string(), z.number()]).nullable().optional(),
   max_epoch: z.number().nullable().optional(),
 }).passthrough();
 

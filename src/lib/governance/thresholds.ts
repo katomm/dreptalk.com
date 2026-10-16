@@ -5,6 +5,7 @@
 import type { ProtocolParams } from '../db/protocolParams.js';
 import { koiosProposalType } from './prevAction.js';
 import type { GovActionFormType } from './prevAction.js';
+import { PARAM_DEFS, PARAM_KEYS, securityParamTitles } from './paramDefs.js';
 
 export type Body = 'DRep' | 'SPO' | 'CC';
 
@@ -105,13 +106,16 @@ function thresholdPctLabel(fraction: number | null): string {
  * closing clause, because the figures describe the normal state only: once a
  * no-confidence motion has passed, the ledger switches to the
  * *_committee_no_confidence thresholds, a state this form does not model.
+ * ParameterChange gets the offered-parameters sentence, because whether
+ * stake pools vote depends on the parameters picked later.
  */
-export function thresholdSentence(type: GovActionFormType, p: ProtocolParams, paramScope?: ParamChangeScope): string {
+export function thresholdSentence(type: GovActionFormType, p: ProtocolParams): string {
+  if (type === 'ParameterChange') return offeredParamChangeSentence(p);
   // The form's type names differ from Koios's in one place (UpdateCommittee
   // vs NewCommittee), which prevAction.ts owns, so there is exactly one
   // threshold table here and one mapping there.
   const koiosType = koiosProposalType(type);
-  const pl = plan({ type: koiosType, drepYesPct: null, spoYesPct: null, ccYesPct: null, paramScope }, p);
+  const pl = plan({ type: koiosType, drepYesPct: null, spoYesPct: null, ccYesPct: null }, p);
   if (!pl) return 'No ratification thresholds, an InfoAction is advisory and never enacts.';
 
   // Whether SPOs vote at all is a property of the action type, not of the
@@ -119,9 +123,6 @@ export function thresholdSentence(type: GovActionFormType, p: ProtocolParams, pa
   // type SPOs do vote on, and the card must then say unknown, not go silent.
   const parts = [`DReps ${thresholdPctLabel(pl.drep)}`];
   if (SPO_VOTING_TYPES.has(koiosType)) parts.push(`SPOs ${thresholdPctLabel(pl.spo)}`);
-  if (koiosType === 'ParameterChange' && paramScope) {
-    parts.push(paramScope.touchesSecurity ? `SPOs ${thresholdPctLabel(pl.spo)}` : 'stake pools do not vote on these parameters');
-  }
   parts.push(pl.cc ? 'the committee votes' : 'the committee does not vote');
   const suffix =
     koiosType === 'NoConfidence' || koiosType === 'NewCommittee'
@@ -130,11 +131,34 @@ export function thresholdSentence(type: GovActionFormType, p: ProtocolParams, pa
   return `${parts.join(', ')}${suffix}.`;
 }
 
+/**
+ * The ParameterChange card's sentence before any parameter is picked. DReps
+ * vote at the strictest group the offered parameters can touch, stake pools
+ * only when a security-relevant one is included, so the sentence names the
+ * condition instead of claiming an SPO vote for every change.
+ */
+export function offeredParamChangeSentence(p: ProtocolParams): string {
+  const groups = [...new Set(PARAM_KEYS.map((key) => PARAM_DEFS[key].group))];
+  const pl = planParameterChange({ groups, touchesSecurity: true }, p);
+  const titles = securityParamTitles().join(' or ');
+  return `DReps ${thresholdPctLabel(pl.drep)}, stake pools ${thresholdPctLabel(pl.spo)} when ${titles} is included, the committee votes.`;
+}
+
+/** The SPO threshold in percent (one decimal) for a picked parameter scope, null when pools do not vote or the figure is unknown. */
+export function spoThresholdPct(p: ProtocolParams | null, scope: ParamChangeScope): number | null {
+  return p ? toPct(planParameterChange(scope, p).spo) : null;
+}
+
 /** The DRep threshold in percent (one decimal) for a type and parameter scope, null while unknown. */
 export function drepThresholdPct(type: GovActionFormType, p: ProtocolParams | null, paramScope?: ParamChangeScope): number | null {
   if (!p) return null;
   const pl = plan({ type: koiosProposalType(type), drepYesPct: null, spoYesPct: null, ccYesPct: null, paramScope }, p);
-  return pl?.drep == null ? null : Math.round(pl.drep * 1000) / 10;
+  return toPct(pl?.drep ?? null);
+}
+
+/** A threshold fraction in percent with one decimal, null while unknown. */
+function toPct(fraction: number | null): number | null {
+  return fraction == null ? null : Math.round(fraction * 1000) / 10;
 }
 
 // Non-null placeholder params for decidersLine's plan() probe. Only the
@@ -155,13 +179,19 @@ const PROBE_PARAMS: ProtocolParams = {
  * One line naming who decides an action type, for the /ga/new type selector
  * cards. Derived from plan() (which body votes and whether the committee
  * votes), the same table thresholdSentence reads, so the two can never say
- * different things about who votes. InfoAction is not on-chain at all
+ * different things about who votes. ParameterChange is the one derived type
+ * with a condition, stake pools vote only for the security-relevant
+ * parameters, so its line is written out from the parameter table rather than
+ * probed. InfoAction is not on-chain at all
  * (plan() returns null for it) so its line is written out here rather than
  * derived.
  */
 export function decidersLine(type: GovActionFormType): string {
   if (type === 'InfoAction') {
     return 'Advisory, never ratified, DReps and SPOs vote to signal';
+  }
+  if (type === 'ParameterChange') {
+    return `Decided by DReps and the committee, and by stake pools when ${securityParamTitles().join(' or ')} changes`;
   }
   const koiosType = koiosProposalType(type);
   const pl = plan({ type: koiosType, drepYesPct: null, spoYesPct: null, ccYesPct: null }, PROBE_PARAMS);

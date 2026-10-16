@@ -37,8 +37,16 @@ describe('TypeSelector', () => {
     const params = { dvtPpTechnical: 0.67, dvtPpEconomic: 0.6, dvtPpGov: 0.75, dvtPpNetwork: 0.67 } as never;
     render(<TypeSelector {...props} params={params} network="preprod" submissionAvailable />);
     const card = screen.getByRole('radio', { name: /Protocol parameter change/ }).closest('label');
-    expect(card?.textContent).toContain('DReps 67%, stake pools do not vote on these parameters, the committee votes.');
-    expect(card?.textContent).toContain('Stake pools do not vote on these parameters.');
+    expect(card?.textContent).toContain('DReps 67%, stake pools');
+    expect(card?.textContent).not.toContain('do not vote');
+    expect(card?.textContent).toContain('UTxO cost per byte');
+  });
+
+  it('makes no contradicting stake pool claim while thresholds load', () => {
+    render(<TypeSelector {...props} network="preprod" submissionAvailable />);
+    const card = screen.getByRole('radio', { name: /Protocol parameter change/ }).closest('label');
+    expect(card?.textContent).not.toContain('do not vote');
+    expect(card?.textContent).toContain('Loading the current voting thresholds');
   });
 
   it('leaves the parameter change card out on mainnet', () => {

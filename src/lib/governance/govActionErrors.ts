@@ -15,7 +15,7 @@ export const COLLATERAL_TOKENS_MESSAGE =
 export const EVALUATION_FAILED_MESSAGE = "The constitution's guardrails script rejected this withdrawal.";
 export const PARAM_EVALUATION_FAILED_MESSAGE = "The constitution's guardrails script rejected this parameter change.";
 export const UNSUPPORTED_PARAMETER_CHANGE_MESSAGE =
-  "DRepTalk only submits changes to k, a0, minPoolCost, rho and tau within the constitution's limits.";
+  "DRepTalk only submits changes to k, a0, minPoolCost, rho, tau and utxoCostPerByte within the constitution's limits.";
 // The author witness may already exist at this point, so the sentence only
 // speaks about the transaction.
 export const EVALUATOR_UNAVAILABLE_MESSAGE = 'Could not reach the script evaluator. No transaction was signed.';

@@ -17,6 +17,7 @@ export function buildParamUpdate(values: ParamValues): ProtocolParamUpdate.Proto
     switch (PARAM_DEFS[key].sdkField) {
       case 'nOpt':
       case 'minPoolCost':
+      case 'adaPerUtxoByte':
         if (d !== 1n) throw new Error(`${PARAM_DEFS[key].title} must be a whole number.`);
         fields[PARAM_DEFS[key].sdkField] = n;
         break;
@@ -45,7 +46,7 @@ function rationalOf(value: unknown): Rational | null {
   return null;
 }
 
-/** The five values an update sets, or why the update is not one DRepTalk offers. */
+/** The values an update sets, or why the update is not one DRepTalk offers. */
 export function parseParamUpdate(
   update: ProtocolParamUpdate.ProtocolParamUpdate,
 ): { ok: true; values: ParamValues } | { ok: false; reason: 'empty' | 'foreign_key' | 'out_of_range'; field?: string } {
