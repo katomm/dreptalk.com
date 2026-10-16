@@ -7,15 +7,19 @@ import { EXAMPLE_OUTPUTS, REFERENCE_SCRIPT_OUTPUT, barScaleMaxLovelace, minAdaLo
 import { PARAM_DEFS } from '@/lib/governance/paramDefs.js';
 import { LegendItem, Stat } from './chart.js';
 
-const ada2 = (lovelace: bigint) =>
-  (Number(lovelace) / 1e6).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// Three decimals, so the plain ada row reads like a wallet's send screen
+// (0.996 for 0.995610). Rounded half up in lovelace, no float on the way.
+const adaText = (lovelace: bigint) => {
+  const thousandths = (lovelace + 500n) / 1000n;
+  return `${(thousandths / 1000n).toLocaleString('en-US')}.${(thousandths % 1000n).toString().padStart(3, '0')}`;
+};
 const SCALE = Number(barScaleMaxLovelace(PARAM_DEFS.utxoCostPerByte.max.n));
 
 export default memo(function ImpactUtxoCost({ currentLovelace, nextLovelace }: { currentLovelace: bigint; nextLovelace: bigint }) {
   const minAda = (bytes: number) => ({ now: minAdaLovelace(bytes, currentLovelace), next: minAdaLovelace(bytes, nextLovelace) });
   const plain = minAda(EXAMPLE_OUTPUTS[0].bytes);
   const script = minAda(REFERENCE_SCRIPT_OUTPUT.bytes);
-  const summary = `Plain ada output: ${ada2(plain.now)} ₳ now, ${ada2(plain.next)} ₳ new.`;
+  const summary = `Plain ada output: ${adaText(plain.now)} ₳ now, ${adaText(plain.next)} ₳ new.`;
   const width = (lovelace: bigint) => `${(Number(lovelace) / SCALE) * 100}%`;
   return (
     <>
@@ -33,7 +37,7 @@ export default memo(function ImpactUtxoCost({ currentLovelace, nextLovelace }: {
                 <i className="pcp-utxo__bar pcp-utxo__bar--new" style={{ width: width(next) }} />
               </span>
               <span className="pcp-utxo__val">
-                {ada2(now)} <span aria-hidden="true">→</span> <b>{ada2(next)} ₳</b>
+                {adaText(now)} <span aria-hidden="true">→</span> <b>{adaText(next)} ₳</b>
               </span>
             </div>
           );
@@ -44,11 +48,11 @@ export default memo(function ImpactUtxoCost({ currentLovelace, nextLovelace }: {
         <LegendItem color="var(--accent)">New</LegendItem>
       </div>
       <div className="pcp-stats">
-        <Stat label="Plain ada output" value={`${ada2(plain.next)} ₳`} from={`${ada2(plain.now)} ₳`} />
-        <Stat label={REFERENCE_SCRIPT_OUTPUT.label} value={`${ada2(script.next)} ₳`} from={`${ada2(script.now)} ₳`} />
+        <Stat label="Plain ada output" value={`${adaText(plain.next)} ₳`} from={`${adaText(plain.now)} ₳`} />
+        <Stat label={REFERENCE_SCRIPT_OUTPUT.label} value={`${adaText(script.next)} ₳`} from={`${adaText(script.now)} ₳`} />
       </div>
       <p className="pcp-why">
-        Minimum ada per output is (160 + output size in bytes) × cost per byte. It is checked only when a transaction creates an output, existing UTxOs keep their ada.
+        Minimum ada per output is (160 + output size in bytes) × cost per byte, with output sizes as wallets count them. It is checked only when a transaction creates an output, existing UTxOs keep their ada.
       </p>
     </>
   );

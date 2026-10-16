@@ -109,10 +109,10 @@ rewards, and for the UTxO cost per byte. On DRepTalk it is available on preprod 
   stakers. They are a model at full block production and before fees, so read
   them as an estimate.
 - The UTxO cost per byte sets the minimum ada every new output must hold. It
-  can range from 3,000 to 6,500 lovelace per byte, and today it is 4,310, which
-  puts a plain ada output at about 0.97 ada. Its impact panel shows the minimum
-  ada of four example outputs, now and with your value, and the minimum ada of a
-  10 KB reference script. Existing UTxOs keep their ada.
+  can range from 3,000 to 6,500 lovelace per byte, and today it is 4,310, so a
+  wallet asks for about 1 ada when you send plain ada. Its impact panel shows
+  the minimum ada of four example outputs, now and with your value, and the
+  minimum ada of a 10 KB reference script. Existing UTxOs keep their ada.
 - DReps and the Constitutional Committee decide these changes. Stake pools also
   vote when the UTxO cost per byte changes, because it is a security-relevant
   parameter.

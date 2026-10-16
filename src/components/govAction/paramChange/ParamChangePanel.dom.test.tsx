@@ -58,7 +58,7 @@ describe('ParamChangePanel', () => {
     expect(within(card).getByText('Stake pools vote')).toBeTruthy();
     expect(within(card).getByText('0.0035 ₳ per byte')).toBeTruthy();
     expect(within(card).getByText('-810 lovelace/byte')).toBeTruthy();
-    const chart = within(card).getByRole('group', { name: /Plain ada output: 0.97 ₳ now, 0.79 ₳ new/ });
+    const chart = within(card).getByRole('group', { name: /Plain ada output: 0\.996 ₳ now, 0\.809 ₳ new/ });
     // The rows stay readable text, only the bars are hidden from assistive tech.
     expect(within(chart).getByText('10 tokens, 1 policy')).toBeTruthy();
     const summary = screen.getByRole('complementary', { name: 'Summary' });
