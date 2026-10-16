@@ -2217,14 +2217,18 @@ describe('SubmitGovAction', () => {
 
       const paragraph = changesParagraph({ k: { n: 600n, d: 1n } }, valuesFromJson(PARAM_CONTEXT.params));
       expect(paragraph).toContain('500 to 600. The constitution allows 250 to 2,000.');
-      const add = await screen.findByRole('button', { name: 'Add the changes to the abstract' }, SLOW);
+      // The box previews exactly the lines a click adds.
+      const box = await screen.findByRole('region', { name: 'Changes paragraph' }, SLOW);
+      expect(box.textContent).toContain('Target number of pools (k): 500 to 600. The constitution allows 250 to 2,000.');
+      expect(box.textContent).toContain('Optional.');
+      const add = within(box).getByRole('button', { name: 'Add to abstract' });
       fireEvent.click(add);
       await waitFor(() => expect((screen.getByLabelText('Abstract') as HTMLTextAreaElement).value).toBe(paragraph));
 
       // The same values a second time: already there, so the button says so and does nothing.
-      const added = screen.getByRole('button', { name: 'Changes added' }) as HTMLButtonElement;
+      const added = within(box).getByRole('button', { name: 'Added' }) as HTMLButtonElement;
       expect(added.disabled).toBe(true);
-      expect(screen.queryByRole('button', { name: 'Add the changes to the abstract' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Add to abstract' })).toBeNull();
 
       const edited = `${paragraph}\n\nWhy now: the pool count has grown.`;
       fireEvent.change(screen.getByLabelText('Abstract'), { target: { value: edited } });
@@ -2236,14 +2240,15 @@ describe('SubmitGovAction', () => {
       await fillParamPanel({ k: '600' });
       const current = valuesFromJson(PARAM_CONTEXT.params);
       const first = changesParagraph({ k: { n: 600n, d: 1n } }, current);
-      fireEvent.click(await screen.findByRole('button', { name: 'Add the changes to the abstract' }, SLOW));
+      fireEvent.click(await screen.findByRole('button', { name: 'Add to abstract' }, SLOW));
       await waitFor(() => expect((screen.getByLabelText('Abstract') as HTMLTextAreaElement).value).toBe(first));
       const around = `Intro line.\n\n${first}\n\nWhy now: the pool count has grown.`;
       fireEvent.change(screen.getByLabelText('Abstract'), { target: { value: around } });
 
       fireEvent.change(screen.getByRole('textbox', { name: 'New Target number of pools' }), { target: { value: '700' } });
       const second = changesParagraph({ k: { n: 700n, d: 1n } }, current);
-      fireEvent.click(await screen.findByRole('button', { name: 'Add the changes to the abstract' }, SLOW));
+      // An earlier block with old values: the button says the click updates it.
+      fireEvent.click(await screen.findByRole('button', { name: 'Update in abstract' }, SLOW));
 
       const expected = `Intro line.\n\n${second}\n\nWhy now: the pool count has grown.`;
       await waitFor(() => expect((screen.getByLabelText('Abstract') as HTMLTextAreaElement).value).toBe(expected));
@@ -2251,7 +2256,7 @@ describe('SubmitGovAction', () => {
       expect(value.split('Changes:').length).toBe(2);
       expect(value).toContain('500 to 700.');
       expect(value).not.toContain('500 to 600.');
-      expect((screen.getByRole('button', { name: 'Changes added' }) as HTMLButtonElement).disabled).toBe(true);
+      expect((screen.getByRole('button', { name: 'Added' }) as HTMLButtonElement).disabled).toBe(true);
     });
 
     it('disables adding the changes when the abstract has no room for them', async () => {
@@ -2259,7 +2264,7 @@ describe('SubmitGovAction', () => {
       await fillParamPanel({ k: '600' });
       fireEvent.change(screen.getByLabelText('Abstract'), { target: { value: 'x'.repeat(INFO_ABSTRACT_MAX - 10) } });
 
-      const add = (await screen.findByRole('button', { name: 'Add the changes to the abstract' }, SLOW)) as HTMLButtonElement;
+      const add = (await screen.findByRole('button', { name: 'Add to abstract' }, SLOW)) as HTMLButtonElement;
       await waitFor(() => expect(add.disabled).toBe(true));
       expect(screen.getByText('The abstract has no room for the changes paragraph.')).toBeTruthy();
     });
