@@ -29,7 +29,6 @@ User-agent: SemrushBot
 User-agent: MJ12bot
 User-agent: DotBot
 User-agent: DataForSeoBot
-User-agent: Amazonbot
 User-agent: Amzn-SearchBot
 Disallow: /og/
 Disallow: /admin
@@ -47,7 +46,10 @@ Disallow: /ga/*compare=
 # answer engines, but the content is not offered up for model training. The
 # live citing bots above are deliberately kept out of this group, and so is
 # Meta-ExternalFetcher, Meta's on-demand link/preview fetcher. Only the
-# training crawler Meta-ExternalAgent is blocked below.
+# training crawler Meta-ExternalAgent is blocked below. Amazonbot may feed
+# model training too, while Amazon's search and Alexa fetchers (Amzn-SearchBot,
+# Amzn-User) stay allowed. PetalBot crawls the whole archive for a search engine
+# that sends no visitors here.
 User-agent: GPTBot
 User-agent: Claude-Web
 User-agent: anthropic-ai
@@ -55,6 +57,8 @@ User-agent: CCBot
 User-agent: Google-Extended
 User-agent: Applebot-Extended
 User-agent: meta-externalagent
+User-agent: Amazonbot
+User-agent: PetalBot
 Disallow: /
 
 Sitemap: https://dreptalk.com/sitemap.xml
