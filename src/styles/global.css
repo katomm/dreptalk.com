@@ -550,6 +550,42 @@ main.container {
 .callout--info .callout__icon {
   color: var(--accent);
 }
+/* The parameter change's "Changes paragraph" box under the abstract on /ga/new. */
+.ga-changes {
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+.ga-changes__main {
+  display: flex;
+  gap: 0.65rem;
+  align-items: flex-start;
+  flex: 1 1 18rem;
+  min-width: 0;
+}
+.ga-changes__check {
+  width: 16px;
+  height: 16px;
+}
+.ga-changes__title {
+  margin: 0;
+  font-weight: 600;
+}
+.ga-changes__help {
+  margin: 0.15rem 0 0;
+  font-size: 0.875rem;
+  color: var(--muted);
+}
+.ga-changes__list {
+  margin: 0.5rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+}
+.ga-changes__button {
+  align-self: center;
+}
+
 .callout--success {
   border-color: color-mix(in srgb, #0a8a5f 35%, var(--border));
   background: color-mix(in srgb, #0a8a5f 9%, var(--surface));

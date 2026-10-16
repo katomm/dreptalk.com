@@ -1703,19 +1703,48 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
               mentions={false}
             />
             {f.key === 'abstract' && state.type === 'ParameterChange' && paramChangesParagraph !== '' && (
-              <div style={{ marginTop: '0.375rem' }}>
+              <section className="callout callout--info ga-changes" aria-labelledby="ga-changes-title">
+                <div className="ga-changes__main">
+                <InfoIcon />
+                <div className="callout__body ga-changes__body">
+                  <p id="ga-changes-title" className="ga-changes__title">
+                    Changes paragraph
+                  </p>
+                  <p className="ga-changes__help">
+                    Optional. Lists each change with its old and new value and the constitution's range, so readers
+                    see the numbers without opening the on-chain payload.
+                  </p>
+                  <ul className="ga-changes__list">
+                    {paramChangesParagraph
+                      .split('\n')
+                      .filter((line) => line.startsWith('- '))
+                      .map((line) => (
+                        <li key={line}>{line.slice(2)}</li>
+                      ))}
+                  </ul>
+                  {!changesRoomLeft && <p className="ga-changes__help">The abstract has no room for the changes paragraph.</p>}
+                </div>
+                </div>
                 <button
                   type="button"
+                  className="btn btn-secondary ga-changes__button"
                   onClick={addChangesToAbstract}
                   disabled={busy || changesAlreadyAdded || !changesRoomLeft}
-                  style={linkButtonStyle}
                 >
-                  {changesAlreadyAdded ? 'Changes added' : 'Add the changes to the abstract'}
+                  {changesAlreadyAdded ? (
+                    <>
+                      <svg className="ga-changes__check" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                      Added
+                    </>
+                  ) : earlierChangesBlock !== null ? (
+                    'Update in abstract'
+                  ) : (
+                    'Add to abstract'
+                  )}
                 </button>
-                {!changesRoomLeft && (
-                  <span style={{ ...helpStyle, margin: '0.25rem 0 0' }}>The abstract has no room for the changes paragraph.</span>
-                )}
-              </div>
+              </section>
             )}
           </CountedField>
         ))}
