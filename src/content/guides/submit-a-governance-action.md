@@ -116,6 +116,11 @@ rewards, and for the UTxO cost per byte. On DRepTalk it is available on preprod 
 - DReps and the Constitutional Committee decide these changes. Stake pools also
   vote when the UTxO cost per byte changes, because it is a security-relevant
   parameter.
+- For the minimum pool cost and the UTxO cost per byte, the constitution asks
+  that at least 90 days normally pass between publishing an off-chain proposal
+  and submitting the action (PARAM-06a and PARAM-04a). The form points this out
+  and shows how long your linked Proposal Draft has been public. It is a
+  recommendation, so you can still submit earlier.
 - The constitution's guardrails script checks every parameter change. DRepTalk
   runs that check before your wallet signs. If the script rejects the change,
   nothing is signed. The page says the script rejected it and, when the

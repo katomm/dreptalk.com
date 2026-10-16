@@ -30,6 +30,8 @@ export interface DraftLinkControlProps {
   onUnlink: () => void;
   /** The reducer's draftLinkError (the append-at-cap refusal), shown next to the control. */
   error?: string | null;
+  /** An informational line below the control (the parameter change discussion guardrail), never an error. */
+  note?: string | null;
   disabled?: boolean;
 }
 
@@ -43,6 +45,7 @@ export default function DraftLinkControl({
   onLink,
   onUnlink,
   error,
+  note,
   disabled,
 }: DraftLinkControlProps) {
   // A slug from any caller (not only the reducer's own validated restore
@@ -98,6 +101,7 @@ export default function DraftLinkControl({
           </span>
         </>
       )}
+      {note && <p style={helpStyle}>{note}</p>}
       {trackedMissing && <p style={errorStyle}>This draft is no longer open</p>}
       {error && <p style={errorStyle}>{error}</p>}
     </div>

@@ -78,6 +78,15 @@ describe('ParamChangePanel', () => {
     expect(within(summary).getByText('do not vote on these')).toBeTruthy();
   });
 
+  it('points to Proposal Drafts on the cards the 90 day guardrail covers, and only there', () => {
+    setup({ prev: null, picked: ['minPoolCost', 'utxoCostPerByte', 'k'] as never[], inputs: {} });
+    const utxo = screen.getByRole('group', { name: 'UTxO cost per byte' });
+    expect(utxo.textContent).toContain('at least 90 days normally pass between publishing an off-chain proposal for this parameter and submitting it on chain (PARAM-04a)');
+    expect(within(utxo).getByRole('link', { name: 'Proposal Drafts' }).getAttribute('href')).toBe('/c/proposal-drafts/');
+    expect(screen.getByRole('group', { name: 'Minimum pool cost' }).textContent).toContain('(PARAM-06a)');
+    expect(screen.getByRole('group', { name: 'Target number of pools' }).textContent).not.toContain('90 days');
+  });
+
   it('shows no chart and does not throw when the current utxoCostPerByte is unknown', () => {
     const params = { ...(context as { params: Record<string, unknown> }).params };
     delete params.utxoCostPerByte;

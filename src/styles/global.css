@@ -1861,6 +1861,9 @@ html[data-theme='dark'] .pcp-panel {
 .pcp-callout__text {
   margin: 0 0 4px;
 }
+.pcp-nowrap {
+  white-space: nowrap;
+}
 .pcp-label {
   font-size: 11px;
   font-weight: 700;

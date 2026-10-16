@@ -18,6 +18,8 @@ import ImpactRewards, { type RewardBasis } from './ImpactRewards.js';
 import ImpactMinPoolCost from './ImpactMinPoolCost.js';
 import ImpactBudget from './ImpactBudget.js';
 import ImpactUtxoCost from './ImpactUtxoCost.js';
+import { InfoIcon } from '../icons.js';
+import { CONSULTATION_DAYS } from '@/lib/governance/consultation.js';
 import { DataSource } from './chart.js';
 
 export interface ParamCardProps {
@@ -203,6 +205,19 @@ export default function ParamCard({ raw, error, onInput, onRemove, disabled = fa
       </div>
 
       <RangeScale paramKey={paramKey} current={current} next={next} />
+
+      {def.consultation && (
+        <div className="callout callout--info">
+          <InfoIcon />
+          <div className="callout__body">
+            <p className="pcp-callout__text">
+              The constitution asks that at least {CONSULTATION_DAYS} days normally pass between publishing an off-chain
+              proposal for this parameter and submitting it on chain (<span className="pcp-nowrap">{def.consultation}</span>). Start a discussion in{' '}
+              <a href="/c/proposal-drafts/">Proposal Drafts</a> and link it in the next step.
+            </p>
+          </div>
+        </div>
+      )}
 
       {error && (
         <p className="pcp-err" role="alert">
