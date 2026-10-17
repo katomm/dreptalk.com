@@ -456,6 +456,16 @@ export function parseConstitutionScriptHash(payload: unknown): GuardrailLeaf {
   return guardrailLeafFromSlot(body.script);
 }
 
+// A withdrawal amount from a stored payload. A decimal string is read digit
+// for digit, BigInt(Number(s)) would round anything above 2^53. A number is
+// already whatever JSON.parse made of it, so it is truncated as before.
+// Anything else counts as 0, as before.
+function withdrawalLovelace(lovelace: unknown): bigint {
+  if (typeof lovelace === 'number') return Number.isFinite(lovelace) ? BigInt(Math.trunc(lovelace)) : 0n;
+  if (typeof lovelace === 'string' && /^\d+$/.test(lovelace)) return BigInt(lovelace);
+  return 0n;
+}
+
 function decodeTreasury(contents: unknown[], network: CardanoNetwork): OnchainChanges {
   const list = contents[0];
   const rows: TreasuryRow[] = [];
@@ -463,8 +473,8 @@ function decodeTreasury(contents: unknown[], network: CardanoNetwork): OnchainCh
   if (Array.isArray(list)) {
     for (const entry of list) {
       if (!Array.isArray(entry)) continue;
-      const [acct, lovelace] = entry as [RewardAccount, number | string];
-      const amt = typeof lovelace === 'number' ? BigInt(Math.trunc(lovelace)) : BigInt(Number(lovelace) || 0);
+      const [acct, lovelace] = entry as [RewardAccount, unknown];
+      const amt = withdrawalLovelace(lovelace);
       total += amt;
       rows.push({ address: rewardAccountToBech32(acct, network), ada: formatAda(String(amt)) ?? `${amt}` });
     }
@@ -488,8 +498,7 @@ export function treasuryTotalLovelace(payload: unknown): bigint {
   if (Array.isArray(list)) {
     for (const entry of list) {
       if (!Array.isArray(entry)) continue;
-      const lovelace = entry[1] as number | string;
-      total += typeof lovelace === 'number' ? BigInt(Math.trunc(lovelace)) : BigInt(Number(lovelace) || 0);
+      total += withdrawalLovelace(entry[1]);
     }
   }
   return total;

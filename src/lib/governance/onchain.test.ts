@@ -507,6 +507,19 @@ describe('treasuryTotalLovelace', () => {
     expect(treasuryTotalLovelace(treasuryPayload)).toBe(75_000_000_000_000n);
   });
 
+  it('keeps a string amount above 2^53 exact', () => {
+    const payload = {
+      tag: 'TreasuryWithdrawals',
+      contents: [[[{ network: 'Mainnet', credential: { keyHash: 'ab'.repeat(28) } }, '9007199254740993']], null],
+    };
+    expect(treasuryTotalLovelace(payload)).toBe(9_007_199_254_740_993n);
+  });
+
+  it('counts an unreadable amount as 0', () => {
+    const payload = { tag: 'TreasuryWithdrawals', contents: [[[{}, '12a'], [{}, null]], null] };
+    expect(treasuryTotalLovelace(payload)).toBe(0n);
+  });
+
   it('returns 0n for a non-treasury payload', () => {
     expect(treasuryTotalLovelace({ tag: 'InfoAction', contents: [] })).toBe(0n);
     expect(treasuryTotalLovelace(null)).toBe(0n);
