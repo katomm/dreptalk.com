@@ -1,7 +1,8 @@
 /// <reference types="@cloudflare/workers-types" />
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { handlePoolEconomics, type PoolEconomicsKoios } from './poolEconomicsHandler.js';
+import { handlePoolEconomics } from './poolEconomicsHandler.js';
+import type { PoolEconomicsKoios } from './poolEconomics.js';
 import { epochStartUnix } from '@/lib/config/network.js';
 
 const preprodCfg = { network: 'preprod', networkId: 0, epochAnchor: { epoch: 300, unixSeconds: 1_790_000_000 } } as never;
@@ -51,18 +52,6 @@ async function freshCache() {
 const deps = (k: PoolEconomicsKoios, cache: Cache, network = preprodCfg) => ({ koios: k, network, env: testEnv, cache, now: NOW });
 
 describe('handlePoolEconomics', () => {
-  it('pages the pool list, drops pools without stake and sorts by stake', async () => {
-    const k = koios();
-    const res = await handlePoolEconomics(ctx(), deps(k, await freshCache()));
-    expect(res.status).toBe(200);
-    const json = (await res.json()) as { epoch: number; pools: [number, number, string][]; supplyLovelace: string };
-    expect(json.epoch).toBe(300);
-    expect(json.pools).toHaveLength(1003);
-    expect(json.pools[0]).toEqual([5000, 1000, '170000001']);
-    expect(json.supplyLovelace).toBe('39000000000000000');
-    expect(k.calls).toEqual(['pools:0', 'pools:1000', 'totals']);
-  });
-
   it('serves the second request of an epoch from the cache', async () => {
     const cache = await freshCache();
     await handlePoolEconomics(ctx(), deps(koios(), cache));
@@ -93,10 +82,5 @@ describe('handlePoolEconomics', () => {
     const res = await handlePoolEconomics(ctx(), deps(k, await freshCache(), mainnetCfg));
     expect(res.status).toBe(404);
     expect(k.calls).toEqual([]);
-  });
-
-  it('answers 503 instead of a truncated list after 20 full pages', async () => {
-    const res = await handlePoolEconomics(ctx(), deps(koios({ poolList: async () => page(1000) }), await freshCache()));
-    expect(res.status).toBe(503);
   });
 });

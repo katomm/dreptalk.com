@@ -10,19 +10,7 @@ import { EPOCH_LENGTH_SECONDS, epochFromUnix, type NetworkConfig } from '@/lib/c
 import { currentNetwork, jsonResponse } from '@/lib/api/response.js';
 import { gateGovActionRequest, GOV_ACTION_RATE_POLICIES } from './govActionGate.js';
 import { govActionSubmissionAvailable, govActionTypeAvailable } from './submissionGate.js';
-import { KOIOS_PAGE_CAP, type PoolListRow } from '../koios/client.js';
-import type { PoolEconomicsJson } from './paramImpact.js';
-
-const MAX_PAGES = 20;
-
-export interface PoolEconomicsKoios {
-  poolList(offset: number): Promise<PoolListRow[]>;
-  totals(): Promise<{
-    epochNo: number;
-    reservesLovelace: string;
-    supplyLovelace: string | null;
-  } | null>;
-}
+import { readPoolEconomics, type PoolEconomicsKoios } from './poolEconomics.js';
 
 export interface PoolEconomicsDeps {
   koios: PoolEconomicsKoios;
@@ -35,29 +23,6 @@ export interface PoolEconomicsDeps {
 }
 
 const NO_STORE = { 'cache-control': 'no-store' };
-const toAda = (lovelace: string | null) => (lovelace && /^\d+$/.test(lovelace) ? Number(BigInt(lovelace) / 1_000_000n) : 0);
-
-async function readEconomics(koios: PoolEconomicsKoios): Promise<PoolEconomicsJson | null> {
-  const rows: PoolListRow[] = [];
-  for (let pageNo = 0; ; pageNo++) {
-    if (pageNo === MAX_PAGES) return null;
-    const page = await koios.poolList(pageNo * KOIOS_PAGE_CAP);
-    rows.push(...page);
-    if (page.length < KOIOS_PAGE_CAP) break;
-  }
-  const totals = await koios.totals();
-  if (!totals?.supplyLovelace) return null;
-  const pools: [number, number, string][] = rows
-    .filter((row) => row.active_stake && /^\d+$/.test(row.active_stake) && row.active_stake !== '0')
-    .map((row) => [toAda(row.active_stake), toAda(row.pledge), row.fixed_cost && /^\d+$/.test(row.fixed_cost) ? row.fixed_cost : '0']);
-  pools.sort((a, b) => b[0] - a[0]);
-  return {
-    epoch: totals.epochNo,
-    supplyLovelace: totals.supplyLovelace,
-    reservesLovelace: totals.reservesLovelace,
-    pools,
-  };
-}
 
 export async function handlePoolEconomics(
   ctx: { request: Request; locals: App.Locals },
@@ -75,7 +40,7 @@ export async function handlePoolEconomics(
     const hit = await cache.match(key);
     // The cached body is already the JSON answer, so it is passed through as is.
     if (hit) return new Response(hit.body, { status: 200, headers: { 'content-type': 'application/json', ...NO_STORE } });
-    const data = await readEconomics(deps.koios);
+    const data = await readPoolEconomics(deps.koios);
     if (!data) return jsonResponse({ error: 'pool_data_unavailable' }, 503, NO_STORE);
     if (data.epoch === epoch) {
       await cache.put(key, new Response(JSON.stringify(data), { headers: { 'cache-control': `max-age=${EPOCH_LENGTH_SECONDS}` } }));
