@@ -193,7 +193,7 @@ function fmtExUnits(v: unknown): string {
 }
 
 /** A payload rational: a JSON number (the ledger's decimal form) or { numerator, denominator }. */
-function payloadRational(v: unknown): Rational | null {
+export function payloadRational(v: unknown): Rational | null {
   if (typeof v === 'number') return rationalFromNumber(v);
   if (v && typeof v === 'object' && 'numerator' in v && 'denominator' in v) {
     const { numerator, denominator } = v as { numerator: unknown; denominator: unknown };
@@ -207,7 +207,7 @@ function payloadRational(v: unknown): Rational | null {
 }
 
 /** A payload amount as a whole-number string, or null when it is anything else. */
-function wholeAmount(v: unknown): string | null {
+export function wholeAmount(v: unknown): string | null {
   const s = typeof v === 'number' ? (Number.isSafeInteger(v) ? String(v) : null) : typeof v === 'string' ? v : null;
   return s !== null && /^\d+$/.test(s) ? s : null;
 }
