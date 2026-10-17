@@ -22,8 +22,9 @@ export interface ParamMeta {
 
 // camelCase ledger param name → display metadata + the snake_case epoch_params key
 // used for old→new. snake '' means "no comparable scalar in epoch_params" (new only).
-// All keys here were observed in real preprod/mainnet payloads or are standard
-// Conway-updatable parameters, unknown keys fall back to a humanized label.
+// Keys follow the Conway JSON names of the Koios payload (the cardano-cli
+// protocol-parameters keys in __fixtures__/conwayPParamsKeys.json), older names
+// are aliases in PARAM_ALIASES. Unknown keys fall back to a humanized label.
 // Labels are sentence case. The six parameters the submit form offers take
 // theirs from paramDefs.ts, so the form and this list never drift apart.
 export const PARAM_REGISTRY: Record<string, ParamMeta> = {
@@ -35,13 +36,13 @@ export const PARAM_REGISTRY: Record<string, ParamMeta> = {
   dRepActivity: { snake: 'drep_activity', group: 'Governance', label: 'DRep activity', format: 'int' },
   treasuryCut: { snake: 'treasury_growth_rate', group: 'Economic', label: paramListLabel('tau'), format: 'percent' },
   monetaryExpansion: { snake: 'monetary_expand_rate', group: 'Economic', label: paramListLabel('rho'), format: 'percent' },
-  minFeeA: { snake: 'min_fee_a', group: 'Economic', label: 'Min fee coefficient (a)', format: 'int' },
-  minFeeB: { snake: 'min_fee_b', group: 'Economic', label: 'Min fee constant (b)', format: 'lovelace' },
+  txFeePerByte: { snake: 'min_fee_a', group: 'Economic', label: 'Min fee coefficient (a)', format: 'int' },
+  txFeeFixed: { snake: 'min_fee_b', group: 'Economic', label: 'Min fee constant (b)', format: 'lovelace' },
   minFeeRefScriptCostPerByte: { snake: 'min_fee_ref_script_cost_per_byte', group: 'Economic', label: 'Ref script cost per byte', format: 'lovelace' },
   minPoolCost: { snake: 'min_pool_cost', group: 'Economic', label: paramListLabel('minPoolCost'), format: 'lovelace' },
-  keyDeposit: { snake: 'key_deposit', group: 'Economic', label: 'Key deposit', format: 'lovelace' },
-  poolDeposit: { snake: 'pool_deposit', group: 'Economic', label: 'Pool deposit', format: 'lovelace' },
-  coinsPerUTxOByte: { snake: 'coins_per_utxo_size', group: 'Economic', label: paramListLabel('utxoCostPerByte'), format: 'lovelacePerByte' },
+  stakeAddressDeposit: { snake: 'key_deposit', group: 'Economic', label: 'Key deposit', format: 'lovelace' },
+  stakePoolDeposit: { snake: 'pool_deposit', group: 'Economic', label: 'Pool deposit', format: 'lovelace' },
+  utxoCostPerByte: { snake: 'coins_per_utxo_size', group: 'Economic', label: paramListLabel('utxoCostPerByte'), format: 'lovelacePerByte' },
   maxBlockBodySize: { snake: 'max_block_size', group: 'Network', label: 'Max block body size', format: 'bytes' },
   maxTxSize: { snake: 'max_tx_size', group: 'Network', label: 'Max tx size', format: 'bytes' },
   maxBlockHeaderSize: { snake: 'max_bh_size', group: 'Network', label: 'Max block header size', format: 'bytes' },
@@ -54,23 +55,40 @@ export const PARAM_REGISTRY: Record<string, ParamMeta> = {
   poolPledgeInfluence: { snake: 'influence', group: 'Technical', label: paramListLabel('a0'), format: 'decimal' },
   poolRetireMaxEpoch: { snake: 'max_epoch', group: 'Technical', label: 'Pool retire max epoch (eMax)', format: 'int' },
   costModels: { snake: 'cost_models', group: 'Technical', label: 'Cost models', format: 'costModels' },
+  // Structured values without one comparable scalar, shown as "Updated".
+  executionUnitPrices: { snake: '', group: 'Economic', label: 'Execution unit prices', format: 'costModels' },
+  poolVotingThresholds: { snake: '', group: 'Governance', label: 'Pool voting thresholds', format: 'costModels' },
+  dRepVotingThresholds: { snake: '', group: 'Governance', label: 'DRep voting thresholds', format: 'costModels' },
 };
+
+// Older payload key names to their Conway name in PARAM_REGISTRY, so payloads
+// stored under the old names keep decoding.
+export const PARAM_ALIASES: Record<string, string> = {
+  minFeeA: 'txFeePerByte',
+  minFeeB: 'txFeeFixed',
+  keyDeposit: 'stakeAddressDeposit',
+  poolDeposit: 'stakePoolDeposit',
+  coinsPerUTxOByte: 'utxoCostPerByte',
+};
+
+/** The PARAM_REGISTRY key for a payload key, resolving an old name to its Conway name. */
+export const registryKey = (key: string): string => (Object.hasOwn(PARAM_ALIASES, key) ? PARAM_ALIASES[key] : key);
 
 // The security-relevant parameters: the constitution's "Parameters Critical to the
 // Operation of the Blockchain" (constitution section 2.1, guardrail PARAM-03a).
 // Changing any one requires an SPO vote (pvtPPSecurityGroup) on top of the DRep
 // vote; a parameter change touching none of these has no SPO vote at all. Keys are
-// the camelCase ledger names as they appear in the on-chain payload.
+// the Conway JSON names, old payload names resolve through PARAM_ALIASES.
 export const SECURITY_PARAMS: ReadonlySet<string> = new Set([
   'maxBlockBodySize',
   'maxTxSize',
   'maxBlockHeaderSize',
   'maxValueSize',
   'maxBlockExecutionUnits',
-  'minFeeA',
-  'minFeeB',
+  'txFeePerByte',
+  'txFeeFixed',
   'minFeeRefScriptCostPerByte',
-  'coinsPerUTxOByte',
+  'utxoCostPerByte',
   'govActionDeposit',
 ]);
 
@@ -118,13 +136,10 @@ export function lineagePredecessorTxIds(payloads: (string | null)[]): string[] {
 }
 
 /**
- * The voting scope of a ParameterChange: which DRep groups it touches and whether
- * any changed parameter is security-relevant (which adds the SPO vote). Reads the
- * changed-parameter map (contents[1]) of the on-chain payload, the same shape
- * decodeParams uses. Returns null when the payload is absent, malformed, or not a
- * parameter change, so callers can decide how to handle an unknown scope.
+ * The changed-parameter map (contents[1]) of a ParameterChange payload, or null
+ * when the payload is absent, malformed, or another action type.
  */
-export function parameterChangeScope(payloadJson: string | null): ParamChangeScope | null {
+export function parameterChangeMap(payloadJson: string | null): Record<string, unknown> | null {
   if (!payloadJson) return null;
   let payload: { tag?: string; contents?: unknown[] };
   try {
@@ -132,15 +147,27 @@ export function parameterChangeScope(payloadJson: string | null): ParamChangeSco
   } catch {
     return null;
   }
-  if (payload?.tag !== 'ParameterChange') return null;
-  const contents = Array.isArray(payload.contents) ? payload.contents : [];
-  const map = contents[1];
-  if (!map || typeof map !== 'object') return null;
+  if (payload?.tag !== 'ParameterChange' || !Array.isArray(payload.contents)) return null;
+  const map = payload.contents[1];
+  return map && typeof map === 'object' ? (map as Record<string, unknown>) : null;
+}
+
+/**
+ * The voting scope of a ParameterChange: which DRep groups it touches and whether
+ * any changed parameter is security-relevant (which adds the SPO vote). Reads the
+ * changed-parameter map (contents[1]) of the on-chain payload, the same shape
+ * decodeParams uses. Returns null when the payload is absent, malformed, or not a
+ * parameter change, so callers can decide how to handle an unknown scope.
+ */
+export function parameterChangeScope(payloadJson: string | null): ParamChangeScope | null {
+  const map = parameterChangeMap(payloadJson);
+  if (!map) return null;
   const groups = new Set<ParamGroup>();
   let touchesSecurity = false;
-  for (const key of Object.keys(map)) {
+  for (const payloadKey of Object.keys(map)) {
+    const key = registryKey(payloadKey);
     if (SECURITY_PARAMS.has(key)) touchesSecurity = true;
-    const g = GROUP_TO_DREP[PARAM_REGISTRY[key]?.group ?? ''];
+    const g = GROUP_TO_DREP[(Object.hasOwn(PARAM_REGISTRY, key) ? PARAM_REGISTRY[key].group : undefined) ?? ''];
     if (g) groups.add(g);
   }
   return { groups: [...groups], touchesSecurity };
@@ -174,7 +201,7 @@ function fmtExUnits(v: unknown): string {
 }
 
 /** A payload rational: a JSON number (the ledger's decimal form) or { numerator, denominator }. */
-function payloadRational(v: unknown): Rational | null {
+export function payloadRational(v: unknown): Rational | null {
   if (typeof v === 'number') return rationalFromNumber(v);
   if (v && typeof v === 'object' && 'numerator' in v && 'denominator' in v) {
     const { numerator, denominator } = v as { numerator: unknown; denominator: unknown };
@@ -188,7 +215,7 @@ function payloadRational(v: unknown): Rational | null {
 }
 
 /** A payload amount as a whole-number string, or null when it is anything else. */
-function wholeAmount(v: unknown): string | null {
+export function wholeAmount(v: unknown): string | null {
   const s = typeof v === 'number' ? (Number.isSafeInteger(v) ? String(v) : null) : typeof v === 'string' ? v : null;
   return s !== null && /^\d+$/.test(s) ? s : null;
 }
@@ -340,7 +367,8 @@ function decodeParams(contents: unknown[], ep: Record<string, unknown>): Onchain
   const rows: ParamRow[] = [];
   if (map && typeof map === 'object') {
     for (const [key, val] of Object.entries(map)) {
-      const meta = PARAM_REGISTRY[key];
+      const rk = registryKey(key);
+      const meta = Object.hasOwn(PARAM_REGISTRY, rk) ? PARAM_REGISTRY[rk] : undefined;
       if (meta) {
         const old = meta.snake ? ep[meta.snake] : undefined;
         rows.push({

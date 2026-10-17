@@ -20,6 +20,7 @@ import {
   backfillGovStatusTimes,
 } from '../../governance/tallySync.js';
 import { syncProtocolParams } from '../../governance/paramsSync.js';
+import { syncPoolEconomics } from '../../governance/poolEconomics.js';
 import { collectUnreferencedPins } from '../../governance/pinCollector.js';
 import { makePinataRemover } from '../../governance/pinata.js';
 import { runCip100Sync } from '../../cip100/cron.js';
@@ -279,6 +280,19 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
     run: async (ctx) => {
       const r = await syncProtocolParams({ koios: ctx.koios, db: ctx.db, now: ctx.now });
       return { items: r.written };
+    },
+  },
+  {
+    // Precompute the pool distribution for the parameter change impact panels:
+    // one Koios read per epoch, stored as a single D1 row that the routes serve.
+    // Heavy-only: the distribution moves once per epoch, a lagging epoch at the
+    // boundary is retried on the next heavy tick.
+    name: 'pool-economics',
+    when: heavyOnly,
+    run: async (ctx) => {
+      const r = await syncPoolEconomics({ db: ctx.db, koios: ctx.koios, cfg: ctx.cfg, now: ctx.now });
+      console.log(`[gov-pool-economics] epoch=${r.epoch} written=${r.written} failed=${r.failed}`);
+      return { items: r.written, failed: r.failed };
     },
   },
   {

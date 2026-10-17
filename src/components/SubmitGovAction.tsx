@@ -91,8 +91,6 @@ import {
 import { isStalePrevError, mapGuardrailBuildError } from '@/lib/governance/govActionErrors.js';
 import { changesParagraph, valuesFromJson } from '@/lib/governance/paramDefs.js';
 import { draftConsultationNote } from '@/lib/governance/consultation.js';
-import { economicsFromJson } from '@/lib/governance/paramImpact.js';
-import type { PoolEconomicsJson } from '@/lib/governance/paramImpact.js';
 import type { GovActionFormType, PrevActionRef } from '@/lib/governance/prevAction.js';
 import type { GovActionSpec } from '@/lib/governance/govActionParts.js';
 import type { ActionContextResponse } from '@/lib/governance/actionContextHandler.js';
@@ -105,7 +103,7 @@ import NewConstitutionPanel from '@/components/govAction/NewConstitutionPanel.js
 import UpdateCommitteePanel from '@/components/govAction/UpdateCommitteePanel.js';
 import TreasuryPanel from '@/components/govAction/TreasuryPanel.js';
 import ParamChangePanel from '@/components/govAction/paramChange/ParamChangePanel.js';
-import type { PoolEconomicsState } from '@/components/govAction/paramChange/ParamChangePanel.js';
+import { usePoolEconomics } from '@/components/govAction/paramChange/usePoolEconomics.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import { resolveNetwork, txExplorerUrl } from '@/lib/config/network.js';
 import { readableError } from '@/lib/wallet/walletError.js';
@@ -576,24 +574,9 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   const lifetimeRaw: unknown = epochParamsRow?.gov_action_lifetime;
   const govActionLifetime = typeof lifetimeRaw === 'number' ? lifetimeRaw : null;
 
-  // The pool distribution for the impact panels, read when the parameter
-  // change type is first chosen, and again on "Try again" after a failure.
-  // A failure is not fatal: the panels say the figures are unavailable and
-  // the form keeps working.
-  const [economics, setEconomics] = useState<PoolEconomicsState>({ status: 'loading' });
-  const [economicsAttempt, setEconomicsAttempt] = useState(0);
-  const economicsLoaded = useRef(-1);
-  useEffect(() => {
-    if (state.type !== 'ParameterChange' || economicsLoaded.current === economicsAttempt) return;
-    economicsLoaded.current = economicsAttempt;
-    setEconomics({ status: 'loading' });
-    fetchWithTimeout(`${window.location.origin}/api/gov-action/pool-economics`)
-      .then(async (res) => {
-        if (!res.ok) throw new Error(String(res.status));
-        setEconomics({ status: 'ready', data: economicsFromJson((await res.json()) as PoolEconomicsJson) });
-      })
-      .catch(() => setEconomics({ status: 'error' }));
-  }, [state.type, economicsAttempt]);
+  // The pool distribution for the impact panels. A failure is not fatal: the
+  // panels say the figures are unavailable and the form keeps working.
+  const { economics, retry: retryEconomics } = usePoolEconomics('/api/gov-action/pool-economics', state.type === 'ParameterChange');
 
   // Live ledger context for the chosen type: the purpose chain's root and open
   // rows, plus whatever the type's panel needs. InfoAction is unchained and
@@ -1497,7 +1480,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
             onChange={(panel) => dispatch({ kind: 'setPanel', type: 'ParameterChange', state: panel })}
             context={contextData}
             economics={economics}
-            onRetryEconomics={() => setEconomicsAttempt((n) => n + 1)}
+            onRetryEconomics={retryEconomics}
             protocolParams={params}
             ccQuorum={contextData.committee?.quorum ?? null}
             deposit={deposit}
