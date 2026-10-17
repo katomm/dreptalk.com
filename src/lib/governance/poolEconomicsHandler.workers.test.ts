@@ -31,6 +31,8 @@ const failingDb = {
 
 beforeEach(async () => {
   await env.DB.prepare('DELETE FROM pool_economics').run();
+  // The public route keeps its 200 in the colo cache between tests.
+  await (caches as CacheStorage & { default: Cache }).default.delete(new Request('https://dreptalk.com/api/pool-economics'));
 });
 
 describe('handlePoolEconomics (gated)', () => {
@@ -109,6 +111,22 @@ describe('handlePublicPoolEconomics', () => {
     await store(300, BODY_300);
     const res = await handlePublicPoolEconomics(publicCtx(), { env: testEnv });
     expect(res.headers.get('cache-control')).toBe('public, max-age=3600');
+  });
+
+  it('serves a repeat request from the edge cache, ignoring the query string', async () => {
+    await store(300, BODY_300);
+    const first = await handlePublicPoolEconomics(publicCtx(), { env: testEnv });
+    expect(first.status).toBe(200);
+    await first.text();
+    // Let the put after the response settle, then change the row underneath.
+    await new Promise((r) => setTimeout(r, 50));
+    await store(301, JSON.stringify({ epoch: 301, pools: [] }));
+    const ctx2 = {
+      request: new Request('https://dreptalk.com/api/pool-economics?x=1', { headers: { 'sec-fetch-site': 'same-origin' } }),
+      locals: {} as App.Locals,
+    };
+    const second = await handlePublicPoolEconomics(ctx2, { env: testEnv });
+    expect(await second.text()).toBe(BODY_300);
   });
 
   it('refuses a cross-origin request with 403', async () => {

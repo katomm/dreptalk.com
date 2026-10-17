@@ -72,7 +72,7 @@ export const PARAM_ALIASES: Record<string, string> = {
 };
 
 /** The PARAM_REGISTRY key for a payload key, resolving an old name to its Conway name. */
-const registryKey = (key: string): string => PARAM_ALIASES[key] ?? key;
+export const registryKey = (key: string): string => PARAM_ALIASES[key] ?? key;
 
 // The security-relevant parameters: the constitution's "Parameters Critical to the
 // Operation of the Blockchain" (constitution section 2.1, guardrail PARAM-03a).
@@ -136,13 +136,10 @@ export function lineagePredecessorTxIds(payloads: (string | null)[]): string[] {
 }
 
 /**
- * The voting scope of a ParameterChange: which DRep groups it touches and whether
- * any changed parameter is security-relevant (which adds the SPO vote). Reads the
- * changed-parameter map (contents[1]) of the on-chain payload, the same shape
- * decodeParams uses. Returns null when the payload is absent, malformed, or not a
- * parameter change, so callers can decide how to handle an unknown scope.
+ * The changed-parameter map (contents[1]) of a ParameterChange payload, or null
+ * when the payload is absent, malformed, or another action type.
  */
-export function parameterChangeScope(payloadJson: string | null): ParamChangeScope | null {
+export function parameterChangeMap(payloadJson: string | null): Record<string, unknown> | null {
   if (!payloadJson) return null;
   let payload: { tag?: string; contents?: unknown[] };
   try {
@@ -150,10 +147,21 @@ export function parameterChangeScope(payloadJson: string | null): ParamChangeSco
   } catch {
     return null;
   }
-  if (payload?.tag !== 'ParameterChange') return null;
-  const contents = Array.isArray(payload.contents) ? payload.contents : [];
-  const map = contents[1];
-  if (!map || typeof map !== 'object') return null;
+  if (payload?.tag !== 'ParameterChange' || !Array.isArray(payload.contents)) return null;
+  const map = payload.contents[1];
+  return map && typeof map === 'object' ? (map as Record<string, unknown>) : null;
+}
+
+/**
+ * The voting scope of a ParameterChange: which DRep groups it touches and whether
+ * any changed parameter is security-relevant (which adds the SPO vote). Reads the
+ * changed-parameter map (contents[1]) of the on-chain payload, the same shape
+ * decodeParams uses. Returns null when the payload is absent, malformed, or not a
+ * parameter change, so callers can decide how to handle an unknown scope.
+ */
+export function parameterChangeScope(payloadJson: string | null): ParamChangeScope | null {
+  const map = parameterChangeMap(payloadJson);
+  if (!map) return null;
   const groups = new Set<ParamGroup>();
   let touchesSecurity = false;
   for (const payloadKey of Object.keys(map)) {

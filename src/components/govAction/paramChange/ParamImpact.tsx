@@ -2,7 +2,7 @@
 // builder and on the proposal page. Presentational, the caller loads the pool
 // data and builds the model.
 import type { ReactNode } from 'react';
-import type { ParamKey } from '@/lib/governance/paramDefs.js';
+import { PARAM_DEFS, type ParamKey } from '@/lib/governance/paramDefs.js';
 import type { Rational } from '@/lib/format/rational.js';
 import type { ModelParams } from '@/lib/governance/paramImpact.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
@@ -67,8 +67,8 @@ export default function ParamImpact({
   rewardBasis,
   network,
 }: ParamImpactProps) {
-  // The minimum ada chart reads no pool data, so it skips the pool data gate.
-  if (paramKey === 'utxoCostPerByte') {
+  // A chart that reads no pool data skips the pool data gate (today only the minimum ada chart).
+  if (!PARAM_DEFS[paramKey].needsPoolData) {
     return current ? <ImpactUtxoCost currentLovelace={current.n / current.d} nextLovelace={next.n / next.d} /> : null;
   }
   // The combined section below the cards shows the pool data state and the chart for a0.
@@ -77,35 +77,38 @@ export default function ParamImpact({
   }
   if (economics.status !== 'ready') return <EconomicsPending economics={economics} onRetry={onRetryEconomics} />;
   const eco = economics.data;
-  // The fixed cost histogram reads the pool list and the two minimums only, so it needs no model.
-  if (paramKey === 'minPoolCost') {
-    if (!current) return null;
-    return (
-      <>
-        <ImpactMinPoolCost eco={eco} currentLovelace={current.n / current.d} nextLovelace={next.n / next.d} />
-        <DataSource network={network} epoch={eco.epoch} source="pools" />
-      </>
-    );
-  }
-  if (!model || !current) return null;
-  const rewardsChart = <ImpactRewards eco={eco} from={model.from} to={model.to} basis={rewardBasis} />;
+  if (!current) return null;
   let body: ReactNode;
   // The budget cards read the epoch totals, every other card the pool list.
   let source: 'pools' | 'totals' = 'pools';
   switch (paramKey) {
+    case 'utxoCostPerByte':
+      // Handled above, it reads no pool data.
+      return null;
+    case 'minPoolCost':
+      // The fixed cost histogram reads the pool list and the two minimums only, so it needs no model.
+      body = <ImpactMinPoolCost eco={eco} currentLovelace={current.n / current.d} nextLovelace={next.n / next.d} />;
+      break;
     case 'k':
+      if (!model) return null;
       body = (
         <>
           <ImpactSaturation eco={eco} from={model.from} to={model.to} />
-          {rewards === 'here' && <div className="pcp-impact__more">{rewardsChart}</div>}
+          {rewards === 'here' && (
+            <div className="pcp-impact__more">
+              <ImpactRewards eco={eco} from={model.from} to={model.to} basis={rewardBasis} />
+            </div>
+          )}
         </>
       );
       break;
     case 'a0':
-      body = rewardsChart;
+      if (!model) return null;
+      body = <ImpactRewards eco={eco} from={model.from} to={model.to} basis={rewardBasis} />;
       break;
     case 'rho':
     case 'tau':
+      if (!model) return null;
       body = <ImpactBudget eco={eco} from={model.from} to={model.to} />;
       source = 'totals';
       break;

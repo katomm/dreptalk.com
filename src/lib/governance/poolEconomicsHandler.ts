@@ -7,6 +7,7 @@
 //   GET /api/pool-economics: public route, same-origin only, any network.
 import { type NetworkConfig } from '@/lib/config/network.js';
 import { currentNetwork, jsonResponse, runtimeEnv } from '@/lib/api/response.js';
+import { withEdgeCache } from '@/lib/http/edgeCache.js';
 import { isSameOriginRequest } from '@/lib/http/origin.js';
 import { gateGovActionRequest, GOV_ACTION_RATE_POLICIES } from './govActionGate.js';
 import { govActionSubmissionAvailable, govActionTypeAvailable } from './submissionGate.js';
@@ -52,5 +53,7 @@ export async function handlePublicPoolEconomics(
   if (!isSameOriginRequest(ctx.request)) return jsonResponse({ error: 'forbidden' }, 403);
   const db = (deps.env ?? runtimeEnv(ctx.locals)).DB as D1Database | undefined;
   if (!db) return jsonResponse({ error: 'pool_data_unavailable' }, 503, NO_STORE);
-  return answerStored(db, PUBLIC_CACHE);
+  // Colo cache on top of the browser max-age, so a visitor miss does not reach D1. The key drops
+  // the query string, and only the 200 is stored.
+  return withEdgeCache(ctx.request, () => answerStored(db, PUBLIC_CACHE), '/api/pool-economics');
 }

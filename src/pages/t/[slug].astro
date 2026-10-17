@@ -49,8 +49,7 @@ import {
 } from '@/lib/db/governance.js';
 import { headlineComposition, isSpoLedType, isCcEligible, governanceActionDescription } from '@/lib/governance/view.js';
 import type { GaParamImpactProps } from '@/components/ga/GaParamImpact.js';
-import { proposedParamValues, impactSectionKeys } from '@/lib/governance/paramImpactView.js';
-import { currentParamValues, valuesToJson } from '@/lib/governance/paramDefs.js';
+import { buildParamImpact } from '@/lib/governance/paramImpactView.js';
 import { lateVoterIds } from '@/lib/governance/lateVotes.js';
 import { getVotesByGaId, getActionVoters, countActionVoters, getViewerVote, getActionSpoVoters, countActionSpoVoters, getActionVoterRank, getVoteTrendRows, listDrepVotePowers, type ActionVoterRow, type TrendVoteRow } from '@/lib/db/drepVotes.js';
 import { getCommitteeVotes, getCommitteeTimeline, getActionCcVoteRows } from '@/lib/db/committee.js';
@@ -584,19 +583,10 @@ const onchainChanges = govAction
 
 // Impact charts for an active parameter change: the proposed values against the
 // ones in force. Null when no offered parameter has both values.
-let paramImpact: GaParamImpactProps | null = null;
-if (tab === 'overview' && govAction?.type === 'ParameterChange') {
-  let currentRow: Record<string, unknown> = {};
-  try {
-    currentRow = JSON.parse(params?.rawJson ?? '{}') as Record<string, unknown>;
-  } catch {
-    currentRow = {};
-  }
-  const proposed = proposedParamValues(govAction.onchainPayload ?? null);
-  const current = currentParamValues(currentRow);
-  const keys = impactSectionKeys(proposed, current, govAction.status);
-  if (keys.length > 0) paramImpact = { network, keys, current: valuesToJson(current), proposed: valuesToJson(proposed) };
-}
+const paramImpact: GaParamImpactProps | null =
+  tab === 'overview' && govAction?.type === 'ParameterChange'
+    ? buildParamImpact(govAction.onchainPayload ?? null, params?.rawJson ?? null, govAction.status, network)
+    : null;
 
 // Committee member names for the Overview's "On-chain changes" block: only read
 // on the Overview tab (where it renders) and only when the payload actually adds

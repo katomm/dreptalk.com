@@ -70,8 +70,8 @@ describe('readPoolEconomics', () => {
 
 describe('syncPoolEconomics', () => {
   it('writes the distribution of a new epoch and keeps only the newest row', async () => {
-    expect(await run(koios({}, 300), 300)).toEqual({ written: 1, failed: 0 });
-    expect(await run(koios({}, 301), 301)).toEqual({ written: 1, failed: 0 });
+    expect(await run(koios({}, 300), 300)).toMatchObject({ written: 1, failed: 0 });
+    expect(await run(koios({}, 301), 301)).toMatchObject({ written: 1, failed: 0 });
     const { results } = await rows();
     expect(results).toHaveLength(1);
     expect(results[0].epoch).toBe(301);
@@ -82,12 +82,12 @@ describe('syncPoolEconomics', () => {
   it('skips Koios when the epoch is already stored', async () => {
     await run(koios(), 300);
     const k = koios();
-    expect(await run(k, 300)).toEqual({ written: 0, failed: 0 });
+    expect(await run(k, 300)).toMatchObject({ written: 0, failed: 0 });
     expect(k.calls).toEqual([]);
   });
 
   it('does not store a lagging epoch', async () => {
-    expect(await run(koios({}, 299), 300)).toEqual({ written: 0, failed: 0 });
+    expect(await run(koios({}, 299), 300)).toMatchObject({ written: 0, failed: 0 });
     expect((await rows()).results).toHaveLength(0);
   });
 
@@ -100,9 +100,9 @@ describe('syncPoolEconomics', () => {
   it('keeps the stored row when the read returns null', async () => {
     await run(koios({}, 300), 300);
     const before = (await rows()).results;
-    expect(await run(koios({ poolList: async () => page(1000) }), 301)).toEqual({ written: 0, failed: 1 });
+    expect(await run(koios({ poolList: async () => page(1000) }), 301)).toMatchObject({ written: 0, failed: 1 });
     const noSupply = koios({ totals: async () => ({ epochNo: 301, reservesLovelace: '1', supplyLovelace: null }) });
-    expect(await run(noSupply, 301)).toEqual({ written: 0, failed: 1 });
+    expect(await run(noSupply, 301)).toMatchObject({ written: 0, failed: 1 });
     expect((await rows()).results).toEqual(before);
   });
 });

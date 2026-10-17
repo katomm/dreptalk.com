@@ -1,5 +1,5 @@
 // The pool distribution for the impact charts, read from a same-origin route.
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { economicsFromJson, type PoolEconomics, type PoolEconomicsJson } from '@/lib/governance/paramImpact.js';
 
@@ -25,5 +25,6 @@ export function usePoolEconomics(url: string, enabled: boolean): { economics: Po
       })
       .catch(() => setEconomics({ status: 'error' }));
   }, [url, enabled, attempt]);
-  return { economics, retry: () => setAttempt((n) => n + 1) };
+  const retry = useCallback(() => setAttempt((n) => n + 1), []);
+  return { economics, retry };
 }

@@ -1,7 +1,7 @@
 // The impact of a parameter change on the proposal page: a closed section
 // that loads the builder's charts and the pool data on its first open.
-import { lazy, Suspense, useId, useState } from 'react';
-import { PARAM_DEFS, type ParamKey, type ParamValuesJson } from '@/lib/governance/paramDefs.js';
+import { lazy, Suspense, useId, useMemo, useState } from 'react';
+import { PARAM_DEFS, anyNeedsPoolData, type ParamKey, type ParamValuesJson } from '@/lib/governance/paramDefs.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import { usePoolEconomics } from '@/components/govAction/paramChange/usePoolEconomics.js';
 
@@ -18,7 +18,7 @@ export interface GaParamImpactProps {
 export default function GaParamImpact({ network, keys: offered, current, proposed }: GaParamImpactProps) {
   // The charts skip a key without both values, so the closed line, the charts
   // and the data request all use the same filtered list.
-  const keys = offered.filter((key) => current[key] && proposed[key]);
+  const keys = useMemo(() => offered.filter((key) => current[key] && proposed[key]), [offered, current, proposed]);
   const [expanded, setExpanded] = useState(false);
   // Set on the first open and kept: closing hides the charts, so the loaded
   // chunk and pool data stay and a reopen sends no request.
@@ -26,7 +26,7 @@ export default function GaParamImpact({ network, keys: offered, current, propose
   // The minimum ada chart reads no pool data.
   const { economics, retry } = usePoolEconomics(
     '/api/pool-economics',
-    everOpened && keys.some((k) => k !== 'utxoCostPerByte'),
+    everOpened && anyNeedsPoolData(keys),
   );
   const bodyId = useId();
   if (keys.length === 0) return null;

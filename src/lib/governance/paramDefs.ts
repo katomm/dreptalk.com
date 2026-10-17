@@ -47,6 +47,8 @@ export interface ParamDef {
    * (Appendix I section 2.1, "x", not checked by the script), or null.
    */
   consultation: 'PARAM-04a' | 'PARAM-06a' | null;
+  /** Whether the impact charts read the pool distribution (false when the chart needs only the parameter itself). */
+  needsPoolData: boolean;
   /** The key in Koios /epoch_params. */
   koiosKey: 'optimal_pool_count' | 'influence' | 'min_pool_cost' | 'monetary_expand_rate' | 'treasury_growth_rate' | 'coins_per_utxo_size';
 }
@@ -55,32 +57,32 @@ const q = (n: bigint, d = 1n): Rational => ({ n, d });
 
 export const PARAM_DEFS: Record<ParamKey, ParamDef> = {
   k: {
-    key: 'k', ledgerKey: 'stakePoolTargetNum', sdkField: 'nOpt', cddlKey: 8, group: 'technical',
+    key: 'k', needsPoolData: true, ledgerKey: 'stakePoolTargetNum', sdkField: 'nOpt', cddlKey: 8, group: 'technical',
     title: 'Target number of pools', short: 'k', input: 'int', places: 0,
     min: q(250n), max: q(2000n), koiosKey: 'optimal_pool_count', security: false, listByTitle: false, consultation: null,
   },
   a0: {
-    key: 'a0', ledgerKey: 'poolPledgeInfluence', sdkField: 'poolPledgeInfluence', cddlKey: 9, group: 'technical',
+    key: 'a0', needsPoolData: true, ledgerKey: 'poolPledgeInfluence', sdkField: 'poolPledgeInfluence', cddlKey: 9, group: 'technical',
     title: 'Pledge influence', short: 'a0', input: 'decimal', places: 3,
     min: q(1n, 10n), max: q(1n), koiosKey: 'influence', security: false, listByTitle: false, consultation: null,
   },
   minPoolCost: {
-    key: 'minPoolCost', ledgerKey: 'minPoolCost', sdkField: 'minPoolCost', cddlKey: 16, group: 'economic',
+    key: 'minPoolCost', needsPoolData: true, ledgerKey: 'minPoolCost', sdkField: 'minPoolCost', cddlKey: 16, group: 'economic',
     title: 'Minimum pool cost', short: 'minPoolCost', input: 'ada', places: 6,
     min: q(0n), max: q(500_000_000n), koiosKey: 'min_pool_cost', security: false, listByTitle: true, consultation: 'PARAM-06a',
   },
   rho: {
-    key: 'rho', ledgerKey: 'monetaryExpansion', sdkField: 'expansionRate', cddlKey: 10, group: 'economic',
+    key: 'rho', needsPoolData: true, ledgerKey: 'monetaryExpansion', sdkField: 'expansionRate', cddlKey: 10, group: 'economic',
     title: 'Monetary expansion', short: 'rho', input: 'percent', places: 4,
     min: q(1n, 1000n), max: q(5n, 1000n), koiosKey: 'monetary_expand_rate', security: false, listByTitle: false, consultation: null,
   },
   tau: {
-    key: 'tau', ledgerKey: 'treasuryCut', sdkField: 'treasuryGrowthRate', cddlKey: 11, group: 'economic',
+    key: 'tau', needsPoolData: true, ledgerKey: 'treasuryCut', sdkField: 'treasuryGrowthRate', cddlKey: 11, group: 'economic',
     title: 'Treasury cut', short: 'tau', input: 'percent', places: 2,
     min: q(1n, 10n), max: q(3n, 10n), koiosKey: 'treasury_growth_rate', security: false, listByTitle: false, consultation: null,
   },
   utxoCostPerByte: {
-    key: 'utxoCostPerByte', ledgerKey: 'utxoCostPerByte', sdkField: 'adaPerUtxoByte', cddlKey: 17, group: 'economic',
+    key: 'utxoCostPerByte', needsPoolData: false, ledgerKey: 'utxoCostPerByte', sdkField: 'adaPerUtxoByte', cddlKey: 17, group: 'economic',
     title: 'UTxO cost per byte', short: 'utxoCostPerByte', input: 'lovelace', places: 0,
     min: q(3000n), max: q(6500n), koiosKey: 'coins_per_utxo_size', security: true, listByTitle: true, consultation: 'PARAM-04a',
   },
@@ -95,6 +97,11 @@ export const PARAM_DEFS: Record<ParamKey, ParamDef> = {
 export function paramListLabel(key: ParamKey): string {
   const def = PARAM_DEFS[key];
   return def.listByTitle ? def.title : `${def.title} (${def.short})`;
+}
+
+/** Whether any of the parameters has an impact chart that reads the pool distribution. */
+export function anyNeedsPoolData(keys: readonly ParamKey[]): boolean {
+  return keys.some((key) => PARAM_DEFS[key].needsPoolData);
 }
 
 /** The titles of the security-relevant parameters, in table order. */

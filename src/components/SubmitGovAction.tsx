@@ -573,10 +573,8 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   const lifetimeRaw: unknown = epochParamsRow?.gov_action_lifetime;
   const govActionLifetime = typeof lifetimeRaw === 'number' ? lifetimeRaw : null;
 
-  // The pool distribution for the impact panels, read when the parameter
-  // change type is first chosen, and again on "Try again" after a failure.
-  // A failure is not fatal: the panels say the figures are unavailable and
-  // the form keeps working.
+  // The pool distribution for the impact panels. A failure is not fatal: the
+  // panels say the figures are unavailable and the form keeps working.
   const { economics, retry: retryEconomics } = usePoolEconomics('/api/gov-action/pool-economics', state.type === 'ParameterChange');
 
   // Live ledger context for the chosen type: the purpose chain's root and open

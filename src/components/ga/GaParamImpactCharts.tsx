@@ -2,7 +2,7 @@
 // parameter and the combined rewards section. Loaded on the first open, the
 // island owns the pool data fetch and passes its state.
 import { useId, useMemo } from 'react';
-import { PARAM_DEFS, formatParamValue, valuesFromJson, type ParamValues } from '@/lib/governance/paramDefs.js';
+import { PARAM_DEFS, anyNeedsPoolData, formatParamValue, valuesFromJson, type ParamValues } from '@/lib/governance/paramDefs.js';
 import ParamImpact from '@/components/govAction/paramChange/ParamImpact.js';
 import CombinedRewards from '@/components/govAction/paramChange/CombinedRewards.js';
 import { useImpactPlan } from '@/components/govAction/paramChange/impactPlan.js';
@@ -19,10 +19,11 @@ export default function GaParamImpactCharts({
 }: GaParamImpactProps & { economics: PoolEconomicsState; onRetry: () => void }) {
   const current = useMemo(() => valuesFromJson(currentJson), [currentJson]);
   // Only the shown keys go into the model, so the charts match the blocks.
+  // The parent's key list holds only keys with a proposed value.
   const next = useMemo(() => {
     const proposed = valuesFromJson(proposedJson);
     const out: ParamValues = {};
-    for (const key of keys) if (proposed[key]) out[key] = proposed[key];
+    for (const key of keys) out[key] = proposed[key];
     return out;
   }, [proposedJson, keys]);
   const { model, rewardBasis, combined, rewardsHost } = useImpactPlan(current, next);
@@ -31,14 +32,14 @@ export default function GaParamImpactCharts({
   return (
     <div className="ga-impact__charts">
       <p className="ga-impact__note">
-        {keys.some((k) => k !== 'utxoCostPerByte')
+        {anyNeedsPoolData(keys)
           ? 'What the proposed values would do, computed from the current pool distribution and parameters, so read them as an estimate.'
           : 'What the proposed values would do, computed from the current parameters, so read them as an estimate.'}
       </p>
       {keys.map((key) => {
         const from = current[key];
-        const to = next[key];
-        if (!from || !to) return null;
+        const to = next[key]!;
+        if (!from) return null;
         const titleId = `${idBase}-${key}`;
         return (
           <section key={key} className="ga-impact__block" aria-labelledby={titleId}>

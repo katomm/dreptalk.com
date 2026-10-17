@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { impactSectionKeys, proposedParamValues } from './paramImpactView.js';
+import { buildParamImpact, impactSectionKeys, proposedParamValues } from './paramImpactView.js';
 import type { ParamValues } from './paramDefs.js';
 
 const payload = (map: Record<string, unknown>) => JSON.stringify({ tag: 'ParameterChange', contents: [null, map, null] });
@@ -58,5 +58,27 @@ describe('impactSectionKeys', () => {
   it('drops the pool-model keys when the current set lacks one of the four', () => {
     const { a0: _a0, ...noA0 } = current;
     expect(impactSectionKeys({ k: r(600n), minPoolCost: r(1n) }, noA0, 'active')).toEqual(['minPoolCost']);
+  });
+});
+
+describe('buildParamImpact', () => {
+  const onchain = payload({ utxoCostPerByte: 3000 });
+  const raw = JSON.stringify({ coins_per_utxo_size: 4310 });
+
+  it('returns null for a non-active action without reading the JSON', () => {
+    expect(buildParamImpact(onchain, '{not json', 'ratified', 'preprod')).toBeNull();
+    expect(buildParamImpact(onchain, raw, 'expired', 'preprod')).toBeNull();
+  });
+
+  it('returns null when the in force row is not valid JSON', () => {
+    expect(buildParamImpact(onchain, '{not json', 'active', 'preprod')).toBeNull();
+  });
+
+  it('builds the island props for an active change', () => {
+    const out = buildParamImpact(onchain, raw, 'active', 'preprod');
+    expect(out?.network).toBe('preprod');
+    expect(out?.keys).toEqual(['utxoCostPerByte']);
+    expect(out?.current.utxoCostPerByte).toBeDefined();
+    expect(out?.proposed.utxoCostPerByte).toBeDefined();
   });
 });

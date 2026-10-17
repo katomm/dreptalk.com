@@ -6,6 +6,7 @@ import { PARAM_DEFS, formatParamValue, type ParamKey, type ParamValues } from '@
 import { modelParams, REWARD_KEYS, type ModelParams } from '@/lib/governance/paramImpact.js';
 import type { RewardBasis } from './ImpactRewards.js';
 
+type RewardsHost = 'k' | 'a0' | null;
 type ImpactModel = { from: ModelParams; to: ModelParams } | null;
 
 /**
@@ -58,7 +59,7 @@ function useRewardBasis(current: ParamValues, next: ParamValues): readonly Rewar
  * section, with one it stays on the k or a0 card. A picked chip without a
  * value yet does not count, so the chart stays put until a value is typed.
  */
-export function impactPlacement(next: ParamValues): { combined: boolean; rewardsHost: 'k' | 'a0' | null } {
+export function impactPlacement(next: ParamValues): { combined: boolean; rewardsHost: RewardsHost } {
   const rewardKeys = REWARD_KEYS.filter((key) => next[key]);
   const combined = rewardKeys.length >= 2;
   const only = rewardKeys.length === 1 ? rewardKeys[0] : null;
@@ -76,7 +77,7 @@ export function useImpactPlan(
   model: ImpactModel;
   rewardBasis: readonly RewardBasis[];
   combined: boolean;
-  rewardsHost: 'k' | 'a0' | null;
+  rewardsHost: RewardsHost;
 } {
   const model = useStableModel(modelParams(current, next));
   const rewardBasis = useRewardBasis(current, next);

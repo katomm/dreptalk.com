@@ -58,17 +58,17 @@ export async function syncPoolEconomics(args: {
   koios: PoolEconomicsKoios;
   cfg: NetworkConfig;
   now: number;
-}): Promise<{ written: 0 | 1; failed: 0 | 1 }> {
+}): Promise<{ epoch: number; written: 0 | 1; failed: 0 | 1 }> {
   const { db, koios, cfg, now } = args;
   const epoch = epochFromUnix(Math.floor(now / 1000), cfg);
   const stored = await db.prepare('SELECT MAX(epoch) AS epoch FROM pool_economics').first<{ epoch: number | null }>();
-  if (stored?.epoch === epoch) return { written: 0, failed: 0 };
+  if (stored?.epoch === epoch) return { epoch, written: 0, failed: 0 };
   const data = await readPoolEconomics(koios);
-  if (!data) return { written: 0, failed: 1 };
-  if (data.epoch !== epoch) return { written: 0, failed: 0 };
+  if (!data) return { epoch, written: 0, failed: 1 };
+  if (data.epoch !== epoch) return { epoch, written: 0, failed: 0 };
   await db.batch([
     db.prepare('INSERT OR REPLACE INTO pool_economics (epoch, body, computed_at) VALUES (?, ?, ?)').bind(epoch, JSON.stringify(data), now),
     db.prepare('DELETE FROM pool_economics WHERE epoch < ?').bind(epoch),
   ]);
-  return { written: 1, failed: 0 };
+  return { epoch, written: 1, failed: 0 };
 }

@@ -20,7 +20,6 @@ import {
   backfillGovStatusTimes,
 } from '../../governance/tallySync.js';
 import { syncProtocolParams } from '../../governance/paramsSync.js';
-import { epochFromUnix } from '../../config/network.js';
 import { syncPoolEconomics } from '../../governance/poolEconomics.js';
 import { collectUnreferencedPins } from '../../governance/pinCollector.js';
 import { makePinataRemover } from '../../governance/pinata.js';
@@ -292,7 +291,7 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
     when: heavyOnly,
     run: async (ctx) => {
       const r = await syncPoolEconomics({ db: ctx.db, koios: ctx.koios, cfg: ctx.cfg, now: ctx.now });
-      console.log(`[gov-pool-economics] epoch=${epochFromUnix(Math.floor(ctx.now / 1000), ctx.cfg)} written=${r.written} failed=${r.failed}`);
+      console.log(`[gov-pool-economics] epoch=${r.epoch} written=${r.written} failed=${r.failed}`);
       return { items: r.written, failed: r.failed };
     },
   },
