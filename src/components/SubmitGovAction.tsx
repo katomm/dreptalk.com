@@ -554,6 +554,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
         if (lovelace === null) throw new Error('gov_action_deposit missing from response');
         if (!cancelled) {
           setDeposit({ status: 'ready', lovelace });
+          // Raw proxy row, past the client's schema: lovelace may be string or number.
           setEpochParamsRow(row as EpochParamsRow);
         }
       } catch {

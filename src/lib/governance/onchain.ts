@@ -456,6 +456,12 @@ export function parseConstitutionScriptHash(payload: unknown): GuardrailLeaf {
   return guardrailLeafFromSlot(body.script);
 }
 
+/** A payload amount as exact lovelace, or null when it is not a whole amount. */
+export function payloadLovelace(v: unknown): bigint | null {
+  const s = wholeAmount(v);
+  return s === null ? null : BigInt(s);
+}
+
 function decodeTreasury(contents: unknown[], network: CardanoNetwork): OnchainChanges {
   const list = contents[0];
   const rows: TreasuryRow[] = [];
@@ -463,8 +469,8 @@ function decodeTreasury(contents: unknown[], network: CardanoNetwork): OnchainCh
   if (Array.isArray(list)) {
     for (const entry of list) {
       if (!Array.isArray(entry)) continue;
-      const [acct, lovelace] = entry as [RewardAccount, number | string];
-      const amt = typeof lovelace === 'number' ? BigInt(Math.trunc(lovelace)) : BigInt(Number(lovelace) || 0);
+      const [acct, lovelace] = entry as [RewardAccount, unknown];
+      const amt = payloadLovelace(lovelace) ?? 0n;
       total += amt;
       rows.push({ address: rewardAccountToBech32(acct, network), ada: formatAda(String(amt)) ?? `${amt}` });
     }
@@ -488,8 +494,7 @@ export function treasuryTotalLovelace(payload: unknown): bigint {
   if (Array.isArray(list)) {
     for (const entry of list) {
       if (!Array.isArray(entry)) continue;
-      const lovelace = entry[1] as number | string;
-      total += typeof lovelace === 'number' ? BigInt(Math.trunc(lovelace)) : BigInt(Number(lovelace) || 0);
+      total += payloadLovelace(entry[1]) ?? 0n;
     }
   }
   return total;

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { KOIOS_BATCH_CONCURRENCY, mapLimit } from './concurrency';
+import { parseKoiosJson } from './json';
 
 export interface KoiosClientOptions {
   baseUrl: string;
@@ -39,6 +40,15 @@ function parseRetryAfter(header: string | null): number | null {
 // client halves and retries on a 413, so even a lower cap still completes.
 const DREP_INFO_MAX = 50;
 
+// A lovelace amount. Koios sends it as a decimal string today and as a JSON
+// number from v1.5. parseKoiosJson already turned any number above 2^53 into
+// its exact decimal string, so a number here is always safe. Either form
+// comes out as the decimal string every caller works with.
+const lovelace = z.union([
+  z.string().regex(/^\d+$/),
+  z.number().int().nonnegative().transform(String),
+]);
+
 const tipSchema = z
   .array(
     z.object({
@@ -60,7 +70,7 @@ const drepInfoSchema = z
     hex: z.string(),
     has_script: z.boolean(),
     drep_status: z.string(),
-    deposit: z.string().nullable(),
+    deposit: lovelace.nullable(),
     active: z.boolean(),
     expires_epoch_no: z.number().nullable(),
   })
@@ -87,7 +97,7 @@ const accountInfoSchema = z.object({
   status: z.string(),
   delegated_pool: z.string().nullable(),
   delegated_drep: z.string().nullable(),
-  total_balance: z.string().nullable(),
+  total_balance: lovelace.nullable(),
 }).passthrough();
 
 export type AccountInfo = z.infer<typeof accountInfoSchema>;
@@ -129,10 +139,10 @@ const drepInfoRowSchema = z
     hex: z.string().nullable(),
     has_script: z.boolean(),
     drep_status: z.string(),
-    deposit: z.string().nullable(),
+    deposit: lovelace.nullable(),
     active: z.boolean(),
     expires_epoch_no: z.number().nullable(),
-    amount: z.string().nullable(),
+    amount: lovelace.nullable(),
     meta_url: z.string().nullable(),
     meta_hash: z.string().nullable(),
     // Shout out to the Koios team for adding live_delegator_count to /drep_info:
@@ -153,7 +163,7 @@ const proposalListRowSchema = z
     proposal_tx_hash: z.string(),
     proposal_index: z.number(),
     proposal_type: z.string(),
-    deposit: z.string().nullable().optional(),
+    deposit: lovelace.nullable().optional(),
     return_address: z.string().nullable().optional(),
     proposed_epoch: z.number().nullable().optional(),
     // Exact submission time of the proposal's block (unix seconds). Stored (x1000)
@@ -189,15 +199,15 @@ const votingSummarySchema = z
     drep_abstain_votes_cast: z.number().nullable().optional(),
     drep_yes_pct: z.number().nullable().optional(),
     drep_no_pct: z.number().nullable().optional(),
-    drep_active_yes_vote_power: z.string().nullable().optional(),
-    drep_active_no_vote_power: z.string().nullable().optional(),
-    drep_active_abstain_vote_power: z.string().nullable().optional(),
+    drep_active_yes_vote_power: lovelace.nullable().optional(),
+    drep_active_no_vote_power: lovelace.nullable().optional(),
+    drep_active_abstain_vote_power: lovelace.nullable().optional(),
     // The ratification No side: cast No plus the non-voting default No plus the
     // always-no-confidence bucket, all in one figure (see eligibleStake in
     // koios/corrections.ts for why it must never be summed with the ANC field).
-    drep_no_vote_power: z.string().nullable().optional(),
-    drep_always_abstain_vote_power: z.string().nullable().optional(),
-    drep_always_no_confidence_vote_power: z.string().nullable().optional(),
+    drep_no_vote_power: lovelace.nullable().optional(),
+    drep_always_abstain_vote_power: lovelace.nullable().optional(),
+    drep_always_no_confidence_vote_power: lovelace.nullable().optional(),
     pool_yes_votes_cast: z.number().nullable().optional(),
     pool_no_votes_cast: z.number().nullable().optional(),
     pool_abstain_votes_cast: z.number().nullable().optional(),
@@ -206,12 +216,12 @@ const votingSummarySchema = z
     // Raw stake-power buckets (lovelace strings) for the eligible stake and the
     // full-stake breakdown. On a hard fork pool_no_vote_power already holds the
     // always-abstain pools (see eligibleStake in koios/corrections.ts).
-    pool_active_yes_vote_power: z.string().nullable().optional(),
-    pool_active_no_vote_power: z.string().nullable().optional(),
-    pool_active_abstain_vote_power: z.string().nullable().optional(),
-    pool_no_vote_power: z.string().nullable().optional(),
-    pool_passive_always_abstain_vote_power: z.string().nullable().optional(),
-    pool_passive_always_no_confidence_vote_power: z.string().nullable().optional(),
+    pool_active_yes_vote_power: lovelace.nullable().optional(),
+    pool_active_no_vote_power: lovelace.nullable().optional(),
+    pool_active_abstain_vote_power: lovelace.nullable().optional(),
+    pool_no_vote_power: lovelace.nullable().optional(),
+    pool_passive_always_abstain_vote_power: lovelace.nullable().optional(),
+    pool_passive_always_no_confidence_vote_power: lovelace.nullable().optional(),
     committee_yes_votes_cast: z.number().nullable().optional(),
     committee_no_votes_cast: z.number().nullable().optional(),
     committee_abstain_votes_cast: z.number().nullable().optional(),
@@ -275,7 +285,7 @@ const poolInfoRowSchema = z
     pool_id_hex: z.string().nullable().optional(),
     // Active (delegated) stake in lovelace at the current epoch; the SPO voting
     // weight. String because it exceeds JS safe-integer range. Nullable pre-first-epoch.
-    active_stake: z.string().nullable().optional(),
+    active_stake: lovelace.nullable().optional(),
     meta_url: z.string().nullable().optional(),
     meta_hash: z.string().nullable().optional(),
     meta_json: z
@@ -321,7 +331,7 @@ const drepVotingPowerHistoryRowSchema = z
   .object({
     drep_id: z.string(),
     epoch_no: z.number(),
-    amount: z.string().nullable(),
+    amount: lovelace.nullable(),
   })
   .passthrough();
 
@@ -412,18 +422,18 @@ export type EpochParamsRow = z.infer<typeof epochParamsRowSchema>;
 // nullable and optional since older Koios responses may omit it.
 const totalsRowSchema = z.object({
   epoch_no: z.number(),
-  treasury: z.string(),
-  reserves: z.string(),
-  circulation: z.string().nullable().optional(),
-  supply: z.string().nullable().optional(),
+  treasury: lovelace,
+  reserves: lovelace,
+  circulation: lovelace.nullable().optional(),
+  supply: lovelace.nullable().optional(),
 }).passthrough();
 
 // /pool_list row, reduced with select= to what the parameter change impact
 // model needs. Lovelace amounts arrive as strings.
 const poolListRowSchema = z.object({
-  active_stake: z.string().nullable(),
-  pledge: z.string().nullable(),
-  fixed_cost: z.string().nullable(),
+  active_stake: lovelace.nullable(),
+  pledge: lovelace.nullable(),
+  fixed_cost: lovelace.nullable(),
 }).passthrough();
 export type PoolListRow = z.infer<typeof poolListRowSchema>;
 
@@ -432,7 +442,7 @@ export type PoolListRow = z.infer<typeof poolListRowSchema>;
 // is only a pre-filter: the provenance stint logic decides real arrivals.
 const drepDelegatorRowSchema = z.object({
   stake_address: z.string(),
-  amount: z.string(),
+  amount: lovelace,
   epoch_no: z.number(),
 }).passthrough();
 export type DrepDelegatorRow = z.infer<typeof drepDelegatorRowSchema>;
@@ -512,7 +522,7 @@ export function createKoiosClient(opts: KoiosClientOptions) {
       // never valid unescaped inside a JSON string, and between tokens they are
       // only insignificant whitespace, so removing them cannot change the data.
       const text = await res.text();
-      return JSON.parse(text.replace(/\p{Cc}/gu, ''));
+      return parseKoiosJson(text.replace(/\p{Cc}/gu, ''));
     } finally {
       clearTimeout(timer);
     }
