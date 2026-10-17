@@ -1,86 +1,132 @@
 /// <reference types="@cloudflare/workers-types" />
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { env } from 'cloudflare:test';
-import { handlePoolEconomics } from './poolEconomicsHandler.js';
-import type { PoolEconomicsKoios } from './poolEconomics.js';
-import { epochStartUnix } from '@/lib/config/network.js';
+import { handlePoolEconomics, handlePublicPoolEconomics } from './poolEconomicsHandler.js';
 
 const preprodCfg = { network: 'preprod', networkId: 0, epochAnchor: { epoch: 300, unixSeconds: 1_790_000_000 } } as never;
 const mainnetCfg = { network: 'mainnet', networkId: 1, epochAnchor: { epoch: 600, unixSeconds: 1_790_000_000 } } as never;
 const testEnv = { ...env } as Cloudflare.Env;
-// One hour into epoch 300 on the stub network.
-const NOW = () => (epochStartUnix(300, preprodCfg) + 3600) * 1000;
 
-function ctx() {
-  const request = new Request('https://dreptalk.com/api/gov-action/pool-economics', {
-    headers: { 'sec-fetch-site': 'same-origin' },
-  });
-  return { request, locals: { user: { id: 'u1', roles: [] } } as App.Locals };
+const BODY_300 = JSON.stringify({ epoch: 300, pools: [] });
+const BODY_299 = JSON.stringify({ epoch: 299, pools: [] });
+
+function ctx(headers: Record<string, string> = { 'sec-fetch-site': 'same-origin' }, user: unknown = { id: 'u1', roles: [] }) {
+  const request = new Request('https://dreptalk.com/api/gov-action/pool-economics', { headers });
+  return { request, locals: { user } as App.Locals };
 }
 
-function page(n: number, stake = '2000000000') {
-  return Array.from({ length: n }, () => ({ active_stake: stake, pledge: '1000000000', fixed_cost: '170000001' }));
+function publicCtx(headers: Record<string, string> = { 'sec-fetch-site': 'same-origin' }) {
+  return { request: new Request('https://dreptalk.com/api/pool-economics', { headers }), locals: {} as App.Locals };
 }
 
-function koios(over: Partial<PoolEconomicsKoios> = {}, totalsEpoch = 300): PoolEconomicsKoios & { calls: string[] } {
-  const calls: string[] = [];
-  return {
-    calls,
-    poolList: async (offset) => {
-      calls.push(`pools:${offset}`);
-      return offset === 0 ? page(1000) : offset === 1000 ? [...page(2, '0'), ...page(3, '5000000000')] : [];
-    },
-    totals: async () => {
-      calls.push('totals');
-      return {
-        epochNo: totalsEpoch,
-        treasuryLovelace: '1',
-        reservesLovelace: '6000000000000000',
-        circulationLovelace: null,
-        supplyLovelace: '39000000000000000',
-        feesLovelace: '5',
-      };
-    },
-    ...over,
-  };
+async function store(epoch: number, body: string) {
+  await env.DB.prepare('INSERT OR REPLACE INTO pool_economics (epoch, body, computed_at) VALUES (?, ?, ?)').bind(epoch, body, 1).run();
 }
 
-async function freshCache() {
-  return caches.open(`pool-econ-test-${crypto.randomUUID()}`);
-}
+const failingDb = {
+  prepare: () => {
+    throw new Error('d1 down');
+  },
+} as unknown as D1Database;
 
-const deps = (k: PoolEconomicsKoios, cache: Cache, network = preprodCfg) => ({ koios: k, network, env: testEnv, cache, now: NOW });
+beforeEach(async () => {
+  await env.DB.prepare('DELETE FROM pool_economics').run();
+});
 
-describe('handlePoolEconomics', () => {
-  it('serves the second request of an epoch from the cache', async () => {
-    const cache = await freshCache();
-    await handlePoolEconomics(ctx(), deps(koios(), cache));
-    const k = koios();
-    const res = await handlePoolEconomics(ctx(), deps(k, cache));
+describe('handlePoolEconomics (gated)', () => {
+  const deps = { network: preprodCfg, env: testEnv };
+
+  it('answers the stored body verbatim as json with no-store', async () => {
+    await store(300, BODY_300);
+    const res = await handlePoolEconomics(ctx(), deps);
     expect(res.status).toBe(200);
-    expect(k.calls).toEqual([]);
+    expect(res.headers.get('content-type')).toBe('application/json');
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(await res.text()).toBe(BODY_300);
   });
 
-  it('labels data with the totals epoch and does not cache it while Koios lags behind the clock', async () => {
-    const cache = await freshCache();
-    const lagging = await handlePoolEconomics(ctx(), deps(koios({}, 299), cache));
-    expect(((await lagging.json()) as { epoch: number }).epoch).toBe(299);
-    const k = koios();
-    await handlePoolEconomics(ctx(), deps(k, cache));
-    expect(k.calls).toContain('totals');
+  it('answers the previous epoch row after an epoch boundary', async () => {
+    await store(299, BODY_299);
+    const res = await handlePoolEconomics(ctx(), deps);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe(BODY_299);
   });
 
-  it('answers 503 pool_data_unavailable when Koios fails', async () => {
-    const failing = koios({ poolList: async () => { throw new Error('502'); } });
-    const res = await handlePoolEconomics(ctx(), deps(failing, await freshCache()));
+  it('answers the newest stored row', async () => {
+    await store(299, BODY_299);
+    await store(300, BODY_300);
+    expect(await (await handlePoolEconomics(ctx(), deps)).text()).toBe(BODY_300);
+  });
+
+  it('answers 503 pool_data_unavailable without a row', async () => {
+    const res = await handlePoolEconomics(ctx(), deps);
+    expect(res.status).toBe(503);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(await res.json()).toEqual({ error: 'pool_data_unavailable' });
+  });
+
+  it('answers 503 when D1 throws', async () => {
+    const res = await handlePoolEconomics(ctx(), { network: preprodCfg, env: { ...testEnv, DB: failingDb } });
     expect(res.status).toBe(503);
     expect(await res.json()).toEqual({ error: 'pool_data_unavailable' });
   });
 
-  it('is 404 on mainnet before any Koios read', async () => {
-    const k = koios();
-    const res = await handlePoolEconomics(ctx(), deps(k, await freshCache(), mainnetCfg));
+  it('is 404 on mainnet even with a stored row', async () => {
+    await store(300, BODY_300);
+    const res = await handlePoolEconomics(ctx(), { network: mainnetCfg, env: testEnv });
     expect(res.status).toBe(404);
-    expect(k.calls).toEqual([]);
+  });
+
+  it('refuses a cross-origin request with 403', async () => {
+    await store(300, BODY_300);
+    expect((await handlePoolEconomics(ctx({ origin: 'https://evil.example' }), deps)).status).toBe(403);
+    expect((await handlePoolEconomics(ctx({ 'sec-fetch-site': 'cross-site' }), deps)).status).toBe(403);
+  });
+
+  it('refuses a request without a session with 401', async () => {
+    await store(300, BODY_300);
+    expect((await handlePoolEconomics(ctx(undefined, null), deps)).status).toBe(401);
+  });
+});
+
+describe('handlePublicPoolEconomics', () => {
+  it('answers without a session on mainnet and preprod', async () => {
+    await store(300, BODY_300);
+    // The handler reads only the DB binding, so the network never matters.
+    const res = await handlePublicPoolEconomics(publicCtx(), { env: testEnv });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe(BODY_300);
+  });
+
+  it('answers the stored body verbatim as json', async () => {
+    await store(300, BODY_300);
+    const res = await handlePublicPoolEconomics(publicCtx(), { env: testEnv });
+    expect(res.headers.get('content-type')).toBe('application/json');
+    expect(await res.text()).toBe(BODY_300);
+  });
+
+  it('sends cache-control public, max-age=3600 on 200', async () => {
+    await store(300, BODY_300);
+    const res = await handlePublicPoolEconomics(publicCtx(), { env: testEnv });
+    expect(res.headers.get('cache-control')).toBe('public, max-age=3600');
+  });
+
+  it('refuses a cross-origin request with 403', async () => {
+    await store(300, BODY_300);
+    expect((await handlePublicPoolEconomics(publicCtx({ origin: 'https://evil.example' }), { env: testEnv })).status).toBe(403);
+    expect((await handlePublicPoolEconomics(publicCtx({ 'sec-fetch-site': 'cross-site' }), { env: testEnv })).status).toBe(403);
+  });
+
+  it('answers 503 no-store without a row', async () => {
+    const res = await handlePublicPoolEconomics(publicCtx(), { env: testEnv });
+    expect(res.status).toBe(503);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(await res.json()).toEqual({ error: 'pool_data_unavailable' });
+  });
+
+  it('answers 503 no-store when D1 throws', async () => {
+    const res = await handlePublicPoolEconomics(publicCtx(), { env: { ...testEnv, DB: failingDb } });
+    expect(res.status).toBe(503);
+    expect(res.headers.get('cache-control')).toBe('no-store');
   });
 });
