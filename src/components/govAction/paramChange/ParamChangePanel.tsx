@@ -6,9 +6,10 @@
 import { useEffect, useId, useMemo, useRef, useState, type RefObject } from 'react';
 import PrevActionField from '../PrevActionField.js';
 import { InfoIcon } from '../icons.js';
-import ParamCard, { EconomicsPending } from './ParamCard.js';
-import ImpactRewards, { type RewardBasis } from './ImpactRewards.js';
-import { DataSource } from './chart.js';
+import ParamCard from './ParamCard.js';
+import CombinedRewards from './CombinedRewards.js';
+import { useImpactPlan } from './impactPlan.js';
+import type { PoolEconomicsState } from './usePoolEconomics.js';
 import ParamSummary from './ParamSummary.js';
 import {
   PARAM_DEFS,
@@ -17,9 +18,7 @@ import {
   scopeForKeys,
   valuesFromJson,
   type ParamKey,
-  type ParamValues,
 } from '@/lib/governance/paramDefs.js';
-import { modelParams, REWARD_KEYS, type ModelParams, type PoolEconomics } from '@/lib/governance/paramImpact.js';
 import {
   paramFieldErrors,
   validateParamChangePanel,
@@ -33,8 +32,6 @@ import { drepThresholdPct, spoThresholdPct } from '@/lib/governance/thresholds.j
 import type { ActionContextResponse } from '@/lib/governance/actionContextHandler.js';
 import type { ProtocolParams } from '@/lib/db/protocolParams.js';
 import type { NetworkConfig } from '@/lib/config/network.js';
-
-export type PoolEconomicsState = { status: 'loading' } | { status: 'ready'; data: PoolEconomics } | { status: 'error' };
 
 export interface ParamChangePanelProps {
   value: ParamChangePanelState;
@@ -124,52 +121,6 @@ function useDockedAction(panelRef: RefObject<HTMLDivElement | null>) {
   return { slotRef, docked };
 }
 
-type ImpactModel = { from: ModelParams; to: ModelParams } | null;
-
-/**
- * The impact model with a stable identity: modelParams builds new objects on
- * every render, this keeps the previous ones until one of the eight numbers
- * changes, so the memoized charts skip a render for an edit elsewhere.
- */
-function useStableModel(model: ImpactModel): ImpactModel {
-  const ready = model !== null;
-  const { k: kFrom, a0: a0From, rho: rhoFrom, tau: tauFrom } = model?.from ?? {};
-  const { k: kTo, a0: a0To, rho: rhoTo, tau: tauTo } = model?.to ?? {};
-  return useMemo(
-    () =>
-      ready
-        ? {
-            from: { k: kFrom!, a0: a0From!, rho: rhoFrom!, tau: tauFrom! },
-            to: { k: kTo!, a0: a0To!, rho: rhoTo!, tau: tauTo! },
-          }
-        : null,
-    [ready, kFrom, a0From, rhoFrom, tauFrom, kTo, a0To, rhoTo, tauTo],
-  );
-}
-
-/**
- * The rewards chart caption entry for one reward parameter, null unless it has a valid new value.
- */
-function basisEntry(key: ParamKey, current: ParamValues, next: ParamValues): RewardBasis | null {
-  const from = current[key];
-  const to = next[key];
-  return from && to ? { short: PARAM_DEFS[key].short, from: formatParamValue(key, from), to: formatParamValue(key, to) } : null;
-}
-
-/**
- * The picked reward parameter changes with a valid value, formatted for the
- * rewards chart caption, in the order of REWARD_KEYS (the chip order). Rebuilt
- * only when one of the formatted values changes, so the memoized chart keeps
- * its props while an unrelated field changes.
- */
-function useRewardBasis(current: ParamValues, next: ParamValues): readonly RewardBasis[] {
-  const list = REWARD_KEYS.map((key) => basisEntry(key, current, next)).filter((e): e is RewardBasis => e !== null);
-  const signature = list.map((e) => `${e.short}|${e.from}|${e.to}`).join(';');
-  const stable = useRef({ signature, list });
-  if (stable.current.signature !== signature) stable.current = { signature, list };
-  return stable.current.list;
-}
-
 export default function ParamChangePanel({
   value,
   onChange,
@@ -198,19 +149,11 @@ export default function ParamChangePanel({
   // The live impact reads every picked value that can go on chain. A value
   // with a field error stays out, so one bad field never skews another card.
   const next = validParamValues(value, current);
-  const model = useStableModel(modelParams(current, next));
+  const { model, rewardBasis, combined, rewardsHost } = useImpactPlan(current, next);
   const panelRef = useRef<HTMLDivElement>(null);
   const { slotRef, docked } = useDockedAction(panelRef);
   const { picked } = value;
   const unpicked = PARAM_KEYS.filter((key) => !value.picked.includes(key));
-  // The rewards chart reads k, a0, rho and tau together. With two or more of
-  // them holding a valid value it moves out of the cards into one combined
-  // section, with one it stays on the k or a0 card. A picked chip without a
-  // value yet does not count, so the chart stays put until a value is typed.
-  const rewardKeys = picked.filter((key) => (REWARD_KEYS as readonly ParamKey[]).includes(key) && next[key]);
-  const combined = rewardKeys.length >= 2;
-  const rewardsHost = rewardKeys.length === 1 && (rewardKeys[0] === 'k' || rewardKeys[0] === 'a0') ? rewardKeys[0] : null;
-  const rewardBasis = useRewardBasis(current, next);
   const combinedId = useId();
   const scope = scopeForKeys(picked);
   const drepPct = drepThresholdPct('ParameterChange', protocolParams, scope);
@@ -301,21 +244,14 @@ export default function ParamChangePanel({
           ))}
 
           {combined && rewardBasis.length > 0 && (
-            <section className="pcp-card pcp-combined" aria-labelledby={combinedId}>
-              <h3 id={combinedId} className="pcp-card__title pcp-combined__title">
-                Combined impact of this proposal
-              </h3>
-              <div className="pcp-impact">
-                {economics.status === 'ready' && model ? (
-                  <>
-                    <ImpactRewards eco={economics.data} from={model.from} to={model.to} basis={rewardBasis} />
-                    <DataSource network={networkConfig.network} epoch={economics.data.epoch} />
-                  </>
-                ) : (
-                  <EconomicsPending economics={economics} onRetry={onRetryEconomics} />
-                )}
-              </div>
-            </section>
+            <CombinedRewards
+              economics={economics}
+              onRetry={onRetryEconomics}
+              model={model}
+              rewardBasis={rewardBasis}
+              network={networkConfig.network}
+              titleId={combinedId}
+            />
           )}
 
           {unpicked.map((key) => {

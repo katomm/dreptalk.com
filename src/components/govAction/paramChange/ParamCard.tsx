@@ -9,18 +9,13 @@ import {
   type ParamKey,
 } from '@/lib/governance/paramDefs.js';
 import { compareRational, formatLovelaceExact, formatRationalDecimal, rationalToNumber, reduce, type Rational } from '@/lib/format/rational.js';
-import type { ReactNode } from 'react';
 import type { ModelParams } from '@/lib/governance/paramImpact.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
-import type { PoolEconomicsState } from './ParamChangePanel.js';
-import ImpactSaturation from './ImpactSaturation.js';
-import ImpactRewards, { type RewardBasis } from './ImpactRewards.js';
-import ImpactMinPoolCost from './ImpactMinPoolCost.js';
-import ImpactBudget from './ImpactBudget.js';
-import ImpactUtxoCost from './ImpactUtxoCost.js';
+import type { PoolEconomicsState } from './usePoolEconomics.js';
+import type { RewardBasis } from './ImpactRewards.js';
+import ParamImpact from './ParamImpact.js';
 import { InfoIcon } from '../icons.js';
 import { CONSULTATION_DAYS } from '@/lib/governance/consultation.js';
-import { DataSource } from './chart.js';
 
 export interface ParamCardProps {
   paramKey: ParamKey;
@@ -85,75 +80,6 @@ function RangeScale({ paramKey, current, next }: { paramKey: ParamKey; current: 
       <span className="pcp-scale__end pcp-scale__end--min">{formatParamValue(paramKey, def.min)}</span>
       <span className="pcp-scale__end pcp-scale__end--max">{formatParamValue(paramKey, def.max)}</span>
     </div>
-  );
-}
-
-/**
- * The pool data while it loads or after it failed, shared with the combined section. Null once it
- * is ready.
- */
-export function EconomicsPending({ economics, onRetry }: { economics: PoolEconomicsState; onRetry: () => void }) {
-  if (economics.status === 'loading') return <p className="pcp-why">Loading pool data...</p>;
-  if (economics.status === 'error') {
-    return (
-      <p className="pcp-why">
-        <span>Impact figures are unavailable right now.</span>{' '}
-        <button type="button" className="pcp-linkbtn" onClick={onRetry}>
-          Try again
-        </button>
-      </p>
-    );
-  }
-  return null;
-}
-
-type ImpactProps = Pick<
-  ParamCardProps,
-  'paramKey' | 'current' | 'economics' | 'onRetryEconomics' | 'model' | 'rewards' | 'rewardBasis' | 'network'
-> & { next: Rational };
-
-function Impact({ paramKey, current, next, economics, onRetryEconomics, model, rewards, rewardBasis, network }: ImpactProps) {
-  // The minimum ada chart reads no pool data, so it skips the pool data gate.
-  if (paramKey === 'utxoCostPerByte') {
-    return current ? <ImpactUtxoCost currentLovelace={current.n / current.d} nextLovelace={next.n / next.d} /> : null;
-  }
-  // The combined section below the cards shows the pool data state and the chart for a0.
-  if (paramKey === 'a0' && rewards === 'combined') {
-    return <p className="pcp-why">Its effect on pool rewards is shown under Combined impact below.</p>;
-  }
-  if (economics.status !== 'ready') return <EconomicsPending economics={economics} onRetry={onRetryEconomics} />;
-  if (!model || !current) return null;
-  const eco = economics.data;
-  const rewardsChart = <ImpactRewards eco={eco} from={model.from} to={model.to} basis={rewardBasis} />;
-  let body: ReactNode;
-  // The budget cards read the epoch totals, every other card the pool list.
-  let source: 'pools' | 'totals' = 'pools';
-  switch (paramKey) {
-    case 'k':
-      body = (
-        <>
-          <ImpactSaturation eco={eco} from={model.from} to={model.to} />
-          {rewards === 'here' && <div className="pcp-impact__more">{rewardsChart}</div>}
-        </>
-      );
-      break;
-    case 'a0':
-      body = rewardsChart;
-      break;
-    case 'minPoolCost':
-      body = <ImpactMinPoolCost eco={eco} currentLovelace={current.n / current.d} nextLovelace={next.n / next.d} />;
-      break;
-    case 'rho':
-    case 'tau':
-      body = <ImpactBudget eco={eco} from={model.from} to={model.to} />;
-      source = 'totals';
-      break;
-  }
-  return (
-    <>
-      {body}
-      <DataSource network={network} epoch={eco.epoch} source={source} />
-    </>
   );
 }
 
@@ -228,7 +154,7 @@ export default function ParamCard({ raw, error, onInput, onRemove, disabled = fa
       {next && !error && (
         <div className="pcp-impact">
           <p className="pcp-label">Impact</p>
-          <Impact {...impact} next={next} />
+          <ParamImpact {...impact} next={next} />
         </div>
       )}
     </fieldset>

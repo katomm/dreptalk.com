@@ -95,6 +95,15 @@ describe('ParamChangePanel', () => {
     expect(within(card).queryByRole('group', { name: /Plain ada output/ })).toBeNull();
   });
 
+  it('shows the minimum pool cost histogram while the current a0 is unknown', () => {
+    const params = { ...(context as { params: Record<string, unknown> }).params };
+    delete params.a0;
+    setup({ prev: null, picked: ['minPoolCost'] as never[], inputs: { minPoolCost: '200' } }, undefined, { ...(context as object), params });
+    const card = screen.getByRole('group', { name: 'Minimum pool cost' });
+    expect(within(card).getByRole('img', { name: /^Fixed cost of \d+ pools/ })).toBeTruthy();
+    expect(within(card).getByText('Preprod pool data, epoch 660')).toBeTruthy();
+  });
+
   it('shows the card with old value, input, range and the saturation impact', () => {
     setup();
     const card = screen.getByRole('group', { name: 'Target number of pools' });
