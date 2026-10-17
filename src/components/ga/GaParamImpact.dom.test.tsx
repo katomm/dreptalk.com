@@ -116,4 +116,13 @@ describe('GaParamImpact', () => {
     const block = await screen.findByRole('region', { name: 'Minimum pool cost' });
     expect(await within(block).findByRole('img', { name: /^Fixed cost of \d+ pools/ })).toBeTruthy();
   });
+
+  it('lists only the keys that have both a current and a proposed value', () => {
+    const current = { ...CURRENT };
+    delete current.a0;
+    const button = setup(['k', 'a0', 'rho'], current);
+    // a0 has no current value and rho no proposed value.
+    expect(screen.getByText('Target number of pools')).toBeTruthy();
+    expect(button.closest('h2')).toBeTruthy();
+  });
 });

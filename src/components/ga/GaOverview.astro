@@ -4,6 +4,7 @@
 // page as their own blocks (so they can be reordered on the mobile stack), and the
 // vote tallies live in the sidebar's Voting Information card.
 import GaOnchainChanges from './GaOnchainChanges.astro';
+import type { GaParamImpactProps } from './GaParamImpact.js';
 import type { GovernanceAction } from '@/lib/db/governance.js';
 import type { OnchainChanges } from '@/lib/governance/onchain.js';
 import { enhanceStoredHtml, renderMarkdown } from '@/lib/markdown.js';
@@ -14,9 +15,10 @@ interface Props {
   action: GovernanceAction;
   onchain: OnchainChanges | null;
   committeeNames?: Map<string, string>;
+  paramImpact?: GaParamImpactProps | null;
 }
 
-const { action, onchain, committeeNames } = Astro.props;
+const { action, onchain, committeeNames, paramImpact } = Astro.props;
 
 // Every CIP-108 action carries an abstract (a short summary). It is the always-
 // visible lede and the natural fold line: the reader gets the summary, and the
@@ -50,7 +52,7 @@ const missing = hasBody
 ---
 
 <section class="ga-overview">
-  <GaOnchainChanges changes={onchain} committeeNames={committeeNames} />
+  <GaOnchainChanges changes={onchain} committeeNames={committeeNames} paramImpact={paramImpact} />
 
   {abstractHtml && (
     <div class="ga-abstract">

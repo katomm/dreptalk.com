@@ -15,7 +15,10 @@ export interface GaParamImpactProps {
   proposed: ParamValuesJson;
 }
 
-export default function GaParamImpact({ network, keys, current, proposed }: GaParamImpactProps) {
+export default function GaParamImpact({ network, keys: offered, current, proposed }: GaParamImpactProps) {
+  // The charts skip a key without both values, so the closed line, the charts
+  // and the data request all use the same filtered list.
+  const keys = offered.filter((key) => current[key] && proposed[key]);
   const [expanded, setExpanded] = useState(false);
   // Set on the first open and kept: closing hides the charts, so the loaded
   // chunk and pool data stay and a reopen sends no request.
@@ -26,6 +29,7 @@ export default function GaParamImpact({ network, keys, current, proposed }: GaPa
     everOpened && keys.some((k) => k !== 'utxoCostPerByte'),
   );
   const bodyId = useId();
+  if (keys.length === 0) return null;
 
   const toggle = () => {
     setExpanded(!expanded);
@@ -34,9 +38,12 @@ export default function GaParamImpact({ network, keys, current, proposed }: GaPa
 
   return (
     <section className="ga-impact">
-      <button type="button" className="ga-impact__toggle" aria-expanded={expanded} aria-controls={bodyId} onClick={toggle}>
-        Impact of these changes
-      </button>
+      {/* The h2 makes the block titles (h3) below nest under it. */}
+      <h2 className="ga-impact__heading">
+        <button type="button" className="ga-impact__toggle" aria-expanded={expanded} aria-controls={bodyId} onClick={toggle}>
+          Impact of these changes
+        </button>
+      </h2>
       {!expanded && <p className="ga-impact__closed">{keys.map((key) => PARAM_DEFS[key].title).join(', ')}</p>}
       <div id={bodyId} className="ga-impact__body" hidden={!expanded}>
         {everOpened && (
