@@ -523,6 +523,10 @@ describe('parameterChangeScope', () => {
   const pc = (map: Record<string, unknown>) =>
     JSON.stringify({ tag: 'ParameterChange', contents: [null, map, 'fa'] });
 
+  it('ignores payload keys that name Object prototype members', () => {
+    expect(parameterChangeScope(pc({ constructor: 1, toString: 2 }))).toEqual({ groups: [], touchesSecurity: false });
+  });
+
   it('classifies a governance-only change with no security parameter', () => {
     expect(parameterChangeScope(pc({ committeeMinSize: 5 }))).toEqual({
       groups: ['governance'],

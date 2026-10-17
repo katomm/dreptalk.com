@@ -72,7 +72,7 @@ export const PARAM_ALIASES: Record<string, string> = {
 };
 
 /** The PARAM_REGISTRY key for a payload key, resolving an old name to its Conway name. */
-export const registryKey = (key: string): string => PARAM_ALIASES[key] ?? key;
+export const registryKey = (key: string): string => (Object.hasOwn(PARAM_ALIASES, key) ? PARAM_ALIASES[key] : key);
 
 // The security-relevant parameters: the constitution's "Parameters Critical to the
 // Operation of the Blockchain" (constitution section 2.1, guardrail PARAM-03a).
@@ -167,7 +167,7 @@ export function parameterChangeScope(payloadJson: string | null): ParamChangeSco
   for (const payloadKey of Object.keys(map)) {
     const key = registryKey(payloadKey);
     if (SECURITY_PARAMS.has(key)) touchesSecurity = true;
-    const g = GROUP_TO_DREP[PARAM_REGISTRY[key]?.group ?? ''];
+    const g = GROUP_TO_DREP[(Object.hasOwn(PARAM_REGISTRY, key) ? PARAM_REGISTRY[key].group : undefined) ?? ''];
     if (g) groups.add(g);
   }
   return { groups: [...groups], touchesSecurity };
@@ -367,7 +367,8 @@ function decodeParams(contents: unknown[], ep: Record<string, unknown>): Onchain
   const rows: ParamRow[] = [];
   if (map && typeof map === 'object') {
     for (const [key, val] of Object.entries(map)) {
-      const meta = PARAM_REGISTRY[registryKey(key)];
+      const rk = registryKey(key);
+      const meta = Object.hasOwn(PARAM_REGISTRY, rk) ? PARAM_REGISTRY[rk] : undefined;
       if (meta) {
         const old = meta.snake ? ep[meta.snake] : undefined;
         rows.push({
