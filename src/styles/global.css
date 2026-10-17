@@ -587,7 +587,7 @@ main.container {
 }
 /* The parameter change's impact section on the proposal page, closed by default. */
 .ga-impact {
-  margin: 0 0 1.25rem;
+  margin: 1rem 0 0;
   border: 1px solid var(--border);
   border-radius: 0.5rem;
   padding: 1rem 1.125rem;
@@ -1936,11 +1936,16 @@ tr.diff-block-del > th {
 }
 .pcp-panel {
   container: pcp-panel / inline-size;
+}
+/* Chart colours shared by the builder panel and the proposal page section. */
+.pcp-panel,
+.ga-impact {
   --warn: #c2410c;
   --pcp-track: color-mix(in srgb, var(--muted) 18%, var(--bg));
   --pcp-bar: color-mix(in srgb, var(--muted) 36%, var(--bg));
 }
-html[data-theme='dark'] .pcp-panel {
+html[data-theme='dark'] .pcp-panel,
+html[data-theme='dark'] .ga-impact {
   --warn: #f59e0b;
 }
 .pcp-grid {

@@ -31,8 +31,9 @@ export default function GaParamImpactCharts({
   return (
     <div className="ga-impact__charts">
       <p className="ga-impact__note">
-        What the proposed values would do, computed from the current pool distribution and parameters, so read them as an
-        estimate.
+        {keys.some((k) => k !== 'utxoCostPerByte')
+          ? 'What the proposed values would do, computed from the current pool distribution and parameters, so read them as an estimate.'
+          : 'What the proposed values would do, computed from the current parameters, so read them as an estimate.'}
       </p>
       {keys.map((key) => {
         const from = current[key];

@@ -75,6 +75,7 @@ describe('GaParamImpact', () => {
   it('needs no request for utxoCostPerByte alone', async () => {
     fireEvent.click(setup(['utxoCostPerByte']));
     expect(await screen.findByRole('group', { name: /Plain ada output/ })).toBeTruthy();
+    expect(screen.getByText('What the proposed values would do, computed from the current parameters, so read them as an estimate.')).toBeTruthy();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
