@@ -284,7 +284,7 @@ const poolInfoRowSchema = z
     pool_id_bech32: z.string(),
     pool_id_hex: z.string().nullable().optional(),
     // Active (delegated) stake in lovelace at the current epoch; the SPO voting
-    // weight. A decimal string, it exceeds JS safe-integer range. Nullable pre-first-epoch.
+    // weight. String because it exceeds JS safe-integer range. Nullable pre-first-epoch.
     active_stake: lovelace.nullable().optional(),
     meta_url: z.string().nullable().optional(),
     meta_hash: z.string().nullable().optional(),
@@ -418,7 +418,7 @@ const epochParamsRowSchema = z.object({
 export type EpochParamsRow = z.infer<typeof epochParamsRowSchema>;
 
 // /totals row: per-epoch treasury, reserves, and circulating supply balances
-// (lovelace decimal strings, they exceed safe integer range). Circulation is
+// (lovelace, as strings since they exceed safe integer range). Circulation is
 // nullable and optional since older Koios responses may omit it.
 const totalsRowSchema = z.object({
   epoch_no: z.number(),
@@ -429,7 +429,7 @@ const totalsRowSchema = z.object({
 }).passthrough();
 
 // /pool_list row, reduced with select= to what the parameter change impact
-// model needs. Lovelace amounts come out as decimal strings.
+// model needs. Lovelace amounts arrive as strings.
 const poolListRowSchema = z.object({
   active_stake: lovelace.nullable(),
   pledge: lovelace.nullable(),

@@ -25,6 +25,7 @@ import { bucketsDrifted, shownYesPct, type BodyTallyInput } from '../governance/
 import { govActionHref } from './links.js';
 import { NCL_PERIODS, type NclPeriod } from '../../../config/ncl-periods.js';
 import { nclStatusFor } from '../governance/ncl.js';
+import { payloadLovelace } from '../governance/onchain.js';
 import { epochReadiness, watermarks, type EpochReadiness } from './readiness.js';
 import { epochBoundsUnix, lovelaceToAda, REVIEW_PACK_VERSION } from './units.js';
 import {
@@ -204,9 +205,15 @@ export function withdrawalLovelace(payload: string | null): bigint | null {
   try {
     const p = JSON.parse(payload) as { tag?: string; contents?: unknown[] };
     if (p.tag !== 'TreasuryWithdrawals' || !Array.isArray(p.contents)) return null;
-    const list = p.contents[0] as Array<[unknown, number]>;
+    const list = p.contents[0] as Array<[unknown, unknown]>;
     if (!Array.isArray(list)) return null;
-    return list.reduce((a, [, amt]) => a + BigInt(Math.round(Number(amt))), 0n);
+    let total = 0n;
+    for (const [, amt] of list) {
+      const lovelace = payloadLovelace(amt);
+      if (lovelace === null) return null;
+      total += lovelace;
+    }
+    return total;
   } catch {
     return null;
   }

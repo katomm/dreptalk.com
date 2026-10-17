@@ -554,9 +554,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
         if (lovelace === null) throw new Error('gov_action_deposit missing from response');
         if (!cancelled) {
           setDeposit({ status: 'ready', lovelace });
-          // This row comes straight from the proxy, past the client's schema, so
-          // its lovelace fields may be strings or (from Koios v1.5) numbers.
-          // currentParamValues accepts both.
+          // Raw proxy row, past the client's schema: lovelace may be string or number.
           setEpochParamsRow(row as EpochParamsRow);
         }
       } catch {
