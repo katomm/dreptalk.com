@@ -10,6 +10,7 @@
 // enacts the first change, the stale previous id case and the exact rationals
 // case build on that enacted change, and the utxoCostPerByte case builds on
 // the rationals one.
+import { readFileSync, writeFileSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   Anchor,
@@ -234,6 +235,17 @@ describe('parameter change on a devnet', () => {
   afterAll(async () => {
     await devnet?.stop();
   }, 120_000);
+
+  // Only queries, so it leaves the chain as the enacting cases expect it.
+  // RECORD_PPARAMS_KEYS=1 rewrites the fixture, otherwise the fixture must
+  // match the live keys. The fixture backs the PARAM_REGISTRY key test.
+  it('records the Conway protocol parameter JSON keys', async () => {
+    const params = await dev().cli<Record<string, unknown>>(['query', 'protocol-parameters']);
+    const keys = Object.keys(params).sort();
+    const fixture = new URL('./__fixtures__/conwayPParamsKeys.json', import.meta.url);
+    if (process.env.RECORD_PPARAMS_KEYS === '1') writeFileSync(fixture, `${JSON.stringify(keys, null, 2)}\n`);
+    expect(keys).toEqual(JSON.parse(readFileSync(fixture, 'utf8')));
+  });
 
   it('the guardrail script accepts the bounds and rejects one step past them', async () => {
     const started = Date.now();

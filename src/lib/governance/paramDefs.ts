@@ -25,7 +25,7 @@ export type ParamValues = Partial<Record<ParamKey, Rational>>;
 export interface ParamDef {
   key: ParamKey;
   /** The camelCase key in the on-chain payload (Koios proposal_description). */
-  ledgerKey: 'stakePoolTargetNum' | 'poolPledgeInfluence' | 'minPoolCost' | 'monetaryExpansion' | 'treasuryCut' | 'coinsPerUTxOByte';
+  ledgerKey: 'stakePoolTargetNum' | 'poolPledgeInfluence' | 'minPoolCost' | 'monetaryExpansion' | 'treasuryCut' | 'utxoCostPerByte';
   /** The field on the SDK's ProtocolParamUpdate. */
   sdkField: 'nOpt' | 'poolPledgeInfluence' | 'minPoolCost' | 'expansionRate' | 'treasuryGrowthRate' | 'adaPerUtxoByte';
   cddlKey: 8 | 9 | 16 | 10 | 11 | 17;
@@ -80,7 +80,7 @@ export const PARAM_DEFS: Record<ParamKey, ParamDef> = {
     min: q(1n, 10n), max: q(3n, 10n), koiosKey: 'treasury_growth_rate', security: false, listByTitle: false, consultation: null,
   },
   utxoCostPerByte: {
-    key: 'utxoCostPerByte', ledgerKey: 'coinsPerUTxOByte', sdkField: 'adaPerUtxoByte', cddlKey: 17, group: 'economic',
+    key: 'utxoCostPerByte', ledgerKey: 'utxoCostPerByte', sdkField: 'adaPerUtxoByte', cddlKey: 17, group: 'economic',
     title: 'UTxO cost per byte', short: 'utxoCostPerByte', input: 'lovelace', places: 0,
     min: q(3000n), max: q(6500n), koiosKey: 'coins_per_utxo_size', security: true, listByTitle: true, consultation: 'PARAM-04a',
   },

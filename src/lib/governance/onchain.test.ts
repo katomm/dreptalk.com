@@ -3,6 +3,7 @@ import { PARAM_DEFS, PARAM_KEYS, paramListLabel } from './paramDefs.js';
 import {
   formatValue,
   humanizeKey,
+  PARAM_ALIASES,
   PARAM_REGISTRY,
   rewardAccountToBech32,
   decodeOnchainChanges,
@@ -15,6 +16,7 @@ import {
   parseProposalPolicyHash,
   parseConstitutionScriptHash,
 } from './onchain.js';
+import conwayKeys from './__fixtures__/conwayPParamsKeys.json';
 
 describe('formatValue', () => {
   it('formats lovelace as ada', () => {
@@ -42,14 +44,78 @@ describe('formatValue', () => {
   });
 });
 
-describe('coinsPerUTxOByte', () => {
+describe('utxoCostPerByte', () => {
   it('prints lovelace per byte like the submit form', () => {
     expect(formatValue('lovelacePerByte', 4310)).toBe('4,310 lovelace/byte');
     expect(formatValue('lovelacePerByte', '4310')).toBe('4,310 lovelace/byte');
     expect(() => formatValue('lovelacePerByte', { numerator: 4310, denominator: 1 })).not.toThrow();
   });
   it('labels the parameter like the submit form', () => {
-    expect(PARAM_REGISTRY.coinsPerUTxOByte).toMatchObject({ label: 'UTxO cost per byte', format: 'lovelacePerByte' });
+    expect(PARAM_REGISTRY.utxoCostPerByte).toMatchObject({ label: 'UTxO cost per byte', format: 'lovelacePerByte' });
+  });
+});
+
+describe('PARAM_REGISTRY Conway keys', () => {
+  // A ParameterChange payload as Koios carries it: prev id, update map, policy hash.
+  const payload = (update: Record<string, unknown>) =>
+    JSON.stringify({
+      tag: 'ParameterChange',
+      contents: [
+        { txId: 'e641ec802bb109e150e920c6c0387e85f2efd30944a46d08d08212bde540f69c', govActionIx: 0 },
+        update,
+        'fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64',
+      ],
+    });
+
+  it('keys every registry entry by a Conway name or a listed alias', () => {
+    const conway = new Set<string>(conwayKeys);
+    for (const key of Object.keys(PARAM_REGISTRY)) expect([key, conway.has(key)]).toEqual([key, true]);
+    for (const [alias, target] of Object.entries(PARAM_ALIASES)) {
+      expect([alias, target in PARAM_REGISTRY]).toEqual([alias, true]);
+      expect(alias in PARAM_REGISTRY).toBe(false);
+    }
+    for (const seen of ['utxoCostPerByte', 'txFeePerByte', 'stakeAddressDeposit']) expect(conway.has(seen)).toBe(true);
+  });
+
+  it('decodes the real preprod utxoCostPerByte proposal', () => {
+    const p = payload({ utxoCostPerByte: 3000 });
+    expect(decodeOnchainChanges(p, JSON.stringify({ coins_per_utxo_size: 4310 }), 'preprod')).toEqual({
+      kind: 'params',
+      rows: [{ group: 'Economic', label: 'UTxO cost per byte', oldValue: '4,310 lovelace/byte', newValue: '3,000 lovelace/byte' }],
+    });
+    expect(parameterChangeScope(p)).toEqual({ groups: ['economic'], touchesSecurity: true });
+  });
+
+  it('decodes the real preprod txFeePerByte proposal', () => {
+    const p = JSON.stringify({
+      tag: 'ParameterChange',
+      contents: [
+        { txId: '78a9aafe2e4e14828efa8cd5202fec08c996a9a00c7d56b317b6a95a80510db3', govActionIx: 0 },
+        { txFeePerByte: 30 },
+        'fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64',
+      ],
+    });
+    expect(decodeOnchainChanges(p, JSON.stringify({ min_fee_a: 44 }), 'preprod')).toEqual({
+      kind: 'params',
+      rows: [{ group: 'Economic', label: 'Min fee coefficient (a)', oldValue: '44', newValue: '30' }],
+    });
+    expect(parameterChangeScope(p)).toEqual({ groups: ['economic'], touchesSecurity: true });
+  });
+
+  it('still decodes the old key names', () => {
+    const ep = JSON.stringify({ coins_per_utxo_size: 4310, min_fee_a: 44, key_deposit: 2000000 });
+    for (const [old, conway, value] of [
+      ['coinsPerUTxOByte', 'utxoCostPerByte', 3000],
+      ['minFeeA', 'txFeePerByte', 30],
+      ['keyDeposit', 'stakeAddressDeposit', 4000000],
+    ] as const) {
+      const decoded = decodeOnchainChanges(payload({ [old]: value }), ep, 'preprod');
+      expect(decoded?.kind === 'params' && decoded.rows[0].group).toBe('Economic');
+      expect(decoded).toEqual(
+        decodeOnchainChanges(payload({ [conway]: value }), ep, 'preprod'),
+      );
+      expect(parameterChangeScope(payload({ [old]: value }))).toEqual(parameterChangeScope(payload({ [conway]: value })));
+    }
   });
 });
 

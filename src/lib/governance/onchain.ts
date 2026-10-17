@@ -22,8 +22,9 @@ export interface ParamMeta {
 
 // camelCase ledger param name → display metadata + the snake_case epoch_params key
 // used for old→new. snake '' means "no comparable scalar in epoch_params" (new only).
-// All keys here were observed in real preprod/mainnet payloads or are standard
-// Conway-updatable parameters, unknown keys fall back to a humanized label.
+// Keys follow the Conway JSON names of the Koios payload (the cardano-cli
+// protocol-parameters keys in __fixtures__/conwayPParamsKeys.json), older names
+// are aliases in PARAM_ALIASES. Unknown keys fall back to a humanized label.
 // Labels are sentence case. The six parameters the submit form offers take
 // theirs from paramDefs.ts, so the form and this list never drift apart.
 export const PARAM_REGISTRY: Record<string, ParamMeta> = {
@@ -35,13 +36,13 @@ export const PARAM_REGISTRY: Record<string, ParamMeta> = {
   dRepActivity: { snake: 'drep_activity', group: 'Governance', label: 'DRep activity', format: 'int' },
   treasuryCut: { snake: 'treasury_growth_rate', group: 'Economic', label: paramListLabel('tau'), format: 'percent' },
   monetaryExpansion: { snake: 'monetary_expand_rate', group: 'Economic', label: paramListLabel('rho'), format: 'percent' },
-  minFeeA: { snake: 'min_fee_a', group: 'Economic', label: 'Min fee coefficient (a)', format: 'int' },
-  minFeeB: { snake: 'min_fee_b', group: 'Economic', label: 'Min fee constant (b)', format: 'lovelace' },
+  txFeePerByte: { snake: 'min_fee_a', group: 'Economic', label: 'Min fee coefficient (a)', format: 'int' },
+  txFeeFixed: { snake: 'min_fee_b', group: 'Economic', label: 'Min fee constant (b)', format: 'lovelace' },
   minFeeRefScriptCostPerByte: { snake: 'min_fee_ref_script_cost_per_byte', group: 'Economic', label: 'Ref script cost per byte', format: 'lovelace' },
   minPoolCost: { snake: 'min_pool_cost', group: 'Economic', label: paramListLabel('minPoolCost'), format: 'lovelace' },
-  keyDeposit: { snake: 'key_deposit', group: 'Economic', label: 'Key deposit', format: 'lovelace' },
-  poolDeposit: { snake: 'pool_deposit', group: 'Economic', label: 'Pool deposit', format: 'lovelace' },
-  coinsPerUTxOByte: { snake: 'coins_per_utxo_size', group: 'Economic', label: paramListLabel('utxoCostPerByte'), format: 'lovelacePerByte' },
+  stakeAddressDeposit: { snake: 'key_deposit', group: 'Economic', label: 'Key deposit', format: 'lovelace' },
+  stakePoolDeposit: { snake: 'pool_deposit', group: 'Economic', label: 'Pool deposit', format: 'lovelace' },
+  utxoCostPerByte: { snake: 'coins_per_utxo_size', group: 'Economic', label: paramListLabel('utxoCostPerByte'), format: 'lovelacePerByte' },
   maxBlockBodySize: { snake: 'max_block_size', group: 'Network', label: 'Max block body size', format: 'bytes' },
   maxTxSize: { snake: 'max_tx_size', group: 'Network', label: 'Max tx size', format: 'bytes' },
   maxBlockHeaderSize: { snake: 'max_bh_size', group: 'Network', label: 'Max block header size', format: 'bytes' },
@@ -54,23 +55,40 @@ export const PARAM_REGISTRY: Record<string, ParamMeta> = {
   poolPledgeInfluence: { snake: 'influence', group: 'Technical', label: paramListLabel('a0'), format: 'decimal' },
   poolRetireMaxEpoch: { snake: 'max_epoch', group: 'Technical', label: 'Pool retire max epoch (eMax)', format: 'int' },
   costModels: { snake: 'cost_models', group: 'Technical', label: 'Cost models', format: 'costModels' },
+  // Structured values without one comparable scalar, shown as "Updated".
+  executionUnitPrices: { snake: '', group: 'Economic', label: 'Execution unit prices', format: 'costModels' },
+  poolVotingThresholds: { snake: '', group: 'Governance', label: 'Pool voting thresholds', format: 'costModels' },
+  dRepVotingThresholds: { snake: '', group: 'Governance', label: 'DRep voting thresholds', format: 'costModels' },
 };
+
+// Older payload key names to their Conway name in PARAM_REGISTRY, so payloads
+// stored under the old names keep decoding.
+export const PARAM_ALIASES: Record<string, string> = {
+  minFeeA: 'txFeePerByte',
+  minFeeB: 'txFeeFixed',
+  keyDeposit: 'stakeAddressDeposit',
+  poolDeposit: 'stakePoolDeposit',
+  coinsPerUTxOByte: 'utxoCostPerByte',
+};
+
+/** The PARAM_REGISTRY key for a payload key, resolving an old name to its Conway name. */
+const registryKey = (key: string): string => PARAM_ALIASES[key] ?? key;
 
 // The security-relevant parameters: the constitution's "Parameters Critical to the
 // Operation of the Blockchain" (constitution section 2.1, guardrail PARAM-03a).
 // Changing any one requires an SPO vote (pvtPPSecurityGroup) on top of the DRep
 // vote; a parameter change touching none of these has no SPO vote at all. Keys are
-// the camelCase ledger names as they appear in the on-chain payload.
+// the Conway JSON names, old payload names resolve through PARAM_ALIASES.
 export const SECURITY_PARAMS: ReadonlySet<string> = new Set([
   'maxBlockBodySize',
   'maxTxSize',
   'maxBlockHeaderSize',
   'maxValueSize',
   'maxBlockExecutionUnits',
-  'minFeeA',
-  'minFeeB',
+  'txFeePerByte',
+  'txFeeFixed',
   'minFeeRefScriptCostPerByte',
-  'coinsPerUTxOByte',
+  'utxoCostPerByte',
   'govActionDeposit',
 ]);
 
@@ -138,7 +156,8 @@ export function parameterChangeScope(payloadJson: string | null): ParamChangeSco
   if (!map || typeof map !== 'object') return null;
   const groups = new Set<ParamGroup>();
   let touchesSecurity = false;
-  for (const key of Object.keys(map)) {
+  for (const payloadKey of Object.keys(map)) {
+    const key = registryKey(payloadKey);
     if (SECURITY_PARAMS.has(key)) touchesSecurity = true;
     const g = GROUP_TO_DREP[PARAM_REGISTRY[key]?.group ?? ''];
     if (g) groups.add(g);
@@ -340,7 +359,7 @@ function decodeParams(contents: unknown[], ep: Record<string, unknown>): Onchain
   const rows: ParamRow[] = [];
   if (map && typeof map === 'object') {
     for (const [key, val] of Object.entries(map)) {
-      const meta = PARAM_REGISTRY[key];
+      const meta = PARAM_REGISTRY[registryKey(key)];
       if (meta) {
         const old = meta.snake ? ep[meta.snake] : undefined;
         rows.push({

@@ -2057,7 +2057,7 @@ describe('parameter change panel', () => {
 
   it('puts utxoCostPerByte in the preview payload as a whole number', () => {
     const { payloadPart, missing } = describeParamChangePanel(panel(['utxoCostPerByte'], { utxoCostPerByte: '3500' }), null);
-    expect(payloadPart).toEqual({ coinsPerUTxOByte: '3500' });
+    expect(payloadPart).toEqual({ utxoCostPerByte: '3500' });
     expect(missing).toEqual(['Guardrails script']);
   });
 
