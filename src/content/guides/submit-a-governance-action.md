@@ -15,7 +15,7 @@ faqs:
   - q: "Do I need a wallet to write a governance action?"
     a: "No. You can fill in the form, save it as a draft and review it without a wallet. You only connect a wallet in the last step, to pay the deposit and sign."
   - q: "Which governance actions can I submit?"
-    a: "Info actions, motions of no confidence, hard fork initiations, new constitutions, committee updates and, on preprod, treasury withdrawals and staking parameter changes. Parameter changes beyond the five staking parameters and the UTxO cost per byte are not offered yet."
+    a: "Info actions, motions of no confidence, hard fork initiations, new constitutions, committee updates, treasury withdrawals and staking parameter changes. Parameter changes beyond the five staking parameters and the UTxO cost per byte are not offered yet."
   - q: "Why does a treasury withdrawal need my stake address to be registered?"
     a: "The ledger only pays treasury withdrawals to registered stake addresses. DRepTalk checks every recipient before you sign, so the transaction does not fail on-chain."
   - q: "Can I change a governance action after I submit it?"
@@ -27,9 +27,9 @@ SPOs and the Constitutional Committee. DRepTalk can build and submit one for you
 You write the action in a form, see it the way the action page will show it,
 and sign it with your wallet.
 
-Submitting is open on preprod at
-[preprod.dreptalk.com](https://preprod.dreptalk.com/ga/new) and comes to
-mainnet soon. The page is marked **Beta**.
+Submitting is open on [dreptalk.com](https://dreptalk.com/ga/new) and, for
+testing with test ada, on [preprod.dreptalk.com](https://preprod.dreptalk.com/ga/new).
+The page is marked **Beta**.
 
 ## Before you start
 
@@ -66,9 +66,10 @@ action** card on your home page.
 5. **Review.** **Review** shows the action exactly as its page on DRepTalk will
    render it. Check the text, the links and the on-chain changes.
 6. **Sign and submit.** Pick your wallet and connect it. DRepTalk shows the
-   deposit next to your wallet's balance. Then it publishes the metadata on
-   IPFS, checks that the published file matches its hash, builds the
-   transaction and asks your wallet to sign it.
+   deposit next to your wallet's balance. On mainnet you also tick a box
+   confirming that the deposit stays locked until the action is finalized.
+   Then it publishes the metadata on IPFS, checks that the published file
+   matches its hash, builds the transaction and asks your wallet to sign it.
 
 Your form is saved in your browser as you type, so you can leave and come back.
 The saved draft never contains wallet data.
@@ -76,9 +77,9 @@ The saved draft never contains wallet data.
 ## Treasury withdrawals
 
 A treasury withdrawal pays ada from the Cardano treasury to one or more stake
-addresses. On DRepTalk it is available on preprod for now.
+addresses.
 
-- Add up to 20 recipients, each with a stake address and an amount in tADA. The
+- Add up to 20 recipients, each with a stake address and an amount in ada. The
   form shows the exact total.
 - Every recipient must be a registered stake address. DRepTalk checks them while
   you type and again right before you sign.
@@ -96,7 +97,7 @@ addresses. On DRepTalk it is available on preprod for now.
 ## Protocol parameter changes
 
 A parameter change sets new values for the staking parameters that shape pool
-rewards, and for the UTxO cost per byte. On DRepTalk it is available on preprod for now.
+rewards, and for the UTxO cost per byte.
 
 - Pick any of six parameters, and several can go into one action: the target
   number of pools (k), the pledge influence (a0), the minimum pool cost, the
@@ -153,3 +154,6 @@ the deposit returns to the reward address that submitted it.
   again.
 - **Not enough funds.** The wallet holds less than the deposit plus the fee. The
   page tells you how much is missing.
+- **"Publishing is paused for today."** DRepTalk limits how many documents it
+  publishes to IPFS per day, for everyone together and per network connection.
+  No transaction was signed and no deposit was spent. Try again after 00:00 UTC.

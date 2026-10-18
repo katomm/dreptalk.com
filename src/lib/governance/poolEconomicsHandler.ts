@@ -3,13 +3,12 @@
 // cron computes it once per epoch and stores one row, both routes only read
 // that row and answer its body verbatim. Around an epoch boundary the newest
 // stored row is served, the charts print the epoch it belongs to.
-//   GET /api/gov-action/pool-economics: builder route, preprod, session, rate limit.
+//   GET /api/gov-action/pool-economics: builder route, session, rate limit.
 //   GET /api/pool-economics: public route, same-origin only, any network.
 import type { NetworkConfig } from '@/lib/config/network.js';
 import { currentNetwork, jsonResponse, runtimeEnv } from '@/lib/api/response.js';
 import { isSameOriginRequest } from '@/lib/http/origin.js';
 import { gateGovActionRequest, GOV_ACTION_RATE_POLICIES } from './govActionGate.js';
-import { govActionSubmissionAvailable, govActionTypeAvailable } from './submissionGate.js';
 import { loadPoolEconomics } from './poolEconomics.js';
 
 export interface PoolEconomicsDeps {
@@ -38,8 +37,6 @@ export async function handlePoolEconomics(
   deps: PoolEconomicsDeps,
 ): Promise<Response> {
   const net = deps.network ?? currentNetwork();
-  const availability = { submissionAvailable: govActionSubmissionAvailable(net.network), network: net.network };
-  if (!govActionTypeAvailable('ParameterChange', availability)) return new Response('Not found', { status: 404 });
   const gate = await gateGovActionRequest(ctx, GOV_ACTION_RATE_POLICIES.economics, { network: net, env: deps.env });
   if (gate instanceof Response) return gate;
   return answerStored(gate.db, NO_STORE);

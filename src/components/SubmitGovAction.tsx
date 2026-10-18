@@ -1,5 +1,5 @@
 // React island: client-side, non-custodial governance-action submission
-// flow. preprod-only, Beta internal tool.
+// flow. Beta.
 //
 // Non-custodial: the wallet signs and submits, the server never sees a
 // private key. The flow, form first and wallet last: (1) fetch the current gov
@@ -26,14 +26,15 @@ import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { CopyButton } from '@/components/CopyButton.js';
 import { useCardanoWallets, rememberWallet, recallWallet } from '@/lib/wallet/useCardanoWallets.js';
 import { submitGovAction } from '@/lib/governance/govActionTx.js';
-import { GUARDRAIL_FORM_TYPES, govActionSubmissionAvailable, govActionTypeAvailable } from '@/lib/governance/submissionGate.js';
+import { GUARDRAIL_FORM_TYPES } from '@/lib/governance/guardrailTypes.js';
+import { pinRefusalMessage } from '@/lib/governance/pinErrorMessage.js';
 import { collectWalletUtxos, totalLovelace } from '@/lib/governance/walletUtxos.js';
 import { fetchStakeRegistration, fetchStakeRegistrations, rewardAddressToStakeBech32 } from '@/lib/governance/stakeAccount.js';
 import { KEEP_STAKE_KEY_REGISTERED, latestRefundEpoch } from '@/lib/governance/depositRefund.js';
 import { epochWithDate } from '@/lib/governance/epochLabel.js';
 import type { WalletApi } from '@/lib/governance/walletUtxos.js';
 import { readinessReasons } from '@/lib/governance/readiness.js';
-import { formatAdaPlain } from '@/lib/format/ada.js';
+import { adaUnit, formatAdaPlain } from '@/lib/format/ada.js';
 import {
   INFO_TITLE_MAX,
   INFO_ABSTRACT_MAX,
@@ -209,7 +210,7 @@ function parseDepositLovelace(raw: unknown): bigint | null {
 // Matches the exact message thrown by submitGovAction's funding-shortfall
 // guard (see govActionTx.ts), so the required/available numbers can be
 // reformatted in ada and the "no UTxOs at all" case can get its own wording.
-const INSUFFICIENT_FUNDS_RE = /^Insufficient tADA for the deposit: need (\d+) lovelace, wallet has (\d+)\.$/;
+const INSUFFICIENT_FUNDS_RE = /^Insufficient funds for the deposit: need (\d+) lovelace, wallet has (\d+)\.$/;
 
 /**
  * Maps a submitGovAction failure to a readable message.
@@ -239,19 +240,25 @@ function mapSubmitError(
   err: unknown,
   prev: PrevActionRef | null,
   type: GovActionFormType,
+  network: CardanoNetwork,
 ): { message: string; detail?: string | null } {
   const raw = err instanceof Error ? err.message : String(err);
   const m = INSUFFICIENT_FUNDS_RE.exec(raw);
   if (m) {
     const [, requiredLovelace, availableLovelace] = m;
+    // The Preview hint only makes sense on preprod: mainnet has no sibling
+    // network that answers getNetworkId() the same way.
     if (availableLovelace === '0') {
       return {
         message:
-          'No preprod UTxOs found for this wallet (is it a Preview wallet? Preview and Preprod are separate testnets with separate funds).',
+          network === 'preprod'
+            ? 'No preprod UTxOs found for this wallet (is it a Preview wallet? Preview and Preprod are separate testnets with separate funds).'
+            : 'This wallet holds no ada.',
       };
     }
+    const unit = adaUnit(network);
     return {
-      message: `Insufficient tADA: this proposal needs about ${formatAdaPlain(requiredLovelace)} tADA (deposit plus fee headroom), but your wallet only has ${formatAdaPlain(availableLovelace)} tADA.`,
+      message: `Insufficient ${unit}: this proposal needs about ${formatAdaPlain(requiredLovelace)} ${unit} (deposit plus fee headroom), but your wallet only has ${formatAdaPlain(availableLovelace)} ${unit}.`,
     };
   }
   // The guardrail evaluation and the collateral it needs come with their own
@@ -346,7 +353,8 @@ function CountedField(props: { id: string; label: string; count: number; max: nu
 }
 
 /** Deposit callout shown above the connect/form flow, regardless of wallet state. */
-function DepositInfo({ deposit }: { deposit: DepositState }) {
+function DepositInfo({ deposit, network }: { deposit: DepositState; network: CardanoNetwork }) {
+  const unit = adaUnit(network);
   return (
     <div className={`callout callout--${deposit.status === 'error' ? 'error' : 'info'}`} role="status">
       {deposit.status === 'error' ? <ErrorIcon /> : <InfoIcon />}
@@ -356,13 +364,13 @@ function DepositInfo({ deposit }: { deposit: DepositState }) {
         {deposit.status === 'ready' && (
           <>
             <p style={{ margin: '0 0 0.5rem', fontWeight: 600 }}>
-              Governance action deposit: {formatAdaPlain(deposit.lovelace)} tADA
+              Governance action deposit: {formatAdaPlain(deposit.lovelace)} {unit}
             </p>
             <ul style={{ margin: 0, paddingLeft: '1.1rem', color: 'var(--muted)', fontSize: '0.8125rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
               <li>This is the current on-chain governance action deposit.</li>
               <li>The transaction reads the live protocol parameters when you submit. Those are authoritative and can differ slightly from this figure.</li>
               <li>The deposit is refunded to your reward address once the action is ratified, enacted, or expires. {KEEP_STAKE_KEY_REGISTERED}</li>
-              <li>Your wallet needs at least this much tADA, plus a small network fee, to submit.</li>
+              <li>Your wallet needs at least this much {unit}, plus a small network fee, to submit.</li>
             </ul>
           </>
         )}
@@ -423,6 +431,16 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   // The review modal. Optional and never gated on readiness: an incomplete
   // form previews too, with the missing fields listed inside.
   const [reviewOpen, setReviewOpen] = useState(false);
+  // Mainnet only: the review's Sign and submit also waits for an explicit
+  // acknowledgement of the locked deposit, which is 100,000 ada there. Cleared
+  // every time the review opens, so a changed type or deposit is confirmed
+  // afresh.
+  const depositAckRequired = network === 'mainnet';
+  const [depositAcknowledged, setDepositAcknowledged] = useState(false);
+  function openReview() {
+    setDepositAcknowledged(false);
+    setReviewOpen(true);
+  }
   // Focus goes back here when the modal closes, whichever way it closed.
   const reviewButtonRef = useRef<HTMLButtonElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
@@ -498,14 +516,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
     if (typeof window === 'undefined') return;
     const draft = loadGovActionDraft(window.localStorage, draftKey);
     if (draft) {
-      // A draft saved for a type this network does not offer (a treasury
-      // withdrawal draft on mainnet) restores as an info action, panels kept.
-      const available = govActionTypeAvailable(draft.type, {
-        submissionAvailable: govActionSubmissionAvailable(network),
-        network,
-      });
-      const restorable = available ? draft : { ...draft, type: 'InfoAction' as const };
-      dispatch({ kind: 'restoreDraft', draft: restorable, openDrafts, siteOrigin: draftSiteOrigin });
+      dispatch({ kind: 'restoreDraft', draft, openDrafts, siteOrigin: draftSiteOrigin });
       setRestoredAt(draft.savedAt ?? null);
     }
     draftRestoredRef.current = true;
@@ -747,6 +758,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
     draftConflict: draftConflict(state, openDrafts, draftSiteOrigin),
     wallet: state.wallet,
     depositLovelace: deposit.status === 'ready' ? deposit.lovelace : null,
+    network,
   });
 
   // ------------------------------------------------------------------
@@ -1116,6 +1128,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
     // piece on screen, and the review's Sign and submit is disabled while it
     // has any, so this only backs that button up.
     if (phase.status === 'submitting' || reasons.length > 0) return;
+    if (depositAckRequired && !depositAcknowledged) return;
 
     const api = enabledApiRef.current;
     const rewardAddressHex = state.wallet.status === 'connected' ? state.wallet.rewardAddressHex : null;
@@ -1248,9 +1261,11 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
           const body = (await docRes.json().catch(() => null)) as { error?: string } | null;
           setPhase({
             status: 'error',
-            message: body?.error
-              ? `Could not publish the constitution document: ${body.error}.`
-              : 'Could not publish the constitution document. Nothing else was published, please try again.',
+            message:
+              pinRefusalMessage(docRes.status, body?.error) ??
+              (body?.error
+                ? `Could not publish the constitution document: ${body.error}.`
+                : 'Could not publish the constitution document. Nothing else was published, please try again.'),
             step: 'submit',
           });
           return;
@@ -1314,7 +1329,9 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
         const body = (await metaRes.json().catch(() => null)) as { error?: string } | null;
         setPhase({
           status: 'error',
-          message: body?.error ? `Could not host the metadata: ${body.error}.` : 'Could not host the metadata. Please try again.',
+          message:
+            pinRefusalMessage(metaRes.status, body?.error) ??
+            (body?.error ? `Could not host the metadata: ${body.error}.` : 'Could not host the metadata. Please try again.'),
           step: 'submit',
         });
         return;
@@ -1346,7 +1363,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
       // route and the sync both key on) is always this tx hash at index 0.
       setPhase({ status: 'success', txHash, authored: metadata.signAsAuthor, refundEpoch: latestRefundEpoch(epochParamsRow) });
     } catch (err) {
-      setPhase({ status: 'error', ...mapSubmitError(err, prev, state.type), step: 'submit' });
+      setPhase({ status: 'error', ...mapSubmitError(err, prev, state.type, network), step: 'submit' });
     }
   }
 
@@ -1532,18 +1549,6 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
   const ageLine = contextAgeLine();
   const changeLines = contextChangeLines(state.context.changes);
 
-  // Mirrors submitGovAction's own guard: this flow only ever works on
-  // preprod, so fail visibly rather than let the user fill out the form and
-  // hit the guard only after connecting a wallet.
-  if (!govActionSubmissionAvailable(network)) {
-    return (
-      <div className="callout callout--info" role="status" style={{ maxWidth: '32rem' }}>
-        <InfoIcon />
-        <div className="callout__body">Submitting a governance action is available on preprod only.</div>
-      </div>
-    );
-  }
-
   if (phase.status === 'success') {
     return (
       <div style={{ maxWidth: '32rem' }}>
@@ -1622,7 +1627,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
         <DraftRestoreBanner savedAt={restoredAt} now={Date.now()} onDiscard={handleDiscardDraft} disabled={busy} />
       )}
 
-      <DepositInfo deposit={deposit} />
+      <DepositInfo deposit={deposit} network={network} />
 
       <form
         ref={formRef}
@@ -1631,7 +1636,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
           // Signing starts only from the review's Sign and submit. The form
           // has no submit button, so this is a backstop for anything else
           // that submits it: it opens the review.
-          if (!busy) setReviewOpen(true);
+          if (!busy) openReview();
         }}
         style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}
       >
@@ -1641,7 +1646,6 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
           params={params}
           deposit={deposit}
           network={network}
-          submissionAvailable={govActionSubmissionAvailable(network)}
           disabled={busy}
         />
 
@@ -1886,7 +1890,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
               </li>
               <li>
                 Your wallet asks you to sign the transaction, which locks the
-                {deposit.status === 'ready' ? ` ${formatAdaPlain(deposit.lovelace)} tADA ` : ' '}
+                {deposit.status === 'ready' ? ` ${formatAdaPlain(deposit.lovelace)} ${adaUnit(network)} ` : ' '}
                 deposit and puts the proposal on chain.
               </li>
             </ol>
@@ -1898,6 +1902,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
         </div>
 
         <SignAndSubmit
+          network={network}
           wallets={wallets}
           selected={selected}
           onSelect={setSelected}
@@ -1912,7 +1917,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
           submitError={phase.status === 'error' && phase.step === 'submit' ? phase.message : null}
           submitErrorDetail={phase.status === 'error' && phase.step === 'submit' ? (phase.detail ?? null) : null}
           onUseDifferentWallet={reset}
-          onReview={() => setReviewOpen(true)}
+          onReview={openReview}
           reviewButtonRef={reviewButtonRef}
         />
 
@@ -1933,11 +1938,27 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
             <>
               <ReadinessList reasons={reasons} />
               <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--muted)' }}>{KEEP_STAKE_KEY_REGISTERED}</p>
+              {depositAckRequired && (
+                <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', fontSize: '0.875rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={depositAcknowledged}
+                    onChange={(e) => setDepositAcknowledged(e.target.checked)}
+                    disabled={busy}
+                    style={{ marginTop: '0.2rem' }}
+                  />
+                  <span>
+                    I understand that submitting locks
+                    {deposit.status === 'ready' ? ` ${formatAdaPlain(deposit.lovelace)} ${adaUnit(network)} ` : ' the deposit '}
+                    until the action is finalized.
+                  </span>
+                </label>
+              )}
               <button
                 type="button"
                 className="btn btn-primary"
                 onClick={confirmSubmit}
-                disabled={busy || reasons.length > 0}
+                disabled={busy || reasons.length > 0 || (depositAckRequired && !depositAcknowledged)}
                 style={{ alignSelf: 'flex-start' }}
               >
                 Sign and submit

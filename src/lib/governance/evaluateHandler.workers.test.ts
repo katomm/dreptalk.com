@@ -20,7 +20,6 @@ import {
 } from './__fixtures__/evaluateTx.js';
 
 const preprod = { network: 'preprod', networkId: 0 } as never;
-const mainnet = { network: 'mainnet', networkId: 1 } as never;
 const testEnv = { ...env } as Cloudflare.Env;
 const KOIOS = 'https://preprod.koios.rest/api/v1';
 
@@ -60,12 +59,6 @@ function deps(fetchImpl: typeof fetch, extra: Record<string, unknown> = {}) {
 }
 
 describe('handleEvaluate gate', () => {
-  it('404s on mainnet', async () => {
-    const fetchImpl = upstream(200, OGMIOS_OK);
-    const res = await handleEvaluate(ctx(JSON.stringify({ txCborHex: buildEvalTxHex() })), deps(fetchImpl, { network: mainnet }));
-    expect(res.status).toBe(404);
-    expect(fetchImpl).not.toHaveBeenCalled();
-  });
 
   it('401s when signed out', async () => {
     const res = await handleEvaluate(ctx('{}', { user: false }), deps(upstream(200, OGMIOS_OK)));

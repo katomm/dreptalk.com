@@ -102,20 +102,6 @@ vi.mock('@/lib/governance/walletUtxos.js', async importOriginal => {
   };
 });
 
-// The mainnet switch, forced on by the test that restores a draft on a
-// network where submission is on but the draft's type is not offered. Null
-// keeps the real switch. Only the switch is replaced, so the per-type rule in
-// govActionTypeAvailable stays the real one.
-let submissionSwitch: boolean | null = null;
-vi.mock('@/lib/governance/submissionGate.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/lib/governance/submissionGate.js')>();
-  return {
-    ...actual,
-    govActionSubmissionAvailable: (network: Parameters<typeof actual.govActionSubmissionAvailable>[0]) =>
-      submissionSwitch ?? actual.govActionSubmissionAvailable(network),
-  };
-});
-
 /** A promise plus its resolver, for holding a mocked round trip open. */
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let resolve!: (value: T) => void;
@@ -303,6 +289,9 @@ function paramContextWithRoot(txHash: string) {
   };
 }
 
+/** Overrides the bare /api/gov-action/metadata answer when set. Reset in beforeEach. */
+let metadataImpl: (() => Response) | null = null;
+
 /** How many of the next /api/gov-action/pool-economics requests answer 503. Reset in beforeEach. */
 let poolEconomicsFailures = 0;
 
@@ -362,6 +351,7 @@ function installFetchMock() {
       return jsonResponse({ bodyHash: 'b'.repeat(64) });
     }
     if (url.includes('/api/gov-action/metadata')) {
+      if (metadataImpl) return metadataImpl();
       return jsonResponse({ anchorUrl: 'ipfs://meta', anchorHash: 'e'.repeat(64) });
     }
     throw new Error(`unexpected request: ${url}`);
@@ -474,8 +464,8 @@ describe('SubmitGovAction', () => {
     recipientStatus = new Map();
     contextError = null;
     accountInfoFails = false;
-    submissionSwitch = null;
     poolEconomicsFailures = 0;
+    metadataImpl = null;
     installFetchMock();
     installWalletMock();
   });
@@ -833,6 +823,100 @@ describe('SubmitGovAction', () => {
     slowEnable.resolve(api);
     await screen.findByText(/^Deposit .*wallet/, {}, SLOW);
     expect(entry.enable).toHaveBeenCalledTimes(1);
+  });
+
+  describe('on mainnet', () => {
+    const MAINNET_REWARD = 'e1'.concat('c'.repeat(56));
+
+    async function connectMainnet() {
+      const api = installWalletMock();
+      api.getNetworkId.mockResolvedValue(1);
+      api.getRewardAddresses.mockResolvedValue([MAINNET_REWARD]);
+      walletLovelace = 200_000_000_000n;
+      render(<SubmitGovAction network="mainnet" displayName={DISPLAY_NAME} />);
+      fillMetadata();
+      await connect();
+    }
+
+    function ack(): HTMLInputElement {
+      return screen.getByRole('checkbox', { name: /^I understand that submitting locks 100,000 ada until the action is finalized\.$/ }) as HTMLInputElement;
+    }
+
+    it('writes ada, never tADA', async () => {
+      await connectMainnet();
+      expect(screen.getByText('Deposit 100,000 ada, wallet 200,000 ada')).toBeTruthy();
+      expect(screen.queryByText(/tADA/)).toBeNull();
+    });
+
+    it('keeps Sign and submit disabled until the deposit is acknowledged, and asks again on reopen', async () => {
+      submitGovActionMock.mockResolvedValue({ txHash: 'a'.repeat(64) });
+      await connectMainnet();
+      const submit = signButton();
+      expect(ack().checked).toBe(false);
+      expect(submit.disabled).toBe(true);
+
+      fireEvent.click(ack());
+      await waitFor(() => expect(submit.disabled).toBe(false), SLOW);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+      const reopened = signButton();
+      expect(ack().checked).toBe(false);
+      expect(reopened.disabled).toBe(true);
+
+      fireEvent.click(ack());
+      await waitFor(() => expect(reopened.disabled).toBe(false), SLOW);
+      fireEvent.click(reopened);
+      await waitFor(() => expect(submitGovActionMock).toHaveBeenCalledTimes(1), SLOW);
+      expect(submitGovActionMock.mock.calls[0][0]).toEqual(expect.objectContaining({ network: 'mainnet' }));
+    });
+
+    it('says an empty wallet holds no ada, without the Preview hint', async () => {
+      submitGovActionMock.mockRejectedValue(new Error('Insufficient funds for the deposit: need 100005000000 lovelace, wallet has 0.'));
+      await connectMainnet();
+      const submit = signButton();
+      fireEvent.click(ack());
+      await waitFor(() => expect(submit.disabled).toBe(false), SLOW);
+      fireEvent.click(submit);
+      expect(await screen.findByText('This wallet holds no ada.', {}, SLOW)).toBeTruthy();
+      expect(screen.queryByText(/Preview wallet/)).toBeNull();
+    });
+  });
+
+  it('asks for no deposit acknowledgement on preprod', async () => {
+    installFetchMock();
+    render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+    fillMetadata();
+    await connect();
+    signButton();
+    expect(screen.queryByRole('checkbox', { name: /I understand that submitting locks/ })).toBeNull();
+  });
+
+  describe('publishing refused by the pin routes', () => {
+    async function submitWith(response: Response) {
+      metadataImpl = () => response;
+      installFetchMock();
+      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
+      fillMetadata();
+      await connect();
+      const submit = signButton();
+      await waitFor(() => expect(submit.disabled).toBe(false), SLOW);
+      fireEvent.click(submit);
+    }
+
+    it.each([
+      ['pin_budget_global', /^Publishing is paused for today\. No transaction was signed and no deposit was spent\. Try again after 00:00 UTC\.$/],
+      ['pin_budget_ip', /^Publishing from this network connection is paused for today\. No transaction was signed/],
+    ])('explains %s after the author signature, without reaching the wallet transaction', async (error, text) => {
+      await submitWith(new Response(JSON.stringify({ error }), { status: 429, headers: { 'content-type': 'application/json' } }));
+      expect(await screen.findByText(text, {}, SLOW)).toBeTruthy();
+      expect(submitGovActionMock).not.toHaveBeenCalled();
+    });
+
+    it('says nothing was spent when hosting fails on the server', async () => {
+      await submitWith(new Response(JSON.stringify({ error: 'internal error' }), { status: 500, headers: { 'content-type': 'application/json' } }));
+      expect(await screen.findByText(/^Publishing failed on our side\. No transaction was signed and no deposit was spent\./, {}, SLOW)).toBeTruthy();
+      expect(submitGovActionMock).not.toHaveBeenCalled();
+    });
   });
 
   describe('sign as author, on by default', () => {
@@ -1976,31 +2060,6 @@ describe('SubmitGovAction', () => {
       expect((await screen.findAllByText(RECIPIENT_UNREGISTERED, {}, SLOW)).length).toBeGreaterThan(0);
     });
 
-    it('restores a treasury draft on a network that does not offer the type as an info action', async () => {
-      submissionSwitch = true;
-      window.localStorage.setItem(
-        govActionDraftKey('mainnet'),
-        JSON.stringify({
-          v: 2,
-          type: 'TreasuryWithdrawals',
-          title: 'A treasury withdrawal',
-          abstract: 'The abstract',
-          motivation: 'The motivation',
-          rationale: 'The rationale',
-          signAsAuthor: true,
-          authorName: DISPLAY_NAME,
-          references: [],
-          surveyRef: '',
-          panels: { TreasuryWithdrawals: { rows: [{ address: RECIPIENT, amountAda: '1' }] } },
-        }),
-      );
-      render(<SubmitGovAction network="mainnet" displayName={DISPLAY_NAME} />);
-
-      await waitFor(() => expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('A treasury withdrawal'), SLOW);
-      expect((screen.getByRole('radio', { name: /Info action/ }) as HTMLInputElement).checked).toBe(true);
-      expect(screen.queryByRole('radio', { name: /Treasury withdrawal/ })).toBeNull();
-      expect(screen.queryByLabelText('Recipient 1 stake address')).toBeNull();
-    });
   });
   describe('guardrail moved since the form loaded', () => {
     const KNOWN = { state: 'known', scriptHash: GUARDRAIL_SCRIPT_HASH_HEX };

@@ -13,7 +13,8 @@
 import { needsContext, type GovActionFormType } from './prevAction.js';
 import type { ContextState, WalletState } from './govActionFormState.js';
 import { FUNDING_HEADROOM_LOVELACE } from './walletUtxos.js';
-import { formatAdaPlain } from '../format/ada.js';
+import type { CardanoNetwork } from '../config/network.js';
+import { adaUnit, formatAdaPlain } from '../format/ada.js';
 
 export type ReadinessKey =
   | 'context'
@@ -55,6 +56,8 @@ export interface ReadinessInput {
   wallet: WalletState;
   /** The current deposit, or null while it is unknown. */
   depositLovelace: bigint | null;
+  /** Decides the unit word in the balance reason. */
+  network: CardanoNetwork;
 }
 
 /** How each type's panel is named in "Fix the ... changes above". */
@@ -136,10 +139,11 @@ export function readinessReasons(input: ReadinessInput): ReadinessReason[] {
   if (input.depositLovelace === null) return reasons;
 
   const required = input.depositLovelace + FUNDING_HEADROOM_LOVELACE;
+  const unit = adaUnit(input.network);
   if (balance.lovelace < required) {
     reasons.push({
       key: 'balance',
-      message: `The wallet holds ${formatAdaPlain(balance.lovelace)} tADA, the deposit plus a ${formatAdaPlain(FUNDING_HEADROOM_LOVELACE)} tADA fee reserve needs ${formatAdaPlain(required)}`,
+      message: `The wallet holds ${formatAdaPlain(balance.lovelace)} ${unit}, the deposit plus a ${formatAdaPlain(FUNDING_HEADROOM_LOVELACE)} ${unit} fee reserve needs ${formatAdaPlain(required)}`,
     });
   }
 

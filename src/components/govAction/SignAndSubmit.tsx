@@ -12,13 +12,16 @@ import type { CSSProperties, Ref } from 'react';
 import type { CardanoWalletInfo } from '@/lib/wallet/useCardanoWallets.js';
 import type { DepositState, WalletState } from '@/lib/governance/govActionFormState.js';
 import type { ReadinessReason } from '@/lib/governance/readiness.js';
-import { formatAdaPlain } from '@/lib/format/ada.js';
+import type { CardanoNetwork } from '@/lib/config/network.js';
+import { adaUnit, formatAdaPlain } from '@/lib/format/ada.js';
 import WalletConnection from '@/components/WalletConnection.js';
 import ReadinessList from '@/components/govAction/ReadinessList.js';
 import { ErrorIcon, InfoIcon } from '@/components/govAction/icons.js';
 import { linkButtonStyle } from '@/components/drepFormStyles.js';
 
 export interface SignAndSubmitProps {
+  /** Decides the unit word in the balance line. */
+  network: CardanoNetwork;
   wallets: CardanoWalletInfo[];
   selected: string;
   onSelect: (key: string) => void;
@@ -57,13 +60,13 @@ const sectionStyle: CSSProperties = {
  * readiness list says the balance is unknown, and the two must not
  * contradict each other.
  */
-function balanceLine(deposit: DepositState, wallet: WalletState): string | null {
+function balanceLine(deposit: DepositState, wallet: WalletState, unit: string): string | null {
   if (wallet.status !== 'connected') return null;
   const balance = wallet.balance;
   if (balance.status === 'loading') return 'Reading the wallet balance...';
   if (balance.status === 'error') return balance.message || 'Could not read the wallet balance';
-  if (deposit.status !== 'ready') return `Wallet ${formatAdaPlain(balance.lovelace)} tADA`;
-  return `Deposit ${formatAdaPlain(deposit.lovelace)} tADA, wallet ${formatAdaPlain(balance.lovelace)} tADA`;
+  if (deposit.status !== 'ready') return `Wallet ${formatAdaPlain(balance.lovelace)} ${unit}`;
+  return `Deposit ${formatAdaPlain(deposit.lovelace)} ${unit}, wallet ${formatAdaPlain(balance.lovelace)} ${unit}`;
 }
 
 export default function SignAndSubmit(props: SignAndSubmitProps) {
@@ -71,7 +74,7 @@ export default function SignAndSubmit(props: SignAndSubmitProps) {
   const connecting = wallet.status === 'connecting';
   const connected = wallet.status === 'connected';
   const balanceKnown = connected && wallet.balance.status !== 'loading';
-  const figures = balanceLine(deposit, wallet);
+  const figures = balanceLine(deposit, wallet, adaUnit(props.network));
   const pickerRef = useRef<HTMLDivElement>(null);
   const focusToken = props.focusPickerToken ?? 0;
 

@@ -52,11 +52,6 @@ describe('POST /api/gov-action/document', () => {
     mockNetwork = { network: 'mainnet', networkId: 1 };
   });
 
-  it('404s on mainnet', async () => {
-    const res = await POST(req(USER));
-    expect(res.status).toBe(404);
-  });
-
   it('401s when signed out, even on preprod', async () => {
     mockNetwork = { network: 'preprod', networkId: 0 };
     const res = await POST(req(null));

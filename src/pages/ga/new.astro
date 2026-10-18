@@ -1,24 +1,18 @@
 ---
-// Submit a governance action: Beta, preprod-only. Linked from the account
-// menu and the /home/ card, both marked Beta, not from the main nav. Gated
-// twice: mainnet returns a bare 404 (reveals nothing), then a signed-out
-// visitor is redirected to /login/ like the other session-gated pages. The
-// API routes this island calls gate independently too, so this page gate is
-// a UX convenience, not the security boundary.
+// Submit a governance action: Beta. Linked from the account menu and the
+// /home/ card, both marked Beta, not from the main nav. A signed-out visitor
+// is redirected to /login/ like the other session-gated pages. The API routes
+// this island calls gate independently too, so this page gate is a UX
+// convenience, not the security boundary.
 export const prerender = false;
 
 import Layout from '@/layouts/Layout.astro';
 import SubmitGovAction from '@/components/SubmitGovAction.tsx';
 import { currentNetwork, runtimeEnv } from '@/lib/api/response';
-import { govActionSubmissionAvailable } from '@/lib/governance/submissionGate';
 import { loadSessionHeader } from '@/lib/forum/sessionHeader';
 import { listOpenProposalDrafts } from '@/lib/db/proposalDrafts';
 
 const net = currentNetwork();
-if (!govActionSubmissionAvailable(net.network)) {
-  return new Response('Not found', { status: 404 });
-}
-
 const user = Astro.locals.user;
 if (!user) {
   return Astro.redirect('/login/');
@@ -38,10 +32,10 @@ const openDrafts = db ? await listOpenProposalDrafts(db, user.id) : [];
 // browser's own origin.
 const siteOrigin = net.siteOrigin;
 ---
-<Layout title="Submit a governance action (Beta) - DRepTalk" description="Beta preprod tool for submitting a governance action." noindex={true}>
+<Layout title="Submit a governance action (Beta) - DRepTalk" description="Beta tool for drafting and submitting a Cardano governance action from your wallet." noindex={true}>
   <div class="callout callout--warning" role="status">
     <div class="callout__body">
-      Beta, preprod only. Submitting locks the governance action deposit shown below,
+      Beta. Submitting locks the governance action deposit shown below,
       refunded when the action is finalized.
     </div>
   </div>
@@ -49,8 +43,7 @@ const siteOrigin = net.siteOrigin;
   <h1 style="margin:1.5rem 0 0.5rem;">Submit a governance action</h1>
   <p style="margin:0 0 1.5rem;max-width:62ch;font-size:0.9375rem;line-height:1.6;color:var(--muted);">
     Draft and submit a Cardano governance action with your wallet: an info action, a motion of
-    no confidence, a hard fork, a new constitution, a committee update, or on preprod a treasury
-    withdrawal. Everything is signed locally, dreptalk.com never handles your private keys.
+    no confidence, a hard fork, a new constitution, a committee update, a treasury withdrawal or a parameter change. Everything is signed locally, dreptalk.com never handles your private keys.
     <a href="/help/submit-a-governance-action/">How submitting works</a>
   </p>
 

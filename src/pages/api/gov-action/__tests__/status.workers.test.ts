@@ -39,11 +39,6 @@ describe('GET /api/gov-action/status', () => {
     mockNetwork = { network: 'mainnet', networkId: 1 };
   });
 
-  it('404s on mainnet', async () => {
-    const res = await GET(req(USER));
-    expect(res.status).toBe(404);
-  });
-
   it('401s when signed out, even on preprod', async () => {
     mockNetwork = { network: 'preprod', networkId: 0 };
     const res = await GET(req(null));

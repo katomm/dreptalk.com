@@ -66,10 +66,55 @@ async function insertOld(hash: string, fileId: string | null, servedAt = NOW - G
   });
 }
 
-const run = (remover: PinataFileRemover, limit = 200) =>
-  collectUnreferencedPins({ db: env.DB, remover, groupId: OURS, now: NOW, limit });
+/** The other network anchors nothing unless a test says otherwise. */
+const nowhereElse = async () => new Set<string>();
+
+const run = (
+  remover: PinataFileRemover,
+  limit = 200,
+  anchoredElsewhere: (hashes: string[]) => Promise<Set<string>> = nowhereElse,
+) => collectUnreferencedPins({ db: env.DB, remover, groupId: OURS, now: NOW, limit, anchoredElsewhere });
 
 describe('collectUnreferencedPins', () => {
+  it('keeps and forgets a file the other network anchors, deletes the rest', async () => {
+    const shared = '1'.repeat(64);
+    const orphan = '2'.repeat(64);
+    await insertOld(shared, 'file-shared');
+    await insertOld(orphan, 'file-orphan');
+    const asked: string[][] = [];
+    const client = fakeRemover();
+    const res = await run(client, 200, async (hashes) => {
+      asked.push([...hashes].sort());
+      return new Set([shared]);
+    });
+    expect(asked).toEqual([[shared, orphan]]);
+    expect(res).toMatchObject({ deleted: 1, elsewhere: 1, backlog: 0 });
+    expect(client.calls).toEqual(['file-orphan']);
+    // The shared document is still served, and never offered to a run again.
+    expect(await serveGovActionMetadata(env.DB, shared, NOW)).not.toBeNull();
+    const again = fakeRemover();
+    expect(await run(again)).toMatchObject({ scanned: 0 });
+    expect(again.calls).toEqual([]);
+  });
+
+  it('deletes nothing when the other network cannot be asked', async () => {
+    const hash = '3'.repeat(64);
+    await insertOld(hash, 'file-3');
+    const client = fakeRemover();
+    const err = console.error;
+    console.error = () => {};
+    try {
+      const res = await run(client, 200, async () => {
+        throw new Error('koios down');
+      });
+      expect(res).toMatchObject({ deleted: 0, failed: 1, backlog: 1 });
+    } finally {
+      console.error = err;
+    }
+    expect(client.calls).toEqual([]);
+    expect(await serveGovActionMetadata(env.DB, hash, NOW)).not.toBeNull();
+  });
+
   it('deletes an unreferenced pin and drops its row', async () => {
     const hash = 'a'.repeat(64);
     await insertOld(hash, 'file-a');
@@ -95,7 +140,7 @@ describe('collectUnreferencedPins', () => {
     // not read the foreign file again or repeat the alarm.
     const second = fakeRemover({ groups: { 'file-claimpaign': 'group-other' } });
     const again = await collectUnreferencedPins({
-      db: env.DB, remover: second, groupId: OURS, now: NOW, limit: 200,
+      db: env.DB, remover: second, groupId: OURS, now: NOW, limit: 200, anchoredElsewhere: nowhereElse,
     });
     expect(again).toMatchObject({ scanned: 0, foreign: 0 });
     expect(second.calls).toEqual([]);

@@ -148,8 +148,8 @@ function previewOnchain(
       return {
         onchain: {
           kind: 'treasury',
-          rows: rows.map((row) => ({ address: row.recipient.stakeAddress, ada: formatTreasuryAda(row.lovelace) })),
-          totalAda: formatTreasuryAda(total),
+          rows: rows.map((row) => ({ address: row.recipient.stakeAddress, ada: formatTreasuryAda(row.lovelace, network) })),
+          totalAda: formatTreasuryAda(total, network),
         },
         missing,
       };

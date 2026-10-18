@@ -1,3 +1,5 @@
+import type { CardanoNetwork } from '@/lib/config/network.js';
+
 // Canonical ada display helpers. Lovelace in, human ada out, always with the ₳
 // symbol so the whole site reads the same. `formatAda` is the full form
 // ("39,558,963 ₳", rounded to whole ada; UIs never do sub-ada accounting);
@@ -23,10 +25,17 @@ export function formatAda(lovelace: string | number | null | undefined): string 
 }
 
 /**
+ * The unit word the submission flow writes after a plain amount: "tADA" for
+ * test ada on preprod, "ada" on mainnet.
+ */
+export function adaUnit(network: CardanoNetwork): 'tADA' | 'ada' {
+  return network === 'preprod' ? 'tADA' : 'ada';
+}
+
+/**
  * Plain ada from lovelace, with no symbol and up to two decimals: "1,005",
- * "99,435.5". For copy that writes the unit itself, which on the preprod-only
- * submission flow is "tADA" rather than the symbol. Never null: the callers
- * pass an exact lovelace amount they already hold.
+ * "99,435.5". For copy that writes the unit itself (see adaUnit). Never null:
+ * the callers pass an exact lovelace amount they already hold.
  */
 export function formatAdaPlain(lovelace: bigint | string | number): string {
   const value = typeof lovelace === 'bigint' ? lovelace : BigInt(lovelace);

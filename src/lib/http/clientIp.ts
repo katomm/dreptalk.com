@@ -5,6 +5,8 @@
 // rotate the header to distribute their requests across rate-limit buckets and
 // evade the throttle. Requests without cf-connecting-ip (which should not happen
 // behind Cloudflare) share a single "unknown" bucket rather than a spoofable value.
+export const UNKNOWN_CLIENT_IP = 'unknown';
+
 export function clientIpFrom(headers: Headers): string {
-  return headers.get('cf-connecting-ip') ?? 'unknown';
+  return headers.get('cf-connecting-ip') ?? UNKNOWN_CLIENT_IP;
 }

@@ -6,7 +6,7 @@
 // helpers only, safe for the client bundle.
 import { decodeBech32, encodeBech32 } from '../crypto/bech32.js';
 import { bytesToHex } from '../crypto/hex.js';
-import { lovelaceToAdaDecimal } from '../format/ada.js';
+import { adaUnit, lovelaceToAdaDecimal } from '../format/ada.js';
 import { resolveNetwork, type CardanoNetwork, type NetworkConfig } from '../config/network.js';
 
 /** The most recipients one action may list. */
@@ -94,13 +94,13 @@ export function formatLovelaceExact(lovelace: bigint): string {
 
 /**
  * An amount for the submission preview: exact to the lovelace, from bigint,
- * with the " tADA" suffix, since treasury withdrawals are preprod only. The
+ * with the network's unit word (see adaUnit). The
  * action page itself formats through formatAda, which rounds to whole ada.
  * That stays as it is here (out of scope, a follow-up), but the preview the
  * user signs from must show what the transaction carries.
  */
-export function formatTreasuryAda(lovelace: bigint): string {
-  return `${formatLovelaceExact(lovelace)} tADA`;
+export function formatTreasuryAda(lovelace: bigint, network: CardanoNetwork): string {
+  return `${formatLovelaceExact(lovelace)} ${adaUnit(network)}`;
 }
 
 /** One recipient row as typed. */

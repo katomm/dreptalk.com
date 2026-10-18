@@ -17,6 +17,7 @@ function ready(patch: Partial<ReadinessInput> = {}): ReadinessInput {
     draftConflict: false,
     wallet: { status: 'connected', rewardAddressHex: 'e0ff', balance: { status: 'ready', lovelace: ENOUGH } },
     depositLovelace: DEPOSIT,
+    network: 'preprod',
     ...patch,
   };
 }

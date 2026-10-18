@@ -76,6 +76,10 @@ VAPID_PUBLIC_KEY = "BNDdHbTHnKPFLX9oqH-EeZfQJvzppkj1SRK1-dqnRGOGJWkiazQcjw2_AeKz
 # answers nothing settles or mirrors surveys nobody can see.
 TESSERA_BACKEND_URL = "https://tessera-backend-mainnet.matthieu-pizenberg.workers.dev"
 
+# Pinata group the pin-gc phase is allowed to delete from, shared with preprod.
+# Held equal to the app's copy by src/lib/deployVars.test.ts.
+PINATA_GOV_GROUP_ID = "d07e6e80-916c-4c2b-bf9d-9663d91fc485"
+
 # ---------------------------------------------------------------------------
 # Preprod cron worker (dreptalk-gov-sync-preprod): mirrors the mainnet sync but
 # polls preprod Koios and writes to the preprod D1, feeding preprod.dreptalk.com.
@@ -102,7 +106,7 @@ TESSERA_BACKEND_URL = "https://tessera-backend-preprod.matthieu-pizenberg.worker
 # pin-gc phase before it deletes anything. Held equal to the app's copy by
 # src/lib/deployVars.test.ts: a mismatch makes the collector refuse every file,
 # which is the safe direction but silently does nothing. Not a secret, a group
-# id is useless without a token. Absent on mainnet, where the feature is off.
+# id is useless without a token. The same group serves mainnet.
 PINATA_GOV_GROUP_ID = "d07e6e80-916c-4c2b-bf9d-9663d91fc485"
 
 [[env.preprod.d1_databases]]

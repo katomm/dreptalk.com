@@ -4,6 +4,7 @@
 // answers in the reducer (govActionFormState.ts).
 import type { CSSProperties } from 'react';
 import type { CardanoNetwork } from '@/lib/config/network.js';
+import { adaUnit } from '@/lib/format/ada.js';
 import type { RecipientCheckState, TreasuryPanelState } from '@/lib/governance/govActionFormState.js';
 import {
   checkTreasuryRows,
@@ -61,6 +62,7 @@ export default function TreasuryPanel({
 }: TreasuryPanelProps) {
   const rows = value.rows;
   const checked = checkTreasuryRows(rows, network);
+  const unit = adaUnit(network);
   const decision = guardrailDecision(guardrail);
 
   function updateRow(i: number, patch: Partial<TreasuryPanelState['rows'][number]>) {
@@ -117,10 +119,10 @@ export default function TreasuryPanel({
               <input
                 type="text"
                 inputMode="decimal"
-                aria-label={`Recipient ${i + 1} amount in tADA`}
+                aria-label={`Recipient ${i + 1} amount in ${unit}`}
                 value={row.amountAda}
                 onChange={(e) => updateRow(i, { amountAda: e.target.value })}
-                placeholder="tADA"
+                placeholder={unit}
                 disabled={disabled}
                 style={{ ...inputStyle, flex: '0 0 9rem' }}
               />
@@ -188,7 +190,7 @@ export default function TreasuryPanel({
           Connect wallet and add my stake address
         </button>
       )}
-      <p style={{ ...mutedStyle, margin: 0 }}>Total {formatLovelaceExact(checked.totalLovelace)} tADA</p>
+      <p style={{ ...mutedStyle, margin: 0 }}>Total {formatLovelaceExact(checked.totalLovelace)} {unit}</p>
       <p style={{ ...mutedStyle, margin: 0 }}>
         Up to {TREASURY_RECIPIENTS_MAX} recipients. Every recipient needs a registered stake address.
       </p>

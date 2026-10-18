@@ -33,7 +33,6 @@ import { authorProfileHref } from '@/lib/forum/author';
 import { activeLabel, ACTIVE_WINDOW_MS, HOME_FACE_LIMIT } from '@/lib/forum/view';
 import { PENCIL_PATH, PROFILE_PATH, SETTINGS_PATH, TARGET_PATH, VOTE_PATH } from '@/lib/forum/icons';
 import { loadSessionHeader } from '@/lib/forum/sessionHeader';
-import { govActionSubmissionAvailable } from '@/lib/governance/submissionGate';
 import BetaPill from '@/components/govAction/BetaPill.astro';
 
 const user = Astro.locals.user;
@@ -245,17 +244,13 @@ const cards: HomeCard[] = [
         },
       ]
     : []),
-  ...(govActionSubmissionAvailable(network.network)
-    ? [
-        {
-          title: 'Submit a governance action',
-          href: '/ga/new/',
-          icon: icons.submit,
-          desc: 'Draft and submit an info, no-confidence, hard fork, constitution, committee or treasury action from your wallet.',
-          beta: true,
-        },
-      ]
-    : []),
+  {
+    title: 'Submit a governance action',
+    href: '/ga/new/',
+    icon: icons.submit,
+    desc: 'Draft and submit an info, no-confidence, hard fork, constitution, committee, treasury or parameter action from your wallet.',
+    beta: true,
+  },
   // The quiz is for people looking for a DRep, not for a DRep's own start page.
   ...(drepId
     ? []

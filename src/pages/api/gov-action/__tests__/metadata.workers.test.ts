@@ -9,7 +9,6 @@ import { env } from 'cloudflare:test';
 import { gateGovActionRequest, GOV_ACTION_RATE_POLICIES } from '@/lib/governance/govActionGate';
 
 const preprod = { network: 'preprod', networkId: 0 } as never; // minimal NetworkConfig stub
-const mainnet = { network: 'mainnet', networkId: 1 } as never;
 
 function req(headers: Record<string, string>) {
   return new Request('https://dreptalk.com/api/gov-action/metadata', { method: 'POST', headers });
@@ -19,15 +18,6 @@ const withJwt = { ...env, PINATA_JWT: 'jwt' } as Cloudflare.Env;
 
 describe('gateGovActionRequest (metadata policy)', () => {
   const user = { user: { id: 'u', roles: [] } } as App.Locals;
-
-  it('404 on mainnet', async () => {
-    const out = await gateGovActionRequest(
-      { request: req({ 'sec-fetch-site': 'same-origin' }), locals: user },
-      GOV_ACTION_RATE_POLICIES.metadata,
-      { network: mainnet, env: withJwt },
-    );
-    expect(out instanceof Response && out.status).toBe(404);
-  });
 
   it('403 cross-origin', async () => {
     const out = await gateGovActionRequest(

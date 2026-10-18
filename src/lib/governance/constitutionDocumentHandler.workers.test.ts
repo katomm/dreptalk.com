@@ -8,7 +8,6 @@ import { serveGovActionMetadata } from '../db/govActionMetadata.js';
 import * as rate from '../rate.js';
 
 const preprod = { network: 'preprod', networkId: 0 } as never; // minimal NetworkConfig stub
-const mainnet = { network: 'mainnet', networkId: 1 } as never;
 const withJwt = { ...env, PINATA_JWT: 'jwt' } as Cloudflare.Env;
 const user = { user: { id: 'u', roles: [] } } as App.Locals;
 const CID = 'bafybeihgxdzljxb26q6nf3r3eifqeedsvt2eubqtskghpme66cgjyw4fra';
@@ -29,13 +28,6 @@ const fakeUpload = async (file: File) => ({
 });
 
 describe('handleConstitutionDocument gate outcomes', () => {
-  it('404 on mainnet', async () => {
-    const res = await handleConstitutionDocument(
-      { request: req({ text: 'x' }), locals: user },
-      { network: mainnet, env: withJwt, upload: fakeUpload },
-    );
-    expect(res.status).toBe(404);
-  });
 
   it('403 cross-origin', async () => {
     const res = await handleConstitutionDocument(

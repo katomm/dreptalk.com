@@ -55,6 +55,13 @@ TELEGRAM_BOT_USERNAME = "DRepTalkBot"
 # src/lib/notifications/telegramGroupGuard.ts), not here.
 TELEGRAM_GROUP_CHAT_ID = "-1004408916643"
 
+# Pinata group every governance-action upload goes into, the same group as on
+# preprod. The gov-sync pin collector deletes only files in it, and before it
+# deletes it asks the other network's Koios whether the same document is
+# anchored there. Held equal to gov-sync's copy by src/lib/deployVars.test.ts.
+# Not a secret, a group id is useless without a token.
+PINATA_GOV_GROUP_ID = "d07e6e80-916c-4c2b-bf9d-9663d91fc485"
+
 # CIP-179 surveys. TESSERA_BACKEND_URL is the feature switch: the app checks
 # only its presence (without it the surveys category does not exist and
 # /c/surveys/ is a 404), gov-sync is the one caller of the URL. The client

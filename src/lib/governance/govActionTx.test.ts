@@ -20,17 +20,10 @@ vi.mock('./guardrailEvaluator.js', () => ({
   makeGuardrailEvaluator: vi.fn(() => ({ evaluate: vi.fn() })),
 }));
 
-// The real gate, spied so one test can simulate a mainnet switch that is on.
-vi.mock('./submissionGate.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./submissionGate.js')>();
-  return { ...actual, govActionSubmissionAvailable: vi.fn(actual.govActionSubmissionAvailable) };
-});
-
 import { submitGovAction, queueGuardrailProposeOps, type GovActionTxBuilder } from './govActionTx.js';
 import { collectWalletUtxos } from './walletUtxos.js';
 import { makeClient, signAndSubmit } from './drepTx.js';
 import { makeGuardrailEvaluator } from './guardrailEvaluator.js';
-import { govActionSubmissionAvailable } from './submissionGate.js';
 import { buildGovernanceAction } from './govActionParts.js';
 import { GUARDRAIL_CHANGED_MESSAGE, GUARDRAIL_SCRIPT_HASH_HEX, type GuardrailContext } from './guardrailScript.js';
 
@@ -49,15 +42,11 @@ const baseOpts = {
 };
 
 describe('submitGovAction', () => {
-  it('refuses mainnet regardless of the action, without touching the wallet', async () => {
-    await expect(submitGovAction({ ...baseOpts, network: 'mainnet' })).rejects.toThrow(/preprod/i);
-  });
-
   it('reports the exact funding shortfall message the island parses', async () => {
     vi.mocked(collectWalletUtxos).mockResolvedValue([]);
 
     await expect(submitGovAction({ ...baseOpts, network: 'preprod' })).rejects.toThrow(
-      /^Insufficient tADA for the deposit: need (\d+) lovelace, wallet has (\d+)\.$/,
+      /^Insufficient funds for the deposit: need (\d+) lovelace, wallet has (\d+)\.$/,
     );
   });
 
@@ -163,39 +152,10 @@ describe('submitGovAction for a treasury withdrawal', () => {
     expect(signAndSubmit).not.toHaveBeenCalled();
   });
 
-  // The switch is ON for mainnet in both tests below, so the control proves
+  // The switch is decided on the server, so on mainnet the control proves
   // an info action gets through and only the treasury rule can refuse the
   // other: deleting the TreasuryWithdrawals line in govActionTypeAvailable
   // makes the first test fail.
-  it('refuses a treasury withdrawal on mainnet even with submission switched on there', async () => {
-    const actual = await vi.importActual<typeof import('./submissionGate.js')>('./submissionGate.js');
-    const gate = vi.mocked(govActionSubmissionAvailable);
-    gate.mockReturnValue(true);
-    try {
-      fakeBuilder();
-      await expect(submitGovAction({ ...baseOpts, network: 'mainnet', action: treasury(KNOWN) })).rejects.toThrow(
-        /^Treasury withdrawals are preprod only\.$/,
-      );
-      expect(makeClient).not.toHaveBeenCalled();
-    } finally {
-      gate.mockImplementation(actual.govActionSubmissionAvailable);
-    }
-  });
-
-  it('refuses a parameter change on mainnet even with submission switched on there', async () => {
-    const actual = await vi.importActual<typeof import('./submissionGate.js')>('./submissionGate.js');
-    const gate = vi.mocked(govActionSubmissionAvailable);
-    gate.mockReturnValue(true);
-    try {
-      fakeBuilder();
-      await expect(submitGovAction({ ...baseOpts, network: 'mainnet', action: paramChange(KNOWN) })).rejects.toThrow(
-        /^Parameter changes are preprod only\.$/,
-      );
-      expect(makeClient).not.toHaveBeenCalled();
-    } finally {
-      gate.mockImplementation(actual.govActionSubmissionAvailable);
-    }
-  });
 
   it('proposes a parameter change with the guardrail redeemer, script and evaluator', async () => {
     const builder = fakeBuilder();
@@ -210,17 +170,10 @@ describe('submitGovAction for a treasury withdrawal', () => {
   });
 
   it('lets an info action through on mainnet with submission switched on there', async () => {
-    const actual = await vi.importActual<typeof import('./submissionGate.js')>('./submissionGate.js');
-    const gate = vi.mocked(govActionSubmissionAvailable);
-    gate.mockReturnValue(true);
-    try {
-      const builder = fakeBuilder();
-      await submitGovAction({ ...baseOpts, network: 'mainnet' });
-      expect(makeClient).toHaveBeenCalledWith('mainnet', 'https://x', baseOpts.walletApi);
-      expect(builder.build).toHaveBeenCalledTimes(1);
-    } finally {
-      gate.mockImplementation(actual.govActionSubmissionAvailable);
-    }
+    const builder = fakeBuilder();
+    await submitGovAction({ ...baseOpts, network: 'mainnet' });
+    expect(makeClient).toHaveBeenCalledWith('mainnet', 'https://x', baseOpts.walletApi);
+    expect(builder.build).toHaveBeenCalledTimes(1);
   });
 
   it('builds every other type without an evaluator', async () => {

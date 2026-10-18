@@ -805,6 +805,34 @@ export function createKoiosClient(opts: KoiosClientOptions) {
       return z.array(proposalListRowSchema).parse(data);
     },
 
+    // Which of the given blake2b-256 hashes (lowercase hex) some proposal on
+    // this network anchors: as its own metadata (meta_hash) or as the document
+    // of a new constitution (inside proposal_description, the same place the
+    // local mirror's instr() check looks). The pin collector asks the OTHER
+    // network this before it deletes, because Pinata answers identical bytes
+    // with the existing file, so one file can back anchors on both networks.
+    // New constitutions are few, so all of them are read and searched as text.
+    async anchoredHashes(hashes: readonly string[]): Promise<Set<string>> {
+      const found = new Set<string>();
+      const wanted = hashes.filter((h) => /^[0-9a-f]{64}$/.test(h));
+      if (wanted.length === 0) return found;
+      const [metaRows, constitutionRows] = await Promise.all([
+        request(`/proposal_list?select=meta_hash&meta_hash=in.(${wanted.join(',')})`, { method: 'GET' }),
+        request('/proposal_list?select=proposal_description&proposal_type=eq.NewConstitution', { method: 'GET' }),
+      ]);
+      for (const row of z.array(z.object({ meta_hash: z.string().nullable() })).parse(metaRows)) {
+        if (row.meta_hash) found.add(row.meta_hash.toLowerCase());
+      }
+      const constitutions = z
+        .array(z.object({ proposal_description: z.unknown() }))
+        .parse(constitutionRows)
+        .map((row) => JSON.stringify(row.proposal_description).toLowerCase());
+      for (const hash of wanted) {
+        if (constitutions.some((text) => text.includes(hash))) found.add(hash);
+      }
+      return found;
+    },
+
     // The current root of a purpose chain (CIP-1694): the most recently
     // ratified proposal among the given Koios proposal_type names. At most
     // one row (limit 1, newest ratified_epoch first). Used by the /ga/new
