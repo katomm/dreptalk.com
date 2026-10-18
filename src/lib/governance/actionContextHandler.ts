@@ -27,7 +27,7 @@ import {
   type GovActionRef,
 } from './prevAction.js';
 import { parseHardForkVersion } from './onchain.js';
-import { GUARDRAIL_FORM_TYPES, govActionSubmissionAvailable, govActionTypeAvailable } from './submissionGate.js';
+import { GUARDRAIL_FORM_TYPES } from './guardrailTypes.js';
 import { pickConstitutionScriptHash, type GuardrailPick } from './guardrailPick.js';
 import type { GuardrailContext } from './guardrailScript.js';
 import { currentParamValues, valuesToJson, type ParamValuesJson } from './paramDefs.js';
@@ -163,13 +163,6 @@ export async function handleActionContext(
 
   const url = new URL(ctx.request.url);
   const typeParam = url.searchParams.get('type');
-  // A type this network does not offer answers exactly like the whole feature
-  // does where submission is off. Checked before the type is validated, so a
-  // mainnet request for a treasury withdrawal never reaches a Koios read.
-  const availability = { submissionAvailable: govActionSubmissionAvailable(net.network), network: net.network };
-  if (isGovActionFormType(typeParam) && !govActionTypeAvailable(typeParam, availability)) {
-    return new Response('Not found', { status: 404 });
-  }
   if (!isGovActionFormType(typeParam)) return jsonResponse({ error: 'invalid type' }, 400);
   const type = typeParam;
 

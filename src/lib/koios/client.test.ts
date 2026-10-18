@@ -505,6 +505,44 @@ describe('createKoiosClient.lastRatifiedProposal', () => {
   });
 });
 
+describe('createKoiosClient.anchoredHashes', () => {
+  const META = 'a'.repeat(64);
+  const CONSTITUTION = 'b'.repeat(64);
+  const NOWHERE = 'c'.repeat(64);
+
+  it('finds metadata hashes by meta_hash and constitution documents inside the payload', async () => {
+    const fetchImpl = vi.fn(async (url: RequestInfo | URL) =>
+      String(url).includes('select=meta_hash')
+        ? jsonResponse([{ meta_hash: META.toUpperCase() }])
+        : jsonResponse([
+            { proposal_description: { tag: 'NewConstitution', contents: [null, { anchor: { url: 'ipfs://x', dataHash: CONSTITUTION } }] } },
+          ]),
+    );
+    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
+
+    const out = await client.anchoredHashes([META, CONSTITUTION, NOWHERE]);
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      `https://api.koios.rest/api/v1/proposal_list?select=meta_hash&meta_hash=in.(${META},${CONSTITUTION},${NOWHERE})`,
+      expect.objectContaining({ method: 'GET' }),
+    );
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://api.koios.rest/api/v1/proposal_list?select=proposal_description&proposal_type=eq.NewConstitution',
+      expect.objectContaining({ method: 'GET' }),
+    );
+    expect([...out].sort()).toEqual([META, CONSTITUTION]);
+  });
+
+  it('asks nothing for an empty batch and drops anything that is not a hash from the query', async () => {
+    const fetchImpl = vi.fn(async (_url: RequestInfo | URL) => jsonResponse([]));
+    const client = createKoiosClient({ baseUrl: 'https://api.koios.rest/api/v1', fetchImpl });
+    expect((await client.anchoredHashes([])).size).toBe(0);
+    expect(fetchImpl).not.toHaveBeenCalled();
+    await client.anchoredHashes([META, 'x),or(1.eq.1']);
+    expect(fetchImpl.mock.calls[0][0]).toBe(`https://api.koios.rest/api/v1/proposal_list?select=meta_hash&meta_hash=in.(${META})`);
+  });
+});
+
 describe('createKoiosClient.openProposals', () => {
   it('GETs /proposal_list with the exact open-chain query and parses rows', async () => {
     const rows = [

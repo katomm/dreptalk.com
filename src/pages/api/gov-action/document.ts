@@ -1,6 +1,6 @@
 // POST /api/gov-action/document
 // Finalizes a NewConstitution document submission: hashes the exact submitted
-// text, pins it to IPFS, and stores an audit row. preprod-only for now.
+// text, pins it to IPFS, and stores an audit row. Behind the submission switch.
 // Unlike metadata.ts, the gate lives inside handleConstitutionDocument
 // itself, so this route only delegates.
 import type { APIRoute } from 'astro';

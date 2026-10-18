@@ -30,7 +30,7 @@ import { refreshBulk } from '../../delegation/refresh.js';
 import { fetchLatestEdition, type SiteFetcher } from '../../review/latestEdition.js';
 import { announceLatestEdition } from '../../db/reviewAnnouncements.js';
 import { syncSurveys, type SurveysTessera } from '../../surveys/sync.js';
-import type { CoreSyncContext } from './context.js';
+import type { CoreSyncContext, GovSyncKoios } from './context.js';
 import type { SyncPhaseDef } from './registry.js';
 
 export interface GovernanceSyncContext extends CoreSyncContext {
@@ -39,8 +39,12 @@ export interface GovernanceSyncContext extends CoreSyncContext {
   /** Null while TESSERA_BACKEND_URL is unset/empty (the maintainer's off switch
    * for CIP-179 surveys); the surveys phase is gated out entirely. */
   tessera: SurveysTessera | null;
-  /** Our Pinata group plus the delete-capable token. Null disables the collector. */
-  pinGc: { groupId: string; jwt: string } | null;
+  /**
+   * Our Pinata group, the delete-capable token, and a Koios client for the
+   * other network, which the collector asks before it deletes. Null disables
+   * the collector.
+   */
+  pinGc: { groupId: string; jwt: string; otherNetworkKoios: Pick<GovSyncKoios, 'anchoredHashes'> } | null;
   /** Service binding to the app worker, which alone bundles the Governance
    * Review editions. Null where the binding is absent (preprod, local runs),
    * which gates the review-announce phase out. */
@@ -238,11 +242,13 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
         db: ctx.db,
         remover: makePinataRemover(gc.jwt),
         groupId: gc.groupId,
+        anchoredElsewhere: (hashes) => gc.otherNetworkKoios.anchoredHashes(hashes),
         now: Math.floor(ctx.now / 1000),
         limit: PIN_GC_LIMIT,
       });
       console.log(
-        `[pin-gc] scanned=${res.scanned} deleted=${res.deleted} failed=${res.failed} foreign=${res.foreign} backlog=${res.backlog}`,
+        `[pin-gc] scanned=${res.scanned} deleted=${res.deleted} failed=${res.failed} foreign=${res.foreign}` +
+          ` elsewhere=${res.elsewhere} backlog=${res.backlog}`,
       );
       return { items: res.deleted, failed: res.failed };
     },

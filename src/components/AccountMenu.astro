@@ -13,8 +13,6 @@ import Avatar from '@/components/Avatar.astro';
 import CopyButton from '@/components/CopyButton.astro';
 import BetaPill from '@/components/govAction/BetaPill.astro';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
-import { currentNetwork } from '@/lib/api/response';
-import { govActionSubmissionAvailable } from '@/lib/governance/submissionGate';
 
 interface Props {
   /** Resolved identity of the signed-in user. */
@@ -57,13 +55,11 @@ interface MenuItem {
 
 // Menu rows above Log out, most-used first. The Voting Dashboard is DRep-only,
 // since /vote redirects everyone else to /login, so it is gated on a synced
-// DRep id. Submit action (Beta) shows wherever submission is available.
+// DRep id.
 const items: MenuItem[] = [
   { label: 'Home', href: '/home/', icon: icons.home },
   ...(account.drepId ? [{ label: 'Voting Dashboard', href: '/vote/', icon: icons.vote }] : []),
-  ...(govActionSubmissionAvailable(currentNetwork().network)
-    ? [{ label: 'Submit action', href: '/ga/new/', icon: icons.pencilPlus, beta: true }]
-    : []),
+  { label: 'Submit action', href: '/ga/new/', icon: icons.pencilPlus, beta: true },
   { label: 'Settings', href: '/settings/', icon: icons.settings },
 ];
 ---

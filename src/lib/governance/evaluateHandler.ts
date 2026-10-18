@@ -10,7 +10,6 @@ import type { NetworkConfig } from '@/lib/config/network.js';
 import { currentNetwork, jsonResponse } from '@/lib/api/response.js';
 import { readBodyLimited } from '@/lib/http/bodyLimit.js';
 import { gateGovActionRequest, GOV_ACTION_RATE_POLICIES } from './govActionGate.js';
-import { GUARDRAIL_FORM_TYPES, govActionSubmissionAvailable, govActionTypeAvailable } from './submissionGate.js';
 import { GUARDRAIL_SCRIPT_HASH_HEX } from './guardrailScript.js';
 import { mapOgmiosEvaluation } from './evaluateContract.js';
 import { OFFERED_CDDL_KEYS, parseParamUpdate, paramUpdateKeysInTx } from './paramUpdate.js';
@@ -96,10 +95,6 @@ export async function handleEvaluate(
   const net = deps.network ?? currentNetwork();
   const gate = await gateGovActionRequest(ctx, GOV_ACTION_RATE_POLICIES.evaluate, { network: net, env: deps.env });
   if (gate instanceof Response) return gate;
-  const availability = { submissionAvailable: govActionSubmissionAvailable(net.network), network: net.network };
-  if (![...GUARDRAIL_FORM_TYPES].some((t) => govActionTypeAvailable(t, availability))) {
-    return new Response('Not found', { status: 404 });
-  }
 
   const declared = Number(ctx.request.headers.get('content-length'));
   if (Number.isFinite(declared) && declared > EVALUATE_BODY_MAX_BYTES) {

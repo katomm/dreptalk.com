@@ -53,11 +53,6 @@ describe('GET /api/gov-action/context', () => {
     mockNetwork = { network: 'mainnet', networkId: 1, koiosBaseUrl: 'https://api.koios.rest/api/v1' };
   });
 
-  it('404s on mainnet', async () => {
-    const res = await GET(req(USER));
-    expect(res.status).toBe(404);
-  });
-
   it('401s when signed out, even on preprod', async () => {
     mockNetwork = { network: 'preprod', networkId: 0, koiosBaseUrl: 'https://preprod.koios.rest/api/v1' };
     const res = await GET(req(null));

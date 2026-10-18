@@ -4,7 +4,6 @@ import { env } from 'cloudflare:test';
 import { handlePoolEconomics, handlePublicPoolEconomics } from './poolEconomicsHandler.js';
 
 const preprodCfg = { network: 'preprod', networkId: 0, epochAnchor: { epoch: 300, unixSeconds: 1_790_000_000 } } as never;
-const mainnetCfg = { network: 'mainnet', networkId: 1, epochAnchor: { epoch: 600, unixSeconds: 1_790_000_000 } } as never;
 const testEnv = { ...env } as Cloudflare.Env;
 
 const BODY_300 = JSON.stringify({ epoch: 300, pools: [] });
@@ -69,12 +68,6 @@ describe('handlePoolEconomics (gated)', () => {
     const res = await handlePoolEconomics(ctx(), { network: preprodCfg, env: { ...testEnv, DB: failingDb } });
     expect(res.status).toBe(503);
     expect(await res.json()).toEqual({ error: 'pool_data_unavailable' });
-  });
-
-  it('is 404 on mainnet even with a stored row', async () => {
-    await store(300, BODY_300);
-    const res = await handlePoolEconomics(ctx(), { network: mainnetCfg, env: testEnv });
-    expect(res.status).toBe(404);
   });
 
   it('refuses a cross-origin request with 403', async () => {

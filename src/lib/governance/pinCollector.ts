@@ -53,6 +53,14 @@ export interface CollectPinsInput {
   remover: PinataFileRemover;
   /** Our Pinata group. Without it the collector refuses to run at all. */
   groupId: string;
+  /**
+   * Which of the given hashes the OTHER network anchors (see
+   * koios.anchoredHashes). Pinata answers identical bytes with the file that
+   * already exists, so a document drafted on preprod and submitted unchanged on
+   * mainnet is one file, recorded only by the network that uploaded it first.
+   * Throwing stops the whole run before anything is deleted.
+   */
+  anchoredElsewhere: (hashes: string[]) => Promise<Set<string>>;
   /** Unix seconds. */
   now: number;
   limit: number;
@@ -71,6 +79,8 @@ export interface CollectPinsResult {
    * means a foreign id reached our table, which is worth investigating.
    */
   foreign: number;
+  /** Files kept because the other network anchors the same document. */
+  elsewhere: number;
   /** Collectable rows still waiting after this run. */
   backlog: number;
 }
@@ -97,8 +107,26 @@ export async function collectUnreferencedPins(input: CollectPinsInput): Promise<
   let deleted = 0;
   let failed = 0;
   let foreign = 0;
+  let elsewhere = 0;
+
+  // Asked once for the whole batch, before any claim. Fails closed: when the
+  // other network cannot be asked, nothing is deleted this run.
+  let anchoredElsewhere: Set<string>;
+  try {
+    anchoredElsewhere = await input.anchoredElsewhere(pins.map((p) => p.hash));
+  } catch (err: unknown) {
+    console.error('[pin-gc] skipped: could not check the other network', err);
+    return { scanned: pins.length, deleted, failed: pins.length, foreign, elsewhere, backlog: total };
+  }
 
   for (const pin of pins) {
+    if (anchoredElsewhere.has(pin.hash)) {
+      // The file backs a live anchor on the other network. Forget the id, the
+      // same way a foreign file is forgotten, so it is never offered again.
+      elsewhere++;
+      await disownPin(input.db, pin.hash);
+      continue;
+    }
     // Claim it first: two overlapping ticks must not both delete one file, and
     // a claimed row stops being served to a resubmission mid-delete.
     if (!(await markPinDeleting(input.db, pin.hash, input.now, staleClaimCutoff))) continue;
@@ -124,5 +152,5 @@ export async function collectUnreferencedPins(input: CollectPinsInput): Promise<
     }
   }
 
-  return { scanned: pins.length, deleted, failed, foreign, backlog: total - deleted - foreign };
+  return { scanned: pins.length, deleted, failed, foreign, elsewhere, backlog: total - deleted - foreign - elsewhere };
 }

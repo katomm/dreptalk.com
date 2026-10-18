@@ -14,8 +14,8 @@ import {
   type ParamValues,
 } from '@/lib/governance/paramDefs.js';
 import type { DepositState, ParamChangePanelState } from '@/lib/governance/govActionFormState.js';
-import { EPOCH_LENGTH_SECONDS } from '@/lib/config/network.js';
-import { formatAdaPlain } from '@/lib/format/ada.js';
+import { EPOCH_LENGTH_SECONDS, type CardanoNetwork } from '@/lib/config/network.js';
+import { adaUnit, formatAdaPlain } from '@/lib/format/ada.js';
 import { shortenHash } from '@/lib/governance/onchain.js';
 
 export interface ParamSummaryProps {
@@ -30,6 +30,8 @@ export interface ParamSummaryProps {
   spoPct: number | null;
   ccQuorum: { numerator: number; denominator: number } | null;
   deposit: DepositState;
+  /** Decides the unit word in the deposit line. */
+  network: CardanoNetwork;
   govActionLifetime: number | null;
   /** The guardrails script hash the action will carry, null when the chain has none. */
   guardrailHash: string | null;
@@ -45,10 +47,10 @@ export interface ParamSummaryProps {
   disabled?: boolean;
 }
 
-function depositText(deposit: DepositState): string {
+function depositText(deposit: DepositState, network: CardanoNetwork): string {
   if (deposit.status === 'loading') return 'loading';
   if (deposit.status === 'error') return 'unavailable';
-  return `${formatAdaPlain(deposit.lovelace)} tADA, refunded`;
+  return `${formatAdaPlain(deposit.lovelace)} ${adaUnit(network)}, refunded`;
 }
 
 function windowText(lifetime: number | null): string {
@@ -66,6 +68,7 @@ export default function ParamSummary({
   spoPct,
   ccQuorum,
   deposit,
+  network,
   govActionLifetime,
   guardrailHash,
   reason,
@@ -151,7 +154,7 @@ export default function ParamSummary({
         </div>
         <div className="pcp-kv">
           <span>Deposit</span>
-          <span>{depositText(deposit)}</span>
+          <span>{depositText(deposit, network)}</span>
         </div>
         {guardrailHash && (
           <div className="pcp-kv">

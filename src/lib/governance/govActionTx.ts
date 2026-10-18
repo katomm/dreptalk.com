@@ -23,7 +23,6 @@ import {
 import { dreptalkCip20Metadatum, DREPTALK_CIP20_LABEL } from '../cardano/tx.js';
 import { hexToBytes } from '../crypto/hex.js';
 import type { CardanoNetwork } from '../config/network.js';
-import { govActionSubmissionAvailable, govActionTypeAvailable } from './submissionGate.js';
 
 export interface SubmitGovActionOpts {
   /** CIP-30 wallet API obtained from cardano[walletId].enable(). */
@@ -93,22 +92,11 @@ export function queueGuardrailProposeOps(
  * through the evaluate route, which the SDK calls once for the unevaluated
  * redeemer.
  *
- * Rejected outright where submission is off, and a treasury withdrawal or
- * parameter change wherever the type is unavailable. Requires a live wallet
+ * Requires a live wallet
  * and a reachable Koios provider, not unit-testable offline beyond the guards
  * and the propose wiring (see govActionTx.test.ts).
  */
 export async function submitGovAction(opts: SubmitGovActionOpts): Promise<{ txHash: string }> {
-  const submissionAvailable = govActionSubmissionAvailable(opts.network);
-  if (!submissionAvailable) {
-    throw new Error('Governance action submission is preprod only.');
-  }
-  if (isGuardrailSpec(opts.action) && !govActionTypeAvailable(opts.action.type, { submissionAvailable, network: opts.network })) {
-    throw new Error(
-      opts.action.type === 'ParameterChange' ? 'Parameter changes are preprod only.' : 'Treasury withdrawals are preprod only.',
-    );
-  }
-
   // Check the guardrail before anything is built, and use its canonical form from here on.
   let action = opts.action;
   if (isGuardrailSpec(action)) {
@@ -133,7 +121,7 @@ export async function submitGovAction(opts: SubmitGovActionOpts): Promise<{ txHa
   const availableLovelace = totalLovelace(availableUtxos);
   if (availableLovelace < requiredLovelace) {
     throw new Error(
-      `Insufficient tADA for the deposit: need ${requiredLovelace} lovelace, wallet has ${availableLovelace}.`,
+      `Insufficient funds for the deposit: need ${requiredLovelace} lovelace, wallet has ${availableLovelace}.`,
     );
   }
   const inputs = pickInputsToCover(availableUtxos, requiredLovelace);

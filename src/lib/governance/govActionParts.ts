@@ -25,7 +25,7 @@ import { hexToBytes } from '../crypto/hex.js';
 import type { GuardrailContext } from './guardrailScript.js';
 import { buildParamUpdate } from './paramUpdate.js';
 import type { ParamValues } from './paramDefs.js';
-import { GUARDRAIL_FORM_TYPES } from './submissionGate.js';
+import { GUARDRAIL_FORM_TYPES } from './guardrailTypes.js';
 
 /** The typed inputs for every governance action this app can submit. */
 export type GovActionSpec =

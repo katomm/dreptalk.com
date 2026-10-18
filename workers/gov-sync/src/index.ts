@@ -163,9 +163,22 @@ export default {
               // to delete on an account shared with another project; the token
               // is the same PINATA_JWT the app uploads with, since Pinata has no
               // permission tier that can create a file but not delete one.
+              // The other network's Koios answers whether a document this
+              // network uploaded first also backs an anchor over there. The
+              // token is tied to the account tier, so it works on both.
               pinGc:
                 env.PINATA_GOV_GROUP_ID && env.PINATA_JWT
-                  ? { groupId: env.PINATA_GOV_GROUP_ID, jwt: env.PINATA_JWT }
+                  ? {
+                      groupId: env.PINATA_GOV_GROUP_ID,
+                      jwt: env.PINATA_JWT,
+                      otherNetworkKoios: createKoiosClient({
+                        baseUrl: resolveNetwork(core.cfg.network === 'preprod' ? 'mainnet' : 'preprod').koiosBaseUrl,
+                        token: env.KOIOS_API_KEY || undefined,
+                        timeoutMs: 25_000,
+                        retries: 2,
+                        retryDelayMs: 500,
+                      }),
+                    }
                   : null,
               // Mainnet only, set in wrangler.toml: the app worker that serves
               // the Governance Review editions, for the review-announce phase.

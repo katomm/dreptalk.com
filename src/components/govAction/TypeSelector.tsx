@@ -8,9 +8,8 @@ import type { GovActionFormType } from '@/lib/governance/prevAction.js';
 import { thresholdSentence, decidersLine } from '@/lib/governance/thresholds.js';
 import type { ProtocolParams } from '@/lib/db/protocolParams.js';
 import type { DepositState } from '@/lib/governance/govActionFormState.js';
-import { formatAdaPlain } from '@/lib/format/ada.js';
+import { adaUnit, formatAdaPlain } from '@/lib/format/ada.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
-import { govActionTypeAvailable } from '@/lib/governance/submissionGate.js';
 
 export interface TypeSelectorProps {
   value: GovActionFormType;
@@ -19,18 +18,16 @@ export interface TypeSelectorProps {
   params: ProtocolParams | null;
   /** The same epoch_params fetch the island already runs, for the deposit line. No new fetch here. */
   deposit: DepositState;
-  /** Only the types govActionTypeAvailable allows get a card. */
+  /** Decides the unit word in the deposit line. */
   network: CardanoNetwork;
-  /** The submission switch's answer, today govActionSubmissionAvailable(network) from the island. */
-  submissionAvailable: boolean;
   disabled?: boolean;
 }
 
 /** The deposit line under the threshold sentence, in the deposit fetch's three states. */
-function depositLine(deposit: DepositState): string {
+function depositLine(deposit: DepositState, network: CardanoNetwork): string {
   if (deposit.status === 'loading') return 'Deposit: loading';
   if (deposit.status === 'error') return 'Deposit unavailable';
-  return `Deposit ${formatAdaPlain(deposit.lovelace)} tADA, refunded when the action is finalized`;
+  return `Deposit ${formatAdaPlain(deposit.lovelace)} ${adaUnit(network)}, refunded when the action is finalized`;
 }
 
 const TYPES: { type: GovActionFormType; label: string; summary: string }[] = [
@@ -94,16 +91,16 @@ function cardStyle(selected: boolean, disabled: boolean): CSSProperties {
   };
 }
 
-export default function TypeSelector({ value, onChange, params, deposit, network, submissionAvailable, disabled = false }: TypeSelectorProps) {
+export default function TypeSelector({ value, onChange, params, deposit, network, disabled = false }: TypeSelectorProps) {
   // The same line on every card, so it is worded once rather than per type.
-  const depositText = depositLine(deposit);
+  const depositText = depositLine(deposit, network);
   return (
     <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
       <legend style={{ fontSize: '0.875rem', color: 'var(--muted)', padding: 0, marginBottom: '0.5rem' }}>
         Action type
       </legend>
       <div style={listStyle}>
-        {TYPES.filter(t => govActionTypeAvailable(t.type, { submissionAvailable, network })).map(t => (
+        {TYPES.map(t => (
           <label key={t.type} style={cardStyle(t.type === value, disabled)}>
             <input
               type="radio"

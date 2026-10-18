@@ -1,7 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 // Wiring tests for POST /api/gov-action/evaluate. The handler's own tests live
 // in evaluateHandler.workers.test.ts, this only checks that the route
-// delegates with the runtime network: 404 on mainnet, 401 signed out, and a
+// delegates with the runtime network: 401 signed out, and a
 // typed 400 on preprod that never reaches Koios.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -30,11 +30,6 @@ function req(user: { id: string; roles: string[] } | null, body: string) {
 describe('POST /api/gov-action/evaluate', () => {
   beforeEach(() => {
     mockNetwork = { network: 'mainnet', networkId: 1, koiosBaseUrl: 'https://api.koios.rest/api/v1' };
-  });
-
-  it('404s on mainnet', async () => {
-    const res = await POST(req({ id: 'eval-route-user', roles: [] }, '{}'));
-    expect(res.status).toBe(404);
   });
 
   it('401s when signed out, even on preprod', async () => {

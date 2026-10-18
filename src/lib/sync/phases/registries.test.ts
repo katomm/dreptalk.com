@@ -32,7 +32,9 @@ function govCtx(
     heavy,
     tessera: opts.tessera ? ({} as GovernanceSyncContext['tessera']) : null,
     state: { mirrorHealthy: false },
-    pinGc: opts.pinGc ? { groupId: 'grp', jwt: 'jwt' } : null,
+    pinGc: opts.pinGc
+      ? { groupId: 'grp', jwt: 'jwt', otherNetworkKoios: { anchoredHashes: async () => new Set<string>() } }
+      : null,
     site: opts.site ? { fetch: async () => new Response() } : null,
   };
 }

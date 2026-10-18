@@ -133,10 +133,10 @@ describe('formatLovelaceExact and formatTreasuryAda', () => {
     expect(formatLovelaceExact(9_007_199_254_740_993n)).toBe('9,007,199,254.740993');
   });
 
-  it('adds the tADA suffix', () => {
-    expect(formatTreasuryAda(2_500_000n)).toBe('2.5 tADA');
-    expect(formatTreasuryAda(1n)).toBe('0.000001 tADA');
-    expect(formatTreasuryAda(9_007_199_254_740_993n)).toBe('9,007,199,254.740993 tADA');
+  it("adds the network's unit word", () => {
+    expect(formatTreasuryAda(2_500_000n, 'preprod')).toBe('2.5 tADA');
+    expect(formatTreasuryAda(1n, 'preprod')).toBe('0.000001 tADA');
+    expect(formatTreasuryAda(9_007_199_254_740_993n, 'mainnet')).toBe('9,007,199,254.740993 ada');
   });
 });
 

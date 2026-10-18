@@ -271,6 +271,7 @@ export default function ParamChangePanel({
         </div>
 
         <ParamSummary
+          network={networkConfig.network}
           value={value}
           current={current}
           errors={errors}

@@ -75,12 +75,6 @@ describe('handleActionStatus', () => {
     expect(res.status).toBe(401);
   });
 
-  it('404s on mainnet', async () => {
-    const mainnet = { network: 'mainnet', networkId: 1 } as never;
-    const res = await handleActionStatus(ctx(`${HASH_A}#0`), { network: mainnet, env: testEnv });
-    expect(res.status).toBe(404);
-  });
-
   it('400s on a malformed id', async () => {
     const res = await handleActionStatus(ctx('not-an-id'), { network: preprod, env: testEnv });
     expect(res.status).toBe(400);
