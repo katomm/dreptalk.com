@@ -30,18 +30,18 @@ export const NAV: readonly NavEntry[] = [
     label: 'DReps',
     items: [
       { label: 'DRep directory', href: '/dreps/', hint: 'Every registered DRep with votes and voting power' },
-      { label: 'Find your DRep', href: '/match/', hint: 'Vote on real actions, see whose record matches' },
+      { label: 'Find your DRep', href: '/match/', hint: 'Vote on past proposals, find DReps who voted like you' },
       { label: 'Movers of the epoch', href: '/dreps/movers/', hint: 'Biggest voting power gains and losses this epoch' },
-      { label: 'Badges', href: '/badges/', hint: 'Earned for voting, rationales and discussion' },
-      { label: 'Register as a DRep', href: '/register-drep/', hint: 'Register and manage your DRep metadata' },
+      { label: 'Badges', href: '/badges/', hint: 'What DReps earn for voting, explaining and discussing' },
+      { label: 'Register as a DRep', href: '/register-drep/', hint: 'Become a DRep or edit your DRep profile' },
     ],
   },
   {
     label: 'Insights',
     items: [
       { label: 'Analytics', href: '/analytics/', hint: 'Health and decentralization of governance' },
-      { label: 'Governance Review', href: '/governance-review/', hint: 'What happened, edition by edition' },
-      { label: 'Treasury', href: '/treasury/', hint: 'How much of the Net Change Limit is used' },
+      { label: 'Governance Review', href: '/governance-review/', hint: 'Regular recap of decisions and numbers' },
+      { label: 'Treasury', href: '/treasury/', hint: 'How much can still be withdrawn this period' },
     ],
   },
   {
