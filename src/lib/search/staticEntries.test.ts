@@ -11,6 +11,14 @@ describe('matchStaticEntries', () => {
     expect(hits.some((e) => e.href === '/dreps/')).toBe(true);
   });
 
+  it('lists every page once', () => {
+    const hrefs = STATIC_ENTRIES.map((e) => e.href);
+    expect(new Set(hrefs).size).toBe(hrefs.length);
+  });
+
+  it('finds the treasury overview by its Net Change Limit name', () => {
+    expect(matchStaticEntries('net change limit').some((e) => e.href === '/treasury/')).toBe(true);
+  });
 
   it('no match returns empty', () => {
     expect(matchStaticEntries('zzzzzz')).toEqual([]);
