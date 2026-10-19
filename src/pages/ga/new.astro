@@ -1,6 +1,6 @@
 ---
-// Submit a governance action: Beta. Linked from the account menu and the
-// /home/ card, both marked Beta, not from the main nav. A signed-out visitor
+// Submit a governance action. Linked from the account menu and the /home/
+// card, not from the main nav. A signed-out visitor
 // is redirected to /login/ like the other session-gated pages. The API routes
 // this island calls gate independently too, so this page gate is a UX
 // convenience, not the security boundary.
@@ -32,10 +32,10 @@ const openDrafts = db ? await listOpenProposalDrafts(db, user.id) : [];
 // browser's own origin.
 const siteOrigin = net.siteOrigin;
 ---
-<Layout title="Submit a governance action (Beta) - DRepTalk" description="Beta tool for drafting and submitting a Cardano governance action from your wallet." noindex={true}>
+<Layout title="Submit a governance action - DRepTalk" description="Draft and submit a Cardano governance action from your wallet." noindex={true}>
   <div class="callout callout--warning" role="status">
     <div class="callout__body">
-      Beta. Submitting locks the governance action deposit shown below,
+      Submitting locks the governance action deposit shown below,
       refunded when the action is finalized.
     </div>
   </div>
