@@ -33,7 +33,6 @@ import { authorProfileHref } from '@/lib/forum/author';
 import { activeLabel, ACTIVE_WINDOW_MS, HOME_FACE_LIMIT } from '@/lib/forum/view';
 import { PENCIL_PATH, PROFILE_PATH, SETTINGS_PATH, TARGET_PATH, VOTE_PATH } from '@/lib/forum/icons';
 import { loadSessionHeader } from '@/lib/forum/sessionHeader';
-import BetaPill from '@/components/govAction/BetaPill.astro';
 
 const user = Astro.locals.user;
 if (!user) {
@@ -128,9 +127,7 @@ const icons = {
 // Card status lines are uniformly muted; anything that wants action (unvoted
 // actions, unread notifications, missing metadata) is flagged by an accent
 // badge next to the title instead, so the highlight mechanism is consistent.
-// badge is for counts, New and Beta never together: New retires itself once
-// a feature settles, Beta stays until the mainnet switch, so a card is never
-// both freshly shipped and still experimental at once.
+// badge is for counts, New retires itself once a feature settles.
 interface HomeCard {
   title: string;
   href: string;
@@ -140,8 +137,6 @@ interface HomeCard {
   badge?: string;
   /** ISO date. While today is before it, the card carries a "New" pill. */
   newUntil?: string;
-  /** Renders a BetaPill next to the title, for cards behind the mainnet gate. */
-  beta?: boolean;
 }
 
 // The delegation the "My DRep" card has something to show for, taken from the
@@ -249,7 +244,6 @@ const cards: HomeCard[] = [
     href: '/ga/new/',
     icon: icons.submit,
     desc: 'Draft and submit an info, no-confidence, hard fork, constitution, committee, treasury or parameter action from your wallet.',
-    beta: true,
   },
   // The quiz is for people looking for a DRep, not for a DRep's own start page.
   ...(drepId
@@ -351,7 +345,6 @@ const cards: HomeCard[] = [
             {card.title}
             {card.badge && <span class="home-card__badge">{card.badge}</span>}
             {isNew(card.newUntil) && <span class="home-card__new">New</span>}
-            {card.beta && <BetaPill />}
           </span>
           <span class="home-card__text">{card.desc}</span>
           {card.stat && <span class="home-card__stat">{card.stat}</span>}

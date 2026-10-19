@@ -1,5 +1,5 @@
 // React island: client-side, non-custodial governance-action submission
-// flow. Beta.
+// flow.
 //
 // Non-custodial: the wallet signs and submits, the server never sees a
 // private key. The flow, form first and wallet last: (1) fetch the current gov
