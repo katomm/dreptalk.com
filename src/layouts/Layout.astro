@@ -9,7 +9,7 @@ import JsonLd from '@/components/JsonLd.astro';
 import LogoMark from '@/components/LogoMark.astro';
 import ShareButton from '@/components/ShareButton.astro';
 import { currentNetwork } from '@/lib/api/response';
-import { NAV_LINKS } from '@/lib/config/nav.js';
+import { NAV, NAV_LINKS, isNavGroup, type NavGroup } from '@/lib/config/nav.js';
 import type { AuthorDescriptor } from '@/lib/forum/author';
 import { loadSessionHeader } from '@/lib/forum/sessionHeader';
 import { scopeForPath, type Scope } from '@/lib/search/scopes.js';
@@ -86,17 +86,22 @@ const [account, unreadCount]: [AuthorDescriptor | null, number] = sessionUser
   : [null, 0];
 
 const pathname = Astro.url.pathname;
-const navLinks = NAV_LINKS;
-// Highlight the link whose path prefixes the current page. A nav href may carry a
-// query (e.g. a default filter), so match on the path portion only.
-const isActive = (href: string) => {
-  // Nav hrefs carry the canonical trailing slash (and may carry a query); match
-  // on the path portion, comparing both sides without a trailing slash so a link
-  // stays highlighted on its own page and on any sub-page.
-  const path = href.split('?')[0].replace(/\/$/, '');
-  const current = pathname.replace(/\/$/, '');
-  return current === path || current.startsWith(path + '/');
-};
+// Highlight the nav link whose path prefixes the current page. A nav href may
+// carry a query (e.g. a default filter), so match on the path portion only,
+// comparing both sides without a trailing slash so a link stays highlighted on
+// its own page and on any sub-page. When several links match (/dreps/ and
+// /dreps/movers/ on the movers page), the longest path wins, so only one link
+// is ever current.
+const navPath = (href: string) => href.split('?')[0].replace(/\/$/, '');
+const currentPath = pathname.replace(/\/$/, '');
+const activeHref = NAV_LINKS.map((l) => l.href)
+  .filter((href) => {
+    const path = navPath(href);
+    return currentPath === path || currentPath.startsWith(path + '/');
+  })
+  .sort((a, b) => navPath(b).length - navPath(a).length)[0];
+const isActive = (href: string) => href === activeHref;
+const groupActive = (group: NavGroup) => group.items.some((item) => isActive(item.href));
 
 ---
 <!doctype html>
@@ -190,17 +195,38 @@ const isActive = (href: string) => {
         </a>
 
         <nav class="site-nav" aria-label="Primary">
-          {navLinks.map((link) => (
+          {NAV.map((entry) => isNavGroup(entry) ? (
+            <details class="site-nav__group" data-auto-dismiss>
+              <summary class:list={['site-nav__link', 'site-nav__summary', { 'is-current': groupActive(entry) }]}>
+                {entry.label}
+                <svg class="site-nav__chev" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </summary>
+              <div class="site-nav__menu">
+                {entry.items.map((item) => (
+                  <a
+                    class="site-nav__item"
+                    href={item.href}
+                    aria-current={isActive(item.href) ? 'page' : undefined}
+                  >
+                    <span class="site-nav__item-label">{item.label}</span>
+                    {item.hint && <span class="site-nav__item-hint">{item.hint}</span>}
+                  </a>
+                ))}
+              </div>
+            </details>
+          ) : (
             <a
               class="site-nav__link"
-              href={link.href}
-              aria-current={isActive(link.href) ? 'page' : undefined}
-            >{link.shortLabel ? (
+              href={entry.href}
+              aria-current={isActive(entry.href) ? 'page' : undefined}
+            >{entry.shortLabel ? (
               <>
-                <span class="site-nav__label--full">{link.label}</span>
-                <span class="site-nav__label--short">{link.shortLabel}</span>
+                <span class="site-nav__label--full">{entry.label}</span>
+                <span class="site-nav__label--short">{entry.shortLabel}</span>
               </>
-            ) : link.label}</a>
+            ) : entry.label}</a>
           ))}
         </nav>
 
@@ -236,21 +262,35 @@ const isActive = (href: string) => {
               </svg>
             </summary>
             <div class="mobile-menu__panel">
-              {navLinks.map((link) => (
+              {NAV.map((entry) => isNavGroup(entry) ? (
+                <div class="mobile-menu__section" role="group" aria-label={entry.label}>
+                  <span class="mobile-menu__heading" aria-hidden="true">{entry.label}</span>
+                  {entry.items.map((item) => (
+                    <a
+                      class="mobile-menu__link"
+                      href={item.href}
+                      aria-current={isActive(item.href) ? 'page' : undefined}
+                    >{item.label}</a>
+                  ))}
+                </div>
+              ) : (
                 <a
                   class="mobile-menu__link"
-                  href={link.href}
-                  aria-current={isActive(link.href) ? 'page' : undefined}
-                >{link.label}</a>
+                  href={entry.href}
+                  aria-current={isActive(entry.href) ? 'page' : undefined}
+                >{entry.label}</a>
               ))}
-              <RoleEntry layout="flat" account={account} />
-              {/* Install entry: a plain link to the guide by default, so it works
-                  on iOS, Firefox, etc. without browser sniffing; Chromium's
-                  beforeinstallprompt upgrades it to the native install prompt.
-                  Hidden once already installed. */}
+              {/* Install entry, directly under the last (Learn) section: a plain
+                  link to the guide by default, so it works on iOS, Firefox, etc.
+                  without browser sniffing. Chromium's beforeinstallprompt
+                  upgrades it to the native install prompt. Hidden once already
+                  installed. */}
               <a class="mobile-menu__link install-hint" data-install-hint href="/help/add-to-home-screen/">
                 Install app
               </a>
+              <div class="mobile-menu__section">
+                <RoleEntry layout="flat" account={account} />
+              </div>
             </div>
           </details>
         </div>
@@ -698,8 +738,83 @@ const isActive = (href: string) => {
         color: var(--fg);
         background: var(--surface);
       }
-      .site-nav__link[aria-current='page'] {
+      .site-nav__link[aria-current='page'],
+      .site-nav__summary.is-current {
         color: var(--accent);
+        font-weight: 600;
+      }
+
+      /* Dropdown groups. Built on <details data-auto-dismiss>, so they open on
+         click or tap (hover does not exist on touch screens) and the shared
+         dismiss script closes them on an outside click, Escape and scroll. */
+      .site-nav__group {
+        position: relative;
+      }
+      .site-nav__summary {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        cursor: pointer;
+        list-style: none;
+        user-select: none;
+      }
+      .site-nav__summary::-webkit-details-marker {
+        display: none;
+      }
+      .site-nav__group[open] > .site-nav__summary {
+        color: var(--fg);
+        background: var(--surface);
+      }
+      .site-nav__chev {
+        opacity: 0.7;
+        transition: transform 0.18s ease;
+      }
+      .site-nav__group[open] .site-nav__chev {
+        transform: rotate(180deg);
+      }
+      .site-nav__menu {
+        position: absolute;
+        top: calc(100% + 0.5rem);
+        left: 0;
+        z-index: 60;
+        width: max-content;
+        min-width: 240px;
+        max-width: 320px;
+        display: flex;
+        flex-direction: column;
+        gap: 0.1rem;
+        padding: 0.4rem;
+        background: var(--surface-2);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-lg);
+      }
+      .site-nav__item {
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+        padding: 0.55rem 0.7rem;
+        border-radius: var(--radius-sm);
+        text-decoration: none;
+      }
+      .site-nav__item-label {
+        color: var(--fg);
+        font-size: 0.9375rem;
+        font-weight: 500;
+      }
+      .site-nav__item-hint {
+        color: var(--muted);
+        font-size: 0.8125rem;
+        line-height: 1.35;
+      }
+      .site-nav__item:hover {
+        background: var(--surface);
+      }
+      .site-nav__item:hover .site-nav__item-label,
+      .site-nav__item[aria-current='page'] .site-nav__item-label {
+        color: var(--accent);
+      }
+      .site-nav__item[aria-current='page'] .site-nav__item-label {
         font-weight: 600;
       }
 
@@ -783,6 +898,28 @@ const isActive = (href: string) => {
         border: 1px solid var(--border);
         border-radius: var(--radius);
         box-shadow: var(--shadow-lg);
+        /* With the grouped sections the panel can outgrow a short phone screen
+           (or a landscape one), so it scrolls inside instead. The dismiss
+           script keeps it open for a scroll that happens within the panel. */
+        max-height: calc(100dvh - 5rem);
+        overflow-y: auto;
+        overscroll-behavior: contain;
+      }
+      .mobile-menu__section {
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+        margin-top: 0.35rem;
+        padding-top: 0.35rem;
+        border-top: 1px solid var(--border);
+      }
+      .mobile-menu__heading {
+        padding: 0.35rem 0.7rem 0.15rem;
+        color: var(--muted);
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
       }
       .mobile-menu__link {
         color: var(--fg);
@@ -849,9 +986,10 @@ const isActive = (href: string) => {
       }
 
       /* ---- Responsive --------------------------------------------------- */
-      /* Six nav links plus the action cluster need about 1014px even with the
-         compact labels (measured headlessly against the rendered header), so
-         the burger menu takes over below 1024px. */
+      /* The five nav entries plus the signed-out action cluster need about
+         980px with the compact labels and about 1070px with the full ones
+         (measured against the rendered header). The burger menu takes over
+         below 1024px, which leaves room for the wider signed-in cluster. */
       @media (max-width: 1024px) {
         .site-nav,
         .header-actions__cta {

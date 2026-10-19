@@ -14,19 +14,21 @@ const PAGE_KEYWORDS: Record<string, string> = {
   '/discussions/': 'forum topics threads',
   '/analytics/': 'analytics stats governance health concentration abstain',
   '/governance-review/': 'review editions epochs articles analysis',
+  '/treasury/': 'treasury ncl net change limit budget withdrawals ceiling',
+  '/help/': 'documentation guide faq guides',
+  '/glossary/': 'definitions terms vocabulary governance glossary',
+  '/match/': 'match quiz find a drep delegate voting compare',
+  '/dreps/movers/': 'movers gains losses voting power epoch delegation shifts',
+  '/badges/': 'badges achievements tiers gallery',
+  '/register-drep/': 'register drep registration metadata wallet',
 };
 
 export const STATIC_ENTRIES: readonly StaticEntry[] = [
   { label: 'Home', href: '/', keywords: 'home start dreptalk' },
   ...NAV_LINKS.map((l): StaticEntry => ({ label: l.label, href: l.href, keywords: PAGE_KEYWORDS[l.href.split('?')[0]] ?? '' })),
-  // The Treasury nav link points at the budget category (the discussion). This
-  // is the overview page itself, which is otherwise reachable only from a topic
-  // sidebar or a glossary entry.
-  { label: 'Net Change Limit', href: '/treasury/', keywords: 'treasury ncl budget withdrawals ceiling limit' },
-  { label: 'Help', href: '/help/', keywords: 'documentation guide faq guides' },
-  { label: 'Glossary', href: '/glossary/', keywords: 'definitions terms vocabulary governance glossary' },
-  { label: 'Find your DRep', href: '/match/', keywords: 'match quiz find a drep delegate voting compare' },
-  { label: 'Badges', href: '/badges/', keywords: 'badges achievements tiers gallery' },
+  // The budget discussion category. The Treasury entry in the header points at
+  // the Net Change Limit overview, so the discussions get their own row here.
+  { label: 'Treasury discussions', href: '/c/budget/', keywords: 'treasury budget withdrawals proposals discussion' },
 ];
 
 /**
