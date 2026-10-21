@@ -278,13 +278,13 @@ const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
                 <Avatar seed={seed} size={AVATAR_SIZE.rowLead} />
                 <span class="cc-id__text">
                   <span class="cc-id__name">{m.displayName ?? shortKey}</span>
-                  <span class="cc-id__key">{shortKey}</span>
+                  {m.displayName && <span class="cc-id__key">{shortKey}</span>}
+                  <span class="cc-id__standing">{m.standing}{m.termExpiration != null && ` · term ends epoch ${m.termExpiration}`}</span>
                 </span>
               </div>
               {m.vote
                 ? <VoteBadge vote={m.vote} compact />
                 : <span class="cc-notvoted" title="Did not vote on this action">Not voted</span>}
-              <span class="cc-standing">{m.standing}{m.termExpiration != null && ` · term ends epoch ${m.termExpiration}`}</span>
             </>
           );
           return (
@@ -579,7 +579,9 @@ const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
   }
 
   /* CC row identity: not a DRep, so a plain Avatar (never a profile link) plus
-     name/key text, matching the drep row's flex layout for column alignment. */
+     name, key and term standing stacked in the growing column, so the vote
+     badge keeps the same column as in the drep rows and nothing squeezes the
+     name on phones. */
   .cc-id {
     display: flex;
     align-items: center;
@@ -600,18 +602,17 @@ const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
     white-space: nowrap;
   }
 
-  .cc-id__key {
-    font-family: var(--font-mono);
+  .cc-id__key,
+  .cc-id__standing {
     font-size: 0.7rem;
     color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
-  .cc-standing {
-    flex-shrink: 0;
-    text-align: right;
-    color: var(--muted);
-    font-size: 0.75rem;
-    white-space: nowrap;
+  .cc-id__key {
+    font-family: var(--font-mono);
   }
 
   .cc-notvoted {
