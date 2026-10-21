@@ -186,7 +186,9 @@ const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
   {activeVoters.length > 0 && (
     <ul class="ga-positions__list">
       {activeVoters.map((v) => {
-        const descriptor = role === 'spo' ? voterDescriptor(v, dreps, pools) : voterDescriptor(v, dreps);
+        // The SPO tab already says every row is a pool, so the "SPO" chip only
+        // costs name width there.
+        const descriptor = role === 'spo' ? { ...voterDescriptor(v, dreps, pools), badges: [] } : voterDescriptor(v, dreps);
         const ada = formatAdaCompact(v.voting_power);
         const bodyHtml = rationales.get(descriptor.authorId)?.bodyHtml ?? null;
         const late = notCounted.has(v.voter_id);
@@ -205,8 +207,10 @@ const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
           : `${shareOrigin}/t/${slug}/${positionsVoterAnchor(v.voter_id, role === 'spo' ? 'spo' : undefined)}`;
         // Identity, vote, and power render identically whether or not the row
         // expands; the power slot is always present (empty when unknown) so the
-        // amount column lines up across every row. A late vote (cast after
-        // ratification) is tagged and its weight struck through.
+        // amount column lines up across every row. SPO rows never carry a
+        // power value, so they skip the slot and give its width to the name.
+        // A late vote (cast after ratification) is tagged and its weight struck
+        // through.
         const lead = (
           <>
             <div class="ga-positions__identity">
@@ -221,7 +225,9 @@ const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
                 {history[0].vote === v.vote ? 'Revoted' : 'Changed'}
               </span>
             )}
-            <span class:list={['ga-positions__power', { 'ga-positions__power--struck': late }]}>{ada ?? ''}</span>
+            {role !== 'spo' && (
+              <span class:list={['ga-positions__power', { 'ga-positions__power--struck': late }]}>{ada ?? ''}</span>
+            )}
           </>
         );
         return (
