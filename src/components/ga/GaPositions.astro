@@ -186,7 +186,9 @@ const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
   {activeVoters.length > 0 && (
     <ul class="ga-positions__list">
       {activeVoters.map((v) => {
-        const descriptor = role === 'spo' ? voterDescriptor(v, dreps, pools) : voterDescriptor(v, dreps);
+        // The SPO tab already says every row is a pool, so the "SPO" chip only
+        // costs name width there.
+        const descriptor = role === 'spo' ? { ...voterDescriptor(v, dreps, pools), badges: [] } : voterDescriptor(v, dreps);
         const ada = formatAdaCompact(v.voting_power);
         const bodyHtml = rationales.get(descriptor.authorId)?.bodyHtml ?? null;
         const late = notCounted.has(v.voter_id);
@@ -205,8 +207,10 @@ const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
           : `${shareOrigin}/t/${slug}/${positionsVoterAnchor(v.voter_id, role === 'spo' ? 'spo' : undefined)}`;
         // Identity, vote, and power render identically whether or not the row
         // expands; the power slot is always present (empty when unknown) so the
-        // amount column lines up across every row. A late vote (cast after
-        // ratification) is tagged and its weight struck through.
+        // amount column lines up across every row. SPO rows never carry a
+        // power value, so they skip the slot and give its width to the name.
+        // A late vote (cast after ratification) is tagged and its weight struck
+        // through.
         const lead = (
           <>
             <div class="ga-positions__identity">
@@ -215,13 +219,17 @@ const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
                 <span class="ga-positions__tag" title="Cast after ratification; not counted in the tally">Not counted</span>
               )}
             </div>
-            <VoteBadge vote={v.vote} compact />
-            {history.length > 0 && (
-              <span class="ga-positions__tag" title={`Earlier vote: ${history[0].vote}`}>
-                {history[0].vote === v.vote ? 'Revoted' : 'Changed'}
-              </span>
+            <span class="ga-positions__vote">
+              <VoteBadge vote={v.vote} compact />
+              {history.length > 0 && (
+                <span class="ga-positions__tag" title={`Earlier vote: ${history[0].vote}`}>
+                  {history[0].vote === v.vote ? 'Revoted' : 'Changed'}
+                </span>
+              )}
+            </span>
+            {role !== 'spo' && (
+              <span class:list={['ga-positions__power', { 'ga-positions__power--struck': late }]}>{ada ?? ''}</span>
             )}
-            <span class:list={['ga-positions__power', { 'ga-positions__power--struck': late }]}>{ada ?? ''}</span>
           </>
         );
         return (
@@ -278,13 +286,13 @@ const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
                 <Avatar seed={seed} size={AVATAR_SIZE.rowLead} />
                 <span class="cc-id__text">
                   <span class="cc-id__name">{m.displayName ?? shortKey}</span>
-                  <span class="cc-id__key">{shortKey}</span>
+                  {m.displayName && <span class="cc-id__key">{shortKey}</span>}
+                  <span class="cc-id__standing">{m.standing}{m.termExpiration != null && ` · term ends epoch ${m.termExpiration}`}</span>
                 </span>
               </div>
               {m.vote
                 ? <VoteBadge vote={m.vote} compact />
                 : <span class="cc-notvoted" title="Did not vote on this action">Not voted</span>}
-              <span class="cc-standing">{m.standing}{m.termExpiration != null && ` · term ends epoch ${m.termExpiration}`}</span>
             </>
           );
           return (
@@ -454,6 +462,25 @@ const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
     white-space: nowrap;
   }
 
+  /* Vote badge plus its "Changed" / "Revoted" tag. Phones stack the tag under
+     the badge, right-aligned so the badge keeps the column of the rows
+     without a tag. Wider screens put the tag beside the badge. */
+  .ga-positions__vote {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.2rem;
+  }
+
+  @media (min-width: 40rem) {
+    .ga-positions__vote {
+      flex-direction: row;
+      align-items: center;
+      gap: 0.625rem;
+    }
+  }
+
   /* Inside the identity cell (the "Not counted" case) the tag flows inline. */
   .ga-positions__identity .ga-positions__tag {
     display: inline-block;
@@ -579,7 +606,9 @@ const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
   }
 
   /* CC row identity: not a DRep, so a plain Avatar (never a profile link) plus
-     name/key text, matching the drep row's flex layout for column alignment. */
+     name, key and term standing stacked in the growing column, so the vote
+     badge keeps the same column as in the drep rows and nothing squeezes the
+     name on phones. */
   .cc-id {
     display: flex;
     align-items: center;
@@ -600,18 +629,17 @@ const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
     white-space: nowrap;
   }
 
-  .cc-id__key {
-    font-family: var(--font-mono);
+  .cc-id__key,
+  .cc-id__standing {
     font-size: 0.7rem;
     color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
-  .cc-standing {
-    flex-shrink: 0;
-    text-align: right;
-    color: var(--muted);
-    font-size: 0.75rem;
-    white-space: nowrap;
+  .cc-id__key {
+    font-family: var(--font-mono);
   }
 
   .cc-notvoted {
