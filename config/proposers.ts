@@ -138,6 +138,14 @@ export const PROPOSERS: Proposer[] = [
     name: 'Midgard Labs',
     addresses: ['stake1u8c9lgcnx2n47m9t2ccufra270d9vfp4updxmgndv4f7hyg8mykgg'],
   },
+  {
+    // Submitter of the Cardano Strategic Copper Reserve treasury withdrawal.
+    slug: 'toto-finance',
+    name: 'Toto Finance',
+    addresses: ['stake1u9k6r5wssw9hzzx7yrqzk8fw0yemrduvl3seu55vrnm2tug89rpdm'],
+    icon: '/orgs/toto-finance.jpg',
+    website: 'https://totofinance.com',
+  },
 ];
 
 /** Lowercase + trim, so lookups are case/whitespace-insensitive. */
