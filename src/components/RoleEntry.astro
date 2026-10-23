@@ -83,6 +83,7 @@ const display = user && account
       allRoles: labels.join(', '),
       seed: account.identiconSeed ?? account.authorId,
       imageHash: account.imageHash ?? null,
+      imageSrc: account.imageSrc,
     }
   : null;
 ---
@@ -93,7 +94,7 @@ const display = user && account
       <details class="role-entry__more" data-auto-dismiss>
         <summary class="role-entry__pill" aria-label="Account menu" title={`Signed in as ${display.allRoles}`}>
           <span class="role-entry__pill-main">
-            <Avatar seed={display.seed} imageHash={display.imageHash} size={AVATAR_SIZE.compact} ring />
+            <Avatar seed={display.seed} imageHash={display.imageHash} imageSrc={display.imageSrc} size={AVATAR_SIZE.compact} ring />
             <span class="role-entry__pill-text">
               <span class="role-entry__pill-name">{display.name}</span>
               <span class="role-entry__pill-role">{display.role}</span>

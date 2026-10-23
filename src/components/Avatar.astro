@@ -14,6 +14,8 @@ interface Props {
   seed: string;
   /** Content hash of the stored avatar in R2, or null when none is stored. */
   imageHash?: string | null;
+  /** Plain image path (a bundled proposer logo), used when no imageHash is stored. */
+  imageSrc?: string | null;
   /** Avatar edge length in px. */
   size?: number;
   /** Replace the border with a subtle ring for placement on accent surfaces. */
@@ -27,7 +29,8 @@ interface Props {
       duplicate stop for keyboard and screen-reader users. */
   href?: string | null;
 }
-const { seed, imageHash = null, size = 28, ring = false, kind, href = null } = Astro.props;
+const { seed, imageHash = null, imageSrc = null, size = 28, ring = false, kind, href = null } = Astro.props;
+const overlay = imageHash ? avatarUrl(imageHash, size) : imageSrc;
 // Render as an anchor only when linked; otherwise the original inert span.
 const Tag = href ? 'a' : 'span';
 ---
@@ -39,8 +42,8 @@ const Tag = href ? 'a' : 'span';
   {...(href ? { href, tabindex: '-1' } : {})}
 >
   <span class="avatar__icon" set:html={identiconSvg(seed, size, kind)} />
-  {imageHash && (
-    <span class="avatar__img" style={`background-image:url(${avatarUrl(imageHash, size)})`}></span>
+  {overlay && (
+    <span class="avatar__img" style={`background-image:url(${overlay})`}></span>
   )}
 </Tag>
 

@@ -130,3 +130,27 @@ describe('describeAuthor: delegator accounts without a name', () => {
     expect(describeAuthor(STAKE, users, new Map(), new Map()).displayName).toContain('stake');
   });
 });
+
+describe('describeAuthor: proposers in the registry', () => {
+  // Toto Finance's return address from config/proposers.ts.
+  const TOTO = 'stake1u9k6r5wssw9hzzx7yrqzk8fw0yemrduvl3seu55vrnm2tug89rpdm';
+
+  it('names a verified proposer after its registry org and uses the org logo', () => {
+    const users = new Map([[TOTO, user({ id: TOTO, stake_addr: TOTO, is_proposer: true })]]);
+    const d = describeAuthor(TOTO, users, new Map(), new Map());
+    expect(d.displayName).toBe('Toto Finance');
+    expect(d.imageSrc).toBe('/orgs/toto-finance.jpg');
+  });
+
+  it('lets a display name the proposer chose win over the registry name', () => {
+    const users = new Map([[TOTO, user({ id: TOTO, stake_addr: TOTO, is_proposer: true, display_name: 'Toto' })]]);
+    expect(describeAuthor(TOTO, users, new Map(), new Map()).displayName).toBe('Toto');
+  });
+
+  it('ignores the registry for an account without the proposer role', () => {
+    const users = new Map([[TOTO, user({ id: TOTO, stake_addr: TOTO })]]);
+    const d = describeAuthor(TOTO, users, new Map(), new Map());
+    expect(d.displayName).toBe('Delegator');
+    expect(d.imageSrc).toBeNull();
+  });
+});

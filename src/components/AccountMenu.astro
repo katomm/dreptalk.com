@@ -64,7 +64,7 @@ const items: MenuItem[] = [
 <div class="account-menu">
   <div class="account-menu__head">
     <IdentityTag class="account-menu__head-identity" href={profileHref ?? undefined}>
-      <Avatar seed={seed} imageHash={imageHash} size={AVATAR_SIZE.rowLead} />
+      <Avatar seed={seed} imageHash={imageHash} imageSrc={account.imageSrc} size={AVATAR_SIZE.rowLead} />
       <span class="account-menu__head-text">
         <span class="account-menu__head-name">{name}</span>
         <span class="account-menu__head-id" title={id}>{truncateIdMiddle(id)}</span>

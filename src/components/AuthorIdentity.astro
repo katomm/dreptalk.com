@@ -36,7 +36,7 @@ interface Props {
 }
 
 const { author, size = 28, truncate = false, kind, mandate } = Astro.props;
-const { displayName, imageHash, badges = [], isSystem = false } = author;
+const { displayName, imageHash, imageSrc, badges = [], isSystem = false } = author;
 
 // Same seed everywhere for a given author (DRep hex when known, else the id).
 const seed = author.identiconSeed ?? author.authorId;
@@ -53,7 +53,7 @@ const hasSub = Astro.slots.has('sub');
       <LogoMark style={`width:${Math.round(size * 0.6)}px;height:${Math.round(size * 0.6)}px;color:var(--muted);`} />
     </span>
   ) : (
-    <Avatar seed={seed} imageHash={imageHash} size={size} kind={kind} href={profileHref} />
+    <Avatar seed={seed} imageHash={imageHash} imageSrc={imageSrc} size={size} kind={kind} href={profileHref} />
   )}
 
   {hasSub ? (

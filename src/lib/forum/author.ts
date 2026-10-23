@@ -11,6 +11,7 @@ import type { ActionVoterRow } from '../db/drepVotes.js';
 import { drepPath } from '../dreps/profile.js';
 import { poolPath } from '../pools/profile.js';
 import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
+import { proposerView } from '../identity/proposer.js';
 import { truncateId } from './view.js';
 
 // The presentational descriptor consumed by the AuthorIdentity component. Kept
@@ -19,7 +20,7 @@ import { truncateId } from './view.js';
 export interface AuthorDescriptor {
   /** The raw post/topic author_id. */
   authorId: string;
-  /** Display name, in precedence order: user display_name, then DRep name, then pool name, then ticker, else a truncated id. */
+  /** Display name, in precedence order: user display_name, then DRep name, then pool name, then ticker, then the proposer registry name, else a truncated id. */
   displayName: string;
   /** drep id when this author has a synced on-chain DRep, used for the profile link. */
   drepId?: string | null;
@@ -31,6 +32,8 @@ export interface AuthorDescriptor {
   poolSlug?: string | null;
   /** Content hash of the stored avatar in R2 (drives /api/avatar/<hash>), or null/absent when not stored. */
   imageHash?: string | null;
+  /** Bundled logo path of a known proposer org (config/proposers.ts), used when there is no stored avatar. */
+  imageSrc?: string | null;
   /** Stable seed for the identicon fallback: the DRep credential hex when known, else the author id. */
   identiconSeed?: string;
   /** On-chain / forum roles to surface as badges. */
@@ -81,16 +84,20 @@ export function describeAuthor(
   const u = usersById.get(authorId);
   const drep = u?.drep_id ? drepsById.get(u.drep_id) : undefined;
   const pool = u?.pool_id ? poolsById.get(u.pool_id) : undefined;
+  // A verified proposer keyed by a registry return address posts as that org.
+  const pv = u?.is_proposer ? proposerView(u.stake_addr ?? authorId) : null;
+  const org = pv?.kind === 'known' ? pv : null;
 
   return {
     authorId,
     displayName:
-      u?.display_name ?? drep?.name ?? pool?.name ?? pool?.ticker ?? fallbackName(authorId, u),
+      u?.display_name ?? drep?.name ?? pool?.name ?? pool?.ticker ?? org?.name ?? fallbackName(authorId, u),
     drepId: u?.drep_id ?? null,
     drepSlug: drep?.slug ?? null,
     poolId: u?.pool_id ?? null,
     poolSlug: pool?.slug ?? null,
     imageHash: drep?.imageContentHash ?? pool?.imageContentHash ?? null,
+    imageSrc: org?.icon ?? null,
     identiconSeed: drep?.hex ?? pool?.poolHash ?? authorId,
     badges: roleBadges(u),
   };

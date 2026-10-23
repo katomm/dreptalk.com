@@ -291,7 +291,7 @@ const cards: HomeCard[] = [
   wide
 >
   <header class="home-head">
-    <Avatar seed={account.identiconSeed ?? account.authorId} imageHash={account.imageHash ?? null} size={64} />
+    <Avatar seed={account.identiconSeed ?? account.authorId} imageHash={account.imageHash ?? null} imageSrc={account.imageSrc} size={64} />
     <div class="home-head__text">
       <h1 class="home-head__title">Welcome, {account.displayName}</h1>
       <p class="home-head__sub">Signed in as {rolesLabel}. Here is everything you can do.</p>
