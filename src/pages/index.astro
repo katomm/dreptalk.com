@@ -385,7 +385,7 @@ const heroFeatures = [
               const g = hero.ghosts[i];
               return (
                 <span class="ghost" style={`left:${s.x * 100}%; top:${s.y * 100}%; --enter-delay:${300 + i * 60}ms`}>
-                  <Avatar seed={g.descriptor.identiconSeed ?? g.descriptor.authorId} imageHash={g.descriptor.imageHash} size={AVATAR_SIZE.compact} />
+                  <Avatar seed={g.descriptor.identiconSeed ?? g.descriptor.authorId} imageHash={g.descriptor.imageHash} imageSrc={g.descriptor.imageSrc} size={AVATAR_SIZE.compact} />
                 </span>
               );
             })}
@@ -431,7 +431,7 @@ const heroFeatures = [
                     title={`${p.descriptor.displayName} voted ${label}`}
                     aria-label={`${p.descriptor.displayName} voted ${label}, view profile`}
                   >
-                    <Avatar seed={p.descriptor.identiconSeed ?? p.descriptor.authorId} imageHash={p.descriptor.imageHash} size={isSelf ? AVATAR_SIZE.card : AVATAR_SIZE.compact} />
+                    <Avatar seed={p.descriptor.identiconSeed ?? p.descriptor.authorId} imageHash={p.descriptor.imageHash} imageSrc={p.descriptor.imageSrc} size={isSelf ? AVATAR_SIZE.card : AVATAR_SIZE.compact} />
                     <span class="pill__name">{p.descriptor.displayName}</span>
                     <span class="pill__vote">
                       <span class="pill__vote-icon" aria-hidden="true">

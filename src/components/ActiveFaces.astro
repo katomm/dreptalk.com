@@ -29,11 +29,11 @@ const fmtInt = (n: number) => n.toLocaleString('en-US');
         href={f.href}
         aria-label={f.role ? `Profile of ${f.author.displayName}, ${f.role}` : `Profile of ${f.author.displayName}`}
       >
-        <Avatar seed={f.author.identiconSeed ?? f.author.authorId} imageHash={f.author.imageHash ?? null} size={AVATAR_SIZE.rowLead} />
+        <Avatar seed={f.author.identiconSeed ?? f.author.authorId} imageHash={f.author.imageHash ?? null} imageSrc={f.author.imageSrc} size={AVATAR_SIZE.rowLead} />
         <span class="af__pop" aria-hidden="true">
           <span class="af__card">
             <span class="af__head">
-              <Avatar seed={f.author.identiconSeed ?? f.author.authorId} imageHash={f.author.imageHash ?? null} size={44} />
+              <Avatar seed={f.author.identiconSeed ?? f.author.authorId} imageHash={f.author.imageHash ?? null} imageSrc={f.author.imageSrc} size={44} />
               <span class="af__id">
                 <span class="af__name">{f.author.displayName}</span>
                 {f.role && <span class="af__role">{f.role}</span>}
