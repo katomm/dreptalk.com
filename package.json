@@ -68,7 +68,7 @@
     "react-dom": "^19.3.0",
     "workers-og": "^0.0.27",
     "xss": "^1.0.15",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
@@ -97,7 +97,7 @@
     "yaml": "^2.9.0",
     "esbuild": "^0.28.1",
     "sharp": "^0.35.5",
-    "undici": "^7.30.0",
+    "undici": "^7.30.1",
     "js-yaml": "^4.3.2",
     "nanoid": "^3.3.17",
     "svgo": "^4.1.0",

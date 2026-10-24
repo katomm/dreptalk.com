@@ -425,9 +425,9 @@ const activityBars = activity
           <EpochSeriesChart title="Delegated voting power" points={metricSeries(chartStats, 'totalDrepPower', starts.totalDrepPower)} format={fmtAdaCompact} sinceEpoch={sinceCaption(starts.totalDrepPower)} />
           <EpochSeriesChart title="DReps holding delegated power" points={metricSeries(chartStats, 'poweredDrepCount', starts.poweredDrepCount)} sinceEpoch={sinceCaption(starts.poweredDrepCount)} />
           <EpochSeriesChart title="Delegators" points={metricSeries(chartStats, 'delegatorTotal', starts.delegatorTotal)} sinceEpoch={sinceCaption(starts.delegatorTotal)} />
-          <EpochSeriesChart title="DReps voting in the last 12 epochs" points={recentlyVotingSeries} sinceEpoch={sinceCaption(recentlyVotingSince)} note="Counted per epoch over the twelve epochs up to it, roughly two months, so a quiet stretch between actions does not read as inactivity. The running epoch appears once it has ended." />
-          <EpochSeriesChart title="DReps holding power but silent in the last 12 epochs" points={silentSeries} sinceEpoch={sinceCaption(silentSince)} note="Same window, read against the DReps holding delegated power in each epoch. Not simply the powered count minus the voting count: a DRep that voted and has since retired still counts as voting but holds no power, so it is never silent." />
-          <EpochSeriesChart title="Share of power-holding DReps that voted" points={votedShare} format={fmtPct} sinceEpoch={sinceCaption(votedShareSince)} note="Voted in the last 12 epochs, as a percentage of the DReps holding delegated power in the epoch." />
+          <EpochSeriesChart title="DReps that voted within a rolling 12-epoch window" points={recentlyVotingSeries} sinceEpoch={sinceCaption(recentlyVotingSince)} note="Each point counts the DReps with at least one vote in the twelve epochs up to that epoch, roughly two months, so a quiet stretch between actions does not read as inactivity. The running epoch appears once it has ended." />
+          <EpochSeriesChart title="DReps holding power but silent for 12 epochs" points={silentSeries} sinceEpoch={sinceCaption(silentSince)} note="Same rolling window: each point counts the DReps holding delegated power in that epoch without a vote in the twelve epochs up to it. Not simply the powered count minus the voting count: a DRep that voted and has since retired still counts as voting but holds no power, so it is never silent." />
+          <EpochSeriesChart title="Share of power-holding DReps that voted" points={votedShare} format={fmtPct} sinceEpoch={sinceCaption(votedShareSince)} note="Voted within the twelve epochs up to each epoch, as a percentage of the DReps holding delegated power in that epoch." />
         </div>
       </section>
     )}
@@ -709,7 +709,7 @@ const activityBars = activity
         )}
         {rationaleCoverage.epochSeries.length > 1 && (
           <div class="hub-rationale__chart">
-            <EpochSeriesChart title="Coverage of decided actions" ariaLabel="Median rationale coverage per decision epoch" points={rationaleCoverage.epochSeries} format={fmtShare} />
+            <EpochSeriesChart title="Coverage of decided actions" ariaLabel="Median rationale coverage per decision epoch" points={rationaleCoverage.epochSeries} format={fmtShare} note="Each point is the median share of votes with a rationale link across the actions decided in that epoch." />
           </div>
         )}
         {rationaleCoverage.byType.length > 1 && (
