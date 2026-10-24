@@ -98,7 +98,7 @@ describe('governancePhases', () => {
     expect(light).toContain('discovery');
     // A heavy tick only adds phases, it never drops one the light tick runs.
     for (const name of light) expect(heavy).toContain(name);
-    for (const name of ['tallies', 'metadata', 'params', 'pool-economics', 'delegation-refresh']) {
+    for (const name of ['tallies', 'metadata', 'params', 'param-log', 'pool-economics', 'delegation-refresh']) {
       expect(light).not.toContain(name);
       expect(heavy).toContain(name);
     }
@@ -119,8 +119,9 @@ describe('governancePhases', () => {
     // Trending folds in the tallies and post dates written this run.
     expectBefore(names, 'tallies', 'trending');
     expectBefore(names, 'post-dates', 'trending');
-    // The pool distribution runs right after the protocol parameters refresh.
-    expect(names.indexOf('pool-economics')).toBe(names.indexOf('params') + 1);
+    // The parameter log follows the protocol parameters refresh, the pool distribution follows the log.
+    expect(names.indexOf('param-log')).toBe(names.indexOf('params') + 1);
+    expect(names.indexOf('pool-economics')).toBe(names.indexOf('param-log') + 1);
   });
 
   it('runs the surveys mirror only when the Tessera client is configured', () => {

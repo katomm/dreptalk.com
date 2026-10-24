@@ -988,6 +988,13 @@ export function createKoiosClient(opts: KoiosClientOptions) {
       return z.array(epochParamsRowSchema).parse(data)[0] ?? null;
     },
 
+    // Epochs after `afterEpoch`, ascending, as raw rows so every epoch_params
+    // field survives (the parameter change log diffs all of them).
+    async epochParamsAfter(afterEpoch: number, limit: number): Promise<Record<string, unknown>[]> {
+      const data = await request(`/epoch_params?epoch_no=gt.${afterEpoch}&order=epoch_no.asc&limit=${limit}`, { method: 'GET' });
+      return z.array(epochParamsRowSchema).parse(data) as Record<string, unknown>[];
+    },
+
     // Treasury, reserves, and circulating supply balances (lovelace), the
     // latest epoch by default, or one specific epoch for the stats backfill.
     async totals(epochNo?: number): Promise<{ epochNo: number; treasuryLovelace: string; reservesLovelace: string; circulationLovelace: string | null; supplyLovelace: string | null } | null> {

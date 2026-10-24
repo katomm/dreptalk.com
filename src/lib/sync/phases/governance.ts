@@ -20,6 +20,7 @@ import {
   backfillGovStatusTimes,
 } from '../../governance/tallySync.js';
 import { syncProtocolParams } from '../../governance/paramsSync.js';
+import { syncParamLog } from '../../governance/paramLogSync.js';
 import { syncPoolEconomics } from '../../governance/poolEconomics.js';
 import { collectUnreferencedPins } from '../../governance/pinCollector.js';
 import { makePinataRemover } from '../../governance/pinata.js';
@@ -286,6 +287,18 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
     run: async (ctx) => {
       const r = await syncProtocolParams({ koios: ctx.koios, db: ctx.db, now: ctx.now });
       return { items: r.written };
+    },
+  },
+  {
+    // Extend the per-field log of protocol parameter changes by the epochs Koios
+    // has beyond the log state (one range read), then link the rows an enacted
+    // ParameterChange wrote. Heavy-only: parameters move once per epoch at most.
+    name: 'param-log',
+    when: heavyOnly,
+    run: async (ctx) => {
+      const r = await syncParamLog({ db: ctx.db, koios: ctx.koios, cfg: ctx.cfg, now: ctx.now });
+      console.log(`[gov-param-log] from=${r.fromEpoch} to=${r.toEpoch} inserted=${r.inserted} linked=${r.linked}`);
+      return { items: r.inserted + r.linked };
     },
   },
   {

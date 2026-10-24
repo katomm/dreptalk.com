@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildParamImpact, impactSectionKeys, proposedParamValues } from './paramImpactView.js';
+import { basisEpoch } from './basisEpoch.js';
+import { inForceRow, onchainOldValuesJson, buildParamImpact, impactSectionKeys, proposedParamValues } from './paramImpactView.js';
 import type { ParamValues } from './paramDefs.js';
 
 const payload = (map: Record<string, unknown>) => JSON.stringify({ tag: 'ParameterChange', contents: [null, map, null] });
@@ -43,8 +44,8 @@ describe('impactSectionKeys', () => {
   const current: ParamValues = { k: r(500n), a0: r(3n, 10n), rho: r(3n, 1000n), tau: r(2n, 10n), minPoolCost: r(170000000n), utxoCostPerByte: r(4310n) };
   const proposed: ParamValues = { k: r(600n), minPoolCost: r(1n), utxoCostPerByte: r(3000n), tau: r(1n, 4n) };
 
-  it('is empty unless the action is active', () => {
-    for (const s of ['pending', 'enacted', 'expired', 'dropped', 'ratified']) {
+  it('is empty unless the action is active or decided', () => {
+    for (const s of ['pending', 'closed']) {
       expect(impactSectionKeys(proposed, current, s)).toEqual([]);
     }
   });
@@ -61,24 +62,95 @@ describe('impactSectionKeys', () => {
   });
 });
 
+describe('basisEpoch', () => {
+  const base = { decidedEpoch: null, ratifiedEpoch: null, enactedEpoch: null, expiryEpoch: null };
+  it('follows the status', () => {
+    expect(basisEpoch({ ...base, status: 'enacted', enactedEpoch: 614 })).toBe(613);
+    expect(basisEpoch({ ...base, status: 'enacted', decidedEpoch: 614 })).toBe(613);
+    expect(basisEpoch({ ...base, status: 'expired', expiryEpoch: 661 })).toBe(660);
+    expect(basisEpoch({ ...base, status: 'expired', decidedEpoch: 661 })).toBe(660);
+    expect(basisEpoch({ ...base, status: 'dropped', decidedEpoch: 614 })).toBe(613);
+    expect(basisEpoch({ ...base, status: 'ratified', ratifiedEpoch: 613 })).toBe(613);
+    expect(basisEpoch({ ...base, status: 'active' })).toBeNull();
+    expect(basisEpoch({ ...base, status: 'expired' })).toBeNull();
+  });
+});
+
 describe('buildParamImpact', () => {
-  const onchain = payload({ utxoCostPerByte: 3000 });
-  const raw = JSON.stringify({ coins_per_utxo_size: 4310 });
+  const network = 'preprod' as const;
+  const row = { optimal_pool_count: 500, influence: 0.3, monetary_expand_rate: 0.003, treasury_growth_rate: 0.2 };
+  const build = (o: Partial<Parameters<typeof buildParamImpact>[0]>) =>
+    buildParamImpact({ payloadJson: payload({ stakePoolTargetNum: 600 }), status: 'enacted', currentRow: row, basisEpoch: 613, poolDataStored: true, network, ...o });
 
-  it('returns null for a non-active action without reading the JSON', () => {
-    expect(buildParamImpact(onchain, '{not json', 'ratified', 'preprod')).toBeNull();
-    expect(buildParamImpact(onchain, raw, 'expired', 'preprod')).toBeNull();
+  it('builds an enacted section from the basis row', () => {
+    const out = build({});
+    expect(out?.keys).toEqual(['k']);
+    expect(out?.outcome).toBe('enacted');
+    expect(out?.basisEpoch).toBe(613);
+    expect(Object.keys(out?.current ?? {}).sort()).toEqual(['a0', 'k', 'rho', 'tau']);
   });
 
-  it('returns null when the in force row is not valid JSON', () => {
-    expect(buildParamImpact(onchain, '{not json', 'active', 'preprod')).toBeNull();
-  });
-
-  it('builds the island props for an active change', () => {
-    const out = buildParamImpact(onchain, raw, 'active', 'preprod');
-    expect(out?.network).toBe('preprod');
+  it('drops pool-data keys without stored pool data', () => {
+    expect(build({ poolDataStored: false })).toBeNull();
+    const out = build({
+      poolDataStored: false,
+      payloadJson: payload({ utxoCostPerByte: 3000, stakePoolTargetNum: 600 }),
+      currentRow: { ...row, coins_per_utxo_size: 4310 },
+    });
     expect(out?.keys).toEqual(['utxoCostPerByte']);
-    expect(out?.current.utxoCostPerByte).toBeDefined();
-    expect(out?.proposed.utxoCostPerByte).toBeDefined();
+  });
+
+  it('drops equal values once decided but not while active', () => {
+    expect(build({ payloadJson: payload({ stakePoolTargetNum: 600 }), currentRow: { ...row, optimal_pool_count: 600 } })).toBeNull();
+    expect(build({ status: 'active', basisEpoch: null, currentRow: { ...row, optimal_pool_count: 600 } })?.keys).toEqual(['k']);
+  });
+
+  it('leaves out a key the basis row cannot supply', () => {
+    const out = build({ status: 'expired', payloadJson: payload({ stakePoolTargetNum: 600, minPoolCost: 100000000 }) });
+    expect(out?.keys).toEqual(['k']);
+    expect(out?.outcome).toBe('ended');
+  });
+
+  it('maps ratified and active to open', () => {
+    expect(build({ status: 'ratified' })?.outcome).toBe('open');
+    expect(build({ status: 'active', basisEpoch: null })?.basisEpoch).toBeNull();
+  });
+
+  it('is null for other statuses and a missing row', () => {
+    expect(build({ status: 'closed' })).toBeNull();
+    expect(build({ currentRow: null })).toBeNull();
+  });
+});
+
+describe('onchainOldValuesJson', () => {
+  const rawJson = '{"optimal_pool_count":500}';
+  const row = { optimal_pool_count: 400 };
+  it('keeps the current parameters for an active change and other types', () => {
+    expect(onchainOldValuesJson('ParameterChange', 'active', null, rawJson)).toBe(rawJson);
+    expect(onchainOldValuesJson('HardForkInitiation', 'enacted', null, rawJson)).toBe(rawJson);
+  });
+  it('uses the basis row for a decided change, or nothing', () => {
+    expect(onchainOldValuesJson('ParameterChange', 'enacted', row, rawJson)).toBe(JSON.stringify(row));
+    expect(onchainOldValuesJson('ParameterChange', 'enacted', null, rawJson)).toBeNull();
+  });
+});
+
+describe('inForceRow', () => {
+  const row = { optimal_pool_count: 400 };
+  it('uses the basis row for a decided ParameterChange', () => {
+    expect(inForceRow('ParameterChange', 'enacted', '{"a":1}', row)).toBe(row);
+    expect(inForceRow('ParameterChange', 'expired', '{"a":1}', null)).toBeNull();
+  });
+  it('parses the current parameters for an active change and other types', () => {
+    expect(inForceRow('ParameterChange', 'active', '{"a":1}', row)).toEqual({ a: 1 });
+    expect(inForceRow('HardForkInitiation', 'enacted', '{"a":1}', row)).toEqual({ a: 1 });
+  });
+  it('treats a pending ParameterChange like an active one', () => {
+    expect(inForceRow('ParameterChange', 'pending', '{"a":1}', null)).toEqual({ a: 1 });
+    expect(onchainOldValuesJson('ParameterChange', 'pending', null, '{"a":1}')).toBe('{"a":1}');
+  });
+  it('is null without a blob and empty for an unreadable one', () => {
+    expect(inForceRow('ParameterChange', 'active', null, null)).toBeNull();
+    expect(inForceRow('ParameterChange', 'active', '{oops', null)).toEqual({});
   });
 });
