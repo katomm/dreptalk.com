@@ -15,13 +15,16 @@ import { upsertActionRationale } from '@/lib/db/actionRationale';
 import { renderMarkdown } from '@/lib/markdown';
 import { buildVoteRationale, MAX_VOTE_RATIONALE } from '@/lib/governance/voteRationale';
 import { MAX_BATCH_VOTES } from '@/lib/governance/voteLimits';
+import { resolveAnchorUrl } from '@/lib/governance/anchorUrl';
 
 export const prerender = false;
 
 const voteEntrySchema = z.object({
   gaId: z.string().regex(/^[0-9a-fA-F]{64}#\d{1,5}$/),
   vote: z.enum(['yes', 'no', 'abstain']),
-  rationaleUrl: z.string().url().optional(),
+  // Rendered as a link on the public vote page, so only the schemes the anchor
+  // renderer can open (http, https, ipfs) are stored.
+  rationaleUrl: z.string().url().refine((u) => resolveAnchorUrl(u) !== null).optional(),
   // Cap tied to MAX_VOTE_RATIONALE so the input contract can't drift from the
   // canonical limit. A small buffer above it tolerates whitespace, CRLFs, and
   // control chars that sanitizeExternalMultiline strips before the hard slice;
@@ -82,17 +85,25 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const nowSec = Math.floor(Date.now() / 1000);
   const nowMs = Date.now();
 
-  // One lookup for all topic ids instead of one query per vote; the batch is
+  // One lookup for all actions instead of one query per vote, the batch is
   // capped at MAX_BATCH_VOTES, far below D1's 100-bound-params limit.
   const placeholders = votes.map(() => '?').join(',');
-  const topicRows =
+  const actionRows =
     (
       await db
-        .prepare(`SELECT id, topic_id FROM governance_actions WHERE id IN (${placeholders})`)
+        .prepare(`SELECT id, topic_id, status FROM governance_actions WHERE id IN (${placeholders})`)
         .bind(...votes.map((v) => v.gaId))
-        .all<{ id: string; topic_id: string | null }>()
+        .all<{ id: string; topic_id: string | null; status: string }>()
     ).results ?? [];
-  const topicByGa = new Map(topicRows.map((r) => [r.id, r.topic_id]));
+  // Only active actions take a vote, the same rule as the vote panel. A decided
+  // action's vote list is never re-synced, so an optimistic row there would
+  // stand in for the on-chain vote with nothing to correct it. All or nothing,
+  // like the duplicate check above.
+  const activeIds = new Set(actionRows.filter((r) => r.status === 'active').map((r) => r.id));
+  if (votes.some((v) => !activeIds.has(v.gaId))) {
+    return jsonResponse({ error: 'governance action is not open for voting' }, 409);
+  }
+  const topicByGa = new Map(actionRows.map((r) => [r.id, r.topic_id]));
 
   // Entries are independent rows (duplicate gaIds were rejected above), so the
   // per-vote writes run concurrently instead of up to ~150 serial round-trips.

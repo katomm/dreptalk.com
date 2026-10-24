@@ -719,9 +719,15 @@ export async function listDrepVoteTimings(db: D1Database, voterId: string): Prom
 
 /**
  * Optimistic local vote written immediately after the wallet submits, before
- * the hourly sync sees it on chain. INSERT OR REPLACE on (ga_id, voter_id) so a
- * re-vote overwrites. local_status='pending' until the authoritative sync
- * replaces the row (clears it) or markStalePendingVotesFailed flags it.
+ * the hourly sync sees it on chain. A re-vote overwrites the stored row.
+ * local_status='pending' until the authoritative sync replaces the row (clears
+ * it) or markStalePendingVotesFailed flags it.
+ *
+ * A synced row (local_status NULL) is only overwritten while its action is
+ * active: the live vote sync re-reads only active actions, so on a decided
+ * action nothing would ever restore the real vote once the optimistic row is
+ * reaped as failed. voted_power is kept on a re-vote, the sync only ever
+ * COALESCEs it and would otherwise leave it NULL.
  */
 export async function recordLocalVote(
   db: D1Database,
@@ -729,8 +735,20 @@ export async function recordLocalVote(
 ): Promise<void> {
   await db
     .prepare(
-      `INSERT OR REPLACE INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, meta_url, block_time, synced_at, local_status, tx_hash)
-       VALUES (?, 'DRep', ?, ?, ?, ?, NULL, ?, 'pending', ?)`,
+      `INSERT INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, meta_url, block_time, synced_at, local_status, tx_hash)
+       VALUES (?, 'DRep', ?, ?, ?, ?, NULL, ?, 'pending', ?)
+       ON CONFLICT(ga_id, voter_id) DO UPDATE SET
+         voter_role = excluded.voter_role,
+         voter_hex = excluded.voter_hex,
+         vote = excluded.vote,
+         meta_url = excluded.meta_url,
+         meta_hash = NULL,
+         block_time = NULL,
+         synced_at = excluded.synced_at,
+         local_status = 'pending',
+         tx_hash = excluded.tx_hash
+       WHERE drep_votes.local_status IS NOT NULL
+          OR EXISTS (SELECT 1 FROM governance_actions g WHERE g.id = excluded.ga_id AND g.status = 'active')`,
     )
     .bind(rec.gaId, rec.drepId, rec.voterHex, rec.vote, rec.metaUrl, rec.now, rec.txHash)
     .run();

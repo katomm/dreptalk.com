@@ -12,6 +12,7 @@ import { loadDrepNativeScript } from '@/lib/governance/drepNativeScript';
 import { createKoiosClient } from '@/lib/koios/client';
 import { resolveNetwork } from '@/lib/config/network';
 import { createPendingMultisig } from '@/lib/db/pendingMultisigTx';
+import { resolveAnchorUrl } from '@/lib/governance/anchorUrl';
 
 export const prerender = false;
 
@@ -21,7 +22,9 @@ const schema = z.object({
   vote: z.enum(['yes', 'no', 'abstain']),
   unsignedTxCbor: z.string().regex(/^[0-9a-fA-F]+$/),
   bodyHash: z.string().regex(/^[0-9a-fA-F]{64}$/),
-  anchorUrl: z.string().url().optional(),
+  // Becomes the vote's meta_url, which the public vote page links: only the
+  // schemes the anchor renderer can open (http, https, ipfs).
+  anchorUrl: z.string().url().refine((u) => resolveAnchorUrl(u) !== null).optional(),
   anchorHashHex: z.string().regex(/^[0-9a-fA-F]{64}$/).optional(),
 });
 
@@ -52,6 +55,17 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const drepId = dbUser?.drep_id ?? null;
   if (!drepId || drepId !== body.scriptDrepId) {
     return jsonResponse({ error: 'not a member' }, 403);
+  }
+
+  // Only an active action takes a vote, the same rule as /api/vote/record:
+  // /submitted later records this vote optimistically, and a decided action's
+  // vote list is never re-synced to correct it.
+  const action = await db
+    .prepare(`SELECT status FROM governance_actions WHERE id = ?`)
+    .bind(body.gaId)
+    .first<{ status: string }>();
+  if (action?.status !== 'active') {
+    return jsonResponse({ error: 'governance action is not open for voting' }, 409);
   }
 
   // Load the script from Koios and validate it (native, parseable, hash matches).

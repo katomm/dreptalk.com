@@ -388,6 +388,19 @@ describe('local vote record + reconcile', () => {
     expect(v?.local_status).toBeNull();
   });
 
+  it('never replaces a synced vote on an action that is no longer active', async () => {
+    await seedAction('gaDecided', 'Decided Action', 500);
+    await upsertVotes(env.DB, 'gaDecided', [
+      { voterRole: 'DRep', voterId: drepId, voterHex: null, vote: 'yes', metaUrl: 'https://example.com/r.json', metaHash: 'd'.repeat(64), blockTime: 900, votedPower: 1000 },
+    ], 950);
+    await recordLocalVote(env.DB, { gaId: 'gaDecided', drepId, voterHex: null, vote: 'no', metaUrl: null, txHash: 'tx3', now: 1000 });
+    const row = await env.DB
+      .prepare(`SELECT vote, meta_hash, block_time, voted_power, local_status, tx_hash FROM drep_votes WHERE ga_id = 'gaDecided' AND voter_id = ?`)
+      .bind(drepId)
+      .first();
+    expect(row).toEqual({ vote: 'yes', meta_hash: 'd'.repeat(64), block_time: 900, voted_power: 1000, local_status: null, tx_hash: null });
+  });
+
   it('marks stale pending votes failed', async () => {
     await recordLocalVote(env.DB, { gaId, drepId, voterHex: null, vote: 'no', metaUrl: null, txHash: 'tx2', now: 1000 });
     const n = await markStalePendingVotesFailed(env.DB, 5000, 6000); // cutoff after synced_at=1000
