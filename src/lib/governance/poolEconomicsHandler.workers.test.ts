@@ -14,8 +14,8 @@ function ctx(headers: Record<string, string> = { 'sec-fetch-site': 'same-origin'
   return { request, locals: { user } as App.Locals };
 }
 
-function publicCtx(headers: Record<string, string> = { 'sec-fetch-site': 'same-origin' }) {
-  return { request: new Request('https://dreptalk.com/api/pool-economics', { headers }), locals: {} as App.Locals };
+function publicCtx(headers: Record<string, string> = { 'sec-fetch-site': 'same-origin' }, query = '') {
+  return { request: new Request(`https://dreptalk.com/api/pool-economics${query}`, { headers }), locals: {} as App.Locals };
 }
 
 async function store(epoch: number, body: string) {
@@ -131,5 +131,41 @@ describe('handlePublicPoolEconomics', () => {
     const res = await handlePublicPoolEconomics(publicCtx(), { env: { ...testEnv, DB: failingDb } });
     expect(res.status).toBe(503);
     expect(res.headers.get('cache-control')).toBe('no-store');
+  });
+});
+
+describe('handlePublicPoolEconomics with ?epoch', () => {
+  const same = { 'sec-fetch-site': 'same-origin' };
+  const BODY_613 = JSON.stringify({ epoch: 613, pools: [] });
+  const BODY_662 = JSON.stringify({ epoch: 662, pools: [] });
+  beforeEach(async () => {
+    await store(613, BODY_613);
+    await store(662, BODY_662);
+  });
+
+  it('serves the stored epoch with a long cache', async () => {
+    const res = await handlePublicPoolEconomics(publicCtx(same, '?epoch=613'), { env: testEnv });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('public, max-age=86400');
+    expect(await res.text()).toBe(BODY_613);
+  });
+
+  it('answers 404 no-store for a missing epoch', async () => {
+    const res = await handlePublicPoolEconomics(publicCtx(same, '?epoch=614'), { env: testEnv });
+    expect(res.status).toBe(404);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    expect(await res.json()).toEqual({ error: 'not_found' });
+  });
+
+  it.each(['007', '-1', '1e3', 'abc', '9999999', ''])('answers 404 no-store for epoch=%s', async (v) => {
+    const res = await handlePublicPoolEconomics(publicCtx(same, `?epoch=${v}`), { env: testEnv });
+    expect(res.status).toBe(404);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+  });
+
+  it('still serves the newest epoch without the parameter', async () => {
+    const res = await handlePublicPoolEconomics(publicCtx(), { env: testEnv });
+    expect(await res.text()).toBe(BODY_662);
+    expect(res.headers.get('cache-control')).toBe('public, max-age=3600');
   });
 });

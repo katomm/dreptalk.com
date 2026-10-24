@@ -1,7 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 import { describe, it, expect, beforeEach } from 'vitest';
 import { env } from 'cloudflare:test';
-import { loadPoolEconomics, readPoolEconomics, syncPoolEconomics, type PoolEconomicsKoios } from './poolEconomics.js';
+import { loadPoolEconomics, poolEconomicsKeepEpochs, readPoolEconomics, syncPoolEconomics, type PoolEconomicsKoios } from './poolEconomics.js';
 import { epochStartUnix } from '../config/network.js';
 
 const preprodCfg = { network: 'preprod', networkId: 0, epochAnchor: { epoch: 300, unixSeconds: 1_790_000_000 } } as never;
@@ -104,5 +104,78 @@ describe('syncPoolEconomics', () => {
     const noSupply = koios({ totals: async () => ({ epochNo: 301, reservesLovelace: '1', supplyLovelace: null }) });
     expect(await run(noSupply, 301)).toMatchObject({ written: 0, failed: 1 });
     expect((await rows()).results).toEqual(before);
+  });
+});
+
+const pc = (id: string, status: string, cols: { decided?: number; ratified?: number; enacted?: number; expiry?: number; submitted?: number }) =>
+  env.DB.prepare(
+    `INSERT INTO governance_actions (id, type, status, decided_epoch, ratified_epoch, enacted_epoch, expiry_epoch, submitted_epoch, created_at, last_synced_at)
+     VALUES (?, 'ParameterChange', ?, ?, ?, ?, ?, ?, 1, 1)`,
+  )
+    .bind(id, status, cols.decided ?? null, cols.ratified ?? null, cols.enacted ?? null, cols.expiry ?? null, cols.submitted ?? null)
+    .run();
+
+const storeEpoch = (epoch: number) =>
+  env.DB.prepare('INSERT OR REPLACE INTO pool_economics (epoch, body, computed_at) VALUES (?, ?, 1)').bind(epoch, '{}').run();
+
+describe('poolEconomicsKeepEpochs', () => {
+  it('collects basis epochs and the oldest open submission', () => {
+    const none = { decidedEpoch: null, ratifiedEpoch: null, enactedEpoch: null, expiryEpoch: null, submittedEpoch: null };
+    const out = poolEconomicsKeepEpochs([
+      { ...none, status: 'enacted', enactedEpoch: 614 },
+      { ...none, status: 'expired', expiryEpoch: 661 },
+      { ...none, status: 'active', submittedEpoch: 655 },
+      { ...none, status: 'pending', submittedEpoch: 657 },
+      { ...none, status: 'expired' },
+    ]);
+    expect(out.basis).toEqual(new Set([613, 660]));
+    expect(out.keepFrom).toBe(655);
+  });
+
+  it('has no keepFrom without open rows', () => {
+    expect(poolEconomicsKeepEpochs([]).keepFrom).toBeNull();
+  });
+});
+
+describe('syncPoolEconomics retention', () => {
+  beforeEach(async () => {
+    await env.DB.prepare("DELETE FROM governance_actions WHERE type = 'ParameterChange'").run();
+  });
+
+  it('keeps basis epochs and epochs since the oldest open proposal', async () => {
+    await pc('a#0', 'enacted', { enacted: 614 });
+    await pc('b#0', 'expired', { expiry: 661 });
+    await pc('c#0', 'active', { submitted: 655 });
+    await pc('d#0', 'pending', { submitted: 657 });
+    for (const e of [612, 613, 650, 655, 659, 660]) await storeEpoch(e);
+    await run(koios({}, 662), 662);
+    expect((await rows()).results.map((r) => r.epoch)).toEqual([613, 655, 659, 660, 662]);
+  });
+
+  it('keeps only the new epoch without parameter change rows', async () => {
+    await storeEpoch(660);
+    await storeEpoch(661);
+    await run(koios({}, 662), 662);
+    expect((await rows()).results.map((r) => r.epoch)).toEqual([662]);
+  });
+
+  it('keeps every row when the retention read fails', async () => {
+    await storeEpoch(660);
+    const real = env.DB;
+    const db = new Proxy(real, {
+      get(target, prop) {
+        if (prop === 'prepare') {
+          return (sql: string) => {
+            if (sql.includes('FROM governance_actions')) throw new Error('d1 down');
+            return target.prepare(sql);
+          };
+        }
+        if (prop === 'batch') return (stmts: D1PreparedStatement[]) => target.batch(stmts);
+        const v = Reflect.get(target, prop);
+        return typeof v === 'function' ? v.bind(target) : v;
+      },
+    }) as D1Database;
+    await syncPoolEconomics({ db, koios: koios({}, 662), cfg: preprodCfg, now: nowIn(662) });
+    expect((await rows()).results.map((r) => r.epoch)).toEqual([660, 662]);
   });
 });
