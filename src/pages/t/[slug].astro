@@ -51,8 +51,7 @@ import { headlineComposition, isSpoLedType, isCcEligible, governanceActionDescri
 import type { GaParamImpactProps } from '@/components/ga/GaParamImpact.js';
 import { buildParamImpact, inForceRow, onchainOldValuesJson } from '@/lib/governance/paramImpactView.js';
 import { basisEpoch } from '@/lib/governance/basisEpoch.js';
-import { paramRowAsOf } from '@/lib/db/paramLog.js';
-import { hasPoolEconomicsEpoch } from '@/lib/governance/poolEconomics.js';
+import { loadBasisData } from '@/lib/governance/paramBasisData.js';
 import { lateVoterIds } from '@/lib/governance/lateVotes.js';
 import { getVotesByGaId, getActionVoters, countActionVoters, getViewerVote, getActionSpoVoters, countActionSpoVoters, getActionVoterRank, getVoteTrendRows, listDrepVotePowers, type ActionVoterRow, type TrendVoteRow } from '@/lib/db/drepVotes.js';
 import { getCommitteeVotes, getCommitteeTimeline, getActionCcVoteRows } from '@/lib/db/committee.js';
@@ -585,7 +584,7 @@ const basis = govAction ? basisEpoch(govAction) : null;
 let basisRow: Record<string, unknown> | null = null;
 let poolDataStored = true;
 if (db && isParamChange && basis !== null) {
-  [basisRow, poolDataStored] = await Promise.all([paramRowAsOf(db, basis), hasPoolEconomicsEpoch(db, basis)]);
+  ({ basisRow, poolDataStored } = await loadBasisData(db, basis));
 }
 
 // Decode the on-chain payload for the Overview's "On-chain changes" block. Old→new

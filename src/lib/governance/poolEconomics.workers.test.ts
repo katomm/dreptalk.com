@@ -152,6 +152,21 @@ describe('syncPoolEconomics retention', () => {
     expect((await rows()).results.map((r) => r.epoch)).toEqual([613, 655, 659, 660, 662]);
   });
 
+  it('keeps the basis row across several syncs while the status lags and flips', async () => {
+    await pc('a#0', 'active', { submitted: 655 });
+    await storeEpoch(660);
+    // Outcome epoch 661 passed but the status is still active, so keepFrom covers 660.
+    for (const e of [661, 662]) {
+      await run(koios({}, e), e);
+      expect((await rows()).results.map((r) => r.epoch)).toContain(660);
+    }
+    await env.DB.prepare("UPDATE governance_actions SET status = 'expired', expiry_epoch = 661 WHERE id = 'a#0'").run();
+    for (const e of [663, 664, 665]) {
+      await run(koios({}, e), e);
+      expect((await rows()).results.map((r) => r.epoch)).toContain(660);
+    }
+  });
+
   it('keeps only the new epoch without parameter change rows', async () => {
     await storeEpoch(660);
     await storeEpoch(661);

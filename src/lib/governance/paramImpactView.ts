@@ -83,7 +83,8 @@ export function buildParamImpact(input: {
 
 /**
  * The parameter row in force for a ParameterChange page. A decided
- * ParameterChange uses its basis row, never today's parameters. Everything else
+ * ParameterChange uses its basis row, never today's parameters. A pending one is
+ * still open and counts like an active one. Everything else
  * uses the current epoch parameters (an unreadable blob counts as empty).
  */
 export function inForceRow(
@@ -92,7 +93,7 @@ export function inForceRow(
   rawJson: string | null,
   basisRow: Record<string, unknown> | null,
 ): Record<string, unknown> | null {
-  if (type === 'ParameterChange' && status !== 'active') return basisRow;
+  if (type === 'ParameterChange' && status !== 'active' && status !== 'pending') return basisRow;
   if (rawJson === null) return null;
   try {
     return JSON.parse(rawJson) as Record<string, unknown>;

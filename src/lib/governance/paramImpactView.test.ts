@@ -145,6 +145,10 @@ describe('inForceRow', () => {
     expect(inForceRow('ParameterChange', 'active', '{"a":1}', row)).toEqual({ a: 1 });
     expect(inForceRow('HardForkInitiation', 'enacted', '{"a":1}', row)).toEqual({ a: 1 });
   });
+  it('treats a pending ParameterChange like an active one', () => {
+    expect(inForceRow('ParameterChange', 'pending', '{"a":1}', null)).toEqual({ a: 1 });
+    expect(onchainOldValuesJson('ParameterChange', 'pending', null, '{"a":1}')).toBe('{"a":1}');
+  });
   it('is null without a blob and empty for an unreadable one', () => {
     expect(inForceRow('ParameterChange', 'active', null, null)).toBeNull();
     expect(inForceRow('ParameterChange', 'active', '{oops', null)).toEqual({});
