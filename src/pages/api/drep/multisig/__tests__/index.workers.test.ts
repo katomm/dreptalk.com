@@ -179,6 +179,14 @@ function setupHappyPathMocks() {
   evoCbor.scriptHashToHex.mockReturnValue(SCRIPT_HASH);
 }
 
+// The voted-on action, active unless a test seeds it with another status first.
+async function seedGovAction(status = 'active') {
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO governance_actions (id, type, title, status, topic_id, created_at, last_synced_at)
+     VALUES (?, 'InfoAction', 'Test Action', ?, NULL, ?, ?)`,
+  ).bind(GA_ID, status, NOW, NOW).run();
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
@@ -199,6 +207,7 @@ describe('POST /api/drep/multisig', () => {
 
   it('returns 400 on invalid input (bad gaId format)', async () => {
     await seedScriptDrepUser();
+    await seedGovAction();
     koiosMock.scriptInfo.mockResolvedValue(timelockScriptInfo());
     const res = await POST(makeCtx({
       user: { id: USER_ID, roles: ['drep'] },
@@ -223,6 +232,7 @@ describe('POST /api/drep/multisig', () => {
 
   it('returns 422 when koios reports a Plutus script type', async () => {
     await seedScriptDrepUser();
+    await seedGovAction();
     koiosMock.scriptInfo.mockResolvedValue({
       script_hash: SCRIPT_HASH,
       type: 'plutusV2',
@@ -242,6 +252,7 @@ describe('POST /api/drep/multisig', () => {
     // The hash in script_hash disagrees with what parseNativeScriptJson+nativeScriptHash computes.
     // To trigger the mismatch, supply a script_value that hashes to a different value.
     await seedScriptDrepUser();
+    await seedGovAction();
     koiosMock.scriptInfo.mockResolvedValue({
       script_hash: SCRIPT_HASH,
       type: 'timelock' as const,
@@ -259,6 +270,7 @@ describe('POST /api/drep/multisig', () => {
 
   it('returns 503 when koios fails', async () => {
     await seedScriptDrepUser();
+    await seedGovAction();
     koiosMock.scriptInfo.mockRejectedValue(new Error('koios request failed: 500'));
     const res = await POST(makeCtx({
       user: { id: USER_ID, roles: ['drep'] },
@@ -271,6 +283,7 @@ describe('POST /api/drep/multisig', () => {
 
   it('returns 422 when koios returns null (script not found)', async () => {
     await seedScriptDrepUser();
+    await seedGovAction();
     koiosMock.scriptInfo.mockResolvedValue(null);
     const res = await POST(makeCtx({
       user: { id: USER_ID, roles: ['drep'] },
@@ -283,6 +296,7 @@ describe('POST /api/drep/multisig', () => {
 
   it('returns 422 when the tx body hash does not match the supplied bodyHash', async () => {
     await seedScriptDrepUser();
+    await seedGovAction();
     koiosMock.scriptInfo.mockResolvedValue(timelockScriptInfo());
     // fromCBORHex succeeds, but toHex for the body hash returns a different value.
     const sentinelHash = {};
@@ -305,6 +319,7 @@ describe('POST /api/drep/multisig', () => {
 
   it('stores a pending multisig tx and returns an id for a valid native-script drep', async () => {
     await seedScriptDrepUser();
+    await seedGovAction();
     koiosMock.scriptInfo.mockResolvedValue(timelockScriptInfo());
     setupHappyPathMocks();
 
@@ -341,6 +356,7 @@ describe('POST /api/drep/multisig', () => {
 
   it('returns 422 when the tx voting procedure gov action id does not match the request gaId', async () => {
     await seedScriptDrepUser();
+    await seedGovAction();
     koiosMock.scriptInfo.mockResolvedValue(timelockScriptInfo());
 
     // Build a fake tx where govActionId.transactionId has a different hex
@@ -375,6 +391,7 @@ describe('POST /api/drep/multisig', () => {
 
   it('returns 422 when the tx vote tag maps to a different choice than the request vote', async () => {
     await seedScriptDrepUser();
+    await seedGovAction();
     koiosMock.scriptInfo.mockResolvedValue(timelockScriptInfo());
 
     // Build a fake tx where the vote tag is NoVote; the request says 'yes'.
@@ -407,6 +424,7 @@ describe('POST /api/drep/multisig', () => {
 
   it('returns 422 when the tx DRep voter script hash does not match the script DRep credential', async () => {
     await seedScriptDrepUser();
+    await seedGovAction();
     koiosMock.scriptInfo.mockResolvedValue(timelockScriptInfo());
 
     // The body-hash sentinel passes as usual, but scriptHashToHex returns
@@ -432,6 +450,7 @@ describe('POST /api/drep/multisig', () => {
 
   it('includes optional anchor fields in action_params when provided', async () => {
     await seedScriptDrepUser();
+    await seedGovAction();
     koiosMock.scriptInfo.mockResolvedValue(timelockScriptInfo());
     setupHappyPathMocks();
     const anchorUrl = 'https://example.com/rationale.json';
@@ -447,5 +466,30 @@ describe('POST /api/drep/multisig', () => {
     const params = JSON.parse(row!.action_params) as Record<string, unknown>;
     expect(params.anchorUrl).toBe(anchorUrl);
     expect(params.anchorHashHex).toBe(anchorHashHex);
+  });
+
+  it('returns 400 when the anchor URL is not http, https or ipfs', async () => {
+    await seedScriptDrepUser();
+    await seedGovAction();
+    const res = await POST(makeCtx({
+      user: { id: USER_ID, roles: ['drep'] },
+      body: validBody({ anchorUrl: 'javascript:alert(document.domain)' }),
+    }));
+    expect(res.status).toBe(400);
+    expect(koiosMock.scriptInfo).not.toHaveBeenCalled();
+  });
+
+  it('returns 409 when the action is no longer open for voting', async () => {
+    await seedScriptDrepUser();
+    await seedGovAction('expired');
+    koiosMock.scriptInfo.mockResolvedValue(timelockScriptInfo());
+    setupHappyPathMocks();
+    const res = await POST(makeCtx({
+      user: { id: USER_ID, roles: ['drep'] },
+      body: validBody(),
+    }));
+    expect(res.status).toBe(409);
+    const n = await env.DB.prepare('SELECT COUNT(*) AS n FROM pending_multisig_tx').first<{ n: number }>();
+    expect(n?.n).toBe(0);
   });
 });

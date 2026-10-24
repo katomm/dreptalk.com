@@ -16,12 +16,12 @@ const GA_ID = `${'a'.repeat(64)}#0`;
 const TX_HASH = 'b'.repeat(64);
 
 // Insert a governance_actions row with a topic so rationale upsert works.
-async function seedGovAction(topicId: string | null = null) {
+async function seedGovAction(topicId: string | null = null, status = 'active') {
   await env.DB.prepare(
     `INSERT OR IGNORE INTO governance_actions (id, type, title, status, topic_id, created_at, last_synced_at)
-     VALUES (?, 'InfoAction', 'Test Action', 'active', ?, ?, ?)`,
+     VALUES (?, 'InfoAction', 'Test Action', ?, ?, ?, ?)`,
   )
-    .bind(GA_ID, topicId, NOW, NOW)
+    .bind(GA_ID, status, topicId, NOW, NOW)
     .run();
 }
 
@@ -431,4 +431,110 @@ describe('POST /api/vote/record (batch)', () => {
     expect(ar?.source).toBe('dreptalk');
     expect(ar?.body_html).toContain('Batch rationale for the first action');
   });
+});
+
+// A synced on-chain vote: local_status NULL plus the columns only the chain sync fills.
+async function seedConfirmedVote(gaId: string, vote: string) {
+  await env.DB.prepare(
+    `INSERT INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, meta_url, meta_hash, block_time, synced_at, voted_power, local_status, tx_hash)
+     VALUES (?, 'DRep', ?, NULL, ?, 'https://example.com/r.json', ?, ?, ?, 1000, NULL, NULL)`,
+  ).bind(gaId, DREP_ID, vote, 'c'.repeat(64), NOW - 100, NOW - 50).run();
+}
+
+async function readVoteRow(gaId: string) {
+  return env.DB
+    .prepare(`SELECT vote, meta_url, meta_hash, block_time, voted_power, local_status, tx_hash FROM drep_votes WHERE ga_id = ? AND voter_id = ?`)
+    .bind(gaId, DREP_ID)
+    .first();
+}
+
+describe('POST /api/vote/record (action status)', () => {
+  it('refuses a vote on a decided action and leaves the synced vote untouched', async () => {
+    await seedUser();
+    const topicId = await seedTopic();
+    await seedGovAction(topicId, 'expired');
+    await seedConfirmedVote(GA_ID, 'yes');
+    const before = await readVoteRow(GA_ID);
+
+    const res = await POST(makeCtx({
+      user: { id: USER_ID, roles: ['drep'] },
+      body: { gaId: GA_ID, vote: 'no', rationaleText: 'changed my mind', txHash: TX_HASH },
+    }));
+    expect(res.status).toBe(409);
+    expect(await readVoteRow(GA_ID)).toEqual(before);
+    const ar = await env.DB
+      .prepare(`SELECT 1 FROM action_rationale WHERE ga_id = ? AND voter_id = ?`)
+      .bind(GA_ID, DREP_ID)
+      .first();
+    expect(ar).toBeNull();
+  });
+
+  it('refuses a vote on an unknown action', async () => {
+    await seedUser();
+    const res = await POST(makeCtx({
+      user: { id: USER_ID, roles: ['drep'] },
+      body: { gaId: GA_ID, vote: 'yes', txHash: TX_HASH },
+    }));
+    expect(res.status).toBe(409);
+    expect(await getViewerVote(env.DB, GA_ID, DREP_ID)).toBeNull();
+  });
+
+  it('refuses the whole batch when one action is no longer active', async () => {
+    await seedUser();
+    await seedGovAction(null, 'ratified');
+    await seedSecondGovAction();
+
+    const res = await POST(makeCtx({
+      user: { id: USER_ID, roles: ['drep'] },
+      body: { txHash: TX_HASH, votes: [{ gaId: GA_ID, vote: 'yes' }, { gaId: GA_ID_2, vote: 'no' }] },
+    }));
+    expect(res.status).toBe(409);
+    expect(await getViewerVote(env.DB, GA_ID, DREP_ID)).toBeNull();
+    expect(await getViewerVote(env.DB, GA_ID_2, DREP_ID)).toBeNull();
+  });
+
+  it('shows a re-vote on an active action as pending and keeps the voting power', async () => {
+    await seedUser();
+    await seedGovAction();
+    await seedConfirmedVote(GA_ID, 'yes');
+
+    const res = await POST(makeCtx({
+      user: { id: USER_ID, roles: ['drep'] },
+      body: { gaId: GA_ID, vote: 'no', txHash: TX_HASH },
+    }));
+    expect(res.status).toBe(200);
+    const row = await readVoteRow(GA_ID);
+    expect(row?.vote).toBe('no');
+    expect(row?.local_status).toBe('pending');
+    expect(row?.tx_hash).toBe(TX_HASH);
+    expect(row?.voted_power).toBe(1000);
+  });
+});
+
+describe('POST /api/vote/record (rationale URL)', () => {
+  for (const url of ['javascript:alert(document.domain)', 'data:text/html,<b>x</b>', 'ftp://example.com/r.json']) {
+    it(`rejects the scheme of ${url.split(':')[0]}`, async () => {
+      await seedUser();
+      await seedGovAction();
+      const res = await POST(makeCtx({
+        user: { id: USER_ID, roles: ['drep'] },
+        body: { gaId: GA_ID, vote: 'yes', rationaleUrl: url, txHash: TX_HASH },
+      }));
+      expect(res.status).toBe(400);
+      expect(await getViewerVote(env.DB, GA_ID, DREP_ID)).toBeNull();
+    });
+  }
+
+  for (const url of ['https://dreptalk.com/vote-rationale/abc.json', `ipfs://bafkrei${'a'.repeat(52)}`]) {
+    it(`accepts the scheme of ${url.split(':')[0]}`, async () => {
+      await seedUser();
+      await seedGovAction();
+      const res = await POST(makeCtx({
+        user: { id: USER_ID, roles: ['drep'] },
+        body: { gaId: GA_ID, vote: 'yes', rationaleUrl: url, txHash: TX_HASH },
+      }));
+      expect(res.status).toBe(200);
+      expect((await getViewerVote(env.DB, GA_ID, DREP_ID))?.meta_url).toBe(url);
+    });
+  }
 });

@@ -12,6 +12,7 @@ import ShareButton from '@/components/ShareButton.astro';
 import { enhanceStoredHtml } from '@/lib/markdown.js';
 import { positionsVoterAnchor } from '@/lib/governance/voteStatement.js';
 import { formatAdaCompact } from '@/lib/forum/view.js';
+import { resolveAnchorUrl } from '@/lib/governance/metadata.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import type { AuthorDescriptor } from '@/lib/forum/author.js';
 import type { SupersededVote } from '@/lib/db/voteHistory.js';
@@ -36,6 +37,9 @@ interface Props {
 }
 const p = Astro.props as Props;
 const power = p.votingPower ? formatAdaCompact(p.votingPower) : null;
+// The anchor URL comes from the voter, so it is linked through the same scheme
+// allowlist as every other anchor (ipfs:// also becomes a gateway link).
+const rawRationaleHref = p.rawRationaleUrl ? resolveAnchorUrl(p.rawRationaleUrl) : null;
 // Matches the 96px hero avatar size used on the DRep and SPO profile headers
 // (src/pages/dreps/[drepId].astro, src/pages/spos/[poolId].astro); there is no
 // AVATAR_SIZE bucket for it, so it stays hard-coded here too.
@@ -79,8 +83,8 @@ const backHref = `${p.actionHref}${positionsVoterAnchor(p.author.authorId, p.rol
   {p.earlier.length > 0 && <EarlierVotes earlier={p.earlier} now={p.now} />}
 
   <div class="vstmt__actions">
-    {p.rawRationaleUrl && (
-      <a class="btn btn-primary" href={p.rawRationaleUrl} rel="nofollow noopener" target="_blank">Raw rationale</a>
+    {rawRationaleHref && (
+      <a class="btn btn-primary" href={rawRationaleHref} rel="nofollow noopener" target="_blank">Raw rationale</a>
     )}
     <a class="btn btn-secondary" href={backHref} rel="nofollow">All votes on this action</a>
     <ShareButton url={new URL(Astro.url.pathname, Astro.url.origin).href} title={`How ${p.author.displayName} voted on ${p.actionTitle}`} ariaLabel="Share this rationale" />
