@@ -190,3 +190,27 @@ describe('handleReactToPost: rate limiting', () => {
     expect(limited).toBe(true);
   });
 });
+
+describe('handleReactToPost: co-proposer grant sessions', () => {
+  it('refuses a session whose only writer role comes from a co-proposer grant', async () => {
+    const postId = await newPost('someone-else');
+    await insertGrant({ id: 'grant-react-shared', proposerUserId: 'proposer-react', coUserId: 'co-react', status: 'active' });
+    const r = await handleReactToPost(
+      reactInput({ id: 'co-react', roles: ['proposer'], grantId: 'grant-react-shared' }, postId),
+      'down',
+    );
+    expect(r.status).toBe(403);
+    expect((await getPostById(db(), postId))!.down_count).toBe(0);
+  });
+
+  it('counts a co-proposer who holds an on-chain writer role of their own', async () => {
+    const postId = await newPost('someone-else');
+    await insertGrant({ id: 'grant-react-own', proposerUserId: 'proposer-react', coUserId: 'co-react-drep', status: 'active' });
+    const r = await handleReactToPost(
+      reactInput({ id: 'co-react-drep', roles: ['drep', 'proposer'], grantId: 'grant-react-own' }, postId),
+      'up',
+    );
+    expect(r.status).toBe(200);
+    expect(r.json).toMatchObject({ upCount: 1 });
+  });
+});

@@ -104,3 +104,20 @@ describe('postViewerContext: canEdit', () => {
     expect(ctx.canEdit).toBe(false);
   });
 });
+
+describe('postViewerContext: co-proposer grant sessions', () => {
+  const grantOnly = { id: 'u-co', roles: ['proposer'], grantId: 'g1' };
+  const grantWithOwnRole = { id: 'u-co-drep', roles: ['drep', 'proposer'], grantId: 'g2' };
+
+  it('offers neither flag nor reactions when the grant is the only writer role', () => {
+    const c = postViewerContext({ author_id: 'other', hidden: false }, grantOnly, false);
+    expect(c.canFlag).toBe(false);
+    expect(c.reactions).toBe('readonly');
+  });
+
+  it('keeps both for a co-proposer with an on-chain writer role of their own', () => {
+    const c = postViewerContext({ author_id: 'other', hidden: false }, grantWithOwnRole, false);
+    expect(c.canFlag).toBe(true);
+    expect(c.reactions).toBe('interactive');
+  });
+});

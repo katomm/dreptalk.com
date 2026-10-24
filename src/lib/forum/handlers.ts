@@ -10,7 +10,7 @@ import { renderMarkdown, type MentionLink } from '../markdown.js';
 import { getCategory, isDiscussion, PROPOSAL_DRAFTS_CATEGORY_SLUG } from '../../../config/categories.js';
 import { checkRate } from '../rate.js';
 import type { RateLimiter } from '../rateLimiterDO.js';
-import { isWriter, isModerator, WRITER_ROLES } from '../auth/roles.js';
+import { isWriter, isModerator, canJudgePosts, WRITER_ROLES } from '../auth/roles.js';
 import { isGrantActiveForUser } from '../db/proposerGrants.js';
 import { isDraftAuthor, unlinkDraftAction } from '../db/draftLinks.js';
 import { isSystemAuthor } from './author.js';
@@ -345,6 +345,10 @@ async function authorizeFlag(
   }
   const gateResult = await writeGate(db, user);
   if (gateResult) return { fail: gateResult };
+  // A grant-lent proposer role alone does not count as a flagger of its own.
+  if (!canJudgePosts(user)) {
+    return { fail: { status: 403, json: { ok: false, error: 'forbidden' } } };
+  }
 
   // 2 + 3. Rate limit (30 toggles per 600s per user) and post lookup are
   // independent round-trips (DO vs D1), so they run concurrently. The rate
@@ -437,6 +441,10 @@ async function handleReactionChange(
     }
     const gateResult = await writeGate(db, user);
     if (gateResult) return gateResult;
+    // A grant-lent proposer role alone does not count as a reactor of its own.
+    if (!canJudgePosts(user)) {
+      return { status: 403, json: { ok: false, error: 'forbidden' } };
+    }
 
     // 2 + 3. Rate limit (60 toggles per 600s; reactions are lightweight) and
     // post lookup are independent round-trips (DO vs D1), so they run

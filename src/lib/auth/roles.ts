@@ -17,6 +17,18 @@ export function isWriter(roles: readonly string[]): boolean {
   return roles.some((r) => (WRITER_ROLES as readonly string[]).includes(r));
 }
 
+/**
+ * True when the user may flag or react to posts. Each flag and reaction counts
+ * one writer, so it needs a writer role of the account's own. The 'proposer'
+ * role a co-proposer grant lends a session belongs to the proposer who issued
+ * it, and one proposer can hand out several grants: a session whose only writer
+ * role comes from a grant would let a single identity count several times.
+ */
+export function canJudgePosts(user: { roles: readonly string[]; grantId?: string | null }): boolean {
+  if (!user.grantId) return isWriter(user.roles);
+  return isWriter(user.roles.filter((r) => r !== 'proposer'));
+}
+
 /** True when the user holds a moderation role (admin or moderator). */
 export function isModerator(roles: readonly string[]): boolean {
   return roles.some((r) => (MODERATOR_ROLES as readonly string[]).includes(r));
