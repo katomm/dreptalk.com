@@ -38,7 +38,7 @@ afterEach(() => {
 });
 
 function setup(keys: ParamKey[], current: ParamValuesJson = CURRENT) {
-  render(<GaParamImpact network="preprod" keys={keys} current={current} proposed={PROPOSED} />);
+  render(<GaParamImpact network="preprod" keys={keys} current={current} proposed={PROPOSED} basisEpoch={null} outcome="open" />);
   return screen.getByRole('button', { name: 'Impact of these changes' });
 }
 

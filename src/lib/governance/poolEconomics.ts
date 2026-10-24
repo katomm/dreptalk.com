@@ -48,6 +48,12 @@ export async function loadPoolEconomics(db: D1Database): Promise<{ epoch: number
   return db.prepare('SELECT epoch, body FROM pool_economics ORDER BY epoch DESC LIMIT 1').first<{ epoch: number; body: string }>();
 }
 
+/** Whether a distribution is stored for exactly this epoch. */
+export async function hasPoolEconomicsEpoch(db: D1Database, epoch: number): Promise<boolean> {
+  const row = await db.prepare('SELECT 1 AS present FROM pool_economics WHERE epoch = ?').bind(epoch).first();
+  return row !== null;
+}
+
 /**
  * Stores the distribution of the clock's epoch. Skips Koios when that epoch is
  * stored already. Data labelled with another epoch (Koios lagging at an epoch

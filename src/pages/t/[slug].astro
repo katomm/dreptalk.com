@@ -50,6 +50,9 @@ import {
 import { headlineComposition, isSpoLedType, isCcEligible, governanceActionDescription } from '@/lib/governance/view.js';
 import type { GaParamImpactProps } from '@/components/ga/GaParamImpact.js';
 import { buildParamImpact } from '@/lib/governance/paramImpactView.js';
+import { basisEpoch } from '@/lib/governance/basisEpoch.js';
+import { paramRowAsOf } from '@/lib/db/paramLog.js';
+import { hasPoolEconomicsEpoch } from '@/lib/governance/poolEconomics.js';
 import { lateVoterIds } from '@/lib/governance/lateVotes.js';
 import { getVotesByGaId, getActionVoters, countActionVoters, getViewerVote, getActionSpoVoters, countActionSpoVoters, getActionVoterRank, getVoteTrendRows, listDrepVotePowers, type ActionVoterRow, type TrendVoteRow } from '@/lib/db/drepVotes.js';
 import { getCommitteeVotes, getCommitteeTimeline, getActionCcVoteRows } from '@/lib/db/committee.js';
@@ -575,18 +578,44 @@ if (govAction && (trendRows.length || ccVotes.length)) {
 }
 const trendHref = topic ? `/t/${topic.slug}/?tab=history` : '';
 
+// Parameters in force for a decided ParameterChange come from the log as of the
+// action's basis epoch, never from the current epoch. Overview only.
+const isParamChange = tab === 'overview' && govAction?.type === 'ParameterChange';
+const basis = govAction ? basisEpoch(govAction) : null;
+const basisRow = db && isParamChange && basis !== null ? await paramRowAsOf(db, basis) : null;
+
 // Decode the on-chain payload for the Overview's "On-chain changes" block. Old→new
-// reads the cached epoch_params blob; both are null-safe and render nothing if absent.
+// reads the cached epoch_params blob (the basis row for a decided action), both are
+// null-safe and render nothing if absent.
 const onchainChanges = govAction
-  ? decodeOnchainChanges(govAction.onchainPayload ?? null, params?.rawJson ?? null, network)
+  ? decodeOnchainChanges(govAction.onchainPayload ?? null, basisRow ? JSON.stringify(basisRow) : (params?.rawJson ?? null), network)
   : null;
 
-// Impact charts for an active parameter change: the proposed values against the
-// ones in force. Null when no offered parameter has both values.
-const paramImpact: GaParamImpactProps | null =
-  tab === 'overview' && govAction?.type === 'ParameterChange'
-    ? buildParamImpact(govAction.onchainPayload ?? null, params?.rawJson ?? null, govAction.status, network)
-    : null;
+// Impact charts for a parameter change: the proposed values against the ones in
+// force. Null when no offered parameter has both values.
+let paramImpact: GaParamImpactProps | null = null;
+if (govAction && isParamChange) {
+  let currentRow: Record<string, unknown> | null = null;
+  let poolDataStored = true;
+  if (govAction.status === 'active') {
+    try {
+      currentRow = JSON.parse(params?.rawJson ?? '{}') as Record<string, unknown>;
+    } catch {
+      currentRow = null;
+    }
+  } else if (basisRow && basis !== null && db) {
+    currentRow = basisRow;
+    poolDataStored = await hasPoolEconomicsEpoch(db, basis);
+  }
+  paramImpact = buildParamImpact({
+    payloadJson: govAction.onchainPayload ?? null,
+    status: govAction.status,
+    currentRow,
+    basisEpoch: basis,
+    poolDataStored,
+    network,
+  });
+}
 
 // Committee member names for the Overview's "On-chain changes" block: only read
 // on the Overview tab (where it renders) and only when the payload actually adds

@@ -3,6 +3,7 @@
 import { lazy, Suspense, useId, useMemo, useState } from 'react';
 import { PARAM_DEFS, anyNeedsPoolData, type ParamKey, type ParamValuesJson } from '@/lib/governance/paramDefs.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
+import type { ImpactOutcome } from '@/lib/governance/basisEpoch.js';
 import { usePoolEconomics } from '@/components/govAction/paramChange/usePoolEconomics.js';
 
 const GaParamImpactCharts = lazy(() => import('./GaParamImpactCharts.js'));
@@ -13,6 +14,9 @@ export interface GaParamImpactProps {
   keys: ParamKey[];
   current: ParamValuesJson;
   proposed: ParamValuesJson;
+  /** The epoch the in force values and pool data are from, null while the action is active. */
+  basisEpoch: number | null;
+  outcome: ImpactOutcome;
 }
 
 export default function GaParamImpact({ network, keys: offered, current, proposed }: GaParamImpactProps) {

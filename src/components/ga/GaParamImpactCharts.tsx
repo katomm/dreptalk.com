@@ -16,7 +16,7 @@ export default function GaParamImpactCharts({
   proposed: proposedJson,
   economics,
   onRetry,
-}: GaParamImpactProps & { economics: PoolEconomicsState; onRetry: () => void }) {
+}: Omit<GaParamImpactProps, 'basisEpoch' | 'outcome'> & { economics: PoolEconomicsState; onRetry: () => void }) {
   const current = useMemo(() => valuesFromJson(currentJson), [currentJson]);
   // Only the shown keys go into the model, so the charts match the blocks.
   // The parent's key list holds only keys with a proposed value.
