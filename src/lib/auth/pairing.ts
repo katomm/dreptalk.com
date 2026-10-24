@@ -27,7 +27,7 @@ export interface PairingStart {
 
 export type PollOutcome =
   | { status: 'pending' }
-  | { status: 'consumed'; userId: string; approverRoles: string | null }
+  | { status: 'consumed'; userId: string; approverRoles: string | null; approverLifetimeStart: number | null }
   | { status: 'unknown' };
 
 /**
@@ -132,15 +132,17 @@ export async function lookupPairing(
  * cap. The cap is the CEILING the device can redeem, not the granted roles:
  * revocation-aware resolution (re-checking the account row against the current
  * allowlist) still happens at redemption, which then intersects that result
- * against this snapshot. Returns false for unknown, already approved and
- * expired codes alike.
+ * against this snapshot. opts.lifetimeStart is the start of the approving
+ * session's absolute lifetime, which the device session inherits at
+ * redemption. Returns false for unknown, already approved and expired codes
+ * alike.
  */
 export async function approvePairing(
   db: D1Database,
   rawCode: string,
   userId: string,
   approverRoles: string[],
-  opts?: { now?: number },
+  opts?: { now?: number; lifetimeStart?: number },
 ): Promise<boolean> {
   const code = normalizePairingCode(rawCode);
   if (!code) return false;
@@ -150,11 +152,11 @@ export async function approvePairing(
   const row = await db
     .prepare(
       `UPDATE device_pairings
-          SET status = 'approved', user_id = ?1, approver_roles = ?2
+          SET status = 'approved', user_id = ?1, approver_roles = ?2, approver_lifetime_start = ?5
         WHERE code_hash = ?3 AND status = 'pending' AND expires_at > ?4
         RETURNING pairing_id`,
     )
-    .bind(userId, approverRolesJson, codeHash, now)
+    .bind(userId, approverRolesJson, codeHash, now, opts?.lifetimeStart ?? null)
     .first<{ pairing_id: string }>();
   return row !== null;
 }
@@ -195,11 +197,16 @@ export async function pollPairing(
     .prepare(
       `UPDATE device_pairings SET status = 'consumed'
         WHERE pairing_id = ?1 AND status = 'approved'
-        RETURNING user_id, approver_roles`,
+        RETURNING user_id, approver_roles, approver_lifetime_start`,
     )
     .bind(pairingId)
-    .first<{ user_id: string | null; approver_roles: string | null }>();
+    .first<{ user_id: string | null; approver_roles: string | null; approver_lifetime_start: number | null }>();
 
   if (claimed === null || !claimed.user_id) return { status: 'unknown' };
-  return { status: 'consumed', userId: claimed.user_id, approverRoles: claimed.approver_roles };
+  return {
+    status: 'consumed',
+    userId: claimed.user_id,
+    approverRoles: claimed.approver_roles,
+    approverLifetimeStart: claimed.approver_lifetime_start,
+  };
 }

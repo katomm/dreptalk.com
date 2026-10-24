@@ -3,7 +3,7 @@
 // does not cover Worker-generated responses on Cloudflare Workers Static Assets).
 import { defineMiddleware } from 'astro:middleware';
 import { env, waitUntil } from 'cloudflare:workers';
-import { parseSessionToken, getSession, buildSessionCookie, clearSessionCookie } from './lib/auth/session.js';
+import { parseSessionToken, getSession, buildSessionCookie, clearSessionCookie, sessionLifetimeStart } from './lib/auth/session.js';
 import { sessionActivityHook } from './lib/auth/sessionActivity.js';
 import { crossOriginWriteResponse } from './lib/http/origin.js';
 import { applySecurityHeaders, relaxStyleSrc } from './lib/http/securityHeaders.js';
@@ -117,6 +117,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
           drepId: record.drepId,
           grantId: record.grantId ?? null,
           actsFor: record.actsFor ?? null,
+          lifetimeStart: sessionLifetimeStart(record),
         };
       } else {
         // Expired, revoked, or past the absolute lifetime cap: drop the dead

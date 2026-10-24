@@ -111,6 +111,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
         {
           onCreate: db ? sessionActivityHook(db) : undefined,
           label: sessionDeviceLabel(request.headers.get('user-agent')),
+          // The device lives no longer than the session that approved it, so
+          // pairing again and again never outlasts the wallet sign-in.
+          lifetimeStart: outcome.approverLifetimeStart,
         },
       );
     } catch {

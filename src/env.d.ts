@@ -17,6 +17,11 @@ declare namespace App {
       drepId?: string | null;
       grantId?: string | null;
       actsFor?: { userId: string; stakeAddr: string } | null;
+      /**
+       * Start of the session's absolute lifetime (Unix seconds), handed on to
+       * a device this session approves for pairing.
+       */
+      lifetimeStart?: number;
     } | null;
     /**
      * Request-scoped memo of the signed-in header data (identity + unread
