@@ -81,3 +81,18 @@ export function buildParamImpact(input: {
     ? { network, keys, current: valuesToJson(current), proposed: valuesToJson(proposed), basisEpoch: input.basisEpoch, outcome }
     : null;
 }
+
+/**
+ * The old values JSON for the on-chain changes block. A decided ParameterChange
+ * uses its basis row or nothing, never today's parameters. Everything else keeps
+ * the current epoch parameters.
+ */
+export function onchainOldValuesJson(
+  type: string | null | undefined,
+  status: string,
+  basisRow: Record<string, unknown> | null,
+  rawJson: string | null,
+): string | null {
+  if (type !== 'ParameterChange' || status === 'active') return rawJson;
+  return basisRow ? JSON.stringify(basisRow) : null;
+}

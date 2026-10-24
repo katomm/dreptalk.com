@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { basisEpoch } from './basisEpoch.js';
-import { buildParamImpact, impactSectionKeys, proposedParamValues } from './paramImpactView.js';
+import { onchainOldValuesJson, buildParamImpact, impactSectionKeys, proposedParamValues } from './paramImpactView.js';
 import type { ParamValues } from './paramDefs.js';
 
 const payload = (map: Record<string, unknown>) => JSON.stringify({ tag: 'ParameterChange', contents: [null, map, null] });
@@ -119,5 +119,18 @@ describe('buildParamImpact', () => {
   it('is null for other statuses and a missing row', () => {
     expect(build({ status: 'closed' })).toBeNull();
     expect(build({ currentRow: null })).toBeNull();
+  });
+});
+
+describe('onchainOldValuesJson', () => {
+  const rawJson = '{"optimal_pool_count":500}';
+  const row = { optimal_pool_count: 400 };
+  it('keeps the current parameters for an active change and other types', () => {
+    expect(onchainOldValuesJson('ParameterChange', 'active', null, rawJson)).toBe(rawJson);
+    expect(onchainOldValuesJson('HardForkInitiation', 'enacted', null, rawJson)).toBe(rawJson);
+  });
+  it('uses the basis row for a decided change, or nothing', () => {
+    expect(onchainOldValuesJson('ParameterChange', 'enacted', row, rawJson)).toBe(JSON.stringify(row));
+    expect(onchainOldValuesJson('ParameterChange', 'enacted', null, rawJson)).toBeNull();
   });
 });

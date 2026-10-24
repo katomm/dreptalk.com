@@ -49,7 +49,7 @@ import {
 } from '@/lib/db/governance.js';
 import { headlineComposition, isSpoLedType, isCcEligible, governanceActionDescription } from '@/lib/governance/view.js';
 import type { GaParamImpactProps } from '@/components/ga/GaParamImpact.js';
-import { buildParamImpact } from '@/lib/governance/paramImpactView.js';
+import { buildParamImpact, onchainOldValuesJson } from '@/lib/governance/paramImpactView.js';
 import { basisEpoch } from '@/lib/governance/basisEpoch.js';
 import { paramRowAsOf } from '@/lib/db/paramLog.js';
 import { hasPoolEconomicsEpoch } from '@/lib/governance/poolEconomics.js';
@@ -585,10 +585,10 @@ const basis = govAction ? basisEpoch(govAction) : null;
 const basisRow = db && isParamChange && basis !== null ? await paramRowAsOf(db, basis) : null;
 
 // Decode the on-chain payload for the Overview's "On-chain changes" block. Old→new
-// reads the cached epoch_params blob (the basis row for a decided action), both are
+// reads the cached epoch_params blob (the basis row or nothing for a decided parameter change), both are
 // null-safe and render nothing if absent.
 const onchainChanges = govAction
-  ? decodeOnchainChanges(govAction.onchainPayload ?? null, basisRow ? JSON.stringify(basisRow) : (params?.rawJson ?? null), network)
+  ? decodeOnchainChanges(govAction.onchainPayload ?? null, onchainOldValuesJson(govAction.type, govAction.status, basisRow, params?.rawJson ?? null), network)
   : null;
 
 // Impact charts for a parameter change: the proposed values against the ones in
