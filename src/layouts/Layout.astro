@@ -7,6 +7,7 @@ import SearchTrigger from '@/components/search/SearchTrigger.astro';
 import RoleEntry from '@/components/RoleEntry.astro';
 import JsonLd from '@/components/JsonLd.astro';
 import LogoMark from '@/components/LogoMark.astro';
+import { showLogoHat } from '@/lib/brand/season';
 import ShareButton from '@/components/ShareButton.astro';
 import { currentNetwork } from '@/lib/api/response';
 import { NAV, NAV_LINKS, isNavGroup, type NavGroup } from '@/lib/config/nav.js';
@@ -101,6 +102,7 @@ const activeHref = NAV_LINKS.map((l) => l.href)
   })
   .sort((a, b) => navPath(b).length - navPath(a).length)[0];
 const isActive = (href: string) => href === activeHref;
+const logoHat = showLogoHat(Astro.url);
 const groupActive = (group: NavGroup) => group.items.some((item) => isActive(item.href));
 
 ---
@@ -190,7 +192,7 @@ const groupActive = (group: NavGroup) => group.items.some((item) => isActive(ite
           sideways on every navigation between list and detail pages. */}
       <div class="site-header__inner container container--wide">
         <a class="brand" href="/" aria-label="DRepTalk home">
-          <LogoMark style="height:38px;width:38px;color:var(--muted)" />
+          <LogoMark style="height:38px;width:38px;color:var(--muted)" hat={logoHat} />
           <span class="brand__word">DRep<span class="grad-text">Talk</span></span>
         </a>
 
@@ -305,7 +307,7 @@ const groupActive = (group: NavGroup) => group.items.some((item) => isActive(ite
       <div class="site-footer__inner container container--wide">
         <div class="site-footer__brand">
           <a class="brand" href="/" aria-label="DRepTalk home">
-            <LogoMark style="height:34px;width:34px;color:var(--muted)" />
+            <LogoMark style="height:34px;width:34px;color:var(--muted)" hat={logoHat} />
             <span class="brand__word">DRep<span class="grad-text">Talk</span></span>
           </a>
           <p class="site-footer__tagline">Where Cardano governance is discussed, voted, and explained.</p>
