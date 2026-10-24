@@ -331,6 +331,22 @@ describe('absolute session lifetime', () => {
     expect(await getSession(kv(), token, { now: now + 91 * DAY })).toBeNull();
     expect(await listSessionsForUser(kv(), 'user-cap-2', { now: now + 91 * DAY })).toEqual([]);
   });
+
+  it('counts an inherited lifetime start, not its own creation, toward the cap', async () => {
+    const start = 1_700_000_000;
+    const now = start + 80 * DAY;
+    const token = await createSession(kv(), { id: 'user-cap-3', roles: [] }, { now, lifetimeStart: start });
+    const record = await getSession(kv(), token, { now });
+    // createdAt stays the real sign-in time on this device, for the device list.
+    expect(record!.createdAt).toBe(now);
+    expect(await getSession(kv(), token, { now: start + 91 * DAY })).toBeNull();
+  });
+
+  it('never lets an inherited lifetime start lie in the future', async () => {
+    const now = 1_700_000_000;
+    const token = await createSession(kv(), { id: 'user-cap-4', roles: [] }, { now, lifetimeStart: now + 30 * DAY });
+    expect(await getSession(kv(), token, { now: now + 91 * DAY })).toBeNull();
+  });
 });
 
 describe('onSlide callback', () => {

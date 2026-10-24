@@ -7,8 +7,9 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { createPairing, approvePairing } from '@/lib/auth/pairing';
-import { getSession, parseSessionToken } from '@/lib/auth/session';
+import { getSession, parseSessionToken, sessionLifetimeStart } from '@/lib/auth/session';
 import { POST } from '../poll';
+import { POST as APPROVE } from '../approve';
 
 const NOW = 1_700_000_000;
 const USER_ID = 'user-pair-poll-1';
@@ -275,5 +276,37 @@ describe('POST /api/auth/pair/poll', () => {
       .bind(USER_ID)
       .first<{ n: number }>();
     expect(row!.n).toBe(0);
+  });
+});
+
+describe('POST /api/auth/pair/poll (session age)', () => {
+  it('gives the paired device the approving session\'s age, so pairing cannot outlast the wallet sign-in', async () => {
+    await seedUser(1, DREP_ID);
+    const approverStart = Math.floor(Date.now() / 1000) - 89 * 86_400;
+    const p = await createPairing(env.DB, { userAgent: null });
+    await approvePairing(env.DB, p.code, USER_ID, ['drep'], { lifetimeStart: approverStart });
+
+    const res = await POST(ctx({ pairingId: p.pairingId, deviceSecret: p.deviceSecret }));
+    expect(res.status).toBe(200);
+    const session = await sessionFromResponse(res);
+    expect(sessionLifetimeStart(session)).toBe(approverStart);
+  });
+
+  it('carries the age through the approve route from the approving session', async () => {
+    await seedUser(1, DREP_ID);
+    const approverStart = Math.floor(Date.now() / 1000) - 60 * 86_400;
+    const p = await createPairing(env.DB, { userAgent: null });
+    const approveReq = new Request('https://dreptalk.com/api/auth/pair/approve', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ code: p.code }),
+    });
+    const approverLocals = { user: { id: USER_ID, roles: ['drep'], lifetimeStart: approverStart } } as unknown as App.Locals;
+    const approved = await APPROVE({ request: approveReq, locals: approverLocals } as Parameters<typeof APPROVE>[0]);
+    expect(approved.status).toBe(200);
+
+    const res = await POST(ctx({ pairingId: p.pairingId, deviceSecret: p.deviceSecret }));
+    expect(res.status).toBe(200);
+    expect(sessionLifetimeStart(await sessionFromResponse(res))).toBe(approverStart);
   });
 });

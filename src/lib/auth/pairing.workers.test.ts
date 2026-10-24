@@ -130,21 +130,22 @@ describe('pollPairing', () => {
     await approvePairing(db(), p.code, 'user-1', ['drep'], { now: NOW });
 
     const first = await pollPairing(db(), p.pairingId, p.deviceSecret, { now: NOW });
-    expect(first).toEqual({ status: 'consumed', userId: 'user-1', approverRoles: JSON.stringify(['drep']) });
+    expect(first).toEqual({ status: 'consumed', userId: 'user-1', approverRoles: JSON.stringify(['drep']), approverLifetimeStart: null });
 
     const second = await pollPairing(db(), p.pairingId, p.deviceSecret, { now: NOW });
     expect(second).toEqual({ status: 'unknown' });
   });
 
-  it('carries the stored approver role cap alongside the claimed user id', async () => {
+  it('carries the stored approver role cap and lifetime start alongside the claimed user id', async () => {
     const p = await createPairing(db(), { userAgent: null, now: NOW });
-    await approvePairing(db(), p.code, 'user-1', ['member'], { now: NOW });
+    await approvePairing(db(), p.code, 'user-1', ['member'], { now: NOW, lifetimeStart: NOW - 3600 });
 
     const outcome = await pollPairing(db(), p.pairingId, p.deviceSecret, { now: NOW });
     expect(outcome).toEqual({
       status: 'consumed',
       userId: 'user-1',
       approverRoles: JSON.stringify(['member']),
+      approverLifetimeStart: NOW - 3600,
     });
   });
 
@@ -155,7 +156,7 @@ describe('pollPairing', () => {
     await db().prepare('UPDATE device_pairings SET approver_roles = NULL WHERE pairing_id = ?1').bind(p.pairingId).run();
 
     const outcome = await pollPairing(db(), p.pairingId, p.deviceSecret, { now: NOW });
-    expect(outcome).toEqual({ status: 'consumed', userId: 'user-1', approverRoles: null });
+    expect(outcome).toEqual({ status: 'consumed', userId: 'user-1', approverRoles: null, approverLifetimeStart: null });
   });
 
   it('refuses a wrong secret', async () => {

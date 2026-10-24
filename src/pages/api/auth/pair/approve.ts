@@ -48,7 +48,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
       return jsonResponse({ ok: false, error: 'invalid request' }, 400);
     }
 
-    const approved = await approvePairing(db, parsed.code, user.id, user.roles);
+    const approved = await approvePairing(db, parsed.code, user.id, user.roles, {
+      lifetimeStart: user.lifetimeStart,
+    });
     // A clear failure, so a typo reads as a typo instead of stranding the user
     // watching a phone that never signs in. Expired and unknown stay merged.
     if (!approved) return jsonResponse({ ok: false, error: 'unknown_code' }, 404);

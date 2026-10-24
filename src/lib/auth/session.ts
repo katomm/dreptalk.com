@@ -56,7 +56,23 @@ export interface SessionRecord {
    */
   label?: string | null;
   createdAt: number;
+  /**
+   * Start of the absolute lifetime when it differs from createdAt: a paired
+   * device inherits the approving session's start, so pairing never extends
+   * the life a wallet sign-in began. Absent means createdAt.
+   */
+  lifetimeStart?: number;
   lastSeen: number;
+}
+
+/** Start of a session's absolute lifetime, the point SESSION_ABSOLUTE_TTL_SEC counts from. */
+export function sessionLifetimeStart(record: Pick<SessionRecord, 'createdAt' | 'lifetimeStart'>): number {
+  return record.lifetimeStart ?? record.createdAt;
+}
+
+/** The moment a session reaches its absolute cap and is dead however recently it was used. */
+function lifetimeEndsAt(record: Pick<SessionRecord, 'createdAt' | 'lifetimeStart'>): number {
+  return sessionLifetimeStart(record) + SESSION_ABSOLUTE_TTL_SEC;
 }
 
 /** One row of the signed-in device list. */
@@ -135,7 +151,7 @@ async function pruneHashFromIndex(kv: KVNamespace, key: string, hash: string): P
  * cap would be reached first, so KV drops the record no later than the cap.
  */
 function renewalTtl(record: SessionRecord, now: number): number {
-  const untilCap = record.createdAt + SESSION_ABSOLUTE_TTL_SEC - now;
+  const untilCap = lifetimeEndsAt(record) - now;
   return Math.max(60, Math.min(SESSION_TTL_SEC, untilCap));
 }
 
@@ -150,6 +166,8 @@ function renewalTtl(record: SessionRecord, now: number): number {
  * @param kv - The SESSIONS KV namespace.
  * @param user - User identity.
  * @param opts.now - Override for current Unix time in seconds.
+ * @param opts.lifetimeStart - Start of the absolute lifetime when it is
+ * inherited from another session (see SessionRecord.lifetimeStart).
  * @param opts.onCreate - Optional best-effort callback fired with the user id
  * once the session is minted. Never affects the returned token.
  */
@@ -162,7 +180,7 @@ export async function createSession(
     grantId?: string | null;
     actsFor?: { userId: string; stakeAddr: string } | null;
   },
-  opts?: { now?: number; onCreate?: (userId: string) => void; label?: string | null },
+  opts?: { now?: number; lifetimeStart?: number | null; onCreate?: (userId: string) => void; label?: string | null },
 ): Promise<string> {
   const now = Math.floor(opts?.now ?? Date.now() / 1000);
   const rawBytes = new Uint8Array(32);
@@ -183,10 +201,13 @@ export async function createSession(
     createdAt: now,
     lastSeen: now,
   };
+  // An inherited lifetime start (device pairing) keeps the absolute cap of the
+  // session it came from. Never later than now, so it can only shorten a life.
+  if (opts?.lifetimeStart != null) record.lifetimeStart = Math.min(opts.lifetimeStart, now);
 
   // Store session record and read per-user index concurrently (different keys).
   const [, hashes] = await Promise.all([
-    kv.put(sessKey(keyHash), JSON.stringify(record), { expirationTtl: SESSION_TTL_SEC }),
+    kv.put(sessKey(keyHash), JSON.stringify(record), { expirationTtl: renewalTtl(record, now) }),
     readHashIndex(kv, user.id),
   ]);
 
@@ -244,7 +265,7 @@ export async function getSession(
     // Absolute cap: a session past its total lifetime is dead even if it was
     // used minutes ago. Deleted here rather than left to KV expiry, because the
     // sliding renewal keeps pushing the KV TTL out.
-    if (now - record.createdAt > SESSION_ABSOLUTE_TTL_SEC) {
+    if (now > lifetimeEndsAt(record)) {
       await deleteSessionByHash(kv, keyHash);
       return null;
     }
@@ -359,7 +380,7 @@ export async function listSessionsForUser(
       continue;
     }
     // Hide a session that has reached the absolute cap: its next use deletes it.
-    if (now - record.createdAt > SESSION_ABSOLUTE_TTL_SEC) continue;
+    if (now > lifetimeEndsAt(record)) continue;
     summaries.push({
       id: hash,
       label: record.label ?? null,
