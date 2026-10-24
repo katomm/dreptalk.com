@@ -8,15 +8,18 @@ import CombinedRewards from '@/components/govAction/paramChange/CombinedRewards.
 import { useImpactPlan } from '@/components/govAction/paramChange/impactPlan.js';
 import type { PoolEconomicsState } from '@/components/govAction/paramChange/usePoolEconomics.js';
 import type { GaParamImpactProps } from './GaParamImpact.js';
+import { impactNote } from './impactNote.js';
 
 export default function GaParamImpactCharts({
   network,
   keys,
   current: currentJson,
   proposed: proposedJson,
+  basisEpoch,
+  outcome,
   economics,
   onRetry,
-}: Omit<GaParamImpactProps, 'basisEpoch' | 'outcome'> & { economics: PoolEconomicsState; onRetry: () => void }) {
+}: GaParamImpactProps & { economics: PoolEconomicsState; onRetry: () => void }) {
   const current = useMemo(() => valuesFromJson(currentJson), [currentJson]);
   // Only the shown keys go into the model, so the charts match the blocks.
   // The parent's key list holds only keys with a proposed value.
@@ -32,9 +35,7 @@ export default function GaParamImpactCharts({
   return (
     <div className="ga-impact__charts">
       <p className="ga-impact__note">
-        {anyNeedsPoolData(keys)
-          ? 'What the proposed values would do, computed from the current pool distribution and parameters, so read them as an estimate.'
-          : 'What the proposed values would do, computed from the current parameters, so read them as an estimate.'}
+        {impactNote(outcome, anyNeedsPoolData(keys), basisEpoch)}
       </p>
       {keys.map((key) => {
         const from = current[key];

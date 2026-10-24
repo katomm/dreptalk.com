@@ -37,8 +37,12 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function setup(keys: ParamKey[], current: ParamValuesJson = CURRENT) {
-  render(<GaParamImpact network="preprod" keys={keys} current={current} proposed={PROPOSED} basisEpoch={null} outcome="open" />);
+function setup(
+  keys: ParamKey[],
+  current: ParamValuesJson = CURRENT,
+  basis: { basisEpoch: number | null; outcome: 'open' | 'enacted' | 'ended' } = { basisEpoch: null, outcome: 'open' },
+) {
+  render(<GaParamImpact network="preprod" keys={keys} current={current} proposed={PROPOSED} {...basis} />);
   return screen.getByRole('button', { name: 'Impact of these changes' });
 }
 
@@ -70,6 +74,19 @@ describe('GaParamImpact', () => {
     expect(screen.getByText(ESTIMATE).closest('[hidden]')).toBeNull();
     expect(screen.getByText('Preprod pool data, epoch 660')).toBeTruthy();
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('requests the basis epoch of a decided proposal and says so in the note', async () => {
+    const button = setup(['k'], CURRENT, { basisEpoch: 613, outcome: 'enacted' });
+    expect(fetchMock).not.toHaveBeenCalled();
+    fireEvent.click(button);
+    expect(
+      await screen.findByText(
+        'What this change did, computed from the pool distribution and parameters of epoch 613 before it took effect, so read it as an estimate.',
+      ),
+    ).toBeTruthy();
+    expect(requests()).toHaveLength(1);
+    expect(requests()[0]).toMatch(/\/api\/pool-economics\?epoch=613$/);
   });
 
   it('needs no request for utxoCostPerByte alone', async () => {

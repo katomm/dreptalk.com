@@ -19,7 +19,7 @@ export interface GaParamImpactProps {
   outcome: ImpactOutcome;
 }
 
-export default function GaParamImpact({ network, keys: offered, current, proposed }: GaParamImpactProps) {
+export default function GaParamImpact({ network, keys: offered, current, proposed, basisEpoch, outcome }: GaParamImpactProps) {
   // The charts skip a key without both values, so the closed line, the charts
   // and the data request all use the same filtered list.
   const keys = useMemo(() => offered.filter((key) => current[key] && proposed[key]), [offered, current, proposed]);
@@ -29,7 +29,7 @@ export default function GaParamImpact({ network, keys: offered, current, propose
   const [everOpened, setEverOpened] = useState(false);
   // The minimum ada chart reads no pool data.
   const { economics, retry } = usePoolEconomics(
-    '/api/pool-economics',
+    basisEpoch === null ? '/api/pool-economics' : `/api/pool-economics?epoch=${basisEpoch}`,
     everOpened && anyNeedsPoolData(keys),
   );
   const bodyId = useId();
@@ -57,6 +57,8 @@ export default function GaParamImpact({ network, keys: offered, current, propose
               keys={keys}
               current={current}
               proposed={proposed}
+              basisEpoch={basisEpoch}
+              outcome={outcome}
               economics={economics}
               onRetry={retry}
             />
