@@ -17,6 +17,7 @@ import { getFollowedDrepIds } from '../../db/delegatorFollows.js';
 import type { ImageDownscaler } from '../../dreps/avatarStore.js';
 import { recomputeCommitteePct } from '../../db/committee.js';
 import { deleteExpiredPending } from '../../db/pendingMultisigTx.js';
+import { gcVoteRationale } from '../../db/voteRationale.js';
 import { awardBadges } from '../../badges/engine.js';
 import type { CoreSyncContext } from './context.js';
 import type { SyncPhaseDef } from './registry.js';
@@ -38,6 +39,11 @@ export interface VoteSyncContext extends CoreSyncContext {
 // a 12-wide window and leaving the tail hours stale.
 const VOTE_LIMIT = 25;
 const VOTE_PACE_MS = 200;
+
+// How long a hosted vote rationale may wait for a vote that anchors it. Far
+// beyond the 36h multisig collection window and the 6h pending-vote TTL, so a
+// document is never removed while its vote can still reach the sync.
+const VOTE_RATIONALE_GC_GRACE_SEC = 30 * 24 * 3600;
 
 export const votePhases: readonly SyncPhaseDef<VoteSyncContext>[] = [
   {
@@ -140,6 +146,20 @@ export const votePhases: readonly SyncPhaseDef<VoteSyncContext>[] = [
       const deleted = await deleteExpiredPending(ctx.db, Math.floor(Date.now() / 1000));
       if (deleted > 0) console.log(`[multisig-expire] deleted=${deleted}`);
       return { items: deleted };
+    },
+  },
+  {
+    // Drop hosted rationale documents that no vote anchors once the grace
+    // period is over. Hourly: the hosting endpoint is unauthenticated, so the
+    // store would otherwise only ever grow.
+    name: 'vote-rationale-gc',
+    when: (ctx) => ctx.hourly,
+    run: async (ctx) => {
+      const gc = await gcVoteRationale(ctx.db, {
+        olderThanSec: Math.floor(Date.now() / 1000) - VOTE_RATIONALE_GC_GRACE_SEC,
+      });
+      if (gc.deleted > 0) console.log(`[vote-rationale-gc] scanned=${gc.scanned} deleted=${gc.deleted}`);
+      return { items: gc.deleted };
     },
   },
   {

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { upsertVotes, recordLocalVote } from './drepVotes.js';
 import { upsertActionRationale } from './actionRationale.js';
-import { getVoteStatement } from './voteRationale.js';
+import { getVoteStatement, putVoteRationale, gcVoteRationale } from './voteRationale.js';
 
 async function seedAction(id: string) {
   await env.DB.prepare(
@@ -70,5 +70,54 @@ describe('getVoteStatement', () => {
       .bind('12500000', 'ga5', 'poolZ').run();
     const spoRowWithPower = await getVoteStatement(env.DB, { gaId: 'ga5', voterId: 'poolZ', role: 'SPO' });
     expect(spoRowWithPower?.votingPower).toBe('12500000');
+  });
+});
+
+describe('gcVoteRationale', () => {
+  const OLD = 1_000;
+  const RECENT = 1_000_000;
+  const CUTOFF = 500_000;
+  const h = (c: string) => c.repeat(64);
+
+  async function seedDoc(hash: string, createdAt: number) {
+    await putVoteRationale(env.DB, { hash, body: `{"doc":"${hash}"}`, drepId: 'drep1gc', gaId: `${'a'.repeat(64)}#0`, createdAt });
+  }
+
+  async function seedVote(table: 'drep_votes' | 'drep_vote_history', gaSuffix: string, metaUrl: string | null, metaHash: string | null) {
+    if (table === 'drep_votes') {
+      await env.DB.prepare(
+        `INSERT INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, meta_url, meta_hash, block_time, synced_at)
+         VALUES (?, 'DRep', 'drep1gcvoter', NULL, 'yes', ?, ?, 1, 1)`,
+      ).bind(`ga-gc-${gaSuffix}`, metaUrl, metaHash).run();
+    } else {
+      await env.DB.prepare(
+        `INSERT INTO drep_vote_history (ga_id, voter_id, voter_role, vote, meta_url, meta_hash, block_time, body_html, superseded_at)
+         VALUES (?, 'drep1gcvoter', 'DRep', 'no', ?, ?, 1, NULL, 2)`,
+      ).bind(`ga-gc-${gaSuffix}`, metaUrl, metaHash).run();
+    }
+  }
+
+  const stored = async () =>
+    ((await env.DB.prepare('SELECT hash FROM vote_rationale ORDER BY hash').all<{ hash: string }>()).results ?? []).map((r) => r.hash);
+
+  it('deletes old documents no vote anchors, and keeps every anchored or recent one', async () => {
+    await seedDoc(h('1'), OLD); // anchored by hash on a vote
+    await seedDoc(h('2'), OLD); // anchored by URL only (vote synced before meta_hash capture)
+    await seedDoc(h('3'), OLD); // anchored by a superseded vote
+    await seedDoc(h('4'), OLD); // never anchored: junk
+    await seedDoc(h('5'), RECENT); // never anchored yet, but inside the grace period
+    await seedVote('drep_votes', '1', 'ipfs://elsewhere', h('1'));
+    await seedVote('drep_votes', '2', `https://dreptalk.com/vote-rationale/${h('2')}.json`, null);
+    await seedVote('drep_vote_history', '3', `https://preprod.dreptalk.com/vote-rationale/${h('3')}.json`, h('3'));
+
+    const res = await gcVoteRationale(env.DB, { olderThanSec: CUTOFF });
+    expect(res).toEqual({ scanned: 4, deleted: 1 });
+    expect(await stored()).toEqual([h('1'), h('2'), h('3'), h('5')]);
+  });
+
+  it('is a no-op when nothing is past the grace period', async () => {
+    await seedDoc(h('6'), RECENT);
+    expect(await gcVoteRationale(env.DB, { olderThanSec: CUTOFF })).toEqual({ scanned: 0, deleted: 0 });
+    expect(await stored()).toEqual([h('6')]);
   });
 });

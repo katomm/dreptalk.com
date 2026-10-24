@@ -169,6 +169,11 @@ describe('votePhases', () => {
     expect(activePhaseNames(votePhases, voteCtx({ hourly: true }))).toContain('badges');
   });
 
+  it('runs the hosted rationale GC only on the hourly tick', () => {
+    expect(activePhaseNames(votePhases, voteCtx())).not.toContain('vote-rationale-gc');
+    expect(activePhaseNames(votePhases, voteCtx({ hourly: true }))).toContain('vote-rationale-gc');
+  });
+
   it('skips the pool-avatar mirror when the R2 binding is missing', () => {
     expect(activePhaseNames(votePhases, voteCtx())).toContain('pool-avatars');
     expect(activePhaseNames(votePhases, voteCtx({ avatars: false }))).not.toContain('pool-avatars');
