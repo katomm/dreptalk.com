@@ -36,7 +36,7 @@ Almost every trend chart starts in the same epoch, and the analytics page states
 
 Changes between epochs are shown as net change. If a chart shows 2,000 more delegators than the epoch before, that is the balance of everyone who arrived and everyone who left. On-chain epoch aggregates cannot tell those two groups apart, so the page never claims inflow or outflow.
 
-The "voted in the last 12 epochs" figure counts DReps with at least one on-chain vote in that window, including votes that were later changed. Twelve epochs is roughly two months, long enough that a quiet stretch between governance actions does not make the whole network look inactive.
+The "voted in the last 12 epochs" figure counts DReps with at least one on-chain vote in that window, including votes that were later changed. Twelve epochs is roughly two months, long enough that a quiet stretch between governance actions does not make the whole network look inactive. The trend chart applies that window to every epoch it shows, so each point looks back twelve epochs from its own epoch and the chart itself spans the full history.
 
 The silent counterpart uses the same window but a different base: it counts the DReps that held delegated power in an epoch and cast no vote in the twelve epochs up to it. The two charts are deliberately not each other's mirror. A DRep that voted and has since retired still counts as having voted in the window, but it holds no power and so is never silent. The share chart next to them reads the silent count against the power holders of the same epoch, so it is the cleaner participation rate of the two.
 
