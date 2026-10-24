@@ -38,12 +38,12 @@ function flagInput(user: { id: string; roles: string[]; grantId?: string | null 
 
 // Inserts a proposer_grants row directly (bypassing the invite/redeem flow,
 // which is exercised elsewhere) so this test can set up a revoked grant.
-async function insertGrant(args: { id: string; proposerUserId: string; coUserId: string; status: 'active' | 'revoked' }) {
+async function insertGrant(args: { id: string; proposerUserId: string; coUserId: string; status: 'active' | 'revoked'; coStakeAddr?: string }) {
   await db()
     .prepare(
       `INSERT INTO proposer_grants
          (id, proposer_user_id, proposer_stake_addr, co_user_id, co_stake_addr, invite_code_hash, status, created_at, expires_at, redeemed_at, revoked_at)
-       VALUES (?1, ?2, 'stake_test1flagproposer', ?3, 'stake_test1flagco', ?1, ?4, ?5, ?6, ?7, ?8)`,
+       VALUES (?1, ?2, 'stake_test1flagproposer', ?3, ?9, ?1, ?4, ?5, ?6, ?7, ?8)`,
     )
     .bind(
       args.id,
@@ -54,6 +54,7 @@ async function insertGrant(args: { id: string; proposerUserId: string; coUserId:
       NOW + 604800,
       args.status === 'active' ? NOW : null,
       args.status === 'revoked' ? NOW : null,
+      args.coStakeAddr ?? 'stake_test1flagco',
     )
     .run();
 }
@@ -150,5 +151,32 @@ describe('handleFlagPost: rate limiting', () => {
       }
     }
     expect(limited).toBe(true);
+  });
+});
+
+describe('handleFlagPost: co-proposer grant sessions', () => {
+  it('does not let one proposer and its co-proposers hide a post together', async () => {
+    const postId = await newPost('drep-author-grant');
+    await insertGrant({ id: 'grant-shared-1', proposerUserId: 'proposer-shared', coUserId: 'co-shared-1', status: 'active', coStakeAddr: 'stake_test1shared1' });
+    await insertGrant({ id: 'grant-shared-2', proposerUserId: 'proposer-shared', coUserId: 'co-shared-2', status: 'active', coStakeAddr: 'stake_test1shared2' });
+
+    const own = await handleFlagPost(flagInput({ id: 'proposer-shared', roles: ['proposer'] }, postId));
+    expect(own.status).toBe(200);
+    const co1 = await handleFlagPost(flagInput({ id: 'co-shared-1', roles: ['proposer'], grantId: 'grant-shared-1' }, postId));
+    const co2 = await handleFlagPost(flagInput({ id: 'co-shared-2', roles: ['proposer'], grantId: 'grant-shared-2' }, postId));
+    expect(co1.status).toBe(403);
+    expect(co2.status).toBe(403);
+
+    const post = await getPostById(db(), postId);
+    expect(post!.hidden).toBe(false);
+    expect(post!.flag_count).toBe(1);
+  });
+
+  it('still counts a co-proposer who holds an on-chain writer role of their own', async () => {
+    const postId = await newPost('someone-else');
+    await insertGrant({ id: 'grant-own-role', proposerUserId: 'proposer-own', coUserId: 'co-drep', status: 'active' });
+    const r = await handleFlagPost(flagInput({ id: 'co-drep', roles: ['drep', 'proposer'], grantId: 'grant-own-role' }, postId));
+    expect(r.status).toBe(200);
+    expect(r.json).toMatchObject({ flagCount: 1 });
   });
 });
