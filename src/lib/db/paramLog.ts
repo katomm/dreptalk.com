@@ -24,14 +24,16 @@ export async function loadLatestParamValues(db: D1Database): Promise<Map<string,
  * never shows current data for a past epoch.
  */
 export async function paramRowAsOf(db: D1Database, epoch: number): Promise<Record<string, unknown> | null> {
-  const last = await getParamLogState(db);
-  if (last === null || epoch > last) return null;
-  const { results } = await db
-    .prepare(
-      `SELECT p.param_key, p.value_json FROM param_changes p
+  const [last, { results }] = await Promise.all([
+    getParamLogState(db),
+    db
+      .prepare(
+        `SELECT p.param_key, p.value_json FROM param_changes p
        WHERE p.epoch = (SELECT MAX(epoch) FROM param_changes WHERE param_key = p.param_key AND epoch <= ?1)`,
-    )
-    .bind(epoch)
-    .all<{ param_key: string; value_json: string }>();
+      )
+      .bind(epoch)
+      .all<{ param_key: string; value_json: string }>(),
+  ]);
+  if (last === null || epoch > last) return null;
   return paramRowFromLog(results.map((r) => ({ paramKey: r.param_key, valueJson: r.value_json })));
 }

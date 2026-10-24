@@ -296,7 +296,7 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
     name: 'param-log',
     when: heavyOnly,
     run: async (ctx) => {
-      const r = await syncParamLog({ db: ctx.db, koios: ctx.koios });
+      const r = await syncParamLog({ db: ctx.db, koios: ctx.koios, cfg: ctx.cfg, now: ctx.now });
       console.log(`[gov-param-log] from=${r.fromEpoch} to=${r.toEpoch} inserted=${r.inserted} linked=${r.linked}`);
       return { items: r.inserted + r.linked };
     },

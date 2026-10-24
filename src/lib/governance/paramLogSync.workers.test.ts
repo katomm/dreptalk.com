@@ -2,9 +2,15 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { env } from 'cloudflare:test';
 import { PARAM_LOG_BATCH, syncParamLog } from './paramLogSync.js';
+import { epochStartUnix } from '../config/network.js';
 import { getParamLogState, paramRowAsOf } from '../db/paramLog.js';
 
 type Row = Record<string, unknown>;
+
+const cfg = { network: 'preprod', networkId: 0, epochAnchor: { epoch: 300, unixSeconds: 1_790_000_000 } } as never;
+// One hour into the given epoch on the stub network, in unix ms.
+const nowIn = (epoch: number) => (epochStartUnix(epoch, cfg) + 3600) * 1000;
+const clock = { cfg, now: nowIn(1000) };
 
 const base = (epoch: number, over: Row = {}): Row => ({
   epoch_no: epoch,
@@ -28,7 +34,7 @@ function stub(answer: Row[]) {
   };
 }
 
-const run = (answer: Row[]) => syncParamLog({ db: env.DB, koios: stub(answer) });
+const run = (answer: Row[]) => syncParamLog({ db: env.DB, koios: stub(answer), ...clock });
 const log = async () =>
   (await env.DB.prepare('SELECT param_key, epoch, value_json, gov_action_id FROM param_changes ORDER BY epoch, param_key').all<{
     param_key: string;
@@ -49,7 +55,7 @@ beforeEach(async () => {
 describe('syncParamLog', () => {
   it('logs every non-null field of the first epoch and later changes only', async () => {
     const k = stub([base(208), base(209, { optimal_pool_count: 500 })]);
-    const r = await syncParamLog({ db: env.DB, koios: k });
+    const r = await syncParamLog({ db: env.DB, koios: k, ...clock });
     expect(k.calls).toEqual([{ afterEpoch: -1, limit: PARAM_LOG_BATCH }]);
     expect(PARAM_LOG_BATCH).toBe(50);
     expect(r).toMatchObject({ fromEpoch: 208, toEpoch: 209, inserted: 3 });
@@ -73,12 +79,20 @@ describe('syncParamLog', () => {
     await setState(300);
     await put('min_fee_a', 208, '"44"');
     const k = stub([base(301, { min_fee_a: 45 }), base(302, { min_fee_a: 44 })]);
-    const r = await syncParamLog({ db: env.DB, koios: k });
+    const r = await syncParamLog({ db: env.DB, koios: k, ...clock });
     expect(k.calls[0].afterEpoch).toBe(300);
     expect(r).toMatchObject({ fromEpoch: 301, toEpoch: 302 });
     const rows = (await log()).filter((x) => x.epoch > 300 && x.param_key === 'min_fee_a');
     expect(rows.map((x) => [x.epoch, x.value_json])).toEqual([[301, '"45"'], [302, '"44"']]);
     expect(await getParamLogState(env.DB)).toBe(302);
+  });
+
+  it('makes no Koios request when the log is at the current epoch', async () => {
+    await setState(1000);
+    const k = stub([base(1001)]);
+    const r = await syncParamLog({ db: env.DB, koios: k, cfg, now: nowIn(1000) });
+    expect(k.calls).toEqual([]);
+    expect(r).toMatchObject({ fromEpoch: null, toEpoch: null, inserted: 0 });
   });
 
   it('sets the state to the last epoch of a short page', async () => {

@@ -1,4 +1,6 @@
 /// <reference types="@cloudflare/workers-types" />
+import { epochFromUnix, type NetworkConfig } from '../config/network.js';
+import { chunked } from '../db/sql.js';
 import { getParamLogState, loadLatestParamValues } from '../db/paramLog.js';
 import { diffEpochParams, payloadKoiosFields } from './paramLog.js';
 import { parameterChangeMap } from './onchain.js';
@@ -10,7 +12,7 @@ export interface ParamLogKoios {
   epochParamsAfter(afterEpoch: number, limit: number): Promise<Record<string, unknown>[]>;
 }
 
-// D1 allows 100 bound parameters per statement, an insert binds 4.
+// D1 allows 100 bound parameters per statement, an insert binds 3.
 const INSERT_SQL = 'INSERT OR IGNORE INTO param_changes (param_key, epoch, value_json) VALUES (?, ?, ?)';
 
 /**
@@ -19,19 +21,20 @@ const INSERT_SQL = 'INSERT OR IGNORE INTO param_changes (param_key, epoch, value
  * not malformed, the run just ends before it.
  */
 function contiguousRun(rows: Record<string, unknown>[], after: number): { epoch: number; row: Record<string, unknown> }[] | null {
-  let prev = -Infinity;
-  for (const row of rows) {
-    const e = row.epoch_no;
-    if (typeof e !== 'number' || !Number.isInteger(e) || e <= prev) return null;
-    prev = e;
-  }
   const run: { epoch: number; row: Record<string, unknown> }[] = [];
+  let prev = -Infinity;
   let expected = after >= 0 ? after + 1 : null;
+  let ended = false;
   for (const row of rows) {
-    const epoch = row.epoch_no as number;
-    if (expected !== null && epoch !== expected) break;
-    run.push({ epoch, row });
-    expected = epoch + 1;
+    const epoch = row.epoch_no;
+    if (typeof epoch !== 'number' || !Number.isInteger(epoch) || epoch <= prev) return null;
+    prev = epoch;
+    if (!ended && (expected === null || epoch === expected)) {
+      run.push({ epoch, row });
+      expected = epoch + 1;
+    } else {
+      ended = true;
+    }
   }
   return run;
 }
@@ -50,7 +53,7 @@ async function linkEnactedActions(db: D1Database): Promise<number> {
   const openEpochs = new Set(open.map((r) => r.epoch));
   const { results: actions } = await db
     .prepare(
-      "SELECT id, enacted_epoch, onchain_payload FROM governance_actions WHERE type = 'ParameterChange' AND enacted_epoch IS NOT NULL",
+      "SELECT id, enacted_epoch, onchain_payload FROM governance_actions WHERE type = 'ParameterChange' AND enacted_epoch IS NOT NULL ORDER BY enacted_epoch, id",
     )
     .all<{ id: string; enacted_epoch: number; onchain_payload: string | null }>();
   const stmts: D1PreparedStatement[] = [];
@@ -68,8 +71,8 @@ async function linkEnactedActions(db: D1Database): Promise<number> {
     }
   }
   let linked = 0;
-  for (let i = 0; i < stmts.length; i += 50) {
-    for (const r of await db.batch(stmts.slice(i, i + 50))) linked += r.meta.changes ?? 0;
+  for (const batch of chunked(stmts, 50)) {
+    for (const r of await db.batch(batch)) linked += r.meta.changes ?? 0;
   }
   return linked;
 }
@@ -77,16 +80,20 @@ async function linkEnactedActions(db: D1Database): Promise<number> {
 /**
  * Extends the parameter change log by the epochs Koios has beyond the log state, then
  * links the rows an enacted ParameterChange wrote to that proposal. One Koios read per
- * call, so a long backlog is worked off over several runs.
+ * call, so a long backlog is worked off over several runs. No Koios read when the log
+ * is already at the clock's epoch.
  */
 export async function syncParamLog(args: {
   db: D1Database;
   koios: ParamLogKoios;
+  cfg: NetworkConfig;
+  now: number;
 }): Promise<{ fromEpoch: number | null; toEpoch: number | null; inserted: number; linked: number }> {
-  const { db, koios } = args;
-  const after = (await getParamLogState(db)) ?? -1;
-  const answer = await koios.epochParamsAfter(after, PARAM_LOG_BATCH);
-  const run = contiguousRun(answer, after);
+  const { db, koios, cfg, now } = args;
+  const state = await getParamLogState(db);
+  const after = state ?? -1;
+  const caughtUp = state === epochFromUnix(Math.floor(now / 1000), cfg);
+  const run = caughtUp ? null : contiguousRun(await koios.epochParamsAfter(after, PARAM_LOG_BATCH), after);
 
   let fromEpoch: number | null = null;
   let toEpoch: number | null = null;

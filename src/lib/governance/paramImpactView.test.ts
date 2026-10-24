@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { basisEpoch } from './basisEpoch.js';
-import { onchainOldValuesJson, buildParamImpact, impactSectionKeys, proposedParamValues } from './paramImpactView.js';
+import { inForceRow, onchainOldValuesJson, buildParamImpact, impactSectionKeys, proposedParamValues } from './paramImpactView.js';
 import type { ParamValues } from './paramDefs.js';
 
 const payload = (map: Record<string, unknown>) => JSON.stringify({ tag: 'ParameterChange', contents: [null, map, null] });
@@ -132,5 +132,21 @@ describe('onchainOldValuesJson', () => {
   it('uses the basis row for a decided change, or nothing', () => {
     expect(onchainOldValuesJson('ParameterChange', 'enacted', row, rawJson)).toBe(JSON.stringify(row));
     expect(onchainOldValuesJson('ParameterChange', 'enacted', null, rawJson)).toBeNull();
+  });
+});
+
+describe('inForceRow', () => {
+  const row = { optimal_pool_count: 400 };
+  it('uses the basis row for a decided ParameterChange', () => {
+    expect(inForceRow('ParameterChange', 'enacted', '{"a":1}', row)).toBe(row);
+    expect(inForceRow('ParameterChange', 'expired', '{"a":1}', null)).toBeNull();
+  });
+  it('parses the current parameters for an active change and other types', () => {
+    expect(inForceRow('ParameterChange', 'active', '{"a":1}', row)).toEqual({ a: 1 });
+    expect(inForceRow('HardForkInitiation', 'enacted', '{"a":1}', row)).toEqual({ a: 1 });
+  });
+  it('is null without a blob and empty for an unreadable one', () => {
+    expect(inForceRow('ParameterChange', 'active', null, null)).toBeNull();
+    expect(inForceRow('ParameterChange', 'active', '{oops', null)).toEqual({});
   });
 });

@@ -4,18 +4,24 @@
 /** open is active or ratified, ended is expired or dropped. */
 export type ImpactOutcome = 'open' | 'enacted' | 'ended';
 
-/**
- * The epoch the parameters were in force for the proposal: the ratified epoch
- * for a ratified action, the epoch before the decision otherwise. Null for an
- * active action or when the needed epoch column is missing.
- */
-export function basisEpoch(a: {
+/** The action fields the basis rule reads. */
+export interface BasisInput {
   status: string;
   decidedEpoch: number | null;
   ratifiedEpoch: number | null;
   enactedEpoch: number | null;
   expiryEpoch: number | null;
-}): number | null {
+}
+
+// Differs from classificationEndEpoch in voteTrendAssembly.ts on purpose: this is
+// the last epoch before the outcome took effect (parameters and pool data), not
+// the epoch that ends vote classification.
+/**
+ * The epoch the parameters were in force for the proposal: the ratified epoch
+ * for a ratified action, the epoch before the decision otherwise. Null for an
+ * active action or when the needed epoch column is missing.
+ */
+export function basisEpoch(a: BasisInput): number | null {
   const before = (epoch: number | null) => (epoch === null ? null : epoch - 1);
   switch (a.status) {
     case 'ratified':

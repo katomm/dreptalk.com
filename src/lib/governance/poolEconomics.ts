@@ -5,7 +5,7 @@
 // imports only: the gov-sync bundle loads this module.
 import { epochFromUnix, type NetworkConfig } from '../config/network.js';
 import { KOIOS_PAGE_CAP, type PoolListRow } from '../koios/client.js';
-import { basisEpoch } from './basisEpoch.js';
+import { basisEpoch, type BasisInput } from './basisEpoch.js';
 import type { PoolEconomicsJson } from './paramImpact.js';
 
 const MAX_PAGES = 20;
@@ -66,14 +66,7 @@ export async function loadPoolEconomicsEpoch(db: D1Database, epoch: number): Pro
  * submission on (null when none is open).
  */
 export function poolEconomicsKeepEpochs(
-  rows: readonly {
-    status: string;
-    decidedEpoch: number | null;
-    ratifiedEpoch: number | null;
-    enactedEpoch: number | null;
-    expiryEpoch: number | null;
-    submittedEpoch: number | null;
-  }[],
+  rows: readonly (BasisInput & { submittedEpoch: number | null })[],
 ): { basis: Set<number>; keepFrom: number | null } {
   const basis = new Set<number>();
   let keepFrom: number | null = null;
@@ -93,28 +86,12 @@ async function staleEpochs(db: D1Database, epoch: number): Promise<number[]> {
     const [actions, stored] = await Promise.all([
       db
         .prepare(
-          "SELECT status, decided_epoch, ratified_epoch, enacted_epoch, expiry_epoch, submitted_epoch FROM governance_actions WHERE type = 'ParameterChange'",
+          "SELECT status, decided_epoch AS decidedEpoch, ratified_epoch AS ratifiedEpoch, enacted_epoch AS enactedEpoch, expiry_epoch AS expiryEpoch, submitted_epoch AS submittedEpoch FROM governance_actions WHERE type = 'ParameterChange'",
         )
-        .all<{
-          status: string;
-          decided_epoch: number | null;
-          ratified_epoch: number | null;
-          enacted_epoch: number | null;
-          expiry_epoch: number | null;
-          submitted_epoch: number | null;
-        }>(),
+        .all<BasisInput & { submittedEpoch: number | null }>(),
       db.prepare('SELECT epoch FROM pool_economics WHERE epoch < ?').bind(epoch).all<{ epoch: number }>(),
     ]);
-    const { basis, keepFrom } = poolEconomicsKeepEpochs(
-      actions.results.map((r) => ({
-        status: r.status,
-        decidedEpoch: r.decided_epoch,
-        ratifiedEpoch: r.ratified_epoch,
-        enactedEpoch: r.enacted_epoch,
-        expiryEpoch: r.expiry_epoch,
-        submittedEpoch: r.submitted_epoch,
-      })),
-    );
+    const { basis, keepFrom } = poolEconomicsKeepEpochs(actions.results);
     return stored.results.map((r) => r.epoch).filter((e) => !basis.has(e) && (keepFrom === null || e < keepFrom));
   } catch (err: unknown) {
     console.error('[pool-economics] retention read failed, keeping every row', err);

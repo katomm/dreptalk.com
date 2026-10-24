@@ -39,24 +39,23 @@ export function proposedParamValues(payloadJson: string | null): ParamValues {
   return out;
 }
 
-const IMPACT_STATUSES = ['active', 'ratified', 'enacted', 'expired', 'dropped'];
+// The one status table: a status listed here gets an impact section.
+const OUTCOMES: Record<string, ImpactOutcome> = { active: 'open', ratified: 'open', enacted: 'enacted', expired: 'ended', dropped: 'ended' };
 
 /**
  * The parameters that get an impact chart: offered, proposed and in force. A
  * decided action also drops a key whose value already equals the proposal.
  */
 export function impactSectionKeys(proposed: ParamValues, current: ParamValues, status: string): ParamKey[] {
-  if (!IMPACT_STATUSES.includes(status)) return [];
+  if (!Object.hasOwn(OUTCOMES, status)) return [];
   const hasModel = MODEL_KEYS.every((k) => current[k]);
   return PARAM_KEYS.filter((k) => {
     const p = proposed[k];
     const c = current[k];
-    if (!p || !c || !(hasModel || !MODEL_KEYS.includes(k))) return false;
+    if (!p || !c || (MODEL_KEYS.includes(k) && !hasModel)) return false;
     return status === 'active' || !equalRational(p, c);
   });
 }
-
-const OUTCOMES: Record<string, ImpactOutcome> = { active: 'open', ratified: 'open', enacted: 'enacted', expired: 'ended', dropped: 'ended' };
 
 /**
  * The proposal page's impact section props for a ParameterChange, or null when
@@ -83,16 +82,32 @@ export function buildParamImpact(input: {
 }
 
 /**
- * The old values JSON for the on-chain changes block. A decided ParameterChange
- * uses its basis row or nothing, never today's parameters. Everything else keeps
- * the current epoch parameters.
+ * The parameter row in force for a ParameterChange page. A decided
+ * ParameterChange uses its basis row, never today's parameters. Everything else
+ * uses the current epoch parameters (an unreadable blob counts as empty).
  */
+export function inForceRow(
+  type: string | null | undefined,
+  status: string,
+  rawJson: string | null,
+  basisRow: Record<string, unknown> | null,
+): Record<string, unknown> | null {
+  if (type === 'ParameterChange' && status !== 'active') return basisRow;
+  if (rawJson === null) return null;
+  try {
+    return JSON.parse(rawJson) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+/** The old values JSON for the on-chain changes block, from the row in force. */
 export function onchainOldValuesJson(
   type: string | null | undefined,
   status: string,
   basisRow: Record<string, unknown> | null,
   rawJson: string | null,
 ): string | null {
-  if (type !== 'ParameterChange' || status === 'active') return rawJson;
-  return basisRow ? JSON.stringify(basisRow) : null;
+  const row = inForceRow(type, status, rawJson, basisRow);
+  return row ? JSON.stringify(row) : null;
 }
