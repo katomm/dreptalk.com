@@ -38,7 +38,9 @@ test('a signed-in user submits an info action, signed with the anchor and deposi
   await expect(page.getByText(/^Deposit .*wallet/)).toBeVisible();
   await page.getByRole('button', { name: 'Review and submit' }).click();
   await page.getByRole('button', { name: 'Sign and submit' }).click();
-  await expect(page.getByRole('status').filter({ hasText: 'Proposal submitted' })).toBeVisible();
+  // Builds, signs and submits the transaction in the browser, which takes
+  // well over the default 5 s on a CI runner.
+  await expect(page.getByRole('status').filter({ hasText: 'Proposal submitted' })).toBeVisible({ timeout: 30_000 });
 
   // "Sign as author" is on by default: the finalize request carries the witness.
   expect(pinned?.author).toMatchObject({ name: expect.any(String), keyHex: expect.any(String), signatureHex: expect.any(String) });
