@@ -1,0 +1,7 @@
+CARDANO_NETWORK=preprod
+# Mock tier only: the dev server reads Koios from the local fixture server.
+# Remove this line for a chain run (DREPTALK_E2E_CHAIN=read or write).
+KOIOS_BASE_URL=http://127.0.0.1:4399/api/v1
+# Mock tier only: lets the metadata prepare step run (it never pins). The test
+# answers the pinning request itself, so this placeholder never reaches Pinata.
+PINATA_JWT=e2e-placeholder-not-a-token

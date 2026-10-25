@@ -12,6 +12,7 @@
   "include": [".astro/types.d.ts", "**/*"],
   "exclude": [
     "dist",
+    "e2e",
     "vitest.config.ts",
     "vitest.workspace.ts",
     "vitest.workers.config.ts",
