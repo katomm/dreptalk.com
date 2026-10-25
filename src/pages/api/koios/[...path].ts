@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { resolveNetwork } from '@/lib/config/network';
+import { networkFromEnv } from '@/lib/config/network';
 import { checkRate } from '@/lib/rate';
 import { clientIpFrom } from '@/lib/http/clientIp';
 import { readBodyLimited } from '@/lib/http/bodyLimit';
@@ -82,7 +82,7 @@ function resolveWorkerEnv(): Record<string, unknown> {
 
 function resolveKoiosConfig(): { baseUrl: string; token?: string } {
   const env = resolveWorkerEnv();
-  const baseUrl = resolveNetwork((env.CARDANO_NETWORK as string | undefined) ?? null).koiosBaseUrl;
+  const baseUrl = networkFromEnv(env).koiosBaseUrl;
   const token = (env.KOIOS_API_KEY as string | undefined) || undefined;
   return { baseUrl, token };
 }
