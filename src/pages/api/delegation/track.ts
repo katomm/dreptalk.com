@@ -4,12 +4,11 @@
 // tracking logic (ensureFollow + fail-soft resolveFollow) lives in
 // handleTrack.
 import type { APIRoute } from 'astro';
-import { jsonResponse, runtimeEnv } from '@/lib/api/response';
+import { currentNetwork, jsonResponse, runtimeEnv } from '@/lib/api/response';
 import { handleTrack } from '@/lib/delegation/track';
 import { checkRate } from '@/lib/rate';
 import { clientIpFrom } from '@/lib/http/clientIp';
 import { isSameOriginRequest } from '@/lib/http/origin';
-import { resolveNetwork } from '@/lib/config/network';
 import { createKoiosClient } from '@/lib/koios/client';
 
 export const prerender = false;
@@ -39,8 +38,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     ]);
     if (!userAllowed || !ipAllowed) return jsonResponse({ ok: false, error: 'rate_limited' }, 429);
 
-    const networkEnv = (env.CARDANO_NETWORK as string | undefined) ?? null;
-    const { koiosBaseUrl, network } = resolveNetwork(networkEnv);
+    const { koiosBaseUrl, network } = currentNetwork();
 
     // The dashboard's retry control posts no body at all, so an empty or
     // unparseable body is the normal case and never an error. Only a complete

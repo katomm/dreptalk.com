@@ -44,6 +44,30 @@ npm run dev                # app dev server (Astro, with HMR)
 
 For the full local setup, the database, and running governance syncs by hand, see [docs/development.md](docs/development.md). For shipping to mainnet and preprod, see [docs/deployment.md](docs/deployment.md).
 
+## End-to-end tests
+
+The browser tests in `e2e/` click through sign-in, delegation and governance action submission with [cip30-test-wallet](https://github.com/Lichtstaub/cip30-test-wallet), a headless CIP-30 wallet injected into the page.
+
+The default run needs no wallet funds and touches no chain. The dev server reads Koios from a local fixture server (`e2e/koios-fixture/`), and the wallet simulates every submit. CI runs it on every pull request.
+
+```sh
+cp e2e/dev.vars.example .dev.vars   # preprod, plus the fixture server and a placeholder pinning token
+npm run db:migrate:local
+npm run db:seed:local && npm run db:seed:e2e
+npx playwright install chromium
+npm run test:e2e
+```
+
+Two more tiers run against preprod and are never part of CI. Both need `PREPROD_TEST_WALLET_MNEMONIC`, the mnemonic of a testnet wallet whose account 0 is a registered preprod DRep, and a `.dev.vars` without `KOIOS_BASE_URL`:
+
+- `DREPTALK_E2E_CHAIN=read npm run test:e2e` runs the specs in `e2e/tests/chain/` that only read from preprod, such as a real DRep sign-in.
+- `DREPTALK_E2E_CHAIN=write` is for specs that submit real transactions and pay real deposits. It takes exactly one spec file on the command line.
+
+Notes for local runs:
+
+- `astro dev` starts itself in the background when it detects a coding agent (`CLAUDECODE` or `AI_AGENT` in the environment), and Playwright then never sees it come up. Run the tests as `env -u CLAUDECODE -u AI_AGENT npm run test:e2e` from such a shell.
+- Running `astro check` while the dev server runs from the same folder invalidates Vite's prebundled dependencies. Pages then stop hydrating and the wallet looks missing. Delete `node_modules/.vite` and start again.
+
 ## Contributing
 
 Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow, code style, and commit and pull request conventions.

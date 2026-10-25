@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   resolveNetwork,
+  networkFromEnv,
   txExplorerUrl,
   governanceActionUrl,
   epochStartUnix,
@@ -125,5 +126,40 @@ describe('currentEpochProgress', () => {
     expect(p.epoch).toBe(300);
     expect(p.daysLeft).toBe(1);
     expect(p.fractionElapsed).toBeGreaterThan(0.99);
+  });
+});
+
+describe('networkFromEnv', () => {
+  it('returns the network default without an override', () => {
+    expect(networkFromEnv({ CARDANO_NETWORK: 'preprod' }).koiosBaseUrl).toBe('https://preprod.koios.rest/api/v1');
+    expect(networkFromEnv({}).koiosBaseUrl).toBe('https://api.koios.rest/api/v1');
+  });
+
+  it('applies a loopback override on preprod without touching the shared config', () => {
+    const cfg = networkFromEnv({ CARDANO_NETWORK: 'preprod', KOIOS_BASE_URL: 'http://127.0.0.1:4399/api/v1/' });
+    expect(cfg.koiosBaseUrl).toBe('http://127.0.0.1:4399/api/v1');
+    expect(cfg.network).toBe('preprod');
+    expect(resolveNetwork('preprod').koiosBaseUrl).toBe('https://preprod.koios.rest/api/v1');
+  });
+
+  it('accepts localhost as well', () => {
+    expect(networkFromEnv({ CARDANO_NETWORK: 'preprod', KOIOS_BASE_URL: 'http://localhost:4399' }).koiosBaseUrl).toBe(
+      'http://localhost:4399',
+    );
+  });
+
+  it('refuses an override on mainnet, explicit or by default', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(() => networkFromEnv({ CARDANO_NETWORK: 'mainnet', KOIOS_BASE_URL: 'http://127.0.0.1:4399' })).toThrow(/only allowed on preprod/);
+    expect(() => networkFromEnv({ KOIOS_BASE_URL: 'http://127.0.0.1:4399' })).toThrow(/only allowed on preprod/);
+    spy.mockRestore();
+  });
+
+  it('refuses a non-loopback or unparseable override on preprod', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(() => networkFromEnv({ CARDANO_NETWORK: 'preprod', KOIOS_BASE_URL: 'https://evil.example/api/v1' })).toThrow();
+    expect(() => networkFromEnv({ CARDANO_NETWORK: 'preprod', KOIOS_BASE_URL: 'not a url' })).toThrow();
+    expect(spy).toHaveBeenCalledTimes(2);
+    spy.mockRestore();
   });
 });

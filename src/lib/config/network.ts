@@ -123,3 +123,27 @@ export function resolveNetwork(value: string | null | undefined): NetworkConfig 
   if (value === 'mainnet' || value === 'preprod') return CONFIGS[value];
   throw new Error(`invalid CARDANO_NETWORK: ${value}`);
 }
+
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost']);
+
+/**
+ * The network config for a Worker env, with KOIOS_BASE_URL applied. The
+ * override exists for the end-to-end tests, which point the server's Koios
+ * reads at a local fixture server. It is honored only on preprod and only for
+ * a loopback URL, anything else throws before a Koios client exists, so a
+ * stray binding can never redirect mainnet reads. Returns a copy, the shared
+ * CONFIGS objects stay untouched.
+ */
+export function networkFromEnv(env: { CARDANO_NETWORK?: unknown; KOIOS_BASE_URL?: unknown }): NetworkConfig {
+  const cfg = resolveNetwork(typeof env.CARDANO_NETWORK === 'string' ? env.CARDANO_NETWORK : null);
+  const override = typeof env.KOIOS_BASE_URL === 'string' ? env.KOIOS_BASE_URL : '';
+  if (!override) return cfg;
+  const host = URL.parse(override)?.hostname ?? '';
+  if (cfg.network !== 'preprod' || !LOOPBACK_HOSTS.has(host)) {
+    // Routes turn a throw into a generic 503, so the reason goes to the log too.
+    const message = `KOIOS_BASE_URL is only allowed on preprod with a loopback host, got ${cfg.network} and "${override}"`;
+    console.error(message);
+    throw new Error(message);
+  }
+  return { ...cfg, koiosBaseUrl: override.replace(/\/+$/, '') };
+}

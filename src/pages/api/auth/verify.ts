@@ -1,7 +1,7 @@
 import type { APIRoute } from 'astro';
 import { env, waitUntil } from 'cloudflare:workers';
 import { handleVerify } from '@/lib/auth/handlers';
-import { resolveNetwork } from '@/lib/config/network';
+import { currentNetwork } from '@/lib/api/response';
 import { createKoiosClient } from '@/lib/koios/client';
 import { checkRate } from '@/lib/rate';
 import { clientIpFrom } from '@/lib/http/clientIp';
@@ -51,8 +51,7 @@ export const POST: APIRoute = async ({ request }) => {
       });
     }
 
-    const networkEnv = (env.CARDANO_NETWORK as string | undefined) ?? null;
-    const { network, koiosBaseUrl } = resolveNetwork(networkEnv);
+    const { network, koiosBaseUrl } = currentNetwork();
     // Optional Koios API key: when KOIOS_API_KEY is set it is sent as a Bearer
     // token (higher rate limits); when unset the client falls back to anonymous
     // requests, so no configuration is required.

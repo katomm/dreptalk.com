@@ -57,6 +57,8 @@ declare namespace Cloudflare {
     CARDANO_NETWORK?: string;
     /** Optional Koios secret for higher rate limits (app proxy + gov-sync). */
     KOIOS_API_KEY?: string;
+    /** Local end-to-end tests only: a loopback Koios fixture server, honored on preprod only. */
+    KOIOS_BASE_URL?: string;
     /**
      * Tessera serving backend for CIP-179 surveys, per network.
      * Non-empty = the surveys feature is on: gov-sync mirrors the linked

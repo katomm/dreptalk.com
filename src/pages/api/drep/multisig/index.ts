@@ -6,11 +6,10 @@
 import type { APIRoute } from 'astro';
 import { z } from 'zod';
 import { type DRep, ScriptHash, Transaction, TransactionBody, TransactionHash, type VotingProcedures } from '@evolution-sdk/evolution';
-import { jsonResponse, runtimeEnv } from '@/lib/api/response';
+import { currentNetwork, jsonResponse, runtimeEnv } from '@/lib/api/response';
 import { getUserById } from '@/lib/db/users';
 import { loadDrepNativeScript } from '@/lib/governance/drepNativeScript';
 import { createKoiosClient } from '@/lib/koios/client';
-import { resolveNetwork } from '@/lib/config/network';
 import { createPendingMultisig } from '@/lib/db/pendingMultisigTx';
 import { resolveAnchorUrl } from '@/lib/governance/anchorUrl';
 
@@ -69,8 +68,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   }
 
   // Load the script from Koios and validate it (native, parseable, hash matches).
-  const networkEnv = (env.CARDANO_NETWORK as string | undefined) ?? null;
-  const { koiosBaseUrl } = resolveNetwork(networkEnv);
+  const { koiosBaseUrl } = currentNetwork();
   const koiosToken = (env.KOIOS_API_KEY as string | undefined) || undefined;
   const koios = createKoiosClient({ baseUrl: koiosBaseUrl, token: koiosToken });
 

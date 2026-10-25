@@ -5,11 +5,11 @@
 // stake addresses reach D1, the response, or logs (do not add logging here).
 import type { APIRoute } from 'astro';
 import { z } from 'zod';
-import { jsonResponse, runtimeEnv } from '@/lib/api/response';
+import { currentNetwork, jsonResponse, runtimeEnv } from '@/lib/api/response';
 import { checkRate } from '@/lib/rate';
 import { clientIpFrom } from '@/lib/http/clientIp';
 import { isSameOriginRequest } from '@/lib/http/origin';
-import { currentEpochProgress, resolveNetwork } from '@/lib/config/network';
+import { currentEpochProgress } from '@/lib/config/network';
 import { createKoiosClient } from '@/lib/koios/client';
 import { getUserById } from '@/lib/db/users';
 import { getProvenanceCache, isFreshProvenanceCache, putProvenanceCache } from '@/lib/db/provenanceCache';
@@ -69,8 +69,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       return new Response(cached.payload, { headers: { 'content-type': 'application/json' } });
     }
 
-    const networkEnv = (env.CARDANO_NETWORK as string | undefined) ?? null;
-    const cfg = resolveNetwork(networkEnv);
+    const cfg = currentNetwork();
     const currentEpoch = currentEpochProgress(now, cfg).epoch;
 
     // Local dev stub: SSR fetches to Koios hang under astro dev (workerd
