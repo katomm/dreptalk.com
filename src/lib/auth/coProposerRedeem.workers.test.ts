@@ -631,7 +631,7 @@ describe('loadRedeemInvite', () => {
     await seedAction(id, null);
     const invite = await inviteFor(id, null);
     const view = await loadRedeemInvite(db(), invite.inviteCode, { now: NOW });
-    expect(view?.actionTitle).toBe('Treasury Withdrawals 222222#0');
+    expect(view?.actionTitle).toBe('Treasury Withdrawals 222222\u202622222#0');
     expect(view?.teamLabel).toBeNull();
   });
 

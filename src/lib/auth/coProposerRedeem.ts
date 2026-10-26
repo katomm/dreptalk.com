@@ -13,7 +13,9 @@
 // possession of the link is what gates redemption, not knowledge of the id.
 import { consumeNonceForDomain, issueNonce } from './nonce.js';
 import { verifyCip8 } from './cose.js';
-import { checkRewardAddressHeader, proposerDoorRoles } from './handlers.js';
+import { checkRewardAddressHeader } from './handlers.js';
+import { coProposerRoles } from './roles.js';
+import { governanceActionTitle } from '../governance/view.js';
 import { resolveDelegatorAccount } from './delegatorLogin.js';
 import { lookupInviteByCode, redeemGrant } from '../db/proposerGrants.js';
 import { createSession, buildSessionCookie } from './session.js';
@@ -59,12 +61,10 @@ export async function loadRedeemInvite(
     .prepare('SELECT type, title FROM governance_actions WHERE id = ?1')
     .bind(invite.govActionId)
     .first<{ type: string; title: string | null }>();
-  const [txHash, index] = invite.govActionId.split('#');
-  const fallback = `${(action?.type ?? 'Governance action').replace(/([a-z])([A-Z])/g, '$1 $2')} ${(txHash ?? '').slice(0, 6)}#${index ?? ''}`;
   return {
     proposerStakeAddr: invite.proposerStakeAddr,
     govActionId: invite.govActionId,
-    actionTitle: action?.title?.trim() || fallback,
+    actionTitle: governanceActionTitle({ title: action?.title, type: action?.type, id: invite.govActionId }),
     teamLabel: invite.teamLabel,
   };
 }
@@ -265,7 +265,7 @@ async function handleRedeemGrantInternal(input: RedeemGrantInput, deps?: RedeemG
   // Step 7: the account's own roles plus co-proposer. The grant was just
   // claimed for this user, so no further lookup is needed. proposer only comes
   // from the user row itself.
-  const roles = proposerDoorRoles(user, { isProposer: false, hasGrant: true, modRole: null });
+  const roles = coProposerRoles(user, null);
 
   // Step 8: mint the session and return it. If this throws, the outer catch
   // reports 500. The grant claim above already committed, so it stays active

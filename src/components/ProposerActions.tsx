@@ -11,7 +11,8 @@ import { useState } from 'react';
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { CopyButton } from '@/components/CopyButton.tsx';
 import { MAX_GRANTS_PER_ACTION } from '@/lib/auth/coProposerLimits.js';
-import { formatEpochDate, readableType, shortGovActionId, statusBadge, TONE_COLORS } from '@/lib/governance/view.js';
+import { formatEpochDate, governanceActionTitle, readableType, statusBadge, TONE_COLORS } from '@/lib/governance/view.js';
+import { teamBadgeLabel } from '@/lib/forum/view.js';
 import type { ProposerActionView } from '@/lib/db/proposerHome.js';
 
 export type { ProposerActionView, PendingInviteView, CoProposerView } from '@/lib/db/proposerHome.js';
@@ -30,14 +31,9 @@ type InviteState =
   | { status: 'created'; url: string; expiresAt: number }
   | { status: 'error'; message: string };
 
-/** Title, else readable type plus short id, the same fallback the list search matches on. */
-function displayTitle(a: Pick<ProposerActionView, 'title' | 'type' | 'id'>): string {
-  return a.title?.trim() || `${readableType(a.type)} ${shortGovActionId(a.id)}`;
-}
-
 function matches(a: ProposerActionView, query: string): boolean {
   if (!query) return true;
-  return [displayTitle(a), a.id, a.proposalId ?? ''].some((s) => s.toLowerCase().includes(query));
+  return [governanceActionTitle(a), a.id, a.proposalId ?? ''].some((s) => s.toLowerCase().includes(query));
 }
 
 function plural(n: number, word: string): string {
@@ -70,6 +66,23 @@ const IconError = (
   </svg>
 );
 
+/** One grant row (an active co-proposer or a pending invite) with its single action button. */
+function GrantRow(props: { title: string; meta: (string | null)[]; button: string; busy: boolean; onClick: () => void }) {
+  return (
+    <li className="nset__row pa__grant">
+      <div className="nset__rowtext">
+        <p className="nset__rowtitle">{props.title}</p>
+        <p className="nset__rowmeta">{props.meta.filter(Boolean).join(' · ')}</p>
+      </div>
+      <div className="nset__rowactions">
+        <button type="button" className="btn btn-secondary pa__btn" disabled={props.busy} onClick={props.onClick}>
+          {props.button}
+        </button>
+      </div>
+    </li>
+  );
+}
+
 /** One governance action: header, invite control, pending invites and active co-proposers. */
 function ActionItem({ action }: { action: ProposerActionView }) {
   const [invite, setInvite] = useState<InviteState>({ status: 'idle' });
@@ -81,7 +94,7 @@ function ActionItem({ action }: { action: ProposerActionView }) {
   const [actionError, setActionError] = useState<string | null>(null);
 
   const badge = statusBadge(action.status);
-  const title = displayTitle(action);
+  const title = governanceActionTitle(action);
   const slotsUsed = action.pending.length + action.active.length + justCreated;
   const atLimit = slotsUsed >= MAX_GRANTS_PER_ACTION;
   const creating = invite.status === 'creating';
@@ -233,52 +246,28 @@ function ActionItem({ action }: { action: ProposerActionView }) {
       {(action.active.length > 0 || action.pending.length > 0) && (
         <ul className="pa__grants">
           {action.active.map((g) => (
-            <li key={g.grantId} className="nset__row pa__grant">
-              <div className="nset__rowtext">
-                <p className="nset__rowtitle">{g.coName}</p>
-                <p className="nset__rowmeta">
-                  {[
-                    g.teamLabel ? `Proposer team · ${g.teamLabel}` : null,
-                    g.coStakeAddr,
-                    g.since !== null ? `Since ${formatEpochDate(g.since)}` : null,
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')}
-                </p>
-              </div>
-              <div className="nset__rowactions">
-                <button
-                  type="button"
-                  className="btn btn-secondary pa__btn"
-                  disabled={busyGrantId === g.grantId}
-                  onClick={() => void handlePost('/api/auth/co-proposer/revoke', g.grantId)}
-                >
-                  Remove
-                </button>
-              </div>
-            </li>
+            <GrantRow
+              key={g.grantId}
+              title={g.coName}
+              meta={[
+                g.teamLabel ? teamBadgeLabel(g.teamLabel) : null,
+                g.coStakeAddr,
+                g.since !== null ? `Since ${formatEpochDate(g.since)}` : null,
+              ]}
+              button="Remove"
+              busy={busyGrantId === g.grantId}
+              onClick={() => void handlePost('/api/auth/co-proposer/revoke', g.grantId)}
+            />
           ))}
           {action.pending.map((g) => (
-            <li key={g.grantId} className="nset__row pa__grant">
-              <div className="nset__rowtext">
-                <p className="nset__rowtitle">Invite pending</p>
-                <p className="nset__rowmeta">
-                  {[g.teamLabel ? `Proposer team · ${g.teamLabel}` : null, `Expires ${formatEpochDate(g.expiresAt)}`]
-                    .filter(Boolean)
-                    .join(' · ')}
-                </p>
-              </div>
-              <div className="nset__rowactions">
-                <button
-                  type="button"
-                  className="btn btn-secondary pa__btn"
-                  disabled={busyGrantId === g.grantId}
-                  onClick={() => void handlePost('/api/auth/co-proposer/withdraw', g.grantId)}
-                >
-                  Withdraw
-                </button>
-              </div>
-            </li>
+            <GrantRow
+              key={g.grantId}
+              title="Invite pending"
+              meta={[g.teamLabel ? teamBadgeLabel(g.teamLabel) : null, `Expires ${formatEpochDate(g.expiresAt)}`]}
+              button="Withdraw"
+              busy={busyGrantId === g.grantId}
+              onClick={() => void handlePost('/api/auth/co-proposer/withdraw', g.grantId)}
+            />
           ))}
         </ul>
       )}

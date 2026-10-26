@@ -12,6 +12,19 @@ export interface ComposerPayload {
   actAs?: 'self' | { proposerStakeAddr: string };
 }
 
+/** A proposer the viewer holds an active grant from, as the composer's picker lists it. */
+export interface MandateProposer {
+  proposerStakeAddr: string;
+  label: string;
+}
+
+/** The proposer choice a page hands over when a draft write has a real choice. */
+export interface MandateOptions {
+  proposers: MandateProposer[];
+  /** The viewer holds a writer role of their own and may post as themselves. */
+  allowSelf: boolean;
+}
+
 export interface ComposerResult {
   ok: boolean;
   slug?: string;

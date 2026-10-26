@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { submitComposer, submitEdit } from '@/lib/forum/composer.js';
+import { submitComposer, submitEdit, type MandateOptions } from '@/lib/forum/composer.js';
 import { REPLY_EVENT, type ReplyEventDetail } from '@/lib/forum/replyEvent.js';
 import { EDIT_EVENT, type EditEventDetail } from '@/lib/forum/editEvent.js';
 import { QUOTE_EVENT, type QuoteEventDetail } from '@/lib/forum/quoteEvent.js';
@@ -7,13 +7,6 @@ import { buildQuoteBlock, appendQuote } from '@/lib/forum/quoteFormat.js';
 import { initialDraftBody } from '@/lib/forum/draftTemplate.js';
 import { maxPostBody } from '@/lib/forum/postLimits.js';
 import MarkdownEditor, { type MarkdownEditorHandle } from '@/components/MarkdownEditor.js';
-
-/** The proposer choice a page hands over when a draft write has a real choice. */
-export interface MandateOptions {
-  proposers: { proposerStakeAddr: string; label: string }[];
-  /** The viewer holds a writer role of their own and may post as themselves. */
-  allowSelf: boolean;
-}
 
 const SELF_VALUE = 'self';
 

@@ -769,3 +769,13 @@ export function shortGovActionId(id: string): string {
   if (!m) return id;
   return `${m[1].slice(0, 6)}…${m[1].slice(-5)}#${m[2]}`;
 }
+
+/**
+ * Display title of a governance action: the trimmed title, else the readable
+ * type plus the short id (just the short id without a type), so two untitled
+ * actions still look different.
+ */
+export function governanceActionTitle(a: { title: string | null | undefined; type: string | null | undefined; id: string }): string {
+  const short = shortGovActionId(a.id);
+  return a.title?.trim() || (a.type ? `${readableType(a.type)} ${short}` : short);
+}
