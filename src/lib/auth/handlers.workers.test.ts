@@ -1129,6 +1129,11 @@ async function insertGrant(args: {
 }) {
   const now = args.now ?? 1_700_000_000;
   const status = args.status ?? 'active';
+  // Redeem always creates the co account first, so the login lookup finds it.
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO users (id, stake_addr, is_drep, is_proposer, is_spo, is_cc, role, status, created_at, last_verified_at)
+     VALUES (?1, ?1, 0, 0, 0, 0, 'member', 'active', ?2, ?2)`,
+  ).bind(args.coStakeAddr, now).run();
   await env.DB.prepare(
     `INSERT INTO proposer_grants
        (id, proposer_user_id, proposer_stake_addr, gov_action_id, co_user_id, co_stake_addr, invite_code_hash, status, created_at, expires_at, redeemed_at, revoked_at)
@@ -1252,6 +1257,33 @@ describe('handleVerify: co-proposer grant login fallback', () => {
 
     expect(result.status).toBe(401);
     expect((result.json as { error: string }).error).toBe('not a proposer or moderator');
+  });
+
+  it('a failed proposer-door login writes no users row and leaves an existing account untouched', async () => {
+    const consumeOverride = makeSingleUseNonceOverride(stakeVector.payloadUtf8);
+    const body = {
+      payload: stakeVector.payloadUtf8,
+      signatureHex: stakeVector.signatureHex,
+      keyHex: stakeVector.keyHex,
+      role: 'proposer',
+    };
+    const base = { sessionKv: env.SESSIONS, db: env.DB, koios: koiosRejectAll(), network: 'preprod' as const, now: 1_700_000_000, secure: false };
+    const countRows = async () =>
+      (await env.DB.prepare('SELECT COUNT(*) AS n FROM users WHERE stake_addr = ?1').bind(DELEGATOR_STAKE_ADDR).first<{ n: number }>())!.n;
+
+    const first = await handleVerify({ ...base, body }, { consumeNonce: consumeOverride });
+    expect(first.status).toBe(401);
+    expect(await countRows()).toBe(0);
+
+    // An existing account with no grant reaches the same 401 and keeps its verified_at.
+    await env.DB.prepare(
+      `INSERT INTO users (id, stake_addr, is_drep, is_proposer, is_spo, is_cc, role, status, created_at, last_verified_at)
+       VALUES (?1, ?1, 0, 0, 0, 0, 'member', 'active', 100, 100)`,
+    ).bind(DELEGATOR_STAKE_ADDR).run();
+    const second = await handleVerify({ ...base, body }, { consumeNonce: makeSingleUseNonceOverride(stakeVector.payloadUtf8) });
+    expect(second.status).toBe(401);
+    const row = await env.DB.prepare('SELECT last_verified_at AS v FROM users WHERE id = ?1').bind(DELEGATOR_STAKE_ADDR).first<{ v: number }>();
+    expect(row!.v).toBe(100);
   });
 
   it('revoked grant: 401', async () => {

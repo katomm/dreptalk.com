@@ -19,7 +19,7 @@ import type { ModeratorRole } from '../../../config/moderators.js';
 import { drepIdFromPubKey, stakeAddressFromPubKey, ccHotKeyHashHex, isDrepCredentialAddress } from '../cardano/identity.js';
 import { resolveDRep, resolveProposer, resolveSpo, resolveCc, resolveScriptDRep } from './resolveRole.js';
 import type { KoiosClient } from './resolveRole.js';
-import { upsertUserFromAuth, type AuthRole, type User } from '../db/users.js';
+import { upsertUserFromAuth, getUserByStakeAddr, type AuthRole, type User } from '../db/users.js';
 import { createSession, revokeSession, buildSessionCookie, clearSessionCookie, parseSessionToken } from './session.js';
 import { sessionDeviceLabel } from './deviceLabel.js';
 import { sessionActivityHook } from './sessionActivity.js';
@@ -360,13 +360,13 @@ async function verifyWalletCip8(
     modRole = getModeratorRole(stakeAddr);
     if (!resolution.isProposer) {
       // Not an on-chain proposer: an active co-proposer grant still opens a
-      // session, carrying the co-proposer role. Resolve the account that owns
-      // this stake key first, since grants are keyed by user id.
-      const verifiedAt = Math.floor(now ?? Date.now() / 1000);
-      const user = await resolveDelegatorAccount(db, stakeAddr, verifiedAt);
-      const hasGrant = await hasActiveGrantForCoUser(db, user.id);
-      if (hasGrant) {
-        const roles = proposerDoorRoles(user, { isProposer: false, hasGrant, modRole });
+      // session, carrying the co-proposer role. Grants are keyed by user id, so
+      // look the account up read-only first: a failed login must write nothing.
+      const existing = await getUserByStakeAddr(db, stakeAddr);
+      if (existing && (await hasActiveGrantForCoUser(db, existing.id))) {
+        const verifiedAt = Math.floor(now ?? Date.now() / 1000);
+        const user = await resolveDelegatorAccount(db, stakeAddr, verifiedAt);
+        const roles = proposerDoorRoles(user, { isProposer: false, hasGrant: true, modRole });
         return mintSessionResult(input, user, modRole, { roles, drepId: user.drep_id });
       }
       if (!modRole) {
