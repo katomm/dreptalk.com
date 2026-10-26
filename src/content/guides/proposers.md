@@ -68,8 +68,8 @@ authors listed in the action's metadata.
 A mandate belongs to one action. A co-proposer for one action cannot write in
 the thread of another, even one submitted by the same proposer. The one other
 place a mandate works is [Proposal Drafts](/c/proposal-drafts/), where a draft
-has no action yet. There the co-proposer can open threads and reply under your
-badge. Everywhere else, including survey threads, a co-proposer without a role of
+has no action yet. There the co-proposer can open threads and reply with a
+badge reading "for" followed by your organisation or address. Everywhere else, including survey threads, a co-proposer without a role of
 their own cannot post.
 
 **Inviting.** Sign in as a proposer and open [your home page](/home/). It lists

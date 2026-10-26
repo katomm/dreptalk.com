@@ -8,9 +8,10 @@
 // Guard shape: requireGrantManager enforces the full "this is a real,
 // currently-active proposer managing their OWN grants" condition. Two doors
 // must both be shut for an impostor: the session's role set (a co-proposer
-// session holds the co-proposer role, never proposer) AND the underlying row (a member-capped delegator-door session for a real proposer
-// must not manage grants either, since that session never proved the
-// on-chain proposer identity). Ownership itself (a proposer cannot touch
+// session holds the co-proposer role, never proposer) AND the underlying row
+// (a member-capped delegator-door session for a real proposer must not manage
+// grants either, since that session never proved the on-chain proposer
+// identity). Ownership itself (a proposer cannot touch
 // another proposer's grants) is enforced by revokeGrant/withdrawInvite's own
 // WHERE clauses, not duplicated here.
 import { getUserById, type User } from '../db/users.js';
@@ -37,8 +38,7 @@ function isHandlerResult(value: { row: User } | HandlerResult): value is Handler
 }
 
 /**
- * Enforces all of: the session holds the proposer role, the session is NOT
- * itself grant-backed, and the user's own row is an active, on-chain-proven
+ * Enforces all of: the session holds the proposer role and the user's own row is an active, on-chain-proven
  * proposer. Returns the loaded row on success. /home reuses this
  * exact guard to decide whether to render the management UI at all.
  */
@@ -110,7 +110,7 @@ export async function handleCreateInvite(input: CreateInviteInput): Promise<Hand
     let teamLabel: string | null = null;
     if (input.teamLabel !== undefined && input.teamLabel !== null) {
       const picked = typeof input.teamLabel === 'string' ? input.teamLabel.trim() : null;
-      if (picked === null || (picked !== '' && !(parseAuthors(action.authors) ?? []).includes(picked))) {
+      if (picked === null || (picked !== '' && !(parseAuthors(action.authors) ?? []).some((a) => a.trim() === picked))) {
         return { status: 400, json: { error: 'unknown team' } };
       }
       teamLabel = picked === '' ? null : picked;

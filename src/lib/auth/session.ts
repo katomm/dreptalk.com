@@ -122,7 +122,7 @@ async function readHashIndex(kv: KVNamespace, userId: string): Promise<string[]>
 }
 
 /**
- * Removes a single hash from an index (usess or gsess) identified by its full
+ * Removes a single hash from an index (the usess index) identified by its full
  * KV key: writes back the pruned list, or deletes the key if it is now empty.
  */
 async function pruneHashFromIndex(kv: KVNamespace, key: string, hash: string): Promise<void> {
@@ -425,12 +425,8 @@ export async function revokeSessionForUser(
 
 /**
  * Revokes all sessions for a user by reading their index and deleting every
- * session record, then removing the index itself.
- *
- * Each record is read before it is deleted (rather than deleting blind) so
- * that grant-backed sessions among them can also be pruned from their gsess
- * index. This cleanup is best-effort: a corrupt or already-missing record is
- * skipped silently, since the session key deletion is what actually matters.
+ * session record, then removing the index itself. Records are deleted blind,
+ * without reading them first.
  *
  * Note: the read-modify-write on the per-user index is not atomic. A concurrent
  * createSession during revokeAllForUser may result in the new session surviving

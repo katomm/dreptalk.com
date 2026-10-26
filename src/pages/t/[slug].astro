@@ -248,8 +248,10 @@ if (db && user && viewerStampedIds.length > 0) {
 
 // Whether the viewer writes here under a grant (a pure co-proposer has no
 // writer role) and, in Proposal Drafts, the proposer picker. One lookup, only
-// for signed-in viewers of an unlocked thread.
-const viewerComposerMandate = db && user && topic && !topic.locked
+// for signed-in viewers of an unlocked thread. A writer outside Proposal Drafts
+// needs no lookup, the composer shows anyway and the badge is set at write time.
+const viewerComposerMandate = db && user && topic && !topic.locked &&
+  (!viewerIsWriter || topic.category_slug === PROPOSAL_DRAFTS_CATEGORY_SLUG)
   ? await composerMandate(db, user, { id: topic.id, category_slug: topic.category_slug })
   : undefined;
 

@@ -219,6 +219,19 @@ describe('handleCreateInvite: team name', () => {
     expect(await teamLabelFor(p.userId)).toBe('Trivolve Tech');
   });
 
+  it('accepts a team name whose stored author has surrounding spaces', async () => {
+    const p = await makeProposerWithAction({ authors: ['Trivolve Tech ', 'Cardano Foundation'] });
+    const r = await handleCreateInvite({
+      db: db(),
+      user: sessionUser(p.userId, ['proposer']),
+      govActionId: p.actionId,
+      teamLabel: 'Trivolve Tech ',
+      now: NOW,
+    });
+    expect(r.status).toBe(200);
+    expect(await teamLabelFor(p.userId)).toBe('Trivolve Tech');
+  });
+
   it('400s unknown team for a name outside the authors, or when there are no authors', async () => {
     const p = await makeProposerWithAction({ authors: AUTHORS });
     const user = sessionUser(p.userId, ['proposer']);

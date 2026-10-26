@@ -131,7 +131,7 @@ export async function handleCreateTopic(input: CreateTopicInput): Promise<Handle
   try {
     const { user, body, db, rateLimiter, now } = input;
 
-    // 1. Auth check: must be authenticated. Reading is public; posting is
+    // 1. Auth check: must be authenticated. Reading is public, posting is
     // reserved for verified DReps/SPOs/CC/proposers (same gate as flagging), or
     // a co-proposer mandate in Proposal Drafts. A mandate is its own authority,
     // so it skips the writer rule. Moderation roles alone do not grant write
@@ -552,8 +552,7 @@ export interface EditPostInput {
  * Edits the caller's own post body. A post stamped with a grant skips the
  * writer rule and relies on editPost's check that exactly that grant is still
  * active for the author. An unstamped post takes the same writer gate as
- * posting. Rate-limited;
- * validates length; re-renders+sanitizes markdown. Ownership, hidden, and topic
+ * posting. Rate-limited, validates length, re-renders+sanitizes markdown. Ownership, hidden, and topic
  * lock/delete checks live in editPost (domain errors mapped via editError).
  *
  * Reconciles the post's CIP-100 documents twice, before and after the write:
@@ -640,8 +639,8 @@ export interface EditTitleInput {
 /**
  * Edits the caller's own topic title (opening-post author). Same split as
  * handleEditPost: a topic stamped with a grant follows that grant, an
- * unstamped one the writer gate. Rate-limited; validates 3..200 chars. Slug stays frozen. Ownership / governance
- * / lock checks live in editTitle.
+ * unstamped one the writer gate. Rate-limited, validates 3..200 chars. Slug stays
+ * frozen. Ownership, governance and lock checks live in editTitle.
  */
 export async function handleEditTitle(input: EditTitleInput): Promise<HandlerResult> {
   try {

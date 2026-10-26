@@ -1,5 +1,5 @@
 // POST /api/auth/co-proposer/revoke: a signed-in proposer revokes one of
-// their own active co-proposer grants, killing every session it backs. Thin
+// their own active co-proposer grants. Thin
 // route: same-origin + signed-in gate + rate-limit + env wiring, all guard
 // logic and the revoke itself live in handleRevokeGrant (see
 // coProposerManage.ts).

@@ -1,8 +1,9 @@
 /// <reference types="@cloudflare/workers-types" />
 // Co-proposer grants: a proposer invites another stake key via a one-time
-// code for one governance action; the redeemed grant lets that key write forum
-// posts on the proposer's behalf for that action. Topics and posts persist the grant id at write time, so
-// attribution stays historical even after the grant is later revoked.
+// code for one governance action. The redeemed grant lets that key write forum
+// posts on the proposer's behalf for that action. Topics and posts persist the
+// grant id at write time, so attribution stays historical even after the grant
+// is later revoked.
 //
 // D1 rather than KV for the same reason pairing.ts gives: KV has no
 // compare-and-delete, so a get-check-write would let two concurrent requests
@@ -318,9 +319,9 @@ export async function getGrantsByIds(db: D1Database, ids: readonly string[]): Pr
 /**
  * Revokes a grant. Idempotent: returns true both for the active-to-revoked
  * flip this call performs AND for a grant this proposer already revoked
- * earlier, so a caller retrying a failed KV cleanup step can always tell
- * revocation succeeded. Returns false for an unknown id, a grant owned by a
- * different proposer, or a grant that is still pending (never activated).
+ * earlier, so a retrying caller can always tell revocation succeeded. Returns
+ * false for an unknown id, a grant owned by a different proposer, or a grant
+ * that is still pending (never activated).
  */
 export async function revokeGrant(
   db: D1Database,

@@ -1,7 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 // Testable handlers for co-proposer invite redemption: a logged-out holder of
 // an invite link proves their wallet with a CIP-8 signature and becomes an
-// active co-proposer with a grant-backed session. Astro routes in
+// active co-proposer with a session carrying the co-proposer role. Astro routes in
 // src/pages/api/auth/co-proposer/*.ts are thin wrappers (rate-limit + env
 // wiring) over the two functions here, mirroring handlers.ts's convention.
 //

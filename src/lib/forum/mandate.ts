@@ -15,8 +15,8 @@ export interface MandateBadge {
   title: string | null;
 }
 
-/** Curated name when known, else the truncated stake address. No declared-name
- * fallback (grants carry no CIP-108 author names). Also labels /home's mandates. */
+/** Curated name when known, else the truncated stake address. Also labels /home's
+ * mandates. The team label (a CIP-108 author name) is carried separately on the grant. */
 export function proposerName(grant: ProposerGrant): string {
   const view = proposerView(grant.proposer_stake_addr);
   return view.kind === 'known' ? view.name : truncateId(grant.proposer_stake_addr, 18);
