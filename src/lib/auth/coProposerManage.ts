@@ -39,7 +39,7 @@ function isHandlerResult(value: { row: User } | HandlerResult): value is Handler
 /**
  * Enforces all of: the session holds the proposer role, the session is NOT
  * itself grant-backed, and the user's own row is an active, on-chain-proven
- * proposer. Returns the loaded row on success. The settings page reuses this
+ * proposer. Returns the loaded row on success. /home reuses this
  * exact guard to decide whether to render the management UI at all.
  */
 export async function requireGrantManager(

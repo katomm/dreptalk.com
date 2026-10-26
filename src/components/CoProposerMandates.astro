@@ -1,0 +1,29 @@
+---
+// The "You write for" list on /home: one row per active co-proposer grant,
+// naming the action, the team the proposer picked and who invited the account.
+// Static, no island: a co-proposer has nothing to manage here.
+import { formatEpochDate, readableType, shortGovActionId } from '@/lib/governance/view.js';
+import type { MandateRow } from '@/lib/db/proposerHome.js';
+
+interface Props {
+  mandates: MandateRow[];
+}
+const { mandates } = Astro.props;
+
+const titleOf = (m: MandateRow) =>
+  m.actionTitle?.trim() || `${m.actionType ? `${readableType(m.actionType)} ` : ''}${shortGovActionId(m.actionId)}`;
+---
+<ul class="pa__list">
+  {mandates.map((m) => (
+    <li class="pa__item">
+      <p class="pa__title">
+        {m.topicSlug ? <a href={`/t/${m.topicSlug}/`}>{titleOf(m)}</a> : titleOf(m)}
+      </p>
+      <p class="pa__meta pa__meta--dots">
+        <span>{m.teamLabel ? `Proposer team · ${m.teamLabel}` : 'Proposer team'}</span>
+        <span>Invited by {m.proposerLabel}</span>
+        {m.since !== null && <span>Since {formatEpochDate(m.since)}</span>}
+      </p>
+    </li>
+  ))}
+</ul>

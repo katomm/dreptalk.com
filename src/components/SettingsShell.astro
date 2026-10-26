@@ -2,13 +2,13 @@
 // Shared chrome for the settings sub-pages: breadcrumb, heading and the tab
 // bar. Each settings route renders its own content into the slot. The tab bar
 // is role-aware: every account has Account and Devices, a DRep adds Metadata,
-// drep.link (once it is open) and Danger Zone, a proposer adds Co-proposers.
+// drep.link (once it is open) and Danger Zone. Co-proposers are managed on /home.
 // The tabs are plain links to the sub-routes, so switching is SSR and
 // deep-linkable, no client JS. Tab styling mirrors GaTabs.
 import Layout from '@/layouts/Layout.astro';
 import type { SettingsAccess } from '@/lib/auth/settingsAccess';
 
-type TabId = 'metadata' | 'drep-link' | 'account' | 'devices' | 'co-proposers' | 'danger';
+type TabId = 'metadata' | 'drep-link' | 'account' | 'devices' | 'danger';
 
 interface Props {
   active: TabId;
@@ -23,7 +23,6 @@ if (isDrep) tabs.push({ id: 'metadata', label: 'Metadata', href: '/settings/meta
 if (access.drepLinkOpen) tabs.push({ id: 'drep-link', label: 'drep.link', href: '/settings/drep-link/' });
 tabs.push({ id: 'account', label: 'Account', href: '/settings/account/' });
 tabs.push({ id: 'devices', label: 'Devices', href: '/settings/devices/' });
-if (access.isProposer) tabs.push({ id: 'co-proposers', label: 'Co-proposers', href: '/settings/co-proposers/' });
 if (isDrep) tabs.push({ id: 'danger', label: 'Danger Zone', href: '/settings/danger/' });
 ---
 <Layout
