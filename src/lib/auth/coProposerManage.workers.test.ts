@@ -8,7 +8,6 @@ import { env } from 'cloudflare:test';
 import { handleCreateInvite, handleRevokeGrant, handleWithdrawInvite } from './coProposerManage.js';
 import { createGrantInvite, getGrantsForProposerActions, withdrawInvite } from '../db/proposerGrants.js';
 import { upsertUserFromAuth } from '../db/users.js';
-import { createSession, getSession } from './session.js';
 
 const db = () => env.DB as D1Database;
 const NOW = 1_700_000_000;
@@ -39,33 +38,16 @@ async function makeMember() {
 }
 
 /** A session-shaped user object, the same fields coProposerManage reads off locals.user. */
-function sessionUser(id: string, roles: string[], grantId?: string | null) {
-  return { id, roles, grantId };
-}
-
-/** A KV whose delete/get throw exactly once, to simulate a transient KV outage. */
-function flakyKv(real: KVNamespace): KVNamespace {
-  let failNext = true;
-  return {
-    get: async (...args: Parameters<KVNamespace['get']>) => {
-      if (failNext) {
-        failNext = false;
-        throw new Error('kv unavailable');
-      }
-      return (real.get as (...a: unknown[]) => unknown)(...args);
-    },
-    put: (...args: Parameters<KVNamespace['put']>) => real.put(...args),
-    delete: (...args: Parameters<KVNamespace['delete']>) => real.delete(...args),
-    list: (...args: Parameters<KVNamespace['list']>) => (real.list as (...a: unknown[]) => unknown)(...args),
-  } as unknown as KVNamespace;
+function sessionUser(id: string, roles: string[]) {
+  return { id, roles };
 }
 
 describe('handleCreateInvite: guard enforcement', () => {
-  it('403s for a grant session even though it holds the proposer role', async () => {
+  it('403s for a co-proposer session without the proposer role', async () => {
     const proposer = await makeProposer();
     const result = await handleCreateInvite({
       db: db(),
-      user: sessionUser(proposer.userId, ['proposer'], 'some-grant-id'),
+      user: sessionUser(proposer.userId, ['co-proposer']),
       govActionId: ACTION,
       now: NOW,
     });
@@ -78,7 +60,7 @@ describe('handleCreateInvite: guard enforcement', () => {
     // member-capped role set a delegator-door login mints.
     const result = await handleCreateInvite({
       db: db(),
-      user: sessionUser(proposer.userId, ['member'], null),
+      user: sessionUser(proposer.userId, ['member']),
       govActionId: ACTION,
       now: NOW,
     });
@@ -89,7 +71,7 @@ describe('handleCreateInvite: guard enforcement', () => {
     const member = await makeMember();
     const result = await handleCreateInvite({
       db: db(),
-      user: sessionUser(member.userId, ['proposer'], null),
+      user: sessionUser(member.userId, ['proposer']),
       govActionId: ACTION,
       now: NOW,
     });
@@ -100,7 +82,7 @@ describe('handleCreateInvite: guard enforcement', () => {
     const proposer = await makeProposer();
     const result = await handleCreateInvite({
       db: db(),
-      user: sessionUser(proposer.userId, ['proposer'], null),
+      user: sessionUser(proposer.userId, ['proposer']),
       govActionId: ACTION,
       now: NOW,
     });
@@ -113,11 +95,11 @@ describe('handleCreateInvite: guard enforcement', () => {
   it('409s at the 4-grant limit per action', async () => {
     const proposer = await makeProposer();
     for (let i = 0; i < 4; i++) {
-      const ok = await handleCreateInvite({ db: db(), user: sessionUser(proposer.userId, ['proposer'], null), govActionId: ACTION, now: NOW });
+      const ok = await handleCreateInvite({ db: db(), user: sessionUser(proposer.userId, ['proposer']), govActionId: ACTION, now: NOW });
       expect(ok.status).toBe(200);
     }
 
-    const third = await handleCreateInvite({ db: db(), user: sessionUser(proposer.userId, ['proposer'], null), govActionId: ACTION, now: NOW });
+    const third = await handleCreateInvite({ db: db(), user: sessionUser(proposer.userId, ['proposer']), govActionId: ACTION, now: NOW });
     expect(third.status).toBe(409);
     expect((third.json as { error: string }).error).toBe('limit reached');
   });
@@ -128,7 +110,7 @@ describe('handleCreateInvite: guard enforcement', () => {
     await db().prepare('UPDATE users SET stake_addr = NULL WHERE id = ?1').bind(proposer.userId).run();
     const result = await handleCreateInvite({
       db: db(),
-      user: sessionUser(proposer.userId, ['proposer'], null),
+      user: sessionUser(proposer.userId, ['proposer']),
       govActionId: ACTION,
       now: NOW,
     });
@@ -142,7 +124,7 @@ describe('handleCreateInvite: guard enforcement', () => {
 });
 
 describe('handleRevokeGrant', () => {
-  it('revokes only for the owning proposer; kills gsess sessions; pending grants cannot be revoked, only withdrawn', async () => {
+  it('revokes only for the owning proposer; pending grants cannot be revoked, only withdrawn', async () => {
     const proposer = await makeProposer();
     const otherProposer = await makeProposer();
 
@@ -152,100 +134,40 @@ describe('handleRevokeGrant', () => {
     // A pending (never redeemed) grant cannot be revoked.
     const pendingAttempt = await handleRevokeGrant({
       db: db(),
-      sessionKv: env.SESSIONS,
-      user: sessionUser(proposer.userId, ['proposer'], null),
+      user: sessionUser(proposer.userId, ['proposer']),
       grantId: invite.grantId,
       now: NOW,
     });
     expect(pendingAttempt.status).toBe(404);
 
-    // Redeem it so it becomes active, and mint a grant-backed session for it.
+    // Redeem it so it becomes active.
     const coStakeAddr = `stake_test1-co-${nextId()}`;
     const coRow = await upsertUserFromAuth(db(), { stakeAddr: coStakeAddr, roles: [], now: NOW });
     await db()
       .prepare(`UPDATE proposer_grants SET status = 'active', co_user_id = ?1, co_stake_addr = ?2, redeemed_at = ?3 WHERE id = ?4`)
       .bind(coRow.id, coStakeAddr, NOW, invite.grantId)
       .run();
-    const token = await createSession(env.SESSIONS, {
-      id: coRow.id,
-      roles: ['proposer'],
-      grantId: invite.grantId,
-      actsFor: { userId: proposer.userId, stakeAddr: proposer.stakeAddr },
-    });
-    expect(await getSession(env.SESSIONS, token)).not.toBeNull();
 
     // A different real proposer cannot revoke someone else's grant.
     const wrongOwner = await handleRevokeGrant({
       db: db(),
-      sessionKv: env.SESSIONS,
-      user: sessionUser(otherProposer.userId, ['proposer'], null),
+      user: sessionUser(otherProposer.userId, ['proposer']),
       grantId: invite.grantId,
       now: NOW,
     });
     expect(wrongOwner.status).toBe(404);
-    // The grant-backed session must survive a revoke attempt that never
-    // actually owned the grant.
-    expect(await getSession(env.SESSIONS, token)).not.toBeNull();
 
-    // The owning proposer can revoke it, and doing so kills the grant session.
+    // The owning proposer can revoke it.
     const result = await handleRevokeGrant({
       db: db(),
-      sessionKv: env.SESSIONS,
-      user: sessionUser(proposer.userId, ['proposer'], null),
+      user: sessionUser(proposer.userId, ['proposer']),
       grantId: invite.grantId,
       now: NOW,
     });
     expect(result.status).toBe(200);
-    expect(await getSession(env.SESSIONS, token)).toBeNull();
 
     const grants = await getGrantsForProposer(db(), proposer.userId, { now: NOW });
     expect(grants.find((g) => g.id === invite.grantId)).toBeUndefined();
-  });
-
-  it('retry heals a failed KV cleanup: first call flips D1 but KV throws, second call reports success and removes the remaining grant sessions', async () => {
-    const proposer = await makeProposer();
-    const invite = await createGrantInvite(db(), { proposerUserId: proposer.userId, proposerStakeAddr: proposer.stakeAddr, govActionId: ACTION, teamLabel: null, now: NOW });
-    if (!invite) throw new Error('createGrantInvite returned null');
-
-    const coStakeAddr = `stake_test1-co-${nextId()}`;
-    const coRow = await upsertUserFromAuth(db(), { stakeAddr: coStakeAddr, roles: [], now: NOW });
-    await db()
-      .prepare(`UPDATE proposer_grants SET status = 'active', co_user_id = ?1, co_stake_addr = ?2, redeemed_at = ?3 WHERE id = ?4`)
-      .bind(coRow.id, coStakeAddr, NOW, invite.grantId)
-      .run();
-    const token = await createSession(env.SESSIONS, {
-      id: coRow.id,
-      roles: ['proposer'],
-      grantId: invite.grantId,
-      actsFor: { userId: proposer.userId, stakeAddr: proposer.stakeAddr },
-    });
-
-    const kv = flakyKv(env.SESSIONS);
-    const firstAttempt = await handleRevokeGrant({
-      db: db(),
-      sessionKv: kv,
-      user: sessionUser(proposer.userId, ['proposer'], null),
-      grantId: invite.grantId,
-      now: NOW,
-    });
-    expect(firstAttempt.status).toBe(500);
-
-    // D1 already flipped even though the first call reported failure.
-    const grantsAfterFirst = await getGrantsForProposer(db(), proposer.userId, { now: NOW });
-    expect(grantsAfterFirst.find((g) => g.id === invite.grantId)).toBeUndefined();
-    expect(await getSession(env.SESSIONS, token)).not.toBeNull();
-
-    // Retrying (against the real, non-flaky KV) heals the KV side: revokeGrant
-    // is idempotent for an owned revoked grant, so this reports success.
-    const secondAttempt = await handleRevokeGrant({
-      db: db(),
-      sessionKv: env.SESSIONS,
-      user: sessionUser(proposer.userId, ['proposer'], null),
-      grantId: invite.grantId,
-      now: NOW,
-    });
-    expect(secondAttempt.status).toBe(200);
-    expect(await getSession(env.SESSIONS, token)).toBeNull();
   });
 });
 
@@ -257,7 +179,7 @@ describe('handleWithdrawInvite', () => {
 
     const result = await handleWithdrawInvite({
       db: db(),
-      user: sessionUser(proposer.userId, ['proposer'], null),
+      user: sessionUser(proposer.userId, ['proposer']),
       grantId: invite.grantId,
     });
     expect(result.status).toBe(200);
@@ -279,7 +201,7 @@ describe('handleWithdrawInvite', () => {
 
     const result = await handleWithdrawInvite({
       db: db(),
-      user: sessionUser(proposer.userId, ['proposer'], null),
+      user: sessionUser(proposer.userId, ['proposer']),
       grantId: invite.grantId,
     });
     expect(result.status).toBe(404);
@@ -289,14 +211,14 @@ describe('handleWithdrawInvite', () => {
     expect(stillActive).toBe(false);
   });
 
-  it('403s for a grant session', async () => {
+  it('403s for a co-proposer session', async () => {
     const proposer = await makeProposer();
     const invite = await createGrantInvite(db(), { proposerUserId: proposer.userId, proposerStakeAddr: proposer.stakeAddr, govActionId: ACTION, teamLabel: null, now: NOW });
     if (!invite) throw new Error('createGrantInvite returned null');
 
     const result = await handleWithdrawInvite({
       db: db(),
-      user: sessionUser(proposer.userId, ['proposer'], 'some-grant-id'),
+      user: sessionUser(proposer.userId, ['co-proposer']),
       grantId: invite.grantId,
     });
     expect(result.status).toBe(403);

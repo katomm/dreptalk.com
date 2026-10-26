@@ -106,8 +106,8 @@ describe('postViewerContext: canEdit', () => {
 });
 
 describe('postViewerContext: co-proposer grant sessions', () => {
-  const grantOnly = { id: 'u-co', roles: ['proposer'], grantId: 'g1' };
-  const grantWithOwnRole = { id: 'u-co-drep', roles: ['drep', 'proposer'], grantId: 'g2' };
+  const grantOnly = { id: 'u-co', roles: ['co-proposer'] };
+  const grantWithOwnRole = { id: 'u-co-drep', roles: ['drep', 'co-proposer'] };
 
   it('offers neither flag nor reactions when the grant is the only writer role', () => {
     const c = postViewerContext({ author_id: 'other', hidden: false }, grantOnly, false);

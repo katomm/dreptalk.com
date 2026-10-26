@@ -23,7 +23,7 @@ import { upsertUserFromAuth, type AuthRole, type User } from '../db/users.js';
 import { createSession, revokeSession, buildSessionCookie, clearSessionCookie, parseSessionToken } from './session.js';
 import { sessionDeviceLabel } from './deviceLabel.js';
 import { sessionActivityHook } from './sessionActivity.js';
-import { rolesFromUser, normalizeSessionRoles } from './roles.js';
+import { rolesFromUser } from './roles.js';
 import type { CardanoNetwork } from '../config/network.js';
 import { WALLET_NETWORK_MISMATCH } from '../wallet/networkGuard.js';
 import { resolveDelegatorAccount } from './delegatorLogin.js';
@@ -359,29 +359,22 @@ async function verifyWalletCip8(
     const resolution = await resolveProposer(koios, stakeAddr);
     modRole = getModeratorRole(stakeAddr);
     if (!resolution.isProposer) {
-      // Not an on-chain proposer: an active co-proposer grant still opens the
-      // proposer door, with the mandate pinned to the session. The user row
-      // keeps is_proposer = 0; the role exists only while the grant does.
-      // Interim until grants are resolved per action: the oldest active grant.
+      // Not an on-chain proposer: an active co-proposer grant still opens a
+      // session. Stub: Task 3 adds the co-proposer role here. Until then the
+      // session carries the account's own roles only and gets no write rights
+      // from the grant.
       const grant = await db
         .prepare(
-          `SELECT id, proposer_user_id, proposer_stake_addr FROM proposer_grants
+          `SELECT id FROM proposer_grants
             WHERE co_stake_addr = ?1 AND status = 'active' AND gov_action_id IS NOT NULL
             ORDER BY redeemed_at ASC, id ASC LIMIT 1`,
         )
         .bind(stakeAddr)
-        .first<Pick<ProposerGrant, 'id' | 'proposer_user_id' | 'proposer_stake_addr'>>();
+        .first<Pick<ProposerGrant, 'id'>>();
       if (grant) {
         const verifiedAt = Math.floor(now ?? Date.now() / 1000);
         const user = await resolveDelegatorAccount(db, stakeAddr, verifiedAt);
-        const base = rolesFromUser(user, modRole).filter((r) => r !== 'member');
-        const roles = normalizeSessionRoles([...base, 'proposer']);
-        return mintSessionResult(input, user, null, {
-          roles,
-          drepId: user.drep_id,
-          grantId: grant.id,
-          actsFor: { userId: grant.proposer_user_id, stakeAddr: grant.proposer_stake_addr },
-        });
+        return mintSessionResult(input, user, modRole);
       }
       if (!modRole) {
         return { status: 401, json: { ok: false, error: 'not a proposer or moderator' } };
@@ -521,19 +514,14 @@ async function mintSessionResult(
   input: VerifyInput,
   user: User,
   modRole: ModeratorRole | null,
-  opts?: {
-    roles?: string[];
-    drepId?: string | null;
-    grantId?: string | null;
-    actsFor?: { userId: string; stakeAddr: string } | null;
-  },
+  opts?: { roles?: string[]; drepId?: string | null },
 ): Promise<VerifyResult> {
   const { sessionKv, now, secure, db, userAgent } = input;
   const roles = opts?.roles ?? rolesFromUser(user, modRole);
   const drepId = opts?.roles ? (opts.drepId ?? null) : user.drep_id;
   const token = await createSession(
     sessionKv,
-    { id: user.id, roles, drepId, grantId: opts?.grantId ?? null, actsFor: opts?.actsFor ?? null },
+    { id: user.id, roles, drepId },
     { now, onCreate: sessionActivityHook(db), label: sessionDeviceLabel(userAgent) },
   );
   return {

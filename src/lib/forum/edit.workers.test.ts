@@ -103,11 +103,12 @@ describe('handleEditPost', () => {
     expect(r.status).toBe(200);
   });
 
-  it('403 mandate revoked when the editor\'s grant was revoked', async () => {
+  // Task 4 re-implements this against per-write mandate resolution.
+  it.skip('403 mandate revoked when the editor\'s grant was revoked', async () => {
     const coUserId = 'grant-co-user-edit-post';
     await insertGrant({ id: 'grant-edit-post-1', proposerUserId: 'proposer-user-1', coUserId, status: 'revoked' });
     const { postId } = await fixture();
-    const user = { id: coUserId, roles: ['proposer'], grantId: 'grant-edit-post-1' };
+    const user = { id: coUserId, roles: ['co-proposer'] };
     const r = await handleEditPost({
       user, postId, body: { bodyMd: 'should not land' }, db: db(), rateLimiter: rateLimiter(), now: NOW + EDIT_GRACE_MS + 5,
     });

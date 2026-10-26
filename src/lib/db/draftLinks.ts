@@ -14,14 +14,15 @@ export interface DraftLinkedAction {
 
 /**
  * The session wrote this draft: same user, under the same mandate the draft was
- * opened with (a co-proposer's grant, or none). The one rule for who may unlink
+ * opened with. Stub: Task 4 compares against the mandate resolved for the
+ * session, until then only drafts opened without a grant count. The one rule for who may unlink
  * as the author, shared by the unlink endpoint and the page that shows the button.
  */
 export function isDraftAuthor(
   topic: { author_id: string; proposer_grant_id: string | null },
-  user: { id: string; grantId?: string | null },
+  user: { id: string },
 ): boolean {
-  return topic.author_id === user.id && (topic.proposer_grant_id ?? null) === (user.grantId ?? null);
+  return topic.author_id === user.id && (topic.proposer_grant_id ?? null) === null;
 }
 
 /** The first slug that is a live Proposal Drafts thread, as its topic id. */

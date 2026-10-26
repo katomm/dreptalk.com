@@ -14,7 +14,6 @@ export type ReactionAffordance = 'interactive' | 'readonly' | 'hidden';
 export interface SessionUser {
   id: string;
   roles: string[];
-  grantId?: string | null;
 }
 
 export interface PostViewerContext {
@@ -37,8 +36,8 @@ export interface PostViewerContext {
 /**
  * Computes the flag/visibility context for one post and viewer.
  * - canSeeContent: a hidden post stays readable for its author and moderators.
- * - canFlag: only on-chain writers can flag (not on a co-proposer grant alone,
- *   see canJudgePosts), never their own post or a system/governance post
+ * - canFlag: only on-chain writers can flag (a co-proposer alone does not
+ *   count, see canJudgePosts), never their own post or a system/governance post
  *   (authorIsSystem).
  * - reactions: only those same writers may toggle, never on their own post. On a
  *   system/governance post the row is hidden outright: a thumbs up on the
@@ -47,7 +46,7 @@ export interface PostViewerContext {
  */
 export function postViewerContext(
   post: { author_id: string; hidden: boolean },
-  user: { id: string; roles: readonly string[]; grantId?: string | null } | null,
+  user: { id: string; roles: readonly string[] } | null,
   authorIsSystem: boolean,
 ): PostViewerContext {
   const isOwnPost = !!user && post.author_id === user.id;

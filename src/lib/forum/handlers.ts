@@ -11,7 +11,6 @@ import { getCategory, isDiscussion, PROPOSAL_DRAFTS_CATEGORY_SLUG } from '../../
 import { checkRate } from '../rate.js';
 import type { RateLimiter } from '../rateLimiterDO.js';
 import { isWriter, isModerator, canJudgePosts, WRITER_ROLES } from '../auth/roles.js';
-import { isGrantActiveForUser } from '../db/proposerGrants.js';
 import { isDraftAuthor, unlinkDraftAction } from '../db/draftLinks.js';
 import { isSystemAuthor } from './author.js';
 import { toBase64Url } from '../crypto/base64url.js';
@@ -30,23 +29,7 @@ export interface HandlerResult {
   json: unknown;
 }
 
-type User = { id: string; roles: string[]; grantId?: string | null };
-
-/**
- * Revocation is a hard guarantee for writes: KV session deletion propagates
- * lazily across PoPs, so a grant-backed session must re-check its grant in D1
- * before any write. The check also binds the grant to the session's user so a
- * stray grantId can never authorize someone else. Non-grant sessions never
- * pay this read.
- */
-async function mandateGate(
-  db: D1Database,
-  user: { id: string; grantId?: string | null },
-): Promise<HandlerResult | null> {
-  if (!user.grantId) return null;
-  if (await isGrantActiveForUser(db, user.grantId, user.id)) return null;
-  return { status: 403, json: { ok: false, error: 'mandate revoked' } };
-}
+type User = { id: string; roles: string[] };
 
 /**
  * Session roles are a login-time cache; DRep write authority additionally
@@ -78,12 +61,15 @@ async function drepActiveGate(
   return null;
 }
 
-/** The full write-authority gate every forum write passes after isWriter. */
+/**
+ * The full write-authority gate every forum write passes after isWriter.
+ * Stub: Task 4 adds the per-write mandate check for co-proposers here.
+ */
 async function writeGate(
   db: D1Database,
-  user: { id: string; roles: string[]; grantId?: string | null },
+  user: { id: string; roles: string[] },
 ): Promise<HandlerResult | null> {
-  return (await mandateGate(db, user)) ?? (await drepActiveGate(db, user));
+  return drepActiveGate(db, user);
 }
 
 /**
@@ -195,7 +181,8 @@ export async function handleCreateTopic(input: CreateTopicInput): Promise<Handle
       source: 'user',
       now,
       rand,
-      proposerGrantId: user.grantId ?? null,
+      // Stub: Task 4 stamps the mandate's grant id. Null until then.
+      proposerGrantId: null,
     });
 
     // 9. Mention notifications for the opening post. Never fail the topic over
@@ -284,7 +271,8 @@ export async function handleCreatePost(input: CreatePostInput): Promise<HandlerR
       bodyHtml,
       now,
       parentPostId,
-      proposerGrantId: user.grantId ?? null,
+      // Stub: Task 4 stamps the mandate's grant id. Null until then.
+      proposerGrantId: null,
     });
 
     // 6. Notify: mention rows for the mentioned users, reply rows for the
@@ -592,7 +580,8 @@ export async function handleEditPost(input: EditPostInput): Promise<HandlerResul
         bodyMd,
         bodyHtml,
         now,
-        sessionGrantId: user.grantId ?? null,
+        // Stub: Task 4 resolves the mandate. Null denies stamped rows.
+        sessionGrantId: null,
       });
       // Publish the edited text as the next version. Its own try/catch, not the
       // notification one, so a notification failure cannot skip the emit.
@@ -637,7 +626,8 @@ export async function handleEditTitle(input: EditTitleInput): Promise<HandlerRes
     }
 
     try {
-      await editTitle(db, { topicId, authorId: user.id, title, now, sessionGrantId: user.grantId ?? null });
+      // Stub: Task 4 resolves the mandate. Null denies stamped rows.
+      await editTitle(db, { topicId, authorId: user.id, title, now, sessionGrantId: null });
       return { status: 200, json: { ok: true } };
     } catch (err) {
       return editError(err);
@@ -684,10 +674,8 @@ export async function handleDraftUnlink(input: DraftUnlinkInput): Promise<Handle
       return { status: 403, json: { ok: false, error: 'forbidden' } };
     }
     // No writer role or DRep activity check (an author whose role lapsed must
-    // still undo a stranger's link), but a grant-backed session re-checks its
-    // grant in D1 like every other write: a revoked co-proposer must not act.
-    const mandate = await mandateGate(db, user);
-    if (mandate) return mandate;
+    // still undo a stranger's link). Stub: Task 4 re-checks the mandate in D1
+    // here, so a revoked co-proposer must not act.
 
     const allowed = await checkRate(rateLimiter, `edit:${user.id}`, { max: 30, windowSec: 600, now });
     if (!allowed) return { status: 429, json: { ok: false, error: 'rate_limited' } };

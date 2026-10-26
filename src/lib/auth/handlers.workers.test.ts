@@ -1147,7 +1147,7 @@ async function insertGrant(args: {
 }
 
 describe('handleVerify: co-proposer grant login fallback', () => {
-  it('stake key with no proposals but an active grant logs in with proposer role, grantId and actsFor on the session', async () => {
+  it('stake key with no proposals but an active grant logs in without grant fields or the proposer role on the session', async () => {
     const fixturePayload = stakeVector.payloadUtf8;
     const consumeOverride = makeSingleUseNonceOverride(fixturePayload);
     await insertGrant({
@@ -1178,15 +1178,15 @@ describe('handleVerify: co-proposer grant login fallback', () => {
     expect(result.status).toBe(200);
     const json = result.json as { ok: boolean; user: { id: string; roles: string[] } };
     expect(json.ok).toBe(true);
-    expect(json.user.roles).toContain('proposer');
+    expect(json.user.roles).not.toContain('proposer');
 
     const cookie = result.setCookie!;
     const token = /dreptalk_session=([^;]+)/.exec(cookie)![1];
     // Same clock as the login: sessions carry an absolute lifetime cap, so a
     // NOW-stamped session read at wall-clock time would read as expired.
     const session = await getSession(env.SESSIONS, token, { now: 1_700_000_000 });
-    expect(session?.grantId).toBe('grant-fallback-1');
-    expect(session?.actsFor).toEqual({ userId: 'proposer-user-1', stakeAddr: 'stake_test1proposerone' });
+    expect(session).not.toHaveProperty('grantId');
+    expect(session).not.toHaveProperty('actsFor');
   });
 
   it('grant login never sets is_proposer on the user row', async () => {
@@ -1313,7 +1313,7 @@ describe('handleVerify: co-proposer grant login fallback', () => {
     expect(result.status).toBe(200);
     const json = result.json as { user: { roles: string[] } };
     expect(json.user.roles).toContain('moderator');
-    expect(json.user.roles).toContain('proposer');
+    expect(json.user.roles).not.toContain('proposer');
   });
 
   it('a REAL on-chain proposer who also redeemed a grant logs in with their own identity: no grantId/actsFor on the session', async () => {

@@ -20,8 +20,6 @@ export async function claimHandleRequest(a: {
 }): Promise<ClaimResponse> {
   const { db, user, body, now } = a;
   if (!user) return { status: 401, body: { ok: false, error: 'unauthorized' } };
-  // Co-proposer grant sessions act for someone else and never count as the DRep.
-  if (user.grantId) return { status: 403, body: { ok: false, error: 'forbidden' } };
   const drepId = await getSelfDrepId(db, user);
   if (!drepId) return { status: 403, body: { ok: false, error: 'forbidden' } };
 

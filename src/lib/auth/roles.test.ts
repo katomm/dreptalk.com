@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isWriter, isModerator, roleLabels, rolesFromUser, normalizeSessionRoles } from './roles.js';
+import { isWriter, isModerator, canJudgePosts, CO_PROPOSER_ROLE, roleLabels, rolesFromUser, normalizeSessionRoles } from './roles.js';
 
 describe('isWriter', () => {
   it('is true for each on-chain writer role', () => {
@@ -84,5 +84,23 @@ describe('normalizeSessionRoles', () => {
   it('returns [] for all-unknown or empty input', () => {
     expect(normalizeSessionRoles(['nope', 'x'])).toEqual([]);
     expect(normalizeSessionRoles([])).toEqual([]);
+  });
+});
+
+describe('co-proposer role', () => {
+  it('has the co-proposer constant and label, ranked after proposer', () => {
+    expect(CO_PROPOSER_ROLE).toBe('co-proposer');
+    expect(roleLabels(['co-proposer'])).toEqual(['Co-proposer']);
+    expect(roleLabels(['member', 'co-proposer', 'proposer'])).toEqual(['Proposer', 'Co-proposer', 'Member']);
+  });
+
+  it('is not a writer role', () => {
+    expect(isWriter(['co-proposer'])).toBe(false);
+  });
+
+  it('canJudgePosts follows isWriter', () => {
+    expect(canJudgePosts({ roles: ['co-proposer'] })).toBe(false);
+    expect(canJudgePosts({ roles: ['drep', 'co-proposer'] })).toBe(true);
+    expect(canJudgePosts({ roles: ['proposer'] })).toBe(true);
   });
 });

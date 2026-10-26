@@ -5,6 +5,9 @@
 /** On-chain roles that prove a wallet-verified governance identity. */
 export const WRITER_ROLES = ['drep', 'spo', 'cc', 'proposer'] as const;
 
+/** Session role of a user who acts under a per-action co-proposer grant. Not a writer role. */
+export const CO_PROPOSER_ROLE = 'co-proposer';
+
 /** Moderation roles granted via the operator allowlist. */
 export const MODERATOR_ROLES = ['admin', 'moderator'] as const;
 
@@ -19,14 +22,12 @@ export function isWriter(roles: readonly string[]): boolean {
 
 /**
  * True when the user may flag or react to posts. Each flag and reaction counts
- * one writer, so it needs a writer role of the account's own. The 'proposer'
- * role a co-proposer grant lends a session belongs to the proposer who issued
- * it, and one proposer can hand out several grants: a session whose only writer
- * role comes from a grant would let a single identity count several times.
+ * one writer, so it needs a writer role of the account's own. The co-proposer
+ * role is not a writer role, so a session that only acts under a grant never
+ * counts.
  */
-export function canJudgePosts(user: { roles: readonly string[]; grantId?: string | null }): boolean {
-  if (!user.grantId) return isWriter(user.roles);
-  return isWriter(user.roles.filter((r) => r !== 'proposer'));
+export function canJudgePosts(user: { roles: readonly string[] }): boolean {
+  return isWriter(user.roles);
 }
 
 /** True when the user holds a moderation role (admin or moderator). */
@@ -40,6 +41,7 @@ const ROLE_DISPLAY: Record<string, string> = {
   spo: 'SPO',
   cc: 'CC',
   proposer: 'Proposer',
+  'co-proposer': 'Co-proposer',
   admin: 'Admin',
   moderator: 'Moderator',
   member: 'Member',
@@ -47,7 +49,7 @@ const ROLE_DISPLAY: Record<string, string> = {
 
 // Badge priority: the governance identity role comes first (it answers "who you
 // are"), then moderation privileges, then the plain member fallback.
-export const ROLE_PRIORITY = ['drep', 'spo', 'cc', 'proposer', 'admin', 'moderator', 'member'] as const;
+export const ROLE_PRIORITY = ['drep', 'spo', 'cc', 'proposer', 'co-proposer', 'admin', 'moderator', 'member'] as const;
 
 /**
  * Display labels for the roles a session holds, in priority order. Unknown role

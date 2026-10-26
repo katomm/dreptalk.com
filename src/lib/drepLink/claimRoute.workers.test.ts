@@ -8,13 +8,12 @@ import { COOLDOWN_SEC, GRACE_SEC } from './handle.js';
 
 const NOW = 1_800_000_000;
 const A = 'drep1claimaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaqqqqq';
-const drepUser = { id: 'u1', roles: ['drep'], drepId: A, grantId: null };
+const drepUser = { id: 'u1', roles: ['drep'], drepId: A };
 const call = (user: App.Locals['user'], body: unknown) => claimHandleRequest({ db: env.DB, user, body, now: NOW });
 
 describe('claimHandleRequest', () => {
-  it('rejects anonymous, grant sessions and non-DReps', async () => {
+  it('rejects anonymous and non-DReps', async () => {
     expect((await call(null, {})).status).toBe(401);
-    expect((await call({ ...drepUser, grantId: 'g' }, {})).status).toBe(403);
     expect((await call({ id: 'u2', roles: [], drepId: null }, {})).status).toBe(403);
   });
   it('is closed until the seed exists', async () => {

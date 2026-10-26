@@ -230,22 +230,20 @@ async function handleRedeemGrantInternal(input: RedeemGrantInput, deps?: RedeemG
     return { status: 410, json: { ok: false, error: 'invite unavailable' } };
   }
 
-  // Step 7: session roles are the account's own on-chain roles (minus the
-  // bare member fallback) plus proposer, granted for the duration of the grant.
-  const base = rolesFromUser(user, null).filter((r) => r !== 'member');
-  const roles = normalizeSessionRoles([...base, 'proposer']);
+  // Step 7: session roles are the account's own roles only.
+  // Stub: Task 3 adds the co-proposer role here. Until then a grant adds no
+  // role, so a redeemed session has no write rights from the grant.
+  const roles = normalizeSessionRoles(rolesFromUser(user, null));
 
-  // Step 8: mint the grant-backed session and return it. If this throws, the
-  // outer catch reports 500; the grant claim above already committed, so it
-  // stays active for the login fallback to recover later (task 4, out of scope here).
+  // Step 8: mint the session and return it. If this throws, the outer catch
+  // reports 500. The grant claim above already committed, so it stays active
+  // for the login fallback to recover later.
   const token = await createSession(
     sessionKv,
     {
       id: user.id,
       roles,
       drepId: user.drep_id,
-      grantId: invite.grantId,
-      actsFor: { userId: res.proposerUserId, stakeAddr: res.proposerStakeAddr },
     },
     { now: nowSec, onCreate: sessionActivityHook(db), label: sessionDeviceLabel(input.userAgent) },
   );

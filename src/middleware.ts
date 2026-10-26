@@ -3,7 +3,7 @@
 // does not cover Worker-generated responses on Cloudflare Workers Static Assets).
 import { defineMiddleware } from 'astro:middleware';
 import { env, waitUntil } from 'cloudflare:workers';
-import { parseSessionToken, getSession, buildSessionCookie, clearSessionCookie, sessionLifetimeStart } from './lib/auth/session.js';
+import { parseSessionToken, getSession, buildSessionCookie, clearSessionCookie, sessionLifetimeStart, sessionUserFromRecord } from './lib/auth/session.js';
 import { sessionActivityHook } from './lib/auth/sessionActivity.js';
 import { crossOriginWriteResponse } from './lib/http/origin.js';
 import { applySecurityHeaders, relaxStyleSrc } from './lib/http/securityHeaders.js';
@@ -110,18 +110,13 @@ export const onRequest = defineMiddleware(async (context, next) => {
           cookieAction = 'slide';
         },
       });
-      if (record) {
-        context.locals.user = {
-          id: record.userId,
-          roles: record.roles,
-          drepId: record.drepId,
-          grantId: record.grantId ?? null,
-          actsFor: record.actsFor ?? null,
-          lifetimeStart: sessionLifetimeStart(record),
-        };
+      const sessionUser = record ? sessionUserFromRecord(record) : null;
+      if (record && sessionUser) {
+        context.locals.user = { ...sessionUser, lifetimeStart: sessionLifetimeStart(record) };
       } else {
-        // Expired, revoked, or past the absolute lifetime cap: drop the dead
-        // cookie so the browser stops sending it for the next 30 days.
+        // Expired, revoked, past the absolute lifetime cap, or a retired
+        // grant-pinned session: drop the dead cookie so the browser stops
+        // sending it for the next 30 days.
         cookieAction = 'clear';
       }
     }

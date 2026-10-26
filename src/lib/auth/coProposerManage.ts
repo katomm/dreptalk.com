@@ -7,16 +7,14 @@
 //
 // Guard shape: requireGrantManager enforces the full "this is a real,
 // currently-active proposer managing their OWN grants" condition. Two doors
-// must both be shut for an impostor: the session's role set (a grant session
-// holds the proposer role too, so !user.grantId is essential) AND the
-// underlying row (a member-capped delegator-door session for a real proposer
+// must both be shut for an impostor: the session's role set (a co-proposer
+// session holds the co-proposer role, never proposer) AND the underlying row (a member-capped delegator-door session for a real proposer
 // must not manage grants either, since that session never proved the
 // on-chain proposer identity). Ownership itself (a proposer cannot touch
 // another proposer's grants) is enforced by revokeGrant/withdrawInvite's own
 // WHERE clauses, not duplicated here.
 import { getUserById, type User } from '../db/users.js';
 import { createGrantInvite, revokeGrant, withdrawInvite } from '../db/proposerGrants.js';
-import { revokeAllForGrant } from './session.js';
 
 export interface HandlerResult {
   status: number;
@@ -27,7 +25,6 @@ export interface HandlerResult {
 export interface GrantManagerUser {
   id: string;
   roles: string[];
-  grantId?: string | null;
 }
 
 function isHandlerResult(value: { row: User } | HandlerResult): value is HandlerResult {
@@ -45,9 +42,6 @@ export async function requireGrantManager(
   user: GrantManagerUser,
 ): Promise<{ row: User } | HandlerResult> {
   if (!user.roles.includes('proposer')) {
-    return { status: 403, json: { error: 'forbidden' } };
-  }
-  if (user.grantId) {
     return { status: 403, json: { error: 'forbidden' } };
   }
   const row = await getUserById(db, user.id);
@@ -116,29 +110,21 @@ export async function handleCreateInvite(input: CreateInviteInput): Promise<Hand
 
 export interface RevokeGrantInput {
   db: D1Database;
-  sessionKv: KVNamespace;
   user: GrantManagerUser;
   grantId: string;
   now?: number;
 }
 
 /**
- * Revokes an active grant and kills every session it backs. Ownership and
+ * Revokes an active grant. Sessions are not pinned to grants, every write
+ * re-checks the grant in D1, so there is nothing to clean up in KV. Ownership and
  * the active-only precondition (a pending invite must be withdrawn, not
  * revoked) are both enforced by revokeGrant's WHERE clause; a false there
  * means "not yours, unknown, or not yet active", reported as 404.
- *
- * When revokeGrant flips the row, the KV cleanup is ALWAYS awaited before
- * responding 200. If that cleanup throws (e.g. a transient KV outage), the
- * outer try/catch reports 500 even though D1 already committed. Because
- * revokeGrant is idempotent for a grant this proposer already revoked, the
- * caller simply retries the same request: revokeGrant reports success again
- * without touching D1 a second time, and the KV cleanup gets another chance
- * to finish. This is the only way a partially-failed revoke self-heals.
  */
 export async function handleRevokeGrant(input: RevokeGrantInput): Promise<HandlerResult> {
   try {
-    const { db, sessionKv, user, grantId, now } = input;
+    const { db, user, grantId, now } = input;
     const guard = await requireGrantManager(db, user);
     if (isHandlerResult(guard)) return guard;
 
@@ -146,11 +132,9 @@ export async function handleRevokeGrant(input: RevokeGrantInput): Promise<Handle
     if (!ok) {
       return { status: 404, json: { error: 'not found' } };
     }
-    await revokeAllForGrant(sessionKv, grantId);
     return { status: 200, json: { ok: true } };
   } catch {
-    // Unexpected internal error, possibly after D1 already flipped the grant
-    // to revoked; see the doc comment above for why a retry is safe.
+    // Unexpected internal error: fail closed with a generic 500.
     return { status: 500, json: { error: 'internal error' } };
   }
 }

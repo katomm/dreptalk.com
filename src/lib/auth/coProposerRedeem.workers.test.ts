@@ -117,7 +117,7 @@ describe('handleRedeemChallenge', () => {
 });
 
 describe('handleRedeemGrant: happy path', () => {
-  it('valid CIP-8 reward-address sig + fresh nonce redeems, mints a session with grantId/actsFor and proposer role', async () => {
+  it('valid CIP-8 reward-address sig + fresh nonce redeems, mints a session without grant fields or the proposer role', async () => {
     const invite = await makeInvite();
     const domain = grantRedeemDomain(invite.grantId);
 
@@ -142,7 +142,7 @@ describe('handleRedeemGrant: happy path', () => {
     expect(result.status).toBe(200);
     const json = result.json as { ok: boolean; user: { id: string; roles: string[] } };
     expect(json.ok).toBe(true);
-    expect(json.user.roles).toContain('proposer');
+    expect(json.user.roles).not.toContain('proposer');
     expect(result.setCookie).toBeTruthy();
     expect(result.setCookie).toContain('dreptalk_session=');
 
@@ -151,9 +151,9 @@ describe('handleRedeemGrant: happy path', () => {
     // reading a NOW-stamped session at wall-clock time would read it as expired.
     const session = await getSession(env.SESSIONS, token, { now: NOW });
     expect(session).not.toBeNull();
-    expect(session?.grantId).toBe(invite.grantId);
-    expect(session?.actsFor).toEqual({ userId: invite.proposerUserId, stakeAddr: invite.proposerStakeAddr });
-    expect(session?.roles).toContain('proposer');
+    expect(session).not.toHaveProperty('grantId');
+    expect(session).not.toHaveProperty('actsFor');
+    expect(session?.roles).not.toContain('proposer');
 
     expect(await grantStatus(invite.grantId)).toBe('active');
 
