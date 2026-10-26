@@ -41,8 +41,8 @@ async function insertGrant(args: { id: string; proposerUserId: string; coUserId:
   await db()
     .prepare(
       `INSERT INTO proposer_grants
-         (id, proposer_user_id, proposer_stake_addr, co_user_id, co_stake_addr, invite_code_hash, status, created_at, expires_at, redeemed_at, revoked_at)
-       VALUES (?1, ?2, 'stake_test1reactproposer', ?3, 'stake_test1reactco', ?1, ?4, ?5, ?6, ?7, ?8)`,
+         (id, proposer_user_id, proposer_stake_addr, gov_action_id, co_user_id, co_stake_addr, invite_code_hash, status, created_at, expires_at, redeemed_at, revoked_at)
+       VALUES (?1, ?2, 'stake_test1reactproposer', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa#0', ?3, 'stake_test1reactco', ?1, ?4, ?5, ?6, ?7, ?8)`,
     )
     .bind(
       args.id,

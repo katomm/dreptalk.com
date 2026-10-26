@@ -40,6 +40,8 @@ async function makeInvite(opts?: { proposerStakeAddr?: string; now?: number }) {
   const invite = await createGrantInvite(db(), {
     proposerUserId: proposer.id,
     proposerStakeAddr,
+    govActionId: `${'a'.repeat(64)}#0`,
+    teamLabel: null,
     now: opts?.now ?? NOW,
   });
   if (!invite) throw new Error('makeInvite: createGrantInvite returned null');
@@ -375,7 +377,8 @@ describe('handleRedeemGrant: stake key already holds a mandate', () => {
 
     expect(result.status).toBe(409);
     expect((result.json as { ok: boolean; error: string }).error).toBe('mandate_taken');
-    expect(await grantStatus(secondInvite.grantId)).toBe('pending');
+    // The losing pending invite is deleted in the same call.
+    expect(await grantStatus(secondInvite.grantId)).toBeNull();
   });
 });
 

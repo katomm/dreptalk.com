@@ -1,6 +1,6 @@
 ---
 // Settings > Co-proposers tab: a real on-chain proposer invites up to
-// MAX_GRANTS_PER_PROPOSER co-proposers, sees pending invites and active
+// MAX_GRANTS_PER_ACTION co-proposers per action, sees pending invites and active
 // grants, and can withdraw or revoke them. Gated by the same
 // requireGrantManager guard the management API routes enforce, so a grant
 // session or a member-capped delegator-door session for a real proposer
@@ -10,7 +10,8 @@ export const prerender = false;
 import SettingsShell from '@/components/SettingsShell.astro';
 import CoProposerInvite from '@/components/CoProposerInvite.tsx';
 import { loadSettingsAccess } from '@/lib/auth/settingsAccess';
-import { getGrantsForProposer, MAX_GRANTS_PER_PROPOSER } from '@/lib/db/proposerGrants';
+import { getGrantsForProposerActions } from '@/lib/db/proposerGrants';
+import { MAX_GRANTS_PER_ACTION } from '@/lib/auth/coProposerLimits';
 import { getUsersByIds } from '@/lib/db/users';
 import { truncateIdMiddle } from '@/lib/forum/view';
 import { runtimeEnv } from '@/lib/api/response';
@@ -26,7 +27,7 @@ const db = env.DB as D1Database | undefined;
 const access = await loadSettingsAccess(db, user);
 const canManage = access.isProposer;
 
-const grants = canManage && db ? await getGrantsForProposer(db, user.id) : [];
+const grants = canManage && db ? [...(await getGrantsForProposerActions(db, user.id)).values()].flat() : [];
 const pendingGrants = grants.filter((g) => g.status === 'pending');
 const activeGrants = grants.filter((g) => g.status === 'active');
 
@@ -57,7 +58,7 @@ const initialActive = activeGrants.map((g) => ({
       <CoProposerInvite
         initialPending={initialPending}
         initialActive={initialActive}
-        maxSlots={MAX_GRANTS_PER_PROPOSER}
+        maxSlots={MAX_GRANTS_PER_ACTION}
         client:load
       />
     </>

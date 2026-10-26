@@ -6,12 +6,17 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { handleCreateInvite, handleRevokeGrant, handleWithdrawInvite } from './coProposerManage.js';
-import { createGrantInvite, getGrantsForProposer, withdrawInvite } from '../db/proposerGrants.js';
+import { createGrantInvite, getGrantsForProposerActions, withdrawInvite } from '../db/proposerGrants.js';
 import { upsertUserFromAuth } from '../db/users.js';
 import { createSession, getSession } from './session.js';
 
 const db = () => env.DB as D1Database;
 const NOW = 1_700_000_000;
+const ACTION = `${'a'.repeat(64)}#0`;
+
+async function getGrantsForProposer(d: D1Database, proposerUserId: string, opts: { now: number }) {
+  return [...(await getGrantsForProposerActions(d, proposerUserId, opts)).values()].flat();
+}
 
 let seq = 0;
 function nextId(): string {
@@ -61,6 +66,7 @@ describe('handleCreateInvite: guard enforcement', () => {
     const result = await handleCreateInvite({
       db: db(),
       user: sessionUser(proposer.userId, ['proposer'], 'some-grant-id'),
+      govActionId: ACTION,
       now: NOW,
     });
     expect(result.status).toBe(403);
@@ -73,6 +79,7 @@ describe('handleCreateInvite: guard enforcement', () => {
     const result = await handleCreateInvite({
       db: db(),
       user: sessionUser(proposer.userId, ['member'], null),
+      govActionId: ACTION,
       now: NOW,
     });
     expect(result.status).toBe(403);
@@ -83,6 +90,7 @@ describe('handleCreateInvite: guard enforcement', () => {
     const result = await handleCreateInvite({
       db: db(),
       user: sessionUser(member.userId, ['proposer'], null),
+      govActionId: ACTION,
       now: NOW,
     });
     expect(result.status).toBe(403);
@@ -93,6 +101,7 @@ describe('handleCreateInvite: guard enforcement', () => {
     const result = await handleCreateInvite({
       db: db(),
       user: sessionUser(proposer.userId, ['proposer'], null),
+      govActionId: ACTION,
       now: NOW,
     });
     expect(result.status).toBe(200);
@@ -101,14 +110,14 @@ describe('handleCreateInvite: guard enforcement', () => {
     expect(json.expiresAt).toBeGreaterThan(NOW);
   });
 
-  it('409s at the 2-grant limit', async () => {
+  it('409s at the 4-grant limit per action', async () => {
     const proposer = await makeProposer();
-    const first = await handleCreateInvite({ db: db(), user: sessionUser(proposer.userId, ['proposer'], null), now: NOW });
-    const second = await handleCreateInvite({ db: db(), user: sessionUser(proposer.userId, ['proposer'], null), now: NOW });
-    expect(first.status).toBe(200);
-    expect(second.status).toBe(200);
+    for (let i = 0; i < 4; i++) {
+      const ok = await handleCreateInvite({ db: db(), user: sessionUser(proposer.userId, ['proposer'], null), govActionId: ACTION, now: NOW });
+      expect(ok.status).toBe(200);
+    }
 
-    const third = await handleCreateInvite({ db: db(), user: sessionUser(proposer.userId, ['proposer'], null), now: NOW });
+    const third = await handleCreateInvite({ db: db(), user: sessionUser(proposer.userId, ['proposer'], null), govActionId: ACTION, now: NOW });
     expect(third.status).toBe(409);
     expect((third.json as { error: string }).error).toBe('limit reached');
   });
@@ -120,6 +129,7 @@ describe('handleCreateInvite: guard enforcement', () => {
     const result = await handleCreateInvite({
       db: db(),
       user: sessionUser(proposer.userId, ['proposer'], null),
+      govActionId: ACTION,
       now: NOW,
     });
     expect(result.status).toBe(500);
@@ -136,7 +146,7 @@ describe('handleRevokeGrant', () => {
     const proposer = await makeProposer();
     const otherProposer = await makeProposer();
 
-    const invite = await createGrantInvite(db(), { proposerUserId: proposer.userId, proposerStakeAddr: proposer.stakeAddr, now: NOW });
+    const invite = await createGrantInvite(db(), { proposerUserId: proposer.userId, proposerStakeAddr: proposer.stakeAddr, govActionId: ACTION, teamLabel: null, now: NOW });
     if (!invite) throw new Error('createGrantInvite returned null');
 
     // A pending (never redeemed) grant cannot be revoked.
@@ -194,7 +204,7 @@ describe('handleRevokeGrant', () => {
 
   it('retry heals a failed KV cleanup: first call flips D1 but KV throws, second call reports success and removes the remaining grant sessions', async () => {
     const proposer = await makeProposer();
-    const invite = await createGrantInvite(db(), { proposerUserId: proposer.userId, proposerStakeAddr: proposer.stakeAddr, now: NOW });
+    const invite = await createGrantInvite(db(), { proposerUserId: proposer.userId, proposerStakeAddr: proposer.stakeAddr, govActionId: ACTION, teamLabel: null, now: NOW });
     if (!invite) throw new Error('createGrantInvite returned null');
 
     const coStakeAddr = `stake_test1-co-${nextId()}`;
@@ -242,7 +252,7 @@ describe('handleRevokeGrant', () => {
 describe('handleWithdrawInvite', () => {
   it('deletes a pending invite only', async () => {
     const proposer = await makeProposer();
-    const invite = await createGrantInvite(db(), { proposerUserId: proposer.userId, proposerStakeAddr: proposer.stakeAddr, now: NOW });
+    const invite = await createGrantInvite(db(), { proposerUserId: proposer.userId, proposerStakeAddr: proposer.stakeAddr, govActionId: ACTION, teamLabel: null, now: NOW });
     if (!invite) throw new Error('createGrantInvite returned null');
 
     const result = await handleWithdrawInvite({
@@ -258,7 +268,7 @@ describe('handleWithdrawInvite', () => {
 
   it('cannot withdraw an already-active grant', async () => {
     const proposer = await makeProposer();
-    const invite = await createGrantInvite(db(), { proposerUserId: proposer.userId, proposerStakeAddr: proposer.stakeAddr, now: NOW });
+    const invite = await createGrantInvite(db(), { proposerUserId: proposer.userId, proposerStakeAddr: proposer.stakeAddr, govActionId: ACTION, teamLabel: null, now: NOW });
     if (!invite) throw new Error('createGrantInvite returned null');
     const coStakeAddr = `stake_test1-co-${nextId()}`;
     const coRow = await upsertUserFromAuth(db(), { stakeAddr: coStakeAddr, roles: [], now: NOW });
@@ -281,7 +291,7 @@ describe('handleWithdrawInvite', () => {
 
   it('403s for a grant session', async () => {
     const proposer = await makeProposer();
-    const invite = await createGrantInvite(db(), { proposerUserId: proposer.userId, proposerStakeAddr: proposer.stakeAddr, now: NOW });
+    const invite = await createGrantInvite(db(), { proposerUserId: proposer.userId, proposerStakeAddr: proposer.stakeAddr, govActionId: ACTION, teamLabel: null, now: NOW });
     if (!invite) throw new Error('createGrantInvite returned null');
 
     const result = await handleWithdrawInvite({

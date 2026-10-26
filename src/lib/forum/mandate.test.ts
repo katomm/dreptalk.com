@@ -11,6 +11,8 @@ function grant(id: string, addr: string, status: ProposerGrant['status'] = 'acti
     id,
     proposer_user_id: 'proposer-user',
     proposer_stake_addr: addr,
+    gov_action_id: `${'a'.repeat(64)}#0`,
+    team_label: null,
     co_user_id: 'co-user',
     co_stake_addr: 'stake1co',
     status,

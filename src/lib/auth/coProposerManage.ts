@@ -64,12 +64,14 @@ export async function requireGrantManager(
 export interface CreateInviteInput {
   db: D1Database;
   user: GrantManagerUser;
+  /** Governance action the invite is for. Full validation arrives with the per-action invite flow. */
+  govActionId?: unknown;
   now?: number;
 }
 
 /**
  * Creates a one-time invite link for a new co-proposer. 409s at the
- * per-proposer grant limit (MAX_GRANTS_PER_PROPOSER in proposerGrants.ts).
+ * per-action grant limit (MAX_GRANTS_PER_ACTION in coProposerLimits.ts).
  */
 export async function handleCreateInvite(input: CreateInviteInput): Promise<HandlerResult> {
   try {
@@ -83,9 +85,16 @@ export async function handleCreateInvite(input: CreateInviteInput): Promise<Hand
       return { status: 500, json: { error: 'internal error' } };
     }
 
+    const govActionId = typeof input.govActionId === 'string' ? input.govActionId : '';
+    if (govActionId === '') {
+      return { status: 400, json: { error: 'invalid action' } };
+    }
+
     const invite = await createGrantInvite(db, {
       proposerUserId: user.id,
       proposerStakeAddr: guard.row.stake_addr,
+      govActionId,
+      teamLabel: null,
       now,
     });
     if (!invite) {

@@ -1129,8 +1129,8 @@ async function insertGrant(args: {
   const status = args.status ?? 'active';
   await env.DB.prepare(
     `INSERT INTO proposer_grants
-       (id, proposer_user_id, proposer_stake_addr, co_user_id, co_stake_addr, invite_code_hash, status, created_at, expires_at, redeemed_at, revoked_at)
-     VALUES (?1, ?2, ?3, NULL, ?4, ?1, ?5, ?6, ?7, ?8, ?9)`,
+       (id, proposer_user_id, proposer_stake_addr, gov_action_id, co_user_id, co_stake_addr, invite_code_hash, status, created_at, expires_at, redeemed_at, revoked_at)
+     VALUES (?1, ?2, ?3, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa#0', NULL, ?4, ?1, ?5, ?6, ?7, ?8, ?9)`,
   )
     .bind(
       args.id,

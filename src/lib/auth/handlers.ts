@@ -31,7 +31,7 @@ import { ensureFollow, setExpectedDelegation } from '../db/delegatorFollows.js';
 import { normalizeExpectedDrepId } from '../delegation/expectedDrepId.js';
 import { parseSignupRef } from '../analytics/signupRef.js';
 import { resolveFollow } from '../delegation/refresh.js';
-import { getActiveGrantByCoStake } from '../db/proposerGrants.js';
+import type { ProposerGrant } from '../db/proposerGrants.js';
 
 // ---------------------------------------------------------------------------
 // Address header bytes
@@ -362,7 +362,15 @@ async function verifyWalletCip8(
       // Not an on-chain proposer: an active co-proposer grant still opens the
       // proposer door, with the mandate pinned to the session. The user row
       // keeps is_proposer = 0; the role exists only while the grant does.
-      const grant = await getActiveGrantByCoStake(db, stakeAddr);
+      // Interim until grants are resolved per action: the oldest active grant.
+      const grant = await db
+        .prepare(
+          `SELECT id, proposer_user_id, proposer_stake_addr FROM proposer_grants
+            WHERE co_stake_addr = ?1 AND status = 'active' AND gov_action_id IS NOT NULL
+            ORDER BY redeemed_at ASC, id ASC LIMIT 1`,
+        )
+        .bind(stakeAddr)
+        .first<Pick<ProposerGrant, 'id' | 'proposer_user_id' | 'proposer_stake_addr'>>();
       if (grant) {
         const verifiedAt = Math.floor(now ?? Date.now() / 1000);
         const user = await resolveDelegatorAccount(db, stakeAddr, verifiedAt);
