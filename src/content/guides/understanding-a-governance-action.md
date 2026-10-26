@@ -75,8 +75,9 @@ The sidebar next to the content answers the status questions:
 
 The Discussion tab is the action's public thread. Anyone can read it without
 signing in. Posting requires an on-chain governance identity: DReps,
-proposers and their co-proposers, SPOs, and Constitutional Committee members
-can [sign in](/help/signing-in/) and post. Every post carries its author's
+proposers, SPOs, and Constitutional Committee members can
+[sign in](/help/signing-in/) and post. A proposer can also authorize
+co-proposers to write in this one thread, and their posts carry a team badge. Every post carries its author's
 verified on-chain identity and links back to their profile, so you always
 know whether a comment comes from a DRep, the proposer, or another voter.
 

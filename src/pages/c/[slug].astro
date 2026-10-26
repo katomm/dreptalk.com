@@ -23,6 +23,7 @@ import {
   DISCUSSION_SORTS,
   type DiscussionSort,
 } from '@/lib/db/discussions.js';
+import { draftComposerMandate } from '@/lib/forum/writeMandate.js';
 import { getGovernanceActionTopicIdsPage, getGovernanceActionsByTopicIds } from '@/lib/db/governance.js';
 import { getProtocolParams, type ProtocolParams } from '@/lib/db/protocolParams.js';
 import { loadTreasuryOverview, type TreasuryOverviewData } from '@/lib/treasury/overview.js';
@@ -231,6 +232,10 @@ const siteOrigin = Astro.site?.origin ?? SITE_ORIGIN;
 // Show composer only for authenticated users on discussion (non-governance) categories.
 const user = Astro.locals.user;
 const showComposer = !!user && !!category && isDiscussion(category.slug);
+// Proposal Drafts: the proposer picker, only when the viewer has a real choice.
+const draftMandate = db && user && category?.slug === PROPOSAL_DRAFTS_CATEGORY_SLUG
+  ? await draftComposerMandate(db, user)
+  : undefined;
 // DReps get a shortcut from the governance overview to their personal voting
 // dashboard (otherwise buried in the account menu). Role check only, no query.
 const isDrepViewer = user?.roles.includes('drep') ?? false;
@@ -543,7 +548,7 @@ const breadcrumbLd = {
         {showComposer && (
           <section style="margin-top:2.5rem;border-top:1px solid var(--border);padding-top:2rem;">
             <h2 style="margin:0 0 1rem;font-size:1.125rem;">Start a new topic</h2>
-            <Composer client:load mode="topic" categorySlug={category.slug} />
+            <Composer client:load mode="topic" categorySlug={category.slug} mandateOptions={draftMandate?.options} />
           </section>
         )}
       </Fragment>

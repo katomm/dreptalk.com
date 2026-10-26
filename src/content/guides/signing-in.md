@@ -46,8 +46,8 @@ DReps cannot sign in, since they have no member keys to sign with.
 Pick the **Proposer** role. You sign with your wallet's
 **reward (stake) address**, and we confirm on-chain that this address
 submitted at least one governance action. Use the same wallet that submitted the
-action. **Co-proposers** also sign in through this flow: people a proposer has authorized to write on their behalf,
-using their own wallet. How a proposer invites and revokes co-proposers is
+action. **Co-proposers** also sign in through this flow: people a proposer has authorized to write in one of their
+action threads, using their own wallet. How a proposer invites and revokes co-proposers is
 covered in [Proposers](/help/proposers/).
 
 ## Stake pool operators

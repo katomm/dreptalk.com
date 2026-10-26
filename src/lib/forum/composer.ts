@@ -8,6 +8,8 @@ export interface ComposerPayload {
   bodyMd: string;
   /** Reply target for mode 'post' (one-level threading). */
   parentPostId?: string;
+  /** Proposal Drafts only: whose voice the write speaks with. Omitted when there is no choice. */
+  actAs?: 'self' | { proposerStakeAddr: string };
 }
 
 export interface ComposerResult {
@@ -39,7 +41,7 @@ export async function submitComposer(args: {
 
   try {
     let url: string;
-    let body: Record<string, string | undefined>;
+    let body: Record<string, unknown>;
 
     if (mode === 'topic') {
       url = '/api/topics';
@@ -47,10 +49,11 @@ export async function submitComposer(args: {
         categorySlug: payload.categorySlug,
         title: payload.title,
         bodyMd: payload.bodyMd,
+        actAs: payload.actAs,
       };
     } else {
       url = `/api/topics/${payload.topicId}/posts`;
-      body = { bodyMd: payload.bodyMd, parentPostId: payload.parentPostId };
+      body = { bodyMd: payload.bodyMd, parentPostId: payload.parentPostId, actAs: payload.actAs };
     }
 
     const response = await fetcher(url, {

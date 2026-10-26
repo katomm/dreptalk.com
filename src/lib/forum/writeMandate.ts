@@ -10,6 +10,7 @@ import { PROPOSAL_DRAFTS_CATEGORY_SLUG } from '../../../config/categories.js';
 import { getActiveGrantForAction, listActiveGrantsForCoUser } from '../db/proposerGrants.js';
 import { getGovernanceActionByTopicId } from '../db/governance.js';
 import { proposerView } from '../identity/proposer.js';
+import { isWriter } from '../auth/roles.js';
 import { truncateId } from './view.js';
 
 /** Who a Proposal Drafts write speaks for: the writer alone, or one of their proposers. */
@@ -101,4 +102,43 @@ export async function mandateProposers(
     out.push({ proposerStakeAddr: g.proposer_stake_addr, label });
   }
   return out;
+}
+
+export interface ComposerMandate {
+  /** The viewer's write here would be stamped with a grant, so the composer shows even without a writer role. */
+  hasMandate: boolean;
+  /** Proposal Drafts only: the picker data when there is a real choice, else undefined. */
+  options?: { proposers: { proposerStakeAddr: string; label: string }[]; allowSelf: boolean };
+}
+
+/**
+ * What the page needs to decide on the reply or topic composer. In an action
+ * thread the grant for that action decides, no picker. In Proposal Drafts a
+ * picker is offered only with two or more choices: several proposers, or one
+ * proposer plus the viewer's own writer role.
+ */
+export async function composerMandate(
+  db: D1Database,
+  user: { id: string; roles: string[] },
+  topic: { id: string; category_slug: string },
+): Promise<ComposerMandate> {
+  if (topic.category_slug !== PROPOSAL_DRAFTS_CATEGORY_SLUG) {
+    const mandate = await resolvePostMandate(db, user.id, topic);
+    return { hasMandate: 'grantId' in mandate && mandate.grantId !== null };
+  }
+  return draftComposerMandate(db, user);
+}
+
+/** The same decision for the new-topic composer in the Proposal Drafts category. */
+export async function draftComposerMandate(
+  db: D1Database,
+  user: { id: string; roles: string[] },
+): Promise<ComposerMandate> {
+  const proposers = await mandateProposers(db, user.id);
+  const allowSelf = isWriter(user.roles);
+  const choices = proposers.length + (allowSelf ? 1 : 0);
+  return {
+    hasMandate: proposers.length > 0,
+    options: proposers.length > 0 && choices >= 2 ? { proposers, allowSelf } : undefined,
+  };
 }

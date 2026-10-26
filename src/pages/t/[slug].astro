@@ -83,6 +83,7 @@ import { parseDrepId } from '@/lib/cardano/identity.js';
 import { loadAuthorIdentities, systemAuthor, authorProfileHref, type AuthorDescriptor } from '@/lib/forum/author.js';
 import { loadMandates, type MandateBadge } from '@/lib/forum/mandate.js';
 import { getGrantsByIds } from '@/lib/db/proposerGrants.js';
+import { composerMandate } from '@/lib/forum/writeMandate.js';
 import { canEditTitle as titleEditable } from '@/lib/forum/postVisibility.js';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import { isWriter, isModerator } from '@/lib/auth/roles.js';
@@ -244,6 +245,13 @@ if (db && user && viewerStampedIds.length > 0) {
     if (g.status === 'active' && g.co_user_id === user.id) viewerActiveGrantIds.add(id);
   }
 }
+
+// Whether the viewer writes here under a grant (a pure co-proposer has no
+// writer role) and, in Proposal Drafts, the proposer picker. One lookup, only
+// for signed-in viewers of an unlocked thread.
+const viewerComposerMandate = db && user && topic && !topic.locked
+  ? await composerMandate(db, user, { id: topic.id, category_slug: topic.category_slug })
+  : undefined;
 
 // The opening-post author may edit the title of their own non-locked user topic.
 const canEditTitle =
@@ -857,6 +865,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
                 mandates={mandates}
                 viewerActiveGrantIds={viewerActiveGrantIds}
                 citablePostIds={citablePostIds}
+                composerMandate={viewerComposerMandate}
               />
             ) : tab === 'positions' ? (
               <GaPositions
@@ -1023,6 +1032,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
           mandates={mandates}
           viewerActiveGrantIds={viewerActiveGrantIds}
           citablePostIds={citablePostIds}
+          composerMandate={viewerComposerMandate}
         />
         {relatedTopics.length > 0 && !isDraftTopic && (
           <section class="thread-related">

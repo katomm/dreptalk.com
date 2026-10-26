@@ -31,7 +31,9 @@ you refine the proposal before it goes on-chain.
 
 1. Sign in with your governance role. Drafts can be opened by DReps, SPOs,
    Constitutional Committee members, proposers who have submitted an action
-   before, and [co-proposers](/help/proposers/) they have authorized. See
+   before, and [co-proposers](/help/proposers/) a proposer has invited for one
+   of their actions. A co-proposer with mandates from several proposers picks
+   whom a draft speaks for. See
    [Signing in](/help/signing-in/).
 2. Go to [Proposal Drafts](/c/proposal-drafts/) and start a new thread.
 3. The editor starts with a short outline: summary, action type, requested

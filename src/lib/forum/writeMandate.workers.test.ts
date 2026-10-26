@@ -6,7 +6,7 @@ import { env } from 'cloudflare:test';
 import { createTopic } from '../db/forum.js';
 import { buildInsertGovernanceAction } from '../db/governance.js';
 import { PROPOSAL_DRAFTS_CATEGORY_SLUG } from '../../../config/categories.js';
-import { resolvePostMandate, resolveTopicMandate, mandateProposers, parseActAs } from './writeMandate.js';
+import { resolvePostMandate, resolveTopicMandate, mandateProposers, parseActAs, composerMandate, draftComposerMandate } from './writeMandate.js';
 
 const db = () => env.DB;
 const NOW = 1_753_000_000_000;
@@ -162,5 +162,36 @@ describe('mandateProposers', () => {
     const list = await mandateProposers(db(), 'wm-p');
     expect(list.map((p) => p.proposerStakeAddr)).toEqual([PROPOSER_A, PROPOSER_B]);
     for (const p of list) expect(p.label.length).toBeGreaterThan(0);
+  });
+});
+
+describe('composerMandate', () => {
+  it('shows the action thread composer to a grant holder for that action only, no picker', async () => {
+    const a = await governanceThread();
+    const b = await governanceThread();
+    await insertGrant({ id: 'wm-c-1', coUserId: 'wm-c', govActionId: a.actionId });
+    const hit = await composerMandate(db(), { id: 'wm-c', roles: ['co-proposer'] }, a.topic);
+    expect(hit).toEqual({ hasMandate: true });
+    const miss = await composerMandate(db(), { id: 'wm-c', roles: ['co-proposer'] }, b.topic);
+    expect(miss.hasMandate).toBe(false);
+  });
+
+  it('offers a draft picker only with a real choice', async () => {
+    await insertGrant({ id: 'wm-d-1', coUserId: 'wm-d1', govActionId: actionIdFor(90) });
+    const one = await composerMandate(db(), { id: 'wm-d1', roles: ['co-proposer'] }, draftTopic);
+    expect(one).toEqual({ hasMandate: true, options: undefined });
+
+    const withSelf = await draftComposerMandate(db(), { id: 'wm-d1', roles: ['co-proposer', 'drep'] });
+    expect(withSelf.options?.allowSelf).toBe(true);
+    expect(withSelf.options?.proposers).toHaveLength(1);
+
+    await insertGrant({ id: 'wm-d-2', coUserId: 'wm-d2', govActionId: actionIdFor(91) });
+    await insertGrant({ id: 'wm-d-3', coUserId: 'wm-d2', govActionId: actionIdFor(92), proposerStakeAddr: PROPOSER_B });
+    const two = await draftComposerMandate(db(), { id: 'wm-d2', roles: ['co-proposer'] });
+    expect(two.options?.proposers).toHaveLength(2);
+    expect(two.options?.allowSelf).toBe(false);
+
+    const none = await draftComposerMandate(db(), { id: 'wm-d3', roles: ['drep'] });
+    expect(none).toEqual({ hasMandate: false, options: undefined });
   });
 });
