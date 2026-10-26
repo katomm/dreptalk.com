@@ -25,6 +25,16 @@ export interface Scenario {
   utxos?: ScenarioUtxo[];
   /** Fields merged over the captured preprod epoch_params row. */
   protocolParams?: Record<string, unknown>;
+  /** proposal_list rows by return address (stake address). An address left out has proposed nothing. */
+  proposals?: Record<string, ScenarioProposal[]>;
+}
+
+export interface ScenarioProposal {
+  /** `<tx hash>#<index>` of the action. */
+  id: string;
+  /** bech32 `gov_action1...` id. */
+  proposalId: string;
+  type: string;
 }
 
 interface Miss {
@@ -106,13 +116,29 @@ function addressRows(addresses: string[]): Record<string, unknown>[] {
   });
 }
 
+function proposalRows(returnAddress: string): Record<string, unknown>[] {
+  return (scenario.proposals?.[returnAddress] ?? []).map((p) => {
+    const [txHash, index] = p.id.split('#');
+    return {
+      proposal_id: p.proposalId,
+      proposal_tx_hash: txHash,
+      proposal_index: Number(index),
+      proposal_type: p.type,
+      return_address: returnAddress,
+    };
+  });
+}
+
 // Answers for the Koios endpoints the app and the SDK call during the tested
 // flows. Returns undefined for an endpoint without an answer.
-function answer(method: string, endpoint: string, body: Record<string, unknown>): unknown {
+function answer(method: string, endpoint: string, query: URLSearchParams, body: Record<string, unknown>): unknown {
   if (method === 'GET' && endpoint === 'epoch_params') return [{ ...BASE_PARAMS, ...scenario.protocolParams }];
-  // The login checks whether a stake address ever proposed an action. No test
-  // account has, and the scenario has no field for proposals yet.
-  if (method === 'GET' && endpoint === 'proposal_list') return [];
+  // The proposer login asks which actions a stake address returns deposits
+  // to. Any other proposal_list query has no rows on this fixture chain.
+  if (method === 'GET' && endpoint === 'proposal_list') {
+    const filter = query.get('return_address');
+    return filter?.startsWith('eq.') ? proposalRows(filter.slice(3)) : [];
+  }
   if (method !== 'POST') return undefined;
   switch (endpoint) {
     case 'drep_info': {
@@ -152,7 +178,7 @@ const server = createServer(async (req, res) => {
   }
 
   const endpoint = url.pathname.replace(/^\/api\/v1\//, '');
-  const result = answer(method, endpoint, parseJson(text));
+  const result = answer(method, endpoint, url.searchParams, parseJson(text));
   if (result === undefined) {
     misses.push({ method, path: `${url.pathname}${url.search}`, body: text.slice(0, 500) });
     return send(res, 501, { error: `no fixture for ${method} ${url.pathname}` });
