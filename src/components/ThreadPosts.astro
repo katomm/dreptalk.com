@@ -33,6 +33,9 @@ interface Props {
   startIndex?: number;
   /** Grant id -> "for <name>" mandate label, resolved once for the whole page. */
   mandates: Map<string, string>;
+  /** Grant ids stamped on the viewer's own rows that are still active for the
+      viewer, deciding the Edit affordance on stamped posts. */
+  viewerActiveGrantIds: Set<string>;
   /** Post ids that have an emitted CIP-100 document, driving the per-post Cite
       link. Absent posts get no link rather than one that would 404. */
   citablePostIds: Set<string>;
@@ -53,6 +56,7 @@ const {
   now,
   startIndex,
   mandates,
+  viewerActiveGrantIds,
   citablePostIds,
 } = Astro.props;
 
@@ -60,6 +64,8 @@ const {
 // time), so the mandate label is looked up per post, not per topic.
 const mandateFor = (post: { proposer_grant_id: string | null }) =>
   post.proposer_grant_id ? mandates.get(post.proposer_grant_id) : undefined;
+const grantActiveFor = (post: { proposer_grant_id: string | null }) =>
+  !!post.proposer_grant_id && viewerActiveGrantIds.has(post.proposer_grant_id);
 
 // One gate for both write affordances: the composer section and the per-post
 // Reply buttons. Writers only: signed-in read-only accounts (plain members,
@@ -114,6 +120,7 @@ const notVoted = (author: AuthorDescriptor) =>
           now={now}
           postNumber={startIndex !== undefined ? startIndex + i + 1 : undefined}
           mandate={mandateFor(post)}
+          stampedGrantActive={grantActiveFor(post)}
           citable={citablePostIds.has(post.id)}
           foldable={isOpening && topic.category_slug === PROPOSAL_DRAFTS_CATEGORY_SLUG && plainTextLength(post.body_html) > DRAFT_FOLD_CHARS}
         />
@@ -135,6 +142,7 @@ const notVoted = (author: AuthorDescriptor) =>
                   now={now}
                   compact
                   mandate={mandateFor(child)}
+                  stampedGrantActive={grantActiveFor(child)}
                   citable={citablePostIds.has(child.id)}
                 />
               );

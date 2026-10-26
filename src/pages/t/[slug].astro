@@ -82,6 +82,8 @@ import MultisigVotePanel from '@/components/MultisigVotePanel.js';
 import { parseDrepId } from '@/lib/cardano/identity.js';
 import { loadAuthorIdentities, systemAuthor, authorProfileHref, type AuthorDescriptor } from '@/lib/forum/author.js';
 import { loadMandates } from '@/lib/forum/mandate.js';
+import { getGrantsByIds } from '@/lib/db/proposerGrants.js';
+import { canEditTitle as titleEditable } from '@/lib/forum/postVisibility.js';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import { isWriter, isModerator } from '@/lib/auth/roles.js';
 import { currentNetwork } from '@/lib/api/response.js';
@@ -227,16 +229,32 @@ const user = Astro.locals.user;
 // Per-post flag/visibility policy lives in postViewerContext (via PostArticle).
 const viewerIsWriter = !!user && isWriter(user.roles);
 
+// Edit rights on rows stamped with a grant follow exactly that grant, so the
+// page needs to know which of the viewer's own stamped rows still have an
+// active grant for them. One batched lookup over the viewer's own stamped ids,
+// none at all for anonymous viewers or a page without such rows.
+const viewerStampedIds = user
+  ? [topic, ...pagePosts]
+      .filter((r) => !!r && r.author_id === user.id && !!r.proposer_grant_id)
+      .map((r) => r!.proposer_grant_id as string)
+  : [];
+const viewerActiveGrantIds = new Set<string>();
+if (db && user && viewerStampedIds.length > 0) {
+  for (const [id, g] of await getGrantsByIds(db, [...new Set(viewerStampedIds)])) {
+    if (g.status === 'active' && g.co_user_id === user.id) viewerActiveGrantIds.add(id);
+  }
+}
+
 // The opening-post author may edit the title of their own non-locked user topic.
 const canEditTitle =
-  !!user && viewerIsWriter && !!topic && topic.source === 'user' &&
-  topic.author_id === user.id && !topic.locked;
+  !!topic &&
+  titleEditable(topic, user, !!topic.proposer_grant_id && viewerActiveGrantIds.has(topic.proposer_grant_id));
 
 // Proposal Drafts: the linked on-chain actions for a draft thread, and for a
 // governance thread the draft it grew from. One indexed query each, only on the
 // topics that can have them.
 const isDraftTopic = topic?.category_slug === PROPOSAL_DRAFTS_CATEGORY_SLUG;
-const viewerIsDraftAuthor = !!user && !!topic && isDraftTopic && isDraftAuthor(topic, user);
+const viewerIsDraftAuthor = !!user && !!topic && !!db && isDraftTopic && (await isDraftAuthor(db, topic, user));
 const viewerCanUnlink = viewerIsDraftAuthor || (!!user && isModerator(user.roles));
 
 // Governance-action enrichment (header values) and the viewer's own post state
@@ -837,6 +855,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
                 nextPage={nextPage}
                 now={now}
                 mandates={mandates}
+                viewerActiveGrantIds={viewerActiveGrantIds}
                 citablePostIds={citablePostIds}
               />
             ) : tab === 'positions' ? (
@@ -1002,6 +1021,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
           now={now}
           startIndex={offset}
           mandates={mandates}
+          viewerActiveGrantIds={viewerActiveGrantIds}
           citablePostIds={citablePostIds}
         />
         {relatedTopics.length > 0 && !isDraftTopic && (

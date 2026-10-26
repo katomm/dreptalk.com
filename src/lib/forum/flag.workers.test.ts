@@ -92,14 +92,13 @@ describe('handleFlagPost: authorization', () => {
     expect((r.json as { error: string }).error).toBe('cannot_flag_system');
   });
 
-  // Task 4 re-implements this against per-write mandate resolution.
-  it.skip('403 mandate revoked when the flagger\'s grant was revoked', async () => {
+  it('403 for a co-proposer whose grant is active: a grant never makes a flagger', async () => {
     const postId = await newPost('someone-else');
     const coUserId = 'grant-co-user-flag';
-    await insertGrant({ id: 'grant-flag-1', proposerUserId: 'proposer-user-1', coUserId, status: 'revoked' });
+    await insertGrant({ id: 'grant-flag-1', proposerUserId: 'proposer-user-1', coUserId, status: 'active' });
     const r = await handleFlagPost(flagInput({ id: coUserId, roles: ['co-proposer'] }, postId));
     expect(r.status).toBe(403);
-    expect((r.json as { error: string }).error).toBe('mandate revoked');
+    expect((r.json as { error: string }).error).toBe('forbidden');
   });
 });
 

@@ -6,6 +6,7 @@
 import { sqlPlaceholders } from './sql.js';
 import { activityInsert } from './activity.js';
 import { isWithinGrace } from '../forum/editPolicy.js';
+import { isGrantActiveForUser } from './proposerGrants.js';
 
 export interface Topic {
   id: string;
@@ -695,6 +696,22 @@ export async function createPost(
 }
 
 /**
+ * The edit rule for a row its author owns. A row stamped with a grant stays
+ * editable only while exactly that grant is active for the author, own writer
+ * roles do not override it, so a revoked mandate locks its rows. An unstamped
+ * row needs an own writer role. The stored attribution never changes.
+ */
+async function mayEditStamped(
+  db: D1Database,
+  proposerGrantId: string | null,
+  authorId: string,
+  ownWriter: boolean,
+): Promise<boolean> {
+  if (proposerGrantId) return isGrantActiveForUser(db, proposerGrantId, authorId);
+  return ownWriter;
+}
+
+/**
  * Edits a post's body. Within the grace window (isWithinGrace) the edit is
  * silent: the body is replaced and nothing else changes. Past the window the
  * current body is archived into post_revisions and edited_at is stamped, both in
@@ -709,12 +726,12 @@ export async function editPost(
     bodyMd: string;
     bodyHtml: string;
     now: number;
-    // The editing session's grant id, or null for a personal session. Must match
-    // the post's stored proposer_grant_id (mandate_mismatch otherwise).
-    sessionGrantId: string | null;
+    // The editor holds an own writer role that passed the write gate. Decides
+    // an unstamped post only, a stamped one follows its grant.
+    ownWriter: boolean;
   },
 ): Promise<{ edited: boolean }> {
-  const { postId, authorId, bodyMd, bodyHtml, now, sessionGrantId } = args;
+  const { postId, authorId, bodyMd, bodyHtml, now, ownWriter } = args;
 
   // Load the post WITH its body (needed to archive the prior version), then its
   // topic's state (depends on post.topic_id). Two sequential reads.
@@ -730,9 +747,7 @@ export async function editPost(
     }>();
   if (!post || post.deleted === 1) throw new Error('post_not_found');
   if (post.author_id !== authorId) throw new Error('not_owner');
-  if ((post.proposer_grant_id ?? null) !== (sessionGrantId ?? null)) {
-    // A mandate post is only editable by the same active mandate; a personal
-    // post never by a mandate session. Attribution is immutable either way.
+  if (!(await mayEditStamped(db, post.proposer_grant_id, authorId, ownWriter))) {
     throw new Error('mandate_mismatch');
   }
   // Vote rationale posts are frozen: their body must match the on-chain hash.
@@ -783,12 +798,12 @@ export async function editTitle(
     authorId: string;
     title: string;
     now: number;
-    // The editing session's grant id, or null for a personal session. Must match
-    // the topic's stored proposer_grant_id (mandate_mismatch otherwise).
-    sessionGrantId: string | null;
+    // The editor holds an own writer role that passed the write gate. Decides
+    // an unstamped topic only, a stamped one follows its grant.
+    ownWriter: boolean;
   },
 ): Promise<void> {
-  const { topicId, authorId, title, now, sessionGrantId } = args;
+  const { topicId, authorId, title, now, ownWriter } = args;
   const topic = await db
     .prepare('SELECT author_id, source, deleted, locked, proposer_grant_id FROM topics WHERE id = ?')
     .bind(topicId)
@@ -799,9 +814,7 @@ export async function editTitle(
   if (!topic || topic.deleted === 1) throw new Error('topic_not_found');
   if (topic.source !== 'user') throw new Error('not_user_topic');
   if (topic.author_id !== authorId) throw new Error('not_owner');
-  if ((topic.proposer_grant_id ?? null) !== (sessionGrantId ?? null)) {
-    // A mandate topic is only editable by the same active mandate; a personal
-    // topic never by a mandate session. Attribution is immutable either way.
+  if (!(await mayEditStamped(db, topic.proposer_grant_id, authorId, ownWriter))) {
     throw new Error('mandate_mismatch');
   }
   if (topic.locked === 1) throw new Error('topic_locked');

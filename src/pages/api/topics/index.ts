@@ -22,7 +22,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   const result = await handleCreateTopic({
     user: locals.user,
-    body: body as { categorySlug: unknown; title: unknown; bodyMd: unknown },
+    body: body as { categorySlug: unknown; title: unknown; bodyMd: unknown; actAs?: unknown },
     db,
     rateLimiter,
     now: Date.now(),

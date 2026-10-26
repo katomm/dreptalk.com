@@ -3,6 +3,7 @@
 // locked only in a commit where the action already has its governance topic, and
 // the lock only fires when the link statement actually took effect.
 import { PROPOSAL_DRAFTS_CATEGORY_SLUG } from '../../../config/categories.js';
+import { isGrantActiveForUser } from './proposerGrants.js';
 
 export interface DraftLinkedAction {
   id: string;
@@ -13,16 +14,19 @@ export interface DraftLinkedAction {
 }
 
 /**
- * The session wrote this draft: same user, under the same mandate the draft was
- * opened with. Stub: Task 4 compares against the mandate resolved for the
- * session, until then only drafts opened without a grant count. The one rule for who may unlink
- * as the author, shared by the unlink endpoint and the page that shows the button.
+ * The user wrote this draft: same author, and for a draft opened under a
+ * mandate exactly that grant is still active for them in D1. Another active
+ * grant of the same user does not count. The one rule for who may unlink as
+ * the author, shared by the unlink endpoint and the page that shows the button.
  */
-export function isDraftAuthor(
+export async function isDraftAuthor(
+  db: D1Database,
   topic: { author_id: string; proposer_grant_id: string | null },
   user: { id: string },
-): boolean {
-  return topic.author_id === user.id && (topic.proposer_grant_id ?? null) === null;
+): Promise<boolean> {
+  if (topic.author_id !== user.id) return false;
+  if (!topic.proposer_grant_id) return true;
+  return isGrantActiveForUser(db, topic.proposer_grant_id, user.id);
 }
 
 /** The first slug that is a live Proposal Drafts thread, as its topic id. */

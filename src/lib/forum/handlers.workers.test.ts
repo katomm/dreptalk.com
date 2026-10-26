@@ -5,7 +5,9 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { createTopic, getTopicBySlug } from '../db/forum.js';
-import { handleCreateTopic, handleCreatePost, handleEditPost, handleDraftUnlink } from './handlers.js';
+import {
+  handleCreateTopic, handleCreatePost, handleEditPost, handleEditTitle, handleDraftUnlink, handleFlagPost, handleReactToPost,
+} from './handlers.js';
 import { getNotificationsPage } from '../db/notifications.js';
 import { buildInsertGovernanceAction } from '../db/governance.js';
 import { buildDraftLinkStatements } from '../db/draftLinks.js';
@@ -24,19 +26,22 @@ const NOW = 1_750_000_000_000;
 
 // Inserts a proposer_grants row directly (bypassing the invite/redeem flow,
 // which is exercised elsewhere) so these tests can set up whatever grant
-// state the write-path mandate gate needs to see.
+// state the write-path mandate resolution needs to see.
+const DEFAULT_ACTION_ID = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa#0';
 async function insertGrant(args: {
   id: string;
   proposerUserId: string;
   coUserId: string;
   status?: 'active' | 'revoked';
+  govActionId?: string;
+  proposerStakeAddr?: string;
 }) {
   const status = args.status ?? 'active';
   await db()
     .prepare(
       `INSERT INTO proposer_grants
          (id, proposer_user_id, proposer_stake_addr, gov_action_id, co_user_id, co_stake_addr, invite_code_hash, status, created_at, expires_at, redeemed_at, revoked_at)
-       VALUES (?1, ?2, 'stake_test1grantproposer', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa#0', ?3, 'stake_test1grantco', ?1, ?4, ?5, ?6, ?7, ?8)`,
+       VALUES (?1, ?2, ?9, ?10, ?3, ?11, ?1, ?4, ?5, ?6, ?7, ?8)`,
     )
     .bind(
       args.id,
@@ -45,10 +50,55 @@ async function insertGrant(args: {
       status,
       NOW,
       NOW + 604800,
-      status === 'active' ? NOW : null,
+      NOW,
       status === 'revoked' ? NOW : null,
+      args.proposerStakeAddr ?? 'stake_test1grantproposer',
+      args.govActionId ?? DEFAULT_ACTION_ID,
+      `stake_test1co${args.coUserId}`,
     )
     .run();
+}
+
+const revokeGrantRow = (id: string) =>
+  db().prepare(`UPDATE proposer_grants SET status = 'revoked', revoked_at = ? WHERE id = ?`).bind(NOW, id).run();
+
+let govSeq = 0;
+/** A governance thread plus its action row, the target of a per-action grant. */
+async function governanceThread() {
+  const s = govSeq++;
+  const { topic } = await createTopic(db(), {
+    categorySlug: 'governance-actions', authorId: 'gov-sync', title: `Mandate gov ${s}`, bodyMd: 'x', bodyHtml: '<p>x</p>',
+    source: 'governance', now: NOW, rand: `mg${s}`,
+  });
+  const actionId = `${'ef'.repeat(31)}${String(s).padStart(2, '0')}#0`;
+  await buildInsertGovernanceAction(db(), {
+    id: actionId, proposalId: null, type: 'InfoAction', title: 'Mandate action', abstract: null, rationaleHtml: null,
+    authors: null, references: null, anchorUrl: null, anchorHash: null, anchorStatus: 'no-anchor',
+    returnAddress: 'stake_test1grantproposer', deposit: null, submittedEpoch: 1, submittedAt: null, expiryEpoch: null,
+    enactedEpoch: null, onchainPayload: null, metaVersion: 1, topicId: topic.id, now: NOW,
+  }).run();
+  return { topicId: topic.id, actionId };
+}
+
+// Seeds the users row (as a drep login would create it) plus, optionally,
+// the synced dreps row the write gate reads.
+async function insertDrepUser(args: { userId: string; drepId: string; active?: boolean }) {
+  await db()
+    .prepare(
+      `INSERT INTO users (id, drep_id, is_drep, created_at, last_verified_at)
+       VALUES (?1, ?2, 1, ?3, ?3)`,
+    )
+    .bind(args.userId, args.drepId, NOW)
+    .run();
+  if (args.active !== undefined) {
+    await db()
+      .prepare(
+        `INSERT INTO dreps (drep_id, status, active, last_synced_at, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?4)`,
+      )
+      .bind(args.drepId, args.active ? 'registered' : 'deregistered', args.active ? 1 : 0, NOW)
+      .run();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -367,15 +417,14 @@ describe('handleCreateTopic: rate limiting', () => {
 // ---------------------------------------------------------------------------
 
 describe('handleCreateTopic: co-proposer mandate', () => {
-  // Task 4 re-implements this against per-write mandate resolution.
-  it.skip('copies the session grantId onto the topic and its first post', async () => {
+  it('stamps a draft opened by a pure co-proposer onto the topic and its first post', async () => {
     const coUserId = 'grant-co-user-create-topic';
     await insertGrant({ id: 'grant-create-topic-1', proposerUserId: 'proposer-user-1', coUserId });
     const user = { id: coUserId, roles: ['co-proposer'] };
 
     const res = await handleCreateTopic({
       user,
-      body: { categorySlug: 'general', title: 'Mandate topic', bodyMd: 'body' },
+      body: { categorySlug: 'proposal-drafts', title: 'Mandate draft', bodyMd: 'body' },
       db: db(),
       rateLimiter: rateLimiter(),
       now: NOW,
@@ -392,20 +441,25 @@ describe('handleCreateTopic: co-proposer mandate', () => {
     expect(post?.proposer_grant_id).toBe('grant-create-topic-1');
   });
 
-  // Task 4 re-implements this against per-write mandate resolution.
-  it.skip('rejects a grant session whose grant is active but owned by another user', async () => {
+  it('refuses a pure co-proposer whose only grant belongs to another user', async () => {
     await insertGrant({ id: 'grant-owned-by-other', proposerUserId: 'proposer-user-1', coUserId: 'real-co-user' });
     const user = { id: 'impersonator', roles: ['co-proposer'] };
 
     const res = await handleCreateTopic({
       user,
-      body: { categorySlug: 'general', title: 'Should be blocked', bodyMd: 'body' },
+      body: {
+        categorySlug: 'proposal-drafts', title: 'Should be blocked', bodyMd: 'body',
+        actAs: { proposerStakeAddr: 'stake_test1grantproposer' },
+      },
       db: db(),
       rateLimiter: rateLimiter(),
       now: NOW,
     });
     expect(res.status).toBe(403);
-    expect((res.json as { error: string }).error).toBe('mandate revoked');
+    const count = await db()
+      .prepare(`SELECT COUNT(*) AS n FROM topics WHERE author_id = 'impersonator'`)
+      .first<{ n: number }>();
+    expect(count?.n).toBe(0);
   });
 
   it('non-grant sessions are untouched: writes succeed with proposer_grant_id null', async () => {
@@ -640,45 +694,31 @@ describe('handleCreatePost: rate limiting', () => {
 });
 
 describe('handleCreatePost: co-proposer mandate', () => {
-  // Task 4 re-implements this against per-write mandate resolution.
-  it.skip('403 mandate revoked when the grant was revoked; no post inserted', async () => {
-    const { topic } = await createTopic(db(), {
-      categorySlug: 'general',
-      authorId: WRITER.id,
-      title: 'Revoked mandate reply target',
-      bodyMd: 'body',
-      bodyHtml: '<p>body</p>',
-      now: NOW,
-      rand: 'revoked-post-001',
-    });
+  it('403 for a pure co-proposer whose grant was revoked; no post inserted', async () => {
+    const { topicId, actionId } = await governanceThread();
     const coUserId = 'grant-co-user-create-post-revoked';
     await insertGrant({
       id: 'grant-create-post-revoked-1',
       proposerUserId: 'proposer-user-1',
       coUserId,
-      status: 'revoked',
+      govActionId: actionId,
     });
     const user = { id: coUserId, roles: ['co-proposer'] };
+    const post = (bodyMd: string) =>
+      handleCreatePost({ user, topicId, body: { bodyMd }, db: db(), rateLimiter: rateLimiter(), now: NOW + 1 });
+
+    expect((await post('lands while the grant is active')).status).toBe(201);
+    await revokeGrantRow('grant-create-post-revoked-1');
 
     const before = await db()
       .prepare('SELECT post_count FROM topics WHERE id = ?')
-      .bind(topic.id)
+      .bind(topicId)
       .first<{ post_count: number }>();
-
-    const res = await handleCreatePost({
-      user,
-      topicId: topic.id,
-      body: { bodyMd: 'should not land' },
-      db: db(),
-      rateLimiter: rateLimiter(),
-      now: NOW + 1,
-    });
+    const res = await post('should not land');
     expect(res.status).toBe(403);
-    expect((res.json as { error: string }).error).toBe('mandate revoked');
-
     const after = await db()
       .prepare('SELECT post_count FROM topics WHERE id = ?')
-      .bind(topic.id)
+      .bind(topicId)
       .first<{ post_count: number }>();
     expect(after?.post_count).toBe(before?.post_count);
   });
@@ -836,27 +876,6 @@ describe('mentions in handlers', () => {
 // ---------------------------------------------------------------------------
 
 describe('drep write access follows the synced drep status', () => {
-  // Seeds the users row (as a drep login would create it) plus, optionally,
-  // the synced dreps row the write gate reads.
-  async function insertDrepUser(args: { userId: string; drepId: string; active?: boolean }) {
-    await db()
-      .prepare(
-        `INSERT INTO users (id, drep_id, is_drep, created_at, last_verified_at)
-         VALUES (?1, ?2, 1, ?3, ?3)`,
-      )
-      .bind(args.userId, args.drepId, NOW)
-      .run();
-    if (args.active !== undefined) {
-      await db()
-        .prepare(
-          `INSERT INTO dreps (drep_id, status, active, last_synced_at, created_at)
-           VALUES (?1, ?2, ?3, ?4, ?4)`,
-        )
-        .bind(args.drepId, args.active ? 'registered' : 'deregistered', args.active ? 1 : 0, NOW)
-        .run();
-    }
-  }
-
   it('a deregistered drep cannot create a topic or reply', async () => {
     await insertDrepUser({ userId: 'drep_test1gonedrep', drepId: 'drep_test1gonedrep', active: false });
     const user = { id: 'drep_test1gonedrep', roles: ['drep'] };
@@ -988,17 +1007,21 @@ describe('handleDraftUnlink', () => {
     expect((await call({ id: 'other-writer', roles: ['drep'] }, draft.id, actionId)).status).toBe(403);
   });
 
-  // Task 4 re-implements this against per-write mandate resolution.
-  it.skip('refuses a co-proposer whose mandate was revoked, and accepts one whose mandate is active', async () => {
-    await insertGrant({ id: 'grant-active-1', proposerUserId: 'principal-1', coUserId: AUTHOR.id });
-    await insertGrant({ id: 'grant-revoked-1', proposerUserId: 'principal-2', coUserId: AUTHOR.id, status: 'revoked' });
-    const active = await linkedDraft({ grantId: 'grant-active-1' });
-    const revoked = await linkedDraft({ grantId: 'grant-revoked-1' });
-    expect((await call({ ...AUTHOR }, active.draft.id, active.actionId)).status).toBe(200);
-    expect((await call({ ...AUTHOR }, revoked.draft.id, revoked.actionId)).status).toBe(403);
+  it('accepts the author of a draft stamped with an active grant, also without a writer role', async () => {
+    await insertGrant({ id: 'grant-unlink-active', proposerUserId: 'principal-1', coUserId: AUTHOR.id, govActionId: `${'a1'.repeat(32)}#0` });
+    const { draft, actionId } = await linkedDraft({ grantId: 'grant-unlink-active' });
+    expect((await call({ id: AUTHOR.id, roles: ['co-proposer'] }, draft.id, actionId)).status).toBe(200);
   });
 
-  it('refuses the author on a draft opened under a mandate (until Task 4 resolves mandates)', async () => {
+  it('refuses a draft stamped with revoked grant A although grant B of the same user is active', async () => {
+    await insertGrant({ id: 'grant-unlink-a', proposerUserId: 'principal-1', coUserId: AUTHOR.id, govActionId: `${'a2'.repeat(32)}#0` });
+    await insertGrant({ id: 'grant-unlink-b', proposerUserId: 'principal-1', coUserId: AUTHOR.id, govActionId: `${'a3'.repeat(32)}#0` });
+    const { draft, actionId } = await linkedDraft({ grantId: 'grant-unlink-a' });
+    await revokeGrantRow('grant-unlink-a');
+    expect((await call(AUTHOR, draft.id, actionId)).status).toBe(403);
+  });
+
+  it('refuses the author on a draft stamped with a grant that does not exist', async () => {
     const { draft, actionId } = await linkedDraft({ grantId: 'grant-x' });
     expect((await call(AUTHOR, draft.id, actionId)).status).toBe(403);
   });
@@ -1115,5 +1138,189 @@ describe('Proposal Drafts body caps', () => {
       db: db(), rateLimiter: rateLimiter(), now: NOW + 3,
     });
     expect(replyEdit.status).toBe(400);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Per-write co-proposer mandates: the thread of the grant's action and
+// Proposal Drafts only, re-checked in D1 on every write and edit
+// ---------------------------------------------------------------------------
+
+describe('per-write co-proposer mandates', () => {
+  const pureCo = (id: string) => ({ id, roles: ['co-proposer'] });
+  const postIn = (user: { id: string; roles: string[] }, topicId: string, body: Record<string, unknown> = {}) =>
+    handleCreatePost({ user, topicId, body: { bodyMd: 'a reply', ...body }, db: db(), rateLimiter: rateLimiter(), now: NOW + 1 });
+  const topicIn = (user: { id: string; roles: string[] }, body: Record<string, unknown>) =>
+    handleCreateTopic({ user, body: { title: 'A mandate draft', bodyMd: 'body', ...body } as never, db: db(), rateLimiter: rateLimiter(), now: NOW });
+  const grantOf = async (table: 'posts' | 'topics', id: string) =>
+    (await db().prepare(`SELECT proposer_grant_id FROM ${table} WHERE id = ?`).bind(id).first<{ proposer_grant_id: string | null }>())
+      ?.proposer_grant_id;
+
+  it('a pure co-proposer posts in the thread of its action, stamped with that grant', async () => {
+    const a = await governanceThread();
+    await insertGrant({ id: 'm-pure-a', proposerUserId: 'p1', coUserId: 'm-pure', govActionId: a.actionId });
+    const res = await postIn(pureCo('m-pure'), a.topicId);
+    expect(res.status).toBe(201);
+    expect(await grantOf('posts', (res.json as { postId: string }).postId)).toBe('m-pure-a');
+  });
+
+  it('the same co-proposer gets 403 in the thread of another action of the same return address', async () => {
+    const a = await governanceThread();
+    const b = await governanceThread();
+    await insertGrant({ id: 'm-pure-b-a', proposerUserId: 'p1', coUserId: 'm-pure-b', govActionId: a.actionId });
+    expect((await postIn(pureCo('m-pure-b'), b.topicId)).status).toBe(403);
+  });
+
+  it('a pure co-proposer cannot open a topic in a general category, but can in Proposal Drafts', async () => {
+    await insertGrant({ id: 'm-pure-t', proposerUserId: 'p1', coUserId: 'm-pure-t-user' });
+    expect((await topicIn(pureCo('m-pure-t-user'), { categorySlug: 'general' })).status).toBe(403);
+    const ok = await topicIn(pureCo('m-pure-t-user'), { categorySlug: 'proposal-drafts' });
+    expect(ok.status).toBe(201);
+    const topic = await getTopicBySlug(db(), (ok.json as { slug: string }).slug);
+    expect(topic?.proposer_grant_id).toBe('m-pure-t');
+  });
+
+  it('a pure co-proposer replies in any Proposal Drafts thread under the mandate', async () => {
+    await insertGrant({ id: 'm-draft-reply', proposerUserId: 'p1', coUserId: 'm-draft-replier' });
+    const { topic } = await createTopic(db(), {
+      categorySlug: 'proposal-drafts', authorId: WRITER.id, title: 'Someone else draft', bodyMd: 'x', bodyHtml: '<p>x</p>',
+      source: 'user', now: NOW, rand: 'mdr1',
+    });
+    const res = await postIn(pureCo('m-draft-replier'), topic.id);
+    expect(res.status).toBe(201);
+    expect(await grantOf('posts', (res.json as { postId: string }).postId)).toBe('m-draft-reply');
+  });
+
+  it('a DRep with a grant for A posts in B as themselves, unstamped', async () => {
+    const a = await governanceThread();
+    const b = await governanceThread();
+    await insertGrant({ id: 'm-drep-a', proposerUserId: 'p1', coUserId: 'm-drep', govActionId: a.actionId });
+    const res = await postIn({ id: 'm-drep', roles: ['drep', 'co-proposer'] }, b.topicId);
+    expect(res.status).toBe(201);
+    expect(await grantOf('posts', (res.json as { postId: string }).postId)).toBeNull();
+  });
+
+  it('a DRep whose registration ended still writes under an active grant in its thread', async () => {
+    const a = await governanceThread();
+    await insertDrepUser({ userId: 'drep_test1mandategone', drepId: 'drep_test1mandategone', active: false });
+    await insertGrant({ id: 'm-gone-a', proposerUserId: 'p1', coUserId: 'drep_test1mandategone', govActionId: a.actionId });
+    const user = { id: 'drep_test1mandategone', roles: ['drep', 'co-proposer'] };
+    const res = await postIn(user, a.topicId);
+    expect(res.status).toBe(201);
+    expect(await grantOf('posts', (res.json as { postId: string }).postId)).toBe('m-gone-a');
+    // Outside the thread the ended registration still blocks the write.
+    const b = await governanceThread();
+    expect((await postIn(user, b.topicId)).status).toBe(403);
+  });
+
+  it('a DRep edit of their own post stamped with a since revoked grant is refused', async () => {
+    const a = await governanceThread();
+    await insertGrant({ id: 'm-edit-drep', proposerUserId: 'p1', coUserId: 'm-edit-drep-user', govActionId: a.actionId });
+    const user = { id: 'm-edit-drep-user', roles: ['drep', 'co-proposer'] };
+    const created = await postIn(user, a.topicId);
+    const postId = (created.json as { postId: string }).postId;
+    await revokeGrantRow('m-edit-drep');
+    const res = await handleEditPost({ user, postId, body: { bodyMd: 'edited' }, db: db(), rateLimiter: rateLimiter(), now: NOW + 2 });
+    expect(res.status).toBe(403);
+    const row = await db().prepare('SELECT body_md FROM posts WHERE id = ?').bind(postId).first<{ body_md: string }>();
+    expect(row?.body_md).toBe('a reply');
+  });
+
+  it('a pure co-proposer cannot flag or react, even with an active grant', async () => {
+    await insertGrant({ id: 'm-judge', proposerUserId: 'p1', coUserId: 'm-judge-user' });
+    const { firstPost } = await createTopic(db(), {
+      categorySlug: 'general', authorId: WRITER.id, title: 'Judge target', bodyMd: 'x', bodyHtml: '<p>x</p>',
+      source: 'user', now: NOW, rand: 'mj1',
+    });
+    const input = { user: pureCo('m-judge-user'), postId: firstPost.id, db: db(), rateLimiter: rateLimiter(), now: NOW };
+    expect((await handleFlagPost(input)).status).toBe(403);
+    expect((await handleReactToPost(input, 'up')).status).toBe(403);
+  });
+
+  it('a deregistered DRep with an old session cannot flag or react', async () => {
+    await insertDrepUser({ userId: 'drep_test1judgegone', drepId: 'drep_test1judgegone', active: false });
+    const { firstPost } = await createTopic(db(), {
+      categorySlug: 'general', authorId: WRITER.id, title: 'Judge target 2', bodyMd: 'x', bodyHtml: '<p>x</p>',
+      source: 'user', now: NOW, rand: 'mj2',
+    });
+    const input = {
+      user: { id: 'drep_test1judgegone', roles: ['drep'] }, postId: firstPost.id, db: db(), rateLimiter: rateLimiter(), now: NOW,
+    };
+    expect((await handleFlagPost(input)).status).toBe(403);
+    expect((await handleReactToPost(input, 'up')).status).toBe(403);
+  });
+
+  it('a pure co-proposer edits their stamped post and draft title while the grant is active, 403 after revoke', async () => {
+    const a = await governanceThread();
+    await insertGrant({ id: 'm-edit-a', proposerUserId: 'p1', coUserId: 'm-edit-co', govActionId: a.actionId });
+    const user = pureCo('m-edit-co');
+    const postId = ((await postIn(user, a.topicId)).json as { postId: string }).postId;
+    const draft = await topicIn(user, { categorySlug: 'proposal-drafts' });
+    expect(draft.status).toBe(201);
+    const draftTopic = await getTopicBySlug(db(), (draft.json as { slug: string }).slug);
+    expect(draftTopic?.proposer_grant_id).toBe('m-edit-a');
+
+    const editPostReq = (bodyMd: string) =>
+      handleEditPost({ user, postId, body: { bodyMd }, db: db(), rateLimiter: rateLimiter(), now: NOW + 2 });
+    const editTitleReq = (title: string) =>
+      handleEditTitle({ user, topicId: draftTopic!.id, body: { title }, db: db(), rateLimiter: rateLimiter(), now: NOW + 2 });
+
+    expect((await editPostReq('edited under the mandate')).status).toBe(200);
+    expect((await editTitleReq('A sharper draft title')).status).toBe(200);
+
+    await revokeGrantRow('m-edit-a');
+    expect((await editPostReq('after revoke')).status).toBe(403);
+    expect((await editTitleReq('Title after revoke')).status).toBe(403);
+  });
+
+  it('a pure co-proposer cannot edit an unstamped post of their own', async () => {
+    const { firstPost } = await createTopic(db(), {
+      categorySlug: 'general', authorId: 'm-unstamped-co', title: 'Old personal post', bodyMd: 'x', bodyHtml: '<p>x</p>',
+      source: 'user', now: NOW, rand: 'mus1',
+    });
+    await insertGrant({ id: 'm-unstamped', proposerUserId: 'p1', coUserId: 'm-unstamped-co' });
+    const res = await handleEditPost({
+      user: pureCo('m-unstamped-co'), postId: firstPost.id, body: { bodyMd: 'nope' }, db: db(), rateLimiter: rateLimiter(), now: NOW + 2,
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('a Proposal Drafts choice of a proposer the user holds no grant from stamps nothing', async () => {
+    await insertGrant({ id: 'm-forged-own', proposerUserId: 'p1', coUserId: 'm-forged-writer' });
+    await insertGrant({ id: 'm-forged-own-co', proposerUserId: 'p1', coUserId: 'm-forged-co' });
+    const forged = { actAs: { proposerStakeAddr: 'stake_test1someoneelse' }, categorySlug: 'proposal-drafts' };
+
+    const writer = await topicIn({ id: 'm-forged-writer', roles: ['drep', 'co-proposer'] }, forged);
+    expect(writer.status).toBe(201);
+    const topic = await getTopicBySlug(db(), (writer.json as { slug: string }).slug);
+    expect(topic?.proposer_grant_id).toBeNull();
+
+    expect((await topicIn(pureCo('m-forged-co'), forged)).status).toBe(403);
+  });
+
+  it('a writer chooses to open a draft as themselves', async () => {
+    await insertGrant({ id: 'm-self', proposerUserId: 'p1', coUserId: 'm-self-writer' });
+    const res = await topicIn({ id: 'm-self-writer', roles: ['drep', 'co-proposer'] }, { categorySlug: 'proposal-drafts', actAs: 'self' });
+    expect(res.status).toBe(201);
+    const topic = await getTopicBySlug(db(), (res.json as { slug: string }).slug);
+    expect(topic?.proposer_grant_id).toBeNull();
+  });
+
+  it('grants from two proposers and no choice: 400 choose_proposer', async () => {
+    await insertGrant({ id: 'm-two-a', proposerUserId: 'p1', coUserId: 'm-two', govActionId: `${'b1'.repeat(32)}#0` });
+    await insertGrant({
+      id: 'm-two-b', proposerUserId: 'p2', coUserId: 'm-two', govActionId: `${'b2'.repeat(32)}#0`,
+      proposerStakeAddr: 'stake_test1secondproposer',
+    });
+    const res = await topicIn(pureCo('m-two'), { categorySlug: 'proposal-drafts' });
+    expect(res.status).toBe(400);
+    expect((res.json as { error: string }).error).toBe('choose_proposer');
+
+    const chosen = await topicIn(pureCo('m-two'), {
+      categorySlug: 'proposal-drafts', actAs: { proposerStakeAddr: 'stake_test1secondproposer' },
+    });
+    expect(chosen.status).toBe(201);
+    const topic = await getTopicBySlug(db(), (chosen.json as { slug: string }).slug);
+    expect(topic?.proposer_grant_id).toBe('m-two-b');
   });
 });

@@ -29,8 +29,36 @@ export interface PostViewerContext {
    * post carries no reactions at all.
    */
   reactions: ReactionAffordance;
-  /** The viewer may edit this post (a writer, their own, not system, not hidden). */
+  /**
+   * The viewer may edit this post: their own, not system, not hidden, and
+   * either stamped with a grant that is still active for them, or unstamped
+   * and the viewer holds an own writer role.
+   */
   canEdit: boolean;
+}
+
+/**
+ * The edit rule shared by posts and titles, mirroring editPost/editTitle. A
+ * row stamped with a grant follows exactly that grant (stampedGrantActive, read
+ * from D1 by the page), own writer roles do not override it. An unstamped row
+ * needs an own writer role.
+ */
+function mayEditOwnRow(
+  proposerGrantId: string | null | undefined,
+  roles: readonly string[],
+  stampedGrantActive: boolean,
+): boolean {
+  return proposerGrantId ? stampedGrantActive : isWriter(roles);
+}
+
+/** The opening-post author may edit the title of their own non-locked user topic. */
+export function canEditTitle(
+  topic: { author_id: string; source: string; locked: boolean; proposer_grant_id: string | null },
+  user: { id: string; roles: readonly string[] } | null,
+  stampedGrantActive: boolean,
+): boolean {
+  if (!user || topic.source !== 'user' || topic.author_id !== user.id || topic.locked) return false;
+  return mayEditOwnRow(topic.proposer_grant_id, user.roles, stampedGrantActive);
 }
 
 /**
@@ -43,11 +71,14 @@ export interface PostViewerContext {
  *   system/governance post the row is hidden outright: a thumbs up on the
  *   neutral mirror of an on-chain action reads as a stake-free straw poll next
  *   to the real tally.
+ * - canEdit: see mayEditOwnRow. stampedGrantActive says whether the post's
+ *   stored grant is active for this viewer, false when the post is unstamped.
  */
 export function postViewerContext(
-  post: { author_id: string; hidden: boolean },
+  post: { author_id: string; hidden: boolean; proposer_grant_id?: string | null },
   user: { id: string; roles: readonly string[] } | null,
   authorIsSystem: boolean,
+  stampedGrantActive = false,
 ): PostViewerContext {
   const isOwnPost = !!user && post.author_id === user.id;
   const roles = user?.roles ?? [];
@@ -59,6 +90,7 @@ export function postViewerContext(
     : judges && !isOwnPost
       ? 'interactive'
       : 'readonly';
-  const canEdit = isWriter(roles) && isOwnPost && !authorIsSystem && !post.hidden;
+  const canEdit =
+    isOwnPost && !authorIsSystem && !post.hidden && mayEditOwnRow(post.proposer_grant_id, roles, stampedGrantActive);
   return { isOwnPost, canSeeContent, canFlag, reactions, canEdit };
 }

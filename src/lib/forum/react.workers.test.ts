@@ -103,17 +103,13 @@ describe('handleReactToPost: authorization and validation', () => {
     expect((r.json as { error: string }).error).toBe('cannot_react_system');
   });
 
-  // Task 4 re-implements this against per-write mandate resolution.
-  it.skip('403 mandate revoked when the reactor\'s grant was revoked', async () => {
+  it('403 for a co-proposer whose grant is active: a grant never makes a reactor', async () => {
     const postId = await newPost('someone-else');
     const coUserId = 'grant-co-user-react';
-    await insertGrant({ id: 'grant-react-1', proposerUserId: 'proposer-user-1', coUserId, status: 'revoked' });
-    const r = await handleReactToPost(
-      reactInput({ id: coUserId, roles: ['co-proposer'] }, postId),
-      'up',
-    );
+    await insertGrant({ id: 'grant-react-1', proposerUserId: 'proposer-user-1', coUserId, status: 'active' });
+    const r = await handleReactToPost(reactInput({ id: coUserId, roles: ['co-proposer'] }, postId), 'up');
     expect(r.status).toBe(403);
-    expect((r.json as { error: string }).error).toBe('mandate revoked');
+    expect((r.json as { error: string }).error).toBe('forbidden');
   });
 
 });

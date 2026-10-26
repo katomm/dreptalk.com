@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { postViewerContext } from './postVisibility.js';
+import { postViewerContext, canEditTitle } from './postVisibility.js';
 
 const writer = { id: 'u-writer', roles: ['drep'] };
 const mod = { id: 'u-mod', roles: ['moderator'] };
@@ -119,5 +119,44 @@ describe('postViewerContext: co-proposer grant sessions', () => {
     const c = postViewerContext({ author_id: 'other', hidden: false }, grantWithOwnRole, false);
     expect(c.canFlag).toBe(true);
     expect(c.reactions).toBe('interactive');
+  });
+});
+
+describe('postViewerContext: canEdit on a post stamped with a grant', () => {
+  const stamped = { author_id: 'u-co', hidden: false, proposer_grant_id: 'g1' };
+
+  it('true for a pure co-proposer while exactly that grant is active', () => {
+    const c = postViewerContext(stamped, { id: 'u-co', roles: ['co-proposer'] }, false, true);
+    expect(c.canEdit).toBe(true);
+  });
+
+  it('false once the grant is no longer active, even with an own writer role', () => {
+    expect(postViewerContext(stamped, { id: 'u-co', roles: ['co-proposer'] }, false, false).canEdit).toBe(false);
+    expect(postViewerContext(stamped, { id: 'u-co', roles: ['drep'] }, false, false).canEdit).toBe(false);
+  });
+
+  it('false for a pure co-proposer on an unstamped post of their own', () => {
+    const c = postViewerContext({ author_id: 'u-co', hidden: false, proposer_grant_id: null }, { id: 'u-co', roles: ['co-proposer'] }, false, true);
+    expect(c.canEdit).toBe(false);
+  });
+});
+
+describe('canEditTitle', () => {
+  const topic = { author_id: 'u1', source: 'user', locked: false, proposer_grant_id: null as string | null };
+
+  it('follows the writer rule on an unstamped topic', () => {
+    expect(canEditTitle(topic, { id: 'u1', roles: ['drep'] }, false)).toBe(true);
+    expect(canEditTitle(topic, { id: 'u1', roles: ['co-proposer'] }, false)).toBe(false);
+    expect(canEditTitle(topic, { id: 'u2', roles: ['drep'] }, false)).toBe(false);
+    expect(canEditTitle({ ...topic, locked: true }, { id: 'u1', roles: ['drep'] }, false)).toBe(false);
+    expect(canEditTitle({ ...topic, source: 'governance' }, { id: 'u1', roles: ['drep'] }, false)).toBe(false);
+    expect(canEditTitle(topic, null, false)).toBe(false);
+  });
+
+  it('follows the stamped grant on a stamped topic', () => {
+    const stamped = { ...topic, proposer_grant_id: 'g1' };
+    expect(canEditTitle(stamped, { id: 'u1', roles: ['co-proposer'] }, true)).toBe(true);
+    expect(canEditTitle(stamped, { id: 'u1', roles: ['drep'] }, false)).toBe(false);
+    expect(canEditTitle(stamped, { id: 'u2', roles: ['co-proposer'] }, true)).toBe(false);
   });
 });

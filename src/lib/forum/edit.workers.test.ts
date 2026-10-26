@@ -103,17 +103,22 @@ describe('handleEditPost', () => {
     expect(r.status).toBe(200);
   });
 
-  // Task 4 re-implements this against per-write mandate resolution.
-  it.skip('403 mandate revoked when the editor\'s grant was revoked', async () => {
+  it('403 for a pure co-proposer editing their stamped post after the grant was revoked', async () => {
     const coUserId = 'grant-co-user-edit-post';
-    await insertGrant({ id: 'grant-edit-post-1', proposerUserId: 'proposer-user-1', coUserId, status: 'revoked' });
-    const { postId } = await fixture();
-    const user = { id: coUserId, roles: ['co-proposer'] };
-    const r = await handleEditPost({
-      user, postId, body: { bodyMd: 'should not land' }, db: db(), rateLimiter: rateLimiter(), now: NOW + EDIT_GRACE_MS + 5,
+    await insertGrant({ id: 'grant-edit-post-1', proposerUserId: 'proposer-user-1', coUserId, status: 'active' });
+    seq++;
+    const { firstPost } = await createTopic(db(), {
+      categorySlug: 'proposal-drafts', authorId: coUserId, title: `Stamped draft ${seq}`,
+      bodyMd: 'orig', bodyHtml: '<p>orig</p>', source: 'user', now: NOW, rand: `eg${seq}`, proposerGrantId: 'grant-edit-post-1',
     });
-    expect(r.status).toBe(403);
-    expect((r.json as { error: string }).error).toBe('mandate revoked');
+    const user = { id: coUserId, roles: ['co-proposer'] };
+    const edit = (bodyMd: string) => handleEditPost({
+      user, postId: firstPost.id, body: { bodyMd }, db: db(), rateLimiter: rateLimiter(), now: NOW + EDIT_GRACE_MS + 5,
+    });
+    expect((await edit('lands while active')).status).toBe(200);
+    await db().prepare(`UPDATE proposer_grants SET status = 'revoked', revoked_at = ? WHERE id = ?`)
+      .bind(NOW, 'grant-edit-post-1').run();
+    expect((await edit('should not land')).status).toBe(403);
   });
 });
 
