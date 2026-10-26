@@ -15,6 +15,7 @@ import type { Post } from '@/lib/db/forum.js';
 import type { Reaction } from '@/lib/db/postReactions.js';
 import type { AuthorDescriptor } from '@/lib/forum/author.js';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
+import type { MandateBadge } from '@/lib/forum/mandate.js';
 
 interface Props {
   post: Post;
@@ -34,8 +35,8 @@ interface Props {
   topicLocked?: boolean;
   /** 1-based position in the thread; renders "Post #N" on the right of the header row when set (top-level posts on user topics only). */
   postNumber?: number;
-  /** Co-proposer mandate label for this post's persisted proposer_grant_id, or null/absent for a personal post. */
-  mandate?: string | null;
+  /** Co-proposer mandate badge for this post's persisted proposer_grant_id, or null/absent for a personal post. */
+  mandate?: MandateBadge | null;
   /** The post's stored grant is still active for the viewer (edit rights on a stamped post). */
   stampedGrantActive?: boolean;
   /** Whether this post has an emitted CIP-100 document, i.e. /cite/<id>/ and the

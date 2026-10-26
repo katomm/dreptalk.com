@@ -14,6 +14,7 @@ import type { SessionUser } from '@/lib/forum/postVisibility.js';
 import { isWriter } from '@/lib/auth/roles.js';
 import { PROPOSAL_DRAFTS_CATEGORY_SLUG } from '../../config/categories.js';
 import { DRAFT_FOLD_CHARS, plainTextLength } from '@/lib/forum/postLimits.js';
+import type { MandateBadge } from '@/lib/forum/mandate.js';
 
 interface Props {
   topic: Topic;
@@ -31,8 +32,8 @@ interface Props {
   now: number;
   /** 1-based numbering offset for top-level posts on this page; undefined renders no Post #N (governance topics). */
   startIndex?: number;
-  /** Grant id -> "for <name>" mandate label, resolved once for the whole page. */
-  mandates: Map<string, string>;
+  /** Grant id -> mandate badge, resolved once for the whole page. */
+  mandates: Map<string, MandateBadge>;
   /** Grant ids stamped on the viewer's own rows that are still active for the
       viewer, deciding the Edit affordance on stamped posts. */
   viewerActiveGrantIds: Set<string>;

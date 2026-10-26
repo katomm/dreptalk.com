@@ -81,7 +81,7 @@ import VotePanel from '@/components/VotePanel.js';
 import MultisigVotePanel from '@/components/MultisigVotePanel.js';
 import { parseDrepId } from '@/lib/cardano/identity.js';
 import { loadAuthorIdentities, systemAuthor, authorProfileHref, type AuthorDescriptor } from '@/lib/forum/author.js';
-import { loadMandates } from '@/lib/forum/mandate.js';
+import { loadMandates, type MandateBadge } from '@/lib/forum/mandate.js';
 import { getGrantsByIds } from '@/lib/db/proposerGrants.js';
 import { canEditTitle as titleEditable } from '@/lib/forum/postVisibility.js';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
@@ -175,8 +175,8 @@ const describe = (authorId: string): AuthorDescriptor =>
 // on this page, keyed by their persisted proposer_grant_id (never the
 // author's current session).
 const mandates = db
-  ? await loadMandates(db, [topic?.proposer_grant_id, ...pagePosts.map((p) => p.proposer_grant_id)])
-  : new Map<string, string>();
+  ? await loadMandates(db, [topic?.proposer_grant_id, ...pagePosts.map((p) => p.proposer_grant_id)], topic?.id ?? null)
+  : new Map<string, MandateBadge>();
 
 // The first post of a system-sourced topic (governance action or survey)
 // carries the system identity even if its author_id is not literally gov-sync.
