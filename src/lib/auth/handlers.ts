@@ -329,8 +329,14 @@ async function verifyWalletCip8(
     }
     // Decision A: the delegator door always mints a member-capped session and
     // never a drepId, regardless of the routed account's roles. Writer rights
-    // require the writer door, which revalidates on-chain.
-    const result = mintSessionResult(input, user, null, { roles: ['member'], drepId: null });
+    // require the writer door, which revalidates on-chain. An active co-proposer
+    // grant adds the co-proposer role, which is not a writer role, so the member
+    // cap still holds.
+    const hasGrant = await hasActiveGrantForCoUser(db, user.id);
+    const result = mintSessionResult(input, user, null, {
+      roles: hasGrant ? [CO_PROPOSER_ROLE] : ['member'],
+      drepId: null,
+    });
     // Resolve after minting: deferred via waitUntil when the runtime exposes it
     // (zero added login latency), else inline with the short-bounded fail-soft
     // resolver. Either way the login never fails on Koios.

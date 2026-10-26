@@ -39,3 +39,6 @@ CREATE INDEX idx_proposer_grants_proposer
 
 CREATE INDEX idx_proposer_grants_action
   ON proposer_grants(gov_action_id, status);
+
+CREATE INDEX idx_proposer_grants_co_user
+  ON proposer_grants(co_user_id, status);

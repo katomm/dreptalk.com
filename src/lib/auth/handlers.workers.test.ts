@@ -505,6 +505,43 @@ describe('handleVerify: delegator login caps to member', () => {
     expect(session?.roles).toEqual(['member']);
     expect(session?.drepId).toBeNull();
   });
+
+  const delegatorLogin = () => {
+    const payload = stakeVector.payloadUtf8;
+    return handleVerify(
+      {
+        body: { payload, signatureHex: stakeVector.signatureHex, keyHex: stakeVector.keyHex, role: 'delegator' },
+        sessionKv: env.SESSIONS,
+        db: env.DB,
+        koios: koiosRejectAll() as never,
+        network: 'preprod',
+      },
+      { consumeNonce: makeSingleUseNonceOverride(payload) },
+    );
+  };
+
+  it('mints co-proposer and no writer role for a grant holder', async () => {
+    await insertGrant({
+      id: 'grant-delegator-door',
+      proposerUserId: 'proposer-user-d',
+      proposerStakeAddr: 'stake_test1proposerd',
+      coStakeAddr: DELEGATOR_STAKE_ADDR,
+    });
+    const result = await delegatorLogin();
+    expect(result.status).toBe(200);
+    const json = result.json as { user: { roles: string[] } };
+    expect(json.user.roles).toEqual(['co-proposer']);
+    const token = /dreptalk_session=([^;]+)/.exec(result.setCookie!)![1];
+    const session = await getSession(env.SESSIONS, token);
+    expect(session?.roles).toEqual(['co-proposer']);
+    expect(session?.drepId).toBeNull();
+  });
+
+  it('keeps a plain member session without a grant', async () => {
+    const result = await delegatorLogin();
+    expect(result.status).toBe(200);
+    expect((result.json as { user: { roles: string[] } }).user.roles).toEqual(['member']);
+  });
 });
 
 // ---------------------------------------------------------------------------

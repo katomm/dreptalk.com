@@ -11,7 +11,7 @@ import Avatar from '@/components/Avatar.astro';
 import DrepPowerSparkline from '@/components/DrepPowerSparkline.astro';
 import DrepVotingStats from '@/components/DrepVotingStats.astro';
 import MyDelegation from '@/components/MyDelegation.astro';
-import { roleLabels, isWriter } from '@/lib/auth/roles';
+import { roleLabels, isWriter, CO_PROPOSER_ROLE } from '@/lib/auth/roles';
 import { runtimeEnv, currentNetwork } from '@/lib/api/response';
 import { resolveNetwork } from '@/lib/config/network';
 import { getSelfDrepId } from '@/lib/db/users';
@@ -128,6 +128,10 @@ const otherRolesLabel = otherRoles.length > 0 ? roleLabels(otherRoles).join(', '
 // Non-writers (delegators sign in as 'member') cannot post, flag or vote, so the
 // read-only surfaces are framed for following rather than participating.
 const canWrite = isWriter(user.roles);
+// Delegation tracking belongs to delegator sign-ins. A co-proposer account has
+// no tracking row (the grant does not create one), so its note would only
+// advise signing in again to no effect.
+const followsAsDelegator = !canWrite && !user.roles.includes(CO_PROPOSER_ROLE);
 
 const plural = (n: number, word: string) => `${n.toLocaleString('en-US')} ${word}${n === 1 ? '' : 's'}`;
 
@@ -316,7 +320,7 @@ const cards: HomeCard[] = [
       <h1 class="home-head__title">Welcome, {account.displayName}</h1>
       <p class="home-head__sub">
         {proposerHome
-          ? `Signed in as proposer of ${plural(proposerHome.actions.length, 'governance action')}${otherRolesLabel ? `, also ${otherRolesLabel}` : ''}.`
+          ? `Signed in as proposer${proposerHome.actions.length > 0 ? ` of ${plural(proposerHome.actions.length, 'governance action')}` : ''}${otherRolesLabel ? `, also ${otherRolesLabel}` : ''}.`
           : `Signed in as ${rolesLabel}.`}{' '}
         Here is everything you can do.
       </p>
@@ -343,7 +347,7 @@ const cards: HomeCard[] = [
     </section>
   )}
 
-  {(delegationData.view.kind !== 'no-follow' || !canWrite) && (
+  {(delegationData.view.kind !== 'no-follow' || followsAsDelegator) && (
     <div class="home-note">
       <MyDelegation data={delegationData} now={nowMs} network={network} />
     </div>
