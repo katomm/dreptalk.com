@@ -8,6 +8,7 @@ import {
   revokeSession,
   revokeAllForUser,
   sessionUserFromRecord,
+  resolveSessionLocals,
   listSessionsForUser,
   revokeSessionForUser,
   sessionIdForToken,
@@ -177,6 +178,34 @@ describe('sessionUserFromRecord', () => {
   it('rejects a record still pinned to a grant or acting for a principal', () => {
     expect(sessionUserFromRecord({ ...base, grantId: 'g1' })).toBeNull();
     expect(sessionUserFromRecord({ ...base, actsFor: { userId: 'p', stakeAddr: 's' } })).toBeNull();
+  });
+});
+
+describe('resolveSessionLocals (middleware session step)', () => {
+  async function putRecord(extra: Record<string, unknown>): Promise<string> {
+    const token = await createSession(kv(), { id: 'mw-user', roles: ['drep'], drepId: 'd1' });
+    const hash = await sessionIdForToken(token);
+    const key = `sess:${hash}`;
+    const rec = JSON.parse((await kv().get(key))!);
+    await kv().put(key, JSON.stringify({ ...rec, ...extra }));
+    return token;
+  }
+
+  it('gives no user and a clearing cookie for a record pinned to a grant', async () => {
+    const token = await putRecord({ grantId: 'g1', actsFor: { userId: 'p', stakeAddr: 's' } });
+    expect(await resolveSessionLocals(kv(), token)).toEqual({ user: null, cookieAction: 'clear' });
+  });
+
+  it('gives a normal user and no cookie change for null grantId and actsFor', async () => {
+    const token = await putRecord({ grantId: null, actsFor: null });
+    const r = await resolveSessionLocals(kv(), token);
+    expect(r.cookieAction).toBe('none');
+    expect(r.user).toMatchObject({ id: 'mw-user', roles: ['drep'] });
+    expect(r.user).not.toHaveProperty('grantId');
+  });
+
+  it('clears the cookie for an unknown token', async () => {
+    expect(await resolveSessionLocals(kv(), 'nope')).toEqual({ user: null, cookieAction: 'clear' });
   });
 });
 

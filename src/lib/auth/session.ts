@@ -219,6 +219,37 @@ export function sessionUserFromRecord(
 }
 
 /**
+ * The middleware's session step: reads the session for a token and returns the
+ * user for locals plus what to do with the cookie. A dead session (unknown,
+ * expired, or a retired grant-pinned record) yields no user and 'clear'. A
+ * renewed session yields 'slide' so the cookie gets a fresh Max-Age.
+ */
+export async function resolveSessionLocals(
+  kv: KVNamespace,
+  token: string,
+  opts?: { now?: number; onRenew?: (userId: string) => void },
+): Promise<{
+  user: { id: string; roles: string[]; drepId: string | null | undefined; lifetimeStart: number } | null;
+  cookieAction: 'none' | 'slide' | 'clear';
+}> {
+  let cookieAction: 'none' | 'slide' | 'clear' = 'none';
+  const record = await getSession(kv, token, {
+    now: opts?.now,
+    onRenew: opts?.onRenew,
+    onSlide: () => {
+      cookieAction = 'slide';
+    },
+  });
+  const sessionUser = record ? sessionUserFromRecord(record) : null;
+  if (record && sessionUser) {
+    return { user: { ...sessionUser, lifetimeStart: sessionLifetimeStart(record) }, cookieAction };
+  }
+  // Expired, revoked, past the absolute lifetime cap, or a retired grant-pinned
+  // session: drop the dead cookie so the browser stops sending it.
+  return { user: null, cookieAction: 'clear' };
+}
+
+/**
  * Retrieves a session record by token. Returns null if the token is unknown
  * or has passed the absolute lifetime cap (the record is deleted in that case).
  * Lazily refreshes lastSeen (and resets the TTL) at most once per 6 hours.
