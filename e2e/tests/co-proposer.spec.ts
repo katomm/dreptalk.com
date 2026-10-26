@@ -144,6 +144,8 @@ test.describe('co-proposer', () => {
     const mandates = page.locator('section', { has: page.getByText('You write for', { exact: true }) });
     await expect(mandates.locator('.pa__title')).toHaveText([MAIN.title]);
     await expect(mandates).toContainText(TEAM_BADGE);
+    // A grant does not enroll the account in delegation tracking, so the callout stays away.
+    await expect(page.getByText(/Delegation tracking has not been set up/)).toHaveCount(0);
     await shot(page, '04-home-co-proposer.png');
 
     // The action's own thread: the reply composer is there, the reply carries the team badge.
