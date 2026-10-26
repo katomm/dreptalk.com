@@ -705,7 +705,42 @@ describe('getGrantsByIds', () => {
     const map = await getGrantsByIds(db(), [invite!.grantId]);
     expect(map.get(invite!.grantId)?.status).toBe('revoked');
     // loadMandates with its default fetch reads through getGrantsByIds.
-    expect((await loadMandates(db(), [invite!.grantId])).get(invite!.grantId)).toBe('for Intersect');
+    expect((await loadMandates(db(), [invite!.grantId], null)).get(invite!.grantId)?.label).toBe('for Intersect');
+  });
+
+  it('loadMandates reads governance_actions.topic_id: team badge in the action thread, "for" elsewhere', async () => {
+    const proposerStakeAddr = 'stake1uyvjdz9rxsfsmv44rtk75k2rqyqskrga96dgdfrqjvjjpwsefcjnp';
+    const proposer = await upsertUserFromAuth(db(), { stakeAddr: proposerStakeAddr, roles: ['proposer'], now: NOW });
+    const co = await makeCoUser();
+    await db()
+      .prepare(
+        `INSERT INTO governance_actions (id, type, title, status, return_address, topic_id, created_at, last_synced_at)
+         VALUES (?1, 'InfoAction', 't', 'active', 'x', 'topic-of-x', 1, 1)`,
+      )
+      .bind(ACTION_X)
+      .run();
+    const invite = await createGrantInvite(db(), {
+      proposerUserId: proposer.id,
+      proposerStakeAddr,
+      govActionId: ACTION_X,
+      teamLabel: 'Trivolve Tech',
+      now: NOW,
+    });
+    await redeemGrant(db(), {
+      grantId: invite!.grantId,
+      coUserId: co.userId,
+      coStakeAddr: co.stakeAddr,
+      displayName: 'Co Proposer',
+      now: NOW,
+    });
+
+    const inThread = await loadMandates(db(), [invite!.grantId], 'topic-of-x');
+    expect(inThread.get(invite!.grantId)).toEqual({
+      label: 'Proposer team \u00b7 Trivolve Tech',
+      title: 'Invited by Intersect, which submitted this action',
+    });
+    const elsewhere = await loadMandates(db(), [invite!.grantId], 'some-draft-topic');
+    expect(elsewhere.get(invite!.grantId)).toEqual({ label: 'for Intersect', title: null });
   });
 });
 
