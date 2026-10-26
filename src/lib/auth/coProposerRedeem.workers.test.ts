@@ -19,6 +19,9 @@ import { handleRedeemChallenge, handleRedeemGrant, grantRedeemDomain, MAX_CO_PRO
 import { createGrantInvite, redeemGrant } from '../db/proposerGrants.js';
 import { upsertUserFromAuth, getUserById } from '../db/users.js';
 import { getSession } from './session.js';
+import { handleVerify } from './handlers.js';
+import { handleLinkStake } from './linkStake.js';
+import { makeCoseSignature, type6Address } from './__fixtures__/makeCose.js';
 
 const db = () => env.DB as D1Database;
 const NOW = 1_700_000_000;
@@ -117,7 +120,7 @@ describe('handleRedeemChallenge', () => {
 });
 
 describe('handleRedeemGrant: happy path', () => {
-  it('valid CIP-8 reward-address sig + fresh nonce redeems, mints a session without grant fields or the proposer role', async () => {
+  it('valid CIP-8 reward-address sig + fresh nonce redeems, mints a co-proposer session without grant fields or the proposer role', async () => {
     const invite = await makeInvite();
     const domain = grantRedeemDomain(invite.grantId);
 
@@ -142,6 +145,7 @@ describe('handleRedeemGrant: happy path', () => {
     expect(result.status).toBe(200);
     const json = result.json as { ok: boolean; user: { id: string; roles: string[] } };
     expect(json.ok).toBe(true);
+    expect(json.user.roles).toContain('co-proposer');
     expect(json.user.roles).not.toContain('proposer');
     expect(result.setCookie).toBeTruthy();
     expect(result.setCookie).toContain('dreptalk_session=');
@@ -153,6 +157,7 @@ describe('handleRedeemGrant: happy path', () => {
     expect(session).not.toBeNull();
     expect(session).not.toHaveProperty('grantId');
     expect(session).not.toHaveProperty('actsFor');
+    expect(session?.roles).toContain('co-proposer');
     expect(session?.roles).not.toContain('proposer');
 
     expect(await grantStatus(invite.grantId)).toBe('active');
@@ -436,5 +441,149 @@ describe('handleRedeemGrant: session mint failure after redeem', () => {
 
     expect(result.status).toBe(500);
     expect(await grantStatus(invite.grantId)).toBe('active');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DRep with and without a linked stake address
+// ---------------------------------------------------------------------------
+
+const DREP_SEED = new Uint8Array(32).fill(33);
+
+function drepKoios() {
+  return {
+    drepInfo: async (id: string) => ({
+      drep_id: id,
+      hex: 'bb',
+      has_script: false,
+      drep_status: 'registered',
+      active: true,
+      deposit: '500000000',
+      expires_epoch_no: null,
+    }),
+    accountInfo: async () => null,
+    proposalsByReturnAddress: async () => [],
+  };
+}
+
+/** Logs in through the DRep door with a fresh single-use nonce and returns the session roles. */
+async function drepDoorLogin(nonce: string): Promise<{ id: string; roles: string[] }> {
+  const payload = `dreptalk:dreptalk.com:${nonce}:${NOW}`;
+  const { keyHash } = makeCoseSignature({ seed: DREP_SEED, payload, addressBytes: new Uint8Array(28) });
+  const cose = makeCoseSignature({ seed: DREP_SEED, payload, addressBytes: type6Address(keyHash, 'preprod') });
+  let used = false;
+  const result = await handleVerify(
+    {
+      body: { payload, signatureHex: cose.signatureHex, keyHex: cose.keyHex, role: 'drep' },
+      sessionKv: env.SESSIONS,
+      db: db(),
+      koios: drepKoios(),
+      network: 'preprod',
+      now: NOW,
+      secure: false,
+    },
+    {
+      consumeNonce: async (_d: D1Database, p: string) => {
+        if (p !== payload || used) return false;
+        used = true;
+        return true;
+      },
+    },
+  );
+  expect(result.status).toBe(200);
+  return (result.json as { user: { id: string; roles: string[] } }).user;
+}
+
+async function redeemWithStakeKey(invite: { grantId: string; inviteCode: string }) {
+  return handleRedeemGrant(
+    {
+      db: db(),
+      sessionKv: env.SESSIONS,
+      network: 'preprod',
+      now: NOW,
+      secure: false,
+      body: {
+        code: invite.inviteCode,
+        payload: FIXTURE_PAYLOAD,
+        signatureHex: stakeVector.signatureHex,
+        keyHex: stakeVector.keyHex,
+        displayName: 'Drep Dora',
+      },
+    },
+    { consumeNonceForDomain: makeDomainScopedNonceOverride(FIXTURE_PAYLOAD, grantRedeemDomain(invite.grantId)) },
+  );
+}
+
+describe('DRep door and the co-proposer role', () => {
+  it('a DRep who linked the stake address before redeeming gets drep and co-proposer on the DRep door', async () => {
+    const drep = await drepDoorLogin('drep-linked-1');
+    expect(drep.roles).toContain('drep');
+    expect(drep.roles).not.toContain('co-proposer');
+
+    const link = await handleLinkStake(
+      {
+        db: db(),
+        userId: drep.id,
+        body: { payload: FIXTURE_PAYLOAD, signatureHex: stakeVector.signatureHex, keyHex: stakeVector.keyHex },
+        network: 'preprod',
+        now: NOW,
+      },
+      { consumeNonceForDomain: makeDomainScopedNonceOverride(FIXTURE_PAYLOAD, `link_stake:${drep.id}`) },
+    );
+    expect(link.status).toBe(200);
+
+    const invite = await makeInvite();
+    const redeemed = await redeemWithStakeKey(invite);
+    expect(redeemed.status).toBe(200);
+    // Redeem resolved the DRep's own account, so the grant belongs to it.
+    expect((redeemed.json as { user: { id: string } }).user.id).toBe(drep.id);
+
+    const again = await drepDoorLogin('drep-linked-2');
+    expect(again.id).toBe(drep.id);
+    expect(again.roles).toContain('drep');
+    expect(again.roles).toContain('co-proposer');
+  });
+
+  it('a DRep who did not link gets a separate stake account: no co-proposer on the DRep door, co-proposer on the proposer door', async () => {
+    const drep = await drepDoorLogin('drep-unlinked-1');
+
+    const invite = await makeInvite();
+    const redeemed = await redeemWithStakeKey(invite);
+    expect(redeemed.status).toBe(200);
+    const coId = (redeemed.json as { user: { id: string } }).user.id;
+    expect(coId).not.toBe(drep.id);
+
+    const again = await drepDoorLogin('drep-unlinked-2');
+    expect(again.roles).toContain('drep');
+    expect(again.roles).not.toContain('co-proposer');
+
+    const proposerDoor = await handleVerify(
+      {
+        body: {
+          payload: FIXTURE_PAYLOAD,
+          signatureHex: stakeVector.signatureHex,
+          keyHex: stakeVector.keyHex,
+          role: 'proposer',
+        },
+        sessionKv: env.SESSIONS,
+        db: db(),
+        koios: {
+          drepInfo: async () => null,
+          accountInfo: async () => null,
+          proposalsByReturnAddress: async () => [],
+        },
+        network: 'preprod',
+        now: NOW,
+        secure: false,
+      },
+      {
+        consumeNonce: async (_d: D1Database, p: string) => p === FIXTURE_PAYLOAD,
+      },
+    );
+    expect(proposerDoor.status).toBe(200);
+    const pj = proposerDoor.json as { user: { id: string; roles: string[] } };
+    expect(pj.user.id).toBe(coId);
+    expect(pj.user.roles).toContain('co-proposer');
+    expect(pj.user.roles).not.toContain('proposer');
   });
 });

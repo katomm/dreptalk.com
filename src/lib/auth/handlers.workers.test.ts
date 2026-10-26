@@ -21,6 +21,7 @@ import { ed25519 } from '@noble/curves/ed25519.js';
 import vectors from './__fixtures__/cip8-vectors.json';
 import { makeCoseSignature, type6Address } from './__fixtures__/makeCose.js';
 import { handleChallenge, handleVerify, handleLogout } from './handlers.js';
+import { handleCreateInvite } from './coProposerManage.js';
 import { getSession } from './session.js';
 import { getUserById } from '../db/users.js';
 import { bytesToHex, hexToBytes } from '../crypto/hex.js';
@@ -1116,7 +1117,8 @@ describe('handleVerify: moderator allowlist', () => {
 
 // Inserts a proposer_grants row directly (bypassing the invite/redeem flow,
 // which is exercised elsewhere) so these tests can set up whatever grant
-// state the login fallback needs to see.
+// state the login fallback needs to see. A stake-created account's id is its
+// stake address, so co_user_id equals the co stake address.
 async function insertGrant(args: {
   id: string;
   proposerUserId: string;
@@ -1130,7 +1132,7 @@ async function insertGrant(args: {
   await env.DB.prepare(
     `INSERT INTO proposer_grants
        (id, proposer_user_id, proposer_stake_addr, gov_action_id, co_user_id, co_stake_addr, invite_code_hash, status, created_at, expires_at, redeemed_at, revoked_at)
-     VALUES (?1, ?2, ?3, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa#0', NULL, ?4, ?1, ?5, ?6, ?7, ?8, ?9)`,
+     VALUES (?1, ?2, ?3, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa#0', ?4, ?4, ?1, ?5, ?6, ?7, ?8, ?9)`,
   )
     .bind(
       args.id,
@@ -1147,7 +1149,7 @@ async function insertGrant(args: {
 }
 
 describe('handleVerify: co-proposer grant login fallback', () => {
-  it('stake key with no proposals but an active grant logs in without grant fields or the proposer role on the session', async () => {
+  it('proposer door, non-proposer key with an active grant: co-proposer role, no proposer, no grant fields', async () => {
     const fixturePayload = stakeVector.payloadUtf8;
     const consumeOverride = makeSingleUseNonceOverride(fixturePayload);
     await insertGrant({
@@ -1178,6 +1180,7 @@ describe('handleVerify: co-proposer grant login fallback', () => {
     expect(result.status).toBe(200);
     const json = result.json as { ok: boolean; user: { id: string; roles: string[] } };
     expect(json.ok).toBe(true);
+    expect(json.user.roles).toContain('co-proposer');
     expect(json.user.roles).not.toContain('proposer');
 
     const cookie = result.setCookie!;
@@ -1187,6 +1190,7 @@ describe('handleVerify: co-proposer grant login fallback', () => {
     const session = await getSession(env.SESSIONS, token, { now: 1_700_000_000 });
     expect(session).not.toHaveProperty('grantId');
     expect(session).not.toHaveProperty('actsFor');
+    expect(session?.roles).toContain('co-proposer');
   });
 
   it('grant login never sets is_proposer on the user row', async () => {
@@ -1282,7 +1286,7 @@ describe('handleVerify: co-proposer grant login fallback', () => {
     expect(result.status).toBe(401);
   });
 
-  it('moderator who is also a co-proposer gets both the mod role and proposer', async () => {
+  it('moderator key with a grant keeps the moderator role and gains co-proposer', async () => {
     const fixturePayload = stakeVector.payloadUtf8;
     const consumeOverride = makeSingleUseNonceOverride(fixturePayload);
     await insertGrant({
@@ -1313,14 +1317,15 @@ describe('handleVerify: co-proposer grant login fallback', () => {
     expect(result.status).toBe(200);
     const json = result.json as { user: { roles: string[] } };
     expect(json.user.roles).toContain('moderator');
+    expect(json.user.roles).toContain('co-proposer');
     expect(json.user.roles).not.toContain('proposer');
   });
 
-  it('a REAL on-chain proposer who also redeemed a grant logs in with their own identity: no grantId/actsFor on the session', async () => {
+  it('a real on-chain proposer who also holds a grant gets both roles and can still invite for their own action', async () => {
     const fixturePayload = stakeVector.payloadUtf8;
     const consumeOverride = makeSingleUseNonceOverride(fixturePayload);
-    // The grant lies dormant: this stake key is also a real on-chain proposer,
-    // so its own identity wins and the grant is never consulted.
+    // This stake key is also a real on-chain proposer, so the session carries
+    // proposer next to co-proposer.
     await insertGrant({
       id: 'grant-fallback-dormant',
       proposerUserId: 'proposer-user-5',
@@ -1355,6 +1360,7 @@ describe('handleVerify: co-proposer grant login fallback', () => {
     expect(result.status).toBe(200);
     const json = result.json as { user: { id: string; roles: string[] } };
     expect(json.user.roles).toContain('proposer');
+    expect(json.user.roles).toContain('co-proposer');
     const row = await getUserById(env.DB, json.user.id);
     expect(row!.is_proposer).toBe(true);
 
@@ -1365,6 +1371,15 @@ describe('handleVerify: co-proposer grant login fallback', () => {
     const session = await getSession(env.SESSIONS, token, { now: 1_700_000_000 });
     expect(session?.grantId).toBeFalsy();
     expect(session?.actsFor).toBeFalsy();
+
+    // The proposer role still works for inviting on their own action.
+    const invite = await handleCreateInvite({
+      db: env.DB,
+      user: { id: json.user.id, roles: session!.roles },
+      govActionId: `${'b'.repeat(64)}#0`,
+      now: 1_700_000_000,
+    });
+    expect(invite.status).toBe(200);
   });
 });
 

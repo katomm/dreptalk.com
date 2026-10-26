@@ -35,6 +35,12 @@ const network = currentNetwork().network;
           </div>
         </header>
 
+        <p class="redeem__hint">
+          Are you a DRep? Link your stake address on <a href="/settings/account/">your account settings</a> first,
+          then redeem with that same wallet. Otherwise the invite creates a separate account that your DRep
+          login does not share.
+        </p>
+
         <RedeemCoProposer network={network} code={code} client:load />
       </>
     ) : (
@@ -64,6 +70,11 @@ const network = currentNetwork().network;
   .redeem__intro {
     color: var(--muted);
     margin: 0 0 0.85rem;
+  }
+  .redeem__hint {
+    color: var(--muted);
+    font-size: 0.9rem;
+    margin: 0 0 1.25rem;
   }
   .redeem__proposer {
     display: flex;

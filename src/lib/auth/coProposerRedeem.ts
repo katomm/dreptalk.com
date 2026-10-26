@@ -13,13 +13,12 @@
 // possession of the link is what gates redemption, not knowledge of the id.
 import { consumeNonceForDomain, issueNonce } from './nonce.js';
 import { verifyCip8 } from './cose.js';
-import { checkRewardAddressHeader } from './handlers.js';
+import { checkRewardAddressHeader, proposerDoorRoles } from './handlers.js';
 import { resolveDelegatorAccount } from './delegatorLogin.js';
 import { lookupInviteByCode, redeemGrant } from '../db/proposerGrants.js';
 import { createSession, buildSessionCookie } from './session.js';
 import { sessionDeviceLabel } from './deviceLabel.js';
 import { sessionActivityHook } from './sessionActivity.js';
-import { rolesFromUser, normalizeSessionRoles } from './roles.js';
 import { isHex, sanitizeExternalText, MAX_PAYLOAD_LEN, MAX_KEY_HEX_LEN, MAX_SIG_HEX_LEN } from '../validation/input.js';
 import type { CardanoNetwork } from '../config/network.js';
 // Re-exported from a client-safe module so the redeem island can import the
@@ -230,10 +229,10 @@ async function handleRedeemGrantInternal(input: RedeemGrantInput, deps?: RedeemG
     return { status: 410, json: { ok: false, error: 'invite unavailable' } };
   }
 
-  // Step 7: session roles are the account's own roles only.
-  // Stub: Task 3 adds the co-proposer role here. Until then a grant adds no
-  // role, so a redeemed session has no write rights from the grant.
-  const roles = normalizeSessionRoles(rolesFromUser(user, null));
+  // Step 7: the account's own roles plus co-proposer. The grant was just
+  // claimed for this user, so no further lookup is needed. proposer only comes
+  // from the user row itself.
+  const roles = proposerDoorRoles(user, { isProposer: false, hasGrant: true, modRole: null });
 
   // Step 8: mint the session and return it. If this throws, the outer catch
   // reports 500. The grant claim above already committed, so it stays active

@@ -23,7 +23,7 @@ import { upsertUserFromAuth, type AuthRole, type User } from '../db/users.js';
 import { createSession, revokeSession, buildSessionCookie, clearSessionCookie, parseSessionToken } from './session.js';
 import { sessionDeviceLabel } from './deviceLabel.js';
 import { sessionActivityHook } from './sessionActivity.js';
-import { rolesFromUser } from './roles.js';
+import { rolesFromUser, normalizeSessionRoles, CO_PROPOSER_ROLE } from './roles.js';
 import type { CardanoNetwork } from '../config/network.js';
 import { WALLET_NETWORK_MISMATCH } from '../wallet/networkGuard.js';
 import { resolveDelegatorAccount } from './delegatorLogin.js';
@@ -31,7 +31,7 @@ import { ensureFollow, setExpectedDelegation } from '../db/delegatorFollows.js';
 import { normalizeExpectedDrepId } from '../delegation/expectedDrepId.js';
 import { parseSignupRef } from '../analytics/signupRef.js';
 import { resolveFollow } from '../delegation/refresh.js';
-import type { ProposerGrant } from '../db/proposerGrants.js';
+import { hasActiveGrantForCoUser } from '../db/proposerGrants.js';
 
 // ---------------------------------------------------------------------------
 // Address header bytes
@@ -360,21 +360,14 @@ async function verifyWalletCip8(
     modRole = getModeratorRole(stakeAddr);
     if (!resolution.isProposer) {
       // Not an on-chain proposer: an active co-proposer grant still opens a
-      // session. Stub: Task 3 adds the co-proposer role here. Until then the
-      // session carries the account's own roles only and gets no write rights
-      // from the grant.
-      const grant = await db
-        .prepare(
-          `SELECT id FROM proposer_grants
-            WHERE co_stake_addr = ?1 AND status = 'active' AND gov_action_id IS NOT NULL
-            ORDER BY redeemed_at ASC, id ASC LIMIT 1`,
-        )
-        .bind(stakeAddr)
-        .first<Pick<ProposerGrant, 'id'>>();
-      if (grant) {
-        const verifiedAt = Math.floor(now ?? Date.now() / 1000);
-        const user = await resolveDelegatorAccount(db, stakeAddr, verifiedAt);
-        return mintSessionResult(input, user, modRole);
+      // session, carrying the co-proposer role. Resolve the account that owns
+      // this stake key first, since grants are keyed by user id.
+      const verifiedAt = Math.floor(now ?? Date.now() / 1000);
+      const user = await resolveDelegatorAccount(db, stakeAddr, verifiedAt);
+      const hasGrant = await hasActiveGrantForCoUser(db, user.id);
+      if (hasGrant) {
+        const roles = proposerDoorRoles(user, { isProposer: false, hasGrant, modRole });
+        return mintSessionResult(input, user, modRole, { roles, drepId: user.drep_id });
       }
       if (!modRole) {
         return { status: 401, json: { ok: false, error: 'not a proposer or moderator' } };
@@ -471,6 +464,22 @@ async function verifyRawEd25519(
 }
 
 /**
+ * Session roles for a stake-key login: the account's own roles, `proposer` only
+ * when the key is an on-chain proposer, the moderator role if any, and
+ * `co-proposer` when the account holds an active grant. Shared by the proposer
+ * door, the DRep/SPO/CC doors (via finishLogin) and invite redemption so the
+ * role assembly cannot drift.
+ */
+export function proposerDoorRoles(
+  user: { is_drep: boolean; is_proposer: boolean; is_spo: boolean; is_cc: boolean },
+  opts: { isProposer: boolean; hasGrant: boolean; modRole: string | null },
+): string[] {
+  const own = rolesFromUser({ ...user, is_proposer: user.is_proposer || opts.isProposer }, opts.modRole);
+  const roles = opts.hasGrant ? [...own.filter((r) => r !== 'member'), CO_PROPOSER_ROLE] : own;
+  return normalizeSessionRoles(roles);
+}
+
+/**
  * Shared login tail: upsert the user with the credentials and on-chain roles
  * proven this login, then mint a session. The moderator role is re-evaluated
  * from the allowlist on every login and is not persisted on the user row.
@@ -499,7 +508,10 @@ async function finishLogin(
     signupRef: parseSignupRef(input.body.ref),
   });
 
-  return mintSessionResult(input, user, modRole);
+  const hasGrant = await hasActiveGrantForCoUser(db, user.id);
+  if (!hasGrant) return mintSessionResult(input, user, modRole);
+  const roles = proposerDoorRoles(user, { isProposer: false, hasGrant, modRole });
+  return mintSessionResult(input, user, modRole, { roles, drepId: user.drep_id });
 }
 
 /**
