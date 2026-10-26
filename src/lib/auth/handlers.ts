@@ -19,11 +19,11 @@ import type { ModeratorRole } from '../../../config/moderators.js';
 import { drepIdFromPubKey, stakeAddressFromPubKey, ccHotKeyHashHex, isDrepCredentialAddress } from '../cardano/identity.js';
 import { resolveDRep, resolveProposer, resolveSpo, resolveCc, resolveScriptDRep } from './resolveRole.js';
 import type { KoiosClient } from './resolveRole.js';
-import { upsertUserFromAuth, type AuthRole, type User } from '../db/users.js';
+import { upsertUserFromAuth, getUserByStakeAddr, type AuthRole, type User } from '../db/users.js';
 import { createSession, revokeSession, buildSessionCookie, clearSessionCookie, parseSessionToken } from './session.js';
 import { sessionDeviceLabel } from './deviceLabel.js';
 import { sessionActivityHook } from './sessionActivity.js';
-import { rolesFromUser, normalizeSessionRoles } from './roles.js';
+import { rolesFromUser, coProposerRoles, withCoProposerRole } from './roles.js';
 import type { CardanoNetwork } from '../config/network.js';
 import { WALLET_NETWORK_MISMATCH } from '../wallet/networkGuard.js';
 import { resolveDelegatorAccount } from './delegatorLogin.js';
@@ -31,7 +31,7 @@ import { ensureFollow, setExpectedDelegation } from '../db/delegatorFollows.js';
 import { normalizeExpectedDrepId } from '../delegation/expectedDrepId.js';
 import { parseSignupRef } from '../analytics/signupRef.js';
 import { resolveFollow } from '../delegation/refresh.js';
-import { getActiveGrantByCoStake } from '../db/proposerGrants.js';
+import { hasActiveGrantForCoUser } from '../db/proposerGrants.js';
 
 // ---------------------------------------------------------------------------
 // Address header bytes
@@ -329,8 +329,14 @@ async function verifyWalletCip8(
     }
     // Decision A: the delegator door always mints a member-capped session and
     // never a drepId, regardless of the routed account's roles. Writer rights
-    // require the writer door, which revalidates on-chain.
-    const result = mintSessionResult(input, user, null, { roles: ['member'], drepId: null });
+    // require the writer door, which revalidates on-chain. An active co-proposer
+    // grant adds the co-proposer role, which is not a writer role, so the member
+    // cap still holds.
+    const hasGrant = await hasActiveGrantForCoUser(db, user.id);
+    const result = mintSessionResult(input, user, null, {
+      roles: hasGrant ? withCoProposerRole([]) : ['member'],
+      drepId: null,
+    });
     // Resolve after minting: deferred via waitUntil when the runtime exposes it
     // (zero added login latency), else inline with the short-bounded fail-soft
     // resolver. Either way the login never fails on Koios.
@@ -359,21 +365,15 @@ async function verifyWalletCip8(
     const resolution = await resolveProposer(koios, stakeAddr);
     modRole = getModeratorRole(stakeAddr);
     if (!resolution.isProposer) {
-      // Not an on-chain proposer: an active co-proposer grant still opens the
-      // proposer door, with the mandate pinned to the session. The user row
-      // keeps is_proposer = 0; the role exists only while the grant does.
-      const grant = await getActiveGrantByCoStake(db, stakeAddr);
-      if (grant) {
+      // Not an on-chain proposer: an active co-proposer grant still opens a
+      // session, carrying the co-proposer role. Grants are keyed by user id, so
+      // look the account up read-only first: a failed login must write nothing.
+      const existing = await getUserByStakeAddr(db, stakeAddr);
+      if (existing && (await hasActiveGrantForCoUser(db, existing.id))) {
         const verifiedAt = Math.floor(now ?? Date.now() / 1000);
         const user = await resolveDelegatorAccount(db, stakeAddr, verifiedAt);
-        const base = rolesFromUser(user, modRole).filter((r) => r !== 'member');
-        const roles = normalizeSessionRoles([...base, 'proposer']);
-        return mintSessionResult(input, user, null, {
-          roles,
-          drepId: user.drep_id,
-          grantId: grant.id,
-          actsFor: { userId: grant.proposer_user_id, stakeAddr: grant.proposer_stake_addr },
-        });
+        const roles = coProposerRoles(user, modRole);
+        return mintSessionResult(input, user, modRole, { roles, drepId: user.drep_id });
       }
       if (!modRole) {
         return { status: 401, json: { ok: false, error: 'not a proposer or moderator' } };
@@ -498,7 +498,10 @@ async function finishLogin(
     signupRef: parseSignupRef(input.body.ref),
   });
 
-  return mintSessionResult(input, user, modRole);
+  const hasGrant = await hasActiveGrantForCoUser(db, user.id);
+  if (!hasGrant) return mintSessionResult(input, user, modRole);
+  const roles = coProposerRoles(user, modRole);
+  return mintSessionResult(input, user, modRole, { roles, drepId: user.drep_id });
 }
 
 /**
@@ -513,19 +516,14 @@ async function mintSessionResult(
   input: VerifyInput,
   user: User,
   modRole: ModeratorRole | null,
-  opts?: {
-    roles?: string[];
-    drepId?: string | null;
-    grantId?: string | null;
-    actsFor?: { userId: string; stakeAddr: string } | null;
-  },
+  opts?: { roles?: string[]; drepId?: string | null },
 ): Promise<VerifyResult> {
   const { sessionKv, now, secure, db, userAgent } = input;
   const roles = opts?.roles ?? rolesFromUser(user, modRole);
   const drepId = opts?.roles ? (opts.drepId ?? null) : user.drep_id;
   const token = await createSession(
     sessionKv,
-    { id: user.id, roles, drepId, grantId: opts?.grantId ?? null, actsFor: opts?.actsFor ?? null },
+    { id: user.id, roles, drepId },
     { now, onCreate: sessionActivityHook(db), label: sessionDeviceLabel(userAgent) },
   );
   return {

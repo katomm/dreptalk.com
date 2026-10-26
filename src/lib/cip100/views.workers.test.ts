@@ -279,7 +279,7 @@ it('lists versions newest first, marks the current one, and names post and autho
   await reconcilePostDocs(db(), firstPost.id, { origin: ORIGIN, network: 'mainnet', now: AFTER_GRACE });
   await editPost(db(), {
     postId: firstPost.id, authorId: 'user-cite', bodyMd: 'a genuinely different body',
-    bodyHtml: '<p>a genuinely different body</p>', now: AFTER_GRACE + 2000, sessionGrantId: null,
+    bodyHtml: '<p>a genuinely different body</p>', now: AFTER_GRACE + 2000, ownWriter: true,
   });
   await reconcilePostDocs(db(), firstPost.id, { origin: ORIGIN, network: 'mainnet', now: AFTER_GRACE + 3000 });
 

@@ -21,6 +21,7 @@ import { ed25519 } from '@noble/curves/ed25519.js';
 import vectors from './__fixtures__/cip8-vectors.json';
 import { makeCoseSignature, type6Address } from './__fixtures__/makeCose.js';
 import { handleChallenge, handleVerify, handleLogout } from './handlers.js';
+import { handleCreateInvite } from './coProposerManage.js';
 import { getSession } from './session.js';
 import { getUserById } from '../db/users.js';
 import { bytesToHex, hexToBytes } from '../crypto/hex.js';
@@ -503,6 +504,43 @@ describe('handleVerify: delegator login caps to member', () => {
     const session = await getSession(env.SESSIONS, token);
     expect(session?.roles).toEqual(['member']);
     expect(session?.drepId).toBeNull();
+  });
+
+  const delegatorLogin = () => {
+    const payload = stakeVector.payloadUtf8;
+    return handleVerify(
+      {
+        body: { payload, signatureHex: stakeVector.signatureHex, keyHex: stakeVector.keyHex, role: 'delegator' },
+        sessionKv: env.SESSIONS,
+        db: env.DB,
+        koios: koiosRejectAll() as never,
+        network: 'preprod',
+      },
+      { consumeNonce: makeSingleUseNonceOverride(payload) },
+    );
+  };
+
+  it('mints co-proposer and no writer role for a grant holder', async () => {
+    await insertGrant({
+      id: 'grant-delegator-door',
+      proposerUserId: 'proposer-user-d',
+      proposerStakeAddr: 'stake_test1proposerd',
+      coStakeAddr: DELEGATOR_STAKE_ADDR,
+    });
+    const result = await delegatorLogin();
+    expect(result.status).toBe(200);
+    const json = result.json as { user: { roles: string[] } };
+    expect(json.user.roles).toEqual(['co-proposer']);
+    const token = /dreptalk_session=([^;]+)/.exec(result.setCookie!)![1];
+    const session = await getSession(env.SESSIONS, token);
+    expect(session?.roles).toEqual(['co-proposer']);
+    expect(session?.drepId).toBeNull();
+  });
+
+  it('keeps a plain member session without a grant', async () => {
+    const result = await delegatorLogin();
+    expect(result.status).toBe(200);
+    expect((result.json as { user: { roles: string[] } }).user.roles).toEqual(['member']);
   });
 });
 
@@ -1116,7 +1154,8 @@ describe('handleVerify: moderator allowlist', () => {
 
 // Inserts a proposer_grants row directly (bypassing the invite/redeem flow,
 // which is exercised elsewhere) so these tests can set up whatever grant
-// state the login fallback needs to see.
+// state the login fallback needs to see. A stake-created account's id is its
+// stake address, so co_user_id equals the co stake address.
 async function insertGrant(args: {
   id: string;
   proposerUserId: string;
@@ -1127,10 +1166,15 @@ async function insertGrant(args: {
 }) {
   const now = args.now ?? 1_700_000_000;
   const status = args.status ?? 'active';
+  // Redeem always creates the co account first, so the login lookup finds it.
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO users (id, stake_addr, is_drep, is_proposer, is_spo, is_cc, role, status, created_at, last_verified_at)
+     VALUES (?1, ?1, 0, 0, 0, 0, 'member', 'active', ?2, ?2)`,
+  ).bind(args.coStakeAddr, now).run();
   await env.DB.prepare(
     `INSERT INTO proposer_grants
-       (id, proposer_user_id, proposer_stake_addr, co_user_id, co_stake_addr, invite_code_hash, status, created_at, expires_at, redeemed_at, revoked_at)
-     VALUES (?1, ?2, ?3, NULL, ?4, ?1, ?5, ?6, ?7, ?8, ?9)`,
+       (id, proposer_user_id, proposer_stake_addr, gov_action_id, co_user_id, co_stake_addr, invite_code_hash, status, created_at, expires_at, redeemed_at, revoked_at)
+     VALUES (?1, ?2, ?3, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa#0', ?4, ?4, ?1, ?5, ?6, ?7, ?8, ?9)`,
   )
     .bind(
       args.id,
@@ -1147,7 +1191,7 @@ async function insertGrant(args: {
 }
 
 describe('handleVerify: co-proposer grant login fallback', () => {
-  it('stake key with no proposals but an active grant logs in with proposer role, grantId and actsFor on the session', async () => {
+  it('proposer door, non-proposer key with an active grant: co-proposer role, no proposer, no grant fields', async () => {
     const fixturePayload = stakeVector.payloadUtf8;
     const consumeOverride = makeSingleUseNonceOverride(fixturePayload);
     await insertGrant({
@@ -1178,15 +1222,17 @@ describe('handleVerify: co-proposer grant login fallback', () => {
     expect(result.status).toBe(200);
     const json = result.json as { ok: boolean; user: { id: string; roles: string[] } };
     expect(json.ok).toBe(true);
-    expect(json.user.roles).toContain('proposer');
+    expect(json.user.roles).toContain('co-proposer');
+    expect(json.user.roles).not.toContain('proposer');
 
     const cookie = result.setCookie!;
     const token = /dreptalk_session=([^;]+)/.exec(cookie)![1];
     // Same clock as the login: sessions carry an absolute lifetime cap, so a
     // NOW-stamped session read at wall-clock time would read as expired.
     const session = await getSession(env.SESSIONS, token, { now: 1_700_000_000 });
-    expect(session?.grantId).toBe('grant-fallback-1');
-    expect(session?.actsFor).toEqual({ userId: 'proposer-user-1', stakeAddr: 'stake_test1proposerone' });
+    expect(session).not.toHaveProperty('grantId');
+    expect(session).not.toHaveProperty('actsFor');
+    expect(session?.roles).toContain('co-proposer');
   });
 
   it('grant login never sets is_proposer on the user row', async () => {
@@ -1250,6 +1296,33 @@ describe('handleVerify: co-proposer grant login fallback', () => {
     expect((result.json as { error: string }).error).toBe('not a proposer or moderator');
   });
 
+  it('a failed proposer-door login writes no users row and leaves an existing account untouched', async () => {
+    const consumeOverride = makeSingleUseNonceOverride(stakeVector.payloadUtf8);
+    const body = {
+      payload: stakeVector.payloadUtf8,
+      signatureHex: stakeVector.signatureHex,
+      keyHex: stakeVector.keyHex,
+      role: 'proposer',
+    };
+    const base = { sessionKv: env.SESSIONS, db: env.DB, koios: koiosRejectAll(), network: 'preprod' as const, now: 1_700_000_000, secure: false };
+    const countRows = async () =>
+      (await env.DB.prepare('SELECT COUNT(*) AS n FROM users WHERE stake_addr = ?1').bind(DELEGATOR_STAKE_ADDR).first<{ n: number }>())!.n;
+
+    const first = await handleVerify({ ...base, body }, { consumeNonce: consumeOverride });
+    expect(first.status).toBe(401);
+    expect(await countRows()).toBe(0);
+
+    // An existing account with no grant reaches the same 401 and keeps its verified_at.
+    await env.DB.prepare(
+      `INSERT INTO users (id, stake_addr, is_drep, is_proposer, is_spo, is_cc, role, status, created_at, last_verified_at)
+       VALUES (?1, ?1, 0, 0, 0, 0, 'member', 'active', 100, 100)`,
+    ).bind(DELEGATOR_STAKE_ADDR).run();
+    const second = await handleVerify({ ...base, body }, { consumeNonce: makeSingleUseNonceOverride(stakeVector.payloadUtf8) });
+    expect(second.status).toBe(401);
+    const row = await env.DB.prepare('SELECT last_verified_at AS v FROM users WHERE id = ?1').bind(DELEGATOR_STAKE_ADDR).first<{ v: number }>();
+    expect(row!.v).toBe(100);
+  });
+
   it('revoked grant: 401', async () => {
     const fixturePayload = stakeVector.payloadUtf8;
     const consumeOverride = makeSingleUseNonceOverride(fixturePayload);
@@ -1282,7 +1355,7 @@ describe('handleVerify: co-proposer grant login fallback', () => {
     expect(result.status).toBe(401);
   });
 
-  it('moderator who is also a co-proposer gets both the mod role and proposer', async () => {
+  it('moderator key with a grant keeps the moderator role and gains co-proposer', async () => {
     const fixturePayload = stakeVector.payloadUtf8;
     const consumeOverride = makeSingleUseNonceOverride(fixturePayload);
     await insertGrant({
@@ -1313,14 +1386,15 @@ describe('handleVerify: co-proposer grant login fallback', () => {
     expect(result.status).toBe(200);
     const json = result.json as { user: { roles: string[] } };
     expect(json.user.roles).toContain('moderator');
-    expect(json.user.roles).toContain('proposer');
+    expect(json.user.roles).toContain('co-proposer');
+    expect(json.user.roles).not.toContain('proposer');
   });
 
-  it('a REAL on-chain proposer who also redeemed a grant logs in with their own identity: no grantId/actsFor on the session', async () => {
+  it('a real on-chain proposer who also holds a grant gets both roles and can still invite for their own action', async () => {
     const fixturePayload = stakeVector.payloadUtf8;
     const consumeOverride = makeSingleUseNonceOverride(fixturePayload);
-    // The grant lies dormant: this stake key is also a real on-chain proposer,
-    // so its own identity wins and the grant is never consulted.
+    // This stake key is also a real on-chain proposer, so the session carries
+    // proposer next to co-proposer.
     await insertGrant({
       id: 'grant-fallback-dormant',
       proposerUserId: 'proposer-user-5',
@@ -1355,6 +1429,7 @@ describe('handleVerify: co-proposer grant login fallback', () => {
     expect(result.status).toBe(200);
     const json = result.json as { user: { id: string; roles: string[] } };
     expect(json.user.roles).toContain('proposer');
+    expect(json.user.roles).toContain('co-proposer');
     const row = await getUserById(env.DB, json.user.id);
     expect(row!.is_proposer).toBe(true);
 
@@ -1365,6 +1440,22 @@ describe('handleVerify: co-proposer grant login fallback', () => {
     const session = await getSession(env.SESSIONS, token, { now: 1_700_000_000 });
     expect(session?.grantId).toBeFalsy();
     expect(session?.actsFor).toBeFalsy();
+
+    // The proposer role still works for inviting on their own action.
+    await env.DB
+      .prepare(
+        `INSERT INTO governance_actions (id, type, status, return_address, topic_id, created_at, last_synced_at)
+         VALUES (?1, 'InfoAction', 'active', ?2, 'topic-own', 1, 1)`,
+      )
+      .bind(`${'b'.repeat(64)}#0`, row!.stake_addr)
+      .run();
+    const invite = await handleCreateInvite({
+      db: env.DB,
+      user: { id: json.user.id, roles: session!.roles },
+      govActionId: `${'b'.repeat(64)}#0`,
+      now: 1_700_000_000,
+    });
+    expect(invite.status).toBe(200);
   });
 });
 

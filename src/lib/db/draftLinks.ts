@@ -3,6 +3,8 @@
 // locked only in a commit where the action already has its governance topic, and
 // the lock only fires when the link statement actually took effect.
 import { PROPOSAL_DRAFTS_CATEGORY_SLUG } from '../../../config/categories.js';
+import { isGrantActiveForUser } from './proposerGrants.js';
+import { mayEditRow } from '../forum/editPolicy.js';
 
 export interface DraftLinkedAction {
   id: string;
@@ -13,15 +15,20 @@ export interface DraftLinkedAction {
 }
 
 /**
- * The session wrote this draft: same user, under the same mandate the draft was
- * opened with (a co-proposer's grant, or none). The one rule for who may unlink
- * as the author, shared by the unlink endpoint and the page that shows the button.
+ * The user wrote this draft: same author, and for a draft opened under a
+ * mandate exactly that grant is still active for them in D1. Another active
+ * grant of the same user does not count. The one rule for who may unlink as
+ * the author, shared by the unlink endpoint and the page that shows the button.
  */
-export function isDraftAuthor(
+export async function isDraftAuthor(
+  db: D1Database,
   topic: { author_id: string; proposer_grant_id: string | null },
-  user: { id: string; grantId?: string | null },
-): boolean {
-  return topic.author_id === user.id && (topic.proposer_grant_id ?? null) === (user.grantId ?? null);
+  user: { id: string },
+): Promise<boolean> {
+  if (topic.author_id !== user.id) return false;
+  // Unlinking needs no writer role, so an unstamped draft is always the author's.
+  const active = !!topic.proposer_grant_id && (await isGrantActiveForUser(db, topic.proposer_grant_id, user.id));
+  return mayEditRow(topic.proposer_grant_id, true, active);
 }
 
 /** The first slug that is a live Proposal Drafts thread, as its topic id. */

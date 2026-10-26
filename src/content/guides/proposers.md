@@ -58,34 +58,40 @@ on GitHub.
 
 ## Co-proposers
 
-A proposer account can authorize up to two **co-proposers**: colleagues who
-sign in with their own wallet and write on the proposer's behalf. Their posts
-show their own name together with a badge naming the proposer they write for,
-so readers always see both the person and the mandate.
+A proposer account can authorize up to four **co-proposers** for each
+governance action: colleagues or vendors who sign in with their own wallet and
+write in that action's thread. Their posts show their own name together with a
+badge naming the team, so readers always see both the person and the mandate.
+The badge reads "Proposer team", or carries a team name you pick from the
+authors listed in the action's metadata.
 
-**Inviting.** Sign in as a proposer and open
-[Settings, Co-proposers](/settings/co-proposers/). Creating an invite gives
-you a one-time link that is valid for 7 days and can be redeemed exactly once.
-The link is the credential: anyone who opens it can claim the invite, so share
-it only over a private channel with the person it is meant for.
+A mandate belongs to one action. A co-proposer for one action cannot write in
+the thread of another, even one submitted by the same proposer. The one other
+place a mandate works is [Proposal Drafts](/c/proposal-drafts/), where a draft
+has no action yet. There the co-proposer can open threads and reply with a
+badge reading "for" followed by your organisation or address. Everywhere else, including survey threads, a co-proposer without a role of
+their own cannot post.
 
-<img class="shot" src="/help/shots/coproposer-settings.webp" alt="The Co-proposers settings section: invite button, a pending invite with its expiry, and an active co-proposer with a revoke button" width="826" height="654" loading="lazy" />
+**Inviting.** Sign in as a proposer and open [your home page](/home/). It lists
+the governance actions you submitted. For an open action with a thread, choose
+to invite a co-proposer, optionally pick a team name, and you get a one-time
+link that is valid for 7 days and can be redeemed exactly once. The link is the
+credential: anyone who opens it can claim the invite, so share it only over a
+private channel with the person it is meant for. Only the proposer who submitted
+the action can invite, co-proposers cannot invite further people.
 
-**Accepting.** The invited person opens the link, picks a display name,
-connects their own Cardano wallet, and signs a confirmation. No on-chain role
-or transaction is required on their side. Afterwards they sign in through the
-normal proposer sign-in with their own wallet.
+**Accepting.** The invited person opens the link, sees which action it is for,
+picks a display name, connects their own Cardano wallet, and signs a
+confirmation. No on-chain role or transaction is required on their side.
+Afterwards they sign in through the normal proposer sign-in with their own
+wallet. One wallet can hold mandates for several actions, and the home page
+lists them with the proposer who invited them.
 
-<img class="shot" src="/help/shots/coproposer-invite.webp" alt="The co-proposer invite page: the invited person picks a display name, connects their own wallet, and signs a one-time message" width="826" height="654" loading="lazy" />
-
-**Revoking.** The proposer sees all pending invites and active co-proposers in
-the same settings section and can withdraw or revoke them at any time.
+**Revoking.** On your home page you see the pending invites and active
+co-proposers of each action and can withdraw or revoke them at any time.
 Revoking ends the co-proposer's access immediately. Posts written under the
 mandate keep their badge, since it records who wrote on whose behalf at the
 time.
-
-Co-proposers cannot invite further people, and a wallet can hold only one
-mandate at a time.
 
 ## Discussing a proposal before you submit it
 

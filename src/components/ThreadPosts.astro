@@ -14,6 +14,8 @@ import type { SessionUser } from '@/lib/forum/postVisibility.js';
 import { isWriter } from '@/lib/auth/roles.js';
 import { PROPOSAL_DRAFTS_CATEGORY_SLUG } from '../../config/categories.js';
 import { DRAFT_FOLD_CHARS, plainTextLength } from '@/lib/forum/postLimits.js';
+import type { MandateBadge } from '@/lib/forum/mandate.js';
+import type { ComposerMandate } from '@/lib/forum/writeMandate.js';
 
 interface Props {
   topic: Topic;
@@ -31,11 +33,16 @@ interface Props {
   now: number;
   /** 1-based numbering offset for top-level posts on this page; undefined renders no Post #N (governance topics). */
   startIndex?: number;
-  /** Grant id -> "for <name>" mandate label, resolved once for the whole page. */
-  mandates: Map<string, string>;
+  /** Grant id -> mandate badge, resolved once for the whole page. */
+  mandates: Map<string, MandateBadge>;
+  /** Grant ids stamped on the viewer's own rows that are still active for the
+      viewer, deciding the Edit affordance on stamped posts. */
+  viewerActiveGrantIds: Set<string>;
   /** Post ids that have an emitted CIP-100 document, driving the per-post Cite
       link. Absent posts get no link rather than one that would 404. */
   citablePostIds: Set<string>;
+  /** Whether the viewer writes here under a grant, and the draft picker data. Computed once on the page. */
+  composerMandate?: ComposerMandate;
 }
 
 const {
@@ -53,19 +60,24 @@ const {
   now,
   startIndex,
   mandates,
+  viewerActiveGrantIds,
   citablePostIds,
+  composerMandate,
 } = Astro.props;
 
 // Each post carries its own persisted proposer_grant_id (stamped at write
 // time), so the mandate label is looked up per post, not per topic.
 const mandateFor = (post: { proposer_grant_id: string | null }) =>
   post.proposer_grant_id ? mandates.get(post.proposer_grant_id) : undefined;
+const grantActiveFor = (post: { proposer_grant_id: string | null }) =>
+  !!post.proposer_grant_id && viewerActiveGrantIds.has(post.proposer_grant_id);
 
 // One gate for both write affordances: the composer section and the per-post
 // Reply buttons. Writers only: signed-in read-only accounts (plain members,
 // delegators) are refused writes server-side, so they must not see the
-// composer or Reply buttons.
-const canParticipate = !!user && isWriter(user.roles) && !topic.locked;
+// composer or Reply buttons. A grant for this thread is its own authority, so
+// a pure co-proposer sees them too.
+const canParticipate = !!user && (isWriter(user.roles) || !!composerMandate?.hasMandate) && !topic.locked;
 
 // Governance threads live behind the discussion tab; plain threads paginate at the root.
 const pageQueryPrefix = isGovernanceTopic ? '?tab=discussion&page=' : '?page=';
@@ -114,6 +126,7 @@ const notVoted = (author: AuthorDescriptor) =>
           now={now}
           postNumber={startIndex !== undefined ? startIndex + i + 1 : undefined}
           mandate={mandateFor(post)}
+          stampedGrantActive={grantActiveFor(post)}
           citable={citablePostIds.has(post.id)}
           foldable={isOpening && topic.category_slug === PROPOSAL_DRAFTS_CATEGORY_SLUG && plainTextLength(post.body_html) > DRAFT_FOLD_CHARS}
         />
@@ -135,6 +148,7 @@ const notVoted = (author: AuthorDescriptor) =>
                   now={now}
                   compact
                   mandate={mandateFor(child)}
+                  stampedGrantActive={grantActiveFor(child)}
                   citable={citablePostIds.has(child.id)}
                 />
               );
@@ -169,7 +183,7 @@ const notVoted = (author: AuthorDescriptor) =>
         <p class="reply-sub">Share your thoughts. Be respectful and stay on topic.</p>
       </>
     )}
-    <Composer client:load mode="post" topicId={topic.id} categorySlug={topic.category_slug} openingPostId={thread.openingPost?.id} />
+    <Composer client:load mode="post" topicId={topic.id} categorySlug={topic.category_slug} openingPostId={thread.openingPost?.id} mandateOptions={composerMandate?.options} />
     <QuoteSelection client:load />
   </section>
 )}

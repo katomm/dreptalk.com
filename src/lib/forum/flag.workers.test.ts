@@ -32,7 +32,7 @@ async function newPost(authorId: string, source: 'user' | 'governance' = 'user')
   return firstPost.id;
 }
 
-function flagInput(user: { id: string; roles: string[]; grantId?: string | null } | null, postId: string) {
+function flagInput(user: { id: string; roles: string[] } | null, postId: string) {
   return { user, postId, db: db(), rateLimiter: rateLimiter(), now: NOW };
 }
 
@@ -42,8 +42,8 @@ async function insertGrant(args: { id: string; proposerUserId: string; coUserId:
   await db()
     .prepare(
       `INSERT INTO proposer_grants
-         (id, proposer_user_id, proposer_stake_addr, co_user_id, co_stake_addr, invite_code_hash, status, created_at, expires_at, redeemed_at, revoked_at)
-       VALUES (?1, ?2, 'stake_test1flagproposer', ?3, ?9, ?1, ?4, ?5, ?6, ?7, ?8)`,
+         (id, proposer_user_id, proposer_stake_addr, gov_action_id, co_user_id, co_stake_addr, invite_code_hash, status, created_at, expires_at, redeemed_at, revoked_at)
+       VALUES (?1, ?2, 'stake_test1flagproposer', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa#0', ?3, ?9, ?1, ?4, ?5, ?6, ?7, ?8)`,
     )
     .bind(
       args.id,
@@ -92,13 +92,13 @@ describe('handleFlagPost: authorization', () => {
     expect((r.json as { error: string }).error).toBe('cannot_flag_system');
   });
 
-  it('403 mandate revoked when the flagger\'s grant was revoked', async () => {
+  it('403 for a co-proposer whose grant is active: a grant never makes a flagger', async () => {
     const postId = await newPost('someone-else');
     const coUserId = 'grant-co-user-flag';
-    await insertGrant({ id: 'grant-flag-1', proposerUserId: 'proposer-user-1', coUserId, status: 'revoked' });
-    const r = await handleFlagPost(flagInput({ id: coUserId, roles: ['proposer'], grantId: 'grant-flag-1' }, postId));
+    await insertGrant({ id: 'grant-flag-1', proposerUserId: 'proposer-user-1', coUserId, status: 'active' });
+    const r = await handleFlagPost(flagInput({ id: coUserId, roles: ['co-proposer'] }, postId));
     expect(r.status).toBe(403);
-    expect((r.json as { error: string }).error).toBe('mandate revoked');
+    expect((r.json as { error: string }).error).toBe('forbidden');
   });
 });
 
@@ -162,8 +162,8 @@ describe('handleFlagPost: co-proposer grant sessions', () => {
 
     const own = await handleFlagPost(flagInput({ id: 'proposer-shared', roles: ['proposer'] }, postId));
     expect(own.status).toBe(200);
-    const co1 = await handleFlagPost(flagInput({ id: 'co-shared-1', roles: ['proposer'], grantId: 'grant-shared-1' }, postId));
-    const co2 = await handleFlagPost(flagInput({ id: 'co-shared-2', roles: ['proposer'], grantId: 'grant-shared-2' }, postId));
+    const co1 = await handleFlagPost(flagInput({ id: 'co-shared-1', roles: ['co-proposer'] }, postId));
+    const co2 = await handleFlagPost(flagInput({ id: 'co-shared-2', roles: ['co-proposer'] }, postId));
     expect(co1.status).toBe(403);
     expect(co2.status).toBe(403);
 
@@ -175,7 +175,7 @@ describe('handleFlagPost: co-proposer grant sessions', () => {
   it('still counts a co-proposer who holds an on-chain writer role of their own', async () => {
     const postId = await newPost('someone-else');
     await insertGrant({ id: 'grant-own-role', proposerUserId: 'proposer-own', coUserId: 'co-drep', status: 'active' });
-    const r = await handleFlagPost(flagInput({ id: 'co-drep', roles: ['drep', 'proposer'], grantId: 'grant-own-role' }, postId));
+    const r = await handleFlagPost(flagInput({ id: 'co-drep', roles: ['drep', 'co-proposer'] }, postId));
     expect(r.status).toBe(200);
     expect(r.json).toMatchObject({ flagCount: 1 });
   });

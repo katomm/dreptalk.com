@@ -1,7 +1,7 @@
 // POST /api/auth/co-proposer/redeem: the second step of invite redemption.
 // The (still logged-out) invite holder proves their wallet with a CIP-8
 // signature over the nonce from /challenge and, on success, becomes an
-// active co-proposer with a grant-backed session. No signed-in gate. Thin
+// active co-proposer with a session carrying the co-proposer role. No signed-in gate. Thin
 // route: rate-limit + env wiring, all verification and the claim itself live
 // in handleRedeemGrant.
 import type { APIRoute } from 'astro';

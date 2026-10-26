@@ -1,5 +1,5 @@
 // POST /api/auth/co-proposer/revoke: a signed-in proposer revokes one of
-// their own active co-proposer grants, killing every session it backs. Thin
+// their own active co-proposer grants. Thin
 // route: same-origin + signed-in gate + rate-limit + env wiring, all guard
 // logic and the revoke itself live in handleRevokeGrant (see
 // coProposerManage.ts).
@@ -27,9 +27,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
     const env = runtimeEnv(locals as App.Locals);
     const db = env.DB as D1Database | undefined;
-    const sessionKv = env.SESSIONS as KVNamespace | undefined;
     const rateLimiter = env.RATE_LIMITER;
-    if (!db || !sessionKv || !rateLimiter) return jsonResponse({ error: 'service unavailable' }, 503);
+    if (!db || !rateLimiter) return jsonResponse({ error: 'service unavailable' }, 503);
 
     const clientIp = clientIpFrom(request.headers);
     const now = Date.now();
@@ -50,7 +49,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       return jsonResponse({ error: 'invalid request' }, 400);
     }
 
-    const result = await handleRevokeGrant({ db, sessionKv, user, grantId, now: Math.floor(now / 1000) });
+    const result = await handleRevokeGrant({ db, user, grantId, now: Math.floor(now / 1000) });
     return jsonResponse(result.json, result.status);
   } catch {
     // Unexpected error (e.g. transient D1 or Durable Object RPC failure):

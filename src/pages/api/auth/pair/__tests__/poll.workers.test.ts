@@ -113,6 +113,25 @@ describe('POST /api/auth/pair/poll', () => {
     expect(session.drepId).toBeNull();
   });
 
+  it('carries co-proposer on a paired device of a grant holder, and no writer role', async () => {
+    await seedUser(0);
+    await env.DB.prepare(
+      `INSERT INTO proposer_grants
+         (id, proposer_user_id, proposer_stake_addr, gov_action_id, co_user_id, co_stake_addr, invite_code_hash, status, created_at, expires_at, redeemed_at)
+       VALUES ('grant-pair-1', 'proposer-x', 'stake_test1proposerx', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa#0', ?1, 'stake_test1cox', 'hash-pair-1', 'active', ?2, ?3, ?2)`,
+    ).bind(USER_ID, NOW, NOW + 10_000_000_000).run();
+    const p = await createPairing(env.DB, { userAgent: null });
+    // The approving session is member-capped, as the delegator door used to be.
+    await approvePairing(env.DB, p.code, USER_ID, ['member']);
+
+    const res = await POST(ctx({ pairingId: p.pairingId, deviceSecret: p.deviceSecret }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { user: { roles: string[] } };
+    expect(body.user.roles).toEqual(['co-proposer']);
+    const session = await sessionFromResponse(res);
+    expect(session.roles).toEqual(['co-proposer']);
+  });
+
   it('grants writer access when both the approver cap and the current account roles allow it', async () => {
     await seedUser(1, DREP_ID);
     const p = await createPairing(env.DB, { userAgent: null });

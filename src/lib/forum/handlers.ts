@@ -2,7 +2,7 @@
 // Testable handler functions for forum write operations.
 // All I/O deps are injected; Astro routes are thin wrappers over these.
 
-import { createTopic, createPost, getPostById, getPostPlacement, editPost, editTitle } from '../db/forum.js';
+import { createTopic, createPost, getPostById, getPostPlacement, editPost, editTitle, getPostForEdit, getTopicForEdit } from '../db/forum.js';
 import { POST_BODY_MAX, maxPostBody } from './postLimits.js';
 import { flagPost, unflagPost, type FlagState } from '../db/postFlags.js';
 import { setReaction, clearReaction, isReaction, type ReactionState, type Reaction } from '../db/postReactions.js';
@@ -10,9 +10,10 @@ import { renderMarkdown, type MentionLink } from '../markdown.js';
 import { getCategory, isDiscussion, PROPOSAL_DRAFTS_CATEGORY_SLUG } from '../../../config/categories.js';
 import { checkRate } from '../rate.js';
 import type { RateLimiter } from '../rateLimiterDO.js';
-import { isWriter, isModerator, canJudgePosts, WRITER_ROLES } from '../auth/roles.js';
-import { isGrantActiveForUser } from '../db/proposerGrants.js';
+import { isWriter, isModerator, WRITER_ROLES } from '../auth/roles.js';
 import { isDraftAuthor, unlinkDraftAction } from '../db/draftLinks.js';
+import { parseActAs, resolvePostMandate, resolveTopicMandate } from './writeMandate.js';
+import { isGrantActiveForUser } from '../db/proposerGrants.js';
 import { isSystemAuthor } from './author.js';
 import { toBase64Url } from '../crypto/base64url.js';
 import { notifyReply, notifyMentions } from '../notifications/notify.js';
@@ -30,23 +31,7 @@ export interface HandlerResult {
   json: unknown;
 }
 
-type User = { id: string; roles: string[]; grantId?: string | null };
-
-/**
- * Revocation is a hard guarantee for writes: KV session deletion propagates
- * lazily across PoPs, so a grant-backed session must re-check its grant in D1
- * before any write. The check also binds the grant to the session's user so a
- * stray grantId can never authorize someone else. Non-grant sessions never
- * pay this read.
- */
-async function mandateGate(
-  db: D1Database,
-  user: { id: string; grantId?: string | null },
-): Promise<HandlerResult | null> {
-  if (!user.grantId) return null;
-  if (await isGrantActiveForUser(db, user.grantId, user.id)) return null;
-  return { status: 403, json: { ok: false, error: 'mandate revoked' } };
-}
+type User = { id: string; roles: string[] };
 
 /**
  * Session roles are a login-time cache; DRep write authority additionally
@@ -78,13 +63,19 @@ async function drepActiveGate(
   return null;
 }
 
-/** The full write-authority gate every forum write passes after isWriter. */
-async function writeGate(
+/**
+ * The usual write rule for a write no co-proposer mandate covers: an own
+ * writer role, and for a sole DRep role a registration that is still active.
+ */
+async function ownWriterGate(
   db: D1Database,
-  user: { id: string; roles: string[]; grantId?: string | null },
+  user: { id: string; roles: string[] },
 ): Promise<HandlerResult | null> {
-  return (await mandateGate(db, user)) ?? (await drepActiveGate(db, user));
+  if (!isWriter(user.roles)) return { status: 403, json: { ok: false, error: 'forbidden' } };
+  return drepActiveGate(db, user);
 }
+
+const CHOOSE_PROPOSER: HandlerResult = { status: 400, json: { ok: false, error: 'choose_proposer' } };
 
 /**
  * Resolves @slug mentions in a markdown body: returns the link map (href +
@@ -118,6 +109,8 @@ export interface CreateTopicInput {
     categorySlug: unknown;
     title: unknown;
     bodyMd: unknown;
+    /** Proposal Drafts only: 'self' or { proposerStakeAddr }, see parseActAs. */
+    actAs?: unknown;
   };
   db: D1Database;
   rateLimiter: DurableObjectNamespace<RateLimiter>;
@@ -127,7 +120,9 @@ export interface CreateTopicInput {
 /**
  * Handles a request to create a new forum topic.
  *
- * Security: requires authenticated user, rate-limited per user,
+ * Security: requires authenticated user and either a co-proposer mandate (only
+ * in Proposal Drafts, resolved in D1 per write) or the usual writer rule,
+ * rate-limited per user,
  * validates category access, title length, and body length.
  * The markdown body is rendered and sanitized before storage.
  * Unexpected errors return 500 without leaking internal details.
@@ -136,17 +131,21 @@ export async function handleCreateTopic(input: CreateTopicInput): Promise<Handle
   try {
     const { user, body, db, rateLimiter, now } = input;
 
-    // 1. Auth check: must be authenticated and hold an on-chain writer role.
-    // Reading is public; posting is reserved for verified DReps/SPOs/CC/proposers
-    // (same gate as flagging). Moderation roles alone do not grant write access.
+    // 1. Auth check: must be authenticated. Reading is public, posting is
+    // reserved for verified DReps/SPOs/CC/proposers (same gate as flagging), or
+    // a co-proposer mandate in Proposal Drafts. A mandate is its own authority,
+    // so it skips the writer rule. Moderation roles alone do not grant write
+    // access.
     if (!user) {
       return { status: 401, json: { ok: false, error: 'unauthorized' } };
     }
-    if (!isWriter(user.roles)) {
-      return { status: 403, json: { ok: false, error: 'forbidden' } };
+    const requestedSlug = typeof body.categorySlug === 'string' ? body.categorySlug : '';
+    const mandate = await resolveTopicMandate(db, user.id, requestedSlug, parseActAs(body.actAs));
+    if ('error' in mandate) return CHOOSE_PROPOSER;
+    if (mandate.grantId === null) {
+      const gateResult = await ownWriterGate(db, user);
+      if (gateResult) return gateResult;
     }
-    const gateResult = await writeGate(db, user);
-    if (gateResult) return gateResult;
 
     // 2. Rate limit: 5 topics per 600s per user.
     const allowed = await checkRate(rateLimiter, `topic:${user.id}`, { max: 5, windowSec: 600, now });
@@ -155,7 +154,7 @@ export async function handleCreateTopic(input: CreateTopicInput): Promise<Handle
     }
 
     // 3. Validate categorySlug.
-    const categorySlug = typeof body.categorySlug === 'string' ? body.categorySlug : '';
+    const categorySlug = requestedSlug;
     const category = getCategory(categorySlug);
     if (!category) {
       return { status: 400, json: { ok: false, error: 'unknown category' } };
@@ -195,7 +194,7 @@ export async function handleCreateTopic(input: CreateTopicInput): Promise<Handle
       source: 'user',
       now,
       rand,
-      proposerGrantId: user.grantId ?? null,
+      proposerGrantId: mandate.grantId,
     });
 
     // 9. Mention notifications for the opening post. Never fail the topic over
@@ -228,6 +227,8 @@ export interface CreatePostInput {
     bodyMd: unknown;
     /** Optional reply target (one-level threading). */
     parentPostId?: unknown;
+    /** Proposal Drafts only: 'self' or { proposerStakeAddr }, see parseActAs. */
+    actAs?: unknown;
   };
   db: D1Database;
   rateLimiter: DurableObjectNamespace<RateLimiter>;
@@ -237,7 +238,9 @@ export interface CreatePostInput {
 /**
  * Handles a request to add a reply post to an existing topic.
  *
- * Security: requires authenticated user, rate-limited per user,
+ * Security: requires authenticated user and either a co-proposer mandate for
+ * this topic (the thread of the grant's action, or Proposal Drafts, resolved in
+ * D1 per write) or the usual writer rule, rate-limited per user,
  * validates body length. Maps domain errors from createPost to HTTP status codes.
  * Unexpected errors return 500 without leaking internal details.
  */
@@ -245,16 +248,27 @@ export async function handleCreatePost(input: CreatePostInput): Promise<HandlerR
   try {
     const { user, topicId, body, db, rateLimiter, now } = input;
 
-    // 1. Auth check: must be authenticated and hold an on-chain writer role
-    // (same gate as topic creation and flagging).
+    // 1. Auth check: must be authenticated. The mandate is resolved first, so a
+    // pure co-proposer can write in its action's thread. A write the mandate
+    // covers skips the writer rule and the DRep activity check, the mandate is
+    // its own authority. Anything else needs an on-chain writer role (same
+    // gate as topic creation and flagging).
     if (!user) {
       return { status: 401, json: { ok: false, error: 'unauthorized' } };
     }
-    if (!isWriter(user.roles)) {
-      return { status: 403, json: { ok: false, error: 'forbidden' } };
+    const topic = await db
+      .prepare('SELECT id, category_slug FROM topics WHERE id = ? AND deleted = 0')
+      .bind(topicId)
+      .first<{ id: string; category_slug: string }>();
+    if (!topic) {
+      return { status: 404, json: { ok: false, error: 'topic_not_found' } };
     }
-    const gateResult = await writeGate(db, user);
-    if (gateResult) return gateResult;
+    const mandate = await resolvePostMandate(db, user.id, topic, parseActAs(body.actAs));
+    if ('error' in mandate) return CHOOSE_PROPOSER;
+    if (mandate.grantId === null) {
+      const gateResult = await ownWriterGate(db, user);
+      if (gateResult) return gateResult;
+    }
 
     // 2. Rate limit: 20 posts per 600s per user.
     const allowed = await checkRate(rateLimiter, `post:${user.id}`, { max: 20, windowSec: 600, now });
@@ -284,7 +298,7 @@ export async function handleCreatePost(input: CreatePostInput): Promise<HandlerR
       bodyHtml,
       now,
       parentPostId,
-      proposerGrantId: user.grantId ?? null,
+      proposerGrantId: mandate.grantId,
     });
 
     // 6. Notify: mention rows for the mentioned users, reply rows for the
@@ -336,19 +350,13 @@ async function authorizeFlag(
 ): Promise<{ user: User } | { fail: HandlerResult }> {
   const { user, postId, db, rateLimiter, now } = input;
 
-  // 1. Auth: only on-chain writers can flag.
+  // 1. Auth: only on-chain writers can flag. A co-proposer grant never makes
+  // a flagger, only own writer roles count.
   if (!user) {
     return { fail: { status: 401, json: { ok: false, error: 'unauthorized' } } };
   }
-  if (!isWriter(user.roles)) {
-    return { fail: { status: 403, json: { ok: false, error: 'forbidden' } } };
-  }
-  const gateResult = await writeGate(db, user);
+  const gateResult = await ownWriterGate(db, user);
   if (gateResult) return { fail: gateResult };
-  // A grant-lent proposer role alone does not count as a flagger of its own.
-  if (!canJudgePosts(user)) {
-    return { fail: { status: 403, json: { ok: false, error: 'forbidden' } } };
-  }
 
   // 2 + 3. Rate limit (30 toggles per 600s per user) and post lookup are
   // independent round-trips (DO vs D1), so they run concurrently. The rate
@@ -432,19 +440,13 @@ async function handleReactionChange(
   try {
     const { user, postId, db, rateLimiter, now } = input;
 
-    // 1. Auth: only on-chain writers can react (same gate as posting/flagging).
+    // 1. Auth: only on-chain writers can react (same gate as flagging). A
+    // co-proposer grant never makes a reactor, only own writer roles count.
     if (!user) {
       return { status: 401, json: { ok: false, error: 'unauthorized' } };
     }
-    if (!isWriter(user.roles)) {
-      return { status: 403, json: { ok: false, error: 'forbidden' } };
-    }
-    const gateResult = await writeGate(db, user);
+    const gateResult = await ownWriterGate(db, user);
     if (gateResult) return gateResult;
-    // A grant-lent proposer role alone does not count as a reactor of its own.
-    if (!canJudgePosts(user)) {
-      return { status: 403, json: { ok: false, error: 'forbidden' } };
-    }
 
     // 2 + 3. Rate limit (60 toggles per 600s; reactions are lightweight) and
     // post lookup are independent round-trips (DO vs D1), so they run
@@ -541,8 +543,10 @@ export interface EditPostInput {
 }
 
 /**
- * Edits the caller's own post body. Same writer gate as posting; rate-limited;
- * validates length; re-renders+sanitizes markdown. Ownership, hidden, and topic
+ * Edits the caller's own post body. A post stamped with a grant skips the
+ * writer rule and relies on editPost's check that exactly that grant is still
+ * active for the author. An unstamped post takes the same writer gate as
+ * posting. Rate-limited, validates length, re-renders+sanitizes markdown. Ownership, hidden, and topic
  * lock/delete checks live in editPost (domain errors mapped via editError).
  *
  * Reconciles the post's CIP-100 documents twice, before and after the write:
@@ -554,9 +558,19 @@ export async function handleEditPost(input: EditPostInput): Promise<HandlerResul
   try {
     const { user, postId, body, db, rateLimiter, now } = input;
     if (!user) return { status: 401, json: { ok: false, error: 'unauthorized' } };
-    if (!isWriter(user.roles)) return { status: 403, json: { ok: false, error: 'forbidden' } };
-    const gateResult = await writeGate(db, user);
-    if (gateResult) return gateResult;
+    // One read of the row and at most one grant check per request: editPost
+    // receives both instead of reading them again.
+    const post = await getPostForEdit(db, postId);
+    const grantId = post?.proposer_grant_id ?? null;
+    const ownWriter = grantId === null;
+    if (ownWriter) {
+      const gateResult = await ownWriterGate(db, user);
+      if (gateResult) return gateResult;
+    } else if (!(await isGrantActiveForUser(db, grantId, user.id))) {
+      // Checked before the CIP-100 freeze below, so a caller without the grant
+      // never reaches it.
+      return { status: 403, json: { ok: false, error: 'forbidden' } };
+    }
 
     const allowed = await checkRate(rateLimiter, `edit:${user.id}`, { max: 30, windowSec: 600, now });
     if (!allowed) return { status: 429, json: { ok: false, error: 'rate_limited' } };
@@ -592,7 +606,10 @@ export async function handleEditPost(input: EditPostInput): Promise<HandlerResul
         bodyMd,
         bodyHtml,
         now,
-        sessionGrantId: user.grantId ?? null,
+        ownWriter,
+        post: post ?? undefined,
+        // Reaching this point with a stamped post means the check above passed.
+        stampedGrantActive: grantId !== null ? true : undefined,
       });
       // Publish the edited text as the next version. Its own try/catch, not the
       // notification one, so a notification failure cannot skip the emit.
@@ -616,17 +633,22 @@ export interface EditTitleInput {
 }
 
 /**
- * Edits the caller's own topic title (opening-post author). Same writer gate;
- * rate-limited; validates 3..200 chars. Slug stays frozen. Ownership / governance
- * / lock checks live in editTitle.
+ * Edits the caller's own topic title (opening-post author). Same split as
+ * handleEditPost: a topic stamped with a grant follows that grant, an
+ * unstamped one the writer gate. Rate-limited, validates 3..200 chars. Slug stays
+ * frozen. Ownership, governance and lock checks live in editTitle.
  */
 export async function handleEditTitle(input: EditTitleInput): Promise<HandlerResult> {
   try {
     const { user, topicId, body, db, rateLimiter, now } = input;
     if (!user) return { status: 401, json: { ok: false, error: 'unauthorized' } };
-    if (!isWriter(user.roles)) return { status: 403, json: { ok: false, error: 'forbidden' } };
-    const gateResult = await writeGate(db, user);
-    if (gateResult) return gateResult;
+    // One read of the row, handed to editTitle, which runs the single grant check.
+    const topic = await getTopicForEdit(db, topicId);
+    const ownWriter = !topic?.proposer_grant_id;
+    if (ownWriter) {
+      const gateResult = await ownWriterGate(db, user);
+      if (gateResult) return gateResult;
+    }
 
     const allowed = await checkRate(rateLimiter, `edit:${user.id}`, { max: 30, windowSec: 600, now });
     if (!allowed) return { status: 429, json: { ok: false, error: 'rate_limited' } };
@@ -637,7 +659,7 @@ export async function handleEditTitle(input: EditTitleInput): Promise<HandlerRes
     }
 
     try {
-      await editTitle(db, { topicId, authorId: user.id, title, now, sessionGrantId: user.grantId ?? null });
+      await editTitle(db, { topicId, authorId: user.id, title, now, ownWriter, topic: topic ?? undefined });
       return { status: 200, json: { ok: true } };
     } catch (err) {
       return editError(err);
@@ -680,14 +702,12 @@ export async function handleDraftUnlink(input: DraftUnlinkInput): Promise<Handle
       return { status: 404, json: { ok: false, error: 'not found' } };
     }
 
-    if (!isDraftAuthor(topic, user) && !isModerator(user.roles)) {
+    // No writer role or DRep activity check (an author whose role lapsed must
+    // still undo a stranger's link). isDraftAuthor re-checks a stamped draft's
+    // grant in D1, so a revoked co-proposer cannot act.
+    if (!isModerator(user.roles) && !(await isDraftAuthor(db, topic, user))) {
       return { status: 403, json: { ok: false, error: 'forbidden' } };
     }
-    // No writer role or DRep activity check (an author whose role lapsed must
-    // still undo a stranger's link), but a grant-backed session re-checks its
-    // grant in D1 like every other write: a revoked co-proposer must not act.
-    const mandate = await mandateGate(db, user);
-    if (mandate) return mandate;
 
     const allowed = await checkRate(rateLimiter, `edit:${user.id}`, { max: 30, windowSec: 600, now });
     if (!allowed) return { status: 429, json: { ok: false, error: 'rate_limited' } };

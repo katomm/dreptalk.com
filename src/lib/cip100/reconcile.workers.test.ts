@@ -56,7 +56,7 @@ describe('reconcilePostDocs', () => {
     const v1 = await getHeadDoc(db(), firstPost.id);
     await editPost(db(), {
       postId: firstPost.id, authorId: AUTHOR, bodyMd: 'a genuinely different body',
-      bodyHtml: '<p>a genuinely different body</p>', now: AFTER_GRACE + 2000, sessionGrantId: null,
+      bodyHtml: '<p>a genuinely different body</p>', now: AFTER_GRACE + 2000, ownWriter: true,
     });
     const res = await reconcilePostDocs(db(), firstPost.id, { ...OPTS, now: AFTER_GRACE + 3000 });
     expect(res.status).toBe('created');
@@ -71,7 +71,7 @@ describe('reconcilePostDocs', () => {
     await reconcilePostDocs(db(), firstPost.id, { ...OPTS, now: AFTER_GRACE });
     await editPost(db(), {
       postId: firstPost.id, authorId: AUTHOR, bodyMd: 'opening body',
-      bodyHtml: '<p>opening body</p>', now: AFTER_GRACE + 2000, sessionGrantId: null,
+      bodyHtml: '<p>opening body</p>', now: AFTER_GRACE + 2000, ownWriter: true,
     });
     const res = await reconcilePostDocs(db(), firstPost.id, { ...OPTS, now: AFTER_GRACE + 3000 });
     expect(res.status).toBe('unchanged');
@@ -86,7 +86,7 @@ describe('reconcilePostDocs', () => {
     await reconcilePostDocs(db(), firstPost.id, { ...OPTS, now: AFTER_GRACE });
     await editPost(db(), {
       postId: firstPost.id, authorId: AUTHOR, bodyMd: 'edited but never emitted',
-      bodyHtml: '<p>edited but never emitted</p>', now: AFTER_GRACE + 2000, sessionGrantId: null,
+      bodyHtml: '<p>edited but never emitted</p>', now: AFTER_GRACE + 2000, ownWriter: true,
     });
     // Simulates the swallowed failure in the request path: nothing ran.
     expect(await findStalePostIds(db(), AFTER_GRACE + 3000, 50)).toContain(firstPost.id);
@@ -194,7 +194,7 @@ describe('reconcilePostDocs', () => {
     const v1 = await getHeadDoc(db(), firstPost.id);
     await editPost(db(), {
       postId: firstPost.id, authorId: AUTHOR, bodyMd: 'a racing edit',
-      bodyHtml: '<p>a racing edit</p>', now: AFTER_GRACE + 2000, sessionGrantId: null,
+      bodyHtml: '<p>a racing edit</p>', now: AFTER_GRACE + 2000, ownWriter: true,
     });
     // Simulate a writer that already took version 2 before this reconcile runs.
     // That occupies the (post_id, version) slot the reconciler would otherwise
@@ -228,7 +228,7 @@ describe('reconcilePostDocs', () => {
     // rather than stopping at the no-op rule.
     await editPost(db(), {
       postId: firstPost.id, authorId: AUTHOR, bodyMd: 'the edit that lost',
-      bodyHtml: '<p>the edit that lost</p>', now: AFTER_GRACE + 1000, sessionGrantId: null,
+      bodyHtml: '<p>the edit that lost</p>', now: AFTER_GRACE + 1000, ownWriter: true,
     });
 
     let fired = false;
@@ -250,7 +250,7 @@ describe('reconcilePostDocs', () => {
                     return async () => {
                       await editPost(db(), {
                         postId: firstPost.id, authorId: AUTHOR, bodyMd: 'the edit that won',
-                        bodyHtml: '<p>the edit that won</p>', now: AFTER_GRACE + 2000, sessionGrantId: null,
+                        bodyHtml: '<p>the edit that won</p>', now: AFTER_GRACE + 2000, ownWriter: true,
                       });
                       return bTarget.first();
                     };
@@ -320,7 +320,7 @@ describe('reconcilePostDocs', () => {
     const editParentAt = replyReconcile1At + 1000;
     await editPost(db(), {
       postId: firstPost.id, authorId: AUTHOR, bodyMd: 'a genuinely different parent body',
-      bodyHtml: '<p>a genuinely different parent body</p>', now: editParentAt, sessionGrantId: null,
+      bodyHtml: '<p>a genuinely different parent body</p>', now: editParentAt, ownWriter: true,
     });
     const reconcileParent2At = editParentAt + 1000;
     await reconcilePostDocs(db(), firstPost.id, { ...OPTS, now: reconcileParent2At });
@@ -333,7 +333,7 @@ describe('reconcilePostDocs', () => {
     const editReplyAt = reconcileParent2At + 1000;
     await editPost(db(), {
       postId: reply.id, authorId: AUTHOR, bodyMd: 'a genuinely different reply body',
-      bodyHtml: '<p>a genuinely different reply body</p>', now: editReplyAt, sessionGrantId: null,
+      bodyHtml: '<p>a genuinely different reply body</p>', now: editReplyAt, ownWriter: true,
     });
     const reconcileReply2At = editReplyAt + 1000;
     const res2 = await reconcilePostDocs(db(), reply.id, { ...OPTS, now: reconcileReply2At });

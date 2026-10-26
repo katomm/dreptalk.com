@@ -5,3 +5,6 @@
 
 /** Maximum length of a co-proposer's chosen display name (trimmed). */
 export const MAX_CO_PROPOSER_NAME = 60;
+
+/** Active plus unexpired-pending grants a single governance action may hold at once. */
+export const MAX_GRANTS_PER_ACTION = 4;

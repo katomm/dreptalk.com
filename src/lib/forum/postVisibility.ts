@@ -2,7 +2,8 @@
 // read it once the community has hidden it. Kept out of the page template so the
 // same rules can back a future moderation view without drifting.
 
-import { isWriter, isModerator, canJudgePosts } from '../auth/roles.js';
+import { isWriter, isModerator } from '../auth/roles.js';
+import { mayEditRow } from './editPolicy.js';
 
 /**
  * The three states the reaction row can be in. One value rather than a pair of
@@ -14,7 +15,6 @@ export type ReactionAffordance = 'interactive' | 'readonly' | 'hidden';
 export interface SessionUser {
   id: string;
   roles: string[];
-  grantId?: string | null;
 }
 
 export interface PostViewerContext {
@@ -30,36 +30,54 @@ export interface PostViewerContext {
    * post carries no reactions at all.
    */
   reactions: ReactionAffordance;
-  /** The viewer may edit this post (a writer, their own, not system, not hidden). */
+  /**
+   * The viewer may edit this post: their own, not system, not hidden, and
+   * either stamped with a grant that is still active for them, or unstamped
+   * and the viewer holds an own writer role.
+   */
   canEdit: boolean;
+}
+
+/** The opening-post author may edit the title of their own non-locked user topic. */
+export function canEditTitle(
+  topic: { author_id: string; source: string; locked: boolean; proposer_grant_id: string | null },
+  user: { id: string; roles: readonly string[] } | null,
+  stampedGrantActive: boolean,
+): boolean {
+  if (!user || topic.source !== 'user' || topic.author_id !== user.id || topic.locked) return false;
+  return mayEditRow(topic.proposer_grant_id, isWriter(user.roles), stampedGrantActive);
 }
 
 /**
  * Computes the flag/visibility context for one post and viewer.
  * - canSeeContent: a hidden post stays readable for its author and moderators.
- * - canFlag: only on-chain writers can flag (not on a co-proposer grant alone,
- *   see canJudgePosts), never their own post or a system/governance post
+ * - canFlag: only on-chain writers can flag (a co-proposer alone does not
+ *   count), never their own post or a system/governance post
  *   (authorIsSystem).
  * - reactions: only those same writers may toggle, never on their own post. On a
  *   system/governance post the row is hidden outright: a thumbs up on the
  *   neutral mirror of an on-chain action reads as a stake-free straw poll next
  *   to the real tally.
+ * - canEdit: see mayEditRow. stampedGrantActive says whether the post's
+ *   stored grant is active for this viewer, false when the post is unstamped.
  */
 export function postViewerContext(
-  post: { author_id: string; hidden: boolean },
-  user: { id: string; roles: readonly string[]; grantId?: string | null } | null,
+  post: { author_id: string; hidden: boolean; proposer_grant_id?: string | null },
+  user: { id: string; roles: readonly string[] } | null,
   authorIsSystem: boolean,
+  stampedGrantActive = false,
 ): PostViewerContext {
   const isOwnPost = !!user && post.author_id === user.id;
   const roles = user?.roles ?? [];
   const canSeeContent = !post.hidden || isOwnPost || isModerator(roles);
-  const judges = !!user && canJudgePosts(user);
+  const judges = isWriter(roles);
   const canFlag = judges && !isOwnPost && !authorIsSystem;
   const reactions: ReactionAffordance = authorIsSystem
     ? 'hidden'
     : judges && !isOwnPost
       ? 'interactive'
       : 'readonly';
-  const canEdit = isWriter(roles) && isOwnPost && !authorIsSystem && !post.hidden;
+  const canEdit =
+    isOwnPost && !authorIsSystem && !post.hidden && mayEditRow(post.proposer_grant_id, isWriter(roles), stampedGrantActive);
   return { isOwnPost, canSeeContent, canFlag, reactions, canEdit };
 }

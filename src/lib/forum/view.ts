@@ -213,3 +213,8 @@ export function activeLabel(counts: { dreps: number; spos: number; delegators: n
   const joined = parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts[0];
   return `${joined} active in the last 30 days on DRepTalk`;
 }
+
+/** The co-proposer team badge: "Proposer team", plus the team name when the proposer picked one. */
+export function teamBadgeLabel(teamLabel: string | null): string {
+  return teamLabel ? `Proposer team \u00b7 ${teamLabel}` : 'Proposer team';
+}

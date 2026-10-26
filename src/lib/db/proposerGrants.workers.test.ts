@@ -6,9 +6,11 @@ import {
   createGrantInvite,
   lookupInviteByCode,
   redeemGrant,
-  getActiveGrantByCoStake,
+  listActiveGrantsForCoUser,
+  hasActiveGrantForCoUser,
+  getActiveGrantIdForTopic,
   isGrantActiveForUser,
-  getGrantsForProposer,
+  getGrantsForProposerActions,
   getGrantsByIds,
   revokeGrant,
   withdrawInvite,
@@ -18,6 +20,8 @@ import { loadMandates } from '../forum/mandate.js';
 
 const db = () => env.DB as D1Database;
 const NOW = 1_700_000_000;
+const ACTION_X = `${'a'.repeat(64)}#0`;
+const ACTION_Y = `${'b'.repeat(64)}#1`;
 
 let seq = 0;
 function nextId(): string {
@@ -43,6 +47,8 @@ describe('createGrantInvite', () => {
     const result = await createGrantInvite(db(), {
       proposerUserId: proposer.userId,
       proposerStakeAddr: proposer.stakeAddr,
+      govActionId: ACTION_X,
+      teamLabel: null,
       now: NOW,
     });
     expect(result).not.toBeNull();
@@ -59,37 +65,31 @@ describe('createGrantInvite', () => {
     expect(row!.status).toBe('pending');
   });
 
-  it('returns null for the 3rd invite (2 pending)', async () => {
+  it('caps at 4 grants per action and counts per action', async () => {
     const proposer = await makeProposer();
-    const a = await createGrantInvite(db(), {
+    const args = (govActionId: string) => ({
       proposerUserId: proposer.userId,
       proposerStakeAddr: proposer.stakeAddr,
+      govActionId,
+      teamLabel: null,
       now: NOW,
     });
-    const b = await createGrantInvite(db(), {
-      proposerUserId: proposer.userId,
-      proposerStakeAddr: proposer.stakeAddr,
-      now: NOW,
-    });
-    expect(a).not.toBeNull();
-    expect(b).not.toBeNull();
-
-    const c = await createGrantInvite(db(), {
-      proposerUserId: proposer.userId,
-      proposerStakeAddr: proposer.stakeAddr,
-      now: NOW,
-    });
-    expect(c).toBeNull();
+    for (let i = 0; i < 4; i++) expect(await createGrantInvite(db(), args(ACTION_X))).not.toBeNull();
+    expect(await createGrantInvite(db(), args(ACTION_X))).toBeNull();
+    expect(await createGrantInvite(db(), args(ACTION_Y))).not.toBeNull();
   });
 
-  it('counts active + unexpired pending toward the limit', async () => {
+  it('counts active grants toward the action limit', async () => {
     const proposer = await makeProposer();
     const coUser = await makeCoUser();
-    const invite = await createGrantInvite(db(), {
+    const args = {
       proposerUserId: proposer.userId,
       proposerStakeAddr: proposer.stakeAddr,
+      govActionId: ACTION_X,
+      teamLabel: null,
       now: NOW,
-    });
+    };
+    const invite = await createGrantInvite(db(), args);
     const redeemed = await redeemGrant(db(), {
       grantId: invite!.grantId,
       coUserId: coUser.userId,
@@ -98,43 +98,30 @@ describe('createGrantInvite', () => {
       now: NOW,
     });
     expect(redeemed.ok).toBe(true);
-
-    const second = await createGrantInvite(db(), {
-      proposerUserId: proposer.userId,
-      proposerStakeAddr: proposer.stakeAddr,
-      now: NOW,
-    });
-    expect(second).not.toBeNull();
-
-    const third = await createGrantInvite(db(), {
-      proposerUserId: proposer.userId,
-      proposerStakeAddr: proposer.stakeAddr,
-      now: NOW,
-    });
-    expect(third).toBeNull();
+    for (let i = 0; i < 3; i++) expect(await createGrantInvite(db(), args)).not.toBeNull();
+    expect(await createGrantInvite(db(), args)).toBeNull();
   });
 
-  it('lets an expired pending invite free its slot and sweeps it', async () => {
+  it('expired pending invites free a slot and are swept', async () => {
     const proposer = await makeProposer();
     const OLD = NOW - GRANT_INVITE_TTL_SEC - 1;
-    const a = await createGrantInvite(db(), {
+    const old = {
       proposerUserId: proposer.userId,
       proposerStakeAddr: proposer.stakeAddr,
+      govActionId: ACTION_X,
+      teamLabel: null,
       now: OLD,
-    });
-    const b = await createGrantInvite(db(), {
-      proposerUserId: proposer.userId,
-      proposerStakeAddr: proposer.stakeAddr,
-      now: OLD,
-    });
-    expect(a).not.toBeNull();
-    expect(b).not.toBeNull();
+    };
+    for (let i = 0; i < 4; i++) expect(await createGrantInvite(db(), old)).not.toBeNull();
+    expect(await createGrantInvite(db(), old)).toBeNull();
 
-    // Both prior invites are expired by NOW; the limit check must not count
+    // All four prior invites are expired by NOW; the limit check must not count
     // them, and the sweep must delete them from the table.
     const c = await createGrantInvite(db(), {
       proposerUserId: proposer.userId,
       proposerStakeAddr: proposer.stakeAddr,
+      govActionId: ACTION_X,
+      teamLabel: null,
       now: NOW,
     });
     expect(c).not.toBeNull();
@@ -146,22 +133,24 @@ describe('createGrantInvite', () => {
     expect(count!.n).toBe(1);
   });
 
-  it('two concurrent creates at 1 existing grant: exactly one succeeds', async () => {
+  it('two concurrent creates at 3 existing grants: exactly one succeeds', async () => {
     const proposer = await makeProposer();
-    // Seed one active grant directly so the table starts at exactly 1 toward
-    // the limit of 2, with no earlier createGrantInvite call in the mix.
-    await db()
-      .prepare(
-        `INSERT INTO proposer_grants
-           (id, proposer_user_id, proposer_stake_addr, invite_code_hash, status, created_at, expires_at, redeemed_at)
-         VALUES (?1, ?2, ?3, 'seed-hash', 'active', ?4, ?5, ?4)`,
-      )
-      .bind(nextId(), proposer.userId, proposer.stakeAddr, NOW, NOW + GRANT_INVITE_TTL_SEC)
-      .run();
+    // Seed three active grants directly so the action starts at exactly 3
+    // toward the limit of 4, with no earlier createGrantInvite call in the mix.
+    for (let i = 0; i < 3; i++) {
+      await db()
+        .prepare(
+          `INSERT INTO proposer_grants
+             (id, proposer_user_id, proposer_stake_addr, gov_action_id, invite_code_hash, status, created_at, expires_at, redeemed_at)
+           VALUES (?1, ?2, ?3, ?6, ?1, 'active', ?4, ?5, ?4)`,
+        )
+        .bind(nextId(), proposer.userId, proposer.stakeAddr, NOW, NOW + GRANT_INVITE_TTL_SEC, ACTION_X)
+        .run();
+    }
 
     const [a, b] = await Promise.all([
-      createGrantInvite(db(), { proposerUserId: proposer.userId, proposerStakeAddr: proposer.stakeAddr, now: NOW }),
-      createGrantInvite(db(), { proposerUserId: proposer.userId, proposerStakeAddr: proposer.stakeAddr, now: NOW }),
+      createGrantInvite(db(), { proposerUserId: proposer.userId, proposerStakeAddr: proposer.stakeAddr, govActionId: ACTION_X, teamLabel: null, now: NOW }),
+      createGrantInvite(db(), { proposerUserId: proposer.userId, proposerStakeAddr: proposer.stakeAddr, govActionId: ACTION_X, teamLabel: null, now: NOW }),
     ]);
     const successes = [a, b].filter((r) => r !== null);
     expect(successes).toHaveLength(1);
@@ -174,11 +163,18 @@ describe('lookupInviteByCode', () => {
     const invite = await createGrantInvite(db(), {
       proposerUserId: proposer.userId,
       proposerStakeAddr: proposer.stakeAddr,
+      govActionId: ACTION_X,
+      teamLabel: null,
       now: NOW,
     });
 
     const found = await lookupInviteByCode(db(), invite!.inviteCode, { now: NOW });
-    expect(found).toEqual({ grantId: invite!.grantId, proposerStakeAddr: proposer.stakeAddr });
+    expect(found).toEqual({
+      grantId: invite!.grantId,
+      proposerStakeAddr: proposer.stakeAddr,
+      govActionId: ACTION_X,
+      teamLabel: null,
+    });
 
     expect(await lookupInviteByCode(db(), 'not-a-real-code', { now: NOW })).toBeNull();
     expect(
@@ -197,6 +193,25 @@ describe('lookupInviteByCode', () => {
   });
 });
 
+describe('lookupInviteByCode team label', () => {
+  it('returns the action id and team label', async () => {
+    const proposer = await makeProposer();
+    const invite = await createGrantInvite(db(), {
+      proposerUserId: proposer.userId,
+      proposerStakeAddr: proposer.stakeAddr,
+      govActionId: ACTION_Y,
+      teamLabel: 'Treasury team',
+      now: NOW,
+    });
+    expect(await lookupInviteByCode(db(), invite!.inviteCode, { now: NOW })).toEqual({
+      grantId: invite!.grantId,
+      proposerStakeAddr: proposer.stakeAddr,
+      govActionId: ACTION_Y,
+      teamLabel: 'Treasury team',
+    });
+  });
+});
+
 describe('redeemGrant', () => {
   it('activates, stamps co_user_id/co_stake_addr/redeemed_at, fills an empty display_name', async () => {
     const proposer = await makeProposer();
@@ -204,6 +219,8 @@ describe('redeemGrant', () => {
     const invite = await createGrantInvite(db(), {
       proposerUserId: proposer.userId,
       proposerStakeAddr: proposer.stakeAddr,
+      govActionId: ACTION_X,
+      teamLabel: null,
       now: NOW,
     });
 
@@ -248,6 +265,8 @@ describe('redeemGrant', () => {
     const invite = await createGrantInvite(db(), {
       proposerUserId: proposer.userId,
       proposerStakeAddr: proposer.stakeAddr,
+      govActionId: ACTION_X,
+      teamLabel: null,
       now: NOW,
     });
 
@@ -273,6 +292,8 @@ describe('redeemGrant', () => {
     const invite = await createGrantInvite(db(), {
       proposerUserId: proposer.userId,
       proposerStakeAddr: proposer.stakeAddr,
+      govActionId: ACTION_X,
+      teamLabel: null,
       now: NOW,
     });
 
@@ -301,6 +322,8 @@ describe('redeemGrant', () => {
     const invite = await createGrantInvite(db(), {
       proposerUserId: proposer.userId,
       proposerStakeAddr: proposer.stakeAddr,
+      govActionId: ACTION_X,
+      teamLabel: null,
       now: NOW,
     });
 
@@ -321,11 +344,15 @@ describe('redeemGrant', () => {
     const inviteA = await createGrantInvite(db(), {
       proposerUserId: proposerA.userId,
       proposerStakeAddr: proposerA.stakeAddr,
+      govActionId: ACTION_X,
+      teamLabel: null,
       now: NOW,
     });
     const inviteB = await createGrantInvite(db(), {
       proposerUserId: proposerB.userId,
       proposerStakeAddr: proposerB.stakeAddr,
+      govActionId: ACTION_X,
+      teamLabel: null,
       now: NOW,
     });
 
@@ -348,11 +375,79 @@ describe('redeemGrant', () => {
     expect(second).toEqual({ ok: false, reason: 'mandate_taken' });
   });
 
+  it('second redeem for the same action reports mandate_taken and deletes the losing pending row', async () => {
+    const proposer = await makeProposer();
+    const coUser = await makeCoUser();
+    const args = {
+      proposerUserId: proposer.userId,
+      proposerStakeAddr: proposer.stakeAddr,
+      govActionId: ACTION_X,
+      teamLabel: null,
+      now: NOW,
+    };
+    const first = await createGrantInvite(db(), args);
+    const second = await createGrantInvite(db(), args);
+    const redeem = (grantId: string) =>
+      redeemGrant(db(), {
+        grantId,
+        coUserId: coUser.userId,
+        coStakeAddr: coUser.stakeAddr,
+        displayName: 'Co',
+        now: NOW,
+      });
+    expect((await redeem(first!.grantId)).ok).toBe(true);
+    expect(await redeem(second!.grantId)).toEqual({ ok: false, reason: 'mandate_taken' });
+
+    const pending = await db()
+      .prepare(`SELECT COUNT(*) AS n FROM proposer_grants WHERE gov_action_id = ?1 AND status = 'pending'`)
+      .bind(ACTION_X)
+      .first<{ n: number }>();
+    // Other tests share the database, so only this proposer's rows are asserted.
+    const mine = await db()
+      .prepare(`SELECT COUNT(*) AS n FROM proposer_grants WHERE proposer_user_id = ?1 AND status = 'pending'`)
+      .bind(proposer.userId)
+      .first<{ n: number }>();
+    expect(mine!.n).toBe(0);
+    expect(pending!.n).toBe(0);
+  });
+
+  it('one stake key can hold active grants for two actions', async () => {
+    const proposer = await makeProposer();
+    const coUser = await makeCoUser();
+    for (const govActionId of [ACTION_X, ACTION_Y]) {
+      const invite = await createGrantInvite(db(), {
+        proposerUserId: proposer.userId,
+        proposerStakeAddr: proposer.stakeAddr,
+        govActionId,
+        teamLabel: null,
+        now: NOW,
+      });
+      const result = await redeemGrant(db(), {
+        grantId: invite!.grantId,
+        coUserId: coUser.userId,
+        coStakeAddr: coUser.stakeAddr,
+        displayName: 'Co',
+        now: NOW,
+      });
+      expect(result.ok).toBe(true);
+    }
+    const rows = await db()
+      .prepare(`SELECT gov_action_id, status FROM proposer_grants WHERE co_user_id = ?1 ORDER BY gov_action_id`)
+      .bind(coUser.userId)
+      .all<{ gov_action_id: string; status: string }>();
+    expect(rows.results).toEqual([
+      { gov_action_id: ACTION_X, status: 'active' },
+      { gov_action_id: ACTION_Y, status: 'active' },
+    ]);
+  });
+
   it("redeeming with the proposer's own stake address returns { ok: false, reason: 'self' }", async () => {
     const proposer = await makeProposer();
     const invite = await createGrantInvite(db(), {
       proposerUserId: proposer.userId,
       proposerStakeAddr: proposer.stakeAddr,
+      govActionId: ACTION_X,
+      teamLabel: null,
       now: NOW,
     });
 
@@ -373,13 +468,24 @@ describe('redeemGrant', () => {
   });
 });
 
-describe('getActiveGrantByCoStake', () => {
-  it('returns the active grant, null after revoke', async () => {
+describe('co-user grant reads', () => {
+  it('getActiveGrantIdForTopic ignores revoked grants and other threads', async () => {
     const proposer = await makeProposer();
     const coUser = await makeCoUser();
+    const topicX = `topic-x-${nextId()}`;
+    const actionX = `${'c'.repeat(63)}${seq % 10}#0`;
+    await db()
+      .prepare(
+        `INSERT INTO governance_actions (id, type, title, status, return_address, topic_id, created_at, last_synced_at)
+         VALUES (?1, 'InfoAction', 't', 'active', 'x', ?2, 1, 1)`,
+      )
+      .bind(actionX, topicX)
+      .run();
     const invite = await createGrantInvite(db(), {
       proposerUserId: proposer.userId,
       proposerStakeAddr: proposer.stakeAddr,
+      govActionId: actionX,
+      teamLabel: null,
       now: NOW,
     });
     await redeemGrant(db(), {
@@ -390,15 +496,100 @@ describe('getActiveGrantByCoStake', () => {
       now: NOW,
     });
 
-    const active = await getActiveGrantByCoStake(db(), coUser.stakeAddr);
-    expect(active).not.toBeNull();
-    expect(active!.id).toBe(invite!.grantId);
-    expect(active!.status).toBe('active');
+    expect(await getActiveGrantIdForTopic(db(), coUser.userId, topicX)).toBe(invite!.grantId);
+    expect(await getActiveGrantIdForTopic(db(), coUser.userId, 'some-other-topic')).toBeNull();
+    expect(await hasActiveGrantForCoUser(db(), coUser.userId)).toBe(true);
 
-    const revoked = await revokeGrant(db(), { grantId: invite!.grantId, proposerUserId: proposer.userId, now: NOW });
-    expect(revoked).toBe(true);
+    expect(await revokeGrant(db(), { grantId: invite!.grantId, proposerUserId: proposer.userId, now: NOW })).toBe(true);
+    expect(await getActiveGrantIdForTopic(db(), coUser.userId, topicX)).toBeNull();
+    expect(await hasActiveGrantForCoUser(db(), coUser.userId)).toBe(false);
+    expect(await listActiveGrantsForCoUser(db(), coUser.userId)).toEqual([]);
+  });
 
-    expect(await getActiveGrantByCoStake(db(), coUser.stakeAddr)).toBeNull();
+  it('listActiveGrantsForCoUser returns active grants oldest first', async () => {
+    const proposer = await makeProposer();
+    const coUser = await makeCoUser();
+    const ids: string[] = [];
+    for (const [i, govActionId] of [ACTION_Y, ACTION_X].entries()) {
+      const invite = await createGrantInvite(db(), {
+        proposerUserId: proposer.userId,
+        proposerStakeAddr: proposer.stakeAddr,
+        govActionId,
+        teamLabel: null,
+        now: NOW + i,
+      });
+      await redeemGrant(db(), {
+        grantId: invite!.grantId,
+        coUserId: coUser.userId,
+        coStakeAddr: coUser.stakeAddr,
+        displayName: 'Co',
+        now: NOW + i,
+      });
+      ids.push(invite!.grantId);
+    }
+    const grants = await listActiveGrantsForCoUser(db(), coUser.userId);
+    expect(grants.map((g) => g.id)).toEqual(ids);
+  });
+});
+
+describe('rows without gov_action_id', () => {
+  it('are invisible, ignored by the cap, and swept by the next invite', async () => {
+    const proposer = await makeProposer();
+    const coUser = await makeCoUser();
+    const insertLegacy = (id: string, status: 'active' | 'pending') =>
+      db()
+        .prepare(
+          `INSERT INTO proposer_grants
+             (id, proposer_user_id, proposer_stake_addr, co_user_id, co_stake_addr, invite_code_hash, status, created_at, expires_at, redeemed_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?1, ?6, ?7, ?8, ?7)`,
+        )
+        .bind(
+          id,
+          proposer.userId,
+          proposer.stakeAddr,
+          status === 'active' ? coUser.userId : null,
+          status === 'active' ? coUser.stakeAddr : null,
+          status,
+          NOW,
+          NOW + GRANT_INVITE_TTL_SEC,
+        )
+        .run();
+    const activeId = nextId();
+    const pendingId = nextId();
+    await insertLegacy(activeId, 'active');
+    await insertLegacy(pendingId, 'pending');
+
+    expect(await isGrantActiveForUser(db(), activeId, coUser.userId)).toBe(false);
+    expect(await hasActiveGrantForCoUser(db(), coUser.userId)).toBe(false);
+    expect(await listActiveGrantsForCoUser(db(), coUser.userId)).toEqual([]);
+    expect((await getGrantsByIds(db(), [activeId, pendingId])).size).toBe(0);
+    expect((await getGrantsForProposerActions(db(), proposer.userId, { now: NOW })).size).toBe(0);
+
+    // Unredeemable even though pending and unexpired.
+    const redeemed = await redeemGrant(db(), {
+      grantId: pendingId,
+      coUserId: coUser.userId,
+      coStakeAddr: coUser.stakeAddr,
+      displayName: 'Co',
+      now: NOW,
+    });
+    expect(redeemed).toEqual({ ok: false, reason: 'unavailable' });
+
+    // They do not count toward the cap: four fresh invites still fit.
+    const args = {
+      proposerUserId: proposer.userId,
+      proposerStakeAddr: proposer.stakeAddr,
+      govActionId: ACTION_X,
+      teamLabel: null,
+      now: NOW,
+    };
+    for (let i = 0; i < 4; i++) expect(await createGrantInvite(db(), args)).not.toBeNull();
+
+    const left = await db()
+      .prepare('SELECT COUNT(*) AS n FROM proposer_grants WHERE id IN (?1, ?2)')
+      .bind(activeId, pendingId)
+      .first<{ n: number }>();
+    expect(left!.n).toBe(0);
   });
 });
 
@@ -410,6 +601,8 @@ describe('isGrantActiveForUser', () => {
     const invite = await createGrantInvite(db(), {
       proposerUserId: proposer.userId,
       proposerStakeAddr: proposer.stakeAddr,
+      govActionId: ACTION_X,
+      teamLabel: null,
       now: NOW,
     });
 
@@ -428,16 +621,13 @@ describe('isGrantActiveForUser', () => {
   });
 });
 
-describe('getGrantsForProposer', () => {
-  it('lists active + unexpired pending, hides expired, newest first', async () => {
+describe('getGrantsForProposerActions', () => {
+  it('groups active + unexpired pending by action, hides expired, newest first', async () => {
     const proposer = await makeProposer();
     const coUser = await makeCoUser();
+    const base = { proposerUserId: proposer.userId, proposerStakeAddr: proposer.stakeAddr, teamLabel: null };
 
-    const activeInvite = await createGrantInvite(db(), {
-      proposerUserId: proposer.userId,
-      proposerStakeAddr: proposer.stakeAddr,
-      now: NOW - 20,
-    });
+    const activeInvite = await createGrantInvite(db(), { ...base, govActionId: ACTION_X, now: NOW - 20 });
     await redeemGrant(db(), {
       grantId: activeInvite!.grantId,
       coUserId: coUser.userId,
@@ -445,28 +635,25 @@ describe('getGrantsForProposer', () => {
       displayName: 'Co',
       now: NOW - 20,
     });
+    const pendingInvite = await createGrantInvite(db(), { ...base, govActionId: ACTION_X, now: NOW - 10 });
+    const otherActionInvite = await createGrantInvite(db(), { ...base, govActionId: ACTION_Y, now: NOW - 5 });
 
-    const pendingInvite = await createGrantInvite(db(), {
-      proposerUserId: proposer.userId,
-      proposerStakeAddr: proposer.stakeAddr,
-      now: NOW - 10,
-    });
-
-    // A third, expired pending row is inserted directly (createGrantInvite
-    // would refuse a 3rd row and sweep expired ones on its own).
+    // An expired pending row is inserted directly (createGrantInvite would
+    // sweep it on its own).
     const expiredId = nextId();
     await db()
       .prepare(
         `INSERT INTO proposer_grants
-           (id, proposer_user_id, proposer_stake_addr, invite_code_hash, status, created_at, expires_at)
-         VALUES (?1, ?2, ?3, 'expired-hash', 'pending', ?4, ?5)`,
+           (id, proposer_user_id, proposer_stake_addr, gov_action_id, invite_code_hash, status, created_at, expires_at)
+         VALUES (?1, ?2, ?3, ?4, 'expired-hash', 'pending', ?5, ?6)`,
       )
-      .bind(expiredId, proposer.userId, proposer.stakeAddr, NOW - 30, NOW - 1)
+      .bind(expiredId, proposer.userId, proposer.stakeAddr, ACTION_X, NOW - 30, NOW - 1)
       .run();
 
-    const grants = await getGrantsForProposer(db(), proposer.userId, { now: NOW });
-    expect(grants.map((g) => g.id)).toEqual([pendingInvite!.grantId, activeInvite!.grantId]);
-    expect(grants.every((g) => g.id !== expiredId)).toBe(true);
+    const grants = await getGrantsForProposerActions(db(), proposer.userId, { now: NOW });
+    expect([...grants.keys()].sort()).toEqual([ACTION_X, ACTION_Y]);
+    expect(grants.get(ACTION_X)!.map((g) => g.id)).toEqual([pendingInvite!.grantId, activeInvite!.grantId]);
+    expect(grants.get(ACTION_Y)!.map((g) => g.id)).toEqual([otherActionInvite!.grantId]);
   });
 });
 
@@ -476,11 +663,15 @@ describe('getGrantsByIds', () => {
     const a = await createGrantInvite(db(), {
       proposerUserId: proposer.userId,
       proposerStakeAddr: proposer.stakeAddr,
+      govActionId: ACTION_X,
+      teamLabel: null,
       now: NOW,
     });
     const b = await createGrantInvite(db(), {
       proposerUserId: proposer.userId,
       proposerStakeAddr: proposer.stakeAddr,
+      govActionId: ACTION_X,
+      teamLabel: null,
       now: NOW,
     });
 
@@ -500,7 +691,13 @@ describe('getGrantsByIds', () => {
     const proposerStakeAddr = 'stake1uyvjdz9rxsfsmv44rtk75k2rqyqskrga96dgdfrqjvjjpwsefcjnp';
     const proposer = await upsertUserFromAuth(db(), { stakeAddr: proposerStakeAddr, roles: ['proposer'], now: NOW });
     const co = await makeCoUser();
-    const invite = await createGrantInvite(db(), { proposerUserId: proposer.id, proposerStakeAddr, now: NOW });
+    const invite = await createGrantInvite(db(), {
+      proposerUserId: proposer.id,
+      proposerStakeAddr,
+      govActionId: ACTION_X,
+      teamLabel: null,
+      now: NOW,
+    });
     const redeemed = await redeemGrant(db(), {
       grantId: invite!.grantId,
       coUserId: co.userId,
@@ -514,7 +711,42 @@ describe('getGrantsByIds', () => {
     const map = await getGrantsByIds(db(), [invite!.grantId]);
     expect(map.get(invite!.grantId)?.status).toBe('revoked');
     // loadMandates with its default fetch reads through getGrantsByIds.
-    expect((await loadMandates(db(), [invite!.grantId])).get(invite!.grantId)).toBe('for Intersect');
+    expect((await loadMandates(db(), [invite!.grantId], null)).get(invite!.grantId)?.label).toBe('for Intersect');
+  });
+
+  it('loadMandates reads governance_actions.topic_id: team badge in the action thread, "for" elsewhere', async () => {
+    const proposerStakeAddr = 'stake1uyvjdz9rxsfsmv44rtk75k2rqyqskrga96dgdfrqjvjjpwsefcjnp';
+    const proposer = await upsertUserFromAuth(db(), { stakeAddr: proposerStakeAddr, roles: ['proposer'], now: NOW });
+    const co = await makeCoUser();
+    await db()
+      .prepare(
+        `INSERT INTO governance_actions (id, type, title, status, return_address, topic_id, created_at, last_synced_at)
+         VALUES (?1, 'InfoAction', 't', 'active', 'x', 'topic-of-x', 1, 1)`,
+      )
+      .bind(ACTION_X)
+      .run();
+    const invite = await createGrantInvite(db(), {
+      proposerUserId: proposer.id,
+      proposerStakeAddr,
+      govActionId: ACTION_X,
+      teamLabel: 'Trivolve Tech',
+      now: NOW,
+    });
+    await redeemGrant(db(), {
+      grantId: invite!.grantId,
+      coUserId: co.userId,
+      coStakeAddr: co.stakeAddr,
+      displayName: 'Co Proposer',
+      now: NOW,
+    });
+
+    const inThread = await loadMandates(db(), [invite!.grantId], 'topic-of-x');
+    expect(inThread.get(invite!.grantId)).toEqual({
+      label: 'Proposer team \u00b7 Trivolve Tech',
+      title: 'Invited by Intersect, which submitted this action',
+    });
+    const elsewhere = await loadMandates(db(), [invite!.grantId], 'some-draft-topic');
+    expect(elsewhere.get(invite!.grantId)).toEqual({ label: 'for Intersect', title: null });
   });
 });
 
@@ -526,6 +758,8 @@ describe('revokeGrant', () => {
     const invite = await createGrantInvite(db(), {
       proposerUserId: proposer.userId,
       proposerStakeAddr: proposer.stakeAddr,
+      govActionId: ACTION_X,
+      teamLabel: null,
       now: NOW,
     });
     await redeemGrant(db(), {
@@ -562,6 +796,8 @@ describe('revokeGrant', () => {
     const invite = await createGrantInvite(db(), {
       proposerUserId: proposer.userId,
       proposerStakeAddr: proposer.stakeAddr,
+      govActionId: ACTION_X,
+      teamLabel: null,
       now: NOW,
     });
     await redeemGrant(db(), {
@@ -588,6 +824,8 @@ describe('revokeGrant', () => {
     const pendingInvite = await createGrantInvite(db(), {
       proposerUserId: proposer.userId,
       proposerStakeAddr: proposer.stakeAddr,
+      govActionId: ACTION_X,
+      teamLabel: null,
       now: NOW,
     });
     expect(
@@ -604,6 +842,8 @@ describe('withdrawInvite', () => {
     const pendingInvite = await createGrantInvite(db(), {
       proposerUserId: proposer.userId,
       proposerStakeAddr: proposer.stakeAddr,
+      govActionId: ACTION_X,
+      teamLabel: null,
       now: NOW,
     });
 
@@ -628,6 +868,8 @@ describe('withdrawInvite', () => {
     const activeInvite = await createGrantInvite(db(), {
       proposerUserId: proposer.userId,
       proposerStakeAddr: proposer.stakeAddr,
+      govActionId: ACTION_X,
+      teamLabel: null,
       now: NOW,
     });
     await redeemGrant(db(), {

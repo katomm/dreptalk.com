@@ -8,6 +8,21 @@ export interface ComposerPayload {
   bodyMd: string;
   /** Reply target for mode 'post' (one-level threading). */
   parentPostId?: string;
+  /** Proposal Drafts only: whose voice the write speaks with. Omitted when there is no choice. */
+  actAs?: 'self' | { proposerStakeAddr: string };
+}
+
+/** A proposer the viewer holds an active grant from, as the composer's picker lists it. */
+export interface MandateProposer {
+  proposerStakeAddr: string;
+  label: string;
+}
+
+/** The proposer choice a page hands over when a draft write has a real choice. */
+export interface MandateOptions {
+  proposers: MandateProposer[];
+  /** The viewer holds a writer role of their own and may post as themselves. */
+  allowSelf: boolean;
 }
 
 export interface ComposerResult {
@@ -39,7 +54,7 @@ export async function submitComposer(args: {
 
   try {
     let url: string;
-    let body: Record<string, string | undefined>;
+    let body: Record<string, unknown>;
 
     if (mode === 'topic') {
       url = '/api/topics';
@@ -47,10 +62,11 @@ export async function submitComposer(args: {
         categorySlug: payload.categorySlug,
         title: payload.title,
         bodyMd: payload.bodyMd,
+        actAs: payload.actAs,
       };
     } else {
       url = `/api/topics/${payload.topicId}/posts`;
-      body = { bodyMd: payload.bodyMd, parentPostId: payload.parentPostId };
+      body = { bodyMd: payload.bodyMd, parentPostId: payload.parentPostId, actAs: payload.actAs };
     }
 
     const response = await fetcher(url, {

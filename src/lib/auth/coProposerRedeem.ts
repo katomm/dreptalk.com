@@ -1,7 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 // Testable handlers for co-proposer invite redemption: a logged-out holder of
 // an invite link proves their wallet with a CIP-8 signature and becomes an
-// active co-proposer with a grant-backed session. Astro routes in
+// active co-proposer with a session carrying the co-proposer role. Astro routes in
 // src/pages/api/auth/co-proposer/*.ts are thin wrappers (rate-limit + env
 // wiring) over the two functions here, mirroring handlers.ts's convention.
 //
@@ -14,12 +14,13 @@
 import { consumeNonceForDomain, issueNonce } from './nonce.js';
 import { verifyCip8 } from './cose.js';
 import { checkRewardAddressHeader } from './handlers.js';
+import { coProposerRoles } from './roles.js';
+import { governanceActionTitle } from '../governance/view.js';
 import { resolveDelegatorAccount } from './delegatorLogin.js';
 import { lookupInviteByCode, redeemGrant } from '../db/proposerGrants.js';
 import { createSession, buildSessionCookie } from './session.js';
 import { sessionDeviceLabel } from './deviceLabel.js';
 import { sessionActivityHook } from './sessionActivity.js';
-import { rolesFromUser, normalizeSessionRoles } from './roles.js';
 import { isHex, sanitizeExternalText, MAX_PAYLOAD_LEN, MAX_KEY_HEX_LEN, MAX_SIG_HEX_LEN } from '../validation/input.js';
 import type { CardanoNetwork } from '../config/network.js';
 // Re-exported from a client-safe module so the redeem island can import the
@@ -35,6 +36,37 @@ const CODE_RE = /^[A-Za-z0-9_-]+$/;
 
 function isValidCode(code: unknown): code is string {
   return typeof code === 'string' && code.length > 0 && code.length <= MAX_CODE_LEN && CODE_RE.test(code);
+}
+
+export interface RedeemInviteView {
+  proposerStakeAddr: string;
+  govActionId: string;
+  actionTitle: string;
+  teamLabel: string | null;
+}
+
+/**
+ * Resolves an invite code for the redeem page: who invited, which action
+ * (title with a type plus short id fallback, so two untitled actions still
+ * look different) and the optional team name. Null for any unusable code.
+ */
+export async function loadRedeemInvite(
+  db: D1Database,
+  code: string,
+  opts?: { now?: number },
+): Promise<RedeemInviteView | null> {
+  const invite = await lookupInviteByCode(db, code, opts);
+  if (!invite) return null;
+  const action = await db
+    .prepare('SELECT type, title FROM governance_actions WHERE id = ?1')
+    .bind(invite.govActionId)
+    .first<{ type: string; title: string | null }>();
+  return {
+    proposerStakeAddr: invite.proposerStakeAddr,
+    govActionId: invite.govActionId,
+    actionTitle: governanceActionTitle({ title: action?.title, type: action?.type, id: invite.govActionId }),
+    teamLabel: invite.teamLabel,
+  };
 }
 
 /** Nonce domain a redemption proof must be signed under, bound to the resolved grant. */
@@ -230,22 +262,20 @@ async function handleRedeemGrantInternal(input: RedeemGrantInput, deps?: RedeemG
     return { status: 410, json: { ok: false, error: 'invite unavailable' } };
   }
 
-  // Step 7: session roles are the account's own on-chain roles (minus the
-  // bare member fallback) plus proposer, granted for the duration of the grant.
-  const base = rolesFromUser(user, null).filter((r) => r !== 'member');
-  const roles = normalizeSessionRoles([...base, 'proposer']);
+  // Step 7: the account's own roles plus co-proposer. The grant was just
+  // claimed for this user, so no further lookup is needed. proposer only comes
+  // from the user row itself.
+  const roles = coProposerRoles(user, null);
 
-  // Step 8: mint the grant-backed session and return it. If this throws, the
-  // outer catch reports 500; the grant claim above already committed, so it
-  // stays active for the login fallback to recover later (task 4, out of scope here).
+  // Step 8: mint the session and return it. If this throws, the outer catch
+  // reports 500. The grant claim above already committed, so it stays active
+  // for the login fallback to recover later.
   const token = await createSession(
     sessionKv,
     {
       id: user.id,
       roles,
       drepId: user.drep_id,
-      grantId: invite.grantId,
-      actsFor: { userId: res.proposerUserId, stakeAddr: res.proposerStakeAddr },
     },
     { now: nowSec, onCreate: sessionActivityHook(db), label: sessionDeviceLabel(input.userAgent) },
   );
