@@ -8,7 +8,7 @@ import {
   redeemGrant,
   listActiveGrantsForCoUser,
   hasActiveGrantForCoUser,
-  getActiveGrantForAction,
+  getActiveGrantIdForTopic,
   isGrantActiveForUser,
   getGrantsForProposerActions,
   getGrantsByIds,
@@ -469,13 +469,22 @@ describe('redeemGrant', () => {
 });
 
 describe('co-user grant reads', () => {
-  it('getActiveGrantForAction ignores revoked grants and other actions', async () => {
+  it('getActiveGrantIdForTopic ignores revoked grants and other threads', async () => {
     const proposer = await makeProposer();
     const coUser = await makeCoUser();
+    const topicX = `topic-x-${nextId()}`;
+    const actionX = `${'c'.repeat(63)}${seq % 10}#0`;
+    await db()
+      .prepare(
+        `INSERT INTO governance_actions (id, type, title, status, return_address, topic_id, created_at, last_synced_at)
+         VALUES (?1, 'InfoAction', 't', 'active', 'x', ?2, 1, 1)`,
+      )
+      .bind(actionX, topicX)
+      .run();
     const invite = await createGrantInvite(db(), {
       proposerUserId: proposer.userId,
       proposerStakeAddr: proposer.stakeAddr,
-      govActionId: ACTION_X,
+      govActionId: actionX,
       teamLabel: null,
       now: NOW,
     });
@@ -487,15 +496,12 @@ describe('co-user grant reads', () => {
       now: NOW,
     });
 
-    const active = await getActiveGrantForAction(db(), coUser.userId, ACTION_X);
-    expect(active).not.toBeNull();
-    expect(active!.id).toBe(invite!.grantId);
-    expect(active!.gov_action_id).toBe(ACTION_X);
-    expect(await getActiveGrantForAction(db(), coUser.userId, ACTION_Y)).toBeNull();
+    expect(await getActiveGrantIdForTopic(db(), coUser.userId, topicX)).toBe(invite!.grantId);
+    expect(await getActiveGrantIdForTopic(db(), coUser.userId, 'some-other-topic')).toBeNull();
     expect(await hasActiveGrantForCoUser(db(), coUser.userId)).toBe(true);
 
     expect(await revokeGrant(db(), { grantId: invite!.grantId, proposerUserId: proposer.userId, now: NOW })).toBe(true);
-    expect(await getActiveGrantForAction(db(), coUser.userId, ACTION_X)).toBeNull();
+    expect(await getActiveGrantIdForTopic(db(), coUser.userId, topicX)).toBeNull();
     expect(await hasActiveGrantForCoUser(db(), coUser.userId)).toBe(false);
     expect(await listActiveGrantsForCoUser(db(), coUser.userId)).toEqual([]);
   });

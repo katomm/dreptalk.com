@@ -5,8 +5,7 @@
 // receives the rows as plain props.
 
 import { parseAuthors } from './governance.js';
-import { getGrantsForProposerActions, listActiveGrantsForCoUser } from './proposerGrants.js';
-import { sqlPlaceholders } from './sql.js';
+import { getGrantsForProposerActions, GRANT_HAS_ACTION } from './proposerGrants.js';
 import { getUsersByIds } from './users.js';
 import { isTerminalStatus } from '../governance/view.js';
 import { proposerName } from '../forum/mandate.js';
@@ -149,39 +148,37 @@ export async function loadProposerActionViews(
   });
 }
 
-/** The active grants a co-proposer holds, oldest first, with what /home shows for each. */
+/** The active grants a co-proposer holds, oldest first, with what /home shows for each. One query. */
 export async function listMandates(db: D1Database, coUserId: string): Promise<MandateRow[]> {
-  const grants = await listActiveGrantsForCoUser(db, coUserId);
-  if (grants.length === 0) return [];
-
-  const actionIds = [...new Set(grants.map((g) => g.gov_action_id))];
-  const actions = new Map<string, { title: string | null; type: string; slug: string | null }>();
-  const CHUNK = 100;
-  for (let i = 0; i < actionIds.length; i += CHUNK) {
-    const chunk = actionIds.slice(i, i + CHUNK);
-    const { results } = await db
-      .prepare(
-        `SELECT ga.id, ga.title, ga.type, t.slug
-           FROM governance_actions ga
-           LEFT JOIN topics t ON t.id = ga.topic_id
-          WHERE ga.id IN (${sqlPlaceholders(chunk)})`,
-      )
-      .bind(...chunk)
-      .all<{ id: string; title: string | null; type: string; slug: string | null }>();
-    for (const r of results ?? []) actions.set(r.id, { title: r.title, type: r.type, slug: r.slug });
-  }
-
-  return grants.map((g) => {
-    const action = actions.get(g.gov_action_id);
-    return {
-      grantId: g.id,
-      actionId: g.gov_action_id,
-      actionTitle: action?.title ?? null,
-      actionType: action?.type ?? null,
-      topicSlug: action?.slug ?? null,
-      proposerLabel: proposerName(g),
-      teamLabel: g.team_label,
-      since: g.redeemed_at,
-    };
-  });
+  const { results } = await db
+    .prepare(
+      `SELECT pg.id, pg.gov_action_id, pg.proposer_stake_addr, pg.team_label, pg.redeemed_at,
+              ga.title, ga.type, t.slug
+         FROM proposer_grants pg
+         LEFT JOIN governance_actions ga ON ga.id = pg.gov_action_id
+         LEFT JOIN topics t ON t.id = ga.topic_id
+        WHERE pg.co_user_id = ?1 AND pg.status = 'active' AND pg.${GRANT_HAS_ACTION}
+        ORDER BY pg.redeemed_at ASC, pg.id ASC`,
+    )
+    .bind(coUserId)
+    .all<{
+      id: string;
+      gov_action_id: string;
+      proposer_stake_addr: string;
+      team_label: string | null;
+      redeemed_at: number | null;
+      title: string | null;
+      type: string | null;
+      slug: string | null;
+    }>();
+  return (results ?? []).map((r) => ({
+    grantId: r.id,
+    actionId: r.gov_action_id,
+    actionTitle: r.title,
+    actionType: r.type,
+    topicSlug: r.slug,
+    proposerLabel: proposerName(r),
+    teamLabel: r.team_label,
+    since: r.redeemed_at,
+  }));
 }

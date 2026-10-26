@@ -14,7 +14,7 @@
 import { toBase64Url } from '../crypto/base64url.js';
 import { bytesToHex } from '../crypto/hex.js';
 import { MAX_GRANTS_PER_ACTION } from '../auth/coProposerLimits.js';
-import { sqlPlaceholders } from './sql.js';
+import { chunked, D1_MAX_BINDS, sqlPlaceholders } from './sql.js';
 
 /** How long a pending invite code stays redeemable before it is swept. */
 export const GRANT_INVITE_TTL_SEC = 604800;
@@ -35,11 +35,20 @@ export interface ProposerGrant {
 }
 
 // Columns making up ProposerGrant, in interface order. Excludes
-// invite_code_hash, which is never returned to a caller. Every read also
-// filters gov_action_id IS NOT NULL (rows from before the per-action rebuild
-// are invisible), which is why the type keeps the column non-null.
+// invite_code_hash, which is never returned to a caller.
 const GRANT_COLUMNS =
   'id, proposer_user_id, proposer_stake_addr, gov_action_id, team_label, co_user_id, co_stake_addr, status, created_at, expires_at, redeemed_at, revoked_at';
+
+/**
+ * Predicate every grant read filters on: rows from before the per-action
+ * rebuild have no gov_action_id and stay invisible, which is why the type
+ * keeps the column non-null. Prefix it with a table alias in joined queries
+ * (`pg.${GRANT_HAS_ACTION}`).
+ */
+export const GRANT_HAS_ACTION = 'gov_action_id IS NOT NULL';
+
+/** A grant plus the topic of its governance action (null when the action has no thread or no row). */
+export type GrantWithTopic = ProposerGrant & { topic_id: string | null };
 
 /** SHA-256 of a UTF-8 string as lowercase hex, same helper shape as pairing.ts. */
 async function sha256Hex(input: string): Promise<string> {
@@ -134,7 +143,7 @@ export async function lookupInviteByCode(
     .prepare(
       `SELECT id, proposer_stake_addr, gov_action_id, team_label FROM proposer_grants
         WHERE invite_code_hash = ?1 AND status = 'pending' AND expires_at > ?2
-          AND gov_action_id IS NOT NULL`,
+          AND ${GRANT_HAS_ACTION}`,
     )
     .bind(codeHash, now)
     .first<{ id: string; proposer_stake_addr: string; gov_action_id: string; team_label: string | null }>();
@@ -177,7 +186,7 @@ export async function redeemGrant(
           `UPDATE proposer_grants
               SET status = 'active', co_user_id = ?1, co_stake_addr = ?2, redeemed_at = ?3
             WHERE id = ?4 AND status = 'pending' AND expires_at > ?3
-              AND gov_action_id IS NOT NULL
+              AND ${GRANT_HAS_ACTION}
               AND proposer_stake_addr <> ?2
             RETURNING proposer_user_id, proposer_stake_addr`,
         )
@@ -218,7 +227,7 @@ export async function listActiveGrantsForCoUser(db: D1Database, coUserId: string
   const { results } = await db
     .prepare(
       `SELECT ${GRANT_COLUMNS} FROM proposer_grants
-        WHERE co_user_id = ?1 AND status = 'active' AND gov_action_id IS NOT NULL
+        WHERE co_user_id = ?1 AND status = 'active' AND ${GRANT_HAS_ACTION}
         ORDER BY redeemed_at ASC, id ASC`,
     )
     .bind(coUserId)
@@ -231,26 +240,34 @@ export async function hasActiveGrantForCoUser(db: D1Database, coUserId: string):
   const row = await db
     .prepare(
       `SELECT 1 FROM proposer_grants
-        WHERE co_user_id = ?1 AND status = 'active' AND gov_action_id IS NOT NULL LIMIT 1`,
+        WHERE co_user_id = ?1 AND status = 'active' AND ${GRANT_HAS_ACTION} LIMIT 1`,
     )
     .bind(coUserId)
     .first();
   return row !== null;
 }
 
-/** The user's active grant for one governance action, or null. */
-export async function getActiveGrantForAction(
+/**
+ * The id of the user's active grant for the governance action whose thread is
+ * `topicId`, or null. One query from topic to grant, oldest grant first should
+ * more than one ever match.
+ */
+export async function getActiveGrantIdForTopic(
   db: D1Database,
   coUserId: string,
-  govActionId: string,
-): Promise<ProposerGrant | null> {
-  return db
+  topicId: string,
+): Promise<string | null> {
+  const row = await db
     .prepare(
-      `SELECT ${GRANT_COLUMNS} FROM proposer_grants
-        WHERE co_user_id = ?1 AND gov_action_id = ?2 AND status = 'active'`,
+      `SELECT pg.id FROM governance_actions ga
+         JOIN proposer_grants pg ON pg.gov_action_id = ga.id
+        WHERE ga.topic_id = ?1 AND pg.co_user_id = ?2 AND pg.status = 'active'
+        ORDER BY pg.redeemed_at ASC, pg.id ASC
+        LIMIT 1`,
     )
-    .bind(coUserId, govActionId)
-    .first<ProposerGrant>();
+    .bind(topicId, coUserId)
+    .first<{ id: string }>();
+  return row?.id ?? null;
 }
 
 /**
@@ -261,7 +278,7 @@ export async function isGrantActiveForUser(db: D1Database, grantId: string, user
   const row = await db
     .prepare(
       `SELECT 1 FROM proposer_grants
-        WHERE id = ?1 AND co_user_id = ?2 AND status = 'active' AND gov_action_id IS NOT NULL`,
+        WHERE id = ?1 AND co_user_id = ?2 AND status = 'active' AND ${GRANT_HAS_ACTION}`,
     )
     .bind(grantId, userId)
     .first();
@@ -281,7 +298,7 @@ export async function getGrantsForProposerActions(
   const { results } = await db
     .prepare(
       `SELECT ${GRANT_COLUMNS} FROM proposer_grants
-        WHERE proposer_user_id = ?1 AND gov_action_id IS NOT NULL
+        WHERE proposer_user_id = ?1 AND ${GRANT_HAS_ACTION}
           AND (status = 'active' OR (status = 'pending' AND expires_at > ?2))
         ORDER BY created_at DESC`,
     )
@@ -297,20 +314,23 @@ export async function getGrantsForProposerActions(
 }
 
 /**
- * Fetches multiple grants by id in a single query (no N+1), chunked under the
- * D1 bind-param limit. Returns an empty Map for empty input without querying D1.
+ * Fetches multiple grants by id, each with the topic of its governance action,
+ * one query per D1_MAX_BINDS ids (no N+1). Returns an empty Map for empty
+ * input without querying D1.
  */
-export async function getGrantsByIds(db: D1Database, ids: readonly string[]): Promise<Map<string, ProposerGrant>> {
-  const out = new Map<string, ProposerGrant>();
-  if (ids.length === 0) return out;
-
-  const CHUNK = 100;
-  for (let i = 0; i < ids.length; i += CHUNK) {
-    const chunk = ids.slice(i, i + CHUNK);
+export async function getGrantsByIds(db: D1Database, ids: readonly string[]): Promise<Map<string, GrantWithTopic>> {
+  const out = new Map<string, GrantWithTopic>();
+  const cols = GRANT_COLUMNS.split(', ').map((c) => `pg.${c}`).join(', ');
+  for (const chunk of chunked(ids, D1_MAX_BINDS)) {
     const { results } = await db
-      .prepare(`SELECT ${GRANT_COLUMNS} FROM proposer_grants WHERE gov_action_id IS NOT NULL AND id IN (${sqlPlaceholders(chunk)})`)
+      .prepare(
+        `SELECT ${cols}, ga.topic_id
+           FROM proposer_grants pg
+           LEFT JOIN governance_actions ga ON ga.id = pg.gov_action_id
+          WHERE pg.${GRANT_HAS_ACTION} AND pg.id IN (${sqlPlaceholders(chunk)})`,
+      )
       .bind(...chunk)
-      .all<ProposerGrant>();
+      .all<GrantWithTopic>();
     for (const row of results ?? []) out.set(row.id, row);
   }
   return out;

@@ -81,8 +81,8 @@ import VotePanel from '@/components/VotePanel.js';
 import MultisigVotePanel from '@/components/MultisigVotePanel.js';
 import { parseDrepId } from '@/lib/cardano/identity.js';
 import { loadAuthorIdentities, systemAuthor, authorProfileHref, type AuthorDescriptor } from '@/lib/forum/author.js';
-import { loadMandates, type MandateBadge } from '@/lib/forum/mandate.js';
-import { getGrantsByIds } from '@/lib/db/proposerGrants.js';
+import { loadMandatesWithGrants, type MandateBadge } from '@/lib/forum/mandate.js';
+import { mayEditRow } from '@/lib/forum/editPolicy.js';
 import { composerMandate } from '@/lib/forum/writeMandate.js';
 import { canEditTitle as titleEditable } from '@/lib/forum/postVisibility.js';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
@@ -91,7 +91,7 @@ import { currentNetwork } from '@/lib/api/response.js';
 import { listPostIdsWithDocs } from '@/lib/db/cip100.js';
 import { originForNetwork, threadManifestUrl } from '@/lib/cip100/origin.js';
 import { getCategory, PROPOSAL_DRAFTS_CATEGORY_SLUG } from '../../../config/categories.js';
-import { getDraftLinkedActions, getDraftTopicRef, isDraftAuthor } from '@/lib/db/draftLinks.js';
+import { getDraftLinkedActions, getDraftTopicRef } from '@/lib/db/draftLinks.js';
 import DraftSidebar from '@/components/DraftSidebar.astro';
 import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, truncateId, excerptFromHtml, SITE_ORIGIN } from '@/lib/forum/view.js';
 import { parseGaTab } from '@/lib/governance/tab.js';
@@ -153,31 +153,29 @@ const thread: ThreadPage = topic && db
 // Every post on the page (top-level and replies) for the batched lookups below.
 const pagePosts = [...thread.topLevel, ...[...thread.childrenByParent.values()].flat()];
 
-// Post ids on this page that have an emitted CIP-100 document, i.e. are safe to
-// show a Cite link for. A post inside its edit grace window, or one the cron
-// has not reached yet, has no version index at all: a visible link would 404.
-const citablePostIds = topic && db ? await listPostIdsWithDocs(db, topic.id) : new Set<string>();
-
 const category = topic ? getCategory(topic.category_slug) : undefined;
 
-// Resolve author identities for the topic header and every post on this page in
-// exactly two batched queries (users, then dreps). No per-post lookups (no N+1).
 const isGovernanceTopic = topic?.source === 'governance';
 const isSurveyTopic = topic?.source === 'survey';
 
-const identities = db
-  ? await loadAuthorIdentities(db, [topic?.author_id, ...pagePosts.map((p) => p.author_id)])
-  : null;
+// Author identities (two batched queries, no per-post lookups) and the
+// co-proposer mandate badges (one batched lookup for the topic and every post
+// on this page, keyed by their persisted proposer_grant_id, never the author's
+// current session) are independent, so they load together. So are the post
+// ids on this page that have an emitted CIP-100 document, i.e. are safe to
+// show a Cite link for. A post inside its edit grace window, or one the cron
+// has not reached yet, has no version index at all: a visible link would 404.
+const [citablePostIds, identities, mandateLoad] = await Promise.all([
+  topic && db ? listPostIdsWithDocs(db, topic.id) : Promise.resolve(new Set<string>()),
+  db ? loadAuthorIdentities(db, [topic?.author_id, ...pagePosts.map((p) => p.author_id)]) : Promise.resolve(null),
+  db
+    ? loadMandatesWithGrants(db, [topic?.proposer_grant_id, ...pagePosts.map((p) => p.proposer_grant_id)], topic?.id ?? null)
+    : Promise.resolve(null),
+]);
+const mandates = mandateLoad?.badges ?? new Map<string, MandateBadge>();
 
 const describe = (authorId: string): AuthorDescriptor =>
   identities ? identities.describe(authorId) : { authorId, displayName: truncateId(authorId) };
-
-// Co-proposer mandate badges: one batched lookup for the topic and every post
-// on this page, keyed by their persisted proposer_grant_id (never the
-// author's current session).
-const mandates = db
-  ? await loadMandates(db, [topic?.proposer_grant_id, ...pagePosts.map((p) => p.proposer_grant_id)], topic?.id ?? null)
-  : new Map<string, MandateBadge>();
 
 // The first post of a system-sourced topic (governance action or survey)
 // carries the system identity even if its author_id is not literally gov-sync.
@@ -231,17 +229,12 @@ const user = Astro.locals.user;
 const viewerIsWriter = !!user && isWriter(user.roles);
 
 // Edit rights on rows stamped with a grant follow exactly that grant, so the
-// page needs to know which of the viewer's own stamped rows still have an
-// active grant for them. One batched lookup over the viewer's own stamped ids,
-// none at all for anonymous viewers or a page without such rows.
-const viewerStampedIds = user
-  ? [topic, ...pagePosts]
-      .filter((r) => !!r && r.author_id === user.id && !!r.proposer_grant_id)
-      .map((r) => r!.proposer_grant_id as string)
-  : [];
+// page needs to know which stamped grants on this page are still active for
+// the viewer. The mandate lookup above already loaded every grant on the page,
+// so this needs no further read.
 const viewerActiveGrantIds = new Set<string>();
-if (db && user && viewerStampedIds.length > 0) {
-  for (const [id, g] of await getGrantsByIds(db, [...new Set(viewerStampedIds)])) {
+if (user && mandateLoad) {
+  for (const [id, g] of mandateLoad.grants) {
     if (g.status === 'active' && g.co_user_id === user.id) viewerActiveGrantIds.add(id);
   }
 }
@@ -264,7 +257,15 @@ const canEditTitle =
 // governance thread the draft it grew from. One indexed query each, only on the
 // topics that can have them.
 const isDraftTopic = topic?.category_slug === PROPOSAL_DRAFTS_CATEGORY_SLUG;
-const viewerIsDraftAuthor = !!user && !!topic && !!db && isDraftTopic && (await isDraftAuthor(db, topic, user));
+// The same rule as isDraftAuthor (the unlink endpoint), answered from the grants
+// already loaded: unlinking needs no writer role, a stamped draft its grant.
+const viewerIsDraftAuthor =
+  !!db &&
+  !!user &&
+  !!topic &&
+  isDraftTopic &&
+  topic.author_id === user.id &&
+  mayEditRow(topic.proposer_grant_id, true, !!topic.proposer_grant_id && viewerActiveGrantIds.has(topic.proposer_grant_id));
 const viewerCanUnlink = viewerIsDraftAuthor || (!!user && isModerator(user.roles));
 
 // Governance-action enrichment (header values) and the viewer's own post state

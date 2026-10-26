@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { loadMandates } from './mandate.js';
-import type { ProposerGrant } from '../db/proposerGrants.js';
+import type { GrantWithTopic, ProposerGrant } from '../db/proposerGrants.js';
 
 // Real curated address (config/proposers.ts) so the "known" branch exercises
 // the actual registry, the same way the brief's example label does.
@@ -13,7 +13,7 @@ function grant(
   addr: string,
   status: ProposerGrant['status'] = 'active',
   teamLabel: string | null = null,
-): ProposerGrant {
+): GrantWithTopic {
   return {
     id,
     proposer_user_id: 'proposer-user',
@@ -27,17 +27,19 @@ function grant(
     expires_at: 0,
     redeemed_at: 0,
     revoked_at: status === 'revoked' ? 1 : null,
+    // The thread of the grant's action.
+    topic_id: 'topic-x',
   };
 }
 
 // A stand-in for getGrantsByIds so the mapping/label logic is testable without
 // touching D1, the same way proposer.test.ts injects proposerView's lookup.
-function fakeFetch(grants: ProposerGrant[]) {
+function fakeFetch(grants: GrantWithTopic[]) {
   const byId = new Map(grants.map((g) => [g.id, g]));
   const calls: (readonly string[])[] = [];
   const fetch = async (_db: unknown, ids: readonly string[]) => {
     calls.push(ids);
-    const out = new Map<string, ProposerGrant>();
+    const out = new Map<string, GrantWithTopic>();
     for (const id of ids) {
       const g = byId.get(id);
       if (g) out.set(id, g);
@@ -47,23 +49,10 @@ function fakeFetch(grants: ProposerGrant[]) {
   return { fetch, calls };
 }
 
-// Stand-in for the governance_actions.topic_id lookup, keyed by gov_action_id.
-function fakeTopics(map: Record<string, string | null>) {
-  const calls: (readonly string[])[] = [];
-  const fetch = async (_db: unknown, ids: readonly string[]) => {
-    calls.push(ids);
-    return new Map(ids.filter((i) => i in map).map((i) => [i, map[i]] as const));
-  };
-  return { fetch, calls };
-}
-
-const ACTION = `${'a'.repeat(64)}#0`;
-
 describe('loadMandates badge', () => {
   it('reads "Proposer team · <team>" in the thread of the grant action, with the submitter tooltip', async () => {
     const { fetch } = fakeFetch([grant('g1', INTERSECT_ADDR, 'active', 'Trivolve Tech')]);
-    const topics = fakeTopics({ [ACTION]: 'topic-x' });
-    const map = await loadMandates(undefined as never, ['g1'], 'topic-x', fetch as never, topics.fetch as never);
+    const map = await loadMandates(undefined as never, ['g1'], 'topic-x', fetch as never);
     expect(map.get('g1')).toEqual({
       label: 'Proposer team · Trivolve Tech',
       title: 'Invited by Intersect, which submitted this action',
@@ -72,31 +61,26 @@ describe('loadMandates badge', () => {
 
   it('reads plain "Proposer team" without a team label', async () => {
     const { fetch } = fakeFetch([grant('g1', CF_ADDR)]);
-    const topics = fakeTopics({ [ACTION]: 'topic-x' });
-    const map = await loadMandates(undefined as never, ['g1'], 'topic-x', fetch as never, topics.fetch as never);
+    const map = await loadMandates(undefined as never, ['g1'], 'topic-x', fetch as never);
     expect(map.get('g1')?.label).toBe('Proposer team');
     expect(map.get('g1')?.title).toContain('Invited by stake1');
   });
 
   it('keeps "for <Proposer>" with a null title in another topic (Proposal Drafts)', async () => {
     const { fetch } = fakeFetch([grant('g1', INTERSECT_ADDR, 'active', 'Trivolve Tech')]);
-    const topics = fakeTopics({ [ACTION]: 'topic-x' });
-    const map = await loadMandates(undefined as never, ['g1'], 'draft-topic', fetch as never, topics.fetch as never);
+    const map = await loadMandates(undefined as never, ['g1'], 'draft-topic', fetch as never);
     expect(map.get('g1')).toEqual({ label: 'for Intersect', title: null });
   });
 
-  it('uses the "for" badge when no topic is rendered (category list) and skips the topic lookup', async () => {
+  it('uses the "for" badge when no topic is rendered (category list)', async () => {
     const { fetch } = fakeFetch([grant('g1', INTERSECT_ADDR, 'active', 'Trivolve Tech')]);
-    const topics = fakeTopics({ [ACTION]: 'topic-x' });
-    const map = await loadMandates(undefined as never, ['g1'], null, fetch as never, topics.fetch as never);
+    const map = await loadMandates(undefined as never, ['g1'], null, fetch as never);
     expect(map.get('g1')).toEqual({ label: 'for Intersect', title: null });
-    expect(topics.calls).toHaveLength(0);
   });
 
   it('renders a revoked grant like an active one in the action thread', async () => {
     const { fetch } = fakeFetch([grant('g1', INTERSECT_ADDR, 'revoked', 'Trivolve Tech')]);
-    const topics = fakeTopics({ [ACTION]: 'topic-x' });
-    const map = await loadMandates(undefined as never, ['g1'], 'topic-x', fetch as never, topics.fetch as never);
+    const map = await loadMandates(undefined as never, ['g1'], 'topic-x', fetch as never);
     expect(map.get('g1')?.label).toBe('Proposer team · Trivolve Tech');
   });
 });

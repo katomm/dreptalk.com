@@ -7,11 +7,10 @@
 // authority, and without one the caller applies the usual writer rules.
 
 import { PROPOSAL_DRAFTS_CATEGORY_SLUG } from '../../../config/categories.js';
-import { getActiveGrantForAction, listActiveGrantsForCoUser } from '../db/proposerGrants.js';
-import { getGovernanceActionByTopicId } from '../db/governance.js';
-import { proposerView } from '../identity/proposer.js';
+import { getActiveGrantIdForTopic, listActiveGrantsForCoUser } from '../db/proposerGrants.js';
 import { isWriter } from '../auth/roles.js';
-import { truncateId } from './view.js';
+import { proposerName } from './mandate.js';
+import type { MandateOptions, MandateProposer } from './composer.js';
 
 /** Who a Proposal Drafts write speaks for: the writer alone, or one of their proposers. */
 export type ActAs = 'self' | { proposerStakeAddr: string };
@@ -65,10 +64,7 @@ export async function resolvePostMandate(
   actAs?: ActAs,
 ): Promise<MandateResult> {
   if (topic.category_slug === PROPOSAL_DRAFTS_CATEGORY_SLUG) return resolveDraftMandate(db, userId, actAs);
-  const action = await getGovernanceActionByTopicId(db, topic.id);
-  if (!action) return { grantId: null };
-  const grant = await getActiveGrantForAction(db, userId, action.id);
-  return { grantId: grant ? grant.id : null };
+  return { grantId: await getActiveGrantIdForTopic(db, userId, topic.id) };
 }
 
 /** The grant a new topic is stamped with: only Proposal Drafts takes a mandate. */
@@ -90,16 +86,14 @@ export async function resolveTopicMandate(
 export async function mandateProposers(
   db: D1Database,
   userId: string,
-): Promise<{ proposerStakeAddr: string; label: string }[]> {
+): Promise<MandateProposer[]> {
   const grants = await listActiveGrantsForCoUser(db, userId);
-  const out: { proposerStakeAddr: string; label: string }[] = [];
+  const out: MandateProposer[] = [];
   const seen = new Set<string>();
   for (const g of grants) {
     if (seen.has(g.proposer_stake_addr)) continue;
     seen.add(g.proposer_stake_addr);
-    const view = proposerView(g.proposer_stake_addr);
-    const label = view.kind === 'known' ? view.name : truncateId(g.proposer_stake_addr, 18);
-    out.push({ proposerStakeAddr: g.proposer_stake_addr, label });
+    out.push({ proposerStakeAddr: g.proposer_stake_addr, label: proposerName(g) });
   }
   return out;
 }
@@ -108,7 +102,7 @@ export interface ComposerMandate {
   /** The viewer's write here would be stamped with a grant, so the composer shows even without a writer role. */
   hasMandate: boolean;
   /** Proposal Drafts only: the picker data when there is a real choice, else undefined. */
-  options?: { proposers: { proposerStakeAddr: string; label: string }[]; allowSelf: boolean };
+  options?: MandateOptions;
 }
 
 /**
