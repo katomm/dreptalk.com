@@ -4,6 +4,7 @@
 // the lock only fires when the link statement actually took effect.
 import { PROPOSAL_DRAFTS_CATEGORY_SLUG } from '../../../config/categories.js';
 import { isGrantActiveForUser } from './proposerGrants.js';
+import { mayEditRow } from '../forum/editPolicy.js';
 
 export interface DraftLinkedAction {
   id: string;
@@ -25,8 +26,9 @@ export async function isDraftAuthor(
   user: { id: string },
 ): Promise<boolean> {
   if (topic.author_id !== user.id) return false;
-  if (!topic.proposer_grant_id) return true;
-  return isGrantActiveForUser(db, topic.proposer_grant_id, user.id);
+  // Unlinking needs no writer role, so an unstamped draft is always the author's.
+  const active = !!topic.proposer_grant_id && (await isGrantActiveForUser(db, topic.proposer_grant_id, user.id));
+  return mayEditRow(topic.proposer_grant_id, true, active);
 }
 
 /** The first slug that is a live Proposal Drafts thread, as its topic id. */

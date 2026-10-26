@@ -18,9 +18,7 @@ import { getUserById, type User } from '../db/users.js';
 import { parseAuthors } from '../db/governance.js';
 import { isTerminalStatus } from '../governance/view.js';
 import { createGrantInvite, revokeGrant, withdrawInvite } from '../db/proposerGrants.js';
-
-// `<tx hash>#<index>`, the governance_actions.id form (never gov_action1...).
-const GOV_ACTION_ID_RE = /^[0-9a-f]{64}#\d{1,5}$/i;
+import { GOV_ACTION_KEY_RE } from '../governance/prevAction.js';
 
 export interface HandlerResult {
   status: number;
@@ -87,7 +85,7 @@ export async function handleCreateInvite(input: CreateInviteInput): Promise<Hand
     }
 
     const govActionId = input.govActionId;
-    if (typeof govActionId !== 'string' || !GOV_ACTION_ID_RE.test(govActionId)) {
+    if (typeof govActionId !== 'string' || !GOV_ACTION_KEY_RE.test(govActionId)) {
       return { status: 400, json: { error: 'invalid action' } };
     }
 

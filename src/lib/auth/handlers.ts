@@ -23,7 +23,7 @@ import { upsertUserFromAuth, getUserByStakeAddr, type AuthRole, type User } from
 import { createSession, revokeSession, buildSessionCookie, clearSessionCookie, parseSessionToken } from './session.js';
 import { sessionDeviceLabel } from './deviceLabel.js';
 import { sessionActivityHook } from './sessionActivity.js';
-import { rolesFromUser, normalizeSessionRoles, CO_PROPOSER_ROLE } from './roles.js';
+import { rolesFromUser, coProposerRoles, withCoProposerRole } from './roles.js';
 import type { CardanoNetwork } from '../config/network.js';
 import { WALLET_NETWORK_MISMATCH } from '../wallet/networkGuard.js';
 import { resolveDelegatorAccount } from './delegatorLogin.js';
@@ -334,7 +334,7 @@ async function verifyWalletCip8(
     // cap still holds.
     const hasGrant = await hasActiveGrantForCoUser(db, user.id);
     const result = mintSessionResult(input, user, null, {
-      roles: hasGrant ? [CO_PROPOSER_ROLE] : ['member'],
+      roles: hasGrant ? withCoProposerRole([]) : ['member'],
       drepId: null,
     });
     // Resolve after minting: deferred via waitUntil when the runtime exposes it
@@ -372,7 +372,7 @@ async function verifyWalletCip8(
       if (existing && (await hasActiveGrantForCoUser(db, existing.id))) {
         const verifiedAt = Math.floor(now ?? Date.now() / 1000);
         const user = await resolveDelegatorAccount(db, stakeAddr, verifiedAt);
-        const roles = proposerDoorRoles(user, { isProposer: false, hasGrant: true, modRole });
+        const roles = coProposerRoles(user, modRole);
         return mintSessionResult(input, user, modRole, { roles, drepId: user.drep_id });
       }
       if (!modRole) {
@@ -470,22 +470,6 @@ async function verifyRawEd25519(
 }
 
 /**
- * Session roles for a stake-key login: the account's own roles, `proposer` only
- * when the key is an on-chain proposer, the moderator role if any, and
- * `co-proposer` when the account holds an active grant. Shared by the proposer
- * door, the DRep/SPO/CC doors (via finishLogin) and invite redemption so the
- * role assembly cannot drift.
- */
-export function proposerDoorRoles(
-  user: { is_drep: boolean; is_proposer: boolean; is_spo: boolean; is_cc: boolean },
-  opts: { isProposer: boolean; hasGrant: boolean; modRole: string | null },
-): string[] {
-  const own = rolesFromUser({ ...user, is_proposer: user.is_proposer || opts.isProposer }, opts.modRole);
-  const roles = opts.hasGrant ? [...own.filter((r) => r !== 'member'), CO_PROPOSER_ROLE] : own;
-  return normalizeSessionRoles(roles);
-}
-
-/**
  * Shared login tail: upsert the user with the credentials and on-chain roles
  * proven this login, then mint a session. The moderator role is re-evaluated
  * from the allowlist on every login and is not persisted on the user row.
@@ -516,7 +500,7 @@ async function finishLogin(
 
   const hasGrant = await hasActiveGrantForCoUser(db, user.id);
   if (!hasGrant) return mintSessionResult(input, user, modRole);
-  const roles = proposerDoorRoles(user, { isProposer: false, hasGrant, modRole });
+  const roles = coProposerRoles(user, modRole);
   return mintSessionResult(input, user, modRole, { roles, drepId: user.drep_id });
 }
 

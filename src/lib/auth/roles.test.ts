@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isWriter, isModerator, canJudgePosts, CO_PROPOSER_ROLE, roleLabels, rolesFromUser, normalizeSessionRoles } from './roles.js';
+import { coProposerRoles, withCoProposerRole, isWriter, isModerator, CO_PROPOSER_ROLE, roleLabels, rolesFromUser, normalizeSessionRoles } from './roles.js';
 
 describe('isWriter', () => {
   it('is true for each on-chain writer role', () => {
@@ -98,9 +98,10 @@ describe('co-proposer role', () => {
     expect(isWriter(['co-proposer'])).toBe(false);
   });
 
-  it('canJudgePosts follows isWriter', () => {
-    expect(canJudgePosts({ roles: ['co-proposer'] })).toBe(false);
-    expect(canJudgePosts({ roles: ['drep', 'co-proposer'] })).toBe(true);
-    expect(canJudgePosts({ roles: ['proposer'] })).toBe(true);
+  it('coProposerRoles drops member, keeps own roles and adds co-proposer', () => {
+    const none = { is_drep: false, is_proposer: false, is_spo: false, is_cc: false };
+    expect(coProposerRoles(none, null)).toEqual(['co-proposer']);
+    expect(coProposerRoles({ ...none, is_drep: true }, 'moderator')).toEqual(['drep', 'co-proposer', 'moderator']);
+    expect(withCoProposerRole([])).toEqual(['co-proposer']);
   });
 });

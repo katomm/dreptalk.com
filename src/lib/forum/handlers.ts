@@ -2,7 +2,7 @@
 // Testable handler functions for forum write operations.
 // All I/O deps are injected; Astro routes are thin wrappers over these.
 
-import { createTopic, createPost, getPostById, getPostPlacement, editPost, editTitle } from '../db/forum.js';
+import { createTopic, createPost, getPostById, getPostPlacement, editPost, editTitle, getPostForEdit, getTopicForEdit } from '../db/forum.js';
 import { POST_BODY_MAX, maxPostBody } from './postLimits.js';
 import { flagPost, unflagPost, type FlagState } from '../db/postFlags.js';
 import { setReaction, clearReaction, isReaction, type ReactionState, type Reaction } from '../db/postReactions.js';
@@ -10,7 +10,7 @@ import { renderMarkdown, type MentionLink } from '../markdown.js';
 import { getCategory, isDiscussion, PROPOSAL_DRAFTS_CATEGORY_SLUG } from '../../../config/categories.js';
 import { checkRate } from '../rate.js';
 import type { RateLimiter } from '../rateLimiterDO.js';
-import { isWriter, isModerator, canJudgePosts, WRITER_ROLES } from '../auth/roles.js';
+import { isWriter, isModerator, WRITER_ROLES } from '../auth/roles.js';
 import { isDraftAuthor, unlinkDraftAction } from '../db/draftLinks.js';
 import { parseActAs, resolvePostMandate, resolveTopicMandate } from './writeMandate.js';
 import { isGrantActiveForUser } from '../db/proposerGrants.js';
@@ -357,9 +357,6 @@ async function authorizeFlag(
   }
   const gateResult = await ownWriterGate(db, user);
   if (gateResult) return { fail: gateResult };
-  if (!canJudgePosts(user)) {
-    return { fail: { status: 403, json: { ok: false, error: 'forbidden' } } };
-  }
 
   // 2 + 3. Rate limit (30 toggles per 600s per user) and post lookup are
   // independent round-trips (DO vs D1), so they run concurrently. The rate
@@ -450,9 +447,6 @@ async function handleReactionChange(
     }
     const gateResult = await ownWriterGate(db, user);
     if (gateResult) return gateResult;
-    if (!canJudgePosts(user)) {
-      return { status: 403, json: { ok: false, error: 'forbidden' } };
-    }
 
     // 2 + 3. Rate limit (60 toggles per 600s; reactions are lightweight) and
     // post lookup are independent round-trips (DO vs D1), so they run
@@ -564,18 +558,17 @@ export async function handleEditPost(input: EditPostInput): Promise<HandlerResul
   try {
     const { user, postId, body, db, rateLimiter, now } = input;
     if (!user) return { status: 401, json: { ok: false, error: 'unauthorized' } };
-    const stamp = await db
-      .prepare('SELECT proposer_grant_id FROM posts WHERE id = ?')
-      .bind(postId)
-      .first<{ proposer_grant_id: string | null }>();
-    const grantId = stamp?.proposer_grant_id ?? null;
+    // One read of the row and at most one grant check per request: editPost
+    // receives both instead of reading them again.
+    const post = await getPostForEdit(db, postId);
+    const grantId = post?.proposer_grant_id ?? null;
     const ownWriter = grantId === null;
     if (ownWriter) {
       const gateResult = await ownWriterGate(db, user);
       if (gateResult) return gateResult;
     } else if (!(await isGrantActiveForUser(db, grantId, user.id))) {
-      // Checked here as well as in editPost, so a caller without the grant
-      // never reaches the CIP-100 freeze below.
+      // Checked before the CIP-100 freeze below, so a caller without the grant
+      // never reaches it.
       return { status: 403, json: { ok: false, error: 'forbidden' } };
     }
 
@@ -614,6 +607,9 @@ export async function handleEditPost(input: EditPostInput): Promise<HandlerResul
         bodyHtml,
         now,
         ownWriter,
+        post: post ?? undefined,
+        // Reaching this point with a stamped post means the check above passed.
+        stampedGrantActive: grantId !== null ? true : undefined,
       });
       // Publish the edited text as the next version. Its own try/catch, not the
       // notification one, so a notification failure cannot skip the emit.
@@ -646,11 +642,9 @@ export async function handleEditTitle(input: EditTitleInput): Promise<HandlerRes
   try {
     const { user, topicId, body, db, rateLimiter, now } = input;
     if (!user) return { status: 401, json: { ok: false, error: 'unauthorized' } };
-    const stamp = await db
-      .prepare('SELECT proposer_grant_id FROM topics WHERE id = ?')
-      .bind(topicId)
-      .first<{ proposer_grant_id: string | null }>();
-    const ownWriter = !stamp?.proposer_grant_id;
+    // One read of the row, handed to editTitle, which runs the single grant check.
+    const topic = await getTopicForEdit(db, topicId);
+    const ownWriter = !topic?.proposer_grant_id;
     if (ownWriter) {
       const gateResult = await ownWriterGate(db, user);
       if (gateResult) return gateResult;
@@ -665,7 +659,7 @@ export async function handleEditTitle(input: EditTitleInput): Promise<HandlerRes
     }
 
     try {
-      await editTitle(db, { topicId, authorId: user.id, title, now, ownWriter });
+      await editTitle(db, { topicId, authorId: user.id, title, now, ownWriter, topic: topic ?? undefined });
       return { status: 200, json: { ok: true } };
     } catch (err) {
       return editError(err);

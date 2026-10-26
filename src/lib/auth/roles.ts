@@ -20,16 +20,6 @@ export function isWriter(roles: readonly string[]): boolean {
   return roles.some((r) => (WRITER_ROLES as readonly string[]).includes(r));
 }
 
-/**
- * True when the user may flag or react to posts. Each flag and reaction counts
- * one writer, so it needs a writer role of the account's own. The co-proposer
- * role is not a writer role, so a session that only acts under a grant never
- * counts.
- */
-export function canJudgePosts(user: { roles: readonly string[] }): boolean {
-  return isWriter(user.roles);
-}
-
 /** True when the user holds a moderation role (admin or moderator). */
 export function isModerator(roles: readonly string[]): boolean {
   return roles.some((r) => (MODERATOR_ROLES as readonly string[]).includes(r));
@@ -94,4 +84,24 @@ export function rolesFromUser(
   if (modRole) roles.push(modRole);
   if (roles.length === 0) roles.push('member');
   return roles;
+}
+
+/**
+ * Adds the co-proposer role to a session role list: drops the placeholder
+ * member role and normalizes. An empty list yields just the co-proposer role.
+ */
+export function withCoProposerRole(roles: readonly string[]): string[] {
+  return normalizeSessionRoles([...roles.filter((r) => r !== 'member'), CO_PROPOSER_ROLE]);
+}
+
+/**
+ * Session roles for an account that holds an active co-proposer grant: its own
+ * roles from the user row and the moderator role, plus co-proposer. Shared by
+ * every login door and invite redemption so the role assembly cannot drift.
+ */
+export function coProposerRoles(
+  user: { is_drep: boolean; is_proposer: boolean; is_spo: boolean; is_cc: boolean },
+  modRole: string | null,
+): string[] {
+  return withCoProposerRole(rolesFromUser(user, modRole));
 }
