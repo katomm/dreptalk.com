@@ -36,6 +36,39 @@ function isValidCode(code: unknown): code is string {
   return typeof code === 'string' && code.length > 0 && code.length <= MAX_CODE_LEN && CODE_RE.test(code);
 }
 
+export interface RedeemInviteView {
+  proposerStakeAddr: string;
+  govActionId: string;
+  actionTitle: string;
+  teamLabel: string | null;
+}
+
+/**
+ * Resolves an invite code for the redeem page: who invited, which action
+ * (title with a type plus short id fallback, so two untitled actions still
+ * look different) and the optional team name. Null for any unusable code.
+ */
+export async function loadRedeemInvite(
+  db: D1Database,
+  code: string,
+  opts?: { now?: number },
+): Promise<RedeemInviteView | null> {
+  const invite = await lookupInviteByCode(db, code, opts);
+  if (!invite) return null;
+  const action = await db
+    .prepare('SELECT type, title FROM governance_actions WHERE id = ?1')
+    .bind(invite.govActionId)
+    .first<{ type: string; title: string | null }>();
+  const [txHash, index] = invite.govActionId.split('#');
+  const fallback = `${(action?.type ?? 'Governance action').replace(/([a-z])([A-Z])/g, '$1 $2')} ${(txHash ?? '').slice(0, 6)}#${index ?? ''}`;
+  return {
+    proposerStakeAddr: invite.proposerStakeAddr,
+    govActionId: invite.govActionId,
+    actionTitle: action?.title?.trim() || fallback,
+    teamLabel: invite.teamLabel,
+  };
+}
+
 /** Nonce domain a redemption proof must be signed under, bound to the resolved grant. */
 export function grantRedeemDomain(grantId: string): string {
   return `proposer_grant_redeem:${grantId}`;

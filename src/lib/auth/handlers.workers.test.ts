@@ -1405,6 +1405,13 @@ describe('handleVerify: co-proposer grant login fallback', () => {
     expect(session?.actsFor).toBeFalsy();
 
     // The proposer role still works for inviting on their own action.
+    await env.DB
+      .prepare(
+        `INSERT INTO governance_actions (id, type, status, return_address, topic_id, created_at, last_synced_at)
+         VALUES (?1, 'InfoAction', 'active', ?2, 'topic-own', 1, 1)`,
+      )
+      .bind(`${'b'.repeat(64)}#0`, row!.stake_addr)
+      .run();
     const invite = await handleCreateInvite({
       db: env.DB,
       user: { id: json.user.id, roles: session!.roles },

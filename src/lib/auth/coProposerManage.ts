@@ -14,7 +14,12 @@
 // another proposer's grants) is enforced by revokeGrant/withdrawInvite's own
 // WHERE clauses, not duplicated here.
 import { getUserById, type User } from '../db/users.js';
+import { parseAuthors } from '../db/governance.js';
+import { isTerminalStatus } from '../governance/view.js';
 import { createGrantInvite, revokeGrant, withdrawInvite } from '../db/proposerGrants.js';
+
+// `<tx hash>#<index>`, the governance_actions.id form (never gov_action1...).
+const GOV_ACTION_ID_RE = /^[0-9a-f]{64}#\d{1,5}$/i;
 
 export interface HandlerResult {
   status: number;
@@ -58,8 +63,10 @@ export async function requireGrantManager(
 export interface CreateInviteInput {
   db: D1Database;
   user: GrantManagerUser;
-  /** Governance action the invite is for. Full validation arrives with the per-action invite flow. */
+  /** Governance action the invite is for (`<tx hash>#<index>`). */
   govActionId?: unknown;
+  /** Optional team name, must be one of the action's CIP-108 authors. Absent, empty or blank means none. */
+  teamLabel?: unknown;
   now?: number;
 }
 
@@ -79,16 +86,41 @@ export async function handleCreateInvite(input: CreateInviteInput): Promise<Hand
       return { status: 500, json: { error: 'internal error' } };
     }
 
-    const govActionId = typeof input.govActionId === 'string' ? input.govActionId : '';
-    if (govActionId === '') {
+    const govActionId = input.govActionId;
+    if (typeof govActionId !== 'string' || !GOV_ACTION_ID_RE.test(govActionId)) {
       return { status: 400, json: { error: 'invalid action' } };
+    }
+
+    // An unknown action and someone else's action look alike (403), so the
+    // endpoint does not reveal which ids exist.
+    const action = await db
+      .prepare('SELECT status, return_address, topic_id, authors FROM governance_actions WHERE id = ?1')
+      .bind(govActionId)
+      .first<{ status: string; return_address: string | null; topic_id: string | null; authors: string | null }>();
+    if (!action || action.return_address !== guard.row.stake_addr) {
+      return { status: 403, json: { error: 'forbidden' } };
+    }
+    if (isTerminalStatus(action.status)) {
+      return { status: 409, json: { error: 'action finished' } };
+    }
+    if (!action.topic_id) {
+      return { status: 409, json: { error: 'no thread yet' } };
+    }
+
+    let teamLabel: string | null = null;
+    if (input.teamLabel !== undefined && input.teamLabel !== null) {
+      const picked = typeof input.teamLabel === 'string' ? input.teamLabel.trim() : null;
+      if (picked === null || (picked !== '' && !(parseAuthors(action.authors) ?? []).includes(picked))) {
+        return { status: 400, json: { error: 'unknown team' } };
+      }
+      teamLabel = picked === '' ? null : picked;
     }
 
     const invite = await createGrantInvite(db, {
       proposerUserId: user.id,
       proposerStakeAddr: guard.row.stake_addr,
       govActionId,
-      teamLabel: null,
+      teamLabel,
       now,
     });
     if (!invite) {

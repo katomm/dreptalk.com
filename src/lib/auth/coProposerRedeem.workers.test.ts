@@ -15,7 +15,7 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import vectors from './__fixtures__/cip8-vectors.json';
-import { handleRedeemChallenge, handleRedeemGrant, grantRedeemDomain, MAX_CO_PROPOSER_NAME } from './coProposerRedeem.js';
+import { loadRedeemInvite, handleRedeemChallenge, handleRedeemGrant, grantRedeemDomain, MAX_CO_PROPOSER_NAME } from './coProposerRedeem.js';
 import { createGrantInvite, redeemGrant } from '../db/proposerGrants.js';
 import { upsertUserFromAuth, getUserById } from '../db/users.js';
 import { getSession } from './session.js';
@@ -585,5 +585,57 @@ describe('DRep door and the co-proposer role', () => {
     expect(pj.user.id).toBe(coId);
     expect(pj.user.roles).toContain('co-proposer');
     expect(pj.user.roles).not.toContain('proposer');
+  });
+});
+
+describe('loadRedeemInvite', () => {
+  async function seedAction(id: string, title: string | null, type = 'TreasuryWithdrawals') {
+    await db()
+      .prepare(
+        `INSERT INTO governance_actions (id, type, title, status, return_address, topic_id, created_at, last_synced_at)
+         VALUES (?1, ?2, ?3, 'active', 'x', 'topic-1', 1, 1)`,
+      )
+      .bind(id, type, title)
+      .run();
+  }
+
+  async function inviteFor(govActionId: string, teamLabel: string | null) {
+    const stakeAddr = `stake_test1-proposer-${nextId()}`;
+    const proposer = await upsertUserFromAuth(db(), { stakeAddr, roles: ['proposer'], now: NOW });
+    const invite = await createGrantInvite(db(), {
+      proposerUserId: proposer.id,
+      proposerStakeAddr: stakeAddr,
+      govActionId,
+      teamLabel,
+      now: NOW,
+    });
+    if (!invite) throw new Error('no invite');
+    return { stakeAddr, ...invite };
+  }
+
+  it('returns the action title, id and team label for a valid code', async () => {
+    const id = `${'1'.repeat(64)}#2`;
+    await seedAction(id, 'Fund the thing');
+    const invite = await inviteFor(id, 'Trivolve Tech');
+    const view = await loadRedeemInvite(db(), invite.inviteCode, { now: NOW });
+    expect(view).toEqual({
+      proposerStakeAddr: invite.stakeAddr,
+      govActionId: id,
+      actionTitle: 'Fund the thing',
+      teamLabel: 'Trivolve Tech',
+    });
+  });
+
+  it('falls back to the action type plus a short id when there is no title', async () => {
+    const id = `${'2'.repeat(64)}#0`;
+    await seedAction(id, null);
+    const invite = await inviteFor(id, null);
+    const view = await loadRedeemInvite(db(), invite.inviteCode, { now: NOW });
+    expect(view?.actionTitle).toBe('Treasury Withdrawals 222222#0');
+    expect(view?.teamLabel).toBeNull();
+  });
+
+  it('returns null for an unknown code', async () => {
+    expect(await loadRedeemInvite(db(), 'nope', { now: NOW })).toBeNull();
   });
 });

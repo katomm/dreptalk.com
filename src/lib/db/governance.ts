@@ -291,7 +291,7 @@ interface GovernanceActionRow {
  * strings reads back as null, so a malformed row degrades to the address
  * fallback instead of throwing during a list render.
  */
-function parseAuthors(raw: string | null): string[] | null {
+export function parseAuthors(raw: string | null): string[] | null {
   if (!raw) return null;
   try {
     const v: unknown = JSON.parse(raw);
