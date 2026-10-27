@@ -1,6 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 // Every SQL text the DRep groups store, jobs and page readers run, by name, so one check
 // can inspect how SQLite executes each of them.
+import { RETENTION_FLOOR } from 'drep-groups';
 import { DB_NOW_MS } from '../../db/sql.js';
 import { credKeySql, refKeySql } from '../codec.js';
 import { LEASE_MS, LISTED_MIN_MEMBERS, MARKER_REFETCH_ATTEMPTS, WITNESS_BACKOFF_BASE_MS, WITNESS_BACKOFF_MAX_MS } from '../constants.js';
@@ -701,6 +702,190 @@ export const REC_KEYED_TRAILING: Readonly<Partial<Record<keyof typeof REC_KEYED,
   restoreGroups: 6,
 });
 
+// Background jobs. A pass walks instances or verdicts by position from the cursor bound in four
+// binds (exclusive), at most the bound limit per page.
+const JOINED = 'joined_h, joined_ti, joined_ph, joined_ix';
+const AT = 'at_h, at_ti, at_ph, at_ix';
+const KINDS_BY_PRIORITY = ['recompute', 'repair', 'dissolve', 'retire', 'power-scan', 'power'] as const;
+const firstOfKind = (kind: string): string => `(SELECT id FROM drep_group_jobs WHERE kind = '${kind}' ORDER BY id LIMIT 1)`;
+// A page of instances with what effectiveClose needs: the group's stored dissolve and the first applied
+// unreg of the member after the join, cert bounds as in preFirstUnreg. Group fields for the counters.
+const instancePass = (where: string): string => `WITH p AS (SELECT * FROM drep_group_instances WHERE ${where}
+      AND (${JOINED}) > (?, ?, ?, ?) ORDER BY ${JOINED} LIMIT ?)
+    SELECT p.*, g.group_tx AS g_tx, g.members AS g_members,
+      g.dissolved_h AS dis_h, g.dissolved_ti AS dis_ti, g.dissolved_ph AS dis_ph, g.dissolved_ix AS dis_ix, g.dissolved_tx AS dis_tx,
+      u.block_height AS u_h, u.tx_index AS u_ti, u.cert_index AS u_ix, u.tx_hash AS u_tx
+    FROM p
+    LEFT JOIN drep_groups g ON g.group_tx = p.group_tx AND g.group_ix = p.group_ix
+    LEFT JOIN drep_group_tracked t ON t.cred = p.cred
+    LEFT JOIN drep_group_ledger u ON u.rowid = (
+      SELECT l.rowid FROM drep_group_ledger l
+      WHERE l.cred = p.cred AND l.kind = 'unreg'
+        AND (l.block_height, l.tx_index, l.cert_index) > (p.joined_h, p.joined_ti, CASE WHEN p.joined_ph = 0 THEN p.joined_ix ELSE ${MAX} END)
+        AND (l.block_height, l.tx_index, l.cert_index) <= (t.applied_h, t.applied_ti, CASE WHEN t.applied_ph = 0 THEN t.applied_ix ELSE ${MAX} END)
+      ORDER BY l.block_height, l.tx_index, l.cert_index LIMIT 1)`;
+// The trimmable verdicts of one validity class: below the floor, beyond the newest `offset`, newest first.
+const TRIMMABLE = `SELECT rowid FROM drep_group_verdicts WHERE group_tx = ? AND group_ix = ? AND valid = ? AND at_h < ?
+    ORDER BY at_h DESC, at_ti DESC, at_ph DESC, at_ix DESC LIMIT ? OFFSET ?`;
+const firstAtOrAbove = (valid: number): string => `(SELECT at_h FROM drep_group_verdicts
+    WHERE group_tx = ? AND group_ix = ? AND valid = ${valid} AND at_h >= ? ORDER BY at_h LIMIT 1)`;
+// The guard of a job statement: the job's group or credential still at the generation the page read.
+const GROUP_GEN = 'EXISTS (SELECT 1 FROM drep_groups g WHERE g.group_tx = ? AND g.group_ix = ? AND g.gen = ?)';
+const CRED_GEN = 'EXISTS (SELECT 1 FROM drep_group_tracked t WHERE t.cred = ? AND t.gen = ?)';
+
+// Job statements over a VALUES list of rows, built per chunk length. Trailing binds in JOB_TRAILING.
+export const JOB = Object.freeze({
+  // The caches of a page's instances. Binds the rows, then the gen guard of the instance's group (NULL accepts).
+  writeCaches: (n: number) => `WITH d(tx, ix, c, h, ti, ph, eix, etx, r) AS (VALUES ${values(9, n)})
+    UPDATE drep_group_instances SET counted_as = d.c, eff_h = d.h, eff_ti = d.ti, eff_ph = d.ph, eff_ix = d.eix,
+      eff_tx = d.etx, eff_reason = d.r
+    FROM d WHERE drep_group_instances.join_tx = d.tx AND drep_group_instances.join_ix = d.ix
+      AND EXISTS (SELECT 1 FROM drep_groups g WHERE g.group_tx = drep_group_instances.group_tx
+        AND g.group_ix = drep_group_instances.group_ix AND ${GEN_OK('g')})`,
+  // Pending and former deltas per group. Binds the rows, then the gen guard.
+  counterDeltas: (n: number) => `WITH d(gtx, gix, dp, df) AS (VALUES ${values(4, n)})
+    UPDATE drep_groups SET pending = pending + d.dp, former = former + d.df
+    FROM d WHERE drep_groups.group_tx = d.gtx AND drep_groups.group_ix = d.gix AND ${GEN_OK('drep_groups')}`,
+  // Keyed on (drep_id, group key after which its page starts). Binds the rows, then the limit per DRep.
+  scanInstances: (n: number) => `WITH k(drep, gtx, gix) AS (VALUES ${values(3, n)})
+    SELECT k.drep AS k_drep, i.group_tx, i.group_ix FROM k
+    JOIN drep_group_instances i ON i.rowid IN (
+      SELECT x.rowid FROM drep_group_instances x
+      WHERE x.drep_id = k.drep AND x.counted_as = 'open' AND (x.group_tx, x.group_ix) > (k.gtx, k.gix)
+      ORDER BY x.group_tx, x.group_ix LIMIT ?)`,
+  // A power job for every group found by a scan page, and the gen increment that restarts a running one.
+  scanPowerJobs: (n: number) => `WITH k(gtx, gix) AS (VALUES ${values(2, n)})
+    INSERT OR IGNORE INTO drep_group_jobs (kind, job_key, group_tx, group_ix)
+    SELECT 'power', ${refKeySql('g.group_tx', 'g.group_ix')}, g.group_tx, g.group_ix
+    FROM k JOIN drep_groups g ON ${GROUP_KEY}`,
+  scanGens: (n: number) => `WITH k(gtx, gix) AS (VALUES ${values(2, n)})
+    UPDATE drep_groups SET gen = gen + 1 WHERE (group_tx, group_ix) IN (SELECT gtx, gix FROM k)`,
+  // Queue rows whose instances are exhausted, each only at the seq its page read.
+  scanDone: (n: number) =>
+    `DELETE FROM drep_group_power_changes WHERE (drep_id, seq) IN (VALUES ${values(2, n)})`,
+});
+
+export const JOB_WIDTH: Readonly<Record<keyof typeof JOB, number>> = Object.freeze({
+  writeCaches: 9,
+  counterDeltas: 4,
+  scanInstances: 3,
+  scanPowerJobs: 2,
+  scanGens: 2,
+  scanDone: 2,
+});
+
+export const JOB_TRAILING: Readonly<Partial<Record<keyof typeof JOB, number>>> = Object.freeze({
+  writeCaches: 1,
+  counterDeltas: 1,
+  scanInstances: 1,
+});
+
+const JOB_Q = {
+  // The oldest job of every kind and the oldest group due for a trim below the floor, with the recovery slot.
+  jobPick: {
+    sql: `WITH m AS (SELECT rec_first_kind, L FROM drep_group_meta WHERE id = 1),
+        t AS (SELECT d.group_tx, d.group_ix FROM drep_group_trim_due d
+          WHERE d.oldest_h < (SELECT L FROM m) - ${RETENTION_FLOOR} ORDER BY d.oldest_h LIMIT 1)
+      SELECT m.rec_first_kind AS recovery, m.L AS L, (SELECT group_tx FROM t) AS trim_gtx, (SELECT group_ix FROM t) AS trim_gix,
+        ${KINDS_BY_PRIORITY.map((k) => `${firstOfKind(k)} AS "${k}"`).join(', ')}
+      FROM m`,
+  },
+  // Binds the job id. The job with the generation of its group or credential, NULL when that is gone.
+  jobRow: {
+    sql: `SELECT j.*, g.gen AS g_gen, g.members AS g_members, t.gen AS t_gen FROM drep_group_jobs j
+      LEFT JOIN drep_groups g ON g.group_tx = j.group_tx AND g.group_ix = j.group_ix
+      LEFT JOIN drep_group_tracked t ON t.cred = j.cred
+      WHERE j.id = ?`,
+  },
+  // Binds the group, the cursor and the limit.
+  jobGroupPass: { sql: instancePass('group_tx = ? AND group_ix = ?') },
+  // Binds the credential, the cursor and the limit.
+  jobCredPass: { sql: instancePass('cred = ?') },
+  // Binds the group, the validity class, the cursor and the limit.
+  jobVerdictPass: {
+    sql: `SELECT ${AT} FROM drep_group_verdicts WHERE group_tx = ? AND group_ix = ? AND valid = ? AND (${AT}) > (?, ?, ?, ?)
+      ORDER BY ${AT} LIMIT ?`,
+  },
+  // Binds the group, the cursor and the limit. Open instances by join position.
+  jobPowerPass: {
+    sql: `SELECT ${JOINED} FROM drep_group_instances WHERE group_tx = ? AND group_ix = ? AND counted_as = 'open'
+      AND (${JOINED}) > (?, ?, ?, ?) ORDER BY ${JOINED} LIMIT ?`,
+  },
+  // Binds the cursor JSON, the staging value, start_gen and the job id.
+  jobProgress: { sql: 'UPDATE drep_group_jobs SET cursor_json = ?, staging = ?, start_gen = ? WHERE id = ?' },
+  // Binds the job id.
+  jobDelete: { sql: 'DELETE FROM drep_group_jobs WHERE id = ?' },
+  // Binds the job id, then the group and its gen.
+  jobDeleteAtGroupGen: { sql: `DELETE FROM drep_group_jobs WHERE id = ? AND ${GROUP_GEN}` },
+  // Binds the job id, then the credential and its gen.
+  jobDeleteAtCredGen: { sql: `DELETE FROM drep_group_jobs WHERE id = ? AND ${CRED_GEN}` },
+  // Binds the group, the cursor (exclusive), the page's last key (inclusive), the cursor JSON, start_gen and the job id.
+  // Adds the page's voting power to staging inside SQL, the sum never passes through a JS number.
+  jobPowerSum: {
+    sql: `UPDATE drep_group_jobs SET staging = CAST(COALESCE(CAST(staging AS INTEGER), 0) + (
+        SELECT COALESCE(SUM(CAST(d.voting_power AS INTEGER)), 0) FROM drep_group_instances i JOIN dreps d ON d.drep_id = i.drep_id
+        WHERE i.group_tx = ? AND i.group_ix = ? AND i.counted_as = 'open'
+          AND (i.joined_h, i.joined_ti, i.joined_ph, i.joined_ix) > (?, ?, ?, ?)
+          AND (i.joined_h, i.joined_ti, i.joined_ph, i.joined_ix) <= (?, ?, ?, ?)) AS TEXT),
+      cursor_json = ?, start_gen = ? WHERE id = ?`,
+  },
+  // Binds the job id, then the group and the gen.
+  jobPowerPublish: {
+    sql: `UPDATE drep_groups SET member_power = (SELECT CAST(staging AS INTEGER) FROM drep_group_jobs WHERE id = ?)
+      WHERE group_tx = ? AND group_ix = ? AND gen = ?`,
+  },
+  // Binds pending, former, applied and not applied counts, then the group and the gen. The trimmed
+  // verdicts stay in the totals, closing follows a remaining dissolve job.
+  jobRecomputePublish: {
+    sql: `UPDATE drep_groups SET pending = ?, former = ?, applied_events = ? + trimmed_applied,
+        not_applied_events = ? + trimmed_not_applied,
+        closing = EXISTS (SELECT 1 FROM drep_group_jobs j WHERE j.kind = 'dissolve' AND j.group_tx = drep_groups.group_tx
+          AND j.group_ix = drep_groups.group_ix)
+      WHERE group_tx = ? AND group_ix = ? AND gen = ?`,
+  },
+  // Binds the group and the gen.
+  jobDissolveDone: { sql: 'UPDATE drep_groups SET closing = 0 WHERE group_tx = ? AND group_ix = ? AND gen = ?' },
+  // Binds the credential and the gen.
+  jobRetireDone: { sql: 'UPDATE drep_group_tracked SET retiring = 0 WHERE cred = ? AND gen = ?' },
+  // Binds the group, the validity class, the floor, the limit and the number kept. The count of a trim page.
+  trimCount: { sql: `WITH c AS (${TRIMMABLE}) SELECT COUNT(*) AS n FROM c` },
+  // Same binds as trimCount, the limit is the counted number.
+  trimDelete: { sql: `DELETE FROM drep_group_verdicts WHERE rowid IN (${TRIMMABLE})` },
+  // Binds the trimmed applied and not applied counts, then the group.
+  trimGroup: {
+    sql: `UPDATE drep_groups SET trimmed_applied = trimmed_applied + ?, trimmed_not_applied = trimmed_not_applied + ?,
+        gen = gen + 1 WHERE group_tx = ? AND group_ix = ?`,
+  },
+  // Binds the group and the floor for each class, then the group. A finished group is due again when the floor
+  // passes its oldest verdict at or above the current floor, without one its row goes.
+  trimNext: {
+    sql: `UPDATE drep_group_trim_due SET oldest_h = COALESCE(MIN(COALESCE(${firstAtOrAbove(1)}, ${MAX}),
+        COALESCE(${firstAtOrAbove(0)}, ${MAX})), oldest_h) WHERE group_tx = ? AND group_ix = ?`,
+  },
+  // Binds the group, then the group and the floor for each class.
+  trimDone: {
+    sql: `DELETE FROM drep_group_trim_due WHERE group_tx = ? AND group_ix = ?
+      AND ${firstAtOrAbove(1)} IS NULL AND ${firstAtOrAbove(0)} IS NULL`,
+  },
+  // Binds the limit. The oldest queued DReps.
+  powerQueue: {
+    sql: 'SELECT drep_id, seq, after_key FROM drep_group_power_changes ORDER BY seq LIMIT ?',
+    boundedScan: 'drep_group_power_changes_seq',
+  },
+  powerQueued: {
+    sql: 'SELECT 1 AS hit FROM drep_group_power_changes ORDER BY seq LIMIT 1',
+    boundedScan: 'drep_group_power_changes_seq',
+  },
+  // Binds the keyset, the DRep and the seq its page read.
+  powerProgress: { sql: 'UPDATE drep_group_power_changes SET after_key = ? WHERE drep_id = ? AND seq = ?' },
+  powerScanEnqueue: { sql: "INSERT OR IGNORE INTO drep_group_jobs (kind, job_key) VALUES ('power-scan', 'power-scan')" },
+  powerScanDone: {
+    sql: `DELETE FROM drep_group_jobs WHERE kind = 'power-scan' AND job_key = 'power-scan'
+      AND NOT EXISTS (SELECT 1 FROM drep_group_power_changes ORDER BY seq LIMIT 1)`,
+    boundedScan: 'drep_group_power_changes_seq',
+  },
+} satisfies Record<string, RegisteredQuery>;
+
 const END_G = `G_h = ?, G_ti = ?, G_ph = ?, G_ix = ?, G_tx = ?`;
 const RESET_G = `G_h = -1, G_ti = ${MAX}, G_ph = 2, G_ix = ${MAX}, G_tx = X''`;
 
@@ -882,6 +1067,10 @@ export const Q = Object.freeze({
           WHERE id = 1`,
   },
   recRebuildCursors: { sql: `UPDATE drep_group_meta SET ${RESET_G}, rec_phase = 'done' WHERE id = 1` },
+  ...JOB_Q,
+  ...(Object.fromEntries(
+    (Object.keys(JOB) as Array<keyof typeof JOB>).map((k) => [`job_${k}`, { sql: JOB[k](1) }]),
+  ) as Record<`job_${keyof typeof JOB}`, RegisteredQuery>),
   recForkCursors: {
     sql: `UPDATE drep_group_meta SET ${RESET_G}, L = -1, L_hash = NULL, R = NULL, reg_time = NULL, reg_offset = 0,
             probe_active = 0, probe_below = NULL, rec_phase = 'done'
@@ -957,4 +1146,35 @@ export const Q_SAMPLE_BINDS: Readonly<Record<keyof typeof Q, unknown[]>> = Objec
   recTruncateCursors: [1, 0, 2, 0, TX, 1, null, 1, 0],
   recRebuildCursors: [],
   recForkCursors: [],
+  jobPick: [],
+  jobRow: [1],
+  jobGroupPass: [TX, 0, -1, -1, -1, -1, 10],
+  jobCredPass: [CRED, -1, -1, -1, -1, 10],
+  jobVerdictPass: [TX, 0, 1, -1, -1, -1, -1, 10],
+  jobPowerPass: [TX, 0, -1, -1, -1, -1, 10],
+  jobProgress: ['{}', null, 0, 1],
+  jobDelete: [1],
+  jobDeleteAtGroupGen: [1, TX, 0, 0],
+  jobDeleteAtCredGen: [1, CRED, 0],
+  jobPowerSum: [TX, 0, -1, -1, -1, -1, 1, 0, 2, 0, '{}', 0, 1],
+  jobPowerPublish: [1, TX, 0, 0],
+  jobRecomputePublish: [0, 0, 0, 0, TX, 0, 0],
+  jobDissolveDone: [TX, 0, 0],
+  jobRetireDone: [CRED, 0],
+  trimCount: [TX, 0, 1, 100, 10, 200],
+  trimDelete: [TX, 0, 1, 100, 10, 200],
+  trimGroup: [0, 0, TX, 0],
+  trimNext: [TX, 0, 100, TX, 0, 100, TX, 0],
+  trimDone: [TX, 0, TX, 0, 100, TX, 0, 100],
+  powerQueue: [10],
+  powerQueued: [],
+  powerProgress: ['key', 'drep1x', 1],
+  powerScanEnqueue: [],
+  powerScanDone: [],
+  ...(Object.fromEntries(
+    (Object.keys(JOB) as Array<keyof typeof JOB>).map((k) => [
+      `job_${k}`,
+      Array.from({ length: JOB_WIDTH[k] + (JOB_TRAILING[k] ?? 0) }, () => 0),
+    ]),
+  ) as Record<`job_${keyof typeof JOB}`, unknown[]>),
 });

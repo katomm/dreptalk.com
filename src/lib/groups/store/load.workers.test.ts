@@ -39,7 +39,9 @@ import {
   worstCaseBase,
 } from '../__tests__/loadFixtures.js';
 import { hashBytes } from '../codec.js';
-import { ENGINE_BUDGET, RUN_MAX_QUERIES } from '../constants.js';
+import { ENGINE_BUDGET, JOB_MAX_QUERIES, MAX_JOB_ROWS_PER_RUN, RUN_MAX_QUERIES } from '../constants.js';
+import { runJobs } from '../jobs.js';
+import { allowance } from '../../sync/queryBudget.js';
 import { D1Store } from './d1Store.js';
 import { acquireLease, invocationOwner } from './lease.js';
 import { frontiers, pendingRecovery } from './reads.js';
@@ -393,4 +395,107 @@ describe('storage cost of spam', () => {
     console.log(`storage, batched: ${perCreate} bytes per create`);
     expect(perCreate).toBeLessThan(BATCHED_BOUND);
   });
+});
+
+// The job selections and pages, each over n stored rows that a page must not walk: one page of
+// every job kind with n jobs of the same kind queued behind it, the power scan of one DRep holding
+// n open memberships (its first and a later page), and the trim selection among n groups not due.
+type PageCost = Cost & { pages: number };
+
+async function oneJobPage(): Promise<PageCost> {
+  const lease = (await acquireLease(env.DB, invocationOwner())) as string;
+  const m = meteredDb(env.DB);
+  const r = await runJobs(m.db, lease, { maxRows: MAX_JOB_ROWS_PER_RUN, budget: allowance({ used: m.queries }, JOB_MAX_QUERIES), now: 0 });
+  return { queries: m.queries(), rows: m.rowsRead(), pages: r.pages };
+}
+
+const at = (base: number, h: number): string => `${h}, 0, 2, 0, ${hashSql(base + h, '0')}`;
+const groupInsert = (tx: string, members: number): string => `INSERT INTO drep_groups (group_tx, group_ix, cur_h, cur_ti, cur_ph, cur_ix,
+    cur_tx, mode, control, seq, status, created_h, created_ti, created_ph, created_ix, created_tx, members)
+  SELECT ${tx}, 0, ${at(9_700_000, 10)}, 'open', X'aa', '0', 'active', ${at(9_700_000, 10)}, ${members}`;
+
+function jobSeed(kind: string, n: number): string[] {
+  const g = hashSql(9_500_000, '0');
+  const cred = credSql(9_600_000, '0');
+  const head =
+    kind === 'retire' || kind === 'repair'
+      ? `INSERT INTO drep_group_jobs (kind, job_key, cred) VALUES ('${kind}', 'head', ${cred})`
+      : `INSERT INTO drep_group_jobs (kind, job_key, group_tx, group_ix) VALUES ('${kind}', 'head', ${g}, 0)`;
+  return [
+    groupInsert(g, 3),
+    `${series(3)} INSERT INTO drep_group_instances (join_tx, join_ix, group_tx, group_ix, cred, drep_id, mode, joined_h, joined_ti,
+        joined_ph, joined_ix, joined_tx, counted_as)
+      SELECT ${hashSql(9_800_000)}, 0, ${g}, 0, ${cred}, 'drep1load', 'open', 20 + s.i, 0, 2, 0, ${hashSql(9_800_000)}, 'open' FROM s`,
+    `INSERT INTO drep_group_tracked (cred, seq, known, history_done, applied_h, applied_ti, applied_ph, applied_ix, applied_tx)
+      VALUES (${cred}, 1, 1, 1, ${at(9_700_000, 30)})`,
+    head,
+    `${series(n)} INSERT INTO drep_group_jobs (kind, job_key, group_tx, group_ix, cred)
+      SELECT '${kind}', 'filler' || s.i, ${hashSql(9_900_000)}, 0, ${credSql(9_900_000)} FROM s`,
+  ];
+}
+
+const SCAN_GROUPS = 8_600_000;
+function scanSeed(n: number, later: boolean): string[] {
+  const after = later ? `printf('%064x', ${SCAN_GROUPS} + ${Math.floor(n / 2)}) || '#0'` : 'NULL';
+  return [
+    `${series(n)} ${groupInsert(hashSql(SCAN_GROUPS), 2)} FROM s`,
+    `${series(n)} INSERT INTO drep_group_instances (join_tx, join_ix, group_tx, group_ix, cred, drep_id, mode, joined_h, joined_ti,
+        joined_ph, joined_ix, joined_tx, counted_as)
+      SELECT ${hashSql(8_500_000)}, 0, ${hashSql(SCAN_GROUPS)}, 0, ${credSql(8_700_000, '0')}, 'drep1scan', 'open', 20, 0, 2, s.i,
+        ${hashSql(8_500_000)}, 'open' FROM s`,
+    `INSERT INTO drep_group_power_changes (drep_id, seq, after_key) VALUES ('drep1scan', 1, ${after})`,
+    "INSERT INTO drep_group_jobs (kind, job_key) VALUES ('power-scan', 'power-scan')",
+  ];
+}
+
+const TRIM_L = 5_000;
+function trimSeed(n: number): string[] {
+  const g = hashSql(7_500_000, '0');
+  return [
+    `UPDATE drep_group_meta SET L = ${TRIM_L} WHERE id = 1`,
+    groupInsert(g, 0),
+    `${series(210)} INSERT INTO drep_group_verdicts (tx_hash, idx, group_tx, group_ix, at_h, at_ti, at_ph, at_ix, at_tx, tag, valid)
+      SELECT ${hashSql(7_600_000)}, 0, ${g}, 0, 100 + s.i, 0, 2, 0, ${hashSql(7_600_000)}, 'update', 1 FROM s`,
+    `INSERT INTO drep_group_trim_due (group_tx, group_ix, oldest_h) VALUES (${g}, 0, 100)`,
+    `${series(n)} INSERT INTO drep_group_trim_due (group_tx, group_ix, oldest_h) SELECT ${hashSql(7_700_000)}, 0, ${TRIM_L} + s.i FROM s`,
+  ];
+}
+
+const PAGES: Array<{ name: string; seed: (n: number) => string[]; exact: boolean }> = [
+  ...['recompute', 'repair', 'dissolve', 'retire', 'power'].map((kind) => ({ name: `${kind} job page`, seed: (n: number) => jobSeed(kind, n), exact: true })),
+  // With no memberships the scan has nothing to enqueue, so 0 bounds the others from below.
+  { name: 'power scan first page', seed: (n: number) => scanSeed(n, false), exact: false },
+  { name: 'power scan later page', seed: (n: number) => scanSeed(n, true), exact: false },
+  { name: 'trim selection', seed: trimSeed, exact: true },
+];
+
+describe('the job pages do not grow with stored rows', () => {
+  const measured = new Map<string, Map<number, PageCost>>();
+  for (const page of PAGES) {
+    for (const n of SIZES) {
+      it(`${page.name}: ${n} rows`, { timeout: 60_000 }, async () => {
+        await env.DB.batch(page.seed(n).map((sql) => env.DB.prepare(sql)));
+        const cost = await oneJobPage();
+        expect(cost.pages).toBe(1);
+        expect(cost.queries).toBeLessThanOrEqual(JOB_MAX_QUERIES);
+        const per = measured.get(page.name) ?? new Map();
+        per.set(n, cost);
+        measured.set(page.name, per);
+      });
+    }
+
+    it(`${page.name}: queries equal and rows read flat across 0, 1,000 and 10,000 rows`, () => {
+      const per = measured.get(page.name);
+      if (!per || per.size !== SIZES.length) throw new Error('a measurement is missing');
+      const [r0, r1k, r10k] = SIZES.map((n) => per.get(n) as PageCost);
+      console.log(`${page.name}: ${SIZES.map((n, i) => `${n} rows ${[r0, r1k, r10k][i].queries}q ${[r0, r1k, r10k][i].rows}r`).join(', ')}`);
+      const base = page.exact ? r0 : r1k;
+      expect(r10k.queries).toBe(base.queries);
+      expect(r1k.queries).toBe(base.queries);
+      expect(r10k.rows).toBeLessThanOrEqual(base.rows * 2 + 50);
+      expect(r1k.rows).toBeLessThanOrEqual(base.rows * 2 + 50);
+      expect(r0.queries).toBeLessThanOrEqual(r1k.queries);
+      expect(r0.rows).toBeLessThanOrEqual(r1k.rows);
+    });
+  }
 });

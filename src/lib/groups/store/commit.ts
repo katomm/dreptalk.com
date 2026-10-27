@@ -25,7 +25,7 @@ import { writeBatch } from './lease.js';
 
 type Row = Record<string, unknown>;
 type Unit = { change: ChangeSet; cursor: CursorUpdate };
-type Counted = 'open' | 'pending' | 'former';
+export type Counted = 'open' | 'pending' | 'former';
 
 const MAX = Number.MAX_SAFE_INTEGER;
 const NULL_POS = [null, null, null, null, null] as const;
@@ -34,7 +34,7 @@ const optPos = (p: Pos | null): readonly unknown[] => (p === null ? NULL_POS : p
 const later = (a: Pos | null, b: Pos | null): Pos | null => (a === null ? b : b === null || comparePos(a, b) >= 0 ? a : b);
 const earlier = (a: Pos | null, b: Pos | null): Pos | null => (a === null ? b : b === null || comparePos(a, b) <= 0 ? a : b);
 /** A ledger row at (height, tx index, 0, cert index). Mirrors posOfCert. */
-const certPos = (r: Row): Pos => ({
+export const certPos = (r: Row): Pos => ({
   blockHeight: Number(r.u_h),
   txIndex: Number(r.u_ti),
   phase: 0,
@@ -176,7 +176,7 @@ export async function preRead(db: D1Database, units: Unit[]): Promise<PreRead> {
   return pre;
 }
 
-type MemberChange = { group: EventRef; before: { members: number; open: boolean }; after: { members: number; open: boolean } };
+export type MemberChange = { group: EventRef; before: { members: number; open: boolean }; after: { members: number; open: boolean } };
 
 /**
  * The only writer of `members`, for any number of groups. `members` is the counter before and
@@ -224,7 +224,8 @@ export function anchorDueStatements(db: D1Database, group: EventRef, before: Anc
   return anchorDueBatch(db, [{ group, before, after }], now);
 }
 
-function countedAs(i: StoredInstance, eff: { at: Pos } | null): Counted {
+/** The counter an instance counts in, from its effective close. */
+export function countedAs(i: StoredInstance, eff: { at: Pos } | null): Counted {
   if (eff !== null) return 'former';
   return i.mode === 'open' || i.approvedAt !== null ? 'open' : 'pending';
 }
