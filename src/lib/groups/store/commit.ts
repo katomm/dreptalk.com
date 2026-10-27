@@ -373,8 +373,7 @@ export function commitStatements(db: D1Database, units: Unit[], pre: PreRead, no
       if (u.cursor.kind !== 'credential') return [];
       const k = credKey(u.cursor.credential);
       const a = u.cursor.appliedThrough;
-      const cert = [a.blockHeight, a.txIndex, a.phase === 0 ? a.index : MAX];
-      return [db.prepare(Q.credentialCursor.sql).bind(...posBinds(a), k, ...order(a), k, ...cert, k)];
+      return [db.prepare(Q.credentialCursor.sql).bind(...posBinds(a), ...order(a), ...order(a), ...order(a), ...order(a), k)];
     }),
   ];
 }

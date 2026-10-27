@@ -383,17 +383,25 @@ const groupTouch = (table: string): PagedPart['stmts'] => [
 ];
 const nullPos = (p: string): string => `${p}_h = NULL, ${p}_ti = NULL, ${p}_ph = NULL, ${p}_ix = NULL, ${p}_tx = NULL`;
 // The first unapplied input of the tracked row strictly after the bound, queue and ledger merged.
-const NEXT_AFTER = (h: string, ti: string, ph: string, ix: string, queueExtra = ''): string => `(next_h, next_ti, next_ph, next_ix, next_tx) = (
-    SELECT h, ti, ph, ix, tx FROM (
-      SELECT * FROM (SELECT at_h AS h, at_ti AS ti, at_ph AS ph, at_ix AS ix, at_tx AS tx FROM drep_group_queue
-        WHERE subject = drep_group_tracked.cred AND applied = 0 AND (at_h, at_ti, at_ph, at_ix) > (${h}, ${ti}, ${ph}, ${ix})${queueExtra}
-        ORDER BY at_h, at_ti, at_ph, at_ix LIMIT 1)
-      UNION ALL
-      SELECT * FROM (SELECT block_height AS h, tx_index AS ti, 0 AS ph, cert_index AS ix, tx_hash AS tx
-        FROM drep_group_ledger WHERE cred = drep_group_tracked.cred
-          AND (block_height, tx_index, cert_index) > (${h}, ${ti}, CASE WHEN ${ph} = 0 THEN ${ix} ELSE ${MAX} END)
-        ORDER BY block_height, tx_index, cert_index LIMIT 1))
-    ORDER BY h, ti, ph, ix LIMIT 1)`;
+// Each side's first row is found on its own index by rowid and the earlier of the two is kept, so
+// nothing is sorted. Every bound appears four times, each time in the same order h, ti, ph, ix.
+const NEXT_AFTER = (h: string, ti: string, ph: string, ix: string, queueExtra = ''): string => {
+  const queueFirst = `(SELECT rowid FROM drep_group_queue
+      WHERE subject = drep_group_tracked.cred AND applied = 0 AND (at_h, at_ti, at_ph, at_ix) > (${h}, ${ti}, ${ph}, ${ix})${queueExtra}
+      ORDER BY at_h, at_ti, at_ph, at_ix LIMIT 1)`;
+  const ledgerFirst = `(SELECT rowid FROM drep_group_ledger
+      WHERE cred = drep_group_tracked.cred
+        AND (block_height, tx_index, cert_index) > (${h}, ${ti}, CASE WHEN ${ph} = 0 THEN ${ix} ELSE ${MAX} END)
+      ORDER BY block_height, tx_index, cert_index LIMIT 1)`;
+  return `(next_h, next_ti, next_ph, next_ix, next_tx) = (
+    SELECT nq.at_h, nq.at_ti, nq.at_ph, nq.at_ix, nq.at_tx FROM drep_group_queue nq WHERE nq.rowid = ${queueFirst}
+      AND NOT EXISTS (SELECT 1 FROM drep_group_ledger nl WHERE nl.rowid = ${ledgerFirst}
+        AND (nl.block_height, nl.tx_index, 0, nl.cert_index) < (nq.at_h, nq.at_ti, nq.at_ph, nq.at_ix))
+    UNION ALL
+    SELECT nl.block_height, nl.tx_index, 0, nl.cert_index, nl.tx_hash FROM drep_group_ledger nl WHERE nl.rowid = ${ledgerFirst}
+      AND NOT EXISTS (SELECT 1 FROM drep_group_queue nq WHERE nq.rowid = ${queueFirst}
+        AND (nq.at_h, nq.at_ti, nq.at_ph, nq.at_ix) < (nl.block_height, nl.tx_index, 0, nl.cert_index)))`;
+};
 const T = 'drep_group_tracked';
 const APPLIED_BOUND = [`COALESCE(${T}.applied_h, -1)`, `COALESCE(${T}.applied_ti, ${MAX})`, `COALESCE(${T}.applied_ph, 2)`, `COALESCE(${T}.applied_ix, ${MAX})`] as const;
 const APPLIED_UNREG = `FROM drep_group_ledger l WHERE l.cred = ${T}.cred AND l.kind = 'unreg'
@@ -417,7 +425,7 @@ const rebuildQueue = above('queue', 'drep_group_queue', 'at_h', [
     sql: (page) => `UPDATE drep_group_tracked SET gen = gen + 1,
       ${NEXT_AFTER(...APPLIED_BOUND, ` AND rowid NOT IN (${page})`)}
       WHERE cred IN (SELECT q.subject FROM drep_group_queue q WHERE q.rowid IN (${page}))`,
-    pages: 2,
+    pages: 3,
   },
   { sql: del('drep_group_queue') },
 ]);
@@ -497,7 +505,7 @@ export const PHASE_PARTS: Readonly<Record<RecoveryMode, Readonly<Record<string, 
         {
           sql: (page) => `UPDATE ${T} SET applied_h = ?, applied_ti = ${MAX}, applied_ph = 2, applied_ix = ${MAX}, applied_tx = '',
             gen = gen + 1, ${NEXT_AFTER('?', String(MAX), '2', String(MAX))} WHERE rowid IN (${page})`,
-          lead: 3,
+          lead: 5,
         },
       ]),
       above('next', T, 'next_h', [
@@ -783,21 +791,11 @@ export const Q = Object.freeze({
             rebuilding = CASE WHEN rec_first_kind IS NULL AND (?, ?, ?, ?) = (L, ${MAX}, 2, ${MAX}) THEN 0 ELSE rebuilding END
           WHERE id = 1`,
   },
-  // Binds the applied position, the credential and the applied order columns for the queue,
-  // the credential and the applied cert bound for the ledger, then the credential.
+  // Binds the applied position, its order columns four times (the bound of the next input), then
+  // the credential.
   credentialCursor: {
     sql: `UPDATE drep_group_tracked SET applied_h = ?, applied_ti = ?, applied_ph = ?, applied_ix = ?, applied_tx = ?,
-            gen = gen + 1,
-            (next_h, next_ti, next_ph, next_ix, next_tx) = (
-              SELECT h, ti, ph, ix, tx FROM (
-                SELECT * FROM (SELECT at_h AS h, at_ti AS ti, at_ph AS ph, at_ix AS ix, at_tx AS tx FROM drep_group_queue
-                  WHERE subject = ? AND applied = 0 AND (at_h, at_ti, at_ph, at_ix) > (?, ?, ?, ?)
-                  ORDER BY at_h, at_ti, at_ph, at_ix LIMIT 1)
-                UNION ALL
-                SELECT * FROM (SELECT block_height AS h, tx_index AS ti, 0 AS ph, cert_index AS ix, tx_hash AS tx
-                  FROM drep_group_ledger WHERE cred = ? AND (block_height, tx_index, cert_index) > (?, ?, ?)
-                  ORDER BY block_height, tx_index, cert_index LIMIT 1))
-              ORDER BY h, ti, ph, ix LIMIT 1)
+            gen = gen + 1, ${NEXT_AFTER('?', '?', '?', '?')}
           WHERE cred = ?`,
   },
   frontiers: {
@@ -876,7 +874,7 @@ export const Q_SAMPLE_BINDS: Readonly<Record<keyof typeof Q, unknown[]>> = Objec
   queueInputs: ['key:00', 1, 0, 2, 0, 2, 0, 2, 0, 10],
   ledgerInputs: ['key:00', 1, 0, 0, 2, 0, 0, 10],
   groupCursor: [1, 0, 2, 0, 'tx', 1, 0, 2, 0],
-  credentialCursor: [1, 0, 2, 0, 'tx', 'key:00', 1, 0, 2, 0, 'key:00', 1, 0, 0, 'key:00'],
+  credentialCursor: [1, 0, 2, 0, 'tx', 1, 0, 2, 0, 1, 0, 2, 0, 1, 0, 2, 0, 1, 0, 2, 0, 'key:00'],
   frontiers: [],
   pendingRecovery: [],
   metaRow: [],
