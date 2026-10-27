@@ -26,21 +26,22 @@ export const ENGINE_BUDGET: Budget = {
   truncateRows: 400,
   resetRows: 400,
 };
-// Rows written by one recovery call beyond its budget: guard 2 + meta row 1 + (max CHANGES_PER_ROW 10 - 1), the first
+// Rows written by one recovery call beyond its budget: guard 2 + meta row 1 + (max CHANGES_PER_ROW 11 - 1), the first
 // page of a call takes one row even when the budget is smaller than its cost.
-export const RECOVERY_STEP_OVERHEAD = 12;
-// D1 rows_written per source row of each phase, trigger rows included, measured with one row per page:
-// raw: the row and the pending_witness trigger. state: the row, a recompute job and the group's gen.
-// undo: the instance, a recompute job and gen, the statements of state. versions: the group row (gen inside), a recompute job, the profile
-// due upsert and the website due delete, or for a deleted group its row, two due rows and the trim due row.
-// credentials: the tracked row (gen inside) and a repair job. jobs: the job row. flags: closing or a power job.
-// markers: the flagged row.
+export const RECOVERY_STEP_OVERHEAD = 13;
+// Worst case D1 rows_written per source row of each phase, trigger rows included. An insert counts its row and
+// every index entry, a delete 1, an update its row and the index entries it inserts, an ignored insert 1.
+// raw: the row and the pending_witness trigger. state: the row, a new recompute job (5) and the group's gen.
+// undo: the instance, a new recompute job and gen. versions: the group row with its cur_h entry (2), a new
+// recompute job (5), a new profile due row (3) and the website due delete, or for a deleted group its row, two due
+// rows and the trim due row. credentials: the tracked row with its retired_at_h entry (2) and a new repair job (5).
+// jobs: the job row. flags: closing or a new power job. markers: the flagged row and its refetch entry.
 export const CHANGES_PER_ROW = {
   raw: 3,
   state: 7,
   undo: 7,
-  versions: 10,
-  credentials: 6,
+  versions: 11,
+  credentials: 7,
   jobs: 1,
   flags: 5,
   markers: 2,

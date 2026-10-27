@@ -207,12 +207,37 @@ async function stepUntil(t: Twin, target: string, cap = 5000): Promise<void> {
   throw new Error(`phase ${target} not reached`);
 }
 
-// Fixture of many credentials and groups with rows on both sides of the cut at 50.
-async function seedLarge(groups: number, creds: number): Promise<void> {
+// Fixture of many credentials and groups with rows on both sides of the cut at 50. The worst groups and
+// credentials come first in every page: listed groups with an anchor change above the cut, no profile due
+// row and no recompute job yet, credentials whose applied unreg below the cut remains after it.
+async function seedLarge(groups: number, creds: number, worst = { groups: 0, creds: 0 }): Promise<void> {
   const sql: string[] = [];
   const gtx = (g: number): string => hex(500_000 + g, 64);
   const cred = (c: number): string => `key:${hex(10_000 + c)}`;
   const at = (h: number, ti = 0): string => P(pos(h, ti));
+  for (let w = 0; w < worst.groups; w++) {
+    const id = `'${hex(400_000 + w, 64)}', 0`;
+    const vcols = `group_tx, group_ix, at_h, at_ti, at_ph, at_ix, at_tx, mode, control, admission, profile_url, profile_hash, seq,
+      status, created_h, created_ti, created_ph, created_ix, created_tx`;
+    sql.push(`INSERT INTO drep_group_versions (${vcols}) VALUES (${id}, ${at(10, 1)}, 'open', 'aa', NULL, 'https://a/w${w}', 'ha', '0', 'active', ${at(10, 1)}),
+      (${id}, ${at(60, 1)}, 'open', 'aa', NULL, 'https://b/w${w}', 'hb', '1', 'active', ${at(10, 1)})`);
+    sql.push(`INSERT INTO drep_groups (group_tx, group_ix, group_id, cur_h, cur_ti, cur_ph, cur_ix, cur_tx, mode, control, admission,
+        profile_url, profile_hash, seq, status, created_h, created_ti, created_ph, created_ix, created_tx, members)
+      VALUES (${id}, 'w${w}', ${at(60, 1)}, 'open', 'aa', NULL, 'https://b/w${w}', 'hb', '1', 'active', ${at(10, 1)}, 2)`);
+    sql.push(`INSERT INTO drep_group_due (kind, group_tx, group_ix, due_at) VALUES ('website', ${id}, 0)`);
+  }
+  for (let w = 0; w < worst.creds; w++) {
+    const k = `key:${hex(90_000 + w)}`;
+    const lt = (h: number): string => hex(3_000_000 + w, 56) + String(h).padStart(8, '0');
+    const certP = (h: number): string => `${h}, 0, 0, 0, '${lt(h)}'`;
+    sql.push(`INSERT INTO drep_group_tracked (cred, seq, drep_id, known, history_done, applied_h, applied_ti, applied_ph, applied_ix,
+        applied_tx, retiring, retired_at_h, retired_at_ti, retired_at_ph, retired_at_ix, retired_at_tx)
+      VALUES ('${k}', ${100_000 + w}, 'd', 1, 1, ${certP(70)}, 1, ${certP(65)})`);
+    sql.push(`INSERT INTO drep_group_ledger (tx_hash, cert_index, cred, drep_id, kind, block_height, block_hash, tx_index, block_time,
+        witness, witness_state)
+      VALUES ('${lt(20)}', 0, '${k}', 'd', 'reg', 20, 'b', 0, 400, NULL, 'na'), ('${lt(30)}', 0, '${k}', 'd', 'unreg', 30, 'b', 0, 600, NULL, 'na'),
+        ('${lt(65)}', 0, '${k}', 'd', 'unreg', 65, 'b', 0, 1300, NULL, 'na')`);
+  }
   for (let g = 0; g < groups; g++) {
     const kind = g % 3; // 0: created above the cut, 1: updated above the cut, 2: dissolved at 40
     const dissolvedAbove = kind === 1 && g % 6 === 1;
@@ -363,14 +388,16 @@ describe('drep groups ingest and recovery', () => {
   it(
     'keeps every truncation call within the row budget, the last one included',
     async () => {
-      await seedLarge(300, 1000);
+      for (const budget of [50, 400]) {
+      await finishTest();
+      await seedLarge(300, 1000, { groups: 40, creds: 60 });
       const t = await lease();
       await openRecovery(db, { kind: 'truncate', above: 50 }, t, 1000);
       const calls: number[] = [];
       let r: 'more' | 'done';
       do {
         const before = await meta();
-        const c = await changesPerCall(db, (d) => truncateStep(d, 50, 50, t));
+        const c = await changesPerCall(db, (d) => truncateStep(d, 50, budget, t));
         calls.push(c.changes);
         r = c.result;
         if (r === 'more') {
@@ -379,18 +406,18 @@ describe('drep groups ingest and recovery', () => {
           expect(now).toEqual(was);
         }
       } while (r === 'more');
-      expect(Math.max(...calls)).toBeLessThanOrEqual(50 + RECOVERY_STEP_OVERHEAD);
+      expect(Math.max(...calls)).toBeLessThanOrEqual(budget + RECOVERY_STEP_OVERHEAD);
       expect(await rowsAbove(50)).toBe(0);
       expect(await meta()).toMatchObject({ L: 50, L_hash: null, R: 50, G_h: 50, G_ti: MAX, reg_offset: 0, reg_time: 1000, rec_phase: 'done' });
       expect(await count('SELECT COUNT(*) AS n FROM drep_group_tracked WHERE history_offset > 0')).toBe(0);
-      expect(await count("SELECT COUNT(*) AS n FROM drep_group_tracked WHERE applied_h = 50 AND applied_ti = ?", MAX)).toBe(1000);
-      expect(await count('SELECT COUNT(*) AS n FROM drep_group_tracked WHERE retiring = 1')).toBe(0);
-      expect(await count("SELECT COUNT(*) AS n FROM drep_group_jobs WHERE kind = 'repair'")).toBe(500);
+      expect(await count("SELECT COUNT(*) AS n FROM drep_group_tracked WHERE applied_h = 50 AND applied_ti = ?", MAX)).toBe(1060);
+      expect(await count('SELECT COUNT(*) AS n FROM drep_group_tracked WHERE retiring = 1 AND retired_at_h = 30')).toBe(60);
+      expect(await count("SELECT COUNT(*) AS n FROM drep_group_jobs WHERE kind = 'repair'")).toBe(560);
       expect(await count("SELECT COUNT(*) AS n FROM drep_group_jobs WHERE kind IN ('dissolve', 'retire')")).toBe(0);
       expect(await count('SELECT COUNT(*) AS n FROM drep_group_jobs WHERE cursor_json IS NOT NULL')).toBe(0);
       // Every remaining group was touched: one recompute and one power job each.
       const groups = await count('SELECT COUNT(*) AS n FROM drep_groups');
-      expect(groups).toBe(200);
+      expect(groups).toBe(240);
       for (const kind of ['recompute', 'power']) {
         expect(
           await count(
@@ -404,6 +431,45 @@ describe('drep groups ingest and recovery', () => {
       // Deleted groups leave no due rows, restored ones keep a profile due row and lose the website one.
       expect(await count("SELECT COUNT(*) AS n FROM drep_group_due WHERE kind = 'website'")).toBe(100);
       expect(await count('SELECT COUNT(*) AS n FROM drep_group_trim_due')).toBe(200);
+      expect(await count("SELECT COUNT(*) AS n FROM drep_group_due WHERE kind = 'profile' AND group_tx >= ? AND group_tx < ?", hex(400_000, 64), hex(500_000, 64))).toBe(40);
+      }
+    },
+    HEAVY,
+  );
+
+  it(
+    'keeps a call that starts on a page of the worst rows within the row budget',
+    async () => {
+      // The phases before were run already (their rows are gone), each call starts on the worst page.
+      for (const [phaseName, budget] of [
+        ['versions', 400],
+        ['versions', 50],
+        ['credentials', 400],
+        ['credentials', 50],
+      ] as const) {
+        await finishTest();
+        await seedLarge(0, 0, phaseName === 'versions' ? { groups: 60, creds: 0 } : { groups: 0, creds: 80 });
+        await exec(
+          'DELETE FROM drep_group_versions WHERE at_h > 50',
+          'DELETE FROM drep_group_ledger WHERE block_height > 50',
+          `UPDATE drep_group_tracked SET applied_h = 50, applied_ti = ${MAX}, applied_ph = 2, applied_ix = ${MAX}, applied_tx = ''`,
+        );
+        const t = await lease();
+        await openRecovery(db, { kind: 'truncate', above: 50 }, t, 1000);
+        await setMeta({ rec_phase: phaseName });
+        const c = await changesPerCall(db, (d) => truncateStep(d, 50, budget, t));
+        expect(c.result).toBe('more');
+        expect(c.changes).toBeGreaterThan(budget - 20);
+        expect(c.changes).toBeLessThanOrEqual(budget + RECOVERY_STEP_OVERHEAD);
+        await stepToDone(() => truncateStep(db, 50, budget, t));
+        if (phaseName === 'versions') {
+          expect(await count("SELECT COUNT(*) AS n FROM drep_group_due WHERE kind = 'profile'")).toBe(60);
+          expect(await count("SELECT COUNT(*) AS n FROM drep_group_jobs WHERE kind = 'recompute'")).toBe(60);
+        } else {
+          expect(await count("SELECT COUNT(*) AS n FROM drep_group_tracked WHERE retiring = 1 AND retired_at_h = 30")).toBe(80);
+          expect(await count("SELECT COUNT(*) AS n FROM drep_group_jobs WHERE kind = 'repair'")).toBe(80);
+        }
+      }
     },
     HEAVY,
   );

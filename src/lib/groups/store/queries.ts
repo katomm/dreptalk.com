@@ -365,7 +365,8 @@ const above = (name: string, table: string, col: string, stmts?: PagedPart['stmt
   from: table,
   where: `${col} > ?`,
   cut: true,
-  order: col,
+  // rowid makes the order total, so every statement of a batch selects the same page.
+  order: `${col}, rowid`,
   key: 'rowid',
   stmts: stmts ?? [{ sql: del(table) }],
 });
@@ -443,7 +444,7 @@ const resetState = (queue: PagedPart): PagedPart[] => [
     from: 'drep_group_due',
     where: "kind IN ('profile', 'website')",
     cut: false,
-    order: 'kind, due_at',
+    order: 'kind, due_at, rowid',
     key: 'rowid',
     stmts: [{ sql: del('drep_group_due') }],
   },
@@ -456,9 +457,10 @@ export const PHASE_PARTS: Readonly<Record<RecoveryMode, Readonly<Record<string, 
       {
         name: 'triggered',
         from: 'drep_group_jobs',
-        where: "trigger_h > ? AND kind IN ('dissolve', 'retire')",
+        // The unary plus keeps the kind index out, so the page walks the trigger index in order.
+        where: "trigger_h > ? AND +kind IN ('dissolve', 'retire')",
         cut: true,
-        order: 'trigger_h',
+        order: 'trigger_h, id',
         key: 'id',
         stmts: [{ sql: (page) => `DELETE FROM drep_group_jobs WHERE id IN (${page})` }],
       },
@@ -526,7 +528,7 @@ export const PHASE_PARTS: Readonly<Record<RecoveryMode, Readonly<Record<string, 
         from: T,
         where: 'solo = 1 AND history_offset > 0',
         cut: false,
-        order: 'solo',
+        order: 'solo, rowid',
         key: 'rowid',
         stmts: [{ sql: (page) => `UPDATE ${T} SET history_offset = 0, gen = gen + 1 WHERE rowid IN (${page})` }],
         boundedScan: 'drep_group_tracked_solo',
@@ -567,7 +569,7 @@ export const PHASE_PARTS: Readonly<Record<RecoveryMode, Readonly<Record<string, 
         from: T,
         where: 'applied_h IS NOT NULL',
         cut: false,
-        order: 'applied_h',
+        order: 'applied_h, rowid',
         key: 'rowid',
         stmts: [
           {
@@ -583,7 +585,7 @@ export const PHASE_PARTS: Readonly<Record<RecoveryMode, Readonly<Record<string, 
         from: 'drep_group_txs',
         where: 'marker = 1 AND refetch = 0',
         cut: false,
-        order: 'block_height',
+        order: 'block_height, rowid',
         key: 'rowid',
         stmts: [{ sql: (page) => `UPDATE drep_group_txs SET refetch = 1 WHERE rowid IN (${page})` }],
         boundedScan: 'drep_group_txs_marker',
@@ -640,7 +642,7 @@ const VERSIONS_PAGE = `SELECT g.group_tx AS k_gtx, g.group_ix AS k_gix, g.profil
     SELECT x.rowid FROM drep_group_versions x
     WHERE x.group_tx = g.group_tx AND x.group_ix = g.group_ix AND x.at_h <= ?
     ORDER BY x.at_h DESC, x.at_ti DESC, x.at_ph DESC, x.at_ix DESC LIMIT 1)
-  WHERE g.cur_h > ? ORDER BY g.cur_h LIMIT ?`;
+  WHERE g.cur_h > ? ORDER BY g.cur_h, g.rowid LIMIT ?`;
 
 const RESTORE_COLS = `cur_h, cur_ti, cur_ph, cur_ix, cur_tx, mode, control, admission, profile_url, profile_hash, seq, status,
   ${POS('created')}, ${POS('profile_set')}`;
