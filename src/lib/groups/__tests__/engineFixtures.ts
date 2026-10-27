@@ -11,7 +11,9 @@ import type {
   Pos,
   StoredInstance,
 } from 'drep-groups';
-import { parseNativeScript } from 'drep-groups';
+import type { EngineSnapshot } from 'drep-groups';
+import { credKey, parseNativeScript } from 'drep-groups';
+import { credFromKey, decodeContext, decodeEvent, instanceFromRow, posFromRow, versionFromRow } from '../codec.js';
 import type { PreRead } from '../store/commit.js';
 
 export type Unit = { change: ChangeSet; cursor: CursorUpdate };
@@ -208,4 +210,158 @@ export function worstCaseCredentialUnits(units: number, inputs: number): Unit[] 
     out.push({ change, cursor: { kind: 'credential', credential: c, appliedThrough: last } });
   }
   return out;
+}
+
+type Row = Record<string, unknown>;
+
+/** The stored engine state in the shape both stores can be compared in, every list canonically ordered. */
+export interface ComparableSnapshot {
+  frontiers: { L: number; R: number | null; G: Pos };
+  versions: string[];
+  scripts: string[];
+  memberScripts: string[];
+  instances: string[];
+  verdicts: string[];
+  queue: string[];
+  txContexts: string[];
+  labelTxs: string[];
+  ledger: string[];
+  appliedThrough: string[];
+}
+
+// JSON with sorted object keys, so field order never matters.
+const sorted = (_k: string, v: unknown): unknown => {
+  if (typeof v === 'bigint') return `${v}n`;
+  if (v === null || typeof v !== 'object' || Array.isArray(v)) return v;
+  return Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+};
+const canon = (xs: unknown[]): string[] => xs.map((x) => JSON.stringify(x, sorted)).sort();
+
+/** The reference store's snapshot in comparable form. Verdicts without a group are not stored by D1. */
+export function comparableMemory(s: EngineSnapshot): ComparableSnapshot {
+  return {
+    frontiers: s.frontiers,
+    versions: canon(s.versions),
+    scripts: canon(s.scripts.map((x) => ({ hash: x.hash, at: x.at }))),
+    memberScripts: canon(s.memberScripts.map((x) => ({ credential: credKey(x.credential), at: x.at }))),
+    instances: canon(s.instances),
+    verdicts: canon(s.verdicts.filter((v) => v.group !== null)),
+    queue: canon(s.queue),
+    txContexts: canon(s.txContexts),
+    labelTxs: canon(s.labelTxs),
+    ledger: canon(
+      s.ledger.map((l) => ({ kind: l.kind, credential: credKey(l.credential), txHash: l.txHash, blockHeight: l.blockHeight, txIndex: l.txIndex, certIndex: l.certIndex })),
+    ),
+    appliedThrough: canon(s.appliedThrough.map((a) => ({ credential: credKey(a.credential), at: a.at }))),
+  };
+}
+
+/** The D1 store's state in comparable form, with the stored L (not the L held below flagged markers). */
+export async function comparableD1(db: D1Database): Promise<ComparableSnapshot> {
+  const all = async (sql: string): Promise<Row[]> => (await db.prepare(sql).all<Row>()).results ?? [];
+  const meta = (await all('SELECT * FROM drep_group_meta WHERE id = 1'))[0] as Row;
+  const ref = (tx: unknown, ix: unknown): EventRef => ({ txHash: String(tx), index: Number(ix) });
+  return {
+    frontiers: { L: Number(meta.L), R: meta.R === null ? null : Number(meta.R), G: posFromRow(meta, 'G') },
+    versions: canon((await all('SELECT * FROM drep_group_versions')).map(versionFromRow)),
+    scripts: canon((await all('SELECT * FROM drep_group_scripts')).map((r) => ({ hash: String(r.hash), at: posFromRow(r, 'at') }))),
+    memberScripts: canon(
+      (await all('SELECT * FROM drep_group_member_scripts')).map((r) => ({ credential: String(r.cred), at: posFromRow(r, 'at') })),
+    ),
+    instances: canon((await all('SELECT * FROM drep_group_instances')).map(instanceFromRow)),
+    verdicts: canon(
+      (await all('SELECT * FROM drep_group_verdicts')).map((r) => ({
+        ref: ref(r.tx_hash, r.idx),
+        tag: String(r.tag),
+        valid: Number(r.valid) === 1,
+        reason: r.reason === null ? null : String(r.reason),
+        at: posFromRow(r, 'at'),
+        group: ref(r.group_tx, r.group_ix),
+        subject: r.subject === null ? null : credFromKey(String(r.subject)),
+      })),
+    ),
+    queue: canon(
+      (await all('SELECT * FROM drep_group_queue')).map((r) => ({
+        subject: credFromKey(String(r.subject)),
+        at: posFromRow(r, 'at'),
+        group: r.group_tx === null ? null : ref(r.group_tx, r.group_ix),
+        txHash: String(r.tx_hash),
+        event: decodeEvent(String(r.event_json)),
+        applied: Number(r.applied) === 1,
+      })),
+    ),
+    txContexts: canon(
+      (await all('SELECT * FROM drep_group_tx_context')).map((r) => ({
+        txHash: String(r.tx_hash),
+        blockHeight: Number(r.block_height),
+        txIndex: Number(r.tx_index),
+        context: decodeContext(r),
+      })),
+    ),
+    labelTxs: canon(
+      (await all('SELECT * FROM drep_group_txs')).map((r) => ({
+        txHash: String(r.tx_hash),
+        blockHeight: Number(r.block_height),
+        txIndex: Number(r.tx_index),
+        marker: Number(r.marker) === 1,
+      })),
+    ),
+    ledger: canon(
+      (await all('SELECT * FROM drep_group_ledger')).map((r) => ({
+        kind: String(r.kind),
+        credential: String(r.cred),
+        txHash: String(r.tx_hash),
+        blockHeight: Number(r.block_height),
+        txIndex: Number(r.tx_index),
+        certIndex: Number(r.cert_index),
+      })),
+    ),
+    appliedThrough: canon(
+      (await all('SELECT * FROM drep_group_tracked WHERE applied_h IS NOT NULL')).map((r) => ({
+        credential: String(r.cred),
+        at: posFromRow(r, 'applied'),
+      })),
+    ),
+  };
+}
+
+/** Wraps a database so the rows_written of every statement of one call are summed, trigger rows included. */
+export async function changesPerCall<T>(db: D1Database, call: (db: D1Database) => Promise<T>): Promise<{ result: T; changes: number }> {
+  let changes = 0;
+  const add = (r: D1Result): void => {
+    const w = (r.meta as { rows_written?: number }).rows_written;
+    if (w === undefined) throw new Error('rows_written not reported');
+    changes += w;
+  };
+  const wrapStmt = (st: D1PreparedStatement): D1PreparedStatement =>
+    new Proxy(st, {
+      get(target, p) {
+        if (p === 'bind') return (...args: unknown[]) => wrapStmt(target.bind(...args));
+        if (p === 'run' || p === 'all') {
+          return async () => {
+            const r = await (target[p] as () => Promise<D1Result>).call(target);
+            add(r);
+            return r;
+          };
+        }
+        const v = Reflect.get(target, p);
+        return typeof v === 'function' ? v.bind(target) : v;
+      },
+    });
+  const counted = new Proxy(db, {
+    get(target, p) {
+      if (p === 'prepare') return (sql: string) => wrapStmt(target.prepare(sql));
+      if (p === 'batch') {
+        return async (stmts: D1PreparedStatement[]) => {
+          const res = await target.batch(stmts);
+          for (const r of res) add(r);
+          return res;
+        };
+      }
+      const v = Reflect.get(target, p);
+      return typeof v === 'function' ? v.bind(target) : v;
+    },
+  });
+  const result = await call(counted);
+  return { result, changes };
 }

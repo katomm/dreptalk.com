@@ -26,19 +26,24 @@ export const ENGINE_BUDGET: Budget = {
   truncateRows: 400,
   resetRows: 400,
 };
-// guard 2 + meta row 1 + (max CHANGES_PER_ROW 4 - 1): a budget 1 call changes 4 + 3 = 7 = 1 + 6
-export const RECOVERY_STEP_OVERHEAD = 6;
-// state, undo: row + recompute job + gen. versions: group row (gen inside) + recompute job + profile and website due rows,
-// or for a deleted group its row + two due rows + trim due row. credentials: tracked row (gen inside) + repair job.
+// Rows written by one recovery call beyond its budget: guard 2 + meta row 1 + (max CHANGES_PER_ROW 10 - 1), the first
+// page of a call takes one row even when the budget is smaller than its cost.
+export const RECOVERY_STEP_OVERHEAD = 12;
+// D1 rows_written per source row of each phase, trigger rows included, measured with one row per page:
+// raw: the row and the pending_witness trigger. state: the row, a recompute job and the group's gen.
+// undo: the instance, a recompute job and gen, the statements of state. versions: the group row (gen inside), a recompute job, the profile
+// due upsert and the website due delete, or for a deleted group its row, two due rows and the trim due row.
+// credentials: the tracked row (gen inside) and a repair job. jobs: the job row. flags: closing or a power job.
+// markers: the flagged row.
 export const CHANGES_PER_ROW = {
-  raw: 2,
-  state: 3,
-  undo: 3,
-  versions: 4,
-  credentials: 2,
+  raw: 3,
+  state: 7,
+  undo: 7,
+  versions: 10,
+  credentials: 6,
   jobs: 1,
-  flags: 2,
-  reset: 2,
+  flags: 5,
+  markers: 2,
 } as const;
 // Measured worst case of one commit, guard included: 60 for the group commit, 35 for the credential commit.
 export const COMMIT_MAX_STATEMENTS = 150; // worst case of one commit

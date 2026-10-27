@@ -48,8 +48,13 @@ export function isLeaseFailure(err: unknown): boolean {
 
 /** Runs the statements between the guard and its end in one batch. A lost lease rejects with LeaseLostError. */
 export async function writeBatch(db: D1Database, token: string, stmts: D1PreparedStatement[]): Promise<void> {
+  await guardedBatch(db, token, stmts);
+}
+
+/** writeBatch that returns every result, the guard's included. */
+export async function guardedBatch(db: D1Database, token: string, stmts: D1PreparedStatement[]): Promise<D1Result[]> {
   try {
-    await db.batch([leaseGuard(db, token), ...stmts, leaseGuardEnd(db)]);
+    return await db.batch([leaseGuard(db, token), ...stmts, leaseGuardEnd(db)]);
   } catch (err) {
     if (isLeaseFailure(err)) throw new LeaseLostError('lease lost', { cause: err });
     throw err;
