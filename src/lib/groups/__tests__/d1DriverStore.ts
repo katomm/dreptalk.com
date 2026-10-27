@@ -17,7 +17,6 @@ import {
   posFromRow,
   versionFromRow,
 } from '../codec.js';
-import { drepIdForCredential } from '../ids.js';
 import { D1Store } from '../store/d1Store.js';
 import { storeLabelTxs, storeLedgerRows } from '../store/ingest.js';
 import { acquireLease, writeBatch } from '../store/lease.js';
@@ -33,9 +32,9 @@ const blockTime = (h: number): number => h * 20;
 // the reference store's default.
 const SWEEP_COMPLETE = `UPDATE drep_group_tracked SET known = 1, history_done = 1
   WHERE (known IS NULL OR known <> 1 OR history_done <> 1) AND cred NOT IN (SELECT unhex(value) FROM json_each(?))`;
-// Binds the credential, its DRep id and history_done.
-const SET_COMPLETE = `INSERT INTO drep_group_tracked (cred, seq, drep_id, known, history_done)
-  VALUES (?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM drep_group_tracked), ?, 1, CAST(? AS INTEGER))
+// Binds the credential and history_done.
+const SET_COMPLETE = `INSERT INTO drep_group_tracked (cred, seq, known, history_done)
+  VALUES (?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM drep_group_tracked), 1, CAST(? AS INTEGER))
   ON CONFLICT (cred) DO UPDATE SET known = 1, history_done = excluded.history_done`;
 // Binds whether to set L, L, whether to set R, R.
 const SET_FRONTIERS = `UPDATE drep_group_meta SET L = CASE WHEN ? = 1 THEN CAST(? AS INTEGER) ELSE L END,
@@ -98,7 +97,7 @@ export class D1DriverStore extends D1Store implements DriverStore {
     const c = input.credential;
     // The tracked row exists before its first ledger row.
     await this.held((t) =>
-      writeBatch(this.db, t, [this.db.prepare(INGEST.trackCreds(1)).bind(credBytes(credKey(c)), drepIdForCredential(c), 1), this.sweep()]),
+      writeBatch(this.db, t, [this.db.prepare(INGEST.trackCreds(1)).bind(credBytes(credKey(c)), 1), this.sweep()]),
     );
     const script = c.kind === 'script' && input.kind === 'reg';
     const [r] = await this.held((t) =>
@@ -108,7 +107,6 @@ export class D1DriverStore extends D1Store implements DriverStore {
         [
           {
             input,
-            drepId: drepIdForCredential(c),
             blockHash: input.txHash,
             blockTime: blockTime(input.blockHeight),
             witnessState: script ? 'checked' : 'na',
@@ -131,7 +129,7 @@ export class D1DriverStore extends D1Store implements DriverStore {
   async setComplete(c: Credential, complete: boolean): Promise<void> {
     if (complete) this.incomplete.delete(credKey(c));
     else this.incomplete.add(credKey(c));
-    const stmt = this.db.prepare(SET_COMPLETE).bind(credBytes(credKey(c)), drepIdForCredential(c), complete ? 1 : 0);
+    const stmt = this.db.prepare(SET_COMPLETE).bind(credBytes(credKey(c)), complete ? 1 : 0);
     await this.held((t) => writeBatch(this.db, t, [stmt]));
   }
 

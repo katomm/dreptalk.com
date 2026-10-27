@@ -5,7 +5,6 @@ import type { Budget, ChainTx, Credential, LedgerInput } from 'drep-groups';
 import { bytesToHex, credKey, hexToBytes, nativeScriptHash, runEngine } from 'drep-groups';
 import { countingDb } from '../../sync/queryBudget.js';
 import { credBytes, hashBytes } from '../codec.js';
-import { drepIdForCredential } from '../ids.js';
 import { D1Store } from '../store/d1Store.js';
 import { storeLabelTxs, storeLedgerRows } from '../store/ingest.js';
 import { writeBatch } from '../store/lease.js';
@@ -113,14 +112,13 @@ export async function deliver(db: D1Database, lease: string, inputs: Input[], to
     await writeBatch(
       db,
       lease,
-      [...creds.entries()].map(([k, c]) => db.prepare(INGEST.trackCreds(1)).bind(credBytes(k), drepIdForCredential(c), 1)),
+      [...creds.keys()].map((k) => db.prepare(INGEST.trackCreds(1)).bind(credBytes(k), 1)),
     );
     await storeLedgerRows(
       ingestDb,
       lease,
       ledger.map((input) => ({
         input,
-        drepId: drepIdForCredential(input.credential),
         blockHash: input.txHash,
         blockTime: input.blockHeight * 20,
         witnessState: 'na' as const,
@@ -266,10 +264,10 @@ function joinRows(
 /** Tracked rows of `credSql(credBase)`, applied through `applied` (a position SQL list or NULLs). */
 function trackedRows(db: D1Database, n: number, credBase: number, o: { known: number; done: number; applied: string; next: string }): D1PreparedStatement {
   return db.prepare(`${series(n)}
-    INSERT INTO drep_group_tracked (cred, seq, drep_id, known, history_done, applied_h, applied_ti, applied_ph, applied_ix,
+    INSERT INTO drep_group_tracked (cred, seq, known, history_done, applied_h, applied_ti, applied_ph, applied_ix,
       applied_tx, next_h, next_ti, next_ph, next_ix, next_tx)
     SELECT ${credSql(credBase)}, (SELECT COALESCE(MAX(seq), 0) FROM drep_group_tracked) + 1 + s.i,
-      'drep1load' || printf('%056x', ${credBase} + s.i), ${o.known}, ${o.done}, ${o.applied}, ${o.next} FROM s`);
+      ${o.known}, ${o.done}, ${o.applied}, ${o.next} FROM s`);
 }
 
 /** Ledger rows of `cred` (an SQL expression), kind by `kind` (an SQL expression), at heights `h`. */
@@ -280,9 +278,9 @@ function ledgerRows(
 ): D1PreparedStatement {
   const tx = hashSql(o.txBase, o.txExpr);
   return db.prepare(`${series(n)}
-    INSERT INTO drep_group_ledger (tx_hash, cert_index, cred, drep_id, kind, block_height, block_hash, tx_index, block_time,
+    INSERT INTO drep_group_ledger (tx_hash, cert_index, cred, kind, block_height, block_hash, tx_index, block_time,
       witness, witness_state)
-    SELECT ${tx}, 0, ${o.cred}, 'drep1load', ${o.kind}, ${o.h}, ${tx}, 0, (${o.h}) * 20, NULL, 'na'
+    SELECT ${tx}, 0, ${o.cred}, ${o.kind}, ${o.h}, ${tx}, 0, (${o.h}) * 20, NULL, 'na'
     FROM s`);
 }
 
@@ -431,8 +429,8 @@ export const SHAPES: Shape[] = [
       return {
         stmts: [
           db
-            .prepare(`INSERT INTO drep_group_tracked (cred, seq, drep_id, known, history_done, applied_h, applied_ti, applied_ph,
-              applied_ix, applied_tx) VALUES (${c}, (SELECT COALESCE(MAX(seq), 0) + 1 FROM drep_group_tracked), 'drep1load', 1, 1,
+            .prepare(`INSERT INTO drep_group_tracked (cred, seq, known, history_done, applied_h, applied_ti, applied_ph,
+              applied_ix, applied_tx) VALUES (${c}, (SELECT COALESCE(MAX(seq), 0) + 1 FROM drep_group_tracked), 1, 1,
               ?, ?, ?, ?, ?)`)
             .bind(...(n > 0 ? [last, 0, 0, 0, hashBytes(lastTx)] : [null, null, null, null, null])),
           ledgerRows(db, n, { txBase: 5_000_000, cred: c, kind: "CASE WHEN s.i % 2 = 0 THEN 'reg' ELSE 'unreg' END", h }),

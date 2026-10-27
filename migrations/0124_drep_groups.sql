@@ -34,7 +34,6 @@ CREATE TABLE IF NOT EXISTS drep_group_ledger (
   tx_hash BLOB NOT NULL,
   cert_index INTEGER NOT NULL,
   cred BLOB NOT NULL,
-  drep_id TEXT NOT NULL,
   kind TEXT NOT NULL CHECK (kind IN ('reg', 'unreg')),
   block_height INTEGER NOT NULL,
   block_hash BLOB NOT NULL,
@@ -55,7 +54,6 @@ CREATE INDEX IF NOT EXISTS drep_group_ledger_pending ON drep_group_ledger (witne
 CREATE TABLE IF NOT EXISTS drep_group_tracked (
   cred BLOB PRIMARY KEY,
   seq INTEGER NOT NULL UNIQUE,
-  drep_id TEXT,
   known INTEGER,
   history_done INTEGER NOT NULL DEFAULT 0,
   solo INTEGER NOT NULL DEFAULT 0,
@@ -166,11 +164,11 @@ CREATE TABLE IF NOT EXISTS drep_group_versions (
 CREATE INDEX IF NOT EXISTS drep_group_versions_height ON drep_group_versions (at_h);
 CREATE INDEX IF NOT EXISTS drep_group_versions_dissolved ON drep_group_versions (group_tx, group_ix) WHERE status = 'dissolved';
 
--- One row per group: its current version and the published counters.
+-- One row per group: its current version and the published counters. The bech32 group id is
+-- derived from (group_tx, group_ix) in the worker.
 CREATE TABLE IF NOT EXISTS drep_groups (
   group_tx BLOB NOT NULL,
   group_ix INTEGER NOT NULL,
-  group_id TEXT NOT NULL UNIQUE,
   cur_h INTEGER NOT NULL, cur_ti INTEGER NOT NULL, cur_ph INTEGER NOT NULL, cur_ix INTEGER NOT NULL, cur_tx BLOB NOT NULL,
   mode TEXT NOT NULL,
   control BLOB NOT NULL,
@@ -194,7 +192,7 @@ CREATE TABLE IF NOT EXISTS drep_groups (
   gen INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (group_tx, group_ix)
 );
-CREATE INDEX IF NOT EXISTS drep_groups_listed ON drep_groups (member_power DESC, group_id) WHERE members >= 2;
+CREATE INDEX IF NOT EXISTS drep_groups_listed ON drep_groups (member_power DESC, group_tx, group_ix) WHERE members >= 2;
 CREATE INDEX IF NOT EXISTS drep_groups_cur ON drep_groups (cur_h);
 CREATE INDEX IF NOT EXISTS drep_groups_dissolved ON drep_groups (dissolved_h) WHERE dissolved_h IS NOT NULL;
 
@@ -325,9 +323,10 @@ CREATE TABLE IF NOT EXISTS drep_group_lease_check (
 
 -- Fetched group profiles (off-chain anchor documents).
 CREATE TABLE IF NOT EXISTS drep_group_profiles (
-  group_id TEXT PRIMARY KEY,
+  group_tx BLOB NOT NULL,
+  group_ix INTEGER NOT NULL,
   profile_url TEXT,
-  data_hash TEXT,
+  data_hash BLOB,
   status TEXT,
   name TEXT,
   description TEXT,
@@ -337,7 +336,8 @@ CREATE TABLE IF NOT EXISTS drep_group_profiles (
   payment_addresses_json TEXT,
   fetched_at INTEGER,
   website_verified_at INTEGER,
-  website_checked_at INTEGER
+  website_checked_at INTEGER,
+  PRIMARY KEY (group_tx, group_ix)
 );
 
 -- A voting power change of a DRep with an open instance queues it for the power scan,

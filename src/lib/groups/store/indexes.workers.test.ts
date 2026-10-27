@@ -17,7 +17,7 @@ describe('query plans of the DRep groups store', () => {
 
   it('accepts the first listed groups page as a bounded keyset scan', async () => {
     const q = {
-      sql: 'SELECT group_tx, group_ix FROM drep_groups WHERE members >= 2 ORDER BY member_power DESC, group_id LIMIT ?',
+      sql: 'SELECT group_tx, group_ix FROM drep_groups WHERE members >= 2 ORDER BY member_power DESC, group_tx, group_ix LIMIT ?',
       boundedScan: 'drep_groups_listed',
     };
     const plan = await planOf(env.DB, q.sql, [50]);

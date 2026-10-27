@@ -67,8 +67,8 @@ describe('drep group lease', () => {
     const token = (await acquireLease(db, invocationOwner())) as string;
     const bad = db
       .prepare(
-        `INSERT INTO drep_group_ledger (tx_hash, cert_index, cred, drep_id, kind, block_height, block_hash, tx_index, block_time, witness_state)
-         VALUES (X'0f', 0, X'00aa', 'drep1x', 'x', 1, X'0b', 0, 0, 'na')`,
+        `INSERT INTO drep_group_ledger (tx_hash, cert_index, cred, kind, block_height, block_hash, tx_index, block_time, witness_state)
+         VALUES (X'0f', 0, X'00aa', 'x', 1, X'0b', 0, 0, 'na')`,
       );
     const err = await writeBatch(db, token, [bad]).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(Error);
@@ -79,8 +79,8 @@ describe('drep group lease', () => {
 
 async function track(cred: string, seq: number, known: number | null, historyDone: number): Promise<void> {
   await db
-    .prepare('INSERT INTO drep_group_tracked (cred, seq, drep_id, known, history_done) VALUES (?, ?, ?, ?, ?)')
-    .bind(credBytes(cred), seq, `drep_${cred}`, known, historyDone)
+    .prepare('INSERT INTO drep_group_tracked (cred, seq, known, history_done) VALUES (?, ?, ?, ?)')
+    .bind(credBytes(cred), seq, known, historyDone)
     .run();
 }
 
@@ -94,8 +94,8 @@ async function tracked(cred: string): Promise<{ complete: number; pending_witnes
 function ledgerRow(cred: string, idx: number, state: string): D1PreparedStatement {
   return db
     .prepare(
-      `INSERT INTO drep_group_ledger (tx_hash, cert_index, cred, drep_id, kind, block_height, block_hash, tx_index, block_time, witness_state)
-       VALUES (X'0f', ?, ?, 'drep1x', 'reg', 1, X'0b', 0, 0, ?)`,
+      `INSERT INTO drep_group_ledger (tx_hash, cert_index, cred, kind, block_height, block_hash, tx_index, block_time, witness_state)
+       VALUES (X'0f', ?, ?, 'reg', 1, X'0b', 0, 0, ?)`,
     )
     .bind(idx, credBytes(cred), state);
 }

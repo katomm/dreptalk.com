@@ -7,8 +7,13 @@
 //
 // Storage of spam, measured on the local D1: 1,000 valid compact creates with a founder join,
 // and 1,000 creates batched 64 per tx with one registered founder and one shared control script.
-// With hashes and keys as hex text a compact create cost 6,267 bytes and a batched one 4,465.
-// Stored as bytes, a compact create costs 4,047 to 4,051 bytes and a batched one 2,957.
+// With hashes and keys as hex text and the derivable ids stored, a compact create cost 6,267
+// bytes and a batched one 4,465. With hashes and keys as bytes and without the stored group id
+// and the DRep ids of ledger and tracked rows, a compact create costs 3,744 bytes and a batched
+// one 2,781. Stored values of a compact create, indexes and page overhead not included, in bytes:
+// queue 279 (event_json 144), verdicts 250 (2 rows), txs 245 (payload 112), instances 200,
+// scripts 183, groups 159, versions 149, ledger 110, jobs 107 (the power job), tx_context 93,
+// tracked 78, trim_due 37, 1,888 in all. The bounds are the measured values rounded up to 250.
 import { env } from 'cloudflare:test';
 import type { Budget } from 'drep-groups';
 import { endOf, runEngine } from 'drep-groups';
@@ -232,8 +237,7 @@ describe('the worst case of one engine run', () => {
   });
 });
 
-// The measured bytes per create rounded up to the next 250.
-const COMPACT_BOUND = 4_250;
+const COMPACT_BOUND = 3_750;
 const BATCHED_BOUND = 3_000;
 
 const sizeAfter = async (): Promise<number> => (await env.DB.prepare('SELECT 1').all()).meta.size_after as number;

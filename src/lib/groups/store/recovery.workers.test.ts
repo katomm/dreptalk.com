@@ -19,7 +19,6 @@ import {
 } from '../__tests__/engineFixtures.js';
 import { credBytes, credFromKey, credKeyFromCol, hashBytes } from '../codec.js';
 import { ENGINE_BUDGET, RECOVERY_STEP_OVERHEAD, WITNESS_BACKOFF_BASE_MS } from '../constants.js';
-import { drepIdForCredential } from '../ids.js';
 import { commit } from './commit.js';
 import { D1Store } from './d1Store.js';
 import {
@@ -69,13 +68,12 @@ const certAt = (h: number, ix = 0): Pos => pos(h, 0, 0, ix);
 const noTime = async (): Promise<number | null> => null;
 
 async function track(c: Credential, seq: number, over: Record<string, string | number> = {}): Promise<void> {
-  const cols = { cred: C(credKey(c)), seq, drep_id: `'${drepIdForCredential(c)}'`, known: 1, history_done: 1, ...over };
+  const cols = { cred: C(credKey(c)), seq, known: 1, history_done: 1, ...over };
   await exec(`INSERT INTO drep_group_tracked (${Object.keys(cols).join(', ')}) VALUES (${Object.values(cols).join(', ')})`);
 }
 
 const ledgerRow = (c: Credential, kind: 'reg' | 'unreg', h: number, ix = 0, blockTime = h * 20): StoredLedgerRow => ({
   input: { kind, credential: c, txHash: txHashOf(h), blockHeight: h, txIndex: 0, certIndex: ix },
-  drepId: drepIdForCredential(c),
   blockHash: hex(h, 64),
   blockTime,
   witnessState: 'na',
@@ -139,10 +137,10 @@ class Twin {
     const c = input.credential;
     await db
       .prepare(
-        `INSERT OR IGNORE INTO drep_group_tracked (cred, seq, drep_id, known, history_done)
-         VALUES (?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM drep_group_tracked), ?, 1, 1)`,
+        `INSERT OR IGNORE INTO drep_group_tracked (cred, seq, known, history_done)
+         VALUES (?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM drep_group_tracked), 1, 1)`,
       )
-      .bind(credBytes(credKey(c)), drepIdForCredential(c))
+      .bind(credBytes(credKey(c)))
       .run();
     await exec(`UPDATE drep_group_tracked SET known = 1, history_done = 1 WHERE known IS NULL AND cred = ${C(credKey(c))}`);
     const script = c.kind === 'script' && input.kind === 'reg';
@@ -226,9 +224,9 @@ async function seedLarge(groups: number, creds: number, worst = { groups: 0, cre
       status, created_h, created_ti, created_ph, created_ix, created_tx`;
     sql.push(`INSERT INTO drep_group_versions (${vcols}) VALUES (${id}, ${at(10, 1)}, 'open', X'aa', NULL, 'https://a/w${w}', X'0a', '0', 'active', ${at(10, 1)}),
       (${id}, ${at(60, 1)}, 'open', X'aa', NULL, 'https://b/w${w}', X'0b', '1', 'active', ${at(10, 1)})`);
-    sql.push(`INSERT INTO drep_groups (group_tx, group_ix, group_id, cur_h, cur_ti, cur_ph, cur_ix, cur_tx, mode, control, admission,
+    sql.push(`INSERT INTO drep_groups (group_tx, group_ix, cur_h, cur_ti, cur_ph, cur_ix, cur_tx, mode, control, admission,
         profile_url, profile_hash, seq, status, created_h, created_ti, created_ph, created_ix, created_tx, members)
-      VALUES (${id}, 'w${w}', ${at(60, 1)}, 'open', X'aa', NULL, 'https://b/w${w}', X'0b', '1', 'active', ${at(10, 1)}, 2)`);
+      VALUES (${id}, ${at(60, 1)}, 'open', X'aa', NULL, 'https://b/w${w}', X'0b', '1', 'active', ${at(10, 1)}, 2)`);
     sql.push(`INSERT INTO drep_group_due (kind, group_tx, group_ix, due_at) VALUES ('website', ${id}, 0)`);
   }
   for (let w = 0; w < worst.creds; w++) {
@@ -236,13 +234,13 @@ async function seedLarge(groups: number, creds: number, worst = { groups: 0, cre
     const kb = C(k);
     const lt = (h: number): string => hex(3_000_000 + w, 56) + String(h).padStart(8, '0');
     const certP = (h: number): string => `${h}, 0, 0, 0, X'${lt(h)}'`;
-    sql.push(`INSERT INTO drep_group_tracked (cred, seq, drep_id, known, history_done, applied_h, applied_ti, applied_ph, applied_ix,
+    sql.push(`INSERT INTO drep_group_tracked (cred, seq, known, history_done, applied_h, applied_ti, applied_ph, applied_ix,
         applied_tx, retiring, retired_at_h, retired_at_ti, retired_at_ph, retired_at_ix, retired_at_tx)
-      VALUES (${kb}, ${100_000 + w}, 'd', 1, 1, ${certP(70)}, 1, ${certP(65)})`);
-    sql.push(`INSERT INTO drep_group_ledger (tx_hash, cert_index, cred, drep_id, kind, block_height, block_hash, tx_index, block_time,
+      VALUES (${kb}, ${100_000 + w}, 1, 1, ${certP(70)}, 1, ${certP(65)})`);
+    sql.push(`INSERT INTO drep_group_ledger (tx_hash, cert_index, cred, kind, block_height, block_hash, tx_index, block_time,
         witness, witness_state)
-      VALUES (X'${lt(20)}', 0, ${kb}, 'd', 'reg', 20, X'0b', 0, 400, NULL, 'na'), (X'${lt(30)}', 0, ${kb}, 'd', 'unreg', 30, X'0b', 0, 600, NULL, 'na'),
-        (X'${lt(65)}', 0, ${kb}, 'd', 'unreg', 65, X'0b', 0, 1300, NULL, 'na')`);
+      VALUES (X'${lt(20)}', 0, ${kb}, 'reg', 20, X'0b', 0, 400, NULL, 'na'), (X'${lt(30)}', 0, ${kb}, 'unreg', 30, X'0b', 0, 600, NULL, 'na'),
+        (X'${lt(65)}', 0, ${kb}, 'unreg', 65, X'0b', 0, 1300, NULL, 'na')`);
   }
   for (let g = 0; g < groups; g++) {
     const kind = g % 3; // 0: created above the cut, 1: updated above the cut, 2: dissolved at 40
@@ -259,10 +257,10 @@ async function seedLarge(groups: number, creds: number, worst = { groups: 0, cre
     const topAt = dissolvedAbove ? at(70, 1) : at(top, 1);
     sql.push(`INSERT INTO drep_group_versions (${vcols}) VALUES (${id}, ${topAt}, 'permissioned', X'aa', NULL, 'https://b/${g}', X'0b', '1', '${status}', ${created})`);
     const dis = status === 'dissolved' ? topAt : 'NULL, NULL, NULL, NULL, NULL';
-    sql.push(`INSERT INTO drep_groups (group_tx, group_ix, group_id, cur_h, cur_ti, cur_ph, cur_ix, cur_tx, mode, control, admission,
+    sql.push(`INSERT INTO drep_groups (group_tx, group_ix, cur_h, cur_ti, cur_ph, cur_ix, cur_tx, mode, control, admission,
         profile_url, profile_hash, seq, status, created_h, created_ti, created_ph, created_ix, created_tx,
         dissolved_h, dissolved_ti, dissolved_ph, dissolved_ix, dissolved_tx, members, closing)
-      VALUES (${id}, 'g${g}', ${topAt}, 'permissioned', X'aa', NULL, 'https://b/${g}', X'0b', '1', '${status}', ${created}, ${dis}, 2,
+      VALUES (${id}, ${topAt}, 'permissioned', X'aa', NULL, 'https://b/${g}', X'0b', '1', '${status}', ${created}, ${dis}, 2,
         ${dissolvedAbove ? 1 : 0})`);
     sql.push(`INSERT INTO drep_group_due (kind, group_tx, group_ix, due_at) VALUES ('website', ${id}, 0), ('profile', ${id}, 0)`);
     sql.push(`INSERT INTO drep_group_trim_due (group_tx, group_ix, oldest_h) VALUES (${id}, 20)`);
@@ -287,10 +285,10 @@ async function seedLarge(groups: number, creds: number, worst = { groups: 0, cre
         VALUES ('dissolve', '${gtx(g)}#0', ${id}, ${at(70, 1)})`);
     }
   }
-  const tcols = `cred, seq, drep_id, known, history_done, solo, history_offset, applied_h, applied_ti, applied_ph, applied_ix, applied_tx,
+  const tcols = `cred, seq, known, history_done, solo, history_offset, applied_h, applied_ti, applied_ph, applied_ix, applied_tx,
     next_h, next_ti, next_ph, next_ix, next_tx, found_h, found_ti, found_ph, found_ix, found_tx, retiring,
     retired_at_h, retired_at_ti, retired_at_ph, retired_at_ix, retired_at_tx`;
-  const lcols = 'tx_hash, cert_index, cred, drep_id, kind, block_height, block_hash, tx_index, block_time, witness, witness_state';
+  const lcols = 'tx_hash, cert_index, cred, kind, block_height, block_hash, tx_index, block_time, witness, witness_state';
   for (let c = 0; c < creds; c++) {
     const k = cred(c);
     const kb = C(k);
@@ -299,12 +297,12 @@ async function seedLarge(groups: number, creds: number, worst = { groups: 0, cre
     const next = c % 4 === 0 ? certP(80) : 'NULL, NULL, NULL, NULL, NULL';
     const found = c % 3 === 0 ? certP(60) : 'NULL, NULL, NULL, NULL, NULL';
     const retired = c % 2 === 0 ? certP(65) : 'NULL, NULL, NULL, NULL, NULL';
-    sql.push(`INSERT INTO drep_group_tracked (${tcols}) VALUES (${kb}, ${c + 1}, 'd', 1, 1, ${c % 10 === 0 ? 1 : 0}, ${c % 10 === 0 ? 5 : 0},
+    sql.push(`INSERT INTO drep_group_tracked (${tcols}) VALUES (${kb}, ${c + 1}, 1, 1, ${c % 10 === 0 ? 1 : 0}, ${c % 10 === 0 ? 5 : 0},
       ${certP(70)}, ${next}, ${found}, ${c % 2 === 0 ? 1 : 0}, ${retired})`);
-    const rows = [`(X'${lt(30)}', 0, ${kb}, 'd', 'reg', 30, X'0b', ${c % 50}, 600, NULL, 'na')`];
-    if (c % 2 === 0) rows.push(`(X'${lt(65)}', 0, ${kb}, 'd', 'unreg', 65, X'0b', ${c % 50}, 1300, NULL, 'na')`);
-    if (c % 3 === 0) rows.push(`(X'${lt(60)}', 0, ${kb}, 'd', 'reg', 60, X'0b', ${c % 50}, 1200, x'00', 'checked')`);
-    if (c % 4 === 0) rows.push(`(X'${lt(80)}', 0, ${kb}, 'd', 'reg', 80, X'0b', ${c % 50}, 1600, NULL, 'pending')`);
+    const rows = [`(X'${lt(30)}', 0, ${kb}, 'reg', 30, X'0b', ${c % 50}, 600, NULL, 'na')`];
+    if (c % 2 === 0) rows.push(`(X'${lt(65)}', 0, ${kb}, 'unreg', 65, X'0b', ${c % 50}, 1300, NULL, 'na')`);
+    if (c % 3 === 0) rows.push(`(X'${lt(60)}', 0, ${kb}, 'reg', 60, X'0b', ${c % 50}, 1200, x'00', 'checked')`);
+    if (c % 4 === 0) rows.push(`(X'${lt(80)}', 0, ${kb}, 'reg', 80, X'0b', ${c % 50}, 1600, NULL, 'pending')`);
     sql.push(`INSERT INTO drep_group_ledger (${lcols}) VALUES ${rows.join(', ')}`);
     if (c % 2 === 0) {
       sql.push(`INSERT INTO drep_group_jobs (kind, job_key, cred, trigger_h, trigger_ti, trigger_ph, trigger_ix, trigger_tx)

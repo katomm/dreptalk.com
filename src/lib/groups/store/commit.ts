@@ -18,7 +18,7 @@ import {
   scriptDisplayJson,
   versionFieldBinds,
 } from '../codec.js';
-import { drepIdForCredential, groupIdString } from '../ids.js';
+import { drepIdForCredential } from '../ids.js';
 import { LISTED_MIN_MEMBERS } from '../constants.js';
 import { COMMIT, COMMIT_WIDTH, KEYED, KEYED_WIDTH, Q } from './queries.js';
 import { writeBatch } from './lease.js';
@@ -320,7 +320,7 @@ export function commitStatements(db: D1Database, units: Unit[], pre: PreRead, no
       ...posBinds(v.createdAt),
       ...optPos(v.profileSetAt),
     ]),
-    ...rows(db, 'upsertGroups', latest, (v) => [...g(v.id), groupIdString(v.id), ...order(v.at)]),
+    ...rows(db, 'upsertGroups', latest, (v) => [...g(v.id), ...order(v.at)]),
     ...anchorDueBatch(db, anchors, now),
     ...rows(db, 'enqueueGroupJobs', dissolveJobs, (v) => ['dissolve', refKey(v.id), ...g(v.id), ...posBinds(v.at)], [null]),
     ...rows(db, 'upsertInstances', instanceRows, ({ i, eff, counted }) => [

@@ -6,7 +6,6 @@ import type { ChainTx, Credential, LedgerInput, Pos } from 'drep-groups';
 import { classifyNewInput, comparePos, credKey, decodePayload, posOfCert } from 'drep-groups';
 import { chunked, D1_MAX_BINDS } from '../../db/sql.js';
 import { afterTx, credBytes, credKeyFromCol, hashBytes, hashFromCol, hashListBytes, posBinds, posFromRow, posOrNull } from '../codec.js';
-import { drepIdForCredential } from '../ids.js';
 import { writeBatch } from './lease.js';
 import { COMMIT, COMMIT_WIDTH, INGEST, INGEST_WIDTH, Q } from './queries.js';
 import { keyedStatements, mergeSlots, readMeta, type Slots, slotsFromMeta, slotStatements } from './recovery.js';
@@ -15,7 +14,6 @@ type Row = Record<string, unknown>;
 
 export interface StoredLedgerRow {
   input: LedgerInput;
-  drepId: string;
   blockHash: string;
   blockTime: number;
   witnessState: 'na' | 'pending' | 'checked';
@@ -119,7 +117,7 @@ export async function storeLabelTxs(
     const r = classifyNewInput({ kind: 'labelTx', at: afterTx(tx) }, { G, appliedThrough: null, L: storedL });
     if (r !== 'ordinary') slots = mergeSlots(slots, r, r.kind === 'truncate' ? await cutTime(tx.blockHeight) : null);
   }
-  const tracked = [...members.entries()].map(([k, c], i) => [credBytes(k), drepIdForCredential(c), i + 1]);
+  const tracked = [...members.keys()].map((k, i) => [credBytes(k), i + 1]);
   await writeBatch(db, lease, [
     ...stmts(db, 'upsertTxs', rows, (r) => r),
     ...stmts(db, 'trackCreds', tracked, (r) => r),
@@ -194,7 +192,6 @@ async function ledgerStatements(
       hashBytes(input.txHash),
       input.certIndex,
       credBytes(cred),
-      row.drepId,
       input.kind,
       input.blockHeight,
       hashBytes(row.blockHash),

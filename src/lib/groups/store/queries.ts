@@ -128,10 +128,10 @@ export const COMMIT = Object.freeze({
   upsertVersions: (n: number) => `INSERT OR REPLACE INTO drep_group_versions (${VERSION_COLS}) VALUES ${values(24, n)}`,
   // The group row from its stored version. A create inserts the counters at 0, a later version
   // writes the version fields only, never a counter and never gen.
-  upsertGroups: (n: number) => `WITH k(gtx, gix, gid, h, ti, ph, ix) AS (VALUES ${values(7, n)})
-    INSERT INTO drep_groups (group_tx, group_ix, group_id, ${POS('cur')}, mode, control, admission, profile_url,
+  upsertGroups: (n: number) => `WITH k(gtx, gix, h, ti, ph, ix) AS (VALUES ${values(6, n)})
+    INSERT INTO drep_groups (group_tx, group_ix, ${POS('cur')}, mode, control, admission, profile_url,
       profile_hash, seq, status, ${POS('created')}, ${POS('profile_set')}, ${POS('dissolved')}, closing)
-    SELECT v.group_tx, v.group_ix, k.gid, v.at_h, v.at_ti, v.at_ph, v.at_ix, v.at_tx, v.mode, v.control, v.admission,
+    SELECT v.group_tx, v.group_ix, v.at_h, v.at_ti, v.at_ph, v.at_ix, v.at_tx, v.mode, v.control, v.admission,
       v.profile_url, v.profile_hash, v.seq, v.status, ${POS('v.created')}, ${POS('v.profile_set')},
       ${['h', 'ti', 'ph', 'ix', 'tx'].map((c) => `CASE WHEN v.status = 'dissolved' THEN v.at_${c} END`).join(', ')},
       CASE WHEN v.status = 'dissolved' THEN 1 ELSE 0 END
@@ -221,7 +221,7 @@ export const COMMIT_WIDTH: Readonly<Record<keyof typeof COMMIT, number>> = Objec
   insertScripts: 8,
   insertMemberScripts: 8,
   upsertVersions: 24,
-  upsertGroups: 7,
+  upsertGroups: 6,
   dueProfileIfListed: 2,
   dueProfileIfAnchored: 2,
   deleteWebsiteDue: 2,
@@ -271,17 +271,17 @@ export const INGEST = Object.freeze({
       is_valid = excluded.is_valid, payload_repeated = excluded.payload_repeated, bytes = excluded.bytes
     WHERE drep_group_txs.marker = 1 AND drep_group_txs.refetch = 1`,
   // The seq is above every tracked row: the maximum is read once per statement, the ordinal keeps rows apart.
-  trackCreds: (n: number) => `WITH k(cred, drep, n) AS (VALUES ${values(3, n)})
-    INSERT OR IGNORE INTO drep_group_tracked (cred, seq, drep_id, known)
-    SELECT k.cred, (SELECT COALESCE(MAX(seq), 0) FROM drep_group_tracked) + k.n, k.drep, NULL FROM k`,
+  trackCreds: (n: number) => `WITH k(cred, n) AS (VALUES ${values(2, n)})
+    INSERT OR IGNORE INTO drep_group_tracked (cred, seq, known)
+    SELECT k.cred, (SELECT COALESCE(MAX(seq), 0) FROM drep_group_tracked) + k.n, NULL FROM k`,
   existingLedger: (n: number) => `WITH k(tx, ix) AS (VALUES ${values(2, n)})
     SELECT l.tx_hash, l.cert_index FROM k JOIN drep_group_ledger l ON l.tx_hash = k.tx AND l.cert_index = k.ix`,
   trackedState: (n: number) => `WITH k(cred) AS (VALUES ${values(1, n)})
     SELECT t.cred, t.known, t.applied_h, t.applied_ti, t.applied_ph, t.applied_ix, t.applied_tx,
       t.found_h, t.found_ti, t.found_ph, t.found_ix, t.found_tx
     FROM k JOIN drep_group_tracked t ON t.cred = k.cred`,
-  insertLedger: (n: number) => `INSERT INTO drep_group_ledger (tx_hash, cert_index, cred, drep_id, kind, block_height,
-      block_hash, tx_index, block_time, witness, witness_state) VALUES ${values(11, n)}
+  insertLedger: (n: number) => `INSERT INTO drep_group_ledger (tx_hash, cert_index, cred, kind, block_height,
+      block_hash, tx_index, block_time, witness, witness_state) VALUES ${values(10, n)}
     ON CONFLICT (tx_hash, cert_index) DO NOTHING`,
   // The unary plus keeps the flag index out, so the update seeks the key list on the primary key.
   knownFromLedger: (n: number) => `WITH k(cred) AS (VALUES ${values(1, n)})
@@ -318,10 +318,10 @@ export const INGEST = Object.freeze({
 export const INGEST_WIDTH: Readonly<Record<keyof typeof INGEST, number>> = Object.freeze({
   existingTxs: 1,
   upsertTxs: 13,
-  trackCreds: 3,
+  trackCreds: 2,
   existingLedger: 2,
   trackedState: 1,
-  insertLedger: 11,
+  insertLedger: 10,
   knownFromLedger: 1,
   moveFound: 6,
   setKnown: 1,

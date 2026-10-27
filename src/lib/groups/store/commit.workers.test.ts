@@ -71,8 +71,8 @@ async function count(sql: string, ...binds: unknown[]): Promise<number> {
 
 async function track(c: Credential, seq: number): Promise<void> {
   await db
-    .prepare('INSERT INTO drep_group_tracked (cred, seq, drep_id, known, history_done) VALUES (?, ?, ?, 1, 1)')
-    .bind(cb(c), seq, `drep_${seq}`)
+    .prepare('INSERT INTO drep_group_tracked (cred, seq, known, history_done) VALUES (?, ?, 1, 1)')
+    .bind(cb(c), seq)
     .run();
 }
 
@@ -85,9 +85,9 @@ async function tracked(c: Credential): Promise<Row> {
 async function ledger(c: Credential, kind: 'reg' | 'unreg', h: number, certIndex = 0): Promise<void> {
   await db
     .prepare(
-      `INSERT INTO drep_group_ledger (tx_hash, cert_index, cred, drep_id, kind, block_height, block_hash, tx_index,
+      `INSERT INTO drep_group_ledger (tx_hash, cert_index, cred, kind, block_height, block_hash, tx_index,
          block_time, witness, witness_state)
-       VALUES (?, ?, ?, 'drep1x', ?, ?, X'0b', 0, 0, NULL, 'na')`,
+       VALUES (?, ?, ?, ?, ?, X'0b', 0, 0, NULL, 'na')`,
     )
     .bind(hashBytes(txHashOf(h)), certIndex, cb(c), kind, h)
     .run();

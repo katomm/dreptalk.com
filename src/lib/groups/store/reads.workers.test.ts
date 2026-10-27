@@ -91,9 +91,9 @@ const seed = {
     const a = applied ?? { blockHeight: null, txIndex: null, phase: null, index: null, txHash: null };
     await db
       .prepare(
-        `INSERT INTO drep_group_tracked (cred, seq, drep_id, known, history_done,
+        `INSERT INTO drep_group_tracked (cred, seq, known, history_done,
            next_h, next_ti, next_ph, next_ix, next_tx, applied_h, applied_ti, applied_ph, applied_ix, applied_tx)
-         VALUES (?, ?, 'drep1x', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(cb(c), seq, known, historyDone, n.blockHeight, n.txIndex, n.phase, n.index, optHash(n.txHash), a.blockHeight, a.txIndex, a.phase, a.index, optHash(a.txHash))
       .run();
@@ -101,9 +101,9 @@ const seed = {
   async ledger(c: Credential, kind: 'reg' | 'unreg', h: number, certIndex = 0, witness: Uint8Array | null = null): Promise<void> {
     await db
       .prepare(
-        `INSERT INTO drep_group_ledger (tx_hash, cert_index, cred, drep_id, kind, block_height, block_hash, tx_index,
+        `INSERT INTO drep_group_ledger (tx_hash, cert_index, cred, kind, block_height, block_hash, tx_index,
            block_time, witness, witness_state)
-         VALUES (?, ?, ?, 'drep1x', ?, ?, X'0b', 0, 0, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, X'0b', 0, 0, ?, ?)`,
       )
       .bind(hashBytes(hex(h * 100, 64)), certIndex, cb(c), kind, h, witness, witness ? 'checked' : 'na')
       .run();
