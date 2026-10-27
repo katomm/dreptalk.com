@@ -132,7 +132,7 @@ export function posFromRow(row: Record<string, unknown>, prefix: string): Pos {
   return { blockHeight: Number(h), txIndex: Number(ti), phase: ph, index: Number(ix), txHash: hashFromCol(tx) };
 }
 
-/** Like posFromRow, but all five columns NULL gives null. */
+/** Like posFromRow, but a NULL height and tx hash give null. Any other partly NULL position throws. */
 export function posOrNull(row: Record<string, unknown>, prefix: string): Pos | null {
   if (col(row, `${prefix}_h`) === null && col(row, `${prefix}_tx`) === null) return null;
   return posFromRow(row, prefix);

@@ -60,6 +60,29 @@ describe('listDreps group filter', () => {
     expect(await listDreps(db, { group: refOf(9) })).toEqual([]);
   });
 
+  it('keeps the group filter with all DReps, a sort and an offset', async () => {
+    // Members 1 to 3, member 3 inactive. Member 4 is outside the group.
+    const rows: Array<[number, number, string, number]> = [
+      [1, 1, '3000', 5],
+      [2, 1, '2000', 9],
+      [3, 0, '1000', 7],
+      [4, 1, '9000', 99],
+    ];
+    for (const [n, active, power, delegators] of rows) {
+      await db
+        .prepare("INSERT INTO dreps (drep_id, status, active, voting_power, delegator_count, last_synced_at, created_at) VALUES (?, 'registered', ?, ?, ?, 0, 0)")
+        .bind(drepOf(n), active, power, delegators)
+        .run();
+    }
+    await seedGroup(1, { members: 3 });
+    for (const n of [1, 2, 3]) await seedMember(1, n, 'open');
+    const page = (o: Parameters<typeof listDreps>[1]) => listDreps(db, { group: refOf(1), ...o }).then((r) => r.map((d) => d.drepId));
+    expect(await page({ activeOnly: false, sort: 'delegators' })).toEqual([drepOf(2), drepOf(3), drepOf(1)]);
+    expect(await page({ activeOnly: false, sort: 'delegators', offset: 1, limit: 1 })).toEqual([drepOf(3)]);
+    expect(await page({ activeOnly: false, sort: 'power', offset: 2 })).toEqual([drepOf(3)]);
+    expect(await page({ activeOnly: true, sort: 'delegators', offset: 1 })).toEqual([drepOf(1)]);
+  });
+
   it('leaves a group below two members out of the sitemap', async () => {
     await seedGroup(1, { members: 1 });
     expect(await listGroupIdsForSitemap(db, 500)).toEqual([]);

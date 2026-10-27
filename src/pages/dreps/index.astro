@@ -27,7 +27,6 @@ import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
 import { currentNetwork } from '@/lib/api/response';
 import { parsePage, pageToOffset, cacheControlForSynced, formatAda, formatAdaCompact } from '@/lib/forum/view.js';
 import { drepDescriptor } from '@/lib/forum/author.js';
-import { getGroup } from '@/lib/db/drepGroups.js';
 import { drepGroupsAvailable } from '@/lib/groups/gate.js';
 import { groupIdParam, groupIdString } from '@/lib/groups/ids.js';
 import { shortHash } from '@/lib/groups/view.js';
@@ -41,12 +40,19 @@ const sort = Astro.url.searchParams.get('sort') === 'delegators' ? 'delegators' 
 // Offset into the power-sorted listing; also the base for each row's rank number
 // (rank = offset + row index + 1), so ranks stay continuous across pages.
 const listOffset = pageToOffset(page, PAGE_SIZE);
-// Group filter, preprod only. A malformed value shows the normal list.
-const groupRef = drepGroupsAvailable(currentNetwork().network) ? groupIdParam(Astro.url.searchParams.get('group') ?? undefined) : null;
+// Group filter, preprod only. A malformed value, or a groups store that cannot be read, shows the normal list.
+const groupParam = drepGroupsAvailable(currentNetwork().network) ? groupIdParam(Astro.url.searchParams.get('group') ?? undefined) : null;
+const groupRead =
+  groupParam && db ? await (await import('@/lib/db/drepGroups.js')).getGroup(db, groupIdString(groupParam)) : undefined;
+const groupRef = groupRead === undefined ? null : groupParam;
 const groupId = groupRef ? groupIdString(groupRef) : null;
-const groupName = groupId && db ? ((await getGroup(db, groupId))?.profile?.name ?? null) : null;
-// Query string for the filter and sort links, keeping the group filter.
-const href = (...parts: string[]): string => `?${[...parts, ...(groupId ? [`group=${groupId}`] : [])].filter(Boolean).join('&')}`;
+const groupName = groupRead?.profile?.name ?? null;
+// Query string of the list links, with the group filter when one is set.
+const listQuery = (group: string | null, parts: string[]): string =>
+  [...parts, ...(group ? [`group=${group}`] : [])].filter(Boolean).join('&');
+const href = (...parts: string[]): string => `?${listQuery(groupId, parts)}`;
+const ungrouped = listQuery(null, [activeOnly ? '' : 'all=1', sort === 'delegators' ? 'sort=delegators' : '']);
+const removeGroupHref = `/dreps/${ungrouped ? `?${ungrouped}` : ''}`;
 
 // The directory listing, the concentration aggregate, and the power-history
 // aggregates are independent reads, fetch them concurrently so a cold (uncached)
@@ -214,7 +220,7 @@ const selfStanding = selfRanking ? selfStandingLine(selfRanking) : null;
     <p class="dreps-filter">
       Showing members of <a href={`/groups/${groupId}/`}>{groupName ?? shortHash(groupId)}</a>
       <span style="margin:0 0.5rem;color:var(--muted);" aria-hidden="true">&middot;</span>
-      <a href={`/dreps/${sort === 'delegators' ? '?sort=delegators' : ''}`}>Remove group filter</a>
+      <a href={removeGroupHref}>Remove group filter</a>
     </p>
   )}
 

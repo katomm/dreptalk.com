@@ -142,6 +142,7 @@ const pageHref = (kind: keyof typeof SECTION_TITLE, after: string): string => {
     <section>
       <h2>{group.closing ? 'Members' : `Members (${group.members})`}</h2>
       <p class="gr-meta">Voting power of affiliated DReps: {formatAda(group.memberPower)}. Every member votes on their own.</p>
+      <p class="gr-meta"><a href={`/dreps/?all=1&group=${group.groupId}`}>Show members in the DRep list</a></p>
       {noteText && <p class="gr-note">{noteText}</p>}
       {indicator && <p class="gr-note">{indicator}</p>}
       {sections.map((s) => {

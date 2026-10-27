@@ -134,7 +134,10 @@ const WITNESS_QUERIES =
 function requireAll<T extends { tx_hash: string }>(hashes: string[], rows: T[], what: string): Map<string, T> {
   const by = new Map(rows.map((r) => [r.tx_hash, r]));
   const missing = hashes.filter((h) => !by.has(h));
-  if (missing.length > 0) throw new Error(`koios ${what} left out ${missing.length} of ${hashes.length} transactions`);
+  if (missing.length > 0) {
+    console.error(`[drep-groups] koios ${what} left out tx ${missing[0]}${missing.length > 1 ? ` and ${missing.length - 1} more` : ''}`);
+    throw new Error(`koios ${what} left out ${missing.length} of ${hashes.length} transactions`);
+  }
   return by;
 }
 

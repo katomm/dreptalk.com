@@ -4,7 +4,7 @@
 import { env } from 'cloudflare:test';
 import type { ChainInput, Credential, Recovery } from 'drep-groups';
 import { decodeTransaction, hexToBytes, LIBRARY_VERSION, RETENTION_FLOOR, refKey, replay } from 'drep-groups';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { type Allowance, allowance, countingDb, UNLIMITED } from '../sync/queryBudget.js';
 import {
   blockHash,
@@ -453,7 +453,11 @@ describe('ingestDrepGroups: late inputs and rollbacks', () => {
 describe('ingestDrepGroups: failures and spam', () => {
   it('fails the run when Koios leaves out a requested transaction', async () => {
     const chain: Chain = { tip: 200, txs: [create], regs: [regM], leaveOut: new Set([T(1)]) };
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
     await expect(tick(chain)).rejects.toThrow(/tx_cbor/);
+    // One line names the missing tx before the run fails.
+    expect(log.mock.calls.map((c) => String(c[0]))).toEqual([`[drep-groups] koios tx_cbor left out tx ${T(1)}`]);
+    log.mockRestore();
     expect(await labelCount()).toBe(0);
     expect(await meta()).toMatchObject({ L: -1, R: null });
   });

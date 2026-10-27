@@ -39,7 +39,6 @@ import { formatEpochDate } from '@/lib/governance/view.js';
 import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
 import { ogCardVersion } from '@/lib/og/version.js';
 import { currentNetwork } from '@/lib/api/response';
-import { groupsForDrep } from '@/lib/db/drepGroups.js';
 import { drepGroupsAvailable } from '@/lib/groups/gate.js';
 import { shortHash } from '@/lib/groups/view.js';
 import Avatar from '@/components/Avatar.astro';
@@ -118,8 +117,10 @@ const [posts, activeStake, votingHistory, votesCast, voteBreakdown, rationaleSta
     drep && db ? getReportCard(db, drep.drepId) : Promise.resolve(null),
     drep && db ? listDrepVoteTimings(db, drep.drepId) : Promise.resolve([]),
     drep && db ? getPrimaryHandle(db, drep.drepId, Math.floor(Date.now() / 1000)) : Promise.resolve(null),
-    // Group chips exist on preprod only, elsewhere no query runs.
-    drep && db && drepGroupsAvailable(currentNetwork().network) ? groupsForDrep(db, drep.drepId, 20) : Promise.resolve([]),
+    // Group chips exist on preprod only, elsewhere the groups store is not even loaded.
+    drep && db && drepGroupsAvailable(currentNetwork().network)
+      ? import('@/lib/db/drepGroups.js').then((m) => m.groupsForDrep(db, drep.drepId, 20))
+      : Promise.resolve([]),
   ]);
 // The DRep's short link, shown under its id. Absent until the drep.link seed ran.
 const drepLinkUrl = drepLinkHandle ? `${DREP_LINK_ORIGIN}/${drepLinkHandle}` : null;

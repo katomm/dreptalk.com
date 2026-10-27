@@ -46,6 +46,19 @@ export interface ProfileRow {
 
 type Row = Record<string, unknown>;
 
+/**
+ * Runs a page read and gives the fallback when it fails, so a page shared with the rest of the site
+ * stays up while the groups tables are missing or unreadable. Logs one line per failed read.
+ */
+async function pageRead<T, F>(name: string, fallback: F, read: () => Promise<T>): Promise<T | F> {
+  try {
+    return await read();
+  } catch (err) {
+    console.error(`[drep-groups] ${name} read failed: ${err instanceof Error ? err.message : String(err)}`);
+    return fallback;
+  }
+}
+
 function groupKey(groupId: string): [Uint8Array, number] {
   const ref = groupIdParam(groupId);
   if (!ref) throw new Error(`not a group id: ${groupId}`);
@@ -269,16 +282,18 @@ export async function listListedGroups(
   after: { power: string; groupId: string } | null,
   limit: number,
 ): Promise<Array<GroupRow & { name: string | null; websiteVerified: boolean }>> {
-  // A cursor that does not parse gives the first page, as a member cursor does.
-  const ref = after !== null && /^\d+$/.test(after.power) ? groupIdParam(after.groupId) : null;
-  let rows: Row[];
-  if (after === null || ref === null) {
-    rows = (await db.prepare(Q.listedFirst.sql).bind(limit).all<Row>()).results ?? [];
-  } else {
-    const res = (await db.prepare(Q.listedAfter.sql).bind(after.power, ...refBinds(ref), limit).all<Row>()).results ?? [];
-    rows = res.sort(listedOrder).slice(0, limit);
-  }
-  return rows.map((r) => ({ ...groupFromRow(r), name: optStr(r.p_name), websiteVerified: r.p_verified !== null }));
+  return pageRead('listed groups', [], async () => {
+    // A cursor that does not parse gives the first page, as a member cursor does.
+    const ref = after !== null && /^\d+$/.test(after.power) ? groupIdParam(after.groupId) : null;
+    let rows: Row[];
+    if (after === null || ref === null) {
+      rows = (await db.prepare(Q.listedFirst.sql).bind(limit).all<Row>()).results ?? [];
+    } else {
+      const res = (await db.prepare(Q.listedAfter.sql).bind(after.power, ...refBinds(ref), limit).all<Row>()).results ?? [];
+      rows = res.sort(listedOrder).slice(0, limit);
+    }
+    return rows.map((r) => ({ ...groupFromRow(r), name: optStr(r.p_name), websiteVerified: r.p_verified !== null }));
+  });
 }
 
 /** The order of a later listed page: the part, then member power descending, then the group key. */
@@ -295,14 +310,16 @@ function listedOrder(a: Row, b: Row): number {
   );
 }
 
-/** A group with its stored profile, null for an invalid id or an unknown group. */
-export async function getGroup(db: D1Database, groupId: string): Promise<(GroupRow & { profile: ProfileRow | null }) | null> {
+/** A group with its stored profile, null for an invalid id or an unknown group, undefined when the read failed. */
+export async function getGroup(db: D1Database, groupId: string): Promise<(GroupRow & { profile: ProfileRow | null }) | null | undefined> {
   const ref = groupIdParam(groupId);
   if (!ref) return null;
-  const r = await db.prepare(Q.groupRow.sql).bind(...refBinds(ref)).first<Row>();
-  if (!r) return null;
-  const g = groupFromRow(r);
-  return { ...g, profile: profileFromRow(g.groupId, r) };
+  return pageRead('group', undefined, async () => {
+    const r = await db.prepare(Q.groupRow.sql).bind(...refBinds(ref)).first<Row>();
+    if (!r) return null;
+    const g = groupFromRow(r);
+    return { ...g, profile: profileFromRow(g.groupId, r) };
+  });
 }
 
 type Key = [number, number, number, number];
@@ -387,14 +404,18 @@ export async function pendingVerification(db: D1Database, group: EventRef): Prom
 
 /** The active groups the DRep is an open member of, by group key. */
 export async function groupsForDrep(db: D1Database, drepId: string, limit: number): Promise<Array<{ groupId: string; name: string | null; mode: string }>> {
-  const res = await db.prepare(Q.drepGroups.sql).bind(drepId, limit).all<Row>();
-  return (res.results ?? []).map((r) => ({ groupId: groupIdString(refFromCols(r.group_tx, r.group_ix)), name: optStr(r.name), mode: String(r.mode) }));
+  return pageRead('DRep groups', [], async () => {
+    const res = await db.prepare(Q.drepGroups.sql).bind(drepId, limit).all<Row>();
+    return (res.results ?? []).map((r) => ({ groupId: groupIdString(refFromCols(r.group_tx, r.group_ix)), name: optStr(r.name), mode: String(r.mode) }));
+  });
 }
 
 /** Ids of the listed active groups with the most member power. */
 export async function listGroupIdsForSitemap(db: D1Database, limit: number): Promise<string[]> {
-  const res = await db.prepare(Q.sitemapGroups.sql).bind(limit).all<Row>();
-  return (res.results ?? []).map((r) => groupIdString(refFromCols(r.group_tx, r.group_ix)));
+  return pageRead('sitemap groups', [], async () => {
+    const res = await db.prepare(Q.sitemapGroups.sql).bind(limit).all<Row>();
+    return (res.results ?? []).map((r) => groupIdString(refFromCols(r.group_tx, r.group_ix)));
+  });
 }
 
 /** Runs a keyed read over the values in chunks within the bind limit. */
