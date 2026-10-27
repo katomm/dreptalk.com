@@ -776,6 +776,28 @@ describe('drep groups ingest and recovery', () => {
     expect(row).toMatchObject({ applied_h: null, next_h: 75, next_ph: 0 });
   });
 
+  it('clears rebuilding when a rebuild finishes with G already at END(L)', async () => {
+    const t = await lease();
+    await openRecovery(db, { kind: 'rebuild' }, t);
+    await stepToDone(() => resetStep(db, 'rebuild', 400, t));
+    expect(await meta()).toMatchObject({ L: -1, rebuilding: 1 });
+    await finishRecovery(db, { kind: 'rebuild' }, t);
+    expect(await meta()).toMatchObject({ rec_first_kind: null, rebuilding: 0 });
+  });
+
+  it('keeps rebuilding when a rebuild finishes with G behind END(L) or a truncation follows', async () => {
+    const t = await lease();
+    await setMeta({ L: 100 });
+    await openRecovery(db, { kind: 'rebuild' }, t);
+    await openRecovery(db, { kind: 'truncate', above: 50 }, t);
+    await stepToDone(() => resetStep(db, 'rebuild', 400, t));
+    await finishRecovery(db, { kind: 'rebuild' }, t);
+    expect(await meta()).toMatchObject({ rec_first_kind: 'truncate', rebuilding: 1 });
+    await stepToDone(() => truncateStep(db, 50, 400, t));
+    await finishRecovery(db, { kind: 'truncate', above: 50 }, t);
+    expect(await meta()).toMatchObject({ L: 50, rec_first_kind: null, rebuilding: 1 });
+  });
+
   it('applies the witness rule and the completeness of a script credential', async () => {
     const t = await lease();
     const s: Credential = { kind: 'script', hash: hex(77) };

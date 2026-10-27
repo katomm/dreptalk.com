@@ -166,17 +166,22 @@ export async function openRecovery(db: D1Database, r: Recovery, lease: string, c
   await writeBatch(db, lease, openRecoveryStatements(db, slotsFromMeta(meta), r, cutTime));
 }
 
-/** Pops only a matching first slot, promotes the second slot to first and resets the phase. */
+/**
+ * Pops only a matching first slot, promotes the second slot to first and resets the phase. The last
+ * slot closing with G already at END(L) clears rebuilding, no commit of the group cursor follows then.
+ */
 export async function finishRecovery(db: D1Database, done: Recovery, lease: string): Promise<void> {
-  const s = slotsFromMeta(await readMeta(db));
+  const meta = await readMeta(db);
+  const s = slotsFromMeta(meta);
   if (!sameRecovery(s.first, done) || s.first === null) {
     await writeBatch(db, lease, []);
     return;
   }
   const first: Recovery | null = s.then;
+  const settled = first === null && comparePos(posFromRow(meta, 'G'), endOf(Number(meta.L))) === 0;
   const stmt = db
     .prepare(Q.recoverySlots.sql)
-    .bind(first?.kind ?? null, first?.above ?? null, first ? s.thenTime : null, null, null, 1, first ? 'jobs' : null, null);
+    .bind(first?.kind ?? null, first?.above ?? null, first ? s.thenTime : null, null, null, 1, first ? 'jobs' : null, settled ? 0 : null);
   await writeBatch(db, lease, [stmt]);
 }
 
