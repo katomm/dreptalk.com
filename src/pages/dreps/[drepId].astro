@@ -39,6 +39,9 @@ import { formatEpochDate } from '@/lib/governance/view.js';
 import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
 import { ogCardVersion } from '@/lib/og/version.js';
 import { currentNetwork } from '@/lib/api/response';
+import { groupsForDrep } from '@/lib/db/drepGroups.js';
+import { drepGroupsAvailable } from '@/lib/groups/gate.js';
+import { shortHash } from '@/lib/groups/view.js';
 import Avatar from '@/components/Avatar.astro';
 import CopyButton from '@/components/CopyButton.astro';
 import ShareButton from '@/components/ShareButton.astro';
@@ -92,7 +95,7 @@ const isOwner =
 
 // Forum activity + total active power + voting history load together (independent reads).
 const drepUser = drep && db ? await getUserByDrepId(db, drep.drepId) : null;
-const [posts, activeStake, votingHistory, votesCast, voteBreakdown, rationaleStats, participation, earnedBadges, holderCounts, powerSeries, voteHistoryMap, reportCard, timingRows, drepLinkHandle] =
+const [posts, activeStake, votingHistory, votesCast, voteBreakdown, rationaleStats, participation, earnedBadges, holderCounts, powerSeries, voteHistoryMap, reportCard, timingRows, drepLinkHandle, groups] =
   await Promise.all([
     drepUser && db ? getPostsByAuthor(db, drepUser.id, { limit: 20 }) : Promise.resolve([]),
     db ? getActiveDrepStake(db) : Promise.resolve({ total: 0, asOf: null }),
@@ -115,6 +118,8 @@ const [posts, activeStake, votingHistory, votesCast, voteBreakdown, rationaleSta
     drep && db ? getReportCard(db, drep.drepId) : Promise.resolve(null),
     drep && db ? listDrepVoteTimings(db, drep.drepId) : Promise.resolve([]),
     drep && db ? getPrimaryHandle(db, drep.drepId, Math.floor(Date.now() / 1000)) : Promise.resolve(null),
+    // Group chips exist on preprod only, elsewhere no query runs.
+    drep && db && drepGroupsAvailable(currentNetwork().network) ? groupsForDrep(db, drep.drepId, 20) : Promise.resolve([]),
   ]);
 // The DRep's short link, shown under its id. Absent until the drep.link seed ran.
 const drepLinkUrl = drepLinkHandle ? `${DREP_LINK_ORIGIN}/${drepLinkHandle}` : null;
@@ -316,6 +321,9 @@ const profileSummary = drep
             <span class="drep-hd__dot" aria-hidden="true"></span>
             {statusLabel}
           </span>
+          {groups.map((g) => (
+            <a class="drep-hd__group" href={`/groups/${g.groupId}/`} title={g.groupId}>{g.name ? `${g.name} · ${shortHash(g.groupId)}` : shortHash(g.groupId)}</a>
+          ))}
         </div>
         <div class="drep-hd__titlerow">
           <h1 class="drep-hd__name">{displayName}</h1>
@@ -639,6 +647,7 @@ const profileSummary = drep
     background: color-mix(in srgb, var(--c-neg) 12%, transparent);
   }
   .drep-hd__dot { width: 0.4rem; height: 0.4rem; border-radius: 50%; background: currentColor; flex: none; }
+  .drep-hd__group { font-size: 0.75rem; padding: 0.125rem 0.5rem; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); text-decoration: none; }
   .drep-hd__status--ok {
     color: var(--c-pos);
     background: color-mix(in srgb, var(--c-pos) 12%, transparent);

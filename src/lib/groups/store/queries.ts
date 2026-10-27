@@ -1229,6 +1229,11 @@ export const Q = Object.freeze({
           JOIN drep_groups g ON g.group_tx = i.group_tx AND g.group_ix = i.group_ix AND g.status = 'active' ${PROFILE_JOIN}
           WHERE i.drep_id = ? AND i.counted_as = 'open' ORDER BY i.group_tx, i.group_ix LIMIT ?`,
   },
+  // Binds the group twice. The DReps with an open instance in the group, none while it is closing.
+  groupMemberDreps: {
+    sql: `SELECT i.drep_id FROM drep_group_instances i WHERE i.group_tx = ? AND i.group_ix = ? AND i.counted_as = 'open'
+          AND NOT EXISTS (SELECT 1 FROM drep_groups g WHERE g.group_tx = ? AND g.group_ix = ? AND g.closing = 1)`,
+  },
   recForkCursors: {
     sql: `UPDATE drep_group_meta SET ${RESET_G}, L = -1, L_hash = NULL, R = NULL, reg_time = NULL, reg_offset = 0,
             probe_active = 0, probe_below = NULL, rec_phase = 'done'
@@ -1315,6 +1320,7 @@ export const Q_SAMPLE_BINDS: Readonly<Record<keyof typeof Q, unknown[]>> = Objec
   verdictPage: [TX, 0, 1, 10],
   pendingVerification: [TX, 0],
   drepGroups: ['drep1x', 10],
+  groupMemberDreps: [TX, 0, TX, 0],
   recVersionsProbe: [1],
   recVersionsPage: [1, 1, 10],
   ...(Object.fromEntries(

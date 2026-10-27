@@ -7,6 +7,9 @@ import { sqlPlaceholders, chunked, D1_MAX_BINDS } from './sql.js';
 import { SPECIAL_DREP_IDS } from '../dreps/special.js';
 import { computeVotingPowerDelta } from '../dreps/votingPowerTrend.js';
 import { buildJobInsert } from './fanoutJobs.js';
+import type { EventRef } from 'drep-groups';
+import { refBinds } from '../groups/codec.js';
+import { Q } from '../groups/store/queries.js';
 
 export type EffectiveDrepStatus = 'active' | 'inactive';
 
@@ -314,7 +317,7 @@ export async function listIndexableDrepIds(db: D1Database): Promise<string[]> {
  */
 export async function listDreps(
   db: D1Database,
-  opts: { activeOnly?: boolean; limit?: number; offset?: number; sort?: 'power' | 'delegators' },
+  opts: { activeOnly?: boolean; limit?: number; offset?: number; sort?: 'power' | 'delegators'; group?: EventRef },
 ): Promise<Drep[]> {
   const limit = Math.min(Math.max(opts.limit ?? 50, 1), 100);
   const offset = Math.max(opts.offset ?? 0, 0);
@@ -324,6 +327,11 @@ export async function listDreps(
   // Never list the predefined pseudo-DReps (always-abstain / always-no-confidence).
   where.push(`drep_id NOT IN (${sqlPlaceholders(SPECIAL_DREP_IDS)})`);
   binds.push(...SPECIAL_DREP_IDS);
+  if (opts.group) {
+    const [tx, ix] = refBinds(opts.group);
+    where.push(`drep_id IN (${Q.groupMemberDreps.sql})`);
+    binds.push(tx, ix, tx, ix);
+  }
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
   // Whitelisted sort keys only (never interpolate user input). Delegator sort keeps
   // voting power as the tie-break and pushes never-counted rows (NULL) to the end.
