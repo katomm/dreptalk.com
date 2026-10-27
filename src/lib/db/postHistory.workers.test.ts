@@ -35,8 +35,8 @@ describe('getPostHistory', () => {
 
   it('returns current + revisions newest-first after marked edits', async () => {
     const postId = await newPost();
-    await editPost(db(), { postId, authorId: AUTHOR, bodyMd: 'v1', bodyHtml: '<p>v1</p>', now: NOW + EDIT_GRACE_MS + 10, sessionGrantId: null });
-    await editPost(db(), { postId, authorId: AUTHOR, bodyMd: 'v2', bodyHtml: '<p>v2</p>', now: NOW + EDIT_GRACE_MS + 20, sessionGrantId: null });
+    await editPost(db(), { postId, authorId: AUTHOR, bodyMd: 'v1', bodyHtml: '<p>v1</p>', now: NOW + EDIT_GRACE_MS + 10, ownWriter: true });
+    await editPost(db(), { postId, authorId: AUTHOR, bodyMd: 'v2', bodyHtml: '<p>v2</p>', now: NOW + EDIT_GRACE_MS + 20, ownWriter: true });
     const h = await getPostHistory(db(), postId);
     expect(h?.versions.map((v) => v.bodyMd)).toEqual(['v2', 'v1', 'v0']);
     expect(h?.versions[0].current).toBe(true);
@@ -50,8 +50,8 @@ describe('getPostHistory', () => {
     const t2 = t1 + 1000;
 
     const postId = await newPost(t0);
-    await editPost(db(), { postId, authorId: AUTHOR, bodyMd: 'v2', bodyHtml: '<p>v2</p>', now: t1, sessionGrantId: null });
-    await editPost(db(), { postId, authorId: AUTHOR, bodyMd: 'v3', bodyHtml: '<p>v3</p>', now: t2, sessionGrantId: null });
+    await editPost(db(), { postId, authorId: AUTHOR, bodyMd: 'v2', bodyHtml: '<p>v2</p>', now: t1, ownWriter: true });
+    await editPost(db(), { postId, authorId: AUTHOR, bodyMd: 'v3', bodyHtml: '<p>v3</p>', now: t2, ownWriter: true });
 
     const h = await getPostHistory(db(), postId);
     expect(h?.versions.map((v) => v.createdAt)).toEqual([t2, t1, t0]);

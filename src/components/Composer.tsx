@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { submitComposer, submitEdit } from '@/lib/forum/composer.js';
+import { submitComposer, submitEdit, type MandateOptions } from '@/lib/forum/composer.js';
 import { REPLY_EVENT, type ReplyEventDetail } from '@/lib/forum/replyEvent.js';
 import { EDIT_EVENT, type EditEventDetail } from '@/lib/forum/editEvent.js';
 import { QUOTE_EVENT, type QuoteEventDetail } from '@/lib/forum/quoteEvent.js';
@@ -8,15 +8,23 @@ import { initialDraftBody } from '@/lib/forum/draftTemplate.js';
 import { maxPostBody } from '@/lib/forum/postLimits.js';
 import MarkdownEditor, { type MarkdownEditorHandle } from '@/components/MarkdownEditor.js';
 
+const SELF_VALUE = 'self';
+
 interface ComposerProps {
   mode: 'topic' | 'post';
   categorySlug?: string;
   topicId?: string;
   /** The thread's opening post, whose edit may take the longer draft cap. */
   openingPostId?: string;
+  /** Proposal Drafts only. The picker shows when there are two or more choices. */
+  mandateOptions?: MandateOptions;
 }
 
-export default function Composer({ mode, categorySlug, topicId, openingPostId }: ComposerProps) {
+export default function Composer({ mode, categorySlug, topicId, openingPostId, mandateOptions }: ComposerProps) {
+  const choiceCount = (mandateOptions?.proposers.length ?? 0) + (mandateOptions?.allowSelf ? 1 : 0);
+  const showPicker = choiceCount >= 2;
+  // Default is the first proposer, the mandate, as the spec asks.
+  const [actAsValue, setActAsValue] = useState(mandateOptions?.proposers[0]?.proposerStakeAddr ?? SELF_VALUE);
   const [title, setTitle] = useState('');
   const [bodyMd, setBodyMd] = useState(() => initialDraftBody(mode, categorySlug));
   const [submitting, setSubmitting] = useState(false);
@@ -126,6 +134,7 @@ export default function Composer({ mode, categorySlug, topicId, openingPostId }:
         topicId,
         bodyMd: bodyMd.trim(),
         parentPostId: replyTo?.postId,
+        actAs: showPicker ? (actAsValue === SELF_VALUE ? 'self' : { proposerStakeAddr: actAsValue }) : undefined,
       },
     });
 
@@ -294,6 +303,38 @@ export default function Composer({ mode, categorySlug, topicId, openingPostId }:
               fontSize: '1rem',
             }}
           />
+        </div>
+      )}
+
+      {showPicker && !editingPostId && mandateOptions && (
+        <div>
+          <label
+            htmlFor="composer-act-as"
+            style={{ display: 'block', fontSize: '0.875rem', marginBottom: '0.25rem', color: 'var(--muted)' }}
+          >
+            Post as
+          </label>
+          <select
+            id="composer-act-as"
+            value={actAsValue}
+            onChange={(e) => setActAsValue(e.target.value)}
+            disabled={submitting}
+            style={{
+              padding: '0.5rem 0.75rem',
+              border: '1px solid var(--border)',
+              borderRadius: '0.375rem',
+              background: 'var(--bg)',
+              color: 'var(--fg)',
+              fontSize: '1rem',
+            }}
+          >
+            {mandateOptions.proposers.map((p) => (
+              <option key={p.proposerStakeAddr} value={p.proposerStakeAddr}>
+                {p.label}
+              </option>
+            ))}
+            {mandateOptions.allowSelf && <option value={SELF_VALUE}>As yourself</option>}
+          </select>
         </div>
       )}
 

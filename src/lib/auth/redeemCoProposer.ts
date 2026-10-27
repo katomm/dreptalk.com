@@ -105,7 +105,7 @@ export function friendlyRedeemError(error: string | undefined, network: CardanoN
     return 'This invite is no longer valid. Ask the proposer to send you a new one.';
   }
   if (e.includes('mandate_taken')) {
-    return 'This wallet already writes for a proposer. Each wallet can hold only one co-proposer mandate at a time.';
+    return 'This wallet already writes for this governance action. You do not need to redeem this invite.';
   }
   if (e.includes('cannot invite yourself')) {
     return 'You cannot accept your own invite.';

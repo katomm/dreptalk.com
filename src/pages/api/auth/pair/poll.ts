@@ -5,7 +5,8 @@ import type { APIRoute } from 'astro';
 import { z } from 'zod';
 import { jsonResponse, runtimeEnv } from '@/lib/api/response';
 import { pollPairing, parseApproverRoles } from '@/lib/auth/pairing';
-import { rolesFromUser } from '@/lib/auth/roles';
+import { rolesFromUser, withCoProposerRole } from '@/lib/auth/roles';
+import { hasActiveGrantForCoUser } from '@/lib/db/proposerGrants';
 import { createSession, buildSessionCookie } from '@/lib/auth/session';
 import { sessionDeviceLabel } from '@/lib/auth/deviceLabel';
 import { sessionActivityHook } from '@/lib/auth/sessionActivity.js';
@@ -99,7 +100,12 @@ export const POST: APIRoute = async ({ request, locals }) => {
     const currentRoles = rolesFromUser(user, modRole);
     const cap = parseApproverRoles(outcome.approverRoles);
     const pairedRoles = cap === null ? currentRoles : currentRoles.filter((r) => cap.includes(r));
-    const roles = pairedRoles.length > 0 ? pairedRoles : ['member'];
+    // co-proposer is not a writer role and is derived from the live grant, so
+    // the approver cap does not apply to it. A grant holder keeps the role on
+    // a paired device, and it replaces the placeholder member role.
+    const hasGrant = await hasActiveGrantForCoUser(db, user.id);
+    const withGrant = hasGrant ? withCoProposerRole(pairedRoles) : pairedRoles;
+    const roles = withGrant.length > 0 ? withGrant : ['member'];
     const drepId = roles.includes('drep') ? user.drep_id : null;
 
     const secure = new URL(request.url).protocol === 'https:';

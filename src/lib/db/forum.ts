@@ -5,7 +5,8 @@
 
 import { sqlPlaceholders } from './sql.js';
 import { activityInsert } from './activity.js';
-import { isWithinGrace } from '../forum/editPolicy.js';
+import { isWithinGrace, mayEditRow } from '../forum/editPolicy.js';
+import { isGrantActiveForUser } from './proposerGrants.js';
 
 export interface Topic {
   id: string;
@@ -695,6 +696,46 @@ export async function createPost(
 }
 
 /**
+ * Applies mayEditRow to a row its author owns. The grant lookup runs only for
+ * a stamped row, and not at all when the caller already read the decision in
+ * D1 during this request (`known`).
+ */
+async function mayEditStamped(
+  db: D1Database,
+  proposerGrantId: string | null,
+  authorId: string,
+  ownWriter: boolean,
+  known?: boolean,
+): Promise<boolean> {
+  const active = !!proposerGrantId && (known ?? (await isGrantActiveForUser(db, proposerGrantId, authorId)));
+  return mayEditRow(proposerGrantId, ownWriter, active);
+}
+
+/** The post columns editPost needs, the body included to archive the prior version. */
+export interface EditablePost {
+  id: string;
+  topic_id: string;
+  author_id: string;
+  body_md: string;
+  body_html: string;
+  hidden: number;
+  deleted: number;
+  created_at: number;
+  source: string | null;
+  proposer_grant_id: string | null;
+}
+
+/** Reads a post for an edit, or null when there is no such row. */
+export async function getPostForEdit(db: D1Database, postId: string): Promise<EditablePost | null> {
+  return db
+    .prepare(
+      'SELECT id, topic_id, author_id, body_md, body_html, hidden, deleted, created_at, source, proposer_grant_id FROM posts WHERE id = ?',
+    )
+    .bind(postId)
+    .first<EditablePost>();
+}
+
+/**
  * Edits a post's body. Within the grace window (isWithinGrace) the edit is
  * silent: the body is replaced and nothing else changes. Past the window the
  * current body is archived into post_revisions and edited_at is stamped, both in
@@ -709,30 +750,25 @@ export async function editPost(
     bodyMd: string;
     bodyHtml: string;
     now: number;
-    // The editing session's grant id, or null for a personal session. Must match
-    // the post's stored proposer_grant_id (mandate_mismatch otherwise).
-    sessionGrantId: string | null;
+    // The editor holds an own writer role that passed the write gate. Decides
+    // an unstamped post only, a stamped one follows its grant.
+    ownWriter: boolean;
+    // The row the caller already read this request (getPostForEdit), so it is
+    // not read twice. Read here when absent.
+    post?: EditablePost;
+    // Whether the stamped grant is active for the author, when the caller
+    // already checked it in D1 this request. Checked here when absent.
+    stampedGrantActive?: boolean;
   },
 ): Promise<{ edited: boolean }> {
-  const { postId, authorId, bodyMd, bodyHtml, now, sessionGrantId } = args;
+  const { postId, authorId, bodyMd, bodyHtml, now, ownWriter } = args;
 
   // Load the post WITH its body (needed to archive the prior version), then its
   // topic's state (depends on post.topic_id). Two sequential reads.
-  const post = await db
-    .prepare(
-      'SELECT id, topic_id, author_id, body_md, body_html, hidden, deleted, created_at, source, proposer_grant_id FROM posts WHERE id = ?',
-    )
-    .bind(postId)
-    .first<{
-      id: string; topic_id: string; author_id: string; body_md: string;
-      body_html: string; hidden: number; deleted: number; created_at: number;
-      source: string | null; proposer_grant_id: string | null;
-    }>();
+  const post = args.post ?? (await getPostForEdit(db, postId));
   if (!post || post.deleted === 1) throw new Error('post_not_found');
   if (post.author_id !== authorId) throw new Error('not_owner');
-  if ((post.proposer_grant_id ?? null) !== (sessionGrantId ?? null)) {
-    // A mandate post is only editable by the same active mandate; a personal
-    // post never by a mandate session. Attribution is immutable either way.
+  if (!(await mayEditStamped(db, post.proposer_grant_id, authorId, ownWriter, args.stampedGrantActive))) {
     throw new Error('mandate_mismatch');
   }
   // Vote rationale posts are frozen: their body must match the on-chain hash.
@@ -770,6 +806,23 @@ export async function editPost(
   return { edited: true };
 }
 
+/** The topic columns editTitle needs. */
+export interface EditableTopic {
+  author_id: string;
+  source: string;
+  deleted: number;
+  locked: number;
+  proposer_grant_id: string | null;
+}
+
+/** Reads a topic for a title edit, or null when there is no such row. */
+export async function getTopicForEdit(db: D1Database, topicId: string): Promise<EditableTopic | null> {
+  return db
+    .prepare('SELECT author_id, source, deleted, locked, proposer_grant_id FROM topics WHERE id = ?')
+    .bind(topicId)
+    .first<EditableTopic>();
+}
+
 /**
  * Edits a user topic's title. Sets title_edited_at as the "(edited)" marker; the
  * slug is intentionally left unchanged so existing links never break, and no
@@ -783,25 +836,19 @@ export async function editTitle(
     authorId: string;
     title: string;
     now: number;
-    // The editing session's grant id, or null for a personal session. Must match
-    // the topic's stored proposer_grant_id (mandate_mismatch otherwise).
-    sessionGrantId: string | null;
+    // The editor holds an own writer role that passed the write gate. Decides
+    // an unstamped topic only, a stamped one follows its grant.
+    ownWriter: boolean;
+    // The row the caller already read this request (getTopicForEdit). Read here when absent.
+    topic?: EditableTopic;
   },
 ): Promise<void> {
-  const { topicId, authorId, title, now, sessionGrantId } = args;
-  const topic = await db
-    .prepare('SELECT author_id, source, deleted, locked, proposer_grant_id FROM topics WHERE id = ?')
-    .bind(topicId)
-    .first<{
-      author_id: string; source: string; deleted: number; locked: number;
-      proposer_grant_id: string | null;
-    }>();
+  const { topicId, authorId, title, now, ownWriter } = args;
+  const topic = args.topic ?? (await getTopicForEdit(db, topicId));
   if (!topic || topic.deleted === 1) throw new Error('topic_not_found');
   if (topic.source !== 'user') throw new Error('not_user_topic');
   if (topic.author_id !== authorId) throw new Error('not_owner');
-  if ((topic.proposer_grant_id ?? null) !== (sessionGrantId ?? null)) {
-    // A mandate topic is only editable by the same active mandate; a personal
-    // topic never by a mandate session. Attribution is immutable either way.
+  if (!(await mayEditStamped(db, topic.proposer_grant_id, authorId, ownWriter))) {
     throw new Error('mandate_mismatch');
   }
   if (topic.locked === 1) throw new Error('topic_locked');

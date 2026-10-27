@@ -11,7 +11,7 @@ import Avatar from '@/components/Avatar.astro';
 import DrepPowerSparkline from '@/components/DrepPowerSparkline.astro';
 import DrepVotingStats from '@/components/DrepVotingStats.astro';
 import MyDelegation from '@/components/MyDelegation.astro';
-import { roleLabels, isWriter } from '@/lib/auth/roles';
+import { roleLabels, isWriter, CO_PROPOSER_ROLE } from '@/lib/auth/roles';
 import { runtimeEnv, currentNetwork } from '@/lib/api/response';
 import { resolveNetwork } from '@/lib/config/network';
 import { getSelfDrepId } from '@/lib/db/users';
@@ -33,6 +33,12 @@ import { authorProfileHref } from '@/lib/forum/author';
 import { activeLabel, ACTIVE_WINDOW_MS, HOME_FACE_LIMIT } from '@/lib/forum/view';
 import { PENCIL_PATH, PROFILE_PATH, SETTINGS_PATH, TARGET_PATH, VOTE_PATH } from '@/lib/forum/icons';
 import { loadSessionHeader } from '@/lib/forum/sessionHeader';
+import ProposerActions from '@/components/ProposerActions.tsx';
+import CoProposerMandates from '@/components/CoProposerMandates.astro';
+import ProposerIdentity from '@/components/ProposerIdentity.astro';
+import { requireGrantManager } from '@/lib/auth/coProposerManage';
+import { MAX_GRANTS_PER_ACTION } from '@/lib/auth/coProposerLimits';
+import { listMandates, loadProposerActionViews } from '@/lib/db/proposerHome';
 
 const user = Astro.locals.user;
 if (!user) {
@@ -65,7 +71,20 @@ const drep = drepId && db ? await getDrepById(db, drepId) : null;
 // (pairs with the top-10 face row), the hot-topic teaser looks at the last week.
 const nowMs = Date.now();
 const HOT_TOPIC_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
-const [[account, unreadCount], votableRows, activeFaces, activeCounts, hotTopic, voteBreakdown, rationaleStats, participation, powerSeries, delegationData, drepLink] =
+// Proposer section: only for a session the invite API would accept (proposer
+// role plus an active, on-chain proven row), whose stake address keys the
+// action list. Co-proposer section: the account's active mandates.
+const proposerHomeLoad =
+  db && user.roles.includes('proposer')
+    ? requireGrantManager(db, user).then((guard) => {
+        const stakeAddr = 'row' in guard ? guard.row.stake_addr : null;
+        return stakeAddr
+          ? loadProposerActionViews(db, user.id, stakeAddr).then((actions) => ({ stakeAddr, actions }))
+          : null;
+      })
+    : null;
+const mandatesLoad = db && user.roles.includes('co-proposer') ? listMandates(db, user.id) : [];
+const [[account, unreadCount], votableRows, activeFaces, activeCounts, hotTopic, voteBreakdown, rationaleStats, participation, powerSeries, delegationData, drepLink, proposerHome, mandates] =
   await Promise.all([
     loadSessionHeader(Astro.locals, user.id),
     drepId && db ? getVotableActionsForViewer(db, drepId) : [],
@@ -86,6 +105,8 @@ const [[account, unreadCount], votableRows, activeFaces, activeCounts, hotTopic,
           open ? { handle: rows.find((r) => r.isPrimary)?.handle ?? null } : null,
         )
       : null,
+    proposerHomeLoad,
+    mandatesLoad,
   ]);
 
 // The "... active in the last 30 days on DRepTalk" label (built from activeCounts).
@@ -99,9 +120,18 @@ const unvotedCount = votableRows.filter((r) => !r.viewerVote).length;
 // the synced row, not just a profile href derived from the session's drep_id.
 const profileHref = (account.drepId ? drep != null : true) ? authorProfileHref(account) : null;
 const rolesLabel = roleLabels(user.roles).join(', ');
+// A proposer's head line confirms how many actions DRepTalk counts as theirs,
+// naming any further roles after it. roleLabels falls back to "Member" for an
+// empty list, so the filtered list is checked before labelling it.
+const otherRoles = user.roles.filter((r) => r !== 'proposer' && r !== 'member');
+const otherRolesLabel = otherRoles.length > 0 ? roleLabels(otherRoles).join(', ') : '';
 // Non-writers (delegators sign in as 'member') cannot post, flag or vote, so the
 // read-only surfaces are framed for following rather than participating.
 const canWrite = isWriter(user.roles);
+// Delegation tracking belongs to delegator sign-ins. A co-proposer account has
+// no tracking row (the grant does not create one), so its note would only
+// advise signing in again to no effect.
+const followsAsDelegator = !canWrite && !user.roles.includes(CO_PROPOSER_ROLE);
 
 const plural = (n: number, word: string) => `${n.toLocaleString('en-US')} ${word}${n === 1 ? '' : 's'}`;
 
@@ -214,13 +244,7 @@ const cards: HomeCard[] = [
           title: 'Settings',
           href: '/settings/',
           icon: icons.settings,
-          // Proposers manage their co-proposers in settings; surface that here
-          // so it is discoverable from the start page. Grant-backed sessions
-          // (co-proposers) cannot manage grants, so they keep the plain copy.
-          desc:
-            user.roles.includes('proposer') && !user.grantId
-              ? 'Manage your DRepTalk account and invite co-proposers to write on your behalf.'
-              : 'Manage your DRepTalk account.',
+          desc: 'Manage your DRepTalk account.',
         },
       ]),
   // Only for a resolved follow that actually has something to report on: a DRep
@@ -294,11 +318,36 @@ const cards: HomeCard[] = [
     <Avatar seed={account.identiconSeed ?? account.authorId} imageHash={account.imageHash ?? null} imageSrc={account.imageSrc} size={64} />
     <div class="home-head__text">
       <h1 class="home-head__title">Welcome, {account.displayName}</h1>
-      <p class="home-head__sub">Signed in as {rolesLabel}. Here is everything you can do.</p>
+      <p class="home-head__sub">
+        {proposerHome
+          ? `Signed in as proposer${proposerHome.actions.length > 0 ? ` of ${plural(proposerHome.actions.length, 'governance action')}` : ''}${otherRolesLabel ? `, also ${otherRolesLabel}` : ''}.`
+          : `Signed in as ${rolesLabel}.`}{' '}
+        Here is everything you can do.
+      </p>
     </div>
   </header>
 
-  {(delegationData.view.kind !== 'no-follow' || !canWrite) && (
+  {proposerHome && (
+    <section class="home-section" aria-labelledby="home-proposer-label">
+      <div class="home-section__head">
+        <p id="home-proposer-label" class="home-review__label">Your governance actions</p>
+        <ProposerIdentity returnAddress={proposerHome.stakeAddr} size={20} />
+      </div>
+      <p class="home-section__intro">
+        Invite up to {MAX_GRANTS_PER_ACTION} co-proposers per open action. They write in its thread as your proposer team.
+      </p>
+      <ProposerActions actions={proposerHome.actions} client:load />
+    </section>
+  )}
+
+  {mandates.length > 0 && (
+    <section class="home-section" aria-labelledby="home-mandates-label">
+      <p id="home-mandates-label" class="home-review__label">You write for</p>
+      <CoProposerMandates mandates={mandates} />
+    </section>
+  )}
+
+  {(delegationData.view.kind !== 'no-follow' || followsAsDelegator) && (
     <div class="home-note">
       <MyDelegation data={delegationData} now={nowMs} network={network} />
     </div>
@@ -385,6 +434,28 @@ const cards: HomeCard[] = [
   .home-head__sub {
     margin: 0.3rem 0 0;
     font-size: 0.9375rem;
+    color: var(--muted);
+  }
+
+  /* Proposer and co-proposer sections above the tiles. The label reuses the
+     review teaser's small uppercase treatment. */
+  .home-section {
+    margin: 0 0 1.75rem;
+  }
+  .home-section__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem 1rem;
+    margin: 0 0 0.5rem;
+  }
+  .home-section__head .home-review__label {
+    margin: 0;
+  }
+  .home-section__intro {
+    margin: 0 0 0.85rem;
+    font-size: 0.875rem;
     color: var(--muted);
   }
 

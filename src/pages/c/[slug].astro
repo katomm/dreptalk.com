@@ -23,6 +23,7 @@ import {
   DISCUSSION_SORTS,
   type DiscussionSort,
 } from '@/lib/db/discussions.js';
+import { draftComposerMandate } from '@/lib/forum/writeMandate.js';
 import { getGovernanceActionTopicIdsPage, getGovernanceActionsByTopicIds } from '@/lib/db/governance.js';
 import { getProtocolParams, type ProtocolParams } from '@/lib/db/protocolParams.js';
 import { loadTreasuryOverview, type TreasuryOverviewData } from '@/lib/treasury/overview.js';
@@ -43,7 +44,7 @@ import GovTypeIcon from '@/components/GovTypeIcon.astro';
 import '@/styles/list-controls.css';
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
 import { loadAuthorIdentities } from '@/lib/forum/author.js';
-import { loadMandates } from '@/lib/forum/mandate.js';
+import { loadMandates, type MandateBadge } from '@/lib/forum/mandate.js';
 import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, excerptFromHtml, SITE_ORIGIN } from '@/lib/forum/view.js';
 import { currentNetwork } from '@/lib/api/response.js';
 // Raw inline script (pinned in the CSP by its hash in astro.config.mjs) that
@@ -220,7 +221,7 @@ const identities = db && topics.length ? await loadAuthorIdentities(db, topics.m
 // batched call for the whole page. On the governance branch (GovActionRow,
 // not TopicRow) every topic.proposer_grant_id is null, so this short-circuits
 // to an empty Map with zero D1 queries.
-const mandates = db && topics.length ? await loadMandates(db, topics.map((t) => t.proposer_grant_id)) : new Map<string, string>();
+const mandates = db && topics.length ? await loadMandates(db, topics.map((t) => t.proposer_grant_id), null) : new Map<string, MandateBadge>();
 
 if (!notFound) {
   Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
@@ -231,6 +232,10 @@ const siteOrigin = Astro.site?.origin ?? SITE_ORIGIN;
 // Show composer only for authenticated users on discussion (non-governance) categories.
 const user = Astro.locals.user;
 const showComposer = !!user && !!category && isDiscussion(category.slug);
+// Proposal Drafts: the proposer picker, only when the viewer has a real choice.
+const draftMandate = db && user && category?.slug === PROPOSAL_DRAFTS_CATEGORY_SLUG
+  ? await draftComposerMandate(db, user)
+  : undefined;
 // DReps get a shortcut from the governance overview to their personal voting
 // dashboard (otherwise buried in the account menu). Role check only, no query.
 const isDrepViewer = user?.roles.includes('drep') ?? false;
@@ -543,7 +548,7 @@ const breadcrumbLd = {
         {showComposer && (
           <section style="margin-top:2.5rem;border-top:1px solid var(--border);padding-top:2rem;">
             <h2 style="margin:0 0 1rem;font-size:1.125rem;">Start a new topic</h2>
-            <Composer client:load mode="topic" categorySlug={category.slug} />
+            <Composer client:load mode="topic" categorySlug={category.slug} mandateOptions={draftMandate?.options} />
           </section>
         )}
       </Fragment>

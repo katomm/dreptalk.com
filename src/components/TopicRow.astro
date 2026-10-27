@@ -18,6 +18,7 @@ import { formatRelativeTime, truncateId } from '@/lib/forum/view.js';
 import { statusBadge, tallyBar, epochCountdown, fmtPct, TONE_COLORS } from '@/lib/governance/view.js';
 import { resolveNetwork, epochStartMs, type CardanoNetwork } from '@/lib/config/network.js';
 import { LOCK_PATH, MESSAGE_PATH, PIN_PATH, USERS_PATH, topicTypeIconPath } from '@/lib/forum/icons.js';
+import type { MandateBadge } from '@/lib/forum/mandate.js';
 
 interface Props {
   topic: Topic;
@@ -32,8 +33,8 @@ interface Props {
   variant?: 'default' | 'discussions';
   excerpt?: string;
   participants?: number;
-  /** Co-proposer mandate label ("for Intersect"), resolved from the topic's persisted proposer_grant_id. */
-  mandate?: string | null;
+  /** Co-proposer mandate badge ("for Intersect"), resolved from the topic's persisted proposer_grant_id. */
+  mandate?: MandateBadge | null;
 }
 
 const { topic, now, network, author, category, governance, variant = 'default', excerpt, participants, mandate } = Astro.props;
@@ -102,7 +103,7 @@ const gaCountdown = governance
             : <span class="topic-row__author">{author.displayName}</span>)
         : <span>by {truncateId(topic.author_id)}</span>}
       {badges.map((b) => <span class="topic-row__role">{b}</span>)}
-      {mandate && <span class="topic-row__role topic-row__role--mandate">{mandate}</span>}
+      {mandate && <span class="topic-row__role topic-row__role--mandate" title={mandate.title ?? undefined}>{mandate.label}</span>}
       <span>{topic.post_count} {topic.post_count === 1 ? 'post' : 'posts'}</span>
       {gaCountdown && <span>{gaCountdown}</span>}
     </div>

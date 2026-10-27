@@ -5,6 +5,9 @@
 /** On-chain roles that prove a wallet-verified governance identity. */
 export const WRITER_ROLES = ['drep', 'spo', 'cc', 'proposer'] as const;
 
+/** Session role of a user who acts under a per-action co-proposer grant. Not a writer role. */
+export const CO_PROPOSER_ROLE = 'co-proposer';
+
 /** Moderation roles granted via the operator allowlist. */
 export const MODERATOR_ROLES = ['admin', 'moderator'] as const;
 
@@ -15,18 +18,6 @@ export const MODERATOR_ROLES = ['admin', 'moderator'] as const;
  */
 export function isWriter(roles: readonly string[]): boolean {
   return roles.some((r) => (WRITER_ROLES as readonly string[]).includes(r));
-}
-
-/**
- * True when the user may flag or react to posts. Each flag and reaction counts
- * one writer, so it needs a writer role of the account's own. The 'proposer'
- * role a co-proposer grant lends a session belongs to the proposer who issued
- * it, and one proposer can hand out several grants: a session whose only writer
- * role comes from a grant would let a single identity count several times.
- */
-export function canJudgePosts(user: { roles: readonly string[]; grantId?: string | null }): boolean {
-  if (!user.grantId) return isWriter(user.roles);
-  return isWriter(user.roles.filter((r) => r !== 'proposer'));
 }
 
 /** True when the user holds a moderation role (admin or moderator). */
@@ -40,6 +31,7 @@ const ROLE_DISPLAY: Record<string, string> = {
   spo: 'SPO',
   cc: 'CC',
   proposer: 'Proposer',
+  'co-proposer': 'Co-proposer',
   admin: 'Admin',
   moderator: 'Moderator',
   member: 'Member',
@@ -47,7 +39,7 @@ const ROLE_DISPLAY: Record<string, string> = {
 
 // Badge priority: the governance identity role comes first (it answers "who you
 // are"), then moderation privileges, then the plain member fallback.
-export const ROLE_PRIORITY = ['drep', 'spo', 'cc', 'proposer', 'admin', 'moderator', 'member'] as const;
+export const ROLE_PRIORITY = ['drep', 'spo', 'cc', 'proposer', 'co-proposer', 'admin', 'moderator', 'member'] as const;
 
 /**
  * Display labels for the roles a session holds, in priority order. Unknown role
@@ -92,4 +84,24 @@ export function rolesFromUser(
   if (modRole) roles.push(modRole);
   if (roles.length === 0) roles.push('member');
   return roles;
+}
+
+/**
+ * Adds the co-proposer role to a session role list: drops the placeholder
+ * member role and normalizes. An empty list yields just the co-proposer role.
+ */
+export function withCoProposerRole(roles: readonly string[]): string[] {
+  return normalizeSessionRoles([...roles.filter((r) => r !== 'member'), CO_PROPOSER_ROLE]);
+}
+
+/**
+ * Session roles for an account that holds an active co-proposer grant: its own
+ * roles from the user row and the moderator role, plus co-proposer. Shared by
+ * every login door and invite redemption so the role assembly cannot drift.
+ */
+export function coProposerRoles(
+  user: { is_drep: boolean; is_proposer: boolean; is_spo: boolean; is_cc: boolean },
+  modRole: string | null,
+): string[] {
+  return withCoProposerRole(rolesFromUser(user, modRole));
 }

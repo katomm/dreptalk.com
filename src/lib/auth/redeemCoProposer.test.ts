@@ -228,7 +228,7 @@ describe('friendlyRedeemError', () => {
   });
 
   it('maps a wallet that already holds a mandate', () => {
-    expect(friendlyRedeemError('mandate_taken', 'preprod')).toContain('already writes for a proposer');
+    expect(friendlyRedeemError('mandate_taken', 'preprod')).toContain('already writes for this governance action');
   });
 
   it('maps a self-invite', () => {

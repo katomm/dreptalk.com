@@ -9,7 +9,7 @@ export const prerender = false;
 import Layout from '@/layouts/Layout.astro';
 import ProposerIdentity from '@/components/ProposerIdentity.astro';
 import RedeemCoProposer from '@/components/RedeemCoProposer.tsx';
-import { lookupInviteByCode } from '@/lib/db/proposerGrants';
+import { loadRedeemInvite } from '@/lib/auth/coProposerRedeem';
 import { runtimeEnv, currentNetwork } from '@/lib/api/response';
 
 Astro.response.headers.set('Cache-Control', 'no-store');
@@ -20,7 +20,7 @@ const code = Astro.url.searchParams.get('code') ?? '';
 const env = runtimeEnv(Astro.locals);
 const db = env.DB as D1Database | undefined;
 
-const invite = code && db ? await lookupInviteByCode(db, code) : null;
+const invite = code && db ? await loadRedeemInvite(db, code) : null;
 const network = currentNetwork().network;
 ---
 <Layout title="Join as a co-proposer - DRepTalk" noindex={true}>
@@ -33,7 +33,17 @@ const network = currentNetwork().network;
           <div class="redeem__proposer">
             <ProposerIdentity returnAddress={invite.proposerStakeAddr} size={28} />
           </div>
+          <p class="redeem__intro redeem__action">for the governance action</p>
+          <p class="redeem__action-title">{invite.actionTitle}</p>
+          <p class="redeem__action-id"><code>{invite.govActionId}</code></p>
+          {invite.teamLabel && <p class="redeem__team">Team: {invite.teamLabel}</p>}
         </header>
+
+        <p class="redeem__hint">
+          Are you a DRep? Link your stake address on <a href="/settings/account/">your account settings</a> first,
+          then redeem with that same wallet. Otherwise the invite creates a separate account that your DRep
+          login does not share.
+        </p>
 
         <RedeemCoProposer network={network} code={code} client:load />
       </>
@@ -64,6 +74,29 @@ const network = currentNetwork().network;
   .redeem__intro {
     color: var(--muted);
     margin: 0 0 0.85rem;
+  }
+  .redeem__hint {
+    color: var(--muted);
+    font-size: 0.9rem;
+    margin: 0 0 1.25rem;
+  }
+  .redeem__action {
+    margin: 0.85rem 0 0.35rem;
+  }
+  .redeem__action-title {
+    font-weight: 600;
+    margin: 0 0 0.25rem;
+  }
+  .redeem__action-id {
+    margin: 0 0 0.35rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+  .redeem__team {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.9rem;
   }
   .redeem__proposer {
     display: flex;

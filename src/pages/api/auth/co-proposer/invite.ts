@@ -36,7 +36,15 @@ export const POST: APIRoute = async ({ request, locals }) => {
     ]);
     if (!userAllowed || !ipAllowed) return jsonResponse({ error: 'rate_limited' }, 429);
 
-    const result = await handleCreateInvite({ db, user, now: Math.floor(now / 1000) });
+    // A missing or unparsable body leaves both fields undefined, which the handler rejects as an invalid action.
+    const body = (await request.json().catch(() => null)) as { govActionId?: unknown; teamLabel?: unknown } | null;
+    const result = await handleCreateInvite({
+      db,
+      user,
+      govActionId: body?.govActionId,
+      teamLabel: body?.teamLabel,
+      now: Math.floor(now / 1000),
+    });
     return jsonResponse(result.json, result.status);
   } catch {
     // Unexpected error (e.g. transient D1 or Durable Object RPC failure):
