@@ -4,11 +4,13 @@
 // hand built schedules for the interleavings that matter most for this store.
 // DREPTALK_CONFORMANCE_SEEDS=100 runs this file in about 40 to 50 seconds locally (2026-10-27, Apple silicon).
 import { env } from 'cloudflare:test';
-import type { Budget, ChainInput, Credential, EngineSnapshot, LedgerInput, Pos, Recovery, RegistryState } from 'drep-groups';
-import { comparePos, credKey, endOf, posOfCert, refKey, replay } from 'drep-groups';
+import type { Budget, ChainInput, Credential, EngineSnapshot, EventRef, LedgerInput, Pos, Recovery, RegistryState } from 'drep-groups';
+import { comparePos, credKey, endOf, posOfCert, refKey, replay, runEngine } from 'drep-groups';
 import {
   type Coverage,
+  type DisplayProjection,
   emptyCoverage,
+  engineProjection,
   generateChain,
   generateSchedule,
   mergeCoverage,
@@ -19,8 +21,17 @@ import {
 import { describe, expect, it } from 'vitest';
 import { bindCountingDb } from '../../db/__tests__/bindCountingDb.js';
 import { D1_MAX_BINDS } from '../../db/sql.js';
+import { getGroup, listMembers, listVerdicts } from '../../db/drepGroups.js';
+import { UNLIMITED } from '../../sync/queryBudget.js';
 import { D1DriverStore } from '../__tests__/d1DriverStore.js';
+import { GROUP_PAGE_SIZE, MAX_JOB_ROWS_PER_RUN, RETENTION_KEEP_APPLIED, RETENTION_KEEP_NOT_APPLIED } from '../constants.js';
+import { drepIdForCredential, groupIdString } from '../ids.js';
+import { runJobs } from '../jobs.js';
+import { D1Store } from './d1Store.js';
 import { isMarkerTx } from './ingest.js';
+import { acquireLease, invocationOwner } from './lease.js';
+import { pendingRecovery } from './reads.js';
+import { openRecovery } from './recovery.js';
 
 const SEEDS = Number(env.DREPTALK_CONFORMANCE_SEEDS);
 const chainOpts = { txs: 24, credentials: 5, groups: 4 };
@@ -54,8 +65,133 @@ describe('drep-groups conformance on D1', () => {
     expect(c.cutChecks).toBeGreaterThan(0);
   });
 
-  it.todo('projects every group, member and retained verdict like engineProjection after the jobs drained');
+  for (let seed = 1; seed <= 4; seed++) {
+    it(`seed ${seed}: the page readers show engineProjection after the jobs drained, also after a truncation`, { timeout: 180_000 }, async () => {
+      const chain = generateChain(seed, chainOpts);
+      await runSchedule(
+        () => new D1DriverStore(env.DB),
+        chain,
+        generateSchedule(seed, chain, { chunks: 4, rollback: 0.6, rebuild: 0.5, fork: 0.25 }),
+      );
+      const store = new D1DriverStore(env.DB);
+      await store.expireLease();
+      const lease = (await acquireLease(env.DB, invocationOwner())) as string;
+      await drainJobs(lease);
+      await expectPagesShow(engineProjection(await store.snapshot()));
+
+      await openRecovery(env.DB, { kind: 'truncate', above: Math.floor(tipOf(chain) / 2) }, lease);
+      for (let runs = 0; (await pendingRecovery(env.DB)) !== null; runs++) {
+        if (runs >= 100) throw new Error('the truncation did not finish');
+        await runEngine(new D1Store(env.DB), BIG, lease);
+      }
+      await drainJobs(lease);
+      await expectPagesShow(engineProjection(await store.snapshot()));
+    });
+  }
 });
+
+async function drainJobs(lease: string): Promise<void> {
+  for (let i = 0; ; i++) {
+    if (i >= 100) throw new Error('the jobs did not drain');
+    const r = await runJobs(env.DB, lease, { maxRows: MAX_JOB_ROWS_PER_RUN, budget: UNLIMITED, now: 0 });
+    if (r.pages === 0) return;
+  }
+}
+
+/** Every group, its counters, members and retained verdicts as the page readers return them, against the projection. */
+async function expectPagesShow(proj: DisplayProjection): Promise<void> {
+  const ofGroup = <T extends { group: EventRef | null }>(xs: T[], g: EventRef): T[] => xs.filter((x) => x.group !== null && refKey(x.group) === refKey(g));
+  const byKey = <T extends { key: string }>(xs: T[]): T[] => [...xs].sort((a, b) => (a.key < b.key ? -1 : 1));
+  const actual = [];
+  const expected = [];
+  for (const g of proj.groups) {
+    const members = ofGroup(proj.instances, g.id);
+    const verdicts = ofGroup(proj.verdicts, g.id);
+    expected.push({
+      group: {
+        mode: g.mode,
+        status: g.status,
+        seq: g.seq.toString(),
+        controlHash: g.control,
+        admissionHash: g.admission,
+        profileUrl: g.profile?.url ?? null,
+        profileHash: g.profile?.dataHash ?? null,
+        createdHeight: g.createdAt.blockHeight,
+        profileSetHeight: g.profileSetAt?.blockHeight ?? null,
+        members: members.filter((i) => i.state === 'active').length,
+        pending: members.filter((i) => i.state === 'pending').length,
+        former: members.filter((i) => i.state === 'closed').length,
+        appliedEvents: verdicts.filter((v) => v.valid).length,
+        notAppliedEvents: verdicts.filter((v) => !v.valid).length,
+        closing: false,
+      },
+      members: byKey(
+        members.map((i) => ({
+          key: refKey(i.joinId),
+          list: i.state,
+          drepId: drepIdForCredential(i.member),
+          state: i.state,
+          reason: i.reason,
+          joinedHeight: i.joinedAt.blockHeight,
+          approvedHeight: i.approvedAt?.blockHeight ?? null,
+          closedHeight: i.closedAt?.blockHeight ?? null,
+        })),
+      ),
+      verdicts: byKey(
+        verdicts.map((v) => ({ key: refKey(v.ref), tag: v.tag, valid: v.valid, reason: v.reason, blockHeight: v.at.blockHeight })),
+      ),
+    });
+    const row = await getGroup(env.DB, groupIdString(g.id));
+    if (row === null) throw new Error(`group ${refKey(g.id)} not readable`);
+    const listed = [];
+    for (const [kind, state] of [['active', 'active'], ['pending', 'pending'], ['former', 'closed']] as const) {
+      for (let after: string | null = null; ; ) {
+        const page = await listMembers(env.DB, g.id, kind, after, GROUP_PAGE_SIZE);
+        // The list a row is on is its counted_as cache, the state is effectiveClose: both agree once the jobs drained.
+        listed.push(...page.map((m) => ({ ...m, list: state })));
+        if (page.length < GROUP_PAGE_SIZE) break;
+        after = page[page.length - 1].key;
+      }
+    }
+    const retained = [...(await listVerdicts(env.DB, g.id, true, RETENTION_KEEP_APPLIED)), ...(await listVerdicts(env.DB, g.id, false, RETENTION_KEEP_NOT_APPLIED))];
+    actual.push({
+      group: {
+        mode: row.mode,
+        status: row.status,
+        seq: row.seq,
+        controlHash: row.controlHash,
+        admissionHash: row.admissionHash,
+        profileUrl: row.profileUrl,
+        profileHash: row.profileHash,
+        createdHeight: row.createdHeight,
+        profileSetHeight: row.profileSetHeight,
+        members: row.members,
+        pending: row.pending,
+        former: row.former,
+        appliedEvents: row.appliedEvents,
+        notAppliedEvents: row.notAppliedEvents,
+        closing: row.closing,
+      },
+      members: byKey(
+        listed.map((m) => ({
+          key: m.joinId,
+          list: m.list,
+          drepId: m.drepId,
+          state: m.state,
+          reason: m.reason,
+          joinedHeight: m.joinedHeight,
+          approvedHeight: m.approvedHeight,
+          closedHeight: m.closedHeight,
+        })),
+      ),
+      verdicts: byKey(
+        retained.map((v) => ({ key: `${v.txHash}#${v.eventIndex}`, tag: v.tag, valid: v.valid, reason: v.reason, blockHeight: v.blockHeight })),
+      ),
+    });
+  }
+  expect(actual).toEqual(expected);
+  expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM drep_groups').first()).toEqual({ n: proj.groups.length });
+}
 
 const BIG: Budget = {
   controlTxs: 1000,

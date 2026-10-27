@@ -8,6 +8,7 @@ import {
   LEASE_MS,
   LISTED_MIN_MEMBERS,
   MARKER_REFETCH_ATTEMPTS,
+  PENDING_INDICATOR_CAP,
   RETENTION_KEEP_APPLIED,
   RETENTION_KEEP_NOT_APPLIED,
   WITNESS_BACKOFF_BASE_MS,
@@ -77,6 +78,10 @@ export const KEYED = Object.freeze({
     LEFT JOIN drep_group_txs t ON t.tx_hash = k.tx AND t.marker = 1`,
   txContexts: (n: number) => `WITH k(tx) AS (VALUES ${values(1, n)})
     SELECT c.* FROM k JOIN drep_group_tx_context c ON c.tx_hash = k.tx`,
+  scriptDisplays: (n: number) => `WITH k(hash) AS (VALUES ${values(1, n)})
+    SELECT s.hash, s.display_json FROM k JOIN drep_group_scripts s ON s.hash = k.hash WHERE s.display_json IS NOT NULL`,
+  drepNames: (n: number) => `WITH k(id) AS (VALUES ${values(1, n)})
+    SELECT d.drep_id, d.name FROM k JOIN dreps d ON d.drep_id = k.id WHERE d.name IS NOT NULL`,
 });
 
 /** Bound parameters per key of each keyed statement. */
@@ -88,6 +93,8 @@ export const KEYED_WIDTH: Readonly<Record<keyof typeof KEYED, number>> = Object.
   loadCredentialsAt: 5,
   queuedJoins: 2,
   txContexts: 1,
+  scriptDisplays: 1,
+  drepNames: 1,
 });
 
 const POS = (p: string): string => `${p}_h, ${p}_ti, ${p}_ph, ${p}_ix, ${p}_tx`;
@@ -718,20 +725,30 @@ const KINDS_BY_PRIORITY = ['recompute', 'repair', 'dissolve', 'retire', 'power-s
 const firstOfKind = (kind: string): string => `(SELECT id FROM drep_group_jobs WHERE kind = '${kind}' ORDER BY id LIMIT 1)`;
 // A page of instances with what effectiveClose needs: the group's stored dissolve and the first applied
 // unreg of the member after the join, cert bounds as in preFirstUnreg. Group fields for the counters.
-const instancePass = (where: string): string => `WITH p AS (SELECT * FROM drep_group_instances WHERE ${where}
+// `extra` adds select columns and joins of a page reader.
+const instancePass = (where: string, extra = { cols: '', joins: '' }): string => `WITH p AS (SELECT * FROM drep_group_instances WHERE ${where}
       AND (${JOINED}) > (?, ?, ?, ?) ORDER BY ${JOINED} LIMIT ?)
     SELECT p.*, g.group_tx AS g_tx, g.members AS g_members,
       g.dissolved_h AS dis_h, g.dissolved_ti AS dis_ti, g.dissolved_ph AS dis_ph, g.dissolved_ix AS dis_ix, g.dissolved_tx AS dis_tx,
-      u.block_height AS u_h, u.tx_index AS u_ti, u.cert_index AS u_ix, u.tx_hash AS u_tx
+      u.block_height AS u_h, u.tx_index AS u_ti, u.cert_index AS u_ix, u.tx_hash AS u_tx${extra.cols}
     FROM p
     LEFT JOIN drep_groups g ON g.group_tx = p.group_tx AND g.group_ix = p.group_ix
-    LEFT JOIN drep_group_tracked t ON t.cred = p.cred
+    LEFT JOIN drep_group_tracked t ON t.cred = p.cred${extra.joins}
     LEFT JOIN drep_group_ledger u ON u.rowid = (
       SELECT l.rowid FROM drep_group_ledger l
       WHERE l.cred = p.cred AND l.kind = 'unreg'
         AND (l.block_height, l.tx_index, l.cert_index) > (p.joined_h, p.joined_ti, CASE WHEN p.joined_ph = 0 THEN p.joined_ix ELSE ${MAX} END)
         AND (l.block_height, l.tx_index, l.cert_index) <= (t.applied_h, t.applied_ti, CASE WHEN t.applied_ph = 0 THEN t.applied_ix ELSE ${MAX} END)
       ORDER BY l.block_height, l.tx_index, l.cert_index LIMIT 1)`;
+// A member page: the instance pass with the DRep's name, slug and voting power, whether the member is
+// retiring, and whether a stored ledger row of the member lies above its applied position.
+const MEMBER_EXTRA = {
+  cols: `, d.name AS drep_name, d.slug AS drep_slug, d.voting_power AS drep_power, t.retiring AS retiring,
+      EXISTS (SELECT 1 FROM drep_group_ledger l WHERE l.cred = p.cred AND (l.block_height, l.tx_index, l.cert_index) >
+        (COALESCE(t.applied_h, -1), COALESCE(t.applied_ti, ${MAX}), CASE WHEN t.applied_ph = 0 THEN t.applied_ix ELSE ${MAX} END)) AS unapplied`,
+  joins: `
+    LEFT JOIN dreps d ON d.drep_id = p.drep_id`,
+};
 // The trimmable verdicts of one validity class: below the floor, beyond the newest `offset`, newest first.
 const TRIMMABLE = `SELECT rowid FROM drep_group_verdicts WHERE group_tx = ? AND group_ix = ? AND valid = ? AND at_h < ?
     ORDER BY at_h DESC, at_ti DESC, at_ph DESC, at_ix DESC LIMIT ? OFFSET ?`;
@@ -957,6 +974,29 @@ const WEBSITE_DUE_PAGE = `SELECT d.rowid AS id, d.group_tx, d.group_ix, p.websit
 const SAME_ANCHOR = `EXISTS (SELECT 1 FROM drep_groups g WHERE g.group_tx = drep_group_due.group_tx
     AND g.group_ix = drep_group_due.group_ix AND g.profile_url = ? AND g.profile_hash = ?)`;
 
+// Page readers. A listed group has at least LISTED_MIN_MEMBERS members, the predicate of the partial index
+// drep_groups_listed, which orders by member power and then the group key. member_power can exceed 2^53, so it
+// is read as TEXT and bound as CAST(? AS INTEGER).
+const LISTED = `g.members >= ${LISTED_MIN_MEMBERS}`;
+const LISTED_ORDER = 'g.member_power DESC, g.group_tx, g.group_ix';
+const GROUP_READ = `g.group_tx, g.group_ix, g.mode, g.status, g.seq, g.control, g.admission, g.profile_url, g.profile_hash,
+    g.created_h, g.profile_set_h, g.members, g.pending, g.former, g.applied_events, g.not_applied_events,
+    CAST(g.member_power AS TEXT) AS member_power, g.closing`;
+const LISTED_READ = `${GROUP_READ}, p.name AS p_name, p.website_verified_at AS p_verified`;
+const PROFILE_JOIN = 'LEFT JOIN drep_group_profiles p ON p.group_tx = g.group_tx AND p.group_ix = g.group_ix';
+// A later listed page: the rest of the cursor's power after its group key, then the lower powers. Each part
+// reads at most the limit, the reader keeps the first `limit` rows of both in this order.
+const LISTED_AFTER = `WITH same AS (SELECT ${LISTED_READ} FROM drep_groups g ${PROFILE_JOIN}
+      WHERE ${LISTED} AND g.member_power = CAST(?1 AS INTEGER) AND (g.group_tx, g.group_ix) > (?2, ?3)
+      ORDER BY g.group_tx, g.group_ix LIMIT ?4),
+    lower AS (SELECT ${LISTED_READ} FROM drep_groups g ${PROFILE_JOIN}
+      WHERE ${LISTED} AND g.member_power < CAST(?1 AS INTEGER) ORDER BY ${LISTED_ORDER} LIMIT ?4)
+    SELECT 0 AS part, * FROM same UNION ALL SELECT 1 AS part, * FROM lower`;
+const PROFILE_READ = `p.group_tx AS p_gtx, p.profile_url AS p_url, p.data_hash AS p_hash, p.status AS p_status, p.name AS p_name,
+    p.description AS p_description, p.website AS p_website, p.image AS p_image, p.charter AS p_charter,
+    p.payment_addresses_json AS p_payments, p.fetched_at AS p_fetched, p.website_verified_at AS p_verified,
+    p.website_checked_at AS p_checked`;
+
 export const Q = Object.freeze({
   leaseSeed: {
     sql: 'INSERT OR IGNORE INTO drep_group_lease (id, owner, token, expires_at) VALUES (1, NULL, NULL, 0)',
@@ -980,6 +1020,8 @@ export const Q = Object.freeze({
   loadCredentialsAt: { sql: KEYED.loadCredentialsAt(1) },
   queuedJoins: { sql: KEYED.queuedJoins(1) },
   txContexts: { sql: KEYED.txContexts(1) },
+  scriptDisplays: { sql: KEYED.scriptDisplays(1) },
+  drepNames: { sql: KEYED.drepNames(1) },
   ...(Object.fromEntries(
     (Object.keys(COMMIT) as Array<keyof typeof COMMIT>).map((k) => [k, { sql: COMMIT[k](1) }]),
   ) as Record<keyof typeof COMMIT, RegisteredQuery>),
@@ -1148,6 +1190,42 @@ export const Q = Object.freeze({
   websiteDueMove: {
     sql: "UPDATE drep_group_due SET due_at = CAST(? AS INTEGER) WHERE kind = 'website' AND group_tx = ? AND group_ix = ?",
   },
+  // Binds the limit. The first page of the listed groups.
+  listedFirst: {
+    sql: `SELECT ${LISTED_READ} FROM drep_groups g ${PROFILE_JOIN} WHERE ${LISTED} ORDER BY ${LISTED_ORDER} LIMIT ?`,
+    boundedScan: 'drep_groups_listed',
+  },
+  // Binds the cursor's power, its group key and the limit.
+  listedAfter: { sql: LISTED_AFTER },
+  // Binds the limit. Listed active groups by member power.
+  sitemapGroups: {
+    sql: `SELECT g.group_tx, g.group_ix FROM drep_groups g WHERE ${LISTED} AND g.status = 'active' ORDER BY ${LISTED_ORDER} LIMIT ?`,
+    boundedScan: 'drep_groups_listed',
+  },
+  // Binds the group. The group with its stored profile.
+  groupRow: {
+    sql: `SELECT ${GROUP_READ}, ${PROFILE_READ} FROM drep_groups g ${PROFILE_JOIN} WHERE g.group_tx = ? AND g.group_ix = ?`,
+  },
+  // Binds the group, counted_as, the cursor and the limit. One member list by join position.
+  memberPage: { sql: instancePass('group_tx = ? AND group_ix = ? AND counted_as = ?', MEMBER_EXTRA) },
+  // Binds the group, the cursor and the limit. All instances of a closing group by join position.
+  closingMemberPage: { sql: instancePass('group_tx = ? AND group_ix = ?', MEMBER_EXTRA) },
+  // Binds the group, the validity class and the limit. Newest first.
+  verdictPage: {
+    sql: `SELECT tx_hash, idx, tag, valid, reason, at_h FROM drep_group_verdicts WHERE group_tx = ? AND group_ix = ? AND valid = ?
+          ORDER BY at_h DESC, at_ti DESC, at_ph DESC, at_ix DESC LIMIT ?`,
+  },
+  // Binds the group twice. Whether it is closing and its queued membership events, at most the cap.
+  pendingVerification: {
+    sql: `WITH q AS (SELECT 1 FROM drep_group_queue WHERE group_tx = ?1 AND group_ix = ?2 AND applied = 0 LIMIT ${PENDING_INDICATOR_CAP})
+          SELECT (SELECT closing FROM drep_groups WHERE group_tx = ?1 AND group_ix = ?2) AS closing, (SELECT COUNT(*) FROM q) AS queued`,
+  },
+  // Binds the DRep and the limit. Active groups the DRep is an open member of, by group key.
+  drepGroups: {
+    sql: `SELECT i.group_tx, i.group_ix, g.mode, p.name FROM drep_group_instances i
+          JOIN drep_groups g ON g.group_tx = i.group_tx AND g.group_ix = i.group_ix AND g.status = 'active' ${PROFILE_JOIN}
+          WHERE i.drep_id = ? AND i.counted_as = 'open' ORDER BY i.group_tx, i.group_ix LIMIT ?`,
+  },
   recForkCursors: {
     sql: `UPDATE drep_group_meta SET ${RESET_G}, L = -1, L_hash = NULL, R = NULL, reg_time = NULL, reg_offset = 0,
             probe_active = 0, probe_below = NULL, rec_phase = 'done'
@@ -1174,6 +1252,8 @@ export const Q_SAMPLE_BINDS: Readonly<Record<keyof typeof Q, unknown[]>> = Objec
   loadCredentialsAt: [CRED, 1, 0, 2, 0],
   queuedJoins: [TX, 0],
   txContexts: [TX],
+  scriptDisplays: [new Uint8Array(28)],
+  drepNames: ['drep1x'],
   ...(Object.fromEntries(
     (Object.keys(COMMIT) as Array<keyof typeof COMMIT>).map((k) => [
       k,
@@ -1223,6 +1303,15 @@ export const Q_SAMPLE_BINDS: Readonly<Record<keyof typeof Q, unknown[]>> = Objec
   websiteDueUpsert: [1, TX, 0, 'https://x.test/g.json', TX],
   websiteCheck: [1, 1, 1, TX, 0],
   websiteDueMove: [1, TX, 0],
+  listedFirst: [10],
+  listedAfter: ['100', TX, 0, 10],
+  sitemapGroups: [10],
+  groupRow: [TX, 0],
+  memberPage: [TX, 0, 'open', -1, -1, -1, -1, 10],
+  closingMemberPage: [TX, 0, -1, -1, -1, -1, 10],
+  verdictPage: [TX, 0, 1, 10],
+  pendingVerification: [TX, 0],
+  drepGroups: ['drep1x', 10],
   recVersionsProbe: [1],
   recVersionsPage: [1, 1, 10],
   ...(Object.fromEntries(

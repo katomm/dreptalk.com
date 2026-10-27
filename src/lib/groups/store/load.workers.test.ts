@@ -38,8 +38,17 @@ import {
   WORST_MEMBERS,
   worstCaseBase,
 } from '../__tests__/loadFixtures.js';
-import { profilesToFetch, websitesToCheck } from '../../db/drepGroups.js';
+import {
+  groupsForDrep,
+  listClosingMembers,
+  listGroupIdsForSitemap,
+  listListedGroups,
+  listMembers,
+  profilesToFetch,
+  websitesToCheck,
+} from '../../db/drepGroups.js';
 import { hashBytes } from '../codec.js';
+import { groupIdString } from '../ids.js';
 import { ENGINE_BUDGET, JOB_MAX_QUERIES, MAX_JOB_ROWS_PER_RUN, RUN_MAX_QUERIES } from '../constants.js';
 import { runJobs } from '../jobs.js';
 import { allowance } from '../../sync/queryBudget.js';
@@ -302,9 +311,69 @@ const SELECTIONS: Array<{ name: string; seed: (n: number) => string[]; run: (db:
   },
 ];
 
-describe('the ingest selections do not grow with stored rows', () => {
+// The page readers, each over n stored rows it must not walk: the listed groups among n unlisted groups
+// with more power and n listed ones with less, a group with n more members than a page (first and a later
+// page, open and closing), the groups of a DRep in n more groups than its chips show, with n former
+// memberships of its own and n of other DReps, and the sitemap among the same groups as the listing.
+const GROUP_COLS = `group_tx, group_ix, cur_h, cur_ti, cur_ph, cur_ix, cur_tx, mode, control, seq, status, created_h, created_ti,
+  created_ph, created_ix, created_tx, members, member_power, closing, dissolved_h, dissolved_ti, dissolved_ph, dissolved_ix, dissolved_tx`;
+const NOT_DISSOLVED = '0, NULL, NULL, NULL, NULL, NULL';
+const groupsSql = (base: number, count: number, members: number, power: string, closing = NOT_DISSOLVED): string =>
+  `${series(count)} INSERT INTO drep_groups (${GROUP_COLS})
+    SELECT ${hashSql(base)}, 0, 1, 0, 2, 0, ${hashSql(base)}, 'open', X'aa', '0', ${closing === NOT_DISSOLVED ? "'active'" : "'dissolved'"},
+      1, 0, 2, 0, ${hashSql(base)}, ${members}, ${power}, ${closing} FROM s`;
+const instancesSql = (count: number, join: number, group: string, cred: string, drep: string, counted: string): string =>
+  `${series(count)} INSERT INTO drep_group_instances (join_tx, join_ix, group_tx, group_ix, cred, drep_id, mode, joined_h, joined_ti,
+      joined_ph, joined_ix, joined_tx, counted_as)
+    SELECT ${hashSql(join)}, 0, ${group}, 0, ${cred}, ${drep}, 'open', 10 + s.i, 0, 2, 0, ${hashSql(join)}, '${counted}' FROM s`;
+const LISTED = 6_100_000;
+const listedSeed = (n: number): string[] => [
+  groupsSql(LISTED, 120, 2, '1000000000 + s.i'),
+  groupsSql(6_200_000, n, 1, '2000000000 + s.i'),
+  groupsSql(6_300_000, n, 2, 's.i'),
+];
+const MEMBERS_GROUP = 6_400_000;
+const membersSeed = (closing: boolean) => (n: number): string[] => [
+  groupsSql(MEMBERS_GROUP, 1, 120 + n, '0', closing ? "1, 100000, 0, 2, 0, X'00'" : NOT_DISSOLVED),
+  groupsSql(6_450_000, 1, n, '0'),
+  instancesSql(120 + n, 6_500_000, hashSql(MEMBERS_GROUP, '0'), credSql(6_600_000), "'drep1m' || s.i", 'open'),
+  instancesSql(n, 6_700_000, hashSql(6_450_000, '0'), credSql(6_800_000), "'drep1o' || s.i", 'open'),
+  `${series(n)} INSERT INTO drep_group_ledger (tx_hash, cert_index, cred, kind, block_height, block_hash, tx_index, block_time, witness_state)
+    SELECT ${hashSql(6_900_000)}, 0, ${credSql(6_800_000)}, 'unreg', 20 + s.i, ${hashSql(6_900_000)}, 0, 0, 'na' FROM s`,
+];
+const membersGroup = { txHash: txHex(MEMBERS_GROUP), index: 0 };
+const CHIPS = 5_100_000;
+const chipsSeed = (n: number): string[] => [
+  groupsSql(CHIPS, 30 + n, 2, '0'),
+  groupsSql(5_200_000, n, 2, '0'),
+  instancesSql(30 + n, 5_300_000, hashSql(CHIPS), credSql(5_400_000, '0'), "'drep1chips'", 'open'),
+  instancesSql(n, 5_500_000, hashSql(5_200_000), credSql(5_400_000, '0'), "'drep1chips'", 'former'),
+  instancesSql(n, 5_600_000, hashSql(5_200_000), credSql(5_700_000), "'drep1other' || s.i", 'open'),
+];
+
+const READERS: typeof SELECTIONS = [
+  { name: 'listed groups first page', seed: listedSeed, run: async (db) => (await listListedGroups(db, null, 50)).length },
+  {
+    name: 'listed groups later page',
+    seed: listedSeed,
+    run: async (db) =>
+      (await listListedGroups(db, { power: '1000000069', groupId: groupIdString({ txHash: txHex(LISTED + 69), index: 0 }) }, 50)).length,
+  },
+  { name: 'sitemap groups', seed: listedSeed, run: async (db) => (await listGroupIdsForSitemap(db, 50)).length },
+  { name: 'group members first page', seed: membersSeed(false), run: async (db) => (await listMembers(db, membersGroup, 'active', null, 50)).length },
+  {
+    name: 'group members later page',
+    seed: membersSeed(false),
+    run: async (db) => (await listMembers(db, membersGroup, 'active', '70.0.2.0', 50)).length,
+  },
+  { name: 'closing group first page', seed: membersSeed(true), run: async (db) => (await listClosingMembers(db, membersGroup, null)).length },
+  { name: 'closing group later page', seed: membersSeed(true), run: async (db) => (await listClosingMembers(db, membersGroup, '70.0.2.0')).length },
+  { name: 'group chips of a DRep', seed: chipsSeed, run: async (db) => (await groupsForDrep(db, 'drep1chips', 20)).length },
+];
+
+describe('the ingest selections and page readers do not grow with stored rows', () => {
   const measured = new Map<string, Map<number, Cost & { found: number }>>();
-  for (const sel of SELECTIONS) {
+  for (const sel of [...SELECTIONS, ...READERS]) {
     for (const n of SIZES) {
       it(`${sel.name}: ${n} rows`, { timeout: 60_000 }, async () => {
         await env.DB.batch(sel.seed(n).map((sql) => env.DB.prepare(sql)));
