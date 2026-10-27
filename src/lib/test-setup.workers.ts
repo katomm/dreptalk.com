@@ -12,6 +12,7 @@ declare module 'cloudflare:test' {
     AVATARS: R2Bucket;
     RATE_LIMITER: DurableObjectNamespace<import('./rateLimiterDO.js').RateLimiter>;
     TEST_D1_MIGRATIONS: string;
+    DREPTALK_CONFORMANCE_SEEDS: string;
   }
 }
 
