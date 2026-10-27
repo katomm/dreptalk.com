@@ -47,25 +47,32 @@ export class D1DriverStore extends D1Store implements DriverStore {
   private owner = '';
   /** Credentials the driver marked incomplete, every other tracked credential is complete. */
   private readonly incomplete = new Set<string>();
+  /** Set by expireLease until the next acquire, the only lease loss a schedule may cause. */
+  private expired = false;
 
   async acquireLease(owner: string): Promise<string> {
     const token = await acquireLease(this.db, owner);
     if (token === null) throw new Error(`no lease for ${owner}`);
     this.owner = owner;
     this.token = token;
+    this.expired = false;
     return token;
   }
 
   async expireLease(): Promise<void> {
     await this.db.prepare('UPDATE drep_group_lease SET expires_at = 0 WHERE id = 1').run();
+    this.expired = true;
   }
 
-  /** Runs a write with the held token, after a lost lease once more with a fresh one. */
+  /**
+   * Runs a write with the held token, after a lease expired by the driver once more with a fresh
+   * one. Any other lease loss is an error of the store and fails the schedule.
+   */
   private async held<T>(write: (token: string) => Promise<T>): Promise<T> {
     try {
       return await write(this.token);
     } catch (e) {
-      if (!(e instanceof LeaseLostError)) throw e;
+      if (!(e instanceof LeaseLostError) || !this.expired) throw e;
       await this.acquireLease(this.owner);
       return write(this.token);
     }

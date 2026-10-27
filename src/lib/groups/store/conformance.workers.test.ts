@@ -2,9 +2,9 @@
 // The drep-groups conformance suite against the D1 store: randomized schedules with rollbacks,
 // rebuilds, forks and lease losses, compared with a full replay by the library's driver, plus
 // hand built schedules for the interleavings that matter most for this store.
-// DREPTALK_CONFORMANCE_SEEDS=100 runs in about 40 seconds locally (2026-10-27, Apple silicon).
+// DREPTALK_CONFORMANCE_SEEDS=100 runs this file in about 40 to 50 seconds locally (2026-10-27, Apple silicon).
 import { env } from 'cloudflare:test';
-import type { Budget, ChainInput, Credential, LedgerInput, Pos, RegistryState } from 'drep-groups';
+import type { Budget, ChainInput, Credential, EngineSnapshot, LedgerInput, Pos, Recovery, RegistryState } from 'drep-groups';
 import { comparePos, credKey, endOf, posOfCert, refKey, replay } from 'drep-groups';
 import {
   type Coverage,
@@ -26,6 +26,9 @@ const SEEDS = Number(env.DREPTALK_CONFORMANCE_SEEDS);
 const chainOpts = { txs: 24, credentials: 5, groups: 4 };
 const seen: Coverage[] = [];
 
+// The random seeds complete every credential before the final comparison, so the cases of
+// incomplete credentials live in hand built schedules 2 and 5 below. known = 0 is not reachable
+// through this adapter, the ingest tests of the gate cover it.
 describe('drep-groups conformance on D1', () => {
   for (let seed = 1; seed <= SEEDS; seed++) {
     it(`seed ${seed} matches replay`, { timeout: 180_000 }, async () => {
@@ -87,9 +90,19 @@ function findChain<T>(pick: (chain: ChainInput[], s: RegistryState) => T | null)
   throw new Error('no generated chain has the shape');
 }
 
+// The pending recovery at the time of each snapshot, so a checkpoint can assert it.
+const pendingAt = new WeakMap<EngineSnapshot, Recovery | null>();
+class ProbedStore extends D1DriverStore {
+  override async snapshot(): Promise<EngineSnapshot> {
+    const s = await super.snapshot();
+    pendingAt.set(s, await this.pendingRecovery());
+    return s;
+  }
+}
+
 async function runOnD1(chain: ChainInput[], steps: ScheduleStep[]): Promise<ScheduleResult> {
   const { db: counted, maxBinds } = bindCountingDb(env.DB);
-  const result = await runSchedule(() => new D1DriverStore(counted), chain, steps);
+  const result = await runSchedule(() => new ProbedStore(counted), chain, steps);
   expect(maxBinds()).toBeLessThanOrEqual(D1_MAX_BINDS);
   return result;
 }
@@ -170,11 +183,16 @@ describe('hand built schedules on D1', () => {
       run(),
       { kind: 'rebuild' },
       run(ONE_ROW),
+      { kind: 'check', label: 'rebuilding' },
       { kind: 'deliver', inputs: [marker] },
       run(ONE_ROW),
       run(),
     ]);
     expect(r.coverage.rebuilds).toBeGreaterThan(0);
+    // The marker arrived while the rebuild was still open and G above its block.
+    const snap = checkpoint(r, 'rebuilding');
+    expect(pendingAt.get(snap)).toEqual({ kind: 'rebuild' });
+    expect(snap.frontiers.G.blockHeight).toBeGreaterThan(marker.kind === 'tx' ? marker.tx.blockHeight : Number.MAX_SAFE_INTEGER);
   });
 
   it('applies inputs in block R itself', { timeout: 60_000 }, async () => {
