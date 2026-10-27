@@ -38,6 +38,7 @@ import {
   WORST_MEMBERS,
   worstCaseBase,
 } from '../__tests__/loadFixtures.js';
+import { profilesToFetch, websitesToCheck } from '../../db/drepGroups.js';
 import { hashBytes } from '../codec.js';
 import { ENGINE_BUDGET, JOB_MAX_QUERIES, MAX_JOB_ROWS_PER_RUN, RUN_MAX_QUERIES } from '../constants.js';
 import { runJobs } from '../jobs.js';
@@ -255,6 +256,32 @@ const SELECTIONS: Array<{ name: string; seed: (n: number) => string[]; run: (db:
       `${series(20)} INSERT INTO drep_group_tracked (cred, seq, known) SELECT ${credSql(7_200_000)}, 200000 + s.i, NULL FROM s`,
     ],
     run: async (db) => (await db.prepare(Q.gateCandidates.sql).bind(20).all()).results.length,
+  },
+  {
+    // n listed groups with a profile and a verified website, up to date and so without due rows, and 5 groups
+    // whose profile and website are due.
+    name: 'due queue',
+    seed: (n) => {
+      const cols = `group_tx, group_ix, cur_h, cur_ti, cur_ph, cur_ix, cur_tx, mode, control, profile_url, profile_hash, seq,
+        status, created_h, created_ti, created_ph, created_ix, created_tx, members`;
+      const sel = (base: number, count: number): string => `${series(count)} INSERT INTO drep_groups (${cols})
+        SELECT ${hashSql(base)}, 0, 1, 0, 2, 0, ${hashSql(base)}, 'open', X'aa', 'https://x.test/g.json', X'0a', '0', 'active',
+          1, 0, 2, 0, ${hashSql(base)}, 3 FROM s`;
+      const profiles = (base: number, count: number): string => `${series(count)} INSERT INTO drep_group_profiles (group_tx, group_ix,
+          profile_url, data_hash, status, website, fetched_at) SELECT ${hashSql(base)}, 0, 'https://x.test/g.json', X'0a', 'ok',
+          'https://x.test', 1 FROM s`;
+      const due = (kind: string, base: number): string => `${series(5)} INSERT INTO drep_group_due (kind, group_tx, group_ix, due_at)
+          SELECT '${kind}', ${hashSql(base)}, 0, 10 + s.i FROM s`;
+      return [
+        sel(9_800_000, n),
+        profiles(9_800_000, n),
+        sel(9_900_000, 5),
+        profiles(9_900_000, 5),
+        due('profile', 9_900_000),
+        due('website', 9_900_000),
+      ];
+    },
+    run: async (db) => (await profilesToFetch(db, 1_000, 50)).length + (await websitesToCheck(db, 1_000, 50)).length,
   },
   {
     name: 'witness search',

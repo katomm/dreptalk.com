@@ -940,6 +940,23 @@ const READY_TRACKED = `SELECT cred, applied_h, applied_ti, applied_ph, applied_i
   WHERE complete = 1 AND known = ? AND next_h IS NOT NULL AND (next_h, next_ti, next_ph, next_ix) <= (?, ?, ?, ?)
   ORDER BY next_h, next_ti, next_ph, next_ix LIMIT ?`;
 
+// One page of the due queue, stale rows included so that the LIMIT bounds what is read. A profile due row is
+// stale when its group is gone, unlisted or has no anchor, a website due row when the group is gone or unlisted
+// or its profile names no website.
+const PROFILE_DUE_PAGE = `SELECT d.rowid AS id, d.group_tx, d.group_ix, g.profile_url, g.profile_hash,
+    (g.group_tx IS NULL OR g.profile_url IS NULL OR g.profile_hash IS NULL OR g.members < ${LISTED_MIN_MEMBERS}) AS stale
+  FROM drep_group_due d LEFT JOIN drep_groups g ON g.group_tx = d.group_tx AND g.group_ix = d.group_ix
+  WHERE d.kind = 'profile' AND d.due_at <= ? ORDER BY d.due_at, d.rowid LIMIT ?`;
+const WEBSITE_DUE_PAGE = `SELECT d.rowid AS id, d.group_tx, d.group_ix, p.website,
+    (g.group_tx IS NULL OR g.members < ${LISTED_MIN_MEMBERS} OR p.website IS NULL) AS stale
+  FROM drep_group_due d
+  LEFT JOIN drep_groups g ON g.group_tx = d.group_tx AND g.group_ix = d.group_ix
+  LEFT JOIN drep_group_profiles p ON p.group_tx = d.group_tx AND p.group_ix = d.group_ix
+  WHERE d.kind = 'website' AND d.due_at <= ? ORDER BY d.due_at, d.rowid LIMIT ?`;
+// The group still carries the anchor a fetched profile belongs to.
+const SAME_ANCHOR = `EXISTS (SELECT 1 FROM drep_groups g WHERE g.group_tx = drep_group_due.group_tx
+    AND g.group_ix = drep_group_due.group_ix AND g.profile_url = ? AND g.profile_hash = ?)`;
+
 export const Q = Object.freeze({
   leaseSeed: {
     sql: 'INSERT OR IGNORE INTO drep_group_lease (id, owner, token, expires_at) VALUES (1, NULL, NULL, 0)',
@@ -1082,6 +1099,51 @@ export const Q = Object.freeze({
   ...(Object.fromEntries(
     (Object.keys(JOB) as Array<keyof typeof JOB>).map((k) => [`job_${k}`, { sql: JOB[k](1) }]),
   ) as Record<`job_${keyof typeof JOB}`, RegisteredQuery>),
+  // Binds now and the limit. The oldest due profile rows with their group's anchor.
+  profileDuePage: { sql: PROFILE_DUE_PAGE },
+  // Binds now and the limit, the same page as profileDuePage. Drops its stale rows.
+  profileDueDropStale: { sql: `WITH page AS (${PROFILE_DUE_PAGE}) DELETE FROM drep_group_due WHERE rowid IN (SELECT id FROM page WHERE stale = 1)` },
+  // Binds now and the limit. The oldest due website rows with the website of their profile.
+  websiteDuePage: { sql: WEBSITE_DUE_PAGE },
+  websiteDueDropStale: { sql: `WITH page AS (${WEBSITE_DUE_PAGE}) DELETE FROM drep_group_due WHERE rowid IN (SELECT id FROM page WHERE stale = 1)` },
+  // Binds the group, url, hash, status, the five fields, the payment addresses, then the three times.
+  upsertProfile: {
+    sql: `INSERT INTO drep_group_profiles (group_tx, group_ix, profile_url, data_hash, status, name, description, website,
+            image, charter, payment_addresses_json, fetched_at, website_verified_at, website_checked_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS INTEGER), CAST(? AS INTEGER), CAST(? AS INTEGER))
+          ON CONFLICT (group_tx, group_ix) DO UPDATE SET profile_url = excluded.profile_url, data_hash = excluded.data_hash,
+            status = excluded.status, name = excluded.name, description = excluded.description, website = excluded.website,
+            image = excluded.image, charter = excluded.charter, payment_addresses_json = excluded.payment_addresses_json,
+            fetched_at = excluded.fetched_at, website_verified_at = excluded.website_verified_at,
+            website_checked_at = excluded.website_checked_at`,
+  },
+  // Binds the group, then the anchor the profile was fetched for.
+  profileDueDone: {
+    sql: `DELETE FROM drep_group_due WHERE kind = 'profile' AND group_tx = ? AND group_ix = ? AND ${SAME_ANCHOR}`,
+  },
+  // Binds the new due time, the group, then the anchor.
+  profileDueRetry: {
+    sql: `UPDATE drep_group_due SET due_at = CAST(? AS INTEGER)
+          WHERE kind = 'profile' AND group_tx = ? AND group_ix = ? AND ${SAME_ANCHOR}`,
+  },
+  // Binds the due time, the group, the anchor. A listed group whose anchor is still the fetched one.
+  websiteDueUpsert: {
+    sql: `INSERT INTO drep_group_due (kind, group_tx, group_ix, due_at)
+          SELECT 'website', g.group_tx, g.group_ix, CAST(? AS INTEGER) FROM drep_groups g
+          WHERE g.group_tx = ? AND g.group_ix = ? AND g.profile_url = ? AND g.profile_hash = ?
+            AND g.members >= ${LISTED_MIN_MEMBERS}
+          ON CONFLICT (kind, group_tx, group_ix) DO UPDATE SET due_at = excluded.due_at`,
+  },
+  // Binds the check time, whether it verified (0 or 1), the check time, then the group.
+  websiteCheck: {
+    sql: `UPDATE drep_group_profiles SET website_checked_at = CAST(? AS INTEGER),
+            website_verified_at = CASE WHEN ? = 1 THEN CAST(? AS INTEGER) ELSE NULL END
+          WHERE group_tx = ? AND group_ix = ?`,
+  },
+  // Binds the next due time, then the group.
+  websiteDueMove: {
+    sql: "UPDATE drep_group_due SET due_at = CAST(? AS INTEGER) WHERE kind = 'website' AND group_tx = ? AND group_ix = ?",
+  },
   recForkCursors: {
     sql: `UPDATE drep_group_meta SET ${RESET_G}, L = -1, L_hash = NULL, R = NULL, reg_time = NULL, reg_offset = 0,
             probe_active = 0, probe_below = NULL, rec_phase = 'done'
@@ -1145,6 +1207,16 @@ export const Q_SAMPLE_BINDS: Readonly<Record<keyof typeof Q, unknown[]>> = Objec
   libVersion: ['0.2.0'],
   recoverySlots: ['truncate', 1, 0, null, null, 1, 'jobs', null],
   ...RECOVERY_REGISTRY.binds,
+  profileDuePage: [1, 10],
+  profileDueDropStale: [1, 10],
+  websiteDuePage: [1, 10],
+  websiteDueDropStale: [1, 10],
+  upsertProfile: [TX, 0, 'https://x.test/g.json', TX, 'ok', null, null, null, null, null, null, 1, null, null],
+  profileDueDone: [TX, 0, 'https://x.test/g.json', TX],
+  profileDueRetry: [1, TX, 0, 'https://x.test/g.json', TX],
+  websiteDueUpsert: [1, TX, 0, 'https://x.test/g.json', TX],
+  websiteCheck: [1, 1, 1, TX, 0],
+  websiteDueMove: [1, TX, 0],
   recVersionsProbe: [1],
   recVersionsPage: [1, 1, 10],
   ...(Object.fromEntries(

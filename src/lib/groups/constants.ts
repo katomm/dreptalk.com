@@ -70,3 +70,6 @@ export const RETENTION_KEEP_NOT_APPLIED = 50;
 export const LISTED_MIN_MEMBERS = 2;
 export const GROUP_PAGE_SIZE = 50;
 export const PENDING_INDICATOR_CAP = 100;
+export const WEBSITE_RECHECK_MS = 86_400_000;
+export const PROFILE_RETRY_MS = 6 * 3_600_000;
+export const WELL_KNOWN_MAX_BYTES = 64 * 1024;
