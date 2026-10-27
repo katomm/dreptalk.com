@@ -235,6 +235,7 @@ describe('drepGroups readers: groups', () => {
     expect(applied[0]).toEqual({ txHash: txOf(1249), eventIndex: 0, tag: 'join', valid: true, reason: null, blockHeight: 1249 });
     expect(applied.at(-1)?.blockHeight).toBe(1050);
     expect(await listVerdicts(db, refOf(1), false, 500)).toHaveLength(50);
+    expect(await listVerdicts(db, refOf(1), false, -1)).toEqual([]);
     const few = await listVerdicts(db, refOf(1), false, 5);
     expect(few.map((v) => v.blockHeight)).toEqual([5059, 5058, 5057, 5056, 5055]);
     expect(few[0]).toMatchObject({ valid: false, reason: 'not a member' });
@@ -322,13 +323,22 @@ describe('drepGroups readers: members', () => {
     expect(pages.map((p) => p.map((r) => [r.joinedHeight, r.state, r.reason, r.mark]))).toEqual([
       [
         [11, 'active', null, null],
-        [12, 'closed', 'retired', 'retiring'],
+        [12, 'closed', 'retired', null],
       ],
       [[13, 'active', null, 'unapplied']],
     ]);
     expect(pages[0][1].closedHeight).toBe(50);
     expect(await listMembers(db, refOf(1), 'active', pages[0][0].key, 2)).toEqual([pages[0][1], pages[1][0]]);
     expect(await listMembers(db, refOf(1), 'pending', null, 50)).toEqual([]);
+  });
+
+  it('marks only the pending or active rows of a retiring member', async () => {
+    await seedGroup(1, { members: 1 });
+    await seedInstance(1, 101, { member: 4, joined: 14, closed: { at: 15, reason: 'left' }, counted: 'former' });
+    await seedInstance(1, 102, { member: 4, joined: 16 });
+    await seedTracked(4, 100, 1);
+    expect((await listMembers(db, refOf(1), 'former', null, 50)).map((r) => [r.joinedHeight, r.state, r.mark])).toEqual([[14, 'closed', null]]);
+    expect((await listMembers(db, refOf(1), 'active', null, 50)).map((r) => [r.joinedHeight, r.state, r.mark])).toEqual([[16, 'active', 'retiring']]);
   });
 
   it('lists pending and former members by their counted_as list', async () => {

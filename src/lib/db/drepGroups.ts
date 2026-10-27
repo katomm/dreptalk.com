@@ -276,9 +276,23 @@ export async function listListedGroups(
     rows = (await db.prepare(Q.listedFirst.sql).bind(limit).all<Row>()).results ?? [];
   } else {
     const res = (await db.prepare(Q.listedAfter.sql).bind(after.power, ...refBinds(ref), limit).all<Row>()).results ?? [];
-    rows = [...res.filter((r) => Number(r.part) === 0), ...res.filter((r) => Number(r.part) === 1)].slice(0, limit);
+    rows = res.sort(listedOrder).slice(0, limit);
   }
   return rows.map((r) => ({ ...groupFromRow(r), name: optStr(r.p_name), websiteVerified: r.p_verified !== null }));
+}
+
+/** The order of a later listed page: the part, then member power descending, then the group key. */
+function listedOrder(a: Row, b: Row): number {
+  const pa = BigInt(String(a.member_power));
+  const pb = BigInt(String(b.member_power));
+  const ka = hashFromCol(a.group_tx);
+  const kb = hashFromCol(b.group_tx);
+  return (
+    Number(a.part) - Number(b.part) ||
+    (pa > pb ? -1 : pa < pb ? 1 : 0) ||
+    (ka < kb ? -1 : ka > kb ? 1 : 0) ||
+    Number(a.group_ix) - Number(b.group_ix)
+  );
 }
 
 /** A group with its stored profile, null for an invalid id or an unknown group. */
@@ -320,7 +334,8 @@ function membersFromRows(rows: Row[]): MemberRow[] {
         joinedHeight: j.blockHeight,
         approvedHeight: inst.approvedAt?.blockHeight ?? null,
         closedHeight: eff?.at.blockHeight ?? null,
-        mark: Number(r.retiring) === 1 ? 'retiring' : Number(r.unapplied) === 1 ? 'unapplied' : null,
+        // A closed row stays closed whatever the retirement does, only a pending or active one is marked.
+        mark: Number(r.retiring) === 1 && counted !== 'former' ? 'retiring' : Number(r.unapplied) === 1 ? 'unapplied' : null,
         key: `${j.blockHeight}.${j.txIndex}.${j.phase}.${j.index}`,
       };
     });
@@ -352,7 +367,7 @@ export async function listClosingMembers(db: D1Database, group: EventRef, after:
 /** The newest retained verdicts of one validity class, at most the number retention keeps. */
 export async function listVerdicts(db: D1Database, group: EventRef, valid: boolean, limit: number): Promise<VerdictRow[]> {
   const keep = valid ? RETENTION_KEEP_APPLIED : RETENTION_KEEP_NOT_APPLIED;
-  const res = await db.prepare(Q.verdictPage.sql).bind(...refBinds(group), valid ? 1 : 0, Math.min(limit, keep)).all<Row>();
+  const res = await db.prepare(Q.verdictPage.sql).bind(...refBinds(group), valid ? 1 : 0, Math.max(0, Math.min(limit, keep))).all<Row>();
   return (res.results ?? []).map((r) => ({
     txHash: hashFromCol(r.tx_hash),
     eventIndex: Number(r.idx),
