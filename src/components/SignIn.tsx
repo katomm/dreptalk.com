@@ -81,7 +81,7 @@ function friendlyLoginError(
     if (role === 'delegator') {
       return 'This wallet did not sign with a stake address. Pick the account whose stake key you want to track.';
     }
-    return 'This wallet did not sign with a reward address. Use the wallet that submitted the governance action and select the Proposer role.';
+    return 'This wallet did not sign with a reward address. Use the wallet that gets the governance action deposit back and select the Proposer role.';
   }
   if (e.includes('not an active drep')) {
     return 'This key is not a registered, active DRep on this network. Register as a DRep to take part.';
@@ -93,7 +93,7 @@ function friendlyLoginError(
     return 'This hot key is not an authorized, key-based Constitutional Committee credential on this network.';
   }
   if (e.includes('not a proposer or moderator')) {
-    return 'This wallet has not submitted a governance action and is not a listed moderator, so it cannot sign in.';
+    return 'This wallet does not get the deposit back for any governance action and is not a listed moderator, so it cannot sign in.';
   }
   if (e.includes('could not read')) return error!;
   if (e.includes('invalid request')) {
@@ -560,7 +560,7 @@ function WalletTab({ network, loginState, onLoginStateChange, walletScan }: Wall
         />
         {role === 'proposer' && (
           <p style={{ margin: '0.25rem 0 0', fontSize: '0.8125rem', color: 'var(--muted)', lineHeight: 1.5 }}>
-            Sign in with the wallet that submitted your governance action. Proposers can post and join discussions.
+            Sign in with the wallet that gets your governance action deposit back. Proposers can post and join discussions.
           </p>
         )}
         {role === 'delegator' && (
