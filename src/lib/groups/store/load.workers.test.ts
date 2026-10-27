@@ -237,7 +237,8 @@ describe('the worst case of one engine run', () => {
   });
 });
 
-const COMPACT_BOUND = 3_750;
+// Growth is measured in whole 4,096 byte pages, so the bound keeps a margin of a few pages per thousand creates.
+const COMPACT_BOUND = 4_000;
 const BATCHED_BOUND = 3_000;
 
 const sizeAfter = async (): Promise<number> => (await env.DB.prepare('SELECT 1').all()).meta.size_after as number;
