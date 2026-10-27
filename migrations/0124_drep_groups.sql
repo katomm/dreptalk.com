@@ -81,6 +81,8 @@ CREATE INDEX IF NOT EXISTS drep_group_tracked_retired ON drep_group_tracked (ret
 CREATE INDEX IF NOT EXISTS drep_group_tracked_solo ON drep_group_tracked (solo) WHERE history_offset > 0;
 
 -- pending_witness counts the ledger rows of a credential still waiting for their witness check.
+-- Ledger rows are written with INSERT OR IGNORE or ON CONFLICT DO UPDATE, never INSERT OR REPLACE,
+-- whose implicit delete skips the delete trigger, and the tracked row exists before its ledger rows.
 CREATE TRIGGER IF NOT EXISTS drep_group_ledger_pending_ai AFTER INSERT ON drep_group_ledger
 WHEN NEW.witness_state = 'pending' BEGIN
   UPDATE drep_group_tracked SET pending_witness = pending_witness + 1 WHERE cred = NEW.cred;
@@ -303,8 +305,7 @@ CREATE TABLE IF NOT EXISTS drep_group_meta (
   reg_offset INTEGER NOT NULL DEFAULT 0,
   probe_active INTEGER NOT NULL DEFAULT 0,
   probe_below INTEGER,
-  operator_truncate INTEGER,
-  power_seq INTEGER NOT NULL DEFAULT 0
+  operator_truncate INTEGER
 );
 INSERT OR IGNORE INTO drep_group_meta (id, L, R, G_h, G_ti, G_ph, G_ix, G_tx, lib_version, reg_offset, rebuilding, probe_active)
 VALUES (1, -1, NULL, -1, 9007199254740991, 2, 9007199254740991, '', NULL, 0, 0, 0);
@@ -339,17 +340,25 @@ CREATE TABLE IF NOT EXISTS drep_group_profiles (
 );
 
 -- A voting power change of a DRep with an open instance queues it for the power scan,
--- in the same statement as the dreps write. A queued DRep restarts its keyset.
+-- in the same statement as the dreps write. The seq is above every queued row, the DRep's own
+-- row included, so a queued DRep moves to the back and restarts its keyset. Update then insert,
+-- because the conflict clause of an outer upsert into dreps overrides any OR REPLACE in here.
 CREATE TRIGGER IF NOT EXISTS dreps_group_power_ai AFTER INSERT ON dreps
 WHEN EXISTS (SELECT 1 FROM drep_group_instances WHERE drep_id = NEW.drep_id AND counted_as = 'open') BEGIN
-  UPDATE drep_group_meta SET power_seq = power_seq + 1 WHERE id = 1;
-  INSERT OR REPLACE INTO drep_group_power_changes (drep_id, seq, after_key)
-    VALUES (NEW.drep_id, (SELECT power_seq FROM drep_group_meta WHERE id = 1), NULL);
+  UPDATE drep_group_power_changes
+    SET seq = (SELECT MAX(seq) FROM drep_group_power_changes) + 1, after_key = NULL
+    WHERE drep_id = NEW.drep_id;
+  INSERT INTO drep_group_power_changes (drep_id, seq, after_key)
+    SELECT NEW.drep_id, COALESCE((SELECT MAX(seq) FROM drep_group_power_changes), 0) + 1, NULL
+    WHERE NOT EXISTS (SELECT 1 FROM drep_group_power_changes WHERE drep_id = NEW.drep_id);
 END;
 CREATE TRIGGER IF NOT EXISTS dreps_group_power_au AFTER UPDATE OF voting_power ON dreps
 WHEN OLD.voting_power IS NOT NEW.voting_power
   AND EXISTS (SELECT 1 FROM drep_group_instances WHERE drep_id = NEW.drep_id AND counted_as = 'open') BEGIN
-  UPDATE drep_group_meta SET power_seq = power_seq + 1 WHERE id = 1;
-  INSERT OR REPLACE INTO drep_group_power_changes (drep_id, seq, after_key)
-    VALUES (NEW.drep_id, (SELECT power_seq FROM drep_group_meta WHERE id = 1), NULL);
+  UPDATE drep_group_power_changes
+    SET seq = (SELECT MAX(seq) FROM drep_group_power_changes) + 1, after_key = NULL
+    WHERE drep_id = NEW.drep_id;
+  INSERT INTO drep_group_power_changes (drep_id, seq, after_key)
+    SELECT NEW.drep_id, COALESCE((SELECT MAX(seq) FROM drep_group_power_changes), 0) + 1, NULL
+    WHERE NOT EXISTS (SELECT 1 FROM drep_group_power_changes WHERE drep_id = NEW.drep_id);
 END;

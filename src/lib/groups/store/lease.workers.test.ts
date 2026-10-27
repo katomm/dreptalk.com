@@ -161,6 +161,30 @@ describe('drep group power changes', () => {
   const queue = async () =>
     (await db.prepare('SELECT drep_id, seq, after_key FROM drep_group_power_changes ORDER BY seq').all()).results;
 
+  it('queues a DRep inserted fresh while it holds an open instance', async () => {
+    await openInstance(OPEN);
+    await upsertDrep(db, { ...drepArgs(OPEN, null), votingPower: '100' });
+    expect(await queue()).toEqual([{ drep_id: OPEN, seq: 1, after_key: null }]);
+  });
+
+  it('moves a queued DRep behind every other queued row on its next change', async () => {
+    await upsertDrep(db, { ...drepArgs(OPEN, null), votingPower: '100' });
+    await upsertDrep(db, { ...drepArgs(SOLO, null), votingPower: '100' });
+    await openInstance(OPEN);
+    await db
+      .prepare("INSERT INTO drep_group_instances (join_tx, join_ix, group_tx, group_ix, cred, drep_id, mode, joined_h, joined_ti, joined_ph, joined_ix, joined_tx, counted_as) VALUES ('j2', 0, 'g', 0, 'key:bb', ?, 'open', 1, 0, 1, 0, 'j2', 'open')")
+      .bind(SOLO)
+      .run();
+    await upsertDrep(db, { ...drepArgs(OPEN, null), votingPower: '150' });
+    await upsertDrep(db, { ...drepArgs(SOLO, null), votingPower: '150' });
+    const before = Number((await queue()).find((r) => r.drep_id === OPEN)?.seq);
+    await upsertDrep(db, { ...drepArgs(OPEN, null), votingPower: '175' });
+    const rows = await queue();
+    expect(rows.map((r) => r.drep_id)).toEqual([SOLO, OPEN]);
+    expect(Number(rows[1].seq)).toBeGreaterThan(before);
+    expect(Number(rows[1].seq)).toBeGreaterThan(Number(rows[0].seq));
+  });
+
   it('queues a power change from both DRep write paths in the same statement', async () => {
     await upsertDrep(db, { ...drepArgs(OPEN, null), votingPower: '100' });
     await upsertDrep(db, { ...drepArgs(SOLO, null), votingPower: '100' });
