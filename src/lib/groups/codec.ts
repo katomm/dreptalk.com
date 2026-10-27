@@ -1,4 +1,5 @@
 import type {
+  ChainTx,
   Credential,
   DecodedEvent,
   GroupVersion,
@@ -140,6 +141,36 @@ export function instanceFromRow(row: Record<string, unknown>): StoredInstance {
     approvedAt: posOrNull(row, 'approved'),
     closedAt: posOrNull(row, 'closed'),
     closeReason: reason === null ? null : (String(reason) as StoredInstance['closeReason']),
+  };
+}
+
+/** A BLOB column as bytes, whatever shape the driver returns it in. */
+export function bytesFromCol(v: unknown): Uint8Array {
+  if (v instanceof Uint8Array) return new Uint8Array(v);
+  if (v instanceof ArrayBuffer) return new Uint8Array(v);
+  if (Array.isArray(v)) return Uint8Array.from(v as number[]);
+  throw new Error('not a blob column');
+}
+
+/**
+ * Reads a non marker drep_group_txs row. required_signers and witness_key_hashes are JSON arrays
+ * of hex strings, invalid_before and invalid_hereafter decimal TEXT. Witness scripts are not
+ * stored with the tx, the group plane never reads them.
+ */
+export function labelTxFromRow(row: Record<string, unknown>): ChainTx {
+  const payload = col(row, 'payload');
+  return {
+    txHash: String(col(row, 'tx_hash')),
+    blockHeight: Number(col(row, 'block_height')),
+    txIndex: Number(col(row, 'tx_index')),
+    isValid: Number(col(row, 'is_valid')) === 1,
+    invalidBefore: bigFromCol(col(row, 'invalid_before')),
+    invalidHereafter: bigFromCol(col(row, 'invalid_hereafter')),
+    requiredSigners: JSON.parse(String(col(row, 'required_signers'))) as string[],
+    witnessKeyHashes: JSON.parse(String(col(row, 'witness_key_hashes'))) as string[],
+    payload: payload === null ? undefined : bytesFromCol(payload),
+    payloadRepeated: Number(col(row, 'payload_repeated')) === 1,
+    witnessScripts: [],
   };
 }
 
