@@ -47,14 +47,17 @@ export interface ProfileRow {
 type Row = Record<string, unknown>;
 
 /**
- * Runs a page read and gives the fallback when it fails, so a page shared with the rest of the site
- * stays up while the groups tables are missing or unreadable. Logs one line per failed read.
+ * Runs a page read and gives the fallback when a groups table is missing, so a page shared with the
+ * rest of the site stays up until the migration is applied. Logs one line then. Any other error is
+ * rethrown.
  */
 async function pageRead<T, F>(name: string, fallback: F, read: () => Promise<T>): Promise<T | F> {
   try {
     return await read();
   } catch (err) {
-    console.error(`[drep-groups] ${name} read failed: ${err instanceof Error ? err.message : String(err)}`);
+    const message = err instanceof Error ? err.message : String(err);
+    if (!message.includes('no such table')) throw err;
+    console.error(`[drep-groups] ${name} read failed: ${message}`);
     return fallback;
   }
 }
@@ -310,7 +313,7 @@ function listedOrder(a: Row, b: Row): number {
   );
 }
 
-/** A group with its stored profile, null for an invalid id or an unknown group, undefined when the read failed. */
+/** A group with its stored profile, null for an invalid id or an unknown group, undefined while the groups tables are missing. */
 export async function getGroup(db: D1Database, groupId: string): Promise<(GroupRow & { profile: ProfileRow | null }) | null | undefined> {
   const ref = groupIdParam(groupId);
   if (!ref) return null;
