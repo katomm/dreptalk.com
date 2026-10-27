@@ -57,6 +57,7 @@ import { acquireLease, invocationOwner } from './lease.js';
 import { frontiers, pendingRecovery } from './reads.js';
 import { INGEST, Q } from './queries.js';
 import { openRecovery } from './recovery.js';
+import { resetD1 } from '../../test-d1-reset.workers.js';
 
 const SIZES = [0, 1_000, 10_000] as const;
 const BIG: Budget = { ...ENGINE_BUDGET, controlTxs: 1000, controlBytes: 10_000_000, credentialUnits: 1000, credentialInputs: 10_000 };
@@ -151,23 +152,28 @@ async function measure(shape: (typeof SHAPES)[number], n: number): Promise<Measu
   };
 }
 
-const results = new Map<string, Map<number, Measured>>();
+/** Runs the measurement at every size, each from an empty store. */
+async function atEverySize<T>(m: (n: number) => Promise<T>): Promise<T[]> {
+  const out: T[] = [];
+  for (const n of SIZES) {
+    await resetD1();
+    out.push(await m(n));
+  }
+  return out;
+}
 
 describe('the engine store cost does not grow with stored history', () => {
   for (const shape of SHAPES) {
-    for (const n of SIZES) {
-      it(`${shape.name}: ${n} rows`, { timeout: 120_000 }, async () => {
-        const r = await measure(shape, n);
-        const per = results.get(shape.name) ?? new Map<number, Measured>();
-        per.set(n, r);
-        results.set(shape.name, per);
-      });
-    }
-
-    it(`${shape.name}: queries equal and rows read flat across 0, 1,000 and 10,000 rows`, () => {
-      const per = results.get(shape.name);
-      if (!per || per.size !== SIZES.length) throw new Error('a measurement is missing');
-      const [r0, r1k, r10k] = SIZES.map((n) => per.get(n) as Measured);
+    it(`${shape.name}: queries equal and rows read flat across 0, 1,000 and 10,000 rows`, { timeout: 360_000 }, async () => {
+      const [r0, r1k, r10k] = await atEverySize((n) => measure(shape, n));
+      console.log(
+        [r0, r1k, r10k]
+          .map(
+            (r, i) =>
+              `${shape.name} | ${SIZES[i]} | runs ${r.runs.length} | first ${r.runs[0].queries}q ${r.runs[0].rows}r | all ${r.total.queries}q ${r.total.rows}r | truncate ${r.truncate.queries}q ${r.truncate.rows}r | rebuild call ${r.rebuildCall.queries}q ${r.rebuildCall.rows}r | truncate call max ${r.truncateCallMax}q | ingest ${r.ingest.queries}q ${r.ingest.rows}r`,
+          )
+          .join('\n'),
+      );
       // Same work at every size.
       expect(r10k.work).toEqual(r0.work);
       expect(r1k.work).toEqual(r0.work);
@@ -202,19 +208,6 @@ describe('the engine store cost does not grow with stored history', () => {
     await m.db.prepare('SELECT COUNT(*) AS n FROM drep_group_verdicts WHERE reason = ?').bind('stale seq').first();
     expect(m.queries()).toBe(1);
     expect(m.rowsRead()).toBeGreaterThanOrEqual(1_000);
-  });
-
-  it('reports the measured numbers', () => {
-    const lines: string[] = [];
-    for (const [name, per] of results) {
-      for (const [n, r] of per) {
-        lines.push(
-          `${name} | ${n} | runs ${r.runs.length} | first ${r.runs[0].queries}q ${r.runs[0].rows}r | all ${r.total.queries}q ${r.total.rows}r | truncate ${r.truncate.queries}q ${r.truncate.rows}r | rebuild call ${r.rebuildCall.queries}q ${r.rebuildCall.rows}r | truncate call max ${r.truncateCallMax}q | ingest ${r.ingest.queries}q ${r.ingest.rows}r`,
-        );
-      }
-    }
-    console.log(lines.join('\n'));
-    expect(lines.length).toBe(SHAPES.length * SIZES.length);
   });
 });
 
@@ -372,23 +365,14 @@ const READERS: typeof SELECTIONS = [
 ];
 
 describe('the ingest selections and page readers do not grow with stored rows', () => {
-  const measured = new Map<string, Map<number, Cost & { found: number }>>();
   for (const sel of [...SELECTIONS, ...READERS]) {
-    for (const n of SIZES) {
-      it(`${sel.name}: ${n} rows`, { timeout: 60_000 }, async () => {
+    it(`${sel.name}: queries equal and rows read flat across 0, 1,000 and 10,000 rows`, { timeout: 180_000 }, async () => {
+      const [r0, r1k, r10k] = await atEverySize(async (n) => {
         await env.DB.batch(sel.seed(n).map((sql) => env.DB.prepare(sql)));
         const m = meteredDb(env.DB);
         const found = await sel.run(m.db, n);
-        const per = measured.get(sel.name) ?? new Map();
-        per.set(n, { queries: m.queries(), rows: m.rowsRead(), found });
-        measured.set(sel.name, per);
+        return { queries: m.queries(), rows: m.rowsRead(), found };
       });
-    }
-
-    it(`${sel.name}: queries equal and rows read flat across 0, 1,000 and 10,000 rows`, () => {
-      const per = measured.get(sel.name);
-      if (!per || per.size !== SIZES.length) throw new Error('a measurement is missing');
-      const [r0, r1k, r10k] = SIZES.map((n) => per.get(n) as Cost & { found: number });
       console.log(`${sel.name}: ${SIZES.map((n, i) => `${n} rows ${[r0, r1k, r10k][i].queries}q ${[r0, r1k, r10k][i].rows}r`).join(', ')}`);
       expect(r10k.queries).toBe(r0.queries);
       expect(r1k.queries).toBe(r0.queries);
@@ -408,7 +392,6 @@ const membersDone = (done: 0 | 1): D1PreparedStatement =>
 
 // The worst measured normal run is 284 queries of 400 (64 anchored updates with control changes per tx).
 describe('the worst case of one engine run', () => {
-  const worst = new Map<string, { queries: number; units: number; verdicts: { n: number; valid: number } }>();
   for (const variant of Object.keys(HOSTILE)) {
     it(`${variant}: fits RUN_MAX_QUERIES`, { timeout: 60_000 }, async () => {
       const lease = (await acquireLease(env.DB, invocationOwner())) as string;
@@ -425,16 +408,13 @@ describe('the worst case of one engine run', () => {
       // Both planes at their full budget.
       expect(r.controlTxs).toBe(ENGINE_BUDGET.controlTxs);
       expect(r.inputs).toBe(ENGINE_BUDGET.credentialInputs);
-      const v = await env.DB.prepare('SELECT COUNT(*) AS n, COALESCE(SUM(valid), 0) AS valid FROM drep_group_verdicts WHERE at_h >= 40').first();
-      worst.set(variant, { queries: m.queries(), units: r.units, verdicts: v as { n: number; valid: number } });
+      const v = (await env.DB
+        .prepare('SELECT COUNT(*) AS n, COALESCE(SUM(valid), 0) AS valid FROM drep_group_verdicts WHERE at_h >= 40')
+        .first()) as { n: number; valid: number };
+      console.log(`${variant}: ${m.queries()} of ${RUN_MAX_QUERIES}, units ${r.units}, verdicts ${v.n} (${v.valid} valid)`);
       expect(m.queries()).toBeLessThanOrEqual(RUN_MAX_QUERIES);
     });
   }
-
-  it('reports the measured worst cases', () => {
-    console.log([...worst.entries()].map(([k, v]) => `${k}: ${v.queries} of ${RUN_MAX_QUERIES}, units ${v.units}, verdicts ${v.verdicts.n} (${v.verdicts.valid} valid)`).join('\n'));
-    expect(worst.size).toBe(Object.keys(HOSTILE).length);
-  });
 });
 
 // Growth is measured in whole 4,096 byte pages, so the bound keeps a margin of a few pages per thousand creates.
@@ -569,24 +549,15 @@ const PAGES: Array<{ name: string; seed: (n: number) => string[]; exact: boolean
 ];
 
 describe('the job pages do not grow with stored rows', () => {
-  const measured = new Map<string, Map<number, PageCost>>();
   for (const page of PAGES) {
-    for (const n of SIZES) {
-      it(`${page.name}: ${n} rows`, { timeout: 60_000 }, async () => {
+    it(`${page.name}: queries equal and rows read flat across 0, 1,000 and 10,000 rows`, { timeout: 180_000 }, async () => {
+      const [r0, r1k, r10k] = await atEverySize(async (n) => {
         await env.DB.batch(page.seed(n).map((sql) => env.DB.prepare(sql)));
         const cost = await oneJobPage();
         expect(cost.pages).toBe(1);
         expect(cost.queries).toBeLessThanOrEqual(JOB_MAX_QUERIES);
-        const per = measured.get(page.name) ?? new Map();
-        per.set(n, cost);
-        measured.set(page.name, per);
+        return cost;
       });
-    }
-
-    it(`${page.name}: queries equal and rows read flat across 0, 1,000 and 10,000 rows`, () => {
-      const per = measured.get(page.name);
-      if (!per || per.size !== SIZES.length) throw new Error('a measurement is missing');
-      const [r0, r1k, r10k] = SIZES.map((n) => per.get(n) as PageCost);
       console.log(`${page.name}: ${SIZES.map((n, i) => `${n} rows ${[r0, r1k, r10k][i].queries}q ${[r0, r1k, r10k][i].rows}r`).join(', ')}`);
       const base = page.exact ? r0 : r1k;
       expect(r10k.queries).toBe(base.queries);

@@ -23,7 +23,7 @@ import {
   T,
   txCbor,
 } from './__tests__/fixtures.js';
-import { comparableD1, type ComparableSnapshot } from './__tests__/engineFixtures.js';
+import { comparableD1 } from './__tests__/engineFixtures.js';
 import { settle } from './__tests__/loadFixtures.js';
 import { credBytes, hashBytes, hashFromCol } from './codec.js';
 import { DEPTH, ENGINE_BUDGET, WITNESS_BACKOFF_BASE_MS } from './constants.js';
@@ -31,6 +31,7 @@ import { credentialForDrepId, drepIdForCredential } from './ids.js';
 import { checkLibraryVersion, type IngestResult, ingestDrepGroups } from './ingest.js';
 import { acquireLease, invocationOwner, releaseLease } from './store/lease.js';
 import { openRecovery } from './store/recovery.js';
+import { resetD1 } from '../test-d1-reset.workers.js';
 
 const db = env.DB;
 type Row = Record<string, unknown>;
@@ -572,7 +573,6 @@ describe('ingestDrepGroups: a finite allowance', () => {
   const history = Array.from({ length: 300 }, (_, i) => ({ ...regRow(credM, i % 2 === 0 ? 'deregistered' : 'registered', T(0x5000 + i), 60), index: i }));
   const chain = (): Chain => ({ tip: 200, txs: [create], regs: [regM, ...history, { ...regM, hash: T(0x6000), height: 61 }] });
   type Check = { spent: number; cost: number; calls: number };
-  let baseline: { budget: number; snapshot: ComparableSnapshot } | null = null;
 
   /** One ingest under a finite allowance through the production query meter, every covers call logged, then the engine. */
   async function finite(c: Chain, limit: number, log: Check[] = []): Promise<IngestResult & { calls: string[] }> {
@@ -593,21 +593,22 @@ describe('ingestDrepGroups: a finite allowance', () => {
     return { ...r, calls: koios.calls };
   }
 
-  it('measures the unit of the batched history read without starving', async () => {
+  it('starves the history unit without writing it and catches up in the next run', async () => {
+    // A run with room to spare measures the unit of the batched history read and the state it leaves.
     const log: Check[] = [];
-    const r = await finite(chain(), 10_000, log);
-    expect(r.starved).toEqual([]);
+    const full = await finite(chain(), 10_000, log);
+    expect(full.starved).toEqual([]);
     // The check of the history unit is the first one after its Koios read.
-    const read = r.calls.findIndex((c) => c.startsWith('regsForMany'));
+    const read = full.calls.findIndex((x) => x.startsWith('regsForMany'));
     const unit = log.find((x) => x.calls > read) as Check;
     expect(unit.cost).toBeGreaterThan(40);
-    baseline = { budget: unit.spent + unit.cost - 1, snapshot: await comparableD1(db) };
-  });
+    const budget = unit.spent + unit.cost - 1;
+    const snapshot = await comparableD1(db);
 
-  it('starves the history unit without writing it and catches up in the next run', async () => {
-    if (baseline === null) throw new Error('baseline missing');
+    // The same chain from an empty store, one query short of the unit.
+    await resetD1();
     const c = chain();
-    const r = await finite(c, baseline.budget);
+    const r = await finite(c, budget);
     expect(r.starved).toContain('histories');
     expect(r.newTxs).toBe(1);
     // Nothing of the unit is stored, its cursors did not move.
@@ -616,6 +617,6 @@ describe('ingestDrepGroups: a finite allowance', () => {
     expect(await meta()).toMatchObject({ reg_time: (200 - DEPTH) * 20, reg_offset: 0, R: 200 - DEPTH });
     const next = await finite(c, 10_000);
     expect(next.starved).toEqual([]);
-    expect(await comparableD1(db)).toEqual(baseline.snapshot);
+    expect(await comparableD1(db)).toEqual(snapshot);
   });
 });
