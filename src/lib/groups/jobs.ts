@@ -71,7 +71,7 @@ function fitPage(p: Page, n: number, build: (k: number) => D1PreparedStatement[]
 
 /**
  * Runs job pages, oldest job first by kind priority and id, while the allowance covers a whole
- * page. Nothing runs while a recovery slot is open.
+ * page, the selection included. Nothing runs while a recovery slot is open.
  */
 export async function runJobs(
   db: D1Database,
@@ -80,12 +80,15 @@ export async function runJobs(
 ): Promise<JobReport> {
   const report: JobReport = { pages: 0, rows: 0, finished: 0, more: false, skipped: null };
   for (;;) {
-    if (!opts.budget.covers(JOB_MAX_QUERIES)) return { ...report, more: true, skipped: 'budget' };
+    // Without room for the selection nothing is known about the jobs left.
+    if (!opts.budget.covers(1)) return { ...report, more: true, skipped: 'budget' };
     const pick = await db.prepare(Q.jobPick.sql).first<Row>();
     if (!pick) throw new Error('drep group meta row missing');
     const kind = PRIORITY.find((k) => picked(pick, k)) ?? null;
     if (pick.recovery !== null) return { ...report, more: kind !== null, skipped: 'recovery' };
     if (kind === null) return report;
+    // The selection is the first query of the page.
+    if (!opts.budget.covers(JOB_MAX_QUERIES - 1)) return { ...report, more: true, skipped: 'budget' };
     const p: Page = { db, lease, maxRows: opts.maxRows, now: opts.now, reads: 1 };
     const r =
       kind === 'trim'
@@ -358,8 +361,8 @@ async function powerPage(p: Page, job: Job): Promise<Done> {
 
 /**
  * Deletes a group's verdicts below the floor beyond the newest kept of each class, by position,
- * adds them to the trimmed columns and increments the group's gen. A finished group is due
- * again when the floor passes its oldest verdict at or above the current floor.
+ * adds them to the trimmed columns and increments the group's gen when it deleted any. A finished
+ * group is due again once the floor passes the first height with a trimmable verdict.
  */
 async function trimPage(p: Page, group: EventRef, floor: number): Promise<Done> {
   const g = refBinds(group);
@@ -372,11 +375,11 @@ async function trimPage(p: Page, group: EventRef, floor: number): Promise<Done> 
   const notApplied = Math.min(Number(counts[1].results?.[0]?.n ?? 0), p.maxRows - applied);
   const finished = applied + notApplied < p.maxRows;
   await write(p, [
-    stmt(p, Q.trimGroup.sql, applied, notApplied, ...g),
+    ...(applied + notApplied > 0 ? [stmt(p, Q.trimGroup.sql, applied, notApplied, ...g)] : []),
     ...(applied > 0 ? [stmt(p, Q.trimDelete.sql, ...g, 1, floor, applied, RETENTION_KEEP_APPLIED)] : []),
     ...(notApplied > 0 ? [stmt(p, Q.trimDelete.sql, ...g, 0, floor, notApplied, RETENTION_KEEP_NOT_APPLIED)] : []),
     ...(finished
-      ? [stmt(p, Q.trimNext.sql, ...g, floor, ...g, floor, ...g), stmt(p, Q.trimDone.sql, ...g, ...g, floor, ...g, floor)]
+      ? [stmt(p, Q.trimNext.sql, ...g, ...g, ...g), stmt(p, Q.trimDone.sql, ...g, ...g, ...g)]
       : []),
   ]);
   return { rows: applied + notApplied, finished };

@@ -4,7 +4,7 @@
 // through the store's own commit, ledger ingest and recovery steps.
 import { env } from 'cloudflare:test';
 import type { ChangeSet, Credential, EventRef, EventVerdict, Pos, StoredInstance } from 'drep-groups';
-import { refKey } from 'drep-groups';
+import { RETENTION_FLOOR, refKey } from 'drep-groups';
 import { engineProjection } from 'drep-groups/conformance';
 import { describe, expect, it } from 'vitest';
 import { deactivateDreps, upsertDrep } from '../db/dreps.js';
@@ -610,6 +610,57 @@ describe('trim jobs', () => {
   });
 });
 
+describe('trim scheduling', () => {
+  const verdict = (h: number, valid: boolean): EventVerdict => ({
+    ref: joinRef(pos(h)),
+    tag: valid ? 'update' : 'join',
+    valid,
+    reason: valid ? null : 'x',
+    at: pos(h),
+    group: G(0),
+    subject: null,
+  });
+  const setFloor = (floor: number) => db.prepare('UPDATE drep_group_meta SET L = ? WHERE id = 1').bind(floor + RETENTION_FLOOR).run();
+  const trims = async (t: string): Promise<number> => (await run(t)).pages;
+
+  it('does not pick a group again whose kept verdicts the floor passes', async () => {
+    const t = await lease();
+    await createGroups(t, [0]);
+    await commit(db, [groupUnit(200, { verdicts: [...range(50, 100).map((h) => verdict(h, false)), ...range(50, 150).map((h) => verdict(h, true))] })], t);
+    await setFloor(120);
+    const gen = Number((await groupRow(0)).gen);
+    // The first pick finds nothing to trim and leaves no due row: no class holds more than it keeps.
+    expect(await trims(t)).toBe(1);
+    expect(await count('SELECT COUNT(*) AS n FROM drep_group_trim_due')).toBe(0);
+    for (const floor of [121, 199, 200]) {
+      await setFloor(floor);
+      expect(await trims(t)).toBe(0);
+    }
+    expect(Number((await groupRow(0)).gen)).toBe(gen);
+    expect(await count('SELECT COUNT(*) AS n FROM drep_group_verdicts')).toBe(100);
+  });
+
+  it('picks a group once its first trimmable verdict falls below the floor', async () => {
+    const t = await lease();
+    await createGroups(t, [0]);
+    await commit(db, [groupUnit(1300, { verdicts: range(201, 1000).map((h) => verdict(h, true)) })], t);
+    await setFloor(1100);
+    const gen = Number((await groupRow(0)).gen);
+    expect(await trims(t)).toBe(1);
+    // Due again once the 201st oldest, at 1200, is below the floor.
+    expect(await one('SELECT oldest_h FROM drep_group_trim_due')).toEqual({ oldest_h: 1200 });
+    expect(Number((await groupRow(0)).gen)).toBe(gen);
+    await setFloor(1200);
+    expect(await trims(t)).toBe(0);
+    await setFloor(1201);
+    expect(await trims(t)).toBe(1);
+    expect(await count('SELECT COUNT(*) AS n FROM drep_group_verdicts')).toBe(200);
+    expect(await one('SELECT MIN(at_h) AS h FROM drep_group_verdicts')).toEqual({ h: 1001 });
+    expect(await groupRow(0)).toMatchObject({ trimmed_applied: 1, applied_events: 201, gen: gen + 1 });
+    expect(await count('SELECT COUNT(*) AS n FROM drep_group_trim_due')).toBe(0);
+  });
+});
+
 describe('member power', () => {
   it('a changed member already summed by a running power pass ends in the right total', { timeout: HEAVY }, async () => {
     const t = await lease();
@@ -662,14 +713,16 @@ describe('member power', () => {
     expect(await groupRow(0)).toMatchObject({ power: '9007199254740995' });
   });
 
-  it('power scan picks only groups of DReps whose power changed', async () => {
+  it('power scan picks only listed groups of DReps whose power changed', async () => {
     const t = await lease();
     const members = range(6).map(M);
     await powers(members.map((c) => [c, '1']));
     await track(members);
-    await createGroups(t, [0, 1, 2]);
-    await join(t, members.map((c, i) => joinOf(c, i % 3, pos(20 + i))));
+    await createGroups(t, [0, 1, 2, 3]);
+    // Member 4 is also the only member of group 3, which is not listed.
+    await join(t, [...members.map((c, i) => joinOf(c, i % 3, pos(20 + i))), joinOf(members[4], 3, pos(40))]);
     await run(t);
+    expect(await groupRow(3)).toMatchObject({ members: 1 });
     expect(await count('SELECT COUNT(*) AS n FROM drep_group_power_changes')).toBe(0);
     await setPower(members[4], '50');
     await enqueuePowerScan(db, t);
@@ -796,6 +849,21 @@ describe('runJobs', () => {
     await dissolve(t, 0, 100);
   }
 
+  it('reports a recovery before a short allowance and more only with a job left', async () => {
+    const t = await lease();
+    const short = async (): Promise<JobReport> => {
+      const { db: counted, meter } = countingDb(db);
+      return runJobs(counted, t, { maxRows: MAX_JOB_ROWS_PER_RUN, budget: allowance(meter, JOB_MAX_QUERIES - 1), now: NOW });
+    };
+    await openRecovery(db, { kind: 'truncate', above: 200 }, t, 0);
+    expect(await short()).toMatchObject({ pages: 0, skipped: 'recovery', more: false });
+    await finishRecovery(db, { kind: 'truncate', above: 200 }, t);
+    expect(await short()).toMatchObject({ pages: 0, skipped: null, more: false });
+    await pendingDissolve(t);
+    await openRecovery(db, { kind: 'truncate', above: 200 }, t, 0);
+    expect(await short()).toMatchObject({ pages: 0, skipped: 'recovery', more: true });
+  });
+
   it('runs no page while a recovery is open', async () => {
     const t = await lease();
     await pendingDissolve(t);
@@ -812,7 +880,9 @@ describe('runJobs', () => {
     const { db: counted, meter } = countingDb(db);
     const r = await runJobs(counted, t, { maxRows: MAX_JOB_ROWS_PER_RUN, budget: allowance(meter, JOB_MAX_QUERIES - 1), now: NOW });
     expect(r).toMatchObject({ pages: 0, rows: 0, skipped: 'budget', more: true });
-    expect(meter.used()).toBe(0);
+    // Only the selection ran, the page did not fit after it.
+    expect(meter.used()).toBe(1);
+    expect(await jobRow('dissolve')).toMatchObject({ cursor_json: null });
     const done = await run(t);
     expect(done).toMatchObject({ skipped: null, more: false });
     expect(done.pages).toBeGreaterThan(0);

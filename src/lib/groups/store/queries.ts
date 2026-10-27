@@ -4,7 +4,15 @@
 import { RETENTION_FLOOR } from 'drep-groups';
 import { DB_NOW_MS } from '../../db/sql.js';
 import { credKeySql, refKeySql } from '../codec.js';
-import { LEASE_MS, LISTED_MIN_MEMBERS, MARKER_REFETCH_ATTEMPTS, WITNESS_BACKOFF_BASE_MS, WITNESS_BACKOFF_MAX_MS } from '../constants.js';
+import {
+  LEASE_MS,
+  LISTED_MIN_MEMBERS,
+  MARKER_REFETCH_ATTEMPTS,
+  RETENTION_KEEP_APPLIED,
+  RETENTION_KEEP_NOT_APPLIED,
+  WITNESS_BACKOFF_BASE_MS,
+  WITNESS_BACKOFF_MAX_MS,
+} from '../constants.js';
 
 export interface RegisteredQuery {
   sql: string;
@@ -727,8 +735,10 @@ const instancePass = (where: string): string => `WITH p AS (SELECT * FROM drep_g
 // The trimmable verdicts of one validity class: below the floor, beyond the newest `offset`, newest first.
 const TRIMMABLE = `SELECT rowid FROM drep_group_verdicts WHERE group_tx = ? AND group_ix = ? AND valid = ? AND at_h < ?
     ORDER BY at_h DESC, at_ti DESC, at_ph DESC, at_ix DESC LIMIT ? OFFSET ?`;
-const firstAtOrAbove = (valid: number): string => `(SELECT at_h FROM drep_group_verdicts
-    WHERE group_tx = ? AND group_ix = ? AND valid = ${valid} AND at_h >= ? ORDER BY at_h LIMIT 1)`;
+// The height at which a class first has a trimmable verdict: its oldest verdict beyond the kept number, counted
+// from the oldest. Once the floor passes it, more than the kept number lie below the floor.
+const firstTrimmable = (valid: number, keep: number): string => `(SELECT at_h FROM drep_group_verdicts
+    WHERE group_tx = ? AND group_ix = ? AND valid = ${valid} ORDER BY at_h, at_ti, at_ph, at_ix LIMIT 1 OFFSET ${keep})`;
 // The guard of a job statement: the job's group or credential still at the generation the page read.
 const GROUP_GEN = 'EXISTS (SELECT 1 FROM drep_groups g WHERE g.group_tx = ? AND g.group_ix = ? AND g.gen = ?)';
 const CRED_GEN = 'EXISTS (SELECT 1 FROM drep_group_tracked t WHERE t.cred = ? AND t.gen = ?)';
@@ -753,13 +763,14 @@ export const JOB = Object.freeze({
       SELECT x.rowid FROM drep_group_instances x
       WHERE x.drep_id = k.drep AND x.counted_as = 'open' AND (x.group_tx, x.group_ix) > (k.gtx, k.gix)
       ORDER BY x.group_tx, x.group_ix LIMIT ?)`,
-  // A power job for every group found by a scan page, and the gen increment that restarts a running one.
+  // A power job for every listed group found by a scan page, and the gen increment that restarts a running one. A
+  // group that becomes listed gets its power job from the members publication.
   scanPowerJobs: (n: number) => `WITH k(gtx, gix) AS (VALUES ${values(2, n)})
     INSERT OR IGNORE INTO drep_group_jobs (kind, job_key, group_tx, group_ix)
     SELECT 'power', ${refKeySql('g.group_tx', 'g.group_ix')}, g.group_tx, g.group_ix
-    FROM k JOIN drep_groups g ON ${GROUP_KEY}`,
+    FROM k JOIN drep_groups g ON ${GROUP_KEY} WHERE g.members >= ${LISTED_MIN_MEMBERS}`,
   scanGens: (n: number) => `WITH k(gtx, gix) AS (VALUES ${values(2, n)})
-    UPDATE drep_groups SET gen = gen + 1 WHERE (group_tx, group_ix) IN (SELECT gtx, gix FROM k)`,
+    UPDATE drep_groups SET gen = gen + 1 WHERE (group_tx, group_ix) IN (SELECT gtx, gix FROM k) AND members >= ${LISTED_MIN_MEMBERS}`,
   // Queue rows whose instances are exhausted, each only at the seq its page read.
   scanDone: (n: number) =>
     `DELETE FROM drep_group_power_changes WHERE (drep_id, seq) IN (VALUES ${values(2, n)})`,
@@ -856,16 +867,16 @@ const JOB_Q = {
     sql: `UPDATE drep_groups SET trimmed_applied = trimmed_applied + ?, trimmed_not_applied = trimmed_not_applied + ?,
         gen = gen + 1 WHERE group_tx = ? AND group_ix = ?`,
   },
-  // Binds the group and the floor for each class, then the group. A finished group is due again when the floor
-  // passes its oldest verdict at or above the current floor, without one its row goes.
+  // Binds the group for each class, then the group. A finished group is due again once the floor passes the first
+  // height with a trimmable verdict, without one its row goes.
   trimNext: {
-    sql: `UPDATE drep_group_trim_due SET oldest_h = COALESCE(MIN(COALESCE(${firstAtOrAbove(1)}, ${MAX}),
-        COALESCE(${firstAtOrAbove(0)}, ${MAX})), oldest_h) WHERE group_tx = ? AND group_ix = ?`,
+    sql: `UPDATE drep_group_trim_due SET oldest_h = MIN(COALESCE(${firstTrimmable(1, RETENTION_KEEP_APPLIED)}, ${MAX}),
+        COALESCE(${firstTrimmable(0, RETENTION_KEEP_NOT_APPLIED)}, ${MAX})) WHERE group_tx = ? AND group_ix = ?`,
   },
-  // Binds the group, then the group and the floor for each class.
+  // Binds the group, then the group for each class.
   trimDone: {
     sql: `DELETE FROM drep_group_trim_due WHERE group_tx = ? AND group_ix = ?
-      AND ${firstAtOrAbove(1)} IS NULL AND ${firstAtOrAbove(0)} IS NULL`,
+      AND ${firstTrimmable(1, RETENTION_KEEP_APPLIED)} IS NULL AND ${firstTrimmable(0, RETENTION_KEEP_NOT_APPLIED)} IS NULL`,
   },
   // Binds the limit. The oldest queued DReps.
   powerQueue: {
@@ -1164,8 +1175,8 @@ export const Q_SAMPLE_BINDS: Readonly<Record<keyof typeof Q, unknown[]>> = Objec
   trimCount: [TX, 0, 1, 100, 10, 200],
   trimDelete: [TX, 0, 1, 100, 10, 200],
   trimGroup: [0, 0, TX, 0],
-  trimNext: [TX, 0, 100, TX, 0, 100, TX, 0],
-  trimDone: [TX, 0, TX, 0, 100, TX, 0, 100],
+  trimNext: [TX, 0, TX, 0, TX, 0],
+  trimDone: [TX, 0, TX, 0, TX, 0],
   powerQueue: [10],
   powerQueued: [],
   powerProgress: ['key', 'drep1x', 1],
