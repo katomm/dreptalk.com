@@ -1117,6 +1117,8 @@ export const Q = Object.freeze({
             fetched_at = excluded.fetched_at, website_verified_at = excluded.website_verified_at,
             website_checked_at = excluded.website_checked_at`,
   },
+  // Binds the group and the hash of the document.
+  profileStored: { sql: 'SELECT 1 AS hit FROM drep_group_profiles WHERE group_tx = ? AND group_ix = ? AND data_hash = ?' },
   // Binds the group, then the anchor the profile was fetched for.
   profileDueDone: {
     sql: `DELETE FROM drep_group_due WHERE kind = 'profile' AND group_tx = ? AND group_ix = ? AND ${SAME_ANCHOR}`,
@@ -1212,6 +1214,7 @@ export const Q_SAMPLE_BINDS: Readonly<Record<keyof typeof Q, unknown[]>> = Objec
   websiteDuePage: [1, 10],
   websiteDueDropStale: [1, 10],
   upsertProfile: [TX, 0, 'https://x.test/g.json', TX, 'ok', null, null, null, null, null, null, 1, null, null],
+  profileStored: [TX, 0, TX],
   profileDueDone: [TX, 0, 'https://x.test/g.json', TX],
   profileDueRetry: [1, TX, 0, 'https://x.test/g.json', TX],
   websiteDueUpsert: [1, TX, 0, 'https://x.test/g.json', TX],

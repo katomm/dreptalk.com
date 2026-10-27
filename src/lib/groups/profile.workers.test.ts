@@ -160,19 +160,66 @@ describe('group profiles', () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response(plain, { status: 200, headers: { 'content-type': 'application/json' } }));
     expect(await refreshGroupProfiles({ db, lease: l, fetchImpl, now: 100, limit: 10 })).toEqual({ fetched: 1, failed: 0 });
     expect(await dueRows()).toEqual([]);
-    expect(await websitesToCheck(db, 1e9, 10)).toEqual([]);
+    expect(await websitesToCheck(db, 1e9, 10, l)).toEqual([]);
   });
 
   it('an anchor change of a listed group makes its profile due at once', async () => {
     await seedGroup(1, { due: 'profile' });
     const l = await lease();
     await refreshGroupProfiles({ db, lease: l, fetchImpl: okFetch(), now: 5, limit: 10 });
-    expect(await profilesToFetch(db, 1e9, 10)).toEqual([]);
+    expect(await profilesToFetch(db, 1e9, 10, l)).toEqual([]);
     const next = '1'.repeat(64);
     await db.prepare('UPDATE drep_groups SET profile_url = ?, profile_hash = ? WHERE group_tx = ?').bind('https://host.test/h.json', hashBytes(next), hashBytes(txOf(1))).run();
     await writeBatch(db, l, anchorDueStatements(db, { txHash: txOf(1), index: 0 }, { url: URL_A, hash: docHash }, { url: 'https://host.test/h.json', hash: next }, 50));
-    expect(await profilesToFetch(db, 50, 10)).toEqual([{ groupId: idOf(1), url: 'https://host.test/h.json', dataHash: next }]);
+    expect(await profilesToFetch(db, 50, 10, l)).toEqual([{ groupId: idOf(1), url: 'https://host.test/h.json', dataHash: next }]);
     // The website due row of the old profile is gone with the change.
     expect((await dueRows()).map((r) => r.kind)).toEqual(['profile']);
+  });
+
+  it('drops control characters, caps by code points and accepts only a hex treasury script', () => {
+    const p = extractGroupProfile({
+      body: {
+        name: `Co\u0000un\u0007cil`,
+        description: '\u{1F600}'.repeat(2001),
+        paymentAddresses: [
+          { address: 'a', treasuryScript: 'a'.repeat(56) },
+          { address: 'b', treasuryScript: 'A'.repeat(56) },
+          { address: 'c', treasuryScript: 'zz' },
+        ],
+      },
+    });
+    expect(p.name).toBe('Council');
+    expect(Array.from(p.description ?? '')).toHaveLength(2000);
+    expect(p.description?.endsWith('\u{1F600}')).toBe(true);
+    expect(p.paymentAddresses).toEqual([{ address: 'a', treasuryScript: 'a'.repeat(56) }, { address: 'b' }, { address: 'c' }]);
+  });
+
+  it('keeps a stored profile on a transient failure and only delays it', async () => {
+    await seedGroup(1, { due: 'profile' });
+    const l = await lease();
+    await refreshGroupProfiles({ db, lease: l, fetchImpl: okFetch(), now: 5, limit: 10 });
+    await db.prepare("UPDATE drep_group_due SET due_at = 0 WHERE kind = 'website'").run();
+    await db.prepare('UPDATE drep_group_profiles SET website_verified_at = 7, website_checked_at = 7').run();
+    await db.prepare("INSERT INTO drep_group_due (kind, group_tx, group_ix, due_at) VALUES ('profile', ?, 0, 0)").bind(hashBytes(txOf(1))).run();
+    for (const failing of [
+      vi.fn().mockResolvedValue(new Response('', { status: 503 })),
+      vi.fn().mockRejectedValue(new Error('network')),
+    ]) {
+      await db.prepare("UPDATE drep_group_due SET due_at = 0 WHERE kind = 'profile'").run();
+      expect(await refreshGroupProfiles({ db, lease: l, fetchImpl: failing as unknown as typeof fetch, now: 100, limit: 10 })).toEqual({ fetched: 0, failed: 1 });
+      expect(await profileOf(1)).toMatchObject({ status: 'ok', name: 'Council', website: 'https://council.test', website_verified_at: 7 });
+      expect((await dueRows()).filter((r) => r.kind === 'profile')).toEqual([{ kind: 'profile', due_at: 100 + PROFILE_RETRY_MS }]);
+    }
+  });
+
+  it('empties the fields for a document that is not a valid profile', async () => {
+    const junk = new TextEncoder().encode('not json');
+    await seedGroup(1, { hash: bytesToHex(blake2b256(junk)), due: 'profile' });
+    const l = await lease();
+    await upsertProfile(db, l, { ...site(1, 'https://council.test'), dataHash: bytesToHex(blake2b256(junk)) }, 1);
+    await db.prepare("INSERT INTO drep_group_due (kind, group_tx, group_ix, due_at) VALUES ('profile', ?, 0, 0)").bind(hashBytes(txOf(1))).run();
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(junk, { status: 200, headers: { 'content-type': 'application/json' } }));
+    expect(await refreshGroupProfiles({ db, lease: l, fetchImpl, now: 5, limit: 10 })).toEqual({ fetched: 0, failed: 1 });
+    expect(await profileOf(1)).toMatchObject({ status: 'parse-failed', name: null, website: null });
   });
 });

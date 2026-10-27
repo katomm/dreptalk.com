@@ -39,22 +39,20 @@ function groupKey(groupId: string): [Uint8Array, number] {
 }
 
 /**
- * One page of a due queue. With a lease the stale rows of the page are deleted in the same batch,
- * so rows of unlisted or anchorless groups never pile up in front of the work.
+ * One page of a due queue. The stale rows of the page are deleted in the same batch, so rows of
+ * unlisted or anchorless groups never pile up in front of the work.
  */
-async function duePage(db: D1Database, page: string, dropStale: string, now: number, limit: number, lease?: string): Promise<Row[]> {
-  const read = db.prepare(page).bind(now, limit);
-  if (lease === undefined) return (await read.all<Row>()).results ?? [];
-  const res = await guardedBatch(db, lease, [read, db.prepare(dropStale).bind(now, limit)]);
+async function duePage(db: D1Database, page: string, dropStale: string, now: number, limit: number, lease: string): Promise<Row[]> {
+  const res = await guardedBatch(db, lease, [db.prepare(page).bind(now, limit), db.prepare(dropStale).bind(now, limit)]);
   return (res[1].results as Row[] | undefined) ?? [];
 }
 
-/** Listed groups with an anchor whose profile is due, oldest due first. Pass the lease to clear stale due rows. */
+/** Listed groups with an anchor whose profile is due, oldest due first. Clears the stale due rows of the page. */
 export async function profilesToFetch(
   db: D1Database,
   now: number,
   limit: number,
-  lease?: string,
+  lease: string,
 ): Promise<Array<{ groupId: string; url: string; dataHash: string }>> {
   const rows = await duePage(db, Q.profileDuePage.sql, Q.profileDueDropStale.sql, now, limit, lease);
   return rows
@@ -104,12 +102,12 @@ export async function upsertProfile(db: D1Database, lease: string, p: ProfileRow
   await writeBatch(db, lease, stmts);
 }
 
-/** Listed groups whose website check is due, oldest due first. Pass the lease to clear stale due rows. */
+/** Listed groups whose website check is due, oldest due first. Clears the stale due rows of the page. */
 export async function websitesToCheck(
   db: D1Database,
   now: number,
   limit: number,
-  lease?: string,
+  lease: string,
 ): Promise<Array<{ groupId: string; website: string }>> {
   const rows = await duePage(db, Q.websiteDuePage.sql, Q.websiteDueDropStale.sql, now, limit, lease);
   return rows
@@ -124,4 +122,16 @@ export async function setWebsiteCheck(db: D1Database, lease: string, groupId: st
     db.prepare(Q.websiteCheck.sql).bind(at, verified ? 1 : 0, at, tx, ix),
     db.prepare(Q.websiteDueMove.sql).bind(at + WEBSITE_RECHECK_MS, tx, ix),
   ]);
+}
+
+/** True when the stored profile of the group was fetched from the document with this hash. */
+export async function hasProfileFor(db: D1Database, groupId: string, dataHash: string): Promise<boolean> {
+  const [tx, ix] = groupKey(groupId);
+  return (await db.prepare(Q.profileStored.sql).bind(tx, ix, hashBytes(dataHash)).first()) !== null;
+}
+
+/** Keeps the stored profile as it is and only delays its next fetch by PROFILE_RETRY_MS. */
+export async function delayProfile(db: D1Database, lease: string, groupId: string, url: string, dataHash: string, now: number): Promise<void> {
+  const [tx, ix] = groupKey(groupId);
+  await writeBatch(db, lease, [db.prepare(Q.profileDueRetry.sql).bind(now + PROFILE_RETRY_MS, tx, ix, url, hashBytes(dataHash))]);
 }

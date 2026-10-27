@@ -281,7 +281,10 @@ const SELECTIONS: Array<{ name: string; seed: (n: number) => string[]; run: (db:
         due('website', 9_900_000),
       ];
     },
-    run: async (db) => (await profilesToFetch(db, 1_000, 50)).length + (await websitesToCheck(db, 1_000, 50)).length,
+    run: async (db) => {
+      const lease = (await acquireLease(env.DB, invocationOwner())) as string;
+      return (await profilesToFetch(db, 1_000, 50, lease)).length + (await websitesToCheck(db, 1_000, 50, lease)).length;
+    },
   },
   {
     name: 'witness search',

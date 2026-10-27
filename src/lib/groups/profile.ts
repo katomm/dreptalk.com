@@ -1,9 +1,10 @@
 // Group profiles: the CIP-100 document a group's anchor points to, fetched with the shared anchor
 // fetcher, and the optional website proof through a well-known file.
 import type { CardanoNetwork } from '../config/network.js';
-import { type PaymentAddress, profilesToFetch, setWebsiteCheck, upsertProfile, websitesToCheck } from '../db/drepGroups.js';
+import { delayProfile, hasProfileFor, type PaymentAddress, profilesToFetch, setWebsiteCheck, upsertProfile, websitesToCheck } from '../db/drepGroups.js';
 import { ANCHOR_FETCH_TIMEOUT_MS, type DedicatedGateway, fetchAnchorDoc, isHttpUrl, jsonLdValue } from '../governance/metadata.js';
 import { readBodyLimited } from '../http/bodyLimit.js';
+import { sanitizeExternalText } from '../validation/input.js';
 import { WELL_KNOWN_MAX_BYTES } from './constants.js';
 
 export { PROFILE_RETRY_MS, WEBSITE_RECHECK_MS, WELL_KNOWN_MAX_BYTES } from './constants.js';
@@ -23,8 +24,9 @@ export interface GroupProfileFields {
 function text(v: unknown, max: number): string | null {
   const x = jsonLdValue(v);
   if (typeof x !== 'string') return null;
-  const t = x.trim();
-  return t.length === 0 ? null : t.slice(0, max);
+  // Control characters out, then capped by code points so a surrogate pair is never split.
+  const t = Array.from(sanitizeExternalText(x, Number.POSITIVE_INFINITY)).slice(0, max).join('');
+  return t.length === 0 ? null : t;
 }
 
 // Only http(s) values become links on the page.
@@ -44,7 +46,8 @@ export function extractGroupProfile(doc: unknown): GroupProfileFields {
       const address = text(o.address, LIMITS.url);
       if (!address) return [];
       const purpose = text(o.purpose, LIMITS.name) ?? undefined;
-      const treasuryScript = text(o.treasuryScript, 56) ?? undefined;
+      const script = text(o.treasuryScript, 56);
+      const treasuryScript = script && /^[0-9a-f]{56}$/.test(script) ? script : undefined;
       return [{ address, ...(purpose ? { purpose } : {}), ...(treasuryScript ? { treasuryScript } : {}) }];
     })
     .slice(0, MAX_ADDRESSES);
@@ -71,6 +74,13 @@ export async function refreshGroupProfiles(deps: {
   let failed = 0;
   for (const p of await profilesToFetch(deps.db, deps.now, deps.limit, deps.lease)) {
     const r = await fetchAnchorDoc(p.url, p.dataHash, { fetchImpl: deps.fetchImpl, db: deps.db, gateway: deps.gateway ?? null });
+    // A transport failure keeps a profile already stored for this document and only delays the next try.
+    const transient = r.status === 'fetch-failed' || r.status === 'rate-limited';
+    if (transient && (await hasProfileFor(deps.db, p.groupId, p.dataHash))) {
+      await delayProfile(deps.db, deps.lease, p.groupId, p.url, p.dataHash, deps.now);
+      failed++;
+      continue;
+    }
     const f = r.status === 'ok' ? extractGroupProfile(r.doc) : null;
     await upsertProfile(
       deps.db,
@@ -105,7 +115,10 @@ async function wellKnownLists(website: string, network: CardanoNetwork, groupId:
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetchImpl(`${url.origin}/.well-known/cardano-drep-groups.json`, { redirect: 'manual', signal: controller.signal });
-    if (res.status !== 200) return false;
+    if (res.status !== 200) {
+      await res.body?.cancel();
+      return false;
+    }
     const read = await readBodyLimited(res.body, WELL_KNOWN_MAX_BYTES);
     if (!read.ok) return false;
     const json = JSON.parse(new TextDecoder().decode(read.bytes)) as Record<string, unknown>;
