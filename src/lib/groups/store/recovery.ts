@@ -5,7 +5,7 @@
 import type { EventRef, Pos, Recovery, RecoveryState } from 'drep-groups';
 import { comparePos, endOf, mergeRecovery } from 'drep-groups';
 import { chunked, D1_MAX_BINDS } from '../../db/sql.js';
-import { bytesFromCol, hashBytes, hashFromCol, posFromRow, refFromCols } from '../codec.js';
+import { bytesFromCol, hashBytes, hashFromCol, posFromRow, refFromCols, type Row } from '../codec.js';
 import { CHANGES_PER_ROW } from '../constants.js';
 import { anchorDueBatch } from './commit.js';
 import { guardedBatch, writeBatch } from './lease.js';
@@ -24,8 +24,6 @@ import {
   REC_KEYED_WIDTH,
   type RecoveryMode,
 } from './queries.js';
-
-type Row = Record<string, unknown>;
 
 type RecoveryPhase = 'jobs' | 'raw' | 'state' | 'undo' | 'versions' | 'credentials' | 'flags' | 'markers' | 'cursors' | 'done';
 

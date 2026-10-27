@@ -68,5 +68,13 @@ export function allowance(meter: QueryMeter, limit: number): Allowance {
   return { spent, remaining, covers: (cost) => remaining() >= cost };
 }
 
+/** A view of `parent` that stops at its own `cap` and at the parent's remaining budget minus `reserve`. */
+export function capAllowance(parent: Allowance, cap: number, reserve: number): Allowance {
+  const start = parent.spent();
+  const spent = () => parent.spent() - start;
+  const remaining = () => Math.min(cap - spent(), parent.remaining() - reserve);
+  return { spent, remaining, covers: (cost) => remaining() >= cost };
+}
+
 /** No limit, for callers outside a budgeted run (tests, one-off scripts). */
 export const UNLIMITED: Allowance = { spent: () => 0, remaining: () => Number.POSITIVE_INFINITY, covers: () => true };

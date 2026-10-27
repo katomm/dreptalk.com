@@ -12,6 +12,14 @@ import type {
 import { bytesToHex, hexToBytes } from 'drep-groups';
 import { MAX_SCRIPT_DISPLAY_DEPTH } from './constants.js';
 
+/** A D1 result row. */
+export type Row = Record<string, unknown>;
+
+/** The order columns of a position, the keyset of a pass. */
+export type Key = [number, number, number, number];
+/** The keyset before the first position. */
+export const START: Key = [-1, -1, -1, -1];
+
 /** The largest tx index and event index a position takes, the index of a tx end. */
 export const MAX = Number.MAX_SAFE_INTEGER;
 
@@ -50,7 +58,7 @@ export function hashFromCol(v: unknown): string {
 }
 
 const optHash = (hex: string | null): Uint8Array | null => (hex === null ? null : hashBytes(hex));
-const optHashFromCol = (v: unknown): string | null => (v === null ? null : hashFromCol(v));
+export const optHashFromCol = (v: unknown): string | null => (v === null ? null : hashFromCol(v));
 
 // A stored credential key is one kind byte and the hash, so key sorts before script as in credKey.
 const CRED_KIND = { key: 0, script: 1 } as const;

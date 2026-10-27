@@ -20,7 +20,7 @@ import { chunked, D1_MAX_BINDS } from '../db/sql.js';
 import { type DrepRegistrationRow, KOIOS_PAGE_CAP, type MetalabelTxRow } from '../koios/client.js';
 import type { GovSyncKoios } from '../sync/phases/context.js';
 import type { Allowance } from '../sync/queryBudget.js';
-import { credBytes, credFromKey, credKeyFromCol, hashBytes, hashFromCol } from './codec.js';
+import { credBytes, credFromKey, credKeyFromCol, hashBytes, hashFromCol, type Row } from './codec.js';
 import {
   DEPTH,
   DISCOVERY_MAX_STATEMENTS,
@@ -87,7 +87,6 @@ export interface IngestResult {
   starved: string[];
 }
 
-type Row = Record<string, unknown>;
 type Block = { height: number; hash: string };
 type LabelInput = { tx: ChainTx; blockHash: string };
 
@@ -551,6 +550,8 @@ export async function ingestDrepGroups(deps: {
   budget: Allowance;
   now: number;
   limits?: Partial<{ page: number; regPagesPerRun: number }>;
+  /** The meta row when the caller just read it. */
+  meta?: Row;
 }): Promise<IngestResult> {
   const { db, koios, lease, budget, now } = deps;
   const result: IngestResult = {
@@ -573,7 +574,7 @@ export async function ingestDrepGroups(deps: {
     return false;
   };
   if (!fits('ingest', 1)) return result;
-  const meta = await readMeta(db);
+  const meta = deps.meta ?? (await readMeta(db));
   const open = slotsFromMeta(meta).first;
   if (open !== null) return { ...result, recovery: open };
 
@@ -612,13 +613,11 @@ export async function ingestDrepGroups(deps: {
  * Writes the library version in one batch with, when it differed and inputs are stored, the
  * rebuild that judges them again. True when a rebuild was opened.
  */
-export async function checkLibraryVersion(db: D1Database, lease: string): Promise<boolean> {
-  const [m, inputs] = await db.batch<Row>([db.prepare(Q.metaRow.sql), db.prepare(Q.storedInputs.sql)]);
-  const meta = m.results?.[0];
-  if (!meta) throw new Error('drep group meta row missing');
+export async function checkLibraryVersion(db: D1Database, lease: string, known?: Row): Promise<boolean> {
+  const meta = known ?? (await readMeta(db));
   if (meta.lib_version === LIBRARY_VERSION) return false;
-  const i = inputs.results?.[0];
-  const rebuild = i !== undefined && (i.txs !== null || i.ledger !== null);
+  const i = await db.prepare(Q.storedInputs.sql).first<Row>();
+  const rebuild = i !== null && (i.txs !== null || i.ledger !== null);
   await writeBatch(db, lease, [
     db.prepare(Q.libVersion.sql).bind(LIBRARY_VERSION),
     ...(rebuild ? openRecoveryStatements(db, slotsFromMeta(meta), { kind: 'rebuild' }, null) : []),

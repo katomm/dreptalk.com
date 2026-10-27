@@ -7,8 +7,6 @@ import { readBodyLimited } from '../http/bodyLimit.js';
 import { sanitizeExternalText } from '../validation/input.js';
 import { WELL_KNOWN_MAX_BYTES } from './constants.js';
 
-export { PROFILE_RETRY_MS, WEBSITE_RECHECK_MS, WELL_KNOWN_MAX_BYTES } from './constants.js';
-
 const LIMITS = { name: 120, description: 2000, url: 500 };
 const MAX_ADDRESSES = 10;
 
@@ -20,6 +18,8 @@ interface GroupProfileFields {
   charter: string | null;
   paymentAddresses: PaymentAddress[];
 }
+
+const EMPTY: GroupProfileFields = { name: null, description: null, website: null, image: null, charter: null, paymentAddresses: [] };
 
 function text(v: unknown, max: number): string | null {
   const x = jsonLdValue(v);
@@ -81,7 +81,7 @@ export async function refreshGroupProfiles(deps: {
       failed++;
       continue;
     }
-    const f = r.status === 'ok' ? extractGroupProfile(r.doc) : null;
+    const f = r.status === 'ok' ? extractGroupProfile(r.doc) : EMPTY;
     await upsertProfile(
       deps.db,
       deps.lease,
@@ -90,12 +90,7 @@ export async function refreshGroupProfiles(deps: {
         profileUrl: p.url,
         dataHash: p.dataHash,
         status: r.status,
-        name: f?.name ?? null,
-        description: f?.description ?? null,
-        website: f?.website ?? null,
-        image: f?.image ?? null,
-        charter: f?.charter ?? null,
-        paymentAddresses: f?.paymentAddresses ?? [],
+        ...f,
         fetchedAt: deps.now,
         websiteVerifiedAt: null,
         websiteCheckedAt: null,
@@ -142,12 +137,7 @@ export async function verifyGroupWebsites(deps: {
   let checked = 0;
   let verified = 0;
   for (const w of await websitesToCheck(deps.db, deps.now, deps.limit, deps.lease)) {
-    let ok = false;
-    try {
-      ok = await wellKnownLists(w.website, deps.network, w.groupId, deps.fetchImpl, deps.timeoutMs ?? ANCHOR_FETCH_TIMEOUT_MS);
-    } catch {
-      ok = false;
-    }
+    const ok = await wellKnownLists(w.website, deps.network, w.groupId, deps.fetchImpl, deps.timeoutMs ?? ANCHOR_FETCH_TIMEOUT_MS).catch(() => false);
     await setWebsiteCheck(deps.db, deps.lease, w.groupId, ok, deps.now);
     checked++;
     if (ok) verified++;

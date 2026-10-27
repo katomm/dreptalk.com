@@ -4,7 +4,8 @@
 import { env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 import { declaredCtes, planOf, unboundedScans } from '../__tests__/queryPlan.js';
-import { Q, Q_SAMPLE_BINDS } from './queries.js';
+import { Q_SAMPLE_BINDS } from '../__tests__/sampleBinds.js';
+import { Q } from './queries.js';
 
 describe('query plans of the DRep groups store', () => {
   it('flags an aliased unbounded scan', async () => {

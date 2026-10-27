@@ -18,7 +18,7 @@ import {
   txHashOf,
   version,
 } from '../__tests__/engineFixtures.js';
-import { credBytes, credFromKey, credKeyFromCol, hashBytes } from '../codec.js';
+import { credBytes, credFromKey, credKeyFromCol, hashBytes, type Row } from '../codec.js';
 import { ENGINE_BUDGET, RECOVERY_STEP_OVERHEAD, WITNESS_BACKOFF_BASE_MS } from '../constants.js';
 import { commit } from './commit.js';
 import { D1Store } from './d1Store.js';
@@ -38,7 +38,6 @@ import { finishRecovery, openRecovery, resetStep, truncateStep } from './recover
 import { frontiers, pendingRecovery } from './reads.js';
 
 const db = env.DB;
-type Row = Record<string, unknown>;
 const MAX = Number.MAX_SAFE_INTEGER;
 const HEAVY = 120_000;
 

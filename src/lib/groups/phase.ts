@@ -5,11 +5,11 @@
 // the groups share and what the earlier phases of the invocation left, and the release of the lease is
 // reserved from it up front.
 import type { Recovery } from 'drep-groups';
-import { LeaseLostError, runEngine } from 'drep-groups';
+import { LeaseLostError, LIBRARY_VERSION, runEngine } from 'drep-groups';
 import type { CardanoNetwork } from '../config/network.js';
 import type { DedicatedGateway } from '../governance/metadata.js';
 import type { PhaseResult } from '../sync/runRecorder.js';
-import { type Allowance, allowance, type QueryMeter } from '../sync/queryBudget.js';
+import { type Allowance, allowance, capAllowance, type QueryMeter } from '../sync/queryBudget.js';
 import {
   ADMIN_RESERVE_QUERIES,
   ENGINE_BUDGET,
@@ -25,6 +25,7 @@ import {
   WEBSITE_QUERIES_PER_ITEM,
   WEBSITE_SELECT_QUERIES,
 } from './constants.js';
+import type { Row } from './codec.js';
 import { checkLibraryVersion, type GroupsKoios, type IngestResult, ingestDrepGroups } from './ingest.js';
 import { enqueuePowerScan, type JobReport, runJobs } from './jobs.js';
 import { refreshGroupProfiles, verifyGroupWebsites } from './profile.js';
@@ -62,23 +63,14 @@ interface PhaseContext {
   owner?: string;
 }
 
-/** A view of `parent` that stops at its own `cap` and at the parent's remaining budget minus `reserve`. */
-function capAllowance(parent: Allowance, cap: number, reserve: number): Allowance {
-  const start = parent.spent();
-  const spent = () => parent.spent() - start;
-  const remaining = () => Math.min(cap - spent(), parent.remaining() - reserve);
-  return { spent, remaining, covers: (cost) => remaining() >= cost };
-}
-
 const starve = (starved: string[], step: string): void => {
   if (!starved.includes(step)) starved.push(step);
 };
 
-/** Opens a truncation the operator requested in meta, and clears the request in the same batch. */
-async function operatorTruncate(db: D1Database, lease: string): Promise<void> {
-  const meta = await readMeta(db);
+/** Opens a truncation the operator requested in meta, and clears the request in the same batch. True when it wrote. */
+async function operatorTruncate(db: D1Database, lease: string, meta: Row): Promise<boolean> {
   const requested = meta.operator_truncate;
-  if (requested === null || requested === undefined) return;
+  if (requested === null || requested === undefined) return false;
   const above = Number(requested);
   const valid = Number.isSafeInteger(above) && above >= 0;
   if (!valid) console.error(`[drep-groups] ignored an operator truncation request of ${String(requested)}`);
@@ -87,6 +79,7 @@ async function operatorTruncate(db: D1Database, lease: string): Promise<void> {
     db.prepare(Q.operatorTruncateClear.sql).bind(requested),
   ]);
   if (valid) console.log(`[drep-groups] operator truncation above=${above} opened`);
+  return true;
 }
 
 /** Up to `MAX_ITEMS` per pass, as many as the allowance covers after the selection and the release. */
@@ -114,12 +107,18 @@ export async function maintainProfiles(
 
 async function work(ctx: PhaseContext, lease: string, phase: Allowance, report: PhaseReport): Promise<void> {
   const { db, now } = ctx;
-  await operatorTruncate(db, lease);
-  await checkLibraryVersion(db, lease);
+  // One meta read serves the steps below, read again only after a step changed it.
+  let meta = await readMeta(db);
+  if (await operatorTruncate(db, lease, meta)) meta = await readMeta(db);
+  if (meta.lib_version !== LIBRARY_VERSION) {
+    await checkLibraryVersion(db, lease, meta);
+    meta = await readMeta(db);
+  }
   await enqueuePowerScan(db, lease);
 
   // While a recovery slot is open the ingest returns at once and the engine steps the recovery.
-  const ingest = await ingestDrepGroups({ db, koios: ctx.koios, lease, budget: capAllowance(phase, INGEST_QUERY_SHARE, RELEASE_RESERVE_QUERIES), now });
+  const budget = capAllowance(phase, INGEST_QUERY_SHARE, RELEASE_RESERVE_QUERIES);
+  const ingest = await ingestDrepGroups({ db, koios: ctx.koios, lease, budget, now, meta });
   report.ingest = ingest;
   for (const s of ingest.starved) starve(report.starved, s);
 

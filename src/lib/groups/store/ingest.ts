@@ -5,12 +5,10 @@
 import type { ChainTx, Credential, LedgerInput, Pos } from 'drep-groups';
 import { classifyNewInput, comparePos, credKey, decodePayload, posOfCert } from 'drep-groups';
 import { chunked, D1_MAX_BINDS } from '../../db/sql.js';
-import { afterTx, credBytes, credKeyFromCol, hashBytes, hashFromCol, hashListBytes, posBinds, posFromRow, posOrNull } from '../codec.js';
+import { afterTx, credBytes, credKeyFromCol, hashBytes, hashFromCol, hashListBytes, posBinds, posFromRow, posOrNull, type Row } from '../codec.js';
 import { writeBatch } from './lease.js';
 import { COMMIT, COMMIT_WIDTH, INGEST, INGEST_WIDTH, Q } from './queries.js';
 import { keyedStatements, mergeSlots, readMeta, type Slots, slotsFromMeta, slotStatements } from './recovery.js';
-
-type Row = Record<string, unknown>;
 
 export interface StoredLedgerRow {
   input: LedgerInput;

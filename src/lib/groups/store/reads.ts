@@ -34,12 +34,11 @@ import {
   posOrNull,
   refBinds,
   refFromCols,
+  type Row,
 } from '../codec.js';
 import { KEYED, KEYED_WIDTH, Q } from './queries.js';
 
 export { load } from './view.js';
-
-type Row = Record<string, unknown>;
 
 /**
  * The first (height, tx index) whose tx end lies strictly after `p`. A tx's events all sit

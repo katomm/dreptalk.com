@@ -19,13 +19,13 @@ import {
   refFromCols,
   scriptDisplayJson,
   versionFieldBinds,
+  type Row,
 } from '../codec.js';
 import { drepIdForCredential } from '../ids.js';
 import { LISTED_MIN_MEMBERS } from '../constants.js';
 import { COMMIT, COMMIT_WIDTH, KEYED, KEYED_WIDTH, Q } from './queries.js';
 import { writeBatch } from './lease.js';
 
-type Row = Record<string, unknown>;
 type Unit = { change: ChangeSet; cursor: CursorUpdate };
 export type Counted = 'open' | 'pending' | 'former';
 
@@ -218,10 +218,6 @@ export function anchorDueBatch(db: D1Database, changes: AnchorChange[], now: num
   const changed = changes.filter((x) => x.before.url !== x.after.url || x.before.hash !== x.after.hash);
   const key = (x: AnchorChange): [Uint8Array, number] => refBinds(x.group);
   return [...rows(db, 'dueProfileIfListed', changed, key, [now]), ...rows(db, 'deleteWebsiteDue', changed, key, [null])];
-}
-
-export function anchorDueStatements(db: D1Database, group: EventRef, before: Anchor, after: Anchor, now: number): D1PreparedStatement[] {
-  return anchorDueBatch(db, [{ group, before, after }], now);
 }
 
 /** The counter an instance counts in, from its effective close. */

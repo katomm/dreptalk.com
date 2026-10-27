@@ -2,6 +2,7 @@
 // vote on their own. Stored display JSON is depth limited when it is written, so the recursion
 // over a script stays bounded.
 import type { StatusNote } from '../db/drepGroups.js';
+import { truncateIdMiddle } from '../forum/view.js';
 
 type ScriptView =
   | { kind: 'sig'; keyHash: string }
@@ -56,7 +57,7 @@ export function policyKeyHashes(s: ScriptView | null): string[] {
 }
 
 /** The first 8 and last 4 characters of a long hash or id. */
-export const shortHash = (h: string): string => (h.length > 14 ? `${h.slice(0, 8)}...${h.slice(-4)}` : h);
+export const shortHash = (h: string): string => truncateIdMiddle(h, 8, 4);
 
 /** A policy in words, keys by DRep name where known. Keys in `admins` are marked as group admins. */
 export function describePolicy(s: ScriptView | null, names: Map<string, string>, admins?: ReadonlySet<string>): string {

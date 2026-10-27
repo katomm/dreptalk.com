@@ -20,13 +20,12 @@ import {
   worstCaseCredentialUnits,
   worstCaseGroupUnits,
 } from '../__tests__/engineFixtures.js';
-import { COMMIT_MAX_STATEMENTS, ENGINE_BUDGET } from '../constants.js';
-import { credBytes, hashBytes, posOrNull } from '../codec.js';
+import { ENGINE_BUDGET } from '../constants.js';
+import { credBytes, hashBytes, posOrNull, type Row } from '../codec.js';
 import { acquireLease, invocationOwner } from './lease.js';
 import { commit, commitStatements, preRead } from './commit.js';
 
 const db = env.DB;
-type Row = Record<string, unknown>;
 type Unit = { change: ChangeSet; cursor: CursorUpdate };
 
 const G = ref(10);
@@ -96,6 +95,9 @@ async function labelTx(h: number): Promise<void> {
     .bind(hashBytes(txHashOf(h)), h)
     .run();
 }
+
+// Worst case of one commit batch. Measured, guard included: 60 for the group commit, 35 for the credential commit.
+const COMMIT_MAX_STATEMENTS = 150;
 
 describe('drep groups commit', () => {
   it('fits a worst case group commit and a worst case credential commit into one batch', () => {

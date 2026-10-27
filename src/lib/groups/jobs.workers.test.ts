@@ -14,7 +14,7 @@ import { D1DriverStore } from './__tests__/d1DriverStore.js';
 import { credUnit, groupUnit, hex, instance, keyCred, pos, ref, txHashOf, version } from './__tests__/engineFixtures.js';
 import { type Chain, ev, type FakeReg, type FakeTx, fakeKoios, K, payloadValue, sigScript, T, txCbor } from './__tests__/fixtures.js';
 import { settle } from './__tests__/loadFixtures.js';
-import { credBytes, hashBytes, posOrNull, refFromCols } from './codec.js';
+import { credBytes, hashBytes, posOrNull, refFromCols, type Row } from './codec.js';
 import { ENGINE_BUDGET, JOB_MAX_QUERIES, MAX_JOB_ROWS_PER_RUN } from './constants.js';
 import { drepIdForCredential } from './ids.js';
 import { ingestDrepGroups } from './ingest.js';
@@ -25,7 +25,6 @@ import { acquireLease, invocationOwner, releaseLease } from './store/lease.js';
 import { finishRecovery, openRecovery, truncateStep } from './store/recovery.js';
 
 const db = env.DB;
-type Row = Record<string, unknown>;
 const NOW = 1_700_000_000_000;
 const HEAVY = 120_000;
 

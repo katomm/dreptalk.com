@@ -24,6 +24,7 @@ import {
   MAX,
   posFromRow,
   versionFromRow,
+  type Row,
 } from '../codec.js';
 import type { PreRead } from '../store/commit.js';
 import { txHex } from './loadFixtures.js';
@@ -235,8 +236,6 @@ export function worstCaseCredentialUnits(units: number, inputs: number): Unit[] 
   }
   return out;
 }
-
-type Row = Record<string, unknown>;
 
 /** The stored engine state in the shape both stores can be compared in, every list canonically ordered. */
 export interface ComparableSnapshot {

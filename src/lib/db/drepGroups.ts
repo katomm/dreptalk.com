@@ -12,13 +12,24 @@ import {
   RETENTION_KEEP_NOT_APPLIED,
   WEBSITE_RECHECK_MS,
 } from '../groups/constants.js';
-import { bytesFromCol, hashBytes, hashFromCol, instanceFromRow, posOrNull, refBinds, refFromCols } from '../groups/codec.js';
+import {
+  bytesFromCol,
+  hashBytes,
+  hashFromCol,
+  instanceFromRow,
+  type Key,
+  optHashFromCol,
+  posOrNull,
+  refBinds,
+  refFromCols,
+  type Row,
+  START,
+} from '../groups/codec.js';
 import { drepIdForCredential, groupIdParam, groupIdString } from '../groups/ids.js';
-import { jobsPending } from '../groups/jobs.js';
+import { picked } from '../groups/jobs.js';
 import { certPos, countedAs } from '../groups/store/commit.js';
 import { guardedBatch, writeBatch } from '../groups/store/lease.js';
 import { KEYED, KEYED_WIDTH, Q } from '../groups/store/queries.js';
-import { readMeta } from '../groups/store/recovery.js';
 import { chunked, D1_MAX_BINDS } from './sql.js';
 
 export interface PaymentAddress {
@@ -43,8 +54,6 @@ export interface ProfileRow {
   websiteVerifiedAt: number | null;
   websiteCheckedAt: number | null;
 }
-
-type Row = Record<string, unknown>;
 
 /**
  * Runs a page read and gives the fallback when a groups table is missing, so a page shared with the
@@ -217,7 +226,6 @@ interface VerdictRow {
 
 export type StatusNote = 'correcting' | 'rebuilding' | null;
 
-const optHash = (v: unknown): string | null => (v === null || v === undefined ? null : hashFromCol(v));
 const optNum = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
 const optStr = (v: unknown): string | null => (v === null || v === undefined ? null : String(v));
 
@@ -230,9 +238,9 @@ function groupFromRow(r: Row): GroupRow {
     status: String(r.status) as GroupRow['status'],
     seq: String(r.seq),
     controlHash: hashFromCol(r.control),
-    admissionHash: optHash(r.admission),
+    admissionHash: optHashFromCol(r.admission ?? null),
     profileUrl: optStr(r.profile_url),
-    profileHash: optHash(r.profile_hash),
+    profileHash: optHashFromCol(r.profile_hash ?? null),
     createdHeight: Number(r.created_h),
     profileSetHeight: optNum(r.profile_set_h),
     members: Number(r.members),
@@ -250,7 +258,7 @@ function profileFromRow(groupId: string, r: Row): ProfileRow | null {
   return {
     groupId,
     profileUrl: optStr(r.p_url),
-    dataHash: optHash(r.p_hash),
+    dataHash: optHashFromCol(r.p_hash ?? null),
     status: String(r.p_status),
     name: optStr(r.p_name),
     description: optStr(r.p_description),
@@ -270,10 +278,13 @@ function profileFromRow(groupId: string, r: Row): ProfileRow | null {
  * repair job left behind by one give correcting.
  */
 export async function statusNote(db: D1Database): Promise<StatusNote> {
-  const meta = await readMeta(db);
+  const [m, j] = await db.batch<Row>([db.prepare(Q.metaRow.sql), db.prepare(Q.jobPick.sql)]);
+  const meta = m.results?.[0];
+  if (!meta) throw new Error('drep group meta row missing');
   if (Number(meta.rebuilding) === 1) return 'rebuilding';
   if (meta.rec_first_kind !== null) return 'correcting';
-  return (await jobsPending(db, ['recompute', 'repair'])) ? 'correcting' : null;
+  const pick = j.results?.[0];
+  return pick !== undefined && (picked(pick, 'recompute') || picked(pick, 'repair')) ? 'correcting' : null;
 }
 
 /**
@@ -324,9 +335,6 @@ export async function getGroup(db: D1Database, groupId: string): Promise<(GroupR
     return { ...g, profile: profileFromRow(g.groupId, r) };
   });
 }
-
-type Key = [number, number, number, number];
-const START: Key = [-1, -1, -1, -1];
 
 /** The keyset of a member cursor, the first page for anything that is not one. */
 function keyFrom(after: string | null): Key {

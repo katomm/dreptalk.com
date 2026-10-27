@@ -8,7 +8,7 @@ import type { EventRef, Pos, StoredInstance } from 'drep-groups';
 import { comparePos, effectiveClose, RETENTION_FLOOR, refKey } from 'drep-groups';
 import { chunked, D1_MAX_BINDS } from '../db/sql.js';
 import type { Allowance } from '../sync/queryBudget.js';
-import { bytesFromCol, hashBytes, instanceFromRow, posBinds, posOrNull, refBinds, refFromCols } from './codec.js';
+import { bytesFromCol, hashBytes, instanceFromRow, posBinds, posOrNull, refBinds, refFromCols, type Row, type Key, START } from './codec.js';
 import { JOB_MAX_QUERIES, POWER_SCAN_PAGE, RETENTION_KEEP_APPLIED, RETENTION_KEEP_NOT_APPLIED } from './constants.js';
 import { certPos, type Counted, countedAs, type MemberChange, memberPublishBatch, memberPublishStatements } from './store/commit.js';
 import { writeBatch } from './store/lease.js';
@@ -28,10 +28,6 @@ export interface JobReport {
 // A job of an earlier kind runs before any page of a later one.
 const PRIORITY: readonly JobKind[] = ['recompute', 'repair', 'dissolve', 'retire', 'trim', 'power-scan', 'power'];
 
-type Row = Record<string, unknown>;
-/** The order columns of a position, the keyset of a pass. */
-type Key = [number, number, number, number];
-const START: Key = [-1, -1, -1, -1];
 const NULL_POS = [null, null, null, null, null] as const;
 const keyOf = (p: Pos): Key => [p.blockHeight, p.txIndex, p.phase, p.index];
 
@@ -102,7 +98,8 @@ export async function runJobs(
   }
 }
 
-const picked = (pick: Row, k: JobKind): boolean => (k === 'trim' ? pick.trim_gtx : pick[k]) != null;
+/** Whether the job pick row holds a job of kind `k`. */
+export const picked = (pick: Row, k: JobKind): boolean => (k === 'trim' ? pick.trim_gtx : pick[k]) != null;
 
 /** Whether any job of the kinds is waiting, trims due below the floor included. One query. */
 export async function jobsPending(db: D1Database, kinds: JobKind[]): Promise<boolean> {

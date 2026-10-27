@@ -27,10 +27,9 @@ import {
   refBinds,
   refFromCols,
   versionFromRow,
+  type Row,
 } from '../codec.js';
 import { KEYED, KEYED_WIDTH } from './queries.js';
-
-type Row = Record<string, unknown>;
 
 /** Mirrors the library's position key, which its index does not export. */
 const posKey = (p: Pick<Pos, 'blockHeight' | 'txIndex' | 'phase' | 'index'>): string =>

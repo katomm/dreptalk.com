@@ -9,7 +9,7 @@ import { bytesToHex } from '../crypto/hex.js';
 import { profilesToFetch } from '../db/drepGroups.js';
 import { allowance, countingDb, type QueryMeter } from '../sync/queryBudget.js';
 import { type Chain, ev, type FakeKoios, type FakeReg, type FakeTx, fakeKoios, K, payloadValue, sigScript, T, txCbor } from './__tests__/fixtures.js';
-import { hashBytes } from './codec.js';
+import { hashBytes, type Row } from './codec.js';
 import {
   ADMIN_RESERVE_QUERIES,
   GOVERNANCE_QUERY_BUDGET,
@@ -28,7 +28,6 @@ import { acquireLease, invocationOwner } from './store/lease.js';
 import { Q } from './store/queries.js';
 
 const real = env.DB;
-type Row = Record<string, unknown>;
 
 const CONTROL = K(1);
 const control = sigScript(CONTROL);

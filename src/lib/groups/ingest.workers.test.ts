@@ -25,7 +25,7 @@ import {
 } from './__tests__/fixtures.js';
 import { comparableD1 } from './__tests__/engineFixtures.js';
 import { settle } from './__tests__/loadFixtures.js';
-import { credBytes, hashBytes, hashFromCol } from './codec.js';
+import { credBytes, hashBytes, hashFromCol, type Row } from './codec.js';
 import { DEPTH, ENGINE_BUDGET, WITNESS_BACKOFF_BASE_MS } from './constants.js';
 import { credentialForDrepId, drepIdForCredential } from './ids.js';
 import { checkLibraryVersion, type IngestResult, ingestDrepGroups } from './ingest.js';
@@ -34,7 +34,6 @@ import { openRecovery } from './store/recovery.js';
 import { resetD1 } from '../test-d1-reset.workers.js';
 
 const db = env.DB;
-type Row = Record<string, unknown>;
 const HEAVY = 60_000;
 
 const CONTROL = K(1);

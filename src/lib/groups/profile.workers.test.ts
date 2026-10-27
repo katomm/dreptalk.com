@@ -8,8 +8,9 @@ import { type GroupSeed, seedGroup as seedGroupRow } from './__tests__/engineFix
 import { txHex as txOf } from './__tests__/loadFixtures.js';
 import { hashBytes } from './codec.js';
 import { groupIdString } from './ids.js';
-import { extractGroupProfile, PROFILE_RETRY_MS, refreshGroupProfiles, verifyGroupWebsites, WEBSITE_RECHECK_MS } from './profile.js';
-import { anchorDueStatements } from './store/commit.js';
+import { PROFILE_RETRY_MS, WEBSITE_RECHECK_MS } from './constants.js';
+import { extractGroupProfile, refreshGroupProfiles, verifyGroupWebsites } from './profile.js';
+import { anchorDueBatch } from './store/commit.js';
 import { acquireLease, invocationOwner, writeBatch } from './store/lease.js';
 
 const db = env.DB as D1Database;
@@ -156,7 +157,7 @@ describe('group profiles', () => {
     expect(await profilesToFetch(db, 1e9, 10, l)).toEqual([]);
     const next = '1'.repeat(64);
     await db.prepare('UPDATE drep_groups SET profile_url = ?, profile_hash = ? WHERE group_tx = ?').bind('https://host.test/h.json', hashBytes(next), hashBytes(txOf(1))).run();
-    await writeBatch(db, l, anchorDueStatements(db, { txHash: txOf(1), index: 0 }, { url: URL_A, hash: docHash }, { url: 'https://host.test/h.json', hash: next }, 50));
+    await writeBatch(db, l, anchorDueBatch(db, [{ group: { txHash: txOf(1), index: 0 }, before: { url: URL_A, hash: docHash }, after: { url: 'https://host.test/h.json', hash: next } }], 50));
     expect(await profilesToFetch(db, 50, 10, l)).toEqual([{ groupId: idOf(1), url: 'https://host.test/h.json', dataHash: next }]);
     // The website due row of the old profile is gone with the change.
     expect((await dueRows()).map((r) => r.kind)).toEqual(['profile']);

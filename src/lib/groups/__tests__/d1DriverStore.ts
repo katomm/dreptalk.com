@@ -16,14 +16,13 @@ import {
   instanceFromRow,
   posFromRow,
   versionFromRow,
+  type Row,
 } from '../codec.js';
 import { D1Store } from '../store/d1Store.js';
 import { storeLabelTxs, storeLedgerRows } from '../store/ingest.js';
 import { acquireLease, writeBatch } from '../store/lease.js';
 import { INGEST } from '../store/queries.js';
 import { frontiers } from '../store/reads.js';
-
-type Row = Record<string, unknown>;
 
 // Block times and hashes the driver's inputs do not carry: a block every 20 seconds.
 const blockTime = (h: number): number => h * 20;
