@@ -1259,6 +1259,7 @@ export interface CompareCandidateRow {
   id: string;
   title: string | null;
   type: string;
+  status: string;
   topic_slug: string;
   expiry_epoch: number | null;
   decided_epoch: number | null;
@@ -1306,7 +1307,7 @@ export async function getCompareCandidates(
   return (
     await db
       .prepare(
-        `SELECT g.id AS id, g.title AS title, g.type AS type, t.slug AS topic_slug,
+        `SELECT g.id AS id, g.title AS title, g.type AS type, g.status AS status, t.slug AS topic_slug,
                 g.expiry_epoch AS expiry_epoch, g.decided_epoch AS decided_epoch
          FROM governance_actions g
          JOIN topics t ON t.id = g.topic_id
