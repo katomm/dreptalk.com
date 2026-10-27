@@ -166,6 +166,7 @@ function joinMembers(tx: ChainTx): string[] {
   );
 }
 
+/** CBOR per tx hash, empty when the call fails. */
 async function cborsOf(koios: GroupsKoios, hashes: string[]): Promise<Map<string, string>> {
   try {
     return new Map((await koios.txCborBatch(hashes)).map((r) => [r.tx_hash, r.cbor]));
@@ -508,7 +509,8 @@ async function refetchMarkers(ctx: Ctx): Promise<void> {
   if (!ctx.fits('markers', 1)) return;
   const rows = await all(db, Q.refetchMarkers.sql, MARKER_REFETCH_PER_RUN);
   if (rows.length === 0) return;
-  const cbors = await cborsOf(koios, rows.map((r) => hashFromCol(r.tx_hash)));
+  // A failing call fails the run, only a tx left out of an answer counts as an attempt.
+  const cbors = new Map((await koios.txCborBatch(rows.map((r) => hashFromCol(r.tx_hash)))).map((r) => [r.tx_hash, r.cbor]));
   const ok: LabelInput[] = [];
   const failed: Row[] = [];
   for (const r of rows) {

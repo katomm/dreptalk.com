@@ -156,7 +156,7 @@ async function verdictsVsReplay(chain: Chain): Promise<{ stored: string[]; repla
 describe('ingestDrepGroups: events and registrations', () => {
   it('ingests a create with a founder join', async () => {
     const r = await tick({ tip: 200, txs: [create], regs: [regM] });
-    expect(r).toMatchObject({ newTxs: 1, markers: 0, probing: false, recovery: null });
+    expect(r).toMatchObject({ newTxs: 1, markers: 0, tracked: 1, probing: false, recovery: null });
     expect(await groupRow()).toMatchObject({ status: 'active', members: 1 });
     expect((await instanceOf(credM)).map((i) => i.counted_as)).toEqual(['open']);
   });
@@ -175,6 +175,7 @@ describe('ingestDrepGroups: events and registrations', () => {
     chain.tip = 300;
     chain.txs.push({ hash: T(8), height: 250, index: 0, cbor: txCbor({ payload: payloadValue([ev.join(GROUP, stranger.hash)]) }) });
     const r = await tick(chain);
+    expect(r.tracked).toBe(1);
     expect(await tracked(stranger)).toMatchObject({ known: 0, complete: 1 });
     expect(r.calls.filter((c) => c.startsWith('known:'))).toEqual(['known:1']);
     const { stored, replayed } = await verdictsVsReplay(chain);
@@ -542,6 +543,16 @@ describe('ingestDrepGroups: failures and spam', () => {
     await checkLibraryVersion(db, t);
     await releaseLease(db, t);
     await engine();
+    // A failing call counts no attempt.
+    const down = fakeKoios(chain);
+    down.txCborBatch = async () => {
+      throw new Error('koios 503');
+    };
+    await expect(tick(chain, { koios: down })).rejects.toThrow('koios 503');
+    expect(await one('SELECT refetch, refetch_attempts FROM drep_group_txs WHERE tx_hash = ?', hashBytes(T(2)))).toEqual({
+      refetch: 1,
+      refetch_attempts: 0,
+    });
     chain.leaveOut = new Set([T(2)]);
     for (let i = 0; i < 5; i++) expect((await tick(chain)).refetched).toBe(0);
     expect(await one('SELECT refetch, marker FROM drep_group_txs WHERE tx_hash = ?', hashBytes(T(2)))).toEqual({ refetch: 0, marker: 1 });
