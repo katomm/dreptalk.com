@@ -5,8 +5,9 @@ import { env } from 'cloudflare:test';
 import type { ChainInput, Credential, Recovery } from 'drep-groups';
 import { decodeTransaction, hexToBytes, LIBRARY_VERSION, RETENTION_FLOOR, refKey, replay } from 'drep-groups';
 import { describe, expect, it } from 'vitest';
-import { UNLIMITED } from '../sync/queryBudget.js';
+import { type Allowance, allowance, countingDb, UNLIMITED } from '../sync/queryBudget.js';
 import {
+  blockHash,
   type Chain,
   deepScriptBytes,
   ev,
@@ -22,6 +23,7 @@ import {
   T,
   txCbor,
 } from './__tests__/fixtures.js';
+import { comparableD1, type ComparableSnapshot } from './__tests__/engineFixtures.js';
 import { settle } from './__tests__/loadFixtures.js';
 import { credBytes, hashBytes, hashFromCol } from './codec.js';
 import { DEPTH, ENGINE_BUDGET, WITNESS_BACKOFF_BASE_MS } from './constants.js';
@@ -354,7 +356,7 @@ describe('ingestDrepGroups: late inputs and rollbacks', () => {
     await tick(chain);
     expect(await tracked(credM)).toMatchObject({ retiring: 1 });
     // Every block above 150 changed: the probes find 150 and cut above it.
-    chain.hashAt = (h) => (h > 150 ? forkHash(h) : (0xb000_0000 + h).toString(16).padStart(64, '0'));
+    chain.hashAt = (h) => (h > 150 ? forkHash(h) : blockHash(h));
     const t = await lease();
     const r = await ingestDrepGroups({ db, koios: fakeKoios(chain), lease: t, budget: UNLIMITED, now: 0 });
     await releaseLease(db, t);
@@ -376,7 +378,7 @@ describe('ingestDrepGroups: late inputs and rollbacks', () => {
     expect(await groupRow()).toMatchObject({ members: 0 });
     // The chain forked at 150: the leave is gone.
     chain.txs = [create];
-    chain.hashAt = (h) => (h >= 150 ? forkHash(h) : (0xb000_0000 + h).toString(16).padStart(64, '0'));
+    chain.hashAt = (h) => (h >= 150 ? forkHash(h) : blockHash(h));
     const r = await tick(chain);
     expect(r.recovery).toEqual({ kind: 'truncate', above: 100 });
     expect(r.newTxs).toBe(0);
@@ -391,7 +393,7 @@ describe('ingestDrepGroups: late inputs and rollbacks', () => {
   it('fails when a deeper probe gets no block', async () => {
     const chain: Chain = { tip: 300, txs: [create, leaveTx(T(3), 150)], regs: [regM] };
     await tick(chain);
-    chain.hashAt = (h) => (h >= 150 ? forkHash(h) : h === 100 ? null : (0xb000_0000 + h).toString(16).padStart(64, '0'));
+    chain.hashAt = (h) => (h >= 150 ? forkHash(h) : h === 100 ? null : blockHash(h));
     await expect(tick(chain)).rejects.toThrow(/rollback probe at 100/);
     expect(await meta()).toMatchObject({ probe_active: 0, rec_first_kind: null });
   });
@@ -402,7 +404,7 @@ describe('ingestDrepGroups: late inputs and rollbacks', () => {
     await tick(chain);
     expect(await labelCount()).toBe(51);
     // The chain forked above 205, 45 stored blocks lie between the top and the ancestor.
-    chain.hashAt = (h) => (h > 205 ? forkHash(h) : (0xb000_0000 + h).toString(16).padStart(64, '0'));
+    chain.hashAt = (h) => (h > 205 ? forkHash(h) : blockHash(h));
     chain.tip = 290;
     chain.txs = [...txs.filter((t) => t.height <= 205), ...Array.from({ length: 5 }, (_, i) => marker(T(0x300 + i), 261 + i))];
     for (const below of [232, 212]) {
@@ -558,5 +560,58 @@ describe('ingestDrepGroups: failures and spam', () => {
     expect(await one('SELECT refetch, marker FROM drep_group_txs WHERE tx_hash = ?', hashBytes(T(2)))).toEqual({ refetch: 0, marker: 1 });
     expect(await meta()).toMatchObject({ rebuilding: 0 });
     expect(await ledgerCount()).toBe(1);
+  });
+});
+
+describe('ingestDrepGroups: a finite allowance', () => {
+  // M has a long history, so storing it costs more queries than the probes and the gate.
+  const history = Array.from({ length: 300 }, (_, i) => ({ ...regRow(credM, i % 2 === 0 ? 'deregistered' : 'registered', T(0x5000 + i), 60), index: i }));
+  const chain = (): Chain => ({ tip: 200, txs: [create], regs: [regM, ...history, { ...regM, hash: T(0x6000), height: 61 }] });
+  type Check = { spent: number; cost: number; calls: number };
+  let baseline: { budget: number; snapshot: ComparableSnapshot } | null = null;
+
+  /** One ingest under a finite allowance through the production query meter, every covers call logged, then the engine. */
+  async function finite(c: Chain, limit: number, log: Check[] = []): Promise<IngestResult & { calls: string[] }> {
+    const koios = fakeKoios(c);
+    const { db: counted, meter } = countingDb(db);
+    const inner = allowance(meter, limit);
+    const budget: Allowance = {
+      ...inner,
+      covers: (cost) => {
+        log.push({ spent: inner.spent(), cost, calls: koios.calls.length });
+        return inner.covers(cost);
+      },
+    };
+    const t = await lease();
+    const r = await ingestDrepGroups({ db: counted, koios, lease: t, budget, now: 0 });
+    await releaseLease(db, t);
+    await engine();
+    return { ...r, calls: koios.calls };
+  }
+
+  it('measures the unit of the batched history read without starving', async () => {
+    const log: Check[] = [];
+    const r = await finite(chain(), 10_000, log);
+    expect(r.starved).toEqual([]);
+    // The check of the history unit is the first one after its Koios read.
+    const read = r.calls.findIndex((c) => c.startsWith('regsForMany'));
+    const unit = log.find((x) => x.calls > read) as Check;
+    expect(unit.cost).toBeGreaterThan(40);
+    baseline = { budget: unit.spent + unit.cost - 1, snapshot: await comparableD1(db) };
+  });
+
+  it('starves the history unit without writing it and catches up in the next run', async () => {
+    if (baseline === null) throw new Error('baseline missing');
+    const c = chain();
+    const r = await finite(c, baseline.budget);
+    expect(r.starved).toContain('histories');
+    expect(r.newTxs).toBe(1);
+    // Nothing of the unit is stored, its cursors did not move.
+    expect(await ledgerOf(credM)).toEqual([]);
+    expect(await tracked(credM)).toMatchObject({ known: 1, history_done: 0, solo: 0, history_offset: 0 });
+    expect(await meta()).toMatchObject({ reg_time: (200 - DEPTH) * 20, reg_offset: 0, R: 200 - DEPTH });
+    const next = await finite(c, 10_000);
+    expect(next.starved).toEqual([]);
+    expect(await comparableD1(db)).toEqual(baseline.snapshot);
   });
 });

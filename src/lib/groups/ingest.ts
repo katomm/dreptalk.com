@@ -600,6 +600,7 @@ export async function ingestDrepGroups(deps: {
   await readRegistrations(ctx);
   await searchWitnesses(ctx);
   await refetchMarkers(ctx);
+  // Stays null while a slot is open when this last check does not fit, callers read pendingRecovery.
   if (fits('ingest', 1)) result.recovery = await pendingRecovery(db);
   return result;
 }
