@@ -792,6 +792,15 @@ export function createKoiosClient(opts: KoiosClientOptions) {
     return results.flat();
   }
 
+  async function drepInfoBatch(drepIds: string[]): Promise<DrepInfoRow[]> {
+    if (drepIds.length === 0) return [];
+    const out: DrepInfoRow[] = [];
+    for (let i = 0; i < drepIds.length; i += DREP_INFO_MAX) {
+      out.push(...(await drepInfoChunk(drepIds.slice(i, i + DREP_INFO_MAX))));
+    }
+    return out;
+  }
+
   function drepRegistrations(filter: string, limit: number, offset: number): Promise<DrepRegistrationRow[]> {
     return request(`/drep_updates?${filter}&${DREP_REGISTRATION_QUERY}&limit=${limit}&offset=${offset}`, {
       method: 'GET',
@@ -825,14 +834,7 @@ export function createKoiosClient(opts: KoiosClientOptions) {
     // voting power) for every id, fetched in sub-batches that respect Koios's
     // /drep_info POST body cap (see DREP_INFO_MAX and drepInfoChunk's 413
     // fallback). Empty input short-circuits the round-trip.
-    async drepInfoBatch(drepIds: string[]): Promise<DrepInfoRow[]> {
-      if (drepIds.length === 0) return [];
-      const out: DrepInfoRow[] = [];
-      for (let i = 0; i < drepIds.length; i += DREP_INFO_MAX) {
-        out.push(...(await drepInfoChunk(drepIds.slice(i, i + DREP_INFO_MAX))));
-      }
-      return out;
-    },
+    drepInfoBatch,
 
     // Batch lookup for pool metadata: ticker, name, homepage, meta_url/hash.
     // Sub-batched by POOL_INFO_MAX with 413-halving fallback. Empty input
@@ -1199,7 +1201,7 @@ export function createKoiosClient(opts: KoiosClientOptions) {
     // drep_info lists every id ever registered, a retired DRep comes back with
     // registered false or null. So presence here means "known", not "active".
     async knownDrepIds(drepIds: string[]): Promise<Set<string>> {
-      const rows = await this.drepInfoBatch(drepIds);
+      const rows = await drepInfoBatch(drepIds);
       return new Set(rows.map((r) => r.drep_id));
     },
   };

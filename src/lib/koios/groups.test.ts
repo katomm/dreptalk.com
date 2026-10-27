@@ -96,26 +96,25 @@ describe('koios group reads', () => {
     expect(await koios.blockAt(8)).toBeNull();
   });
 
-  it('knownDrepIds returns the ids drep_info lists', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([
-        {
-          drep_id: 'drep1a',
-          hex: null,
-          has_script: false,
-          drep_status: 'retired',
-          deposit: null,
-          active: false,
-          expires_epoch_no: null,
-          amount: null,
-          meta_url: null,
-          meta_hash: null,
-          registered: false,
-        },
-      ]));
-    const koios = make(fetchImpl);
-    expect(await koios.knownDrepIds(['drep1a', 'drep1b'])).toEqual(new Set(['drep1a']));
+  it('knownDrepIds returns the ids drep_info lists, also when detached', async () => {
+    const row = {
+      drep_id: 'drep1a',
+      hex: null,
+      has_script: false,
+      drep_status: 'retired',
+      deposit: null,
+      active: false,
+      expires_epoch_no: null,
+      amount: null,
+      meta_url: null,
+      meta_hash: null,
+      registered: false,
+    };
+    const fetchImpl = vi.fn().mockImplementation(async () => jsonResponse([row]));
+    const { knownDrepIds } = make(fetchImpl);
+    expect(await knownDrepIds(['drep1a', 'drep1b'])).toEqual(new Set(['drep1a']));
     fetchImpl.mockClear();
-    expect(await koios.knownDrepIds([])).toEqual(new Set());
+    expect(await knownDrepIds([])).toEqual(new Set());
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
