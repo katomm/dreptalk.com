@@ -57,12 +57,13 @@ export const POWER_SCAN_PAGE = 100;
 // power-scan enqueue batch 3, plus margin 6
 export const ADMIN_RESERVE_QUERIES = 24;
 export const RELEASE_RESERVE_QUERIES = 2;
-export const PROFILE_SELECT_QUERIES = 1; // the due selection, reserved before any item
-export const WEBSITE_SELECT_QUERIES = 1;
+// The due selection, reserved before any item: one lease checked batch of guard, page, stale drop, guard end.
+export const PROFILE_SELECT_QUERIES = 4;
+export const WEBSITE_SELECT_QUERIES = 4;
 export const PROFILE_QUERIES_PER_ITEM = 6; // guard, upsert, due delete, website due upsert, guard end, one anchor cache read
 export const WEBSITE_QUERIES_PER_ITEM = 4; // guard, check update, due update, guard end
 export const INGEST_QUERY_SHARE = 250;
-export const GROUPS_QUERY_SHARE = 700; // admin + ingest + one worst case run + jobs + release
+export const GROUPS_QUERY_SHARE = 716; // admin + ingest + one worst case run + jobs + release
 export const GOVERNANCE_QUERY_BUDGET = 900;
 export const LEASE_MS = 900_000;
 export const RETENTION_KEEP_APPLIED = 200;

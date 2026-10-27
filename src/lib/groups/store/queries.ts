@@ -1031,6 +1031,8 @@ export const Q = Object.freeze({
   },
   pendingRecovery: { sql: 'SELECT rec_first_kind, rec_first_above FROM drep_group_meta WHERE id = 1' },
   metaRow: { sql: 'SELECT * FROM drep_group_meta WHERE id = 1' },
+  // Binds the request read. Clears an operator truncation request once it is opened, a newer request stays.
+  operatorTruncateClear: { sql: 'UPDATE drep_group_meta SET operator_truncate = NULL WHERE id = 1 AND operator_truncate = ?' },
   ...(Object.fromEntries(
     (Object.keys(INGEST) as Array<keyof typeof INGEST>).map((k) => [k, { sql: INGEST[k](1) }]),
   ) as Record<keyof typeof INGEST, RegisteredQuery>),
@@ -1188,6 +1190,7 @@ export const Q_SAMPLE_BINDS: Readonly<Record<keyof typeof Q, unknown[]>> = Objec
   frontiers: [],
   pendingRecovery: [],
   metaRow: [],
+  operatorTruncateClear: [100],
   ...(Object.fromEntries(
     (Object.keys(INGEST) as Array<keyof typeof INGEST>).map((k) => [
       k,

@@ -31,6 +31,9 @@ import { refreshBulk } from '../../delegation/refresh.js';
 import { fetchLatestEdition, type SiteFetcher } from '../../review/latestEdition.js';
 import { announceLatestEdition } from '../../db/reviewAnnouncements.js';
 import { syncSurveys, type SurveysTessera } from '../../surveys/sync.js';
+import { drepGroupsAvailable } from '../../groups/gate.js';
+import { runDrepGroupsPhase, toPhaseResult } from '../../groups/phase.js';
+import type { QueryMeter } from '../queryBudget.js';
 import type { CoreSyncContext, GovSyncKoios } from './context.js';
 import type { SyncPhaseDef } from './registry.js';
 
@@ -51,6 +54,8 @@ export interface GovernanceSyncContext extends CoreSyncContext {
    * which gates the review-announce phase out. */
   site: SiteFetcher | null;
   state: GovernanceSyncState;
+  /** Counts every D1 query of the run, so the DRep groups phase sizes its work to what is left. */
+  meter: QueryMeter;
 }
 
 /**
@@ -376,6 +381,24 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
       });
       console.log(`[cip100] reconciled=${r.reconciled} skipped=${r.skipped} failed=${r.failed}`);
       return { items: r.reconciled, failed: r.failed };
+    },
+  },
+  {
+    // DRep groups: ingest, engine, jobs and profile upkeep under the groups lease. Last, so it sizes
+    // its work to the queries the earlier phases left. A light tick leaves most of the allowance, a
+    // heavy tick may leave too little, then the phase skips steps and the next tick continues.
+    name: 'drep-groups',
+    when: (ctx) => drepGroupsAvailable(ctx.cfg.network),
+    run: async (ctx) => {
+      const report = await runDrepGroupsPhase({
+        db: ctx.db,
+        koios: ctx.koios,
+        meter: ctx.meter,
+        gateway: ctx.gateway ?? null,
+        network: ctx.cfg.network,
+        now: ctx.now,
+      });
+      return toPhaseResult(report);
     },
   },
 ];
