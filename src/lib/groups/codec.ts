@@ -23,9 +23,94 @@ export const afterTx = (tx: TxPosition): Pos => ({
   index: Number.MAX_SAFE_INTEGER,
 });
 
+/** A BLOB column as bytes, whatever shape the driver returns it in. */
+export function bytesFromCol(v: unknown): Uint8Array {
+  if (v instanceof Uint8Array) return new Uint8Array(v);
+  if (v instanceof ArrayBuffer) return new Uint8Array(v);
+  if (Array.isArray(v)) return Uint8Array.from(v as number[]);
+  throw new Error('not a blob column');
+}
+
+/**
+ * A hash or key hash as stored: its raw bytes. Only lowercase hex is accepted, the form the
+ * library produces, so every stored value reads back as the exact string it was written from.
+ */
+export function hashBytes(hex: string): Uint8Array {
+  if (!/^(?:[0-9a-f]{2})*$/.test(hex)) throw new Error(`not lowercase hex: ${hex}`);
+  return hexToBytes(hex);
+}
+
+/** Inverse of hashBytes. */
+export function hashFromCol(v: unknown): string {
+  return bytesToHex(bytesFromCol(v));
+}
+
+const optHash = (hex: string | null): Uint8Array | null => (hex === null ? null : hashBytes(hex));
+const optHashFromCol = (v: unknown): string | null => (v === null ? null : hashFromCol(v));
+
+// A stored credential key is one kind byte and the hash, so key sorts before script as in credKey.
+const CRED_KIND = { key: 0, script: 1 } as const;
+
+/** A credKey string (`key:<hash>` or `script:<hash>`) as stored. */
+export function credBytes(key: string): Uint8Array {
+  const c = credFromKey(key);
+  const hash = hashBytes(c.hash);
+  const out = new Uint8Array(1 + hash.length);
+  out[0] = CRED_KIND[c.kind];
+  out.set(hash, 1);
+  return out;
+}
+
+/** Inverse of credBytes: the credKey string. */
+export function credKeyFromCol(v: unknown): string {
+  const b = bytesFromCol(v);
+  const kind = b[0] === CRED_KIND.key ? 'key' : b[0] === CRED_KIND.script ? 'script' : null;
+  if (kind === null || b.length < 2) throw new Error('bad stored credential');
+  return `${kind}:${bytesToHex(b.subarray(1))}`;
+}
+
+const KEY_HASH_BYTES = 28;
+
+/** A list of key hashes as stored: the 28 byte hashes concatenated in order. */
+export function hashListBytes(list: readonly string[]): Uint8Array {
+  const out = new Uint8Array(list.length * KEY_HASH_BYTES);
+  list.forEach((h, i) => {
+    const b = hashBytes(h);
+    if (b.length !== KEY_HASH_BYTES) throw new Error(`not a key hash: ${h}`);
+    out.set(b, i * KEY_HASH_BYTES);
+  });
+  return out;
+}
+
+/** Inverse of hashListBytes. */
+export function hashListFromCol(v: unknown): string[] {
+  const b = bytesFromCol(v);
+  if (b.length % KEY_HASH_BYTES !== 0) throw new Error('bad stored key hash list');
+  const out: string[] = [];
+  for (let i = 0; i < b.length; i += KEY_HASH_BYTES) out.push(bytesToHex(b.subarray(i, i + KEY_HASH_BYTES)));
+  return out;
+}
+
+/** An event ref as its key columns. */
+export const refBinds = (r: { txHash: string; index: number }): [Uint8Array, number] => [hashBytes(r.txHash), r.index];
+
+/** An event ref read from its key columns. */
+export const refFromCols = (tx: unknown, ix: unknown): { txHash: string; index: number } => ({
+  txHash: hashFromCol(tx),
+  index: Number(ix),
+});
+
+// Job keys are TEXT and some are built in SQL from the stored key columns. These give the same
+// strings as the library's refKey and credKey.
+/** SQL for refKey of the group in the columns `tx` and `ix`. */
+export const refKeySql = (tx: string, ix: string): string => `lower(hex(${tx})) || '#' || CAST(${ix} AS INTEGER)`;
+/** SQL for credKey of the stored credential in the column `cred`. */
+export const credKeySql = (cred: string): string =>
+  `CASE substr(${cred}, 1, 1) WHEN X'00' THEN 'key:' ELSE 'script:' END || lower(hex(substr(${cred}, 2)))`;
+
 /** Column values of a position in the order h, ti, ph, ix, tx. */
-export function posBinds(p: Pos): [number, number, number, number, string] {
-  return [p.blockHeight, p.txIndex, p.phase, p.index, p.txHash];
+export function posBinds(p: Pos): [number, number, number, number, Uint8Array] {
+  return [p.blockHeight, p.txIndex, p.phase, p.index, hashBytes(p.txHash)];
 }
 
 function col(row: Record<string, unknown>, name: string): unknown {
@@ -44,7 +129,7 @@ export function posFromRow(row: Record<string, unknown>, prefix: string): Pos {
     throw new Error(`null position ${prefix}`);
   }
   if (ph !== 0 && ph !== 1 && ph !== 2) throw new Error(`bad phase in ${prefix}_ph`);
-  return { blockHeight: Number(h), txIndex: Number(ti), phase: ph, index: Number(ix), txHash: String(tx) };
+  return { blockHeight: Number(h), txIndex: Number(ti), phase: ph, index: Number(ix), txHash: hashFromCol(tx) };
 }
 
 /** Like posFromRow, but all five columns NULL gives null. */
@@ -87,14 +172,14 @@ export function decodeEvent(s: string): DecodedEvent {
 const bigOrNull = (v: bigint | null): string | null => (v === null ? null : v.toString());
 
 export function encodeContext(c: TxContext): {
-  signers: string;
-  requiredSigners: string;
+  signers: Uint8Array;
+  requiredSigners: Uint8Array;
   invalidBefore: string | null;
   invalidHereafter: string | null;
 } {
   return {
-    signers: JSON.stringify(c.signers),
-    requiredSigners: JSON.stringify(c.requiredSigners),
+    signers: hashListBytes(c.signers),
+    requiredSigners: hashListBytes(c.requiredSigners),
     invalidBefore: bigOrNull(c.invalidBefore),
     invalidHereafter: bigOrNull(c.invalidHereafter),
   };
@@ -105,23 +190,32 @@ const bigFromCol = (v: unknown): bigint | null => (v === null || v === undefined
 /** Reads the columns signers, required_signers, invalid_before and invalid_hereafter. */
 export function decodeContext(row: Record<string, unknown>): TxContext {
   return {
-    signers: JSON.parse(String(col(row, 'signers'))) as string[],
-    requiredSigners: JSON.parse(String(col(row, 'required_signers'))) as string[],
+    signers: hashListFromCol(col(row, 'signers')),
+    requiredSigners: hashListFromCol(col(row, 'required_signers')),
     invalidBefore: bigFromCol(col(row, 'invalid_before')),
     invalidHereafter: bigFromCol(col(row, 'invalid_hereafter')),
   };
 }
 
+/** Column values of a version's fields mode, control, admission, profile_url and profile_hash. */
+export const versionFieldBinds = (v: GroupVersion): unknown[] => [
+  v.mode,
+  hashBytes(v.control),
+  optHash(v.admission),
+  v.profile?.url ?? null,
+  optHash(v.profile?.dataHash ?? null),
+];
+
 /** Reads a drep_group_versions row. The seq column is TEXT because it can exceed 2^53. */
 export function versionFromRow(row: Record<string, unknown>): GroupVersion {
   const url = col(row, 'profile_url');
   return {
-    id: { txHash: String(col(row, 'group_tx')), index: Number(col(row, 'group_ix')) },
+    id: { txHash: hashFromCol(col(row, 'group_tx')), index: Number(col(row, 'group_ix')) },
     at: posFromRow(row, 'at'),
     mode: String(col(row, 'mode')) as GroupVersion['mode'],
-    control: String(col(row, 'control')),
-    admission: col(row, 'admission') === null ? null : String(col(row, 'admission')),
-    profile: url === null ? null : { url: String(url), dataHash: String(col(row, 'profile_hash')) },
+    control: hashFromCol(col(row, 'control')),
+    admission: optHashFromCol(col(row, 'admission')),
+    profile: url === null ? null : { url: String(url), dataHash: hashFromCol(col(row, 'profile_hash')) },
     seq: BigInt(String(col(row, 'seq'))),
     status: String(col(row, 'status')) as GroupVersion['status'],
     createdAt: posFromRow(row, 'created'),
@@ -133,9 +227,9 @@ export function versionFromRow(row: Record<string, unknown>): GroupVersion {
 export function instanceFromRow(row: Record<string, unknown>): StoredInstance {
   const reason = col(row, 'close_reason');
   return {
-    joinId: { txHash: String(col(row, 'join_tx')), index: Number(col(row, 'join_ix')) },
-    group: { txHash: String(col(row, 'group_tx')), index: Number(col(row, 'group_ix')) },
-    member: credFromKey(String(col(row, 'cred'))),
+    joinId: { txHash: hashFromCol(col(row, 'join_tx')), index: Number(col(row, 'join_ix')) },
+    group: { txHash: hashFromCol(col(row, 'group_tx')), index: Number(col(row, 'group_ix')) },
+    member: credFromKey(credKeyFromCol(col(row, 'cred'))),
     mode: String(col(row, 'mode')) as StoredInstance['mode'],
     joinedAt: posFromRow(row, 'joined'),
     approvedAt: posOrNull(row, 'approved'),
@@ -144,30 +238,22 @@ export function instanceFromRow(row: Record<string, unknown>): StoredInstance {
   };
 }
 
-/** A BLOB column as bytes, whatever shape the driver returns it in. */
-export function bytesFromCol(v: unknown): Uint8Array {
-  if (v instanceof Uint8Array) return new Uint8Array(v);
-  if (v instanceof ArrayBuffer) return new Uint8Array(v);
-  if (Array.isArray(v)) return Uint8Array.from(v as number[]);
-  throw new Error('not a blob column');
-}
-
 /**
- * Reads a non marker drep_group_txs row. required_signers and witness_key_hashes are JSON arrays
- * of hex strings, invalid_before and invalid_hereafter decimal TEXT. Witness scripts are not
+ * Reads a non marker drep_group_txs row. required_signers and witness_key_hashes are key hash
+ * lists as in hashListBytes, invalid_before and invalid_hereafter decimal TEXT. Witness scripts are not
  * stored with the tx, the group plane never reads them.
  */
 export function labelTxFromRow(row: Record<string, unknown>): ChainTx {
   const payload = col(row, 'payload');
   return {
-    txHash: String(col(row, 'tx_hash')),
+    txHash: hashFromCol(col(row, 'tx_hash')),
     blockHeight: Number(col(row, 'block_height')),
     txIndex: Number(col(row, 'tx_index')),
     isValid: Number(col(row, 'is_valid')) === 1,
     invalidBefore: bigFromCol(col(row, 'invalid_before')),
     invalidHereafter: bigFromCol(col(row, 'invalid_hereafter')),
-    requiredSigners: JSON.parse(String(col(row, 'required_signers'))) as string[],
-    witnessKeyHashes: JSON.parse(String(col(row, 'witness_key_hashes'))) as string[],
+    requiredSigners: hashListFromCol(col(row, 'required_signers')),
+    witnessKeyHashes: hashListFromCol(col(row, 'witness_key_hashes')),
     payload: payload === null ? undefined : bytesFromCol(payload),
     payloadRepeated: Number(col(row, 'payload_repeated')) === 1,
     witnessScripts: [],

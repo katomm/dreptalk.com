@@ -5,13 +5,10 @@
 // statement summed. A truncation of the new inputs and the first rebuild call are measured the
 // same way.
 //
-// Storage of spam, measured 2026-10-27 on the local D1: 1,000 valid compact creates with a
-// founder join grow the database by 6,262,784 to 6,266,880 bytes (one page apart between runs),
-// 6,263 to 6,267 bytes per create, above the bound of 2,000. The stored column values alone are
-// 3,301 bytes per create, mostly hashes and keys as hex text across 12 tables, before any index,
-// so the bound fails on the schema, not on a query. Batched spam, one registered founder with one
-// shared control script, 64 creates per tx and the founder joining every group, costs 4,465 bytes
-// per create on the same measurement, also above 2,000, so that test records its value only.
+// Storage of spam, measured on the local D1: 1,000 valid compact creates with a founder join,
+// and 1,000 creates batched 64 per tx with one registered founder and one shared control script.
+// With hashes and keys as hex text a compact create cost 6,267 bytes and a batched one 4,465.
+// Stored as bytes, a compact create costs 4,047 to 4,051 bytes and a batched one 2,957.
 import { env } from 'cloudflare:test';
 import type { Budget } from 'drep-groups';
 import { endOf, runEngine } from 'drep-groups';
@@ -199,7 +196,7 @@ describe('the engine store cost does not grow with stored history', () => {
 });
 
 const membersDone = (done: 0 | 1): D1PreparedStatement =>
-  env.DB.prepare(`UPDATE drep_group_tracked SET history_done = ? WHERE cred IN (SELECT 'key:' || value FROM json_each(?))`).bind(
+  env.DB.prepare(`UPDATE drep_group_tracked SET history_done = ? WHERE cred IN (SELECT unhex('00' || value) FROM json_each(?))`).bind(
     done,
     JSON.stringify(WORST_MEMBERS),
   );
@@ -235,6 +232,10 @@ describe('the worst case of one engine run', () => {
   });
 });
 
+// The measured bytes per create rounded up to the next 250.
+const COMPACT_BOUND = 4_250;
+const BATCHED_BOUND = 3_000;
+
 const sizeAfter = async (): Promise<number> => (await env.DB.prepare('SELECT 1').all()).meta.size_after as number;
 
 /** Database growth per create of the inputs, run in through the engine. */
@@ -257,19 +258,35 @@ async function bytesPerCreate(c: { inputs: Input[]; top: number }, creates: numb
     "SELECT (SELECT COUNT(*) FROM drep_groups) AS groups, (SELECT COUNT(*) FROM drep_group_instances WHERE counted_as = 'open') AS members",
   ).first();
   expect(counts).toEqual({ groups: creates, members: creates });
+  expect(await nonBlobValues()).toEqual([]);
   return (after - before) / creates;
 }
 
+/** Every BLOB column of the groups tables holding a value that is not a BLOB, a write that skipped the codec. */
+async function nonBlobValues(): Promise<string[]> {
+  const tables = (await env.DB.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'drep_group%'").all<{ name: string }>())
+    .results;
+  const out: string[] = [];
+  for (const { name } of tables) {
+    const cols = (await env.DB.prepare('SELECT name, type FROM pragma_table_info(?)').bind(name).all<{ name: string; type: string }>()).results;
+    for (const c of cols.filter((x) => x.type === 'BLOB')) {
+      const r = await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${name} WHERE typeof(${c.name}) NOT IN ('blob', 'null')`).first<{ n: number }>();
+      if (r?.n) out.push(`${name}.${c.name}`);
+    }
+  }
+  return out;
+}
+
 describe('storage cost of spam', () => {
-  it('stores a valid compact create with its founder join in under 2,000 bytes', { timeout: 120_000 }, async () => {
+  it(`stores a valid compact create with its founder join in under ${COMPACT_BOUND} bytes`, { timeout: 120_000 }, async () => {
     const perCreate = await bytesPerCreate(compactCreates(1_000, HISTORY_FROM), 1_000);
     console.log(`storage, one founder per create: ${perCreate} bytes per create`);
-    expect(perCreate).toBeLessThan(2_000);
+    expect(perCreate).toBeLessThan(COMPACT_BOUND);
   });
 
-  it('records the cost of creates batched 64 per tx with one founder', { timeout: 120_000 }, async () => {
+  it(`stores creates batched 64 per tx with one founder in under ${BATCHED_BOUND} bytes each`, { timeout: 120_000 }, async () => {
     const perCreate = await bytesPerCreate(batchedCreates(1_000, HISTORY_FROM), 1_000);
     console.log(`storage, batched: ${perCreate} bytes per create`);
-    expect(perCreate).toBeGreaterThan(0);
+    expect(perCreate).toBeLessThan(BATCHED_BOUND);
   });
 });

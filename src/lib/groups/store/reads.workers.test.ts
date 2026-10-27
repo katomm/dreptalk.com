@@ -3,7 +3,7 @@ import { env } from 'cloudflare:test';
 import type { ChangeSet, Credential, GroupVersion, Keys, Pos } from 'drep-groups';
 import { credKey, endOf, refKey } from 'drep-groups';
 import { describe, expect, it } from 'vitest';
-import { encodeEvent } from '../codec.js';
+import { credBytes, encodeEvent, hashBytes, hashListBytes } from '../codec.js';
 import {
   frontiers,
   load,
@@ -25,6 +25,10 @@ const pos = (h: number, ti = 0, ph: 0 | 1 | 2 = 2, ix = 0, tx = hex(h * 100 + ti
 });
 const certPos = (h: number, ix = 0): Pos => pos(h, 0, 0, ix);
 const keyCred = (n: number): Credential => ({ kind: 'key', hash: hex(n) });
+const cb = (c: Credential): Uint8Array => credBytes(credKey(c));
+const optHash = (h: string | null): Uint8Array | null => (h === null ? null : hashBytes(h));
+// The group a queued join names.
+const QG = 'ee'.repeat(32);
 const scriptCred = (n: number): Credential => ({ kind: 'script', hash: hex(n) });
 // CBOR of the native script [0, h'..'], a single signature.
 const sigScript = (n: number): Uint8Array => {
@@ -57,16 +61,16 @@ const seed = {
       .prepare(
         `INSERT INTO drep_group_txs (tx_hash, block_height, block_hash, tx_index, marker, payload, required_signers,
            witness_key_hashes, invalid_before, invalid_hereafter, is_valid, payload_repeated, bytes, refetch)
-         VALUES (?, ?, 'b', ?, ?, ?, ?, ?, ?, NULL, ?, 0, ?, ?)`,
+         VALUES (?, ?, X'0b', ?, ?, ?, ?, ?, ?, NULL, ?, 0, ?, ?)`,
       )
       .bind(
-        txHash,
+        hashBytes(txHash),
         h,
         ti,
         marker ? 1 : 0,
         marker ? null : new Uint8Array(bytes).fill(7),
-        marker ? null : JSON.stringify([hex(1)]),
-        marker ? null : JSON.stringify([hex(2)]),
+        marker ? null : hashListBytes([hex(1)]),
+        marker ? null : hashListBytes([hex(2)]),
         marker ? null : '5',
         marker ? null : 1,
         marker ? 0 : bytes,
@@ -91,7 +95,7 @@ const seed = {
            next_h, next_ti, next_ph, next_ix, next_tx, applied_h, applied_ti, applied_ph, applied_ix, applied_tx)
          VALUES (?, ?, 'drep1x', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .bind(credKey(c), seq, known, historyDone, n.blockHeight, n.txIndex, n.phase, n.index, n.txHash, a.blockHeight, a.txIndex, a.phase, a.index, a.txHash)
+      .bind(cb(c), seq, known, historyDone, n.blockHeight, n.txIndex, n.phase, n.index, optHash(n.txHash), a.blockHeight, a.txIndex, a.phase, a.index, optHash(a.txHash))
       .run();
   },
   async ledger(c: Credential, kind: 'reg' | 'unreg', h: number, certIndex = 0, witness: Uint8Array | null = null): Promise<void> {
@@ -99,27 +103,28 @@ const seed = {
       .prepare(
         `INSERT INTO drep_group_ledger (tx_hash, cert_index, cred, drep_id, kind, block_height, block_hash, tx_index,
            block_time, witness, witness_state)
-         VALUES (?, ?, ?, 'drep1x', ?, ?, 'b', 0, 0, ?, ?)`,
+         VALUES (?, ?, ?, 'drep1x', ?, ?, X'0b', 0, 0, ?, ?)`,
       )
-      .bind(hex(h * 100, 64), certIndex, credKey(c), kind, h, witness, witness ? 'checked' : 'na')
+      .bind(hashBytes(hex(h * 100, 64)), certIndex, cb(c), kind, h, witness, witness ? 'checked' : 'na')
       .run();
   },
   async queued(c: Credential, at: Pos, applied = 0, withContext = true): Promise<void> {
     await db
       .prepare(
         `INSERT INTO drep_group_queue (tx_hash, idx, subject, at_h, at_ti, at_ph, at_ix, at_tx, group_tx, group_ix, event_json, applied)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'g', 0, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
       )
       .bind(
-        at.txHash,
+        hashBytes(at.txHash),
         at.index,
-        credKey(c),
+        cb(c),
         at.blockHeight,
         at.txIndex,
         at.phase,
         at.index,
-        at.txHash,
-        encodeEvent({ ok: true, event: { tag: 'join', group: { txHash: 'g', index: 0 }, member: c } }),
+        hashBytes(at.txHash),
+        hashBytes(QG),
+        encodeEvent({ ok: true, event: { tag: 'join', group: { txHash: QG, index: 0 }, member: c } }),
         applied,
       )
       .run();
@@ -127,9 +132,9 @@ const seed = {
       await db
         .prepare(
           `INSERT OR IGNORE INTO drep_group_tx_context (tx_hash, block_height, tx_index, signers, required_signers, invalid_before, invalid_hereafter)
-           VALUES (?, ?, ?, ?, '[]', NULL, '9')`,
+           VALUES (?, ?, ?, ?, X'', NULL, '9')`,
         )
-        .bind(at.txHash, at.blockHeight, at.txIndex, JSON.stringify([c.hash]))
+        .bind(hashBytes(at.txHash), at.blockHeight, at.txIndex, hashListBytes([c.hash]))
         .run();
     }
   },
@@ -138,13 +143,13 @@ const seed = {
       .prepare(
         `INSERT INTO drep_group_member_scripts (cred, at_h, at_ti, at_ph, at_ix, at_tx, bytes) VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
-      .bind(credKey(c), at.blockHeight, at.txIndex, at.phase, at.index, at.txHash, bytes)
+      .bind(cb(c), at.blockHeight, at.txIndex, at.phase, at.index, hashBytes(at.txHash), bytes)
       .run();
   },
   async script(hash: string, at: Pos, bytes: Uint8Array): Promise<void> {
     await db
       .prepare(`INSERT INTO drep_group_scripts (hash, at_h, at_ti, at_ph, at_ix, at_tx, bytes) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-      .bind(hash, at.blockHeight, at.txIndex, at.phase, at.index, at.txHash, bytes)
+      .bind(hashBytes(hash), at.blockHeight, at.txIndex, at.phase, at.index, hashBytes(at.txHash), bytes)
       .run();
   },
   async version(group: { txHash: string; index: number }, at: Pos, status: 'active' | 'dissolved', seq: number): Promise<void> {
@@ -152,9 +157,9 @@ const seed = {
       .prepare(
         `INSERT INTO drep_group_versions (group_tx, group_ix, at_h, at_ti, at_ph, at_ix, at_tx, mode, control, admission,
            profile_url, profile_hash, seq, status, created_h, created_ti, created_ph, created_ix, created_tx)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'open', 'cc', NULL, NULL, NULL, ?, ?, 1, 0, 2, 0, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'open', X'cc', NULL, NULL, NULL, ?, ?, 1, 0, 2, 0, ?)`,
       )
-      .bind(group.txHash, group.index, at.blockHeight, at.txIndex, at.phase, at.index, at.txHash, String(seq), status, group.txHash)
+      .bind(hashBytes(group.txHash), group.index, at.blockHeight, at.txIndex, at.phase, at.index, hashBytes(at.txHash), String(seq), status, hashBytes(group.txHash))
       .run();
   },
   async instance(join: { txHash: string; index: number }, group: { txHash: string; index: number }, c: Credential, joined: Pos): Promise<void> {
@@ -164,7 +169,7 @@ const seed = {
            joined_h, joined_ti, joined_ph, joined_ix, joined_tx, counted_as)
          VALUES (?, ?, ?, ?, ?, 'drep1x', 'open', ?, ?, ?, ?, ?, 'open')`,
       )
-      .bind(join.txHash, join.index, group.txHash, group.index, credKey(c), joined.blockHeight, joined.txIndex, joined.phase, joined.index, joined.txHash)
+      .bind(hashBytes(join.txHash), join.index, hashBytes(group.txHash), group.index, cb(c), joined.blockHeight, joined.txIndex, joined.phase, joined.index, hashBytes(joined.txHash))
       .run();
   },
   async meta(L: number, R: number | null): Promise<void> {
@@ -334,9 +339,9 @@ describe('drep group store reads', () => {
         q: {
           subject: D,
           at: pos(50),
-          group: { txHash: 'g', index: 0 },
+          group: { txHash: QG, index: 0 },
           txHash: pos(50).txHash,
-          event: { ok: true, event: { tag: 'join', group: { txHash: 'g', index: 0 }, member: D } },
+          event: { ok: true, event: { tag: 'join', group: { txHash: QG, index: 0 }, member: D } },
         },
         tx: { signers: [D.hash], requiredSigners: [], invalidBefore: null, invalidHereafter: 9n },
       },
@@ -416,7 +421,7 @@ describe('drep group store reads', () => {
     const out = await queuedJoins(db, refs, [emptyChange(), overlay]);
     expect(out).toEqual(
       new Map([
-        [refKey(refs[0]), { ok: true, event: { tag: 'join', group: { txHash: 'g', index: 0 }, member: c } }],
+        [refKey(refs[0]), { ok: true, event: { tag: 'join', group: { txHash: QG, index: 0 }, member: c } }],
         [refKey(refs[1]), 'ignored'],
         [refKey(refs[2]), overlayEvent],
       ]),

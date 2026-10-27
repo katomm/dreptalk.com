@@ -5,7 +5,7 @@
 import type { ChainTx, Credential, LedgerInput, Pos } from 'drep-groups';
 import { classifyNewInput, comparePos, credKey, decodePayload, posOfCert } from 'drep-groups';
 import { chunked, D1_MAX_BINDS } from '../../db/sql.js';
-import { afterTx, posFromRow, posOrNull } from '../codec.js';
+import { afterTx, credBytes, credKeyFromCol, hashBytes, hashFromCol, hashListBytes, posBinds, posFromRow, posOrNull } from '../codec.js';
 import { drepIdForCredential } from '../ids.js';
 import { writeBatch } from './lease.js';
 import { COMMIT, COMMIT_WIDTH, INGEST, INGEST_WIDTH, Q } from './queries.js';
@@ -52,17 +52,18 @@ function restarts(s: Slots, heights: number[]): boolean {
 }
 
 function txRow(tx: ChainTx, blockHash: string, marker: boolean): unknown[] {
-  if (marker) return [tx.txHash, tx.blockHeight, blockHash, tx.txIndex, 1, null, null, null, null, null, null, null, 0];
+  const [hash, block] = [hashBytes(tx.txHash), hashBytes(blockHash)];
+  if (marker) return [hash, tx.blockHeight, block, tx.txIndex, 1, null, null, null, null, null, null, null, 0];
   const payload = tx.payload as Uint8Array;
   return [
-    tx.txHash,
+    hash,
     tx.blockHeight,
-    blockHash,
+    block,
     tx.txIndex,
     0,
     payload,
-    JSON.stringify(tx.requiredSigners),
-    JSON.stringify(tx.witnessKeyHashes),
+    hashListBytes(tx.requiredSigners),
+    hashListBytes(tx.witnessKeyHashes),
     tx.invalidBefore === null ? null : tx.invalidBefore.toString(),
     tx.invalidHereafter === null ? null : tx.invalidHereafter.toString(),
     tx.isValid ? 1 : 0,
@@ -87,8 +88,8 @@ export async function storeLabelTxs(
 ): Promise<Array<'stored' | 'duplicate' | 'marker'>> {
   const meta = await readMeta(db);
   const existing = new Map<string, { flagged: boolean }>();
-  for (const r of await readKeyed(db, 'existingTxs', txs, (x) => [x.tx.txHash])) {
-    existing.set(String(r.tx_hash), { flagged: Number(r.marker) === 1 && Number(r.refetch) === 1 });
+  for (const r of await readKeyed(db, 'existingTxs', txs, (x) => [hashBytes(x.tx.txHash)])) {
+    existing.set(hashFromCol(r.tx_hash), { flagged: Number(r.marker) === 1 && Number(r.refetch) === 1 });
   }
   const before = slotsFromMeta(meta);
   let slots = before;
@@ -118,7 +119,7 @@ export async function storeLabelTxs(
     const r = classifyNewInput({ kind: 'labelTx', at: afterTx(tx) }, { G, appliedThrough: null, L: storedL });
     if (r !== 'ordinary') slots = mergeSlots(slots, r, r.kind === 'truncate' ? await cutTime(tx.blockHeight) : null);
   }
-  const tracked = [...members.entries()].map(([k, c], i) => [k, drepIdForCredential(c), i + 1]);
+  const tracked = [...members.entries()].map(([k, c], i) => [credBytes(k), drepIdForCredential(c), i + 1]);
   await writeBatch(db, lease, [
     ...stmts(db, 'upsertTxs', rows, (r) => r),
     ...stmts(db, 'trackCreds', tracked, (r) => r),
@@ -141,14 +142,14 @@ async function ledgerStatements(
 ): Promise<{ stmts: D1PreparedStatement[]; out: Array<'stored' | 'duplicate'>; slots: Slots; heights: number[] }> {
   const keyOf = (i: LedgerInput): string => `${i.txHash}#${i.certIndex}`;
   const existing = new Set(
-    (await readKeyed(db, 'existingLedger', rows, (r) => [r.input.txHash, r.input.certIndex])).map(
-      (r) => `${String(r.tx_hash)}#${Number(r.cert_index)}`,
+    (await readKeyed(db, 'existingLedger', rows, (r) => [hashBytes(r.input.txHash), r.input.certIndex])).map(
+      (r) => `${hashFromCol(r.tx_hash)}#${Number(r.cert_index)}`,
     ),
   );
   const creds = [...new Set(rows.map((r) => credKey(r.input.credential)))];
   const tracked = new Map<string, { known: number | null; applied: Pos | null; found: Pos | null }>();
-  for (const r of await readKeyed(db, 'trackedState', creds, (c) => [c])) {
-    tracked.set(String(r.cred), { known: r.known === null ? null : Number(r.known), applied: posOrNull(r, 'applied'), found: posOrNull(r, 'found') });
+  for (const r of await readKeyed(db, 'trackedState', creds, (c) => [credBytes(c)])) {
+    tracked.set(credKeyFromCol(r.cred), { known: r.known === null ? null : Number(r.known), applied: posOrNull(r, 'applied'), found: posOrNull(r, 'found') });
   }
   const G = posFromRow(meta, 'G');
   const L = Number(meta.L);
@@ -190,13 +191,13 @@ async function ledgerStatements(
     if (r === 'ordinary' && (n === undefined || comparePos(at, n) < 0)) next.set(cred, at);
     heights.push(input.blockHeight);
     inserts.push([
-      input.txHash,
+      hashBytes(input.txHash),
       input.certIndex,
-      cred,
+      credBytes(cred),
       row.drepId,
       input.kind,
       input.blockHeight,
-      row.blockHash,
+      hashBytes(row.blockHash),
       input.txIndex,
       row.blockTime,
       row.witness,
@@ -204,11 +205,10 @@ async function ledgerStatements(
     ]);
     out.push('stored');
   }
-  const posRows = (m: Map<string, Pos>) =>
-    [...m.entries()].map(([c, p]) => [c, p.blockHeight, p.txIndex, p.phase, p.index, p.txHash]);
+  const posRows = (m: Map<string, Pos>) => [...m.entries()].map(([c, p]) => [credBytes(c), ...posBinds(p)]);
   return {
     stmts: [
-      ...stmts(db, 'knownFromLedger', [...known], (c) => [c]),
+      ...stmts(db, 'knownFromLedger', [...known], (c) => [credBytes(c)]),
       ...stmts(db, 'insertLedger', inserts, (r) => r),
       ...stmts(db, 'moveFound', posRows(found), (r) => r),
       ...keyedStatements(db, COMMIT.lowerNext, COMMIT_WIDTH.lowerNext, posRows(next), (r) => r),
@@ -243,14 +243,14 @@ export async function storeLedgerRows(
 /** Records the gate answer of credentials not judged yet: known DReps need a history, unknown ones are complete. */
 export async function setKnown(db: D1Database, lease: string, known: string[], unknown: string[]): Promise<void> {
   await writeBatch(db, lease, [
-    ...stmts(db, 'setKnown', known, (c) => [c], [1]),
-    ...stmts(db, 'setKnown', unknown, (c) => [c], [0]),
+    ...stmts(db, 'setKnown', known, (c) => [credBytes(c)], [1]),
+    ...stmts(db, 'setKnown', unknown, (c) => [credBytes(c)], [0]),
   ]);
 }
 
 /** Stores the complete histories of a batch of credentials and marks them done. */
 export async function finishHistoryBatch(db: D1Database, lease: string, creds: string[], rows: StoredLedgerRow[]): Promise<void> {
-  await storeLedger(db, lease, rows, stmts(db, 'historyDone', creds, (c) => [c]));
+  await storeLedger(db, lease, rows, stmts(db, 'historyDone', creds, (c) => [credBytes(c)]));
 }
 
 /** Stores one page of a solo history. A null offset ends the history. */
@@ -265,13 +265,15 @@ export async function storeHistoryPage(
     db,
     lease,
     rows,
-    nextOffset === null ? stmts(db, 'historyDone', [cred], (c) => [c]) : [db.prepare(Q.historyOffset.sql).bind(nextOffset, cred)],
+    nextOffset === null
+      ? stmts(db, 'historyDone', [cred], (c) => [credBytes(c)])
+      : [db.prepare(Q.historyOffset.sql).bind(nextOffset, credBytes(cred))],
   );
 }
 
 /** Credentials whose history is too long for a batch, read page by page. */
 export async function markSolo(db: D1Database, lease: string, creds: string[]): Promise<void> {
-  await writeBatch(db, lease, stmts(db, 'markSolo', creds, (c) => [c]));
+  await writeBatch(db, lease, stmts(db, 'markSolo', creds, (c) => [credBytes(c)]));
 }
 
 /**
@@ -287,8 +289,8 @@ export async function recordWitnessChecks(
   const ok = checks.flatMap((c) => ('failed' in c ? [] : [c]));
   const failed = checks.filter((c) => 'failed' in c);
   await writeBatch(db, lease, [
-    ...stmts(db, 'witnessChecked', ok, (c) => [c.txHash, c.certIndex, c.witness]),
-    ...stmts(db, 'witnessFound', ok.filter((c) => c.witness !== null), (c) => [c.txHash, c.certIndex]),
-    ...stmts(db, 'witnessFailed', failed, (c) => [c.txHash, c.certIndex], [now]),
+    ...stmts(db, 'witnessChecked', ok, (c) => [hashBytes(c.txHash), c.certIndex, c.witness]),
+    ...stmts(db, 'witnessFound', ok.filter((c) => c.witness !== null), (c) => [hashBytes(c.txHash), c.certIndex]),
+    ...stmts(db, 'witnessFailed', failed, (c) => [hashBytes(c.txHash), c.certIndex], [now]),
   ]);
 }

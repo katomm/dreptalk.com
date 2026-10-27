@@ -19,7 +19,7 @@ import {
   worstCaseGroupUnits,
 } from '../__tests__/engineFixtures.js';
 import { COMMIT_MAX_STATEMENTS, ENGINE_BUDGET } from '../constants.js';
-import { posOrNull } from '../codec.js';
+import { credBytes, hashBytes, posOrNull } from '../codec.js';
 import { acquireLease, invocationOwner } from './lease.js';
 import { commit, commitStatements, preRead } from './commit.js';
 
@@ -31,6 +31,8 @@ const G = ref(10);
 const CREATED = pos(10);
 const afterTx = (h: number): Pos => ({ ...pos(h), index: Number.MAX_SAFE_INTEGER });
 const certPos = (h: number, ix = 0): Pos => pos(h, 0, 0, ix);
+const cb = (c: Credential): Uint8Array => credBytes(credKey(c));
+const GTX = hashBytes(G.txHash);
 
 const groupUnit = (h: number, change: Partial<ChangeSet>): Unit => ({
   change: { ...emptyChange(), ...change },
@@ -52,13 +54,13 @@ async function lease(): Promise<string> {
 }
 
 async function group(): Promise<Row> {
-  const r = await db.prepare('SELECT * FROM drep_groups WHERE group_tx = ? AND group_ix = ?').bind(G.txHash, G.index).first<Row>();
+  const r = await db.prepare('SELECT * FROM drep_groups WHERE group_tx = ? AND group_ix = ?').bind(GTX, G.index).first<Row>();
   if (!r) throw new Error('group row missing');
   return r;
 }
 
 async function inst(h: number): Promise<Row> {
-  const r = await db.prepare('SELECT * FROM drep_group_instances WHERE join_tx = ? AND join_ix = 0').bind(txHashOf(h)).first<Row>();
+  const r = await db.prepare('SELECT * FROM drep_group_instances WHERE join_tx = ? AND join_ix = 0').bind(hashBytes(txHashOf(h))).first<Row>();
   if (!r) throw new Error('instance row missing');
   return r;
 }
@@ -70,12 +72,12 @@ async function count(sql: string, ...binds: unknown[]): Promise<number> {
 async function track(c: Credential, seq: number): Promise<void> {
   await db
     .prepare('INSERT INTO drep_group_tracked (cred, seq, drep_id, known, history_done) VALUES (?, ?, ?, 1, 1)')
-    .bind(credKey(c), seq, `drep_${seq}`)
+    .bind(cb(c), seq, `drep_${seq}`)
     .run();
 }
 
 async function tracked(c: Credential): Promise<Row> {
-  const r = await db.prepare('SELECT * FROM drep_group_tracked WHERE cred = ?').bind(credKey(c)).first<Row>();
+  const r = await db.prepare('SELECT * FROM drep_group_tracked WHERE cred = ?').bind(cb(c)).first<Row>();
   if (!r) throw new Error('tracked row missing');
   return r;
 }
@@ -85,9 +87,9 @@ async function ledger(c: Credential, kind: 'reg' | 'unreg', h: number, certIndex
     .prepare(
       `INSERT INTO drep_group_ledger (tx_hash, cert_index, cred, drep_id, kind, block_height, block_hash, tx_index,
          block_time, witness, witness_state)
-       VALUES (?, ?, ?, 'drep1x', ?, ?, 'b', 0, 0, NULL, 'na')`,
+       VALUES (?, ?, ?, 'drep1x', ?, ?, X'0b', 0, 0, NULL, 'na')`,
     )
-    .bind(txHashOf(h), certIndex, credKey(c), kind, h)
+    .bind(hashBytes(txHashOf(h)), certIndex, cb(c), kind, h)
     .run();
 }
 
@@ -96,9 +98,9 @@ async function labelTx(h: number): Promise<void> {
     .prepare(
       `INSERT INTO drep_group_txs (tx_hash, block_height, block_hash, tx_index, marker, payload, required_signers,
          witness_key_hashes, invalid_before, invalid_hereafter, is_valid, payload_repeated, bytes)
-       VALUES (?, ?, 'b', 0, 0, x'00', '[]', '[]', NULL, NULL, 1, 0, 1)`,
+       VALUES (?, ?, X'0b', 0, 0, x'00', X'', X'', NULL, NULL, 1, 0, 1)`,
     )
-    .bind(txHashOf(h), h)
+    .bind(hashBytes(txHashOf(h)), h)
     .run();
 }
 
@@ -139,7 +141,7 @@ describe('drep groups commit', () => {
     );
     expect(await group()).toMatchObject({ members: 2 });
     await commit(db, [groupUnit(30, { versions: [version(G, CREATED, pos(30), { seq: 1n, control: 'ab' })] })], t);
-    expect(await group()).toMatchObject({ members: 2, control: 'ab', cur_h: 30, seq: '1' });
+    expect(await group()).toMatchObject({ members: 2, control: [0xab], cur_h: 30, seq: '1' });
   });
 
   it('caches dissolved for a join committed after the dissolve and left after a later leave', async () => {
@@ -181,7 +183,7 @@ describe('drep groups commit', () => {
         `INSERT INTO drep_group_jobs (kind, job_key, group_tx, group_ix, cursor_json, staging, start_gen)
          VALUES ('recompute', ?, ?, ?, '{"pass":"instances","after":"x"}', '{"members":1}', ?)`,
       )
-      .bind(refKey(G), G.txHash, G.index, before.gen)
+      .bind(refKey(G), GTX, G.index, before.gen)
       .run();
     const job = await db.prepare("SELECT * FROM drep_group_jobs WHERE kind = 'recompute'").first<Row>();
     const control = { ref: { txHash: txHashOf(30), index: 0 }, tag: 'update' as const, valid: true, reason: null, at: pos(30), group: G, subject: null };
@@ -207,7 +209,7 @@ describe('drep groups commit', () => {
     // A retried result writes no second delta.
     await commit(db, [credUnit(b, pos(26, 0, 2, 1), { verdicts: [late] })], t);
     expect(await group()).toMatchObject({ not_applied_events: Number(before.not_applied_events) + 1 });
-    expect(await count('SELECT oldest_h AS n FROM drep_group_trim_due WHERE group_tx = ?', G.txHash)).toBe(26);
+    expect(await count('SELECT oldest_h AS n FROM drep_group_trim_due WHERE group_tx = ?', GTX)).toBe(26);
   });
 
   it('reads the first applied unreg per join with one bounded lookup', async () => {
@@ -253,14 +255,14 @@ describe('drep groups commit', () => {
   it('writes due rows when a group becomes listed and removes them when it drops', async () => {
     const t = await lease();
     const [a, b] = [keyCred(1), keyCred(2)];
-    const dueCount = () => count('SELECT COUNT(*) AS n FROM drep_group_due WHERE group_tx = ?', G.txHash);
+    const dueCount = () => count('SELECT COUNT(*) AS n FROM drep_group_due WHERE group_tx = ?', GTX);
     await commit(db, [create({ profile: { url: 'https://example.org/g.json', dataHash: 'aa' }, profileSetAt: CREATED })], t);
     await commit(db, [credUnit(a, pos(20), { instances: [joined(20, a)] })], t);
     expect(await dueCount()).toBe(0);
     await commit(db, [credUnit(b, pos(21), { instances: [joined(21, b)] })], t);
-    expect(await count("SELECT COUNT(*) AS n FROM drep_group_due WHERE kind = 'profile' AND group_tx = ?", G.txHash)).toBe(1);
+    expect(await count("SELECT COUNT(*) AS n FROM drep_group_due WHERE kind = 'profile' AND group_tx = ?", GTX)).toBe(1);
     expect(await count("SELECT COUNT(*) AS n FROM drep_group_jobs WHERE kind = 'power' AND job_key = ?", refKey(G))).toBe(1);
-    await db.prepare("INSERT INTO drep_group_due (kind, group_tx, group_ix, due_at) VALUES ('website', ?, ?, 0)").bind(G.txHash, G.index).run();
+    await db.prepare("INSERT INTO drep_group_due (kind, group_tx, group_ix, due_at) VALUES ('website', ?, ?, 0)").bind(GTX, G.index).run();
     await commit(db, [credUnit(b, pos(22), { instances: [joined(21, b, { closedAt: pos(22), closeReason: 'left' })] })], t);
     expect(await group()).toMatchObject({ members: 1 });
     expect(await dueCount()).toBe(0);
@@ -291,7 +293,7 @@ describe('drep groups commit', () => {
     expect((await db.prepare('SELECT rebuilding FROM drep_group_meta').first<Row>())?.rebuilding).toBe(1);
     await commit(db, [{ change: emptyChange(), cursor: { kind: 'group', G: endOf(50) } }], t);
     const meta = await db.prepare('SELECT * FROM drep_group_meta').first<Row>();
-    expect(meta).toMatchObject({ rebuilding: 0, G_h: 50, G_tx: '' });
+    expect(meta).toMatchObject({ rebuilding: 0, G_h: 50, G_tx: [] });
   });
 
   it('writes tooDeep display json for a deep member script', async () => {
@@ -299,7 +301,7 @@ describe('drep groups commit', () => {
     const c: Credential = { kind: 'script', hash: 'ab'.repeat(28) };
     const { bytes, script } = deepScript(5000);
     await commit(db, [credUnit(c, certPos(10), { memberScripts: [{ credential: c, script, bytes, at: certPos(10) }] })], t);
-    const row = await db.prepare('SELECT display_json, length(bytes) AS n FROM drep_group_member_scripts WHERE cred = ?').bind(credKey(c)).first<Row>();
+    const row = await db.prepare('SELECT display_json, length(bytes) AS n FROM drep_group_member_scripts WHERE cred = ?').bind(cb(c)).first<Row>();
     expect(row).toEqual({ display_json: '{"type":"tooDeep"}', n: bytes.length });
   });
 
@@ -352,7 +354,7 @@ describe('drep groups commit', () => {
     await ledger(a, 'reg', 20);
     await commit(db, [credUnit(a, pos(10), { appliedQueue: [join(10)] })], t);
     expect(posOrNull(await tracked(a), 'next')).toEqual(certPos(20));
-    expect(await count('SELECT applied AS n FROM drep_group_queue WHERE tx_hash = ?', txHashOf(10))).toBe(1);
+    expect(await count('SELECT applied AS n FROM drep_group_queue WHERE tx_hash = ?', hashBytes(txHashOf(10)))).toBe(1);
     await commit(db, [credUnit(a, certPos(20), {})], t);
     expect(posOrNull(await tracked(a), 'next')).toBeNull();
     expect(posOrNull(await tracked(a), 'applied')).toEqual(certPos(20));

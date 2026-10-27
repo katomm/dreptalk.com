@@ -13,7 +13,16 @@ import type {
 } from 'drep-groups';
 import type { EngineSnapshot } from 'drep-groups';
 import { credKey, parseNativeScript } from 'drep-groups';
-import { credFromKey, decodeContext, decodeEvent, instanceFromRow, posFromRow, versionFromRow } from '../codec.js';
+import {
+  credFromKey,
+  credKeyFromCol,
+  decodeContext,
+  decodeEvent,
+  hashFromCol,
+  instanceFromRow,
+  posFromRow,
+  versionFromRow,
+} from '../codec.js';
 import type { PreRead } from '../store/commit.js';
 
 export type Unit = { change: ChangeSet; cursor: CursorUpdate };
@@ -260,13 +269,13 @@ export function comparableMemory(s: EngineSnapshot): ComparableSnapshot {
 export async function comparableD1(db: D1Database): Promise<ComparableSnapshot> {
   const all = async (sql: string): Promise<Row[]> => (await db.prepare(sql).all<Row>()).results ?? [];
   const meta = (await all('SELECT * FROM drep_group_meta WHERE id = 1'))[0] as Row;
-  const ref = (tx: unknown, ix: unknown): EventRef => ({ txHash: String(tx), index: Number(ix) });
+  const ref = (tx: unknown, ix: unknown): EventRef => ({ txHash: hashFromCol(tx), index: Number(ix) });
   return {
     frontiers: { L: Number(meta.L), R: meta.R === null ? null : Number(meta.R), G: posFromRow(meta, 'G') },
     versions: canon((await all('SELECT * FROM drep_group_versions')).map(versionFromRow)),
-    scripts: canon((await all('SELECT * FROM drep_group_scripts')).map((r) => ({ hash: String(r.hash), at: posFromRow(r, 'at') }))),
+    scripts: canon((await all('SELECT * FROM drep_group_scripts')).map((r) => ({ hash: hashFromCol(r.hash), at: posFromRow(r, 'at') }))),
     memberScripts: canon(
-      (await all('SELECT * FROM drep_group_member_scripts')).map((r) => ({ credential: String(r.cred), at: posFromRow(r, 'at') })),
+      (await all('SELECT * FROM drep_group_member_scripts')).map((r) => ({ credential: credKeyFromCol(r.cred), at: posFromRow(r, 'at') })),
     ),
     instances: canon((await all('SELECT * FROM drep_group_instances')).map(instanceFromRow)),
     verdicts: canon(
@@ -277,22 +286,22 @@ export async function comparableD1(db: D1Database): Promise<ComparableSnapshot> 
         reason: r.reason === null ? null : String(r.reason),
         at: posFromRow(r, 'at'),
         group: ref(r.group_tx, r.group_ix),
-        subject: r.subject === null ? null : credFromKey(String(r.subject)),
+        subject: r.subject === null ? null : credFromKey(credKeyFromCol(r.subject)),
       })),
     ),
     queue: canon(
       (await all('SELECT * FROM drep_group_queue')).map((r) => ({
-        subject: credFromKey(String(r.subject)),
+        subject: credFromKey(credKeyFromCol(r.subject)),
         at: posFromRow(r, 'at'),
         group: r.group_tx === null ? null : ref(r.group_tx, r.group_ix),
-        txHash: String(r.tx_hash),
+        txHash: hashFromCol(r.tx_hash),
         event: decodeEvent(String(r.event_json)),
         applied: Number(r.applied) === 1,
       })),
     ),
     txContexts: canon(
       (await all('SELECT * FROM drep_group_tx_context')).map((r) => ({
-        txHash: String(r.tx_hash),
+        txHash: hashFromCol(r.tx_hash),
         blockHeight: Number(r.block_height),
         txIndex: Number(r.tx_index),
         context: decodeContext(r),
@@ -300,7 +309,7 @@ export async function comparableD1(db: D1Database): Promise<ComparableSnapshot> 
     ),
     labelTxs: canon(
       (await all('SELECT * FROM drep_group_txs')).map((r) => ({
-        txHash: String(r.tx_hash),
+        txHash: hashFromCol(r.tx_hash),
         blockHeight: Number(r.block_height),
         txIndex: Number(r.tx_index),
         marker: Number(r.marker) === 1,
@@ -309,8 +318,8 @@ export async function comparableD1(db: D1Database): Promise<ComparableSnapshot> 
     ledger: canon(
       (await all('SELECT * FROM drep_group_ledger')).map((r) => ({
         kind: String(r.kind),
-        credential: String(r.cred),
-        txHash: String(r.tx_hash),
+        credential: credKeyFromCol(r.cred),
+        txHash: hashFromCol(r.tx_hash),
         blockHeight: Number(r.block_height),
         txIndex: Number(r.tx_index),
         certIndex: Number(r.cert_index),
@@ -318,7 +327,7 @@ export async function comparableD1(db: D1Database): Promise<ComparableSnapshot> 
     ),
     appliedThrough: canon(
       (await all('SELECT * FROM drep_group_tracked WHERE applied_h IS NOT NULL')).map((r) => ({
-        credential: String(r.cred),
+        credential: credKeyFromCol(r.cred),
         at: posFromRow(r, 'applied'),
       })),
     ),

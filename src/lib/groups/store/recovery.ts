@@ -5,7 +5,7 @@
 import type { EventRef, Pos, Recovery, RecoveryState } from 'drep-groups';
 import { comparePos, endOf, mergeRecovery } from 'drep-groups';
 import { chunked, D1_MAX_BINDS } from '../../db/sql.js';
-import { posFromRow } from '../codec.js';
+import { bytesFromCol, hashBytes, hashFromCol, posFromRow, refFromCols } from '../codec.js';
 import { CHANGES_PER_ROW } from '../constants.js';
 import { anchorDueBatch } from './commit.js';
 import { guardedBatch, writeBatch } from './lease.js';
@@ -225,11 +225,12 @@ function pageStatements(db: D1Database, p: PagedPart, cut: number, limit: number
 /** Groups above the cut, each restored to its latest remaining version or deleted with its due rows. */
 async function versionsStatements(db: D1Database, cut: number, limit: number): Promise<D1PreparedStatement[]> {
   const rows = (await db.prepare(Q.recVersionsPage.sql).bind(cut, cut, limit).all<Row>()).results ?? [];
-  const group = (r: Row): EventRef => ({ txHash: String(r.k_gtx), index: Number(r.k_gix) });
-  const key = (r: Row): [string, number] => [String(r.k_gtx), Number(r.k_gix)];
+  const group = (r: Row): EventRef => refFromCols(r.k_gtx, r.k_gix);
+  const key = (r: Row): [Uint8Array, number] => [bytesFromCol(r.k_gtx), Number(r.k_gix)];
   const kept = rows.filter((r) => r.group_tx !== null);
   const gone = rows.filter((r) => r.group_tx === null);
   const str = (v: unknown): string | null => (v === null ? null : String(v));
+  const hash = (v: unknown): string | null => (v === null ? null : hashFromCol(v));
   return [
     ...keyedStatements(
       db,
@@ -244,8 +245,8 @@ async function versionsStatements(db: D1Database, cut: number, limit: number): P
       db,
       kept.map((r) => ({
         group: group(r),
-        before: { url: str(r.g_url), hash: str(r.g_hash) },
-        after: { url: str(r.profile_url), hash: str(r.profile_hash) },
+        before: { url: str(r.g_url), hash: hash(r.g_hash) },
+        after: { url: str(r.profile_url), hash: hash(r.profile_hash) },
       })),
       Date.now(),
     ),
@@ -278,7 +279,7 @@ async function cursorStatement(db: D1Database, mode: RecoveryMode, cut: number):
       g.txIndex,
       g.phase,
       g.index,
-      g.txHash,
+      hashBytes(g.txHash),
       Math.min(L, cut),
       L > cut ? null : meta.L_hash,
       R === null ? null : Math.min(R, cut),

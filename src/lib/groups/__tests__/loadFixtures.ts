@@ -2,8 +2,9 @@
 // Chain inputs, bulk stored histories and a metered database for the load measurement of the
 // D1 store. Test only.
 import type { Budget, ChainTx, Credential, LedgerInput } from 'drep-groups';
-import { credKey, hexToBytes, nativeScriptHash, runEngine } from 'drep-groups';
+import { bytesToHex, credKey, hexToBytes, nativeScriptHash, runEngine } from 'drep-groups';
 import { countingDb } from '../../sync/queryBudget.js';
+import { credBytes, hashBytes } from '../codec.js';
 import { drepIdForCredential } from '../ids.js';
 import { D1Store } from '../store/d1Store.js';
 import { storeLabelTxs, storeLedgerRows } from '../store/ingest.js';
@@ -112,7 +113,7 @@ export async function deliver(db: D1Database, lease: string, inputs: Input[], to
     await writeBatch(
       db,
       lease,
-      [...creds.entries()].map(([k, c]) => db.prepare(INGEST.trackCreds(1)).bind(k, drepIdForCredential(c), 1)),
+      [...creds.entries()].map(([k, c]) => db.prepare(INGEST.trackCreds(1)).bind(credBytes(k), drepIdForCredential(c), 1)),
     );
     await storeLedgerRows(
       ingestDb,
@@ -136,9 +137,9 @@ export async function deliver(db: D1Database, lease: string, inputs: Input[], to
     db
       .prepare(
         `UPDATE drep_group_tracked SET known = 1, history_done = 1
-         WHERE cred IN (SELECT value FROM json_each(?)) AND (known IS NULL OR known = 1)`,
+         WHERE cred IN (SELECT unhex(value) FROM json_each(?)) AND (known IS NULL OR known = 1)`,
       )
-      .bind(JSON.stringify([...creds.keys(), ...members])),
+      .bind(JSON.stringify([...creds.keys(), ...members].map((k) => bytesToHex(credBytes(k))))),
     db.prepare('UPDATE drep_group_meta SET L = ?, R = ? WHERE id = 1').bind(top, top),
   ]);
 }
@@ -207,12 +208,15 @@ export function meteredDb(real: D1Database): { db: D1Database; queries: () => nu
 }
 
 // Bulk histories. Every statement generates its rows from a series 0..n-1 in SQL, so 10,000
-// rows take one statement per table. Hashes are printf('%064x', ...) of a counter, keys
-// printf('%056x', ...), exactly txHex and keyHex. A history row sits at its own height.
+// rows take one statement per table. Hashes are the bytes of printf('%064x', ...) of a counter,
+// keys of printf('%056x', ...), exactly txHex and keyHex. A history row sits at its own height.
 const series = (n: number): string =>
   `WITH RECURSIVE s(i) AS (SELECT 0 WHERE ${n} > 0 UNION ALL SELECT i + 1 FROM s WHERE i + 1 < ${n})`;
-const hashSql = (base: number, expr = 's.i'): string => `printf('%064x', ${base} + ${expr})`;
-const credSql = (base: number, expr = 's.i'): string => `'key:' || printf('%056x', ${base} + ${expr})`;
+const hashSql = (base: number, expr = 's.i'): string => `unhex(printf('%064x', ${base} + ${expr}))`;
+const keySql = (base: number, expr = 's.i'): string => `unhex(printf('%056x', ${base} + ${expr}))`;
+const credSql = (base: number, expr = 's.i'): string => `unhex('00' || printf('%056x', ${base} + ${expr}))`;
+/** SQL literal of a stored key credential. */
+const credLit = (c: Credential): string => `X'${bytesToHex(credBytes(credKey(c)))}'`;
 const POS0 = (h: string, tx: string): string => `${h}, 0, 2, 0, ${tx}`;
 
 /** Label tx rows and their contexts at heights `h`, already applied by the group plane. */
@@ -222,7 +226,7 @@ function txRows(db: D1Database, n: number, base: number, h: string, signers: str
     db.prepare(`${series(n)}
       INSERT INTO drep_group_txs (tx_hash, block_height, block_hash, tx_index, marker, payload, required_signers,
         witness_key_hashes, invalid_before, invalid_hereafter, is_valid, payload_repeated, bytes)
-      SELECT ${tx}, ${h}, ${tx}, 0, 0, X'a10001', ${signers}, '[]', NULL, NULL, 1, 0, 3 FROM s`),
+      SELECT ${tx}, ${h}, ${tx}, 0, 0, X'a10001', ${signers}, X'', NULL, NULL, 1, 0, 3 FROM s`),
     db.prepare(`${series(n)}
       INSERT INTO drep_group_tx_context (tx_hash, block_height, tx_index, signers, required_signers, invalid_before, invalid_hereafter)
       SELECT ${tx}, ${h}, 0, ${signers}, ${signers}, NULL, NULL FROM s`),
@@ -236,7 +240,7 @@ function joinRows(
   o: { txBase: number; txExpr?: string; credBase: number; h: string; group: Ref; valid: boolean; applied: boolean },
 ): D1PreparedStatement[] {
   const tx = hashSql(o.txBase, o.txExpr);
-  const signers = o.valid ? `json_array(printf('%056x', ${o.credBase} + s.i))` : `'[]'`;
+  const signers = o.valid ? keySql(o.credBase) : `X''`;
   return [
     ...txRows(db, n, o.txBase, o.h, signers, o.txExpr),
     db.prepare(`${series(n)}
@@ -244,14 +248,14 @@ function joinRows(
       SELECT ${tx}, 0, ${credSql(o.credBase)}, ${POS0(o.h, tx)}, ?, ?,
         json_object('ok', json('true'), 'event', json_object('tag', 'join', 'group', json_object('txHash', ?, 'index', ?),
           'member', json_object('kind', 'key', 'hash', printf('%056x', ${o.credBase} + s.i)))), ${o.applied ? 1 : 0}
-      FROM s`).bind(o.group.txHash, o.group.index, o.group.txHash, o.group.index),
+      FROM s`).bind(hashBytes(o.group.txHash), o.group.index, o.group.txHash, o.group.index),
     ...(o.applied
       ? [
           db.prepare(`${series(n)}
             INSERT INTO drep_group_verdicts (tx_hash, idx, group_tx, group_ix, at_h, at_ti, at_ph, at_ix, at_tx, tag, valid, reason, subject)
             SELECT ${tx}, 0, ?, ?, ${POS0(o.h, tx)}, 'join', ${o.valid ? 1 : 0},
               ${o.valid ? 'NULL' : "'member key not in required_signers'"}, ${credSql(o.credBase)} FROM s`).bind(
-            o.group.txHash,
+            hashBytes(o.group.txHash),
             o.group.index,
           ),
         ]
@@ -326,7 +330,7 @@ export function baseInputs(): { inputs: Input[]; top: number; base: Base } {
 /** Moves G to the end of the history, all of it applied. */
 export const historyApplied = (db: D1Database, top: number): D1PreparedStatement =>
   db
-    .prepare(`UPDATE drep_group_meta SET L = ?, R = ?, G_h = ?, G_ti = ${MAX}, G_ph = 2, G_ix = ${MAX}, G_tx = '' WHERE id = 1`)
+    .prepare(`UPDATE drep_group_meta SET L = ?, R = ?, G_h = ?, G_ti = ${MAX}, G_ph = 2, G_ix = ${MAX}, G_tx = X'' WHERE id = 1`)
     .bind(top, top, top);
 
 // 10 new members, each registered and then joining the group: 20 inputs, 10 verdicts.
@@ -341,7 +345,7 @@ function freshJoins(top: number, base: Base, pairs = 10): Input[] {
   return out;
 }
 
-const groupBinds = (b: Base): [string, number] => [b.group.txHash, b.group.index];
+const groupBinds = (b: Base): [Uint8Array, number] => [hashBytes(b.group.txHash), b.group.index];
 
 export const SHAPES: Shape[] = [
   {
@@ -361,7 +365,7 @@ export const SHAPES: Shape[] = [
         db.prepare(`${series(n)}
           INSERT INTO drep_group_verdicts (tx_hash, idx, group_tx, group_ix, at_h, at_ti, at_ph, at_ix, at_tx, tag, valid, reason, subject)
           SELECT ${tx}, 0, ?, ?, ${POS0(h, tx)}, 'update', 1, NULL, NULL FROM s`).bind(...groupBinds(b)),
-        ...txRows(db, n, 1_000_000, h, `json_array('${b.control}')`),
+        ...txRows(db, n, 1_000_000, h, `X'${b.control}'`),
       ];
       if (n > 0) {
         const last = from + n - 1;
@@ -369,7 +373,7 @@ export const SHAPES: Shape[] = [
           db
             .prepare(`UPDATE drep_groups SET cur_h = ?, cur_ti = 0, cur_ph = 2, cur_ix = 0, cur_tx = ?, seq = ?,
               applied_events = applied_events + ? WHERE group_tx = ? AND group_ix = ?`)
-            .bind(last, txHex(1_000_000 + n - 1), String(n), n, ...groupBinds(b)),
+            .bind(last, hashBytes(txHex(1_000_000 + n - 1)), String(n), n, ...groupBinds(b)),
         );
       }
       return { stmts, top: from + n - 1 };
@@ -419,7 +423,7 @@ export const SHAPES: Shape[] = [
     history: (db, n, from, b) => {
       // One credential alternating reg and unreg, ending with an unreg, and n joins of credentials
       // whose history never completes, queued below G for good.
-      const c = `'key:' || '${keyHex(4_000_000)}'`;
+      const c = credLit(keyOf(keyHex(4_000_000)));
       const h = `${from} + s.i`;
       const last = from + n - 1;
       const queued = `${from} + ${n} + s.i`;
@@ -430,7 +434,7 @@ export const SHAPES: Shape[] = [
             .prepare(`INSERT INTO drep_group_tracked (cred, seq, drep_id, known, history_done, applied_h, applied_ti, applied_ph,
               applied_ix, applied_tx) VALUES (${c}, (SELECT COALESCE(MAX(seq), 0) + 1 FROM drep_group_tracked), 'drep1load', 1, 1,
               ?, ?, ?, ?, ?)`)
-            .bind(...(n > 0 ? [last, 0, 0, 0, lastTx] : [null, null, null, null, null])),
+            .bind(...(n > 0 ? [last, 0, 0, 0, hashBytes(lastTx)] : [null, null, null, null, null])),
           ledgerRows(db, n, { txBase: 5_000_000, cred: c, kind: "CASE WHEN s.i % 2 = 0 THEN 'reg' ELSE 'unreg' END", h }),
           trackedRows(db, n, 6_000_000, { known: 1, done: 0, applied: 'NULL, NULL, NULL, NULL, NULL', next: POS0(queued, hashSql(7_000_000)) }),
           ...joinRows(db, n, { txBase: 7_000_000, credBase: 6_000_000, h: queued, group: b.group, valid: true, applied: false }),
@@ -473,7 +477,7 @@ export const SHAPES: Shape[] = [
           db.prepare(`${series(n)}
             INSERT INTO drep_group_verdicts (tx_hash, idx, group_tx, group_ix, at_h, at_ti, at_ph, at_ix, at_tx, tag, valid, reason, subject)
             SELECT ${tx}, 0, ?, ?, ${POS0(h, tx)}, 'update', 0, 'stale seq', NULL FROM s`).bind(...groupBinds(b)),
-          ...txRows(db, n, 10_000_000, h, `json_array('${b.control}')`),
+          ...txRows(db, n, 10_000_000, h, `X'${b.control}'`),
           db
             .prepare('UPDATE drep_groups SET not_applied_events = not_applied_events + ? WHERE group_tx = ? AND group_ix = ?')
             .bind(n, ...groupBinds(b)),
@@ -487,7 +491,7 @@ export const SHAPES: Shape[] = [
     name: 'change to an old instance whose member has a growing later ledger history',
     history: (db, n, from, b) => {
       // The old member's rows after its join alternate unreg and reg, ending with a reg.
-      const c = `'${credKey(b.old.cred)}'`;
+      const c = credLit(b.old.cred);
       const h = `${from} + s.i`;
       const last = from + n - 1;
       return {
@@ -498,7 +502,7 @@ export const SHAPES: Shape[] = [
                 db
                   .prepare(`UPDATE drep_group_tracked SET applied_h = ?, applied_ti = 0, applied_ph = 0, applied_ix = 0, applied_tx = ?
                     WHERE cred = ${c}`)
-                  .bind(last, txHex(11_000_000 + n - 1)),
+                  .bind(last, hashBytes(txHex(11_000_000 + n - 1))),
               ]
             : []),
         ],

@@ -15,7 +15,18 @@ import type {
 } from 'drep-groups';
 import { credKey, parseNativeScript, refKey } from 'drep-groups';
 import { chunked, D1_MAX_BINDS } from '../../db/sql.js';
-import { bytesFromCol, instanceFromRow, posOrNull, versionFromRow } from '../codec.js';
+import {
+  bytesFromCol,
+  credBytes,
+  credKeyFromCol,
+  hashBytes,
+  hashFromCol,
+  instanceFromRow,
+  posOrNull,
+  refBinds,
+  refFromCols,
+  versionFromRow,
+} from '../codec.js';
 import { KEYED, KEYED_WIDTH } from './queries.js';
 
 type Row = Record<string, unknown>;
@@ -92,14 +103,14 @@ function keyed<K>(db: D1Database, name: keyof typeof KEYED, keys: K[], binds: (k
  */
 export async function load(db: D1Database, keys: Keys, _overlay: ChangeSet[]): Promise<View> {
   const parts: Array<[keyof typeof KEYED, D1PreparedStatement[]]> = [
-    ['loadInstances', keyed(db, 'loadInstances', keys.instances, (r) => [r.txHash, r.index])],
+    ['loadInstances', keyed(db, 'loadInstances', keys.instances, refBinds)],
     [
       'loadLatestInstances',
-      keyed(db, 'loadLatestInstances', keys.latestInstances, ([g, c]) => [g.txHash, g.index, credKey(c)]),
+      keyed(db, 'loadLatestInstances', keys.latestInstances, ([g, c]) => [...refBinds(g), credBytes(credKey(c))]),
     ],
-    ['loadGroupsAt', keyed(db, 'loadGroupsAt', keys.groupsAt, ([g, p]) => [g.txHash, g.index, ...order(p)])],
-    ['loadScriptsAt', keyed(db, 'loadScriptsAt', keys.scriptsAt, ([h, p]) => [h, ...order(p)])],
-    ['loadCredentialsAt', keyed(db, 'loadCredentialsAt', keys.credentialAt, ([c, p]) => [credKey(c), ...order(p)])],
+    ['loadGroupsAt', keyed(db, 'loadGroupsAt', keys.groupsAt, ([g, p]) => [...refBinds(g), ...order(p)])],
+    ['loadScriptsAt', keyed(db, 'loadScriptsAt', keys.scriptsAt, ([h, p]) => [hashBytes(h), ...order(p)])],
+    ['loadCredentialsAt', keyed(db, 'loadCredentialsAt', keys.credentialAt, ([c, p]) => [credBytes(credKey(c)), ...order(p)])],
   ];
   const stmts = parts.flatMap(([, s]) => s);
   const results = stmts.length === 0 ? [] : await db.batch<Row>(stmts);
@@ -117,19 +128,19 @@ export async function load(db: D1Database, keys: Keys, _overlay: ChangeSet[]): P
 function read(v: D1View, name: keyof typeof KEYED, r: Row): void {
   switch (name) {
     case 'loadInstances': {
-      const k = refKey({ txHash: String(r.k_tx), index: Number(r.k_ix) });
+      const k = refKey(refFromCols(r.k_tx, r.k_ix));
       v.loaded.add(`i:${k}`);
       v.instances.set(k, r.join_tx === null ? null : instanceFromRow(r));
       return;
     }
     case 'loadLatestInstances': {
-      const k = `${refKey({ txHash: String(r.k_gtx), index: Number(r.k_gix) })}|${String(r.k_cred)}`;
+      const k = `${refKey(refFromCols(r.k_gtx, r.k_gix))}|${credKeyFromCol(r.k_cred)}`;
       v.loaded.add(`l:${k}`);
       v.latest.set(k, r.join_tx === null ? null : instanceFromRow(r));
       return;
     }
     case 'loadGroupsAt': {
-      const g = refKey({ txHash: String(r.k_gtx), index: Number(r.k_gix) });
+      const g = refKey(refFromCols(r.k_gtx, r.k_gix));
       const k = `g:${g}@${rowPosKey(r)}`;
       v.loaded.add(k);
       v.groups.set(k, r.group_tx === null ? null : versionFromRow(r));
@@ -137,18 +148,18 @@ function read(v: D1View, name: keyof typeof KEYED, r: Row): void {
       return;
     }
     case 'loadScriptsAt': {
-      const k = `s:${String(r.k_hash)}@${rowPosKey(r)}`;
+      const k = `s:${hashFromCol(r.k_hash)}@${rowPosKey(r)}`;
       v.loaded.add(k);
       v.scripts.set(k, scriptFromCol(r.bytes));
       return;
     }
     case 'loadCredentialsAt': {
-      const k = `c:${String(r.k_cred)}@${rowPosKey(r)}`;
+      const k = `c:${credKeyFromCol(r.k_cred)}@${rowPosKey(r)}`;
       v.loaded.add(k);
       const unregAfter: Pos | null =
         r.u_h === null
           ? null
-          : { blockHeight: Number(r.u_h), txIndex: Number(r.u_ti), phase: 0, index: Number(r.u_ix), txHash: String(r.u_tx) };
+          : { blockHeight: Number(r.u_h), txIndex: Number(r.u_ti), phase: 0, index: Number(r.u_ix), txHash: hashFromCol(r.u_tx) };
       v.credentials.set(k, { registered: r.last_kind === 'reg', unregAfter, memberScript: scriptFromCol(r.m_bytes) });
       return;
     }

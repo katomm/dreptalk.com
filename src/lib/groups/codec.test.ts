@@ -10,11 +10,17 @@ import { generateChain } from 'drep-groups/conformance';
 import { describe, expect, it } from 'vitest';
 import {
   afterTx,
+  credBytes,
   credFromKey,
+  credKeyFromCol,
   decodeContext,
   decodeEvent,
   encodeContext,
   encodeEvent,
+  hashBytes,
+  hashFromCol,
+  hashListBytes,
+  hashListFromCol,
   instanceFromRow,
   posBinds,
   posFromRow,
@@ -27,6 +33,7 @@ describe('positions', () => {
   it('round trips positions including END(h)', () => {
     for (const p of [posOfEvent({ txHash: 'ab'.repeat(32), blockHeight: 7, txIndex: 3 }, 2), endOf(41), endOf(-1)]) {
       const [h, ti, ph, ix, tx] = posBinds(p);
+      expect(tx).toBeInstanceOf(Uint8Array);
       expect(posFromRow({ a_h: h, a_ti: ti, a_ph: ph, a_ix: ix, a_tx: tx }, 'a')).toEqual(p);
     }
     expect(posOrNull({ a_h: null, a_ti: null, a_ph: null, a_ix: null, a_tx: null }, 'a')).toBeNull();
@@ -73,7 +80,7 @@ describe('tx contexts', () => {
       [null, null],
       [5n, null],
     ] as const) {
-      const ctx = { signers: ['aa', 'bb'], requiredSigners: ['cc'], invalidBefore, invalidHereafter };
+      const ctx = { signers: ['aa'.repeat(28), 'bb'.repeat(28)], requiredSigners: ['cc'.repeat(28)], invalidBefore, invalidHereafter };
       const enc = encodeContext(ctx);
       expect(
         decodeContext({
@@ -99,25 +106,63 @@ describe('credential keys', () => {
   });
 });
 
+describe('bytes columns', () => {
+  it('stores hashes as raw bytes and reads them back as lowercase hex in every driver shape', () => {
+    const hex = '0a'.repeat(32);
+    const b = hashBytes(hex);
+    expect(b).toEqual(new Uint8Array(32).fill(10));
+    expect(hashFromCol(b)).toBe(hex);
+    expect(hashFromCol(Array.from(b))).toBe(hex);
+    expect(hashFromCol(b.buffer)).toBe(hex);
+    expect(hashBytes('')).toEqual(new Uint8Array(0));
+    expect(hashFromCol([])).toBe('');
+    expect(() => hashBytes('AB')).toThrow();
+    expect(() => hashBytes('abc')).toThrow();
+    expect(() => hashFromCol('ab')).toThrow();
+  });
+  it('stores a credential key as its kind byte and hash, key before script', () => {
+    for (const c of [
+      { kind: 'key', hash: '11'.repeat(28) },
+      { kind: 'script', hash: '22'.repeat(28) },
+    ] as const) {
+      const b = credBytes(credKey(c));
+      expect(b.length).toBe(29);
+      expect(credFromKey(credKeyFromCol(Array.from(b)))).toEqual(c);
+    }
+    expect(credBytes(`key:${'ff'.repeat(28)}`)[0]).toBeLessThan(credBytes(`script:${'00'.repeat(28)}`)[0]);
+    expect(() => credBytes('nope')).toThrow();
+    expect(() => credKeyFromCol([7, 1])).toThrow();
+  });
+  it('stores a key hash list as fixed width concatenated bytes', () => {
+    const list = ['01'.repeat(28), 'fe'.repeat(28)];
+    const b = hashListBytes(list);
+    expect(b.length).toBe(56);
+    expect(hashListFromCol(Array.from(b))).toEqual(list);
+    expect(hashListFromCol([])).toEqual([]);
+    expect(() => hashListBytes(['aa'])).toThrow();
+    expect(() => hashListFromCol([1, 2, 3])).toThrow();
+  });
+});
+
 describe('rows', () => {
   const pos = (p: string, h: number) => ({
     [`${p}_h`]: h,
     [`${p}_ti`]: 1,
     [`${p}_ph`]: 2,
     [`${p}_ix`]: 0,
-    [`${p}_tx`]: 'ab'.repeat(32),
+    [`${p}_tx`]: Array.from(hashBytes('ab'.repeat(32))),
   });
   const nullPos = (p: string) => ({ [`${p}_h`]: null, [`${p}_ti`]: null, [`${p}_ph`]: null, [`${p}_ix`]: null, [`${p}_tx`]: null });
   it('reads a version with a decimal seq above 2^53', () => {
     const v = versionFromRow({
-      group_tx: 'cd'.repeat(32),
+      group_tx: hashBytes('cd'.repeat(32)),
       group_ix: 0,
       ...pos('at', 9),
       mode: 'open',
-      control: 'aa',
+      control: [0xaa],
       admission: null,
       profile_url: 'https://x.test/p.json',
-      profile_hash: 'bb',
+      profile_hash: [0xbb],
       seq: '9007199254740993',
       status: 'active',
       ...pos('created', 8),
@@ -127,14 +172,17 @@ describe('rows', () => {
     expect(v.profile).toEqual({ url: 'https://x.test/p.json', dataHash: 'bb' });
     expect(v.profileSetAt).toBeNull();
     expect(v.at.blockHeight).toBe(9);
+    expect(v.at.txHash).toBe('ab'.repeat(32));
+    expect(v.id.txHash).toBe('cd'.repeat(32));
+    expect(v.control).toBe('aa');
   });
   it('reads an instance with open approval and close', () => {
     const i = instanceFromRow({
-      join_tx: 'ef'.repeat(32),
+      join_tx: hashBytes('ef'.repeat(32)),
       join_ix: 1,
-      group_tx: 'cd'.repeat(32),
+      group_tx: hashBytes('cd'.repeat(32)),
       group_ix: 0,
-      cred: `key:${'11'.repeat(28)}`,
+      cred: credBytes(`key:${'11'.repeat(28)}`),
       mode: 'permissioned',
       ...pos('joined', 4),
       ...pos('approved', 5),
@@ -142,6 +190,8 @@ describe('rows', () => {
       close_reason: null,
     });
     expect(i.member).toEqual({ kind: 'key', hash: '11'.repeat(28) });
+    expect(i.joinId).toEqual({ txHash: 'ef'.repeat(32), index: 1 });
+    expect(i.group).toEqual({ txHash: 'cd'.repeat(32), index: 0 });
     expect(i.approvedAt?.blockHeight).toBe(5);
     expect(i.closedAt).toBeNull();
     expect(i.closeReason).toBeNull();

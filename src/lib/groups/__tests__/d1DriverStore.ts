@@ -3,13 +3,16 @@
 // ingest functions, completeness goes through the production tracked columns, and the snapshot
 // reads every table in full. Test only.
 import type { ChainTx, Credential, EngineSnapshot, LedgerInput, Pos, QueuedEvent } from 'drep-groups';
-import { comparePos, credKey, LeaseLostError, memberScriptWitness, parseNativeScript, posOfCert, refKey } from 'drep-groups';
+import { bytesToHex, comparePos, credKey, LeaseLostError, memberScriptWitness, parseNativeScript, posOfCert, refKey } from 'drep-groups';
 import type { DriverStore } from 'drep-groups/conformance';
 import {
   bytesFromCol,
+  credBytes,
   credFromKey,
+  credKeyFromCol,
   decodeContext,
   decodeEvent,
+  hashFromCol,
   instanceFromRow,
   posFromRow,
   versionFromRow,
@@ -26,9 +29,10 @@ type Row = Record<string, unknown>;
 // Block times and hashes the driver's inputs do not carry: a block every 20 seconds.
 const blockTime = (h: number): number => h * 20;
 
-// Marks every tracked credential outside the bound JSON list complete, the reference store's default.
+// Marks every tracked credential outside the bound JSON list (stored credentials in hex) complete,
+// the reference store's default.
 const SWEEP_COMPLETE = `UPDATE drep_group_tracked SET known = 1, history_done = 1
-  WHERE (known IS NULL OR known <> 1 OR history_done <> 1) AND cred NOT IN (SELECT value FROM json_each(?))`;
+  WHERE (known IS NULL OR known <> 1 OR history_done <> 1) AND cred NOT IN (SELECT unhex(value) FROM json_each(?))`;
 // Binds the credential, its DRep id and history_done.
 const SET_COMPLETE = `INSERT INTO drep_group_tracked (cred, seq, drep_id, known, history_done)
   VALUES (?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM drep_group_tracked), ?, 1, CAST(? AS INTEGER))
@@ -79,7 +83,7 @@ export class D1DriverStore extends D1Store implements DriverStore {
   }
 
   private sweep(): D1PreparedStatement {
-    return this.db.prepare(SWEEP_COMPLETE).bind(JSON.stringify([...this.incomplete]));
+    return this.db.prepare(SWEEP_COMPLETE).bind(JSON.stringify([...this.incomplete].map((k) => bytesToHex(credBytes(k)))));
   }
 
   async ingestLabelTx(tx: ChainTx): Promise<'stored' | 'duplicate' | 'marker'> {
@@ -94,7 +98,7 @@ export class D1DriverStore extends D1Store implements DriverStore {
     const c = input.credential;
     // The tracked row exists before its first ledger row.
     await this.held((t) =>
-      writeBatch(this.db, t, [this.db.prepare(INGEST.trackCreds(1)).bind(credKey(c), drepIdForCredential(c), 1), this.sweep()]),
+      writeBatch(this.db, t, [this.db.prepare(INGEST.trackCreds(1)).bind(credBytes(credKey(c)), drepIdForCredential(c), 1), this.sweep()]),
     );
     const script = c.kind === 'script' && input.kind === 'reg';
     const [r] = await this.held((t) =>
@@ -127,7 +131,7 @@ export class D1DriverStore extends D1Store implements DriverStore {
   async setComplete(c: Credential, complete: boolean): Promise<void> {
     if (complete) this.incomplete.delete(credKey(c));
     else this.incomplete.add(credKey(c));
-    const stmt = this.db.prepare(SET_COMPLETE).bind(credKey(c), drepIdForCredential(c), complete ? 1 : 0);
+    const stmt = this.db.prepare(SET_COMPLETE).bind(credBytes(credKey(c)), drepIdForCredential(c), complete ? 1 : 0);
     await this.held((t) => writeBatch(this.db, t, [stmt]));
   }
 
@@ -141,7 +145,7 @@ export class D1DriverStore extends D1Store implements DriverStore {
 
   async snapshot(): Promise<EngineSnapshot> {
     const all = async (sql: string): Promise<Row[]> => (await this.db.prepare(sql).all<Row>()).results ?? [];
-    const ref = (tx: unknown, ix: unknown) => ({ txHash: String(tx), index: Number(ix) });
+    const ref = (tx: unknown, ix: unknown) => ({ txHash: hashFromCol(tx), index: Number(ix) });
     const groupCols = `group_tx, group_ix, cur_h AS at_h, cur_ti AS at_ti, cur_ph AS at_ph, cur_ix AS at_ix, cur_tx AS at_tx,
       mode, control, admission, profile_url, profile_hash, seq, status, created_h, created_ti, created_ph, created_ix, created_tx,
       profile_set_h, profile_set_ti, profile_set_ph, profile_set_ix, profile_set_tx`;
@@ -152,17 +156,17 @@ export class D1DriverStore extends D1Store implements DriverStore {
       return { script: parsed, bytes, at: posFromRow(r, 'at') };
     };
     const queue = (r: Row): QueuedEvent & { applied: boolean } => ({
-      subject: credFromKey(String(r.subject)),
+      subject: credFromKey(credKeyFromCol(r.subject)),
       at: posFromRow(r, 'at'),
       group: r.group_tx === null ? null : ref(r.group_tx, r.group_ix),
-      txHash: String(r.tx_hash),
+      txHash: hashFromCol(r.tx_hash),
       event: decodeEvent(String(r.event_json)),
       applied: Number(r.applied) === 1,
     });
     const ledger = (r: Row): LedgerInput => ({
       kind: String(r.kind) as LedgerInput['kind'],
-      credential: credFromKey(String(r.cred)),
-      txHash: String(r.tx_hash),
+      credential: credFromKey(credKeyFromCol(r.cred)),
+      txHash: hashFromCol(r.tx_hash),
       blockHeight: Number(r.block_height),
       txIndex: Number(r.tx_index),
       certIndex: Number(r.cert_index),
@@ -175,10 +179,10 @@ export class D1DriverStore extends D1Store implements DriverStore {
         .sort(byPos((g) => g.createdAt, (g) => refKey(g.id))),
       versions: (await all('SELECT * FROM drep_group_versions')).map(versionFromRow).sort(byPos((v) => v.at, (v) => refKey(v.id))),
       scripts: (await all('SELECT * FROM drep_group_scripts'))
-        .map((r) => ({ hash: String(r.hash), ...script(r) }))
+        .map((r) => ({ hash: hashFromCol(r.hash), ...script(r) }))
         .sort(byPos((s) => s.at, (s) => s.hash)),
       memberScripts: (await all('SELECT * FROM drep_group_member_scripts'))
-        .map((r) => ({ credential: credFromKey(String(r.cred)), ...script(r) }))
+        .map((r) => ({ credential: credFromKey(credKeyFromCol(r.cred)), ...script(r) }))
         .sort(byPos((m) => m.at, (m) => credKey(m.credential))),
       instances: (await all('SELECT * FROM drep_group_instances')).map(instanceFromRow).sort(byPos((i) => i.joinedAt, (i) => refKey(i.joinId))),
       verdicts: (await all('SELECT * FROM drep_group_verdicts'))
@@ -189,19 +193,19 @@ export class D1DriverStore extends D1Store implements DriverStore {
           reason: r.reason === null ? null : String(r.reason),
           at: posFromRow(r, 'at'),
           group: ref(r.group_tx, r.group_ix),
-          subject: r.subject === null ? null : credFromKey(String(r.subject)),
+          subject: r.subject === null ? null : credFromKey(credKeyFromCol(r.subject)),
         }))
         .sort(byPos((v) => v.at, (v) => refKey(v.ref))),
       queue: (await all('SELECT * FROM drep_group_queue')).map(queue).sort(byPos((q) => q.at, (q) => q.txHash)),
       txContexts: (await all('SELECT * FROM drep_group_tx_context'))
-        .map((r) => ({ txHash: String(r.tx_hash), blockHeight: Number(r.block_height), txIndex: Number(r.tx_index), context: decodeContext(r) }))
+        .map((r) => ({ txHash: hashFromCol(r.tx_hash), blockHeight: Number(r.block_height), txIndex: Number(r.tx_index), context: decodeContext(r) }))
         .sort(byTx),
       labelTxs: (await all('SELECT tx_hash, block_height, tx_index, marker FROM drep_group_txs'))
-        .map((r) => ({ txHash: String(r.tx_hash), blockHeight: Number(r.block_height), txIndex: Number(r.tx_index), marker: Number(r.marker) === 1 }))
+        .map((r) => ({ txHash: hashFromCol(r.tx_hash), blockHeight: Number(r.block_height), txIndex: Number(r.tx_index), marker: Number(r.marker) === 1 }))
         .sort(byTx),
       ledger: (await all('SELECT * FROM drep_group_ledger')).map(ledger).sort(byPos(posOfCert, (l) => l.txHash)),
       appliedThrough: (await all('SELECT * FROM drep_group_tracked WHERE applied_h IS NOT NULL'))
-        .map((r) => ({ credential: credFromKey(String(r.cred)), at: posFromRow(r, 'applied') }))
+        .map((r) => ({ credential: credFromKey(credKeyFromCol(r.cred)), at: posFromRow(r, 'applied') }))
         .sort((a, b) => (credKey(a.credential) < credKey(b.credential) ? -1 : 1)),
     };
   }

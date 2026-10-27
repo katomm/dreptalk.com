@@ -20,12 +20,18 @@ import { comparePos, endOf, posOfCert, refKey } from 'drep-groups';
 import { chunked, D1_MAX_BINDS } from '../../db/sql.js';
 import {
   bytesFromCol,
+  credBytes,
   credFromKey,
+  credKeyFromCol,
   decodeContext,
   decodeEvent,
+  hashBytes,
+  hashFromCol,
   labelTxFromRow,
   posFromRow,
   posOrNull,
+  refBinds,
+  refFromCols,
 } from '../codec.js';
 import { KEYED, KEYED_WIDTH, Q } from './queries.js';
 
@@ -93,12 +99,12 @@ export async function queuedJoins(
     else rest.push(r);
   }
   const stmts = chunked(rest, Math.floor(D1_MAX_BINDS / KEYED_WIDTH.queuedJoins)).map((c) =>
-    db.prepare(KEYED.queuedJoins(c.length)).bind(...c.flatMap((r) => [r.txHash, r.index])),
+    db.prepare(KEYED.queuedJoins(c.length)).bind(...c.flatMap(refBinds)),
   );
   if (stmts.length === 0) return out;
   for (const res of await db.batch<Row>(stmts)) {
     for (const r of res.results ?? []) {
-      const k = refKey({ txHash: String(r.k_tx), index: Number(r.k_ix) });
+      const k = refKey(refFromCols(r.k_tx, r.k_ix));
       if (r.event_json !== null) out.set(k, decodeEvent(String(r.event_json)));
       else if (r.marker !== null) out.set(k, 'ignored');
     }
@@ -108,10 +114,10 @@ export async function queuedJoins(
 
 function queuedFromRow(r: Row): QueuedEvent {
   return {
-    subject: credFromKey(String(r.subject)),
+    subject: credFromKey(credKeyFromCol(r.subject)),
     at: posFromRow(r, 'at'),
-    group: r.group_tx === null ? null : { txHash: String(r.group_tx), index: Number(r.group_ix) },
-    txHash: String(r.tx_hash),
+    group: r.group_tx === null ? null : refFromCols(r.group_tx, r.group_ix),
+    txHash: hashFromCol(r.tx_hash),
     event: decodeEvent(String(r.event_json)),
   };
 }
@@ -120,7 +126,7 @@ function ledgerFromRow(r: Row, c: Credential): LedgerInput {
   return {
     kind: String(r.kind) as LedgerInput['kind'],
     credential: c,
-    txHash: String(r.tx_hash),
+    txHash: hashFromCol(r.tx_hash),
     blockHeight: Number(r.block_height),
     txIndex: Number(r.tx_index),
     certIndex: Number(r.cert_index),
@@ -154,7 +160,7 @@ export async function readyCredentials(
     ...(unknown.results ?? []).map((r) => ({ r, bound: upTo.G })),
     ...(known.results ?? []).map((r) => ({ r, bound: capped })),
   ]
-    .map((x) => ({ ...x, cred: String(x.r.cred), next: posFromRow(x.r, 'next') }))
+    .map((x) => ({ ...x, cred: credKeyFromCol(x.r.cred), next: posFromRow(x.r, 'next') }))
     .sort((a, b) => comparePos(a.next, b.next) || (a.cred < b.cred ? -1 : a.cred > b.cred ? 1 : 0))
     .slice(0, maxUnits);
 
@@ -165,8 +171,8 @@ export async function readyCredentials(
     const c = credFromKey(cred);
     const applied = posOrNull(r, 'applied') ?? endOf(-1);
     const [queue, ledger] = await db.batch<Row>([
-      db.prepare(Q.queueInputs.sql).bind(cred, ...order(applied), ...order(bound), left + 1),
-      db.prepare(Q.ledgerInputs.sql).bind(cred, ...certBound(applied), ...certBound(bound), left + 1),
+      db.prepare(Q.queueInputs.sql).bind(credBytes(cred), ...order(applied), ...order(bound), left + 1),
+      db.prepare(Q.ledgerInputs.sql).bind(credBytes(cred), ...certBound(applied), ...certBound(bound), left + 1),
     ]);
     const all: Pending[] = [
       ...(queue.results ?? []).map((x): Pending => {
@@ -186,11 +192,11 @@ export async function readyCredentials(
   const hashes = [...new Set(picked.flatMap((p) => p.inputs.flatMap((x) => (x.kind === 'event' ? [x.q.txHash] : []))))];
   const contexts = new Map<string, TxContext>();
   const stmts = chunked(hashes, Math.floor(D1_MAX_BINDS / KEYED_WIDTH.txContexts)).map((c) =>
-    db.prepare(KEYED.txContexts(c.length)).bind(...c),
+    db.prepare(KEYED.txContexts(c.length)).bind(...c.map(hashBytes)),
   );
   if (stmts.length > 0) {
     for (const res of await db.batch<Row>(stmts)) {
-      for (const r of res.results ?? []) contexts.set(String(r.tx_hash), decodeContext(r));
+      for (const r of res.results ?? []) contexts.set(hashFromCol(r.tx_hash), decodeContext(r));
     }
   }
 

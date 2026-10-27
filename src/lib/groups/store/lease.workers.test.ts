@@ -4,7 +4,7 @@ import { endOf, LeaseLostError } from 'drep-groups';
 import { describe, expect, it } from 'vitest';
 import { deactivateDreps, upsertDrep } from '../../db/dreps.js';
 import { drepArgs } from '../../drepLink/__fixtures__/drepHandles.js';
-import { posFromRow } from '../codec.js';
+import { credBytes, posFromRow } from '../codec.js';
 import { acquireLease, invocationOwner, releaseLease, writeBatch } from './lease.js';
 
 const db = env.DB;
@@ -68,7 +68,7 @@ describe('drep group lease', () => {
     const bad = db
       .prepare(
         `INSERT INTO drep_group_ledger (tx_hash, cert_index, cred, drep_id, kind, block_height, block_hash, tx_index, block_time, witness_state)
-         VALUES ('t', 0, 'key:aa', 'drep1x', 'x', 1, 'b', 0, 0, 'na')`,
+         VALUES (X'0f', 0, X'00aa', 'drep1x', 'x', 1, X'0b', 0, 0, 'na')`,
       );
     const err = await writeBatch(db, token, [bad]).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(Error);
@@ -80,14 +80,14 @@ describe('drep group lease', () => {
 async function track(cred: string, seq: number, known: number | null, historyDone: number): Promise<void> {
   await db
     .prepare('INSERT INTO drep_group_tracked (cred, seq, drep_id, known, history_done) VALUES (?, ?, ?, ?, ?)')
-    .bind(cred, seq, `drep_${cred}`, known, historyDone)
+    .bind(credBytes(cred), seq, `drep_${cred}`, known, historyDone)
     .run();
 }
 
 async function tracked(cred: string): Promise<{ complete: number; pending_witness: number }> {
   return (await db
     .prepare('SELECT complete, pending_witness FROM drep_group_tracked WHERE cred = ?')
-    .bind(cred)
+    .bind(credBytes(cred))
     .first()) as { complete: number; pending_witness: number };
 }
 
@@ -95,9 +95,9 @@ function ledgerRow(cred: string, idx: number, state: string): D1PreparedStatemen
   return db
     .prepare(
       `INSERT INTO drep_group_ledger (tx_hash, cert_index, cred, drep_id, kind, block_height, block_hash, tx_index, block_time, witness_state)
-       VALUES ('t', ?, ?, 'drep1x', 'reg', 1, 'b', 0, 0, ?)`,
+       VALUES (X'0f', ?, ?, 'drep1x', 'reg', 1, X'0b', 0, 0, ?)`,
     )
-    .bind(idx, cred, state);
+    .bind(idx, credBytes(cred), state);
 }
 
 describe('drep group tracking', () => {
@@ -129,9 +129,9 @@ describe('drep group tracking', () => {
   it('deduplicates jobs by kind and key', async () => {
     const token = (await acquireLease(db, invocationOwner())) as string;
     const enqueue = () => [
-      db.prepare("INSERT OR IGNORE INTO drep_group_jobs (kind, job_key, group_tx, group_ix) VALUES ('recompute', 'g#0', 'g', 0)"),
-      db.prepare("INSERT OR IGNORE INTO drep_group_jobs (kind, job_key, group_tx, group_ix) VALUES ('power', 'g#0', 'g', 0)"),
-      db.prepare("INSERT OR IGNORE INTO drep_group_jobs (kind, job_key, cred) VALUES ('repair', 'key:aa', 'key:aa')"),
+      db.prepare("INSERT OR IGNORE INTO drep_group_jobs (kind, job_key, group_tx, group_ix) VALUES ('recompute', 'g#0', X'0e', 0)"),
+      db.prepare("INSERT OR IGNORE INTO drep_group_jobs (kind, job_key, group_tx, group_ix) VALUES ('power', 'g#0', X'0e', 0)"),
+      db.prepare("INSERT OR IGNORE INTO drep_group_jobs (kind, job_key, cred) VALUES ('repair', 'key:aa', X'00aa')"),
     ];
     for (let i = 0; i < 3; i++) await writeBatch(db, token, enqueue());
     const rows = await db.prepare('SELECT kind, COUNT(*) AS n FROM drep_group_jobs GROUP BY kind ORDER BY kind').all();
@@ -152,7 +152,7 @@ describe('drep group power changes', () => {
       .prepare(
         `INSERT INTO drep_group_instances (join_tx, join_ix, group_tx, group_ix, cred, drep_id, mode,
            joined_h, joined_ti, joined_ph, joined_ix, joined_tx, counted_as)
-         VALUES ('j', 0, 'g', 0, 'key:aa', ?, 'open', 1, 0, 1, 0, 'j', 'open')`,
+         VALUES (X'0a', 0, X'0e', 0, X'00aa', ?, 'open', 1, 0, 1, 0, X'0a', 'open')`,
       )
       .bind(drepId)
       .run();
@@ -172,7 +172,7 @@ describe('drep group power changes', () => {
     await upsertDrep(db, { ...drepArgs(SOLO, null), votingPower: '100' });
     await openInstance(OPEN);
     await db
-      .prepare("INSERT INTO drep_group_instances (join_tx, join_ix, group_tx, group_ix, cred, drep_id, mode, joined_h, joined_ti, joined_ph, joined_ix, joined_tx, counted_as) VALUES ('j2', 0, 'g', 0, 'key:bb', ?, 'open', 1, 0, 1, 0, 'j2', 'open')")
+      .prepare("INSERT INTO drep_group_instances (join_tx, join_ix, group_tx, group_ix, cred, drep_id, mode, joined_h, joined_ti, joined_ph, joined_ix, joined_tx, counted_as) VALUES (X'0a02', 0, X'0e', 0, X'00bb', ?, 'open', 1, 0, 1, 0, X'0a02', 'open')")
       .bind(SOLO)
       .run();
     await upsertDrep(db, { ...drepArgs(OPEN, null), votingPower: '150' });

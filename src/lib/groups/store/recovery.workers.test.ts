@@ -1,7 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 import { env } from 'cloudflare:test';
 import type { Budget, ChainInput, ChainTx, ChangeSet, Credential, EventRef, LedgerInput, Pos, Recovery } from 'drep-groups';
-import { credKey, decodePayload, endOf, LeaseLostError, MemoryStore, memberScriptWitness, refKey, runEngine } from 'drep-groups';
+import { bytesToHex, credKey, decodePayload, endOf, LeaseLostError, MemoryStore, memberScriptWitness, refKey, runEngine } from 'drep-groups';
 import { generateChain } from 'drep-groups/conformance';
 import { describe, expect, it } from 'vitest';
 import {
@@ -17,7 +17,7 @@ import {
   txHashOf,
   version,
 } from '../__tests__/engineFixtures.js';
-import { credFromKey } from '../codec.js';
+import { credBytes, credFromKey, credKeyFromCol, hashBytes } from '../codec.js';
 import { ENGINE_BUDGET, RECOVERY_STEP_OVERHEAD, WITNESS_BACKOFF_BASE_MS } from '../constants.js';
 import { drepIdForCredential } from '../ids.js';
 import { commit } from './commit.js';
@@ -60,19 +60,23 @@ async function exec(...sql: string[]): Promise<void> {
   for (let i = 0; i < sql.length; i += 50) await db.batch(sql.slice(i, i + 50).map((s) => db.prepare(s)));
 }
 
-const P = (p: Pos): string => `${p.blockHeight}, ${p.txIndex}, ${p.phase}, ${p.index}, '${p.txHash}'`;
+const P = (p: Pos): string => `${p.blockHeight}, ${p.txIndex}, ${p.phase}, ${p.index}, X'${p.txHash}'`;
+/** SQL literal of a stored credential. */
+const C = (key: string): string => `X'${bytesToHex(credBytes(key))}'`;
+// A block hash for inputs whose block hash is not read.
+const BLOCK = hex(11, 64);
 const certAt = (h: number, ix = 0): Pos => pos(h, 0, 0, ix);
 const noTime = async (): Promise<number | null> => null;
 
 async function track(c: Credential, seq: number, over: Record<string, string | number> = {}): Promise<void> {
-  const cols = { cred: `'${credKey(c)}'`, seq, drep_id: `'${drepIdForCredential(c)}'`, known: 1, history_done: 1, ...over };
+  const cols = { cred: C(credKey(c)), seq, drep_id: `'${drepIdForCredential(c)}'`, known: 1, history_done: 1, ...over };
   await exec(`INSERT INTO drep_group_tracked (${Object.keys(cols).join(', ')}) VALUES (${Object.values(cols).join(', ')})`);
 }
 
 const ledgerRow = (c: Credential, kind: 'reg' | 'unreg', h: number, ix = 0, blockTime = h * 20): StoredLedgerRow => ({
   input: { kind, credential: c, txHash: txHashOf(h), blockHeight: h, txIndex: 0, certIndex: ix },
   drepId: drepIdForCredential(c),
-  blockHash: `b${h}`,
+  blockHash: hex(h, 64),
   blockTime,
   witnessState: 'na',
   witness: null,
@@ -97,7 +101,8 @@ async function setMeta(cols: Record<string, string | number | null>): Promise<vo
   await exec(`UPDATE drep_group_meta SET ${set.join(', ')} WHERE id = 1`);
 }
 
-const setG = (p: Pos) => setMeta({ G_h: p.blockHeight, G_ti: p.txIndex, G_ph: p.phase, G_ix: p.index, G_tx: p.txHash });
+const setG = (p: Pos) =>
+  exec(`UPDATE drep_group_meta SET G_h = ${p.blockHeight}, G_ti = ${p.txIndex}, G_ph = ${p.phase}, G_ix = ${p.index}, G_tx = X'${p.txHash}' WHERE id = 1`);
 
 /** Steps a recovery to its end through the engine's own calls. */
 async function stepToDone(step: () => Promise<'more' | 'done'>, cap = 100_000): Promise<number> {
@@ -120,7 +125,7 @@ class Twin {
     for (const x of inputs) {
       if (x.kind === 'tx') {
         this.mem.ingestLabelTx(x.tx);
-        await storeLabelTxs(db, this.lease, [{ tx: x.tx, blockHash: `b${x.tx.blockHeight}` }], null, async (h) => h * 20);
+        await storeLabelTxs(db, this.lease, [{ tx: x.tx, blockHash: hex(x.tx.blockHeight, 64) }], null, async (h) => h * 20);
       } else {
         this.mem.ingestLedgerRow(x.input);
         await this.storeLedger(x.input);
@@ -137,9 +142,9 @@ class Twin {
         `INSERT OR IGNORE INTO drep_group_tracked (cred, seq, drep_id, known, history_done)
          VALUES (?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM drep_group_tracked), ?, 1, 1)`,
       )
-      .bind(credKey(c), drepIdForCredential(c))
+      .bind(credBytes(credKey(c)), drepIdForCredential(c))
       .run();
-    await exec(`UPDATE drep_group_tracked SET known = 1, history_done = 1 WHERE known IS NULL AND cred = '${credKey(c)}'`);
+    await exec(`UPDATE drep_group_tracked SET known = 1, history_done = 1 WHERE known IS NULL AND cred = ${C(credKey(c))}`);
     const script = c.kind === 'script' && input.kind === 'reg';
     const row: StoredLedgerRow = {
       ...ledgerRow(c, input.kind, input.blockHeight, input.certIndex),
@@ -216,62 +221,63 @@ async function seedLarge(groups: number, creds: number, worst = { groups: 0, cre
   const cred = (c: number): string => `key:${hex(10_000 + c)}`;
   const at = (h: number, ti = 0): string => P(pos(h, ti));
   for (let w = 0; w < worst.groups; w++) {
-    const id = `'${hex(400_000 + w, 64)}', 0`;
+    const id = `X'${hex(400_000 + w, 64)}', 0`;
     const vcols = `group_tx, group_ix, at_h, at_ti, at_ph, at_ix, at_tx, mode, control, admission, profile_url, profile_hash, seq,
       status, created_h, created_ti, created_ph, created_ix, created_tx`;
-    sql.push(`INSERT INTO drep_group_versions (${vcols}) VALUES (${id}, ${at(10, 1)}, 'open', 'aa', NULL, 'https://a/w${w}', 'ha', '0', 'active', ${at(10, 1)}),
-      (${id}, ${at(60, 1)}, 'open', 'aa', NULL, 'https://b/w${w}', 'hb', '1', 'active', ${at(10, 1)})`);
+    sql.push(`INSERT INTO drep_group_versions (${vcols}) VALUES (${id}, ${at(10, 1)}, 'open', X'aa', NULL, 'https://a/w${w}', X'0a', '0', 'active', ${at(10, 1)}),
+      (${id}, ${at(60, 1)}, 'open', X'aa', NULL, 'https://b/w${w}', X'0b', '1', 'active', ${at(10, 1)})`);
     sql.push(`INSERT INTO drep_groups (group_tx, group_ix, group_id, cur_h, cur_ti, cur_ph, cur_ix, cur_tx, mode, control, admission,
         profile_url, profile_hash, seq, status, created_h, created_ti, created_ph, created_ix, created_tx, members)
-      VALUES (${id}, 'w${w}', ${at(60, 1)}, 'open', 'aa', NULL, 'https://b/w${w}', 'hb', '1', 'active', ${at(10, 1)}, 2)`);
+      VALUES (${id}, 'w${w}', ${at(60, 1)}, 'open', X'aa', NULL, 'https://b/w${w}', X'0b', '1', 'active', ${at(10, 1)}, 2)`);
     sql.push(`INSERT INTO drep_group_due (kind, group_tx, group_ix, due_at) VALUES ('website', ${id}, 0)`);
   }
   for (let w = 0; w < worst.creds; w++) {
     const k = `key:${hex(90_000 + w)}`;
+    const kb = C(k);
     const lt = (h: number): string => hex(3_000_000 + w, 56) + String(h).padStart(8, '0');
-    const certP = (h: number): string => `${h}, 0, 0, 0, '${lt(h)}'`;
+    const certP = (h: number): string => `${h}, 0, 0, 0, X'${lt(h)}'`;
     sql.push(`INSERT INTO drep_group_tracked (cred, seq, drep_id, known, history_done, applied_h, applied_ti, applied_ph, applied_ix,
         applied_tx, retiring, retired_at_h, retired_at_ti, retired_at_ph, retired_at_ix, retired_at_tx)
-      VALUES ('${k}', ${100_000 + w}, 'd', 1, 1, ${certP(70)}, 1, ${certP(65)})`);
+      VALUES (${kb}, ${100_000 + w}, 'd', 1, 1, ${certP(70)}, 1, ${certP(65)})`);
     sql.push(`INSERT INTO drep_group_ledger (tx_hash, cert_index, cred, drep_id, kind, block_height, block_hash, tx_index, block_time,
         witness, witness_state)
-      VALUES ('${lt(20)}', 0, '${k}', 'd', 'reg', 20, 'b', 0, 400, NULL, 'na'), ('${lt(30)}', 0, '${k}', 'd', 'unreg', 30, 'b', 0, 600, NULL, 'na'),
-        ('${lt(65)}', 0, '${k}', 'd', 'unreg', 65, 'b', 0, 1300, NULL, 'na')`);
+      VALUES (X'${lt(20)}', 0, ${kb}, 'd', 'reg', 20, X'0b', 0, 400, NULL, 'na'), (X'${lt(30)}', 0, ${kb}, 'd', 'unreg', 30, X'0b', 0, 600, NULL, 'na'),
+        (X'${lt(65)}', 0, ${kb}, 'd', 'unreg', 65, X'0b', 0, 1300, NULL, 'na')`);
   }
   for (let g = 0; g < groups; g++) {
     const kind = g % 3; // 0: created above the cut, 1: updated above the cut, 2: dissolved at 40
     const dissolvedAbove = kind === 1 && g % 6 === 1;
-    const id = `'${gtx(g)}', 0`;
+    const id = `X'${gtx(g)}', 0`;
     const vcols = `group_tx, group_ix, at_h, at_ti, at_ph, at_ix, at_tx, mode, control, admission, profile_url, profile_hash, seq,
       status, created_h, created_ti, created_ph, created_ix, created_tx`;
     const created = kind === 0 ? at(60, 1) : at(10, 1);
     if (kind !== 0) {
-      sql.push(`INSERT INTO drep_group_versions (${vcols}) VALUES (${id}, ${at(10, 1)}, 'permissioned', 'aa', NULL, 'https://a/${g}', 'ha', '0', 'active', ${created})`);
+      sql.push(`INSERT INTO drep_group_versions (${vcols}) VALUES (${id}, ${at(10, 1)}, 'permissioned', X'aa', NULL, 'https://a/${g}', X'0a', '0', 'active', ${created})`);
     }
     const top = kind === 2 ? 40 : 60;
     const status = kind === 2 || dissolvedAbove ? 'dissolved' : 'active';
     const topAt = dissolvedAbove ? at(70, 1) : at(top, 1);
-    sql.push(`INSERT INTO drep_group_versions (${vcols}) VALUES (${id}, ${topAt}, 'permissioned', 'aa', NULL, 'https://b/${g}', 'hb', '1', '${status}', ${created})`);
+    sql.push(`INSERT INTO drep_group_versions (${vcols}) VALUES (${id}, ${topAt}, 'permissioned', X'aa', NULL, 'https://b/${g}', X'0b', '1', '${status}', ${created})`);
     const dis = status === 'dissolved' ? topAt : 'NULL, NULL, NULL, NULL, NULL';
     sql.push(`INSERT INTO drep_groups (group_tx, group_ix, group_id, cur_h, cur_ti, cur_ph, cur_ix, cur_tx, mode, control, admission,
         profile_url, profile_hash, seq, status, created_h, created_ti, created_ph, created_ix, created_tx,
         dissolved_h, dissolved_ti, dissolved_ph, dissolved_ix, dissolved_tx, members, closing)
-      VALUES (${id}, 'g${g}', ${topAt}, 'permissioned', 'aa', NULL, 'https://b/${g}', 'hb', '1', '${status}', ${created}, ${dis}, 2,
+      VALUES (${id}, 'g${g}', ${topAt}, 'permissioned', X'aa', NULL, 'https://b/${g}', X'0b', '1', '${status}', ${created}, ${dis}, 2,
         ${dissolvedAbove ? 1 : 0})`);
     sql.push(`INSERT INTO drep_group_due (kind, group_tx, group_ix, due_at) VALUES ('website', ${id}, 0), ('profile', ${id}, 0)`);
     sql.push(`INSERT INTO drep_group_trim_due (group_tx, group_ix, oldest_h) VALUES (${id}, 20)`);
     const icols = `join_tx, join_ix, group_tx, group_ix, cred, drep_id, mode, joined_h, joined_ti, joined_ph, joined_ix, joined_tx,
       approved_h, approved_ti, approved_ph, approved_ix, approved_tx, closed_h, closed_ti, closed_ph, closed_ix, closed_tx, close_reason, counted_as`;
-    const c = cred(g % creds);
+    const c = C(cred(g % creds));
     sql.push(`INSERT INTO drep_group_instances (${icols}) VALUES
-      ('${hex(600_000 + g, 64)}', 0, ${id}, '${c}', 'd', 'permissioned', ${at(20, 2)}, ${at(60, 2)}, ${at(70, 2)}, 'left', 'former'),
-      ('${hex(700_000 + g, 64)}', 0, ${id}, '${c}', 'd', 'permissioned', ${at(60, 3)}, NULL, NULL, NULL, NULL, NULL,
+      (X'${hex(600_000 + g, 64)}', 0, ${id}, ${c}, 'd', 'permissioned', ${at(20, 2)}, ${at(60, 2)}, ${at(70, 2)}, 'left', 'former'),
+      (X'${hex(700_000 + g, 64)}', 0, ${id}, ${c}, 'd', 'permissioned', ${at(60, 3)}, NULL, NULL, NULL, NULL, NULL,
         NULL, NULL, NULL, NULL, NULL, NULL, 'pending')`);
     sql.push(`INSERT INTO drep_group_verdicts (tx_hash, idx, group_tx, group_ix, at_h, at_ti, at_ph, at_ix, at_tx, tag, valid, reason, subject)
-      VALUES ('${hex(800_000 + g, 64)}', 0, ${id}, ${at(60, 4)}, 'update', 1, NULL, NULL),
-        ('${hex(900_000 + g, 64)}', 0, ${id}, ${at(20, 4)}, 'update', 1, NULL, NULL)`);
+      VALUES (X'${hex(800_000 + g, 64)}', 0, ${id}, ${at(60, 4)}, 'update', 1, NULL, NULL),
+        (X'${hex(900_000 + g, 64)}', 0, ${id}, ${at(20, 4)}, 'update', 1, NULL, NULL)`);
     sql.push(`INSERT INTO drep_group_txs (tx_hash, block_height, block_hash, tx_index, marker, bytes) VALUES
-      ('${hex(800_000 + g, 64)}', 60, 'b', ${4 + g}, 0, 1), ('${hex(950_000 + g, 64)}', 30, 'b', ${4 + g}, 1, 0)`);
+      (X'${hex(800_000 + g, 64)}', 60, X'0b', ${4 + g}, 0, 1), (X'${hex(950_000 + g, 64)}', 30, X'0b', ${4 + g}, 1, 0)`);
     if (g % 10 === 0) {
       sql.push(`INSERT INTO drep_group_jobs (kind, job_key, group_tx, group_ix, cursor_json, staging, start_gen)
         VALUES ('recompute', '${gtx(g)}#0', ${id}, '{"pass":"instances"}', '{}', 0)`);
@@ -287,24 +293,25 @@ async function seedLarge(groups: number, creds: number, worst = { groups: 0, cre
   const lcols = 'tx_hash, cert_index, cred, drep_id, kind, block_height, block_hash, tx_index, block_time, witness, witness_state';
   for (let c = 0; c < creds; c++) {
     const k = cred(c);
+    const kb = C(k);
     const lt = (h: number): string => hex(1_000_000 + c * 10 + h % 10, 56) + String(h).padStart(8, '0');
-    const certP = (h: number): string => `${h}, ${c % 50}, 0, 0, '${lt(h)}'`;
+    const certP = (h: number): string => `${h}, ${c % 50}, 0, 0, X'${lt(h)}'`;
     const next = c % 4 === 0 ? certP(80) : 'NULL, NULL, NULL, NULL, NULL';
     const found = c % 3 === 0 ? certP(60) : 'NULL, NULL, NULL, NULL, NULL';
     const retired = c % 2 === 0 ? certP(65) : 'NULL, NULL, NULL, NULL, NULL';
-    sql.push(`INSERT INTO drep_group_tracked (${tcols}) VALUES ('${k}', ${c + 1}, 'd', 1, 1, ${c % 10 === 0 ? 1 : 0}, ${c % 10 === 0 ? 5 : 0},
+    sql.push(`INSERT INTO drep_group_tracked (${tcols}) VALUES (${kb}, ${c + 1}, 'd', 1, 1, ${c % 10 === 0 ? 1 : 0}, ${c % 10 === 0 ? 5 : 0},
       ${certP(70)}, ${next}, ${found}, ${c % 2 === 0 ? 1 : 0}, ${retired})`);
-    const rows = [`('${lt(30)}', 0, '${k}', 'd', 'reg', 30, 'b', ${c % 50}, 600, NULL, 'na')`];
-    if (c % 2 === 0) rows.push(`('${lt(65)}', 0, '${k}', 'd', 'unreg', 65, 'b', ${c % 50}, 1300, NULL, 'na')`);
-    if (c % 3 === 0) rows.push(`('${lt(60)}', 0, '${k}', 'd', 'reg', 60, 'b', ${c % 50}, 1200, x'00', 'checked')`);
-    if (c % 4 === 0) rows.push(`('${lt(80)}', 0, '${k}', 'd', 'reg', 80, 'b', ${c % 50}, 1600, NULL, 'pending')`);
+    const rows = [`(X'${lt(30)}', 0, ${kb}, 'd', 'reg', 30, X'0b', ${c % 50}, 600, NULL, 'na')`];
+    if (c % 2 === 0) rows.push(`(X'${lt(65)}', 0, ${kb}, 'd', 'unreg', 65, X'0b', ${c % 50}, 1300, NULL, 'na')`);
+    if (c % 3 === 0) rows.push(`(X'${lt(60)}', 0, ${kb}, 'd', 'reg', 60, X'0b', ${c % 50}, 1200, x'00', 'checked')`);
+    if (c % 4 === 0) rows.push(`(X'${lt(80)}', 0, ${kb}, 'd', 'reg', 80, X'0b', ${c % 50}, 1600, NULL, 'pending')`);
     sql.push(`INSERT INTO drep_group_ledger (${lcols}) VALUES ${rows.join(', ')}`);
     if (c % 2 === 0) {
       sql.push(`INSERT INTO drep_group_jobs (kind, job_key, cred, trigger_h, trigger_ti, trigger_ph, trigger_ix, trigger_tx)
-        VALUES ('retire', '${k}', '${k}', ${certP(65)})`);
+        VALUES ('retire', '${k}', ${kb}, ${certP(65)})`);
     }
   }
-  sql.push(`UPDATE drep_group_meta SET L = 90, L_hash = 'h90', R = 90, G_h = 90, G_ti = ${MAX}, G_ph = 2, G_ix = ${MAX}, G_tx = '',
+  sql.push(`UPDATE drep_group_meta SET L = 90, L_hash = 'h90', R = 90, G_h = 90, G_ti = ${MAX}, G_ph = 2, G_ix = ${MAX}, G_tx = X'',
     reg_time = 1800, reg_offset = 7 WHERE id = 1`);
   await exec(...sql);
 }
@@ -355,7 +362,7 @@ describe('drep groups ingest and recovery', () => {
   it('classifies a late ledger row and opens a truncation with its block time', async () => {
     const t = await lease();
     const a = keyCred(1);
-    await track(a, 1, { applied_h: 100, applied_ti: 0, applied_ph: 0, applied_ix: 0, applied_tx: `'${txHashOf(100)}'` });
+    await track(a, 1, { applied_h: 100, applied_ti: 0, applied_ph: 0, applied_ix: 0, applied_tx: `X'${txHashOf(100)}'` });
     expect(await storeLedgerRows(db, t, [ledgerRow(a, 'reg', 90, 0, 1777)], null)).toEqual(['stored']);
     expect(await pendingRecovery(db)).toEqual({ kind: 'truncate', above: 89 });
     expect(await meta()).toMatchObject({ rec_first_time: 1777, rec_phase: 'jobs' });
@@ -366,11 +373,11 @@ describe('drep groups ingest and recovery', () => {
     const a = keyCred(1);
     await track(a, 1);
     expect(await storeLedgerRows(db, t, [ledgerRow(a, 'reg', 90)], null)).toEqual(['stored']);
-    await exec(`UPDATE drep_group_tracked SET applied_h = 100, applied_ti = 0, applied_ph = 0, applied_ix = 0, applied_tx = 'x'`);
+    await exec(`UPDATE drep_group_tracked SET applied_h = 100, applied_ti = 0, applied_ph = 0, applied_ix = 0, applied_tx = X'0f'`);
     expect(await storeLedgerRows(db, t, [ledgerRow(a, 'reg', 90)], null)).toEqual(['duplicate']);
     await setG(endOf(100));
-    expect(await storeLabelTxs(db, t, [{ tx: markerTx(50), blockHash: 'b' }], null, noTime)).toEqual(['marker']);
-    expect(await storeLabelTxs(db, t, [{ tx: markerTx(50), blockHash: 'b' }], null, noTime)).toEqual(['duplicate']);
+    expect(await storeLabelTxs(db, t, [{ tx: markerTx(50), blockHash: BLOCK }], null, noTime)).toEqual(['marker']);
+    expect(await storeLabelTxs(db, t, [{ tx: markerTx(50), blockHash: BLOCK }], null, noTime)).toEqual(['duplicate']);
     expect(await pendingRecovery(db)).toBeNull();
     expect(await count('SELECT COUNT(*) AS n FROM drep_group_txs WHERE marker = 1 AND bytes = 0 AND payload IS NULL')).toBe(1);
   });
@@ -378,7 +385,7 @@ describe('drep groups ingest and recovery', () => {
   it('opens a fork for a late input older than the retention floor', async () => {
     const t = await lease();
     const a = keyCred(1);
-    await track(a, 1, { applied_h: 200, applied_ti: 0, applied_ph: 0, applied_ix: 0, applied_tx: "'x'" });
+    await track(a, 1, { applied_h: 200, applied_ti: 0, applied_ph: 0, applied_ix: 0, applied_tx: "X'0f'" });
     await setMeta({ L: 5000 });
     await storeLedgerRows(db, t, [ledgerRow(a, 'reg', 100)], null);
     expect(await pendingRecovery(db)).toEqual({ kind: 'fork' });
@@ -431,7 +438,7 @@ describe('drep groups ingest and recovery', () => {
       // Deleted groups leave no due rows, restored ones keep a profile due row and lose the website one.
       expect(await count("SELECT COUNT(*) AS n FROM drep_group_due WHERE kind = 'website'")).toBe(100);
       expect(await count('SELECT COUNT(*) AS n FROM drep_group_trim_due')).toBe(200);
-      expect(await count("SELECT COUNT(*) AS n FROM drep_group_due WHERE kind = 'profile' AND group_tx >= ? AND group_tx < ?", hex(400_000, 64), hex(500_000, 64))).toBe(40);
+      expect(await count("SELECT COUNT(*) AS n FROM drep_group_due WHERE kind = 'profile' AND group_tx >= ? AND group_tx < ?", hashBytes(hex(400_000, 64)), hashBytes(hex(500_000, 64)))).toBe(40);
       }
     },
     HEAVY,
@@ -452,7 +459,7 @@ describe('drep groups ingest and recovery', () => {
         await exec(
           'DELETE FROM drep_group_versions WHERE at_h > 50',
           'DELETE FROM drep_group_ledger WHERE block_height > 50',
-          `UPDATE drep_group_tracked SET applied_h = 50, applied_ti = ${MAX}, applied_ph = 2, applied_ix = ${MAX}, applied_tx = ''`,
+          `UPDATE drep_group_tracked SET applied_h = 50, applied_ti = ${MAX}, applied_ph = 2, applied_ix = ${MAX}, applied_tx = X''`,
         );
         const t = await lease();
         await openRecovery(db, { kind: 'truncate', above: 50 }, t, 1000);
@@ -574,14 +581,14 @@ describe('drep groups ingest and recovery', () => {
         // Without power jobs the flags phase has work, so its last page stores the cursors phase.
         await exec("DELETE FROM drep_group_jobs WHERE kind = 'power'");
         await stepUntil(t, 'cursors');
-        const c = credFromKey(String((await db.prepare("SELECT cred FROM drep_group_tracked WHERE cred LIKE 'key:%' LIMIT 1").first<Row>())?.cred));
+        const c = credFromKey(credKeyFromCol((await db.prepare("SELECT cred FROM drep_group_tracked WHERE substr(cred, 1, 1) = X'00' LIMIT 1").first<Row>())?.cred));
         const input: LedgerInput = { kind: 'reg', credential: c, txHash: hex(4242, 64), blockHeight: CUT + 10, txIndex: 0, certIndex: 0 };
         t.mem.ingestLedgerRow(input);
         await t.storeLedger(input);
         expect(await phase()).toBe('jobs');
         expect(await count('SELECT COUNT(*) AS n FROM drep_group_tracked WHERE next_h = ?', CUT + 10)).toBe(1);
         await recover(t);
-        expect(await count('SELECT COUNT(*) AS n FROM drep_group_ledger WHERE tx_hash = ?', input.txHash)).toBe(0);
+        expect(await count('SELECT COUNT(*) AS n FROM drep_group_ledger WHERE tx_hash = ?', hashBytes(input.txHash))).toBe(0);
         expect(await count('SELECT COUNT(*) AS n FROM drep_group_tracked WHERE next_h > ?', CUT)).toBe(0);
         await t.expectEqual();
       },
@@ -611,7 +618,7 @@ describe('drep groups ingest and recovery', () => {
     // The profile of B was fetched and named a website.
     await exec(
       "DELETE FROM drep_group_due WHERE kind = 'profile'",
-      `INSERT INTO drep_group_due (kind, group_tx, group_ix, due_at) VALUES ('website', '${G1.txHash}', 0, 99999999999999)`,
+      `INSERT INTO drep_group_due (kind, group_tx, group_ix, due_at) VALUES ('website', X'${G1.txHash}', 0, 99999999999999)`,
     );
     const before = await groupRow(G1);
     expect(before).toMatchObject({ members: 2, profile_url: B.url, cur_h: 60 });
@@ -619,7 +626,7 @@ describe('drep groups ingest and recovery', () => {
     await openRecovery(db, { kind: 'truncate', above: 50 }, t, 1000);
     await stepToDone(() => truncateStep(db, 50, 400, t));
     const after = await groupRow(G1);
-    expect(after).toMatchObject({ members: 2, profile_url: A.url, profile_hash: A.dataHash, cur_h: 10, seq: '0' });
+    expect(after).toMatchObject({ members: 2, profile_url: A.url, profile_hash: Array.from(hashBytes(A.dataHash)), cur_h: 10, seq: '0' });
     expect(Number(after.gen)).toBeGreaterThan(Number(before.gen));
     const due = await db.prepare("SELECT due_at FROM drep_group_due WHERE kind = 'profile'").first<Row>();
     expect(Number(due?.due_at)).toBeGreaterThanOrEqual(now);
@@ -653,16 +660,16 @@ describe('drep groups ingest and recovery', () => {
     const t = await lease();
     const tx = joinTx();
     const L = { height: 200, hash: 'h200', safeHeight: 190, safeTime: 3800 };
-    expect(await storeLabelTxs(db, t, [{ tx, blockHash: 'b' }], L, noTime)).toEqual(['stored']);
+    expect(await storeLabelTxs(db, t, [{ tx, blockHash: BLOCK }], L, noTime)).toEqual(['stored']);
     expect(await meta()).toMatchObject({ L: 200, L_hash: 'h200', R: 190, reg_time: 3800, reg_offset: 0 });
     const members = joinMembers(tx);
     expect(members.length).toBeGreaterThan(0);
     expect(await count('SELECT COUNT(*) AS n FROM drep_group_tracked WHERE known IS NULL')).toBe(members.length);
     // The cursor exists, a later batch moves L only.
-    await storeLabelTxs(db, t, [{ tx: markerTx(205), blockHash: 'b' }], { height: 210, hash: 'h210', safeHeight: 200, safeTime: 4000 }, noTime);
+    await storeLabelTxs(db, t, [{ tx: markerTx(205), blockHash: BLOCK }], { height: 210, hash: 'h210', safeHeight: 200, safeTime: 4000 }, noTime);
     expect(await meta()).toMatchObject({ L: 210, L_hash: 'h210', R: 190, reg_time: 3800 });
     // Without a safe block nothing of it is written.
-    await storeLabelTxs(db, t, [{ tx: markerTx(206), blockHash: 'b' }], null, noTime);
+    await storeLabelTxs(db, t, [{ tx: markerTx(206), blockHash: BLOCK }], null, noTime);
     expect(await meta()).toMatchObject({ L: 210, R: 190, reg_time: 3800 });
   });
 
@@ -674,12 +681,12 @@ describe('drep groups ingest and recovery', () => {
     await storeLedgerRows(db, t, [ledgerRow(a, 'reg', 40), ledgerRow(a, 'unreg', 90)], null);
     // The unreg is applied and the retire job finished.
     await exec(`UPDATE drep_group_tracked SET applied_h = 90, applied_ti = 0, applied_ph = 0, applied_ix = 0,
-      applied_tx = '${unreg.txHash}', next_h = NULL, next_ti = NULL, next_ph = NULL, next_ix = NULL, next_tx = NULL, retiring = 1,
-      retired_at_h = 90, retired_at_ti = 0, retired_at_ph = 0, retired_at_ix = 0, retired_at_tx = '${unreg.txHash}'`);
+      applied_tx = X'${unreg.txHash}', next_h = NULL, next_ti = NULL, next_ph = NULL, next_ix = NULL, next_tx = NULL, retiring = 1,
+      retired_at_h = 90, retired_at_ti = 0, retired_at_ph = 0, retired_at_ix = 0, retired_at_tx = X'${unreg.txHash}'`);
     expect(await pendingRecovery(db)).toBeNull();
     await openRecovery(db, { kind: 'truncate', above: 80 }, t);
     await stepToDone(() => truncateStep(db, 80, 400, t));
-    expect(await count("SELECT COUNT(*) AS n FROM drep_group_jobs WHERE kind = 'repair' AND job_key = ? AND cred = ?", credKey(a), credKey(a))).toBe(1);
+    expect(await count("SELECT COUNT(*) AS n FROM drep_group_jobs WHERE kind = 'repair' AND job_key = ? AND cred = ?", credKey(a), credBytes(credKey(a)))).toBe(1);
     const row = (await db.prepare('SELECT * FROM drep_group_tracked').first<Row>()) as Row;
     expect(row).toMatchObject({ retiring: 0, retired_at_h: null, applied_h: 80, applied_ti: MAX, next_h: null });
   });
@@ -701,10 +708,10 @@ describe('drep groups ingest and recovery', () => {
     const started = `'{"pass":"instances"}', '{"members":1}', 3`;
     await exec(
       `INSERT INTO drep_group_jobs (kind, job_key, group_tx, group_ix, cursor_json, staging, start_gen) VALUES
-        ('recompute', '${refKey(G1)}', '${G1.txHash}', 0, ${started}), ('power', '${refKey(G1)}', '${G1.txHash}', 0, ${started})`,
-      `INSERT INTO drep_group_jobs (kind, job_key, cred, cursor_json, staging, start_gen) VALUES ('repair', 'key:00', 'key:00', ${started})`,
+        ('recompute', '${refKey(G1)}', X'${G1.txHash}', 0, ${started}), ('power', '${refKey(G1)}', X'${G1.txHash}', 0, ${started})`,
+      `INSERT INTO drep_group_jobs (kind, job_key, cred, cursor_json, staging, start_gen) VALUES ('repair', 'key:00', X'0000', ${started})`,
       `INSERT INTO drep_group_jobs (kind, job_key, group_tx, group_ix, trigger_h, trigger_ti, trigger_ph, trigger_ix, trigger_tx)
-        VALUES ('dissolve', '${refKey(G1)}', '${G1.txHash}', 0, ${P(pos(60))}), ('dissolve', 'kept', '${G1.txHash}', 1, ${P(pos(40))})`,
+        VALUES ('dissolve', '${refKey(G1)}', X'${G1.txHash}', 0, ${P(pos(60))}), ('dissolve', 'kept', X'${G1.txHash}', 1, ${P(pos(40))})`,
     );
     await openRecovery(db, { kind: 'truncate', above: 50 }, t);
     for (let i = 0; (await phase()) === 'jobs'; i++) {
@@ -760,8 +767,8 @@ describe('drep groups ingest and recovery', () => {
   it('rebuild keeps raw inputs and meta.L, sets rebuilding and flags markers for refetch', async () => {
     const t = await lease();
     const a = keyCred(1);
-    await track(a, 1, { applied_h: 70, applied_ti: 0, applied_ph: 0, applied_ix: 0, applied_tx: "'x'" });
-    await storeLabelTxs(db, t, [{ tx: markerTx(30), blockHash: 'b' }, { tx: markerTx(70), blockHash: 'b' }, { tx: joinTx(), blockHash: 'b' }], null, noTime);
+    await track(a, 1, { applied_h: 70, applied_ti: 0, applied_ph: 0, applied_ix: 0, applied_tx: "X'0f'" });
+    await storeLabelTxs(db, t, [{ tx: markerTx(30), blockHash: BLOCK }, { tx: markerTx(70), blockHash: BLOCK }, { tx: joinTx(), blockHash: BLOCK }], null, noTime);
     await storeLedgerRows(db, t, [ledgerRow(a, 'reg', 75)], null);
     await setMeta({ L: 100, L_hash: 'h100', R: 100 });
     await setG(endOf(100));
@@ -772,7 +779,7 @@ describe('drep groups ingest and recovery', () => {
     expect(await frontiers(db)).toEqual({ L: 29, R: 100, G: endOf(-1) });
     expect(await storedRows(['drep_group_txs', 'drep_group_ledger'])).toBe(raw);
     expect(await count('SELECT COUNT(*) AS n FROM drep_group_txs WHERE marker = 1 AND refetch = 1')).toBe(2);
-    const row = (await db.prepare('SELECT * FROM drep_group_tracked WHERE cred = ?').bind(credKey(a)).first<Row>()) as Row;
+    const row = (await db.prepare('SELECT * FROM drep_group_tracked WHERE cred = ?').bind(credBytes(credKey(a))).first<Row>()) as Row;
     expect(row).toMatchObject({ applied_h: null, next_h: 75, next_ph: 0 });
   });
 
@@ -803,7 +810,7 @@ describe('drep groups ingest and recovery', () => {
     const s: Credential = { kind: 'script', hash: hex(77) };
     const k = credKey(s);
     await track(s, 1, { known: 0, history_done: 0 });
-    const tracked = async (): Promise<Row> => (await db.prepare('SELECT * FROM drep_group_tracked WHERE cred = ?').bind(k).first<Row>()) as Row;
+    const tracked = async (): Promise<Row> => (await db.prepare('SELECT * FROM drep_group_tracked WHERE cred = ?').bind(credBytes(k)).first<Row>()) as Row;
     const state = async (h: number): Promise<unknown> =>
       (await db.prepare('SELECT witness_state FROM drep_group_ledger WHERE block_height = ?').bind(h).first<Row>())?.witness_state;
     const reg = (h: number, w: StoredLedgerRow['witnessState'], witness: Uint8Array | null = null): StoredLedgerRow => ({
@@ -844,7 +851,7 @@ describe('drep groups ingest and recovery', () => {
     await setKnown(db, t, [credKey(a)], [credKey(b)]);
     await setKnown(db, t, [credKey(b)], [credKey(a)]);
     const row = async (x: Credential): Promise<Row> =>
-      (await db.prepare('SELECT * FROM drep_group_tracked WHERE cred = ?').bind(credKey(x)).first<Row>()) as Row;
+      (await db.prepare('SELECT * FROM drep_group_tracked WHERE cred = ?').bind(credBytes(credKey(x))).first<Row>()) as Row;
     expect(await row(a)).toMatchObject({ known: 1, complete: 0 });
     expect(await row(b)).toMatchObject({ known: 0, complete: 1 });
     expect(await row(c)).toMatchObject({ known: null, complete: 0 });
@@ -866,9 +873,9 @@ describe('drep groups ingest and recovery', () => {
     await storeLedgerRows(db, t, [ledgerRow(a, 'reg', 30)], null);
     const qcols = 'tx_hash, idx, subject, at_h, at_ti, at_ph, at_ix, at_tx, group_tx, group_ix, event_json';
     const entry = (c: Credential, h: number, ix: number): string =>
-      `INSERT INTO drep_group_queue (${qcols}) VALUES ('${txHashOf(h)}', ${ix}, '${credKey(c)}', ${P(pos(h, 0, 2, ix))}, NULL, NULL, '{}')`;
+      `INSERT INTO drep_group_queue (${qcols}) VALUES (X'${txHashOf(h)}', ${ix}, ${C(credKey(c))}, ${P(pos(h, 0, 2, ix))}, NULL, NULL, '{}')`;
     await exec(entry(a, 20, 0), entry(a, 25, 1), entry(b, 20, 2), entry(b, 26, 3));
-    await exec(`UPDATE drep_group_tracked SET next_h = 20, next_ti = 0, next_ph = 2, next_ix = 0, next_tx = '${txHashOf(20)}'`);
+    await exec(`UPDATE drep_group_tracked SET next_h = 20, next_ti = 0, next_ph = 2, next_ix = 0, next_tx = X'${txHashOf(20)}'`);
     await openRecovery(db, { kind: 'rebuild' }, t);
     let max = 0;
     for (;;) {
@@ -879,27 +886,27 @@ describe('drep groups ingest and recovery', () => {
     expect(max).toBeLessThanOrEqual(1 + RECOVERY_STEP_OVERHEAD);
     expect(await count('SELECT COUNT(*) AS n FROM drep_group_queue')).toBe(0);
     const row = async (c: Credential): Promise<Row> =>
-      (await db.prepare('SELECT * FROM drep_group_tracked WHERE cred = ?').bind(credKey(c)).first<Row>()) as Row;
-    expect(await row(a)).toMatchObject({ applied_h: null, next_h: 30, next_ph: 0, next_ix: 0, next_tx: txHashOf(30) });
+      (await db.prepare('SELECT * FROM drep_group_tracked WHERE cred = ?').bind(credBytes(credKey(c))).first<Row>()) as Row;
+    expect(await row(a)).toMatchObject({ applied_h: null, next_h: 30, next_ph: 0, next_ix: 0, next_tx: Array.from(hashBytes(txHashOf(30))) });
     expect(await row(b)).toMatchObject({ applied_h: null, next_h: null, next_tx: null });
     expect(Number((await row(b)).gen)).toBeGreaterThan(0);
   });
 
   it('a re-delivered flagged marker clears its flag and lifts the reported L', async () => {
     const t = await lease();
-    await storeLabelTxs(db, t, [{ tx: markerTx(80), blockHash: 'b' }], null, noTime);
+    await storeLabelTxs(db, t, [{ tx: markerTx(80), blockHash: BLOCK }], null, noTime);
     await setMeta({ L: 100 });
     await exec('UPDATE drep_group_txs SET refetch = 1');
     expect((await frontiers(db)).L).toBe(79);
-    expect(await storeLabelTxs(db, t, [{ tx: markerTx(80), blockHash: 'b' }], null, noTime)).toEqual(['duplicate']);
+    expect(await storeLabelTxs(db, t, [{ tx: markerTx(80), blockHash: BLOCK }], null, noTime)).toEqual(['duplicate']);
     expect((await frontiers(db)).L).toBe(100);
     // A flagged marker that now decodes gets its payload, its joins tracked and its classification.
     const tx = joinTx();
-    await storeLabelTxs(db, t, [{ tx: { ...tx, isValid: false }, blockHash: 'b' }], null, noTime);
-    await exec(`UPDATE drep_group_txs SET refetch = 1 WHERE tx_hash = '${tx.txHash}'`);
+    await storeLabelTxs(db, t, [{ tx: { ...tx, isValid: false }, blockHash: BLOCK }], null, noTime);
+    await exec(`UPDATE drep_group_txs SET refetch = 1 WHERE tx_hash = X'${tx.txHash}'`);
     await setG(endOf(100));
-    expect(await storeLabelTxs(db, t, [{ tx, blockHash: 'b' }], null, noTime)).toEqual(['duplicate']);
-    expect(await db.prepare('SELECT marker, refetch, bytes FROM drep_group_txs WHERE tx_hash = ?').bind(tx.txHash).first()).toEqual({
+    expect(await storeLabelTxs(db, t, [{ tx, blockHash: BLOCK }], null, noTime)).toEqual(['duplicate']);
+    expect(await db.prepare('SELECT marker, refetch, bytes FROM drep_group_txs WHERE tx_hash = ?').bind(hashBytes(tx.txHash)).first()).toEqual({
       marker: 0,
       refetch: 0,
       bytes: tx.payload?.length,
@@ -920,7 +927,7 @@ const credUnit = (c: Credential, through: Pos, change: Partial<ChangeSet>) => ({
 });
 
 async function groupRow(g: EventRef): Promise<Row> {
-  return (await db.prepare('SELECT * FROM drep_groups WHERE group_tx = ? AND group_ix = ?').bind(g.txHash, g.index).first<Row>()) as Row;
+  return (await db.prepare('SELECT * FROM drep_groups WHERE group_tx = ? AND group_ix = ?').bind(hashBytes(g.txHash), g.index).first<Row>()) as Row;
 }
 
 /** A generated label tx with at least one join event. */
@@ -956,7 +963,7 @@ async function finishTest(): Promise<void> {
   await exec(
     ...STORED_TABLES.map((x) => `DELETE FROM ${x}`),
     'DELETE FROM drep_group_lease',
-    `UPDATE drep_group_meta SET L = -1, L_hash = NULL, R = NULL, G_h = -1, G_ti = ${MAX}, G_ph = 2, G_ix = ${MAX}, G_tx = '',
+    `UPDATE drep_group_meta SET L = -1, L_hash = NULL, R = NULL, G_h = -1, G_ti = ${MAX}, G_ph = 2, G_ix = ${MAX}, G_tx = X'',
       rec_first_kind = NULL, rec_first_above = NULL, rec_first_time = NULL, rec_then_above = NULL, rec_then_time = NULL,
       rec_phase = NULL, rebuilding = 0, reg_time = NULL, reg_offset = 0 WHERE id = 1`,
   );

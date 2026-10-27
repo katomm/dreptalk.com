@@ -5,7 +5,19 @@
 import type { ChangeSet, Credential, CursorUpdate, EventRef, GroupVersion, Pos, StoredInstance } from 'drep-groups';
 import { comparePos, credKey, effectiveClose, refKey } from 'drep-groups';
 import { chunked, D1_MAX_BINDS } from '../../db/sql.js';
-import { encodeContext, encodeEvent, posBinds, posOrNull, scriptDisplayJson } from '../codec.js';
+import {
+  credBytes,
+  encodeContext,
+  encodeEvent,
+  hashBytes,
+  hashFromCol,
+  posBinds,
+  posOrNull,
+  refBinds,
+  refFromCols,
+  scriptDisplayJson,
+  versionFieldBinds,
+} from '../codec.js';
 import { drepIdForCredential, groupIdString } from '../ids.js';
 import { LISTED_MIN_MEMBERS } from '../constants.js';
 import { COMMIT, COMMIT_WIDTH, KEYED, KEYED_WIDTH, Q } from './queries.js';
@@ -27,7 +39,7 @@ const certPos = (r: Row): Pos => ({
   txIndex: Number(r.u_ti),
   phase: 0,
   index: Number(r.u_ix),
-  txHash: String(r.u_tx),
+  txHash: hashFromCol(r.u_tx),
 });
 
 export interface PreRead {
@@ -113,21 +125,20 @@ export async function preRead(db: D1Database, units: Unit[]): Promise<PreRead> {
     [
       'instances',
       chunked(joins, Math.floor(D1_MAX_BINDS / KEYED_WIDTH.loadInstances)).map((c) =>
-        db.prepare(KEYED.loadInstances(c.length)).bind(...c.flatMap((r) => [r.txHash, r.index])),
+        db.prepare(KEYED.loadInstances(c.length)).bind(...c.flatMap(refBinds)),
       ),
     ],
-    ['groups', rows(db, 'preGroups', [...f.touched.values()], (g) => [g.txHash, g.index])],
+    ['groups', rows(db, 'preGroups', [...f.touched.values()], refBinds)],
     [
       'firstUnreg',
       rows(db, 'preFirstUnreg', unregKeys, ({ i, bound }) => [
-        i.joinId.txHash,
-        i.joinId.index,
-        credKey(i.member),
+        ...refBinds(i.joinId),
+        credBytes(credKey(i.member)),
         ...order(i.joinedAt),
         ...order(bound),
       ]),
     ],
-    ['verdicts', rows(db, 'preVerdicts', [...f.verdicts.values()], (v) => [v.ref.txHash, v.ref.index])],
+    ['verdicts', rows(db, 'preVerdicts', [...f.verdicts.values()], (v) => refBinds(v.ref))],
   ];
   for (const { i } of unregKeys) pre.firstUnreg.set(refKey(i.joinId), null);
   const stmts = parts.flatMap(([, s]) => s);
@@ -138,25 +149,25 @@ export async function preRead(db: D1Database, units: Unit[]): Promise<PreRead> {
     for (const res of results.slice(at, at + s.length)) {
       for (const r of res.results ?? []) {
         if (name === 'instances' && r.join_tx !== null) {
-          pre.instances.set(refKey({ txHash: String(r.k_tx), index: Number(r.k_ix) }), {
+          pre.instances.set(refKey(refFromCols(r.k_tx, r.k_ix)), {
             countedAs: r.counted_as as Counted,
-            group: { txHash: String(r.group_tx), index: Number(r.group_ix) },
+            group: refFromCols(r.group_tx, r.group_ix),
             joinedAt: posOrNull(r, 'joined'),
           });
         } else if (name === 'groups') {
-          const k = refKey({ txHash: String(r.k_gtx), index: Number(r.k_gix) });
+          const k = refKey(refFromCols(r.k_gtx, r.k_gix));
           pre.dissolves.set(k, posOrNull(r, 'dis'));
           if (r.group_tx !== null) {
             pre.groups.set(k, {
               members: Number(r.members),
               url: r.profile_url === null ? null : String(r.profile_url),
-              hash: r.profile_hash === null ? null : String(r.profile_hash),
+              hash: r.profile_hash === null ? null : hashFromCol(r.profile_hash),
             });
           }
         } else if (name === 'firstUnreg') {
-          pre.firstUnreg.set(refKey({ txHash: String(r.k_tx), index: Number(r.k_ix) }), r.u_h === null ? null : certPos(r));
+          pre.firstUnreg.set(refKey(refFromCols(r.k_tx, r.k_ix)), r.u_h === null ? null : certPos(r));
         } else if (name === 'verdicts') {
-          pre.verdictsKnown.add(refKey({ txHash: String(r.tx_hash), index: Number(r.idx) }));
+          pre.verdictsKnown.add(refKey(refFromCols(r.tx_hash, r.idx)));
         }
       }
     }
@@ -176,7 +187,7 @@ type MemberChange = { group: EventRef; before: { members: number; open: boolean 
  */
 export function memberPublishBatch(db: D1Database, changes: MemberChange[], now: number, atGen?: number): D1PreparedStatement[] {
   const guard = [atGen ?? null];
-  const key = (x: MemberChange): [string, number] => [x.group.txHash, x.group.index];
+  const key = (x: MemberChange): [Uint8Array, number] => refBinds(x.group);
   const up = changes.filter((x) => x.before.members < LISTED_MIN_MEMBERS && x.after.members >= LISTED_MIN_MEMBERS);
   const down = changes.filter((x) => x.before.members >= LISTED_MIN_MEMBERS && x.after.members < LISTED_MIN_MEMBERS);
   const power = changes.filter((x) => x.before.open || x.after.open || x.before.members !== x.after.members);
@@ -205,7 +216,7 @@ type AnchorChange = { group: EventRef; before: Anchor; after: Anchor };
 /** Listed groups with a changed anchor: profile due now, website due row deleted. */
 export function anchorDueBatch(db: D1Database, changes: AnchorChange[], now: number): D1PreparedStatement[] {
   const changed = changes.filter((x) => x.before.url !== x.after.url || x.before.hash !== x.after.hash);
-  const key = (x: AnchorChange): [string, number] => [x.group.txHash, x.group.index];
+  const key = (x: AnchorChange): [Uint8Array, number] => refBinds(x.group);
   return [...rows(db, 'dueProfileIfListed', changed, key, [now]), ...rows(db, 'deleteWebsiteDue', changed, key, [null])];
 }
 
@@ -222,7 +233,7 @@ function countedAs(i: StoredInstance, eff: { at: Pos } | null): Counted {
 export function commitStatements(db: D1Database, units: Unit[], pre: PreRead, now = Date.now()): D1PreparedStatement[] {
   const f = fold(units);
   const changes = units.map((u) => u.change);
-  const g = (r: EventRef): [string, number] => [r.txHash, r.index];
+  const g = refBinds;
 
   // Per group counter deltas. The open flags record instances entering or leaving the open set.
   type Delta = { group: EventRef; open: number; pending: number; former: number; applied: number; notApplied: number; openIn: boolean; openOut: boolean };
@@ -293,9 +304,9 @@ export function commitStatements(db: D1Database, units: Unit[], pre: PreRead, no
   const groupCursor = units.reduce<Pos | null>((p, u) => (u.cursor.kind === 'group' ? u.cursor.G : p), null);
 
   return [
-    ...rows(db, 'insertScripts', changes.flatMap((c) => c.scripts), (s) => [s.hash, ...posBinds(s.at), s.bytes, scriptDisplayJson(s.script)]),
+    ...rows(db, 'insertScripts', changes.flatMap((c) => c.scripts), (s) => [hashBytes(s.hash), ...posBinds(s.at), s.bytes, scriptDisplayJson(s.script)]),
     ...rows(db, 'insertMemberScripts', changes.flatMap((c) => c.memberScripts), (m) => [
-      credKey(m.credential),
+      credBytes(credKey(m.credential)),
       ...posBinds(m.at),
       m.bytes,
       scriptDisplayJson(m.script),
@@ -303,11 +314,7 @@ export function commitStatements(db: D1Database, units: Unit[], pre: PreRead, no
     ...rows(db, 'upsertVersions', versions, (v) => [
       ...g(v.id),
       ...posBinds(v.at),
-      v.mode,
-      v.control,
-      v.admission,
-      v.profile?.url ?? null,
-      v.profile?.dataHash ?? null,
+      ...versionFieldBinds(v),
       v.seq.toString(),
       v.status,
       ...posBinds(v.createdAt),
@@ -319,7 +326,7 @@ export function commitStatements(db: D1Database, units: Unit[], pre: PreRead, no
     ...rows(db, 'upsertInstances', instanceRows, ({ i, eff, counted }) => [
       ...g(i.joinId),
       ...g(i.group),
-      credKey(i.member),
+      credBytes(credKey(i.member)),
       drepIdForCredential(i.member),
       i.mode,
       ...posBinds(i.joinedAt),
@@ -337,7 +344,7 @@ export function commitStatements(db: D1Database, units: Unit[], pre: PreRead, no
       String(v.tag),
       v.valid ? 1 : 0,
       v.reason,
-      v.subject === null ? null : credKey(v.subject),
+      v.subject === null ? null : credBytes(credKey(v.subject)),
     ]),
     // One gen increment per touched group: here, unless its members publication owns it.
     ...rows(db, 'groupDeltas', [...deltas.values()], (d) => [
@@ -351,27 +358,26 @@ export function commitStatements(db: D1Database, units: Unit[], pre: PreRead, no
     ...memberPublishBatch(db, members, now),
     ...rows(db, 'upsertTrimDue', [...trim.entries()], ([k, h]) => [...g(f.touched.get(k) as EventRef), h]),
     ...rows(db, 'insertQueue', queued, (q) => [
-      q.txHash,
+      hashBytes(q.txHash),
       q.at.index,
-      credKey(q.subject),
+      credBytes(credKey(q.subject)),
       ...posBinds(q.at),
-      q.group?.txHash ?? null,
-      q.group?.index ?? null,
+      ...(q.group === null ? [null, null] : refBinds(q.group)),
       encodeEvent(q.event),
     ]),
-    ...rows(db, 'lowerNext', [...firstEntry.entries()], ([k, p]) => [k, ...posBinds(p)]),
+    ...rows(db, 'lowerNext', [...firstEntry.entries()], ([k, p]) => [credBytes(k), ...posBinds(p)]),
     ...rows(db, 'insertTxContexts', changes.flatMap((c) => c.txContexts), (t) => {
       const e = encodeContext(t.context);
-      return [t.txHash, e.signers, e.requiredSigners, e.invalidBefore, e.invalidHereafter];
+      return [hashBytes(t.txHash), e.signers, e.requiredSigners, e.invalidBefore, e.invalidHereafter];
     }),
     ...rows(db, 'markApplied', changes.flatMap((c) => c.appliedQueue), (r) => g(r)),
-    ...rows(db, 'retireCredentials', retired, (r) => [r.k, ...posBinds(r.at)]),
-    ...rows(db, 'enqueueRetireJobs', retired, (r) => [r.k, r.k, ...posBinds(r.at)]),
+    ...rows(db, 'retireCredentials', retired, (r) => [credBytes(r.k), ...posBinds(r.at)]),
+    ...rows(db, 'enqueueRetireJobs', retired, (r) => [r.k, credBytes(r.k), ...posBinds(r.at)]),
     // Cursors last, so next is recomputed over the queue as this batch leaves it.
     ...(groupCursor === null ? [] : [db.prepare(Q.groupCursor.sql).bind(...posBinds(groupCursor), ...order(groupCursor))]),
     ...units.flatMap((u) => {
       if (u.cursor.kind !== 'credential') return [];
-      const k = credKey(u.cursor.credential);
+      const k = credBytes(credKey(u.cursor.credential));
       const a = u.cursor.appliedThrough;
       return [db.prepare(Q.credentialCursor.sql).bind(...posBinds(a), ...order(a), ...order(a), ...order(a), ...order(a), k)];
     }),

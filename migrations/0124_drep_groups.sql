@@ -1,20 +1,21 @@
--- DRep groups: a chain position is stored as five
--- columns with a shared prefix, <p>_h, <p>_ti, <p>_ph, <p>_ix and <p>_tx, compared as the row
--- value (<p>_h, <p>_ti, <p>_ph, <p>_ix), and a label tx kept without its CBOR is a marker
--- (marker = 1) that cannot change state. Every write batch starts with an insert into
+-- DRep groups: a chain position is stored as five columns with a shared prefix, <p>_h, <p>_ti,
+-- <p>_ph, <p>_ix and <p>_tx, compared as the row value (<p>_h, <p>_ti, <p>_ph, <p>_ix), and a
+-- label tx kept without its CBOR is a marker (marker = 1) that cannot change state. Hashes are
+-- BLOBs of their raw bytes, a credential is one kind byte (0 key, 1 script) and its hash, a key
+-- hash list the 28 byte hashes concatenated. Every write batch starts with an insert into
 -- drep_group_lease_check that fails its CHECK unless the caller still holds a live lease, so a
 -- batch from a run that lost its lease rolls back as a whole.
 
 -- Label transactions as discovered, with their payload or as a marker.
 CREATE TABLE IF NOT EXISTS drep_group_txs (
-  tx_hash TEXT PRIMARY KEY,
+  tx_hash BLOB PRIMARY KEY,
   block_height INTEGER NOT NULL,
-  block_hash TEXT NOT NULL,
+  block_hash BLOB NOT NULL,
   tx_index INTEGER NOT NULL,
   marker INTEGER NOT NULL DEFAULT 0,
   payload BLOB,
-  required_signers TEXT,
-  witness_key_hashes TEXT,
+  required_signers BLOB,
+  witness_key_hashes BLOB,
   invalid_before TEXT,
   invalid_hereafter TEXT,
   is_valid INTEGER,
@@ -30,13 +31,13 @@ CREATE INDEX IF NOT EXISTS drep_group_txs_marker ON drep_group_txs (block_height
 
 -- DRep registration and deregistration certificates of tracked credentials.
 CREATE TABLE IF NOT EXISTS drep_group_ledger (
-  tx_hash TEXT NOT NULL,
+  tx_hash BLOB NOT NULL,
   cert_index INTEGER NOT NULL,
-  cred TEXT NOT NULL,
+  cred BLOB NOT NULL,
   drep_id TEXT NOT NULL,
   kind TEXT NOT NULL CHECK (kind IN ('reg', 'unreg')),
   block_height INTEGER NOT NULL,
-  block_hash TEXT NOT NULL,
+  block_hash BLOB NOT NULL,
   tx_index INTEGER NOT NULL,
   block_time INTEGER NOT NULL,
   witness BLOB,
@@ -52,7 +53,7 @@ CREATE INDEX IF NOT EXISTS drep_group_ledger_pending ON drep_group_ledger (witne
 
 -- Credentials whose ledger history is followed, oldest seq first.
 CREATE TABLE IF NOT EXISTS drep_group_tracked (
-  cred TEXT PRIMARY KEY,
+  cred BLOB PRIMARY KEY,
   seq INTEGER NOT NULL UNIQUE,
   drep_id TEXT,
   known INTEGER,
@@ -61,11 +62,11 @@ CREATE TABLE IF NOT EXISTS drep_group_tracked (
   history_offset INTEGER NOT NULL DEFAULT 0,
   pending_witness INTEGER NOT NULL DEFAULT 0,
   gen INTEGER NOT NULL DEFAULT 0,
-  found_h INTEGER, found_ti INTEGER, found_ph INTEGER, found_ix INTEGER, found_tx TEXT,
-  applied_h INTEGER, applied_ti INTEGER, applied_ph INTEGER, applied_ix INTEGER, applied_tx TEXT,
-  next_h INTEGER, next_ti INTEGER, next_ph INTEGER, next_ix INTEGER, next_tx TEXT,
+  found_h INTEGER, found_ti INTEGER, found_ph INTEGER, found_ix INTEGER, found_tx BLOB,
+  applied_h INTEGER, applied_ti INTEGER, applied_ph INTEGER, applied_ix INTEGER, applied_tx BLOB,
+  next_h INTEGER, next_ti INTEGER, next_ph INTEGER, next_ix INTEGER, next_tx BLOB,
   retiring INTEGER NOT NULL DEFAULT 0,
-  retired_at_h INTEGER, retired_at_ti INTEGER, retired_at_ph INTEGER, retired_at_ix INTEGER, retired_at_tx TEXT,
+  retired_at_h INTEGER, retired_at_ti INTEGER, retired_at_ph INTEGER, retired_at_ix INTEGER, retired_at_tx BLOB,
   complete INTEGER GENERATED ALWAYS AS (CASE
     WHEN known = 0 THEN 1
     WHEN known = 1 AND history_done = 1 AND pending_witness = 0 THEN 1
@@ -102,11 +103,11 @@ END;
 
 -- Decoded membership events waiting for their credential unit.
 CREATE TABLE IF NOT EXISTS drep_group_queue (
-  tx_hash TEXT NOT NULL,
+  tx_hash BLOB NOT NULL,
   idx INTEGER NOT NULL,
-  subject TEXT NOT NULL,
-  at_h INTEGER NOT NULL, at_ti INTEGER NOT NULL, at_ph INTEGER NOT NULL, at_ix INTEGER NOT NULL, at_tx TEXT NOT NULL,
-  group_tx TEXT,
+  subject BLOB NOT NULL,
+  at_h INTEGER NOT NULL, at_ti INTEGER NOT NULL, at_ph INTEGER NOT NULL, at_ix INTEGER NOT NULL, at_tx BLOB NOT NULL,
+  group_tx BLOB,
   group_ix INTEGER,
   event_json TEXT NOT NULL,
   applied INTEGER NOT NULL DEFAULT 0,
@@ -118,11 +119,11 @@ CREATE INDEX IF NOT EXISTS drep_group_queue_height ON drep_group_queue (at_h);
 
 -- Signers and validity interval of label txs, as the rules read them.
 CREATE TABLE IF NOT EXISTS drep_group_tx_context (
-  tx_hash TEXT PRIMARY KEY,
+  tx_hash BLOB PRIMARY KEY,
   block_height INTEGER NOT NULL,
   tx_index INTEGER NOT NULL,
-  signers TEXT NOT NULL,
-  required_signers TEXT NOT NULL,
+  signers BLOB NOT NULL,
+  required_signers BLOB NOT NULL,
   invalid_before TEXT,
   invalid_hereafter TEXT
 );
@@ -130,8 +131,8 @@ CREATE INDEX IF NOT EXISTS drep_group_tx_context_height ON drep_group_tx_context
 
 -- Native scripts published by label txs, by script hash.
 CREATE TABLE IF NOT EXISTS drep_group_scripts (
-  hash TEXT PRIMARY KEY,
-  at_h INTEGER NOT NULL, at_ti INTEGER NOT NULL, at_ph INTEGER NOT NULL, at_ix INTEGER NOT NULL, at_tx TEXT NOT NULL,
+  hash BLOB PRIMARY KEY,
+  at_h INTEGER NOT NULL, at_ti INTEGER NOT NULL, at_ph INTEGER NOT NULL, at_ix INTEGER NOT NULL, at_tx BLOB NOT NULL,
   bytes BLOB NOT NULL,
   display_json TEXT
 );
@@ -139,8 +140,8 @@ CREATE INDEX IF NOT EXISTS drep_group_scripts_height ON drep_group_scripts (at_h
 
 -- Member scripts of script credentials, from their registration witness.
 CREATE TABLE IF NOT EXISTS drep_group_member_scripts (
-  cred TEXT PRIMARY KEY,
-  at_h INTEGER NOT NULL, at_ti INTEGER NOT NULL, at_ph INTEGER NOT NULL, at_ix INTEGER NOT NULL, at_tx TEXT NOT NULL,
+  cred BLOB PRIMARY KEY,
+  at_h INTEGER NOT NULL, at_ti INTEGER NOT NULL, at_ph INTEGER NOT NULL, at_ix INTEGER NOT NULL, at_tx BLOB NOT NULL,
   bytes BLOB NOT NULL,
   display_json TEXT
 );
@@ -148,18 +149,18 @@ CREATE INDEX IF NOT EXISTS drep_group_member_scripts_height ON drep_group_member
 
 -- Every version of every group.
 CREATE TABLE IF NOT EXISTS drep_group_versions (
-  group_tx TEXT NOT NULL,
+  group_tx BLOB NOT NULL,
   group_ix INTEGER NOT NULL,
-  at_h INTEGER NOT NULL, at_ti INTEGER NOT NULL, at_ph INTEGER NOT NULL, at_ix INTEGER NOT NULL, at_tx TEXT NOT NULL,
+  at_h INTEGER NOT NULL, at_ti INTEGER NOT NULL, at_ph INTEGER NOT NULL, at_ix INTEGER NOT NULL, at_tx BLOB NOT NULL,
   mode TEXT NOT NULL,
-  control TEXT NOT NULL,
-  admission TEXT,
+  control BLOB NOT NULL,
+  admission BLOB,
   profile_url TEXT,
-  profile_hash TEXT,
+  profile_hash BLOB,
   seq TEXT NOT NULL,
   status TEXT NOT NULL,
-  created_h INTEGER NOT NULL, created_ti INTEGER NOT NULL, created_ph INTEGER NOT NULL, created_ix INTEGER NOT NULL, created_tx TEXT NOT NULL,
-  profile_set_h INTEGER, profile_set_ti INTEGER, profile_set_ph INTEGER, profile_set_ix INTEGER, profile_set_tx TEXT,
+  created_h INTEGER NOT NULL, created_ti INTEGER NOT NULL, created_ph INTEGER NOT NULL, created_ix INTEGER NOT NULL, created_tx BLOB NOT NULL,
+  profile_set_h INTEGER, profile_set_ti INTEGER, profile_set_ph INTEGER, profile_set_ix INTEGER, profile_set_tx BLOB,
   PRIMARY KEY (group_tx, group_ix, at_h, at_ti, at_ph, at_ix)
 );
 CREATE INDEX IF NOT EXISTS drep_group_versions_height ON drep_group_versions (at_h);
@@ -167,20 +168,20 @@ CREATE INDEX IF NOT EXISTS drep_group_versions_dissolved ON drep_group_versions 
 
 -- One row per group: its current version and the published counters.
 CREATE TABLE IF NOT EXISTS drep_groups (
-  group_tx TEXT NOT NULL,
+  group_tx BLOB NOT NULL,
   group_ix INTEGER NOT NULL,
   group_id TEXT NOT NULL UNIQUE,
-  cur_h INTEGER NOT NULL, cur_ti INTEGER NOT NULL, cur_ph INTEGER NOT NULL, cur_ix INTEGER NOT NULL, cur_tx TEXT NOT NULL,
+  cur_h INTEGER NOT NULL, cur_ti INTEGER NOT NULL, cur_ph INTEGER NOT NULL, cur_ix INTEGER NOT NULL, cur_tx BLOB NOT NULL,
   mode TEXT NOT NULL,
-  control TEXT NOT NULL,
-  admission TEXT,
+  control BLOB NOT NULL,
+  admission BLOB,
   profile_url TEXT,
-  profile_hash TEXT,
+  profile_hash BLOB,
   seq TEXT NOT NULL,
   status TEXT NOT NULL,
-  created_h INTEGER NOT NULL, created_ti INTEGER NOT NULL, created_ph INTEGER NOT NULL, created_ix INTEGER NOT NULL, created_tx TEXT NOT NULL,
-  profile_set_h INTEGER, profile_set_ti INTEGER, profile_set_ph INTEGER, profile_set_ix INTEGER, profile_set_tx TEXT,
-  dissolved_h INTEGER, dissolved_ti INTEGER, dissolved_ph INTEGER, dissolved_ix INTEGER, dissolved_tx TEXT,
+  created_h INTEGER NOT NULL, created_ti INTEGER NOT NULL, created_ph INTEGER NOT NULL, created_ix INTEGER NOT NULL, created_tx BLOB NOT NULL,
+  profile_set_h INTEGER, profile_set_ti INTEGER, profile_set_ph INTEGER, profile_set_ix INTEGER, profile_set_tx BLOB,
+  dissolved_h INTEGER, dissolved_ti INTEGER, dissolved_ph INTEGER, dissolved_ix INTEGER, dissolved_tx BLOB,
   members INTEGER NOT NULL DEFAULT 0,
   pending INTEGER NOT NULL DEFAULT 0,
   former INTEGER NOT NULL DEFAULT 0,
@@ -199,19 +200,19 @@ CREATE INDEX IF NOT EXISTS drep_groups_dissolved ON drep_groups (dissolved_h) WH
 
 -- Membership instances, one per join, with the counted_as and effective close caches.
 CREATE TABLE IF NOT EXISTS drep_group_instances (
-  join_tx TEXT NOT NULL,
+  join_tx BLOB NOT NULL,
   join_ix INTEGER NOT NULL,
-  group_tx TEXT NOT NULL,
+  group_tx BLOB NOT NULL,
   group_ix INTEGER NOT NULL,
-  cred TEXT NOT NULL,
+  cred BLOB NOT NULL,
   drep_id TEXT NOT NULL,
   mode TEXT NOT NULL,
-  joined_h INTEGER NOT NULL, joined_ti INTEGER NOT NULL, joined_ph INTEGER NOT NULL, joined_ix INTEGER NOT NULL, joined_tx TEXT NOT NULL,
-  approved_h INTEGER, approved_ti INTEGER, approved_ph INTEGER, approved_ix INTEGER, approved_tx TEXT,
-  closed_h INTEGER, closed_ti INTEGER, closed_ph INTEGER, closed_ix INTEGER, closed_tx TEXT,
+  joined_h INTEGER NOT NULL, joined_ti INTEGER NOT NULL, joined_ph INTEGER NOT NULL, joined_ix INTEGER NOT NULL, joined_tx BLOB NOT NULL,
+  approved_h INTEGER, approved_ti INTEGER, approved_ph INTEGER, approved_ix INTEGER, approved_tx BLOB,
+  closed_h INTEGER, closed_ti INTEGER, closed_ph INTEGER, closed_ix INTEGER, closed_tx BLOB,
   close_reason TEXT,
   counted_as TEXT NOT NULL CHECK (counted_as IN ('open', 'pending', 'former')),
-  eff_h INTEGER, eff_ti INTEGER, eff_ph INTEGER, eff_ix INTEGER, eff_tx TEXT,
+  eff_h INTEGER, eff_ti INTEGER, eff_ph INTEGER, eff_ix INTEGER, eff_tx BLOB,
   eff_reason TEXT,
   PRIMARY KEY (join_tx, join_ix)
 );
@@ -226,15 +227,15 @@ CREATE INDEX IF NOT EXISTS drep_group_instances_closed ON drep_group_instances (
 
 -- Rule outcomes of events per group, kept for the group history.
 CREATE TABLE IF NOT EXISTS drep_group_verdicts (
-  tx_hash TEXT NOT NULL,
+  tx_hash BLOB NOT NULL,
   idx INTEGER NOT NULL,
-  group_tx TEXT NOT NULL,
+  group_tx BLOB NOT NULL,
   group_ix INTEGER NOT NULL,
-  at_h INTEGER NOT NULL, at_ti INTEGER NOT NULL, at_ph INTEGER NOT NULL, at_ix INTEGER NOT NULL, at_tx TEXT NOT NULL,
+  at_h INTEGER NOT NULL, at_ti INTEGER NOT NULL, at_ph INTEGER NOT NULL, at_ix INTEGER NOT NULL, at_tx BLOB NOT NULL,
   tag TEXT NOT NULL,
   valid INTEGER NOT NULL,
   reason TEXT,
-  subject TEXT,
+  subject BLOB,
   PRIMARY KEY (tx_hash, idx)
 );
 CREATE INDEX IF NOT EXISTS drep_group_verdicts_group ON drep_group_verdicts (group_tx, group_ix, valid, at_h, at_ti, at_ph, at_ix);
@@ -245,10 +246,10 @@ CREATE TABLE IF NOT EXISTS drep_group_jobs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   kind TEXT NOT NULL CHECK (kind IN ('dissolve', 'retire', 'repair', 'recompute', 'trim', 'power', 'power-scan')),
   job_key TEXT NOT NULL,
-  group_tx TEXT,
+  group_tx BLOB,
   group_ix INTEGER,
-  cred TEXT,
-  trigger_h INTEGER, trigger_ti INTEGER, trigger_ph INTEGER, trigger_ix INTEGER, trigger_tx TEXT,
+  cred BLOB,
+  trigger_h INTEGER, trigger_ti INTEGER, trigger_ph INTEGER, trigger_ix INTEGER, trigger_tx BLOB,
   cursor_json TEXT,
   staging TEXT,
   start_gen INTEGER,
@@ -269,7 +270,7 @@ CREATE INDEX IF NOT EXISTS drep_group_power_changes_seq ON drep_group_power_chan
 
 -- Groups with verdicts beyond the retention window, by the height of the oldest one.
 CREATE TABLE IF NOT EXISTS drep_group_trim_due (
-  group_tx TEXT NOT NULL,
+  group_tx BLOB NOT NULL,
   group_ix INTEGER NOT NULL,
   oldest_h INTEGER NOT NULL,
   PRIMARY KEY (group_tx, group_ix)
@@ -279,7 +280,7 @@ CREATE INDEX IF NOT EXISTS drep_group_trim_due_height ON drep_group_trim_due (ol
 -- Profile and website fetches that are due.
 CREATE TABLE IF NOT EXISTS drep_group_due (
   kind TEXT NOT NULL CHECK (kind IN ('profile', 'website')),
-  group_tx TEXT NOT NULL,
+  group_tx BLOB NOT NULL,
   group_ix INTEGER NOT NULL,
   due_at INTEGER NOT NULL,
   PRIMARY KEY (kind, group_tx, group_ix)
@@ -292,7 +293,7 @@ CREATE TABLE IF NOT EXISTS drep_group_meta (
   L INTEGER NOT NULL,
   L_hash TEXT,
   R INTEGER,
-  G_h INTEGER NOT NULL, G_ti INTEGER NOT NULL, G_ph INTEGER NOT NULL, G_ix INTEGER NOT NULL, G_tx TEXT NOT NULL,
+  G_h INTEGER NOT NULL, G_ti INTEGER NOT NULL, G_ph INTEGER NOT NULL, G_ix INTEGER NOT NULL, G_tx BLOB NOT NULL,
   rec_first_kind TEXT,
   rec_first_above INTEGER,
   rec_first_time INTEGER,
@@ -308,7 +309,7 @@ CREATE TABLE IF NOT EXISTS drep_group_meta (
   operator_truncate INTEGER
 );
 INSERT OR IGNORE INTO drep_group_meta (id, L, R, G_h, G_ti, G_ph, G_ix, G_tx, lib_version, reg_offset, rebuilding, probe_active)
-VALUES (1, -1, NULL, -1, 9007199254740991, 2, 9007199254740991, '', NULL, 0, 0, 0);
+VALUES (1, -1, NULL, -1, 9007199254740991, 2, 9007199254740991, X'', NULL, 0, 0, 0);
 
 -- Singleton lease against overlapping runs, and the guard table its CHECK lives on.
 CREATE TABLE IF NOT EXISTS drep_group_lease (

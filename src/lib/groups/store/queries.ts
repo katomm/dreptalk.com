@@ -2,6 +2,7 @@
 // Every SQL text the DRep groups store, jobs and page readers run, by name, so one check
 // can inspect how SQLite executes each of them.
 import { DB_NOW_MS } from '../../db/sql.js';
+import { credKeySql, refKeySql } from '../codec.js';
 import { LEASE_MS, LISTED_MIN_MEMBERS, WITNESS_BACKOFF_BASE_MS, WITNESS_BACKOFF_MAX_MS } from '../constants.js';
 
 export interface RegisteredQuery {
@@ -376,7 +377,7 @@ const above = (name: string, table: string, col: string, stmts?: PagedPart['stmt
 const groupTouch = (table: string): PagedPart['stmts'] => [
   {
     sql: (page) => `INSERT OR IGNORE INTO drep_group_jobs (kind, job_key, group_tx, group_ix)
-      SELECT 'recompute', x.group_tx || '#' || x.group_ix, x.group_tx, x.group_ix FROM ${table} x WHERE x.rowid IN (${page})`,
+      SELECT 'recompute', ${refKeySql('x.group_tx', 'x.group_ix')}, x.group_tx, x.group_ix FROM ${table} x WHERE x.rowid IN (${page})`,
   },
   {
     sql: (page) => `UPDATE drep_groups SET gen = gen + 1 WHERE (group_tx, group_ix) IN (
@@ -505,7 +506,7 @@ export const PHASE_PARTS: Readonly<Record<RecoveryMode, Readonly<Record<string, 
     credentials: [
       above('applied', T, 'applied_h', [
         {
-          sql: (page) => `UPDATE ${T} SET applied_h = ?, applied_ti = ${MAX}, applied_ph = 2, applied_ix = ${MAX}, applied_tx = '',
+          sql: (page) => `UPDATE ${T} SET applied_h = ?, applied_ti = ${MAX}, applied_ph = 2, applied_ix = ${MAX}, applied_tx = X'',
             gen = gen + 1, ${NEXT_AFTER('?', String(MAX), '2', String(MAX))} WHERE rowid IN (${page})`,
           lead: 5,
         },
@@ -522,7 +523,7 @@ export const PHASE_PARTS: Readonly<Record<RecoveryMode, Readonly<Record<string, 
       above('retired', T, 'retired_at_h', [
         {
           sql: (page) => `INSERT OR IGNORE INTO drep_group_jobs (kind, job_key, cred)
-            SELECT 'repair', x.cred, x.cred FROM ${T} x WHERE x.rowid IN (${page})`,
+            SELECT 'repair', ${credKeySql('x.cred')}, x.cred FROM ${T} x WHERE x.rowid IN (${page})`,
         },
         {
           sql: (page) => `UPDATE ${T} SET gen = gen + 1,
@@ -658,8 +659,8 @@ const RESTORE_COLS = `cur_h, cur_ti, cur_ph, cur_ix, cur_tx, mode, control, admi
   ${POS('created')}, ${POS('profile_set')}`;
 const dissolvedCut = (c: string): string => `dissolved_${c} = CASE WHEN dissolved_h > ? THEN NULL ELSE dissolved_${c} END`;
 
-// Keyed statements of the versions phase, built per chunk length. D1 binds numbers as REAL, so a
-// bound index is cast before it becomes part of a job key.
+// Keyed statements of the versions phase, built per chunk length. D1 binds numbers as REAL, so
+// refKeySql casts a bound index before it becomes part of a job key.
 export const REC_KEYED = Object.freeze({
   // Binds the rows (group, version order columns), then the cut height six times.
   restoreGroups: (n: number) => `WITH k(gtx, gix, h, ti, ph, ix) AS (VALUES ${values(6, n)})
@@ -674,7 +675,7 @@ export const REC_KEYED = Object.freeze({
     FROM k WHERE drep_groups.group_tx = k.gtx AND drep_groups.group_ix = k.gix`,
   recomputeJobs: (n: number) => `WITH k(gtx, gix) AS (VALUES ${values(2, n)})
     INSERT OR IGNORE INTO drep_group_jobs (kind, job_key, group_tx, group_ix)
-    SELECT 'recompute', k.gtx || '#' || CAST(k.gix AS INTEGER), k.gtx, k.gix FROM k`,
+    SELECT 'recompute', ${refKeySql('k.gtx', 'k.gix')}, k.gtx, k.gix FROM k`,
   deleteTrimDue: (n: number) => `WITH k(gtx, gix) AS (VALUES ${values(2, n)})
     DELETE FROM drep_group_trim_due WHERE (group_tx, group_ix) IN (SELECT gtx, gix FROM k)`,
   deleteGroups: (n: number) => `WITH k(gtx, gix) AS (VALUES ${values(2, n)})
@@ -693,7 +694,7 @@ export const REC_KEYED_TRAILING: Readonly<Partial<Record<keyof typeof REC_KEYED,
 });
 
 const END_G = `G_h = ?, G_ti = ?, G_ph = ?, G_ix = ?, G_tx = ?`;
-const RESET_G = `G_h = -1, G_ti = ${MAX}, G_ph = 2, G_ix = ${MAX}, G_tx = ''`;
+const RESET_G = `G_h = -1, G_ti = ${MAX}, G_ph = 2, G_ix = ${MAX}, G_tx = X''`;
 
 // Every paged part's page and probe, and every phase's advance statement, by a stable name.
 type RecName = `rec_${RecoveryMode}_${string}`;
@@ -850,6 +851,10 @@ export const Q = Object.freeze({
 } satisfies Record<string, RegisteredQuery>);
 
 /** Sample binds per query, placeholders only, for the query plan check. */
+// Placeholder values of a stored tx hash and credential.
+const TX = new Uint8Array(32);
+const CRED = new Uint8Array(29);
+
 export const Q_SAMPLE_BINDS: Readonly<Record<keyof typeof Q, unknown[]>> = Object.freeze({
   leaseSeed: [],
   leaseTake: ['owner', 'token', 'owner'],
@@ -857,13 +862,13 @@ export const Q_SAMPLE_BINDS: Readonly<Record<keyof typeof Q, unknown[]>> = Objec
   leaseRelease: ['token'],
   leaseGuard: ['token'],
   leaseGuardEnd: [],
-  loadInstances: ['tx', 0],
-  loadLatestInstances: ['tx', 0, 'key:00'],
-  loadGroupsAt: ['tx', 0, 1, 0, 2, 0],
-  loadScriptsAt: ['hash', 1, 0, 2, 0],
-  loadCredentialsAt: ['key:00', 1, 0, 2, 0],
-  queuedJoins: ['tx', 0],
-  txContexts: ['tx'],
+  loadInstances: [TX, 0],
+  loadLatestInstances: [TX, 0, CRED],
+  loadGroupsAt: [TX, 0, 1, 0, 2, 0],
+  loadScriptsAt: [TX, 1, 0, 2, 0],
+  loadCredentialsAt: [CRED, 1, 0, 2, 0],
+  queuedJoins: [TX, 0],
+  txContexts: [TX],
   ...(Object.fromEntries(
     (Object.keys(COMMIT) as Array<keyof typeof COMMIT>).map((k) => [
       k,
@@ -873,10 +878,10 @@ export const Q_SAMPLE_BINDS: Readonly<Record<keyof typeof Q, unknown[]>> = Objec
   labelTxPage: [1, 0, 2, 10],
   labelTxProbe: [1, 0, 2],
   readyTracked: [1, 1, 0, 2, 0, 10],
-  queueInputs: ['key:00', 1, 0, 2, 0, 2, 0, 2, 0, 10],
-  ledgerInputs: ['key:00', 1, 0, 0, 2, 0, 0, 10],
-  groupCursor: [1, 0, 2, 0, 'tx', 1, 0, 2, 0],
-  credentialCursor: [1, 0, 2, 0, 'tx', 1, 0, 2, 0, 1, 0, 2, 0, 1, 0, 2, 0, 1, 0, 2, 0, 'key:00'],
+  queueInputs: [CRED, 1, 0, 2, 0, 2, 0, 2, 0, 10],
+  ledgerInputs: [CRED, 1, 0, 0, 2, 0, 0, 10],
+  groupCursor: [1, 0, 2, 0, TX, 1, 0, 2, 0],
+  credentialCursor: [1, 0, 2, 0, TX, 1, 0, 2, 0, 1, 0, 2, 0, 1, 0, 2, 0, 1, 0, 2, 0, CRED],
   frontiers: [],
   pendingRecovery: [],
   metaRow: [],
@@ -889,7 +894,7 @@ export const Q_SAMPLE_BINDS: Readonly<Record<keyof typeof Q, unknown[]>> = Objec
   setL: [1, 'hash'],
   createRegCursor: [1, 0],
   regCursor: [0, 0, 1],
-  historyOffset: [0, 'key:00'],
+  historyOffset: [0, CRED],
   recoverySlots: ['truncate', 1, 0, null, null, 1, 'jobs', null],
   ...RECOVERY_REGISTRY.binds,
   recVersionsProbe: [1],
@@ -901,7 +906,7 @@ export const Q_SAMPLE_BINDS: Readonly<Record<keyof typeof Q, unknown[]>> = Objec
     ]),
   ) as Record<keyof typeof REC_KEYED, unknown[]>),
   recLedgerTime: [1],
-  recTruncateCursors: [1, 0, 2, 0, 'tx', 1, null, 1, 0],
+  recTruncateCursors: [1, 0, 2, 0, TX, 1, null, 1, 0],
   recRebuildCursors: [],
   recForkCursors: [],
 });
