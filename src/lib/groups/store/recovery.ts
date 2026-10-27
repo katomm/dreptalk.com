@@ -208,7 +208,12 @@ async function probe(db: D1Database, sql: string, binds: unknown[]): Promise<boo
 function pageStatements(db: D1Database, p: PagedPart, cut: number, limit: number): D1PreparedStatement[] {
   const page = partPage(p);
   return p.stmts.map((s) =>
-    db.prepare(s.sql(page)).bind(...Array.from({ length: s.lead ?? 0 }, () => cut), ...(p.cut ? [cut] : []), limit),
+    db
+      .prepare(s.sql(page))
+      .bind(
+        ...Array.from({ length: s.lead ?? 0 }, () => cut),
+        ...Array.from({ length: s.pages ?? 1 }, () => [...(p.cut ? [cut] : []), limit]).flat(),
+      ),
   );
 }
 

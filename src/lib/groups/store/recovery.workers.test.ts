@@ -770,6 +770,33 @@ describe('drep groups ingest and recovery', () => {
     expect(await row(b)).toMatchObject({ known: 1, history_done: 0, complete: 0 });
   });
 
+  it('derives next again for the subjects of queue entries a rebuild deletes', async () => {
+    const t = await lease();
+    const [a, b] = [keyCred(1), keyCred(2)];
+    await track(a, 1);
+    await track(b, 2);
+    await storeLedgerRows(db, t, [ledgerRow(a, 'reg', 30)], null);
+    const qcols = 'tx_hash, idx, subject, at_h, at_ti, at_ph, at_ix, at_tx, group_tx, group_ix, event_json';
+    const entry = (c: Credential, h: number, ix: number): string =>
+      `INSERT INTO drep_group_queue (${qcols}) VALUES ('${txHashOf(h)}', ${ix}, '${credKey(c)}', ${P(pos(h, 0, 2, ix))}, NULL, NULL, '{}')`;
+    await exec(entry(a, 20, 0), entry(a, 25, 1), entry(b, 20, 2), entry(b, 26, 3));
+    await exec(`UPDATE drep_group_tracked SET next_h = 20, next_ti = 0, next_ph = 2, next_ix = 0, next_tx = '${txHashOf(20)}'`);
+    await openRecovery(db, { kind: 'rebuild' }, t);
+    let max = 0;
+    for (;;) {
+      const c = await changesPerCall(db, (d) => resetStep(d, 'rebuild', 1, t));
+      max = Math.max(max, c.changes);
+      if (c.result === 'done') break;
+    }
+    expect(max).toBeLessThanOrEqual(1 + RECOVERY_STEP_OVERHEAD);
+    expect(await count('SELECT COUNT(*) AS n FROM drep_group_queue')).toBe(0);
+    const row = async (c: Credential): Promise<Row> =>
+      (await db.prepare('SELECT * FROM drep_group_tracked WHERE cred = ?').bind(credKey(c)).first<Row>()) as Row;
+    expect(await row(a)).toMatchObject({ applied_h: null, next_h: 30, next_ph: 0, next_ix: 0, next_tx: txHashOf(30) });
+    expect(await row(b)).toMatchObject({ applied_h: null, next_h: null, next_tx: null });
+    expect(Number((await row(b)).gen)).toBeGreaterThan(0);
+  });
+
   it('a re-delivered flagged marker clears its flag and lifts the reported L', async () => {
     const t = await lease();
     await storeLabelTxs(db, t, [{ tx: markerTx(80), blockHash: 'b' }], null, noTime);

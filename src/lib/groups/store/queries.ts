@@ -347,8 +347,11 @@ export interface PagedPart {
   cut: boolean;
   order: string;
   key: string;
-  /** Statements of one page, each containing the page once. `lead` counts the cut height binds before it. */
-  stmts: Array<{ sql: (page: string) => string; lead?: number }>;
+  /**
+   * Statements of one page, each containing the page `pages` times (once by default). `lead` counts the
+   * cut height binds before the first page.
+   */
+  stmts: Array<{ sql: (page: string) => string; lead?: number; pages?: number }>;
   /** The index the page walks in order when its predicate is not a range. */
   boundedScan?: string;
 }
@@ -379,10 +382,10 @@ const groupTouch = (table: string): PagedPart['stmts'] => [
 ];
 const nullPos = (p: string): string => `${p}_h = NULL, ${p}_ti = NULL, ${p}_ph = NULL, ${p}_ix = NULL, ${p}_tx = NULL`;
 // The first unapplied input of the tracked row strictly after the bound, queue and ledger merged.
-const NEXT_AFTER = (h: string, ti: string, ph: string, ix: string): string => `(next_h, next_ti, next_ph, next_ix, next_tx) = (
+const NEXT_AFTER = (h: string, ti: string, ph: string, ix: string, queueExtra = ''): string => `(next_h, next_ti, next_ph, next_ix, next_tx) = (
     SELECT h, ti, ph, ix, tx FROM (
       SELECT * FROM (SELECT at_h AS h, at_ti AS ti, at_ph AS ph, at_ix AS ix, at_tx AS tx FROM drep_group_queue
-        WHERE subject = drep_group_tracked.cred AND applied = 0 AND (at_h, at_ti, at_ph, at_ix) > (${h}, ${ti}, ${ph}, ${ix})
+        WHERE subject = drep_group_tracked.cred AND applied = 0 AND (at_h, at_ti, at_ph, at_ix) > (${h}, ${ti}, ${ph}, ${ix})${queueExtra}
         ORDER BY at_h, at_ti, at_ph, at_ix LIMIT 1)
       UNION ALL
       SELECT * FROM (SELECT block_height AS h, tx_index AS ti, 0 AS ph, cert_index AS ix, tx_hash AS tx
@@ -406,11 +409,24 @@ const stateDeletes: PagedPart[] = [
 const tailDeletes: PagedPart[] = [above('queue', 'drep_group_queue', 'at_h'), above('contexts', 'drep_group_tx_context', 'block_height')];
 const rawDeletes: PagedPart[] = [above('txs', 'drep_group_txs', 'block_height'), above('ledger', 'drep_group_ledger', 'block_height')];
 
-const resetState: PagedPart[] = [
+// A rebuild keeps the tracked rows: each page of deleted queue entries derives next again for its
+// subjects, from the inputs the page leaves, so no next points at a deleted entry.
+const rebuildQueue = above('queue', 'drep_group_queue', 'at_h', [
+  {
+    sql: (page) => `UPDATE drep_group_tracked SET gen = gen + 1,
+      ${NEXT_AFTER(...APPLIED_BOUND, ` AND rowid NOT IN (${page})`)}
+      WHERE cred IN (SELECT q.subject FROM drep_group_queue q WHERE q.rowid IN (${page}))`,
+    pages: 2,
+  },
+  { sql: del('drep_group_queue') },
+]);
+
+const resetState = (queue: PagedPart): PagedPart[] => [
   ...stateDeletes,
   above('instances', 'drep_group_instances', 'joined_h'),
   above('verdicts', 'drep_group_verdicts', 'at_h'),
-  ...tailDeletes,
+  queue,
+  above('contexts', 'drep_group_tx_context', 'block_height'),
   above('groups', 'drep_groups', 'cur_h'),
   {
     name: 'jobs',
@@ -544,7 +560,7 @@ export const PHASE_PARTS: Readonly<Record<RecoveryMode, Readonly<Record<string, 
   },
   // Reset parts bind the cut height -1, which every stored height is above.
   rebuild: {
-    state: resetState,
+    state: resetState(rebuildQueue),
     credentials: [
       {
         name: 'applied',
@@ -575,7 +591,7 @@ export const PHASE_PARTS: Readonly<Record<RecoveryMode, Readonly<Record<string, 
     ],
   },
   fork: {
-    state: resetState,
+    state: resetState(tailDeletes[0]),
     raw: rawDeletes,
     credentials: [
       {
@@ -686,7 +702,10 @@ function recoveryRegistry(): { q: Record<RecName, RegisteredQuery>; binds: Recor
         binds[`${name}_probe`] = p.cut ? [1] : [];
         p.stmts.forEach((s, i) => {
           q[`${name}_${i}`] = { sql: s.sql(pageSql(p)), ...scan };
-          binds[`${name}_${i}`] = [...Array.from({ length: s.lead ?? 0 }, () => 1), ...(p.cut ? [1] : []), 10];
+          binds[`${name}_${i}`] = [
+            ...Array.from({ length: s.lead ?? 0 }, () => 1),
+            ...Array.from({ length: s.pages ?? 1 }, () => [...(p.cut ? [1] : []), 10]).flat(),
+          ];
         });
       }
     }
