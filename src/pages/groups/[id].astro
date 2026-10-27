@@ -40,7 +40,10 @@ import {
 const net = currentNetwork();
 const available = drepGroupsAvailable(net.network);
 const db = env.DB as D1Database | undefined;
-const group = available && db ? await getGroup(db, Astro.params.id ?? '') : null;
+const id = Astro.params.id ?? '';
+// Group ids are lowercase bech32, an uppercase spelling moves to the canonical URL.
+if (available && id !== id.toLowerCase()) return Astro.redirect(`/groups/${id.toLowerCase()}/${Astro.url.search}`, 301);
+const group = available && db ? await getGroup(db, id) : null;
 if (group) {
   Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
 } else {
@@ -49,6 +52,10 @@ if (group) {
 }
 
 const profile = group?.profile?.status === 'ok' ? group.profile : null;
+// Profile links are checked when stored, and again here so only web links render.
+const webLink = (u: string | null | undefined): string | null => (u && /^https?:/i.test(u) ? u : null);
+const website = webLink(profile?.website);
+const charter = webLink(profile?.charter);
 const addresses = profile?.paymentAddresses ?? [];
 const treasuryHashes = [...new Set(addresses.flatMap((a) => (a.treasuryScript ? [a.treasuryScript] : [])))];
 const policyHashes = group ? [group.controlHash, ...(group.admissionHash ? [group.admissionHash] : [])] : [];
@@ -107,12 +114,10 @@ const rowNote = (m: MemberRow, showState: boolean): string =>
   ]
     .filter((s) => s !== '')
     .join(' · ');
-const pageHref = (kind: keyof typeof SECTION_TITLE, after: string | null): string => {
+const pageHref = (kind: keyof typeof SECTION_TITLE, after: string): string => {
   const params = new URLSearchParams(Astro.url.searchParams);
-  if (after === null) params.delete(sectionParam(kind));
-  else params.set(sectionParam(kind), after);
-  const q = params.toString();
-  return `/groups/${group?.groupId ?? ''}/${q ? `?${q}` : ''}`;
+  params.set(sectionParam(kind), after);
+  return `/groups/${group?.groupId ?? ''}/?${params.toString()}`;
 };
 ---
 {!available ? (
@@ -125,17 +130,17 @@ const pageHref = (kind: keyof typeof SECTION_TITLE, after: string | null): strin
     <h1>{title}</h1>
     <p class="gr-meta">{modeLabel(group.mode)}{group.status === 'dissolved' ? ' · Dissolved' : ''}{profile?.websiteVerifiedAt ? ' · Website verified' : ''}</p>
     <p class="gr-id"><code>{group.groupId}</code></p>
-    {group.profile && group.profile.status !== 'ok' && <p class="gr-note">Profile unavailable ({group.profile.status}).</p>}
+    {group.profile && group.profile.status !== 'ok' && <p class="gr-note">Profile unavailable.</p>}
     {profile?.description && <p>{profile.description}</p>}
-    {profile && (profile.website || profile.charter) && (
+    {(website || charter) && (
       <ul class="gr-links">
-        {profile.website && <li><a href={profile.website} rel="nofollow noopener">Website</a></li>}
-        {profile.charter && <li><a href={profile.charter} rel="nofollow noopener">Charter</a></li>}
+        {website && <li><a href={website} rel="nofollow noopener">Website</a></li>}
+        {charter && <li><a href={charter} rel="nofollow noopener">Charter</a></li>}
       </ul>
     )}
 
     <section>
-      <h2>Members ({group.members})</h2>
+      <h2>{group.closing ? 'Members' : `Members (${group.members})`}</h2>
       <p class="gr-meta">Voting power of affiliated DReps: {formatAda(group.memberPower)}. Every member votes on their own.</p>
       {noteText && <p class="gr-note">{noteText}</p>}
       {indicator && <p class="gr-note">{indicator}</p>}
@@ -162,10 +167,9 @@ const pageHref = (kind: keyof typeof SECTION_TITLE, after: string | null): strin
                 })}
               </ul>
             )}
-            {(s.after !== null || next) && (
+            {next && (
               <nav class="gr-pager" aria-label={`${SECTION_TITLE[s.kind]} pages`}>
-                {s.after !== null && <a href={pageHref(s.kind, null)} rel="prev">Previous</a>}
-                {next && <a href={pageHref(s.kind, next)} rel="next">Next</a>}
+                <a href={pageHref(s.kind, next)} rel="next">Next</a>
               </nav>
             )}
           </>

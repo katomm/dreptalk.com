@@ -17,7 +17,7 @@ const db = env.DB as D1Database | undefined;
 const afterParam = Astro.url.searchParams.get('after');
 const dot = afterParam?.indexOf('.') ?? -1;
 const parsed = afterParam && dot > 0 ? { power: afterParam.slice(0, dot), groupId: afterParam.slice(dot + 1) } : null;
-// A cursor that does not parse shows the first page, without a link back.
+// A cursor that does not parse shows the first page.
 const after = parsed && /^\d+$/.test(parsed.power) && groupIdParam(parsed.groupId) ? parsed : null;
 const groups = available && db ? await listListedGroups(db, after, GROUP_PAGE_SIZE) : [];
 const last = groups.length === GROUP_PAGE_SIZE ? groups[groups.length - 1] : null;
@@ -48,10 +48,9 @@ if (available) {
         ))}
       </ul>
     )}
-    {(after || nextHref) && (
+    {nextHref && (
       <nav class="gr-pager" aria-label="Pagination">
-        {after && <a href="/groups/" rel="prev">Previous</a>}
-        {nextHref && <a href={nextHref} rel="next">Next</a>}
+        <a href={nextHref} rel="next">Next</a>
       </nav>
     )}
   </Layout>
