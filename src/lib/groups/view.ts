@@ -1,0 +1,157 @@
+// Pure view helpers for the DRep group pages. A group reads as an affiliation of DReps who each
+// vote on their own. Stored display JSON is depth limited when it is written, so the recursion
+// over a script stays bounded.
+import type { StatusNote } from '../db/drepGroups.js';
+
+export type ScriptView =
+  | { kind: 'sig'; keyHash: string }
+  | { kind: 'all' | 'any'; children: ScriptView[] }
+  | { kind: 'nOfK'; n: string; children: ScriptView[] }
+  | { kind: 'after' | 'before'; slot: string }
+  | { kind: 'tooDeep' };
+
+function fromRaw(x: unknown): ScriptView | null {
+  if (!x || typeof x !== 'object') return null;
+  const o = x as Record<string, unknown>;
+  const children = (): ScriptView[] | null => {
+    if (!Array.isArray(o.scripts)) return null;
+    const c = o.scripts.map(fromRaw);
+    return c.every((v): v is ScriptView => v !== null) ? c : null;
+  };
+  switch (o.type) {
+    case 'sig':
+      return typeof o.keyHash === 'string' ? { kind: 'sig', keyHash: o.keyHash } : null;
+    case 'all':
+    case 'any': {
+      const c = children();
+      return c ? { kind: o.type, children: c } : null;
+    }
+    case 'nOfK': {
+      const c = children();
+      return c ? { kind: 'nOfK', n: String(o.n), children: c } : null;
+    }
+    case 'after':
+    case 'before':
+      return { kind: o.type, slot: String(o.slot) };
+    case 'tooDeep':
+      return { kind: 'tooDeep' };
+    default:
+      return null;
+  }
+}
+
+export function scriptFromJson(json: string | undefined): ScriptView | null {
+  if (!json) return null;
+  try {
+    return fromRaw(JSON.parse(json));
+  } catch {
+    return null;
+  }
+}
+
+export function policyKeyHashes(s: ScriptView | null): string[] {
+  if (!s) return [];
+  if (s.kind === 'sig') return [s.keyHash];
+  return 'children' in s ? s.children.flatMap(policyKeyHashes) : [];
+}
+
+/** The first 8 and last 4 characters of a long hash or id. */
+export const shortHash = (h: string): string => (h.length > 14 ? `${h.slice(0, 8)}...${h.slice(-4)}` : h);
+
+/** A policy in words, keys by DRep name where known. Keys in `admins` are marked as group admins. */
+export function describePolicy(s: ScriptView | null, names: Map<string, string>, admins?: ReadonlySet<string>): string {
+  if (!s) return 'Unknown policy';
+  const name = (k: string) => `${names.get(k) ?? shortHash(k)}${admins?.has(k) ? ' (group admin)' : ''}`;
+  const part = (x: ScriptView): string => {
+    switch (x.kind) {
+      case 'sig':
+        return name(x.keyHash);
+      case 'after':
+        return `valid from slot ${x.slot}`;
+      case 'before':
+        return `valid until slot ${x.slot}`;
+      case 'all':
+        return `all of: ${x.children.map(part).join(', ')}`;
+      case 'any':
+        return `any of: ${x.children.map(part).join(', ')}`;
+      case 'nOfK':
+        return `${x.n} of ${x.children.length}: ${x.children.map(part).join(', ')}`;
+      case 'tooDeep':
+        return 'Policy too deeply nested to display';
+    }
+  };
+  return part(s);
+}
+
+export function modeLabel(mode: string): string {
+  return mode === 'permissioned' ? 'Permissioned, confirmed by the group' : 'Open, self-declared';
+}
+
+export function reasonLabel(reason: string | null): string {
+  switch (reason) {
+    case 'left':
+      return 'Left';
+    case 'removed':
+      return 'Removed';
+    case 'retired':
+      return 'DRep retired';
+    case 'dissolved':
+      return 'Group dissolved';
+    default:
+      return '';
+  }
+}
+
+export function eventLabel(tag: string | null): string {
+  switch (tag) {
+    case 'create':
+      return 'Group created';
+    case 'update':
+      return 'Policies or profile updated';
+    case 'dissolve':
+      return 'Group dissolved';
+    case 'join':
+      return 'Joined';
+    case 'approve':
+      return 'Membership approved';
+    case 'leave':
+      return 'Left';
+    case 'remove':
+      return 'Removed';
+    default:
+      return 'Unreadable event';
+  }
+}
+
+export function addressStatusLabel(status: 'invalid' | 'declared' | 'script-controlled'): string {
+  return status === 'script-controlled' ? 'Controlled by' : status === 'declared' ? 'Declared address' : 'Invalid address';
+}
+
+/** The note shown above the members while stored group data is being corrected or rebuilt. */
+export function statusNoteLabel(note: StatusNote): string | null {
+  switch (note) {
+    case 'correcting':
+      return 'Group data is being corrected after a chain reorganization. Some entries may be out of date for a few minutes.';
+    case 'rebuilding':
+      return 'Group data is being rebuilt. Lists fill up again over the next runs.';
+    default:
+      return null;
+  }
+}
+
+export type MemberSectionKind = 'all' | 'active' | 'pending' | 'former';
+
+/** The URL parameter that carries the cursor of a member section. */
+export const sectionParam = (kind: MemberSectionKind): string => (kind === 'all' ? 'members' : kind);
+
+/**
+ * The member lists of a group page with their cursors. A closing group shows one list of all its
+ * memberships, any other group one list per kind, each paged on its own.
+ */
+export function memberSections(
+  group: { closing: boolean },
+  params: URLSearchParams,
+): Array<{ kind: MemberSectionKind; after: string | null }> {
+  const kinds: MemberSectionKind[] = group.closing ? ['all'] : ['active', 'pending', 'former'];
+  return kinds.map((kind) => ({ kind, after: params.get(sectionParam(kind)) }));
+}

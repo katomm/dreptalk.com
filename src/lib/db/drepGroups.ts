@@ -2,8 +2,8 @@
 // DRep groups for the pages: bounded readers of groups, members and history, and the profile and
 // website due queue with the writes that move its rows. A group id is the bech32 id of the page,
 // decoded to the key of the stored group.
-import type { EventRef } from 'drep-groups';
-import { comparePos, effectiveClose, refKey } from 'drep-groups';
+import type { EventRef, NativeScript } from 'drep-groups';
+import { comparePos, effectiveClose, parseNativeScript, refKey } from 'drep-groups';
 import {
   GROUP_PAGE_SIZE,
   PENDING_INDICATOR_CAP,
@@ -12,7 +12,7 @@ import {
   RETENTION_KEEP_NOT_APPLIED,
   WEBSITE_RECHECK_MS,
 } from '../groups/constants.js';
-import { hashBytes, hashFromCol, instanceFromRow, posOrNull, refBinds, refFromCols } from '../groups/codec.js';
+import { bytesFromCol, hashBytes, hashFromCol, instanceFromRow, posOrNull, refBinds, refFromCols } from '../groups/codec.js';
 import { drepIdForCredential, groupIdParam, groupIdString } from '../groups/ids.js';
 import { jobsPending } from '../groups/jobs.js';
 import { certPos, countedAs } from '../groups/store/commit.js';
@@ -398,7 +398,7 @@ export async function listGroupIdsForSitemap(db: D1Database, limit: number): Pro
 }
 
 /** Runs a keyed read over the values in chunks within the bind limit. */
-async function keyedRead(db: D1Database, name: 'scriptDisplays' | 'drepNames', values: unknown[]): Promise<Row[]> {
+async function keyedRead(db: D1Database, name: 'scriptDisplays' | 'scriptBytes' | 'drepNames', values: unknown[]): Promise<Row[]> {
   const chunks = chunked(values, Math.floor(D1_MAX_BINDS / KEYED_WIDTH[name]));
   if (chunks.length === 0) return [];
   const res = await db.batch<Row>(chunks.map((c) => db.prepare(KEYED[name](c.length)).bind(...c)));
@@ -409,6 +409,17 @@ async function keyedRead(db: D1Database, name: 'scriptDisplays' | 'drepNames', v
 export async function scriptDisplays(db: D1Database, hashes: string[]): Promise<Map<string, string>> {
   const rows = await keyedRead(db, 'scriptDisplays', [...new Set(hashes)].map(hashBytes));
   return new Map(rows.map((r) => [hashFromCol(r.hash), String(r.display_json)]));
+}
+
+/** Stored native scripts by script hash, parsed from their bytes. Unknown hashes and bytes that do not parse are left out. */
+export async function nativeScripts(db: D1Database, hashes: string[]): Promise<Map<string, NativeScript>> {
+  const rows = await keyedRead(db, 'scriptBytes', [...new Set(hashes)].map(hashBytes));
+  const out = new Map<string, NativeScript>();
+  for (const r of rows) {
+    const script = parseNativeScript(bytesFromCol(r.bytes));
+    if (script) out.set(hashFromCol(r.hash), script);
+  }
+  return out;
 }
 
 /** Names of the DReps whose key credential is one of the key hashes, by key hash. */

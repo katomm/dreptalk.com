@@ -1,0 +1,234 @@
+---
+export const prerender = false;
+import { env } from 'cloudflare:workers';
+import { checkPaymentAddress } from 'drep-groups';
+import Layout from '@/layouts/Layout.astro';
+import NotFound from '@/components/NotFound.astro';
+import NotFoundPage from '../404.astro';
+import { currentNetwork } from '@/lib/api/response';
+import { txExplorerUrl } from '@/lib/config/network.js';
+import {
+  drepNamesForKeyHashes,
+  getGroup,
+  listClosingMembers,
+  listMembers,
+  listVerdicts,
+  type MemberRow,
+  nativeScripts,
+  pendingVerification,
+  scriptDisplays,
+  statusNote,
+} from '@/lib/db/drepGroups.js';
+import { drepPath } from '@/lib/dreps/profile.js';
+import { cacheControlForSynced, formatAda } from '@/lib/forum/view.js';
+import { GROUP_PAGE_SIZE, RETENTION_KEEP_APPLIED, RETENTION_KEEP_NOT_APPLIED } from '@/lib/groups/constants.js';
+import { drepGroupsAvailable } from '@/lib/groups/gate.js';
+import {
+  addressStatusLabel,
+  describePolicy,
+  eventLabel,
+  memberSections,
+  modeLabel,
+  policyKeyHashes,
+  reasonLabel,
+  scriptFromJson,
+  sectionParam,
+  shortHash,
+  statusNoteLabel,
+} from '@/lib/groups/view.js';
+
+const net = currentNetwork();
+const available = drepGroupsAvailable(net.network);
+const db = env.DB as D1Database | undefined;
+const group = available && db ? await getGroup(db, Astro.params.id ?? '') : null;
+if (group) {
+  Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
+} else {
+  Astro.response.status = 404;
+  Astro.response.headers.set('Cache-Control', 'no-store');
+}
+
+const profile = group?.profile?.status === 'ok' ? group.profile : null;
+const addresses = profile?.paymentAddresses ?? [];
+const treasuryHashes = [...new Set(addresses.flatMap((a) => (a.treasuryScript ? [a.treasuryScript] : [])))];
+const policyHashes = group ? [group.controlHash, ...(group.admissionHash ? [group.admissionHash] : [])] : [];
+
+const [note, verification, sections, applied, notApplied, displays, treasuryScripts] =
+  group && db
+    ? await Promise.all([
+        statusNote(db),
+        pendingVerification(db, group.ref),
+        Promise.all(
+          memberSections(group, Astro.url.searchParams).map(async (s) => ({
+            ...s,
+            rows:
+              s.kind === 'all'
+                ? await listClosingMembers(db, group.ref, s.after)
+                : await listMembers(db, group.ref, s.kind, s.after, GROUP_PAGE_SIZE),
+          })),
+        ),
+        listVerdicts(db, group.ref, true, RETENTION_KEEP_APPLIED),
+        listVerdicts(db, group.ref, false, RETENTION_KEEP_NOT_APPLIED),
+        scriptDisplays(db, [...policyHashes, ...treasuryHashes]),
+        nativeScripts(db, treasuryHashes),
+      ])
+    : [null, null, [], [], [], new Map<string, string>(), new Map()];
+
+const control = group ? scriptFromJson(displays.get(group.controlHash)) : null;
+const admission = group?.admissionHash ? scriptFromJson(displays.get(group.admissionHash)) : null;
+const admins = new Set([...policyKeyHashes(control), ...policyKeyHashes(admission)]);
+const treasuryViews = new Map(treasuryHashes.map((h) => [h, scriptFromJson(displays.get(h))]));
+const allKeys = [...admins, ...[...treasuryViews.values()].flatMap(policyKeyHashes)];
+const names = db && allKeys.length > 0 ? await drepNamesForKeyHashes(db, allKeys) : new Map<string, string>();
+// These pages exist on preprod only, so every address is checked as a testnet address.
+const addressChecks = addresses
+  .map((entry) => ({ entry, check: checkPaymentAddress(entry, 'testnet', treasuryScripts) }))
+  .filter((a) => a.check.status !== 'invalid');
+
+const title = profile?.name ?? (group ? shortHash(group.groupId) : '');
+const noteText = statusNoteLabel(note);
+const indicator = !group
+  ? null
+  : group.closing
+    ? 'Memberships are being closed after the dissolution.'
+    : verification && verification.queued > 0
+      ? `Memberships still being verified: ${verification.capped ? '100 or more' : verification.queued}`
+      : null;
+
+const SECTION_TITLE = { all: 'Members', active: 'Members', pending: 'Requests', former: 'Former members' } as const;
+const sectionCount = (kind: keyof typeof SECTION_TITLE): number | null =>
+  !group ? null : kind === 'pending' ? group.pending : kind === 'former' ? group.former : group.members;
+const MARK = { retiring: 'retired, being updated', unapplied: 'registration change being verified' } as const;
+const rowNote = (m: MemberRow, showState: boolean): string =>
+  [
+    showState && m.state === 'pending' ? 'Request' : '',
+    m.state === 'closed' ? reasonLabel(m.reason) : '',
+    m.mark ? MARK[m.mark] : '',
+  ]
+    .filter((s) => s !== '')
+    .join(' · ');
+const pageHref = (kind: keyof typeof SECTION_TITLE, after: string | null): string => {
+  const params = new URLSearchParams(Astro.url.searchParams);
+  if (after === null) params.delete(sectionParam(kind));
+  else params.set(sectionParam(kind), after);
+  const q = params.toString();
+  return `/groups/${group?.groupId ?? ''}/${q ? `?${q}` : ''}`;
+};
+---
+{!available ? (
+  <NotFoundPage />
+) : !group ? (
+  <NotFound noun="Group" />
+) : (
+  <Layout title={`${title} - DRep groups - DRepTalk`} description={`${modeLabel(group.mode)} DRep group with ${group.members} members.`} wide>
+    <nav class="gr-crumbs"><a href="/">DRepTalk</a><span>/</span><a href="/groups/">Groups</a><span>/</span><span>{title}</span></nav>
+    <h1>{title}</h1>
+    <p class="gr-meta">{modeLabel(group.mode)}{group.status === 'dissolved' ? ' · Dissolved' : ''}{profile?.websiteVerifiedAt ? ' · Website verified' : ''}</p>
+    <p class="gr-id"><code>{group.groupId}</code></p>
+    {group.profile && group.profile.status !== 'ok' && <p class="gr-note">Profile unavailable ({group.profile.status}).</p>}
+    {profile?.description && <p>{profile.description}</p>}
+    {profile && (profile.website || profile.charter) && (
+      <ul class="gr-links">
+        {profile.website && <li><a href={profile.website} rel="nofollow noopener">Website</a></li>}
+        {profile.charter && <li><a href={profile.charter} rel="nofollow noopener">Charter</a></li>}
+      </ul>
+    )}
+
+    <section>
+      <h2>Members ({group.members})</h2>
+      <p class="gr-meta">Voting power of affiliated DReps: {formatAda(group.memberPower)}. Every member votes on their own.</p>
+      {noteText && <p class="gr-note">{noteText}</p>}
+      {indicator && <p class="gr-note">{indicator}</p>}
+      {sections.map((s) => {
+        const count = sectionCount(s.kind);
+        const show = s.kind === 'active' || s.kind === 'all' || s.rows.length > 0 || s.after !== null || (count ?? 0) > 0;
+        const next = s.rows.length === GROUP_PAGE_SIZE ? s.rows[s.rows.length - 1].key : null;
+        return show && (
+          <>
+            {s.kind !== 'active' && s.kind !== 'all' && <h3>{SECTION_TITLE[s.kind]} ({count})</h3>}
+            {s.rows.length === 0 ? (
+              s.kind === 'active' || s.kind === 'all' ? <p class="gr-empty">No active members.</p> : null
+            ) : (
+              <ul class="gr-list">
+                {s.rows.map((m) => {
+                  const label = m.drepName ?? shortHash(m.drepId);
+                  const extra = rowNote(m, s.kind === 'all');
+                  return (
+                    <li>
+                      {m.state === 'closed' ? label : <a href={drepPath({ drepId: m.drepId, slug: m.drepSlug })}>{label}</a>}
+                      {extra && <span class="gr-meta"> {extra}</span>}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {(s.after !== null || next) && (
+              <nav class="gr-pager" aria-label={`${SECTION_TITLE[s.kind]} pages`}>
+                {s.after !== null && <a href={pageHref(s.kind, null)} rel="prev">Previous</a>}
+                {next && <a href={pageHref(s.kind, next)} rel="next">Next</a>}
+              </nav>
+            )}
+          </>
+        );
+      })}
+    </section>
+
+    <section>
+      <h2>Policies</h2>
+      <dl class="gr-dl">
+        <dt>Control</dt><dd>{describePolicy(control, names)}</dd>
+        {group.mode === 'permissioned' && (<><dt>Admission</dt><dd>{describePolicy(admission, names)}</dd></>)}
+      </dl>
+    </section>
+
+    {addressChecks.length > 0 && (
+      <section>
+        <h2>Payment addresses</h2>
+        <ul class="gr-list">
+          {addressChecks.map((a) => (
+            <li>
+              <code title={a.entry.address}>{shortHash(a.entry.address)}</code>{a.entry.purpose ? ` · ${a.entry.purpose}` : ''}
+              <span class="gr-meta"> {addressStatusLabel(a.check.status)}{a.check.status === 'script-controlled' && a.entry.treasuryScript ? `: ${describePolicy(treasuryViews.get(a.entry.treasuryScript) ?? null, names, admins)}` : ''}</span>
+            </li>
+          ))}
+        </ul>
+        {group.profileSetHeight !== null && <p class="gr-meta">Profile last changed at block {group.profileSetHeight}.</p>}
+      </section>
+    )}
+
+    <section>
+      <h2>History</h2>
+      <ul class="gr-list">
+        {applied.map((v) => (
+          <li>
+            <a href={txExplorerUrl(net.network, v.txHash)} rel="noopener">{eventLabel(v.tag)}</a>
+            <span class="gr-meta"> block {v.blockHeight}</span>
+          </li>
+        ))}
+      </ul>
+      {group.appliedEvents > applied.length && <p class="gr-meta">The latest {applied.length} applied events are listed.</p>}
+      {notApplied.length > 0 && (
+        <details>
+          <summary>{group.notAppliedEvents} events referring to this group were not applied</summary>
+          <ul class="gr-list">
+            {notApplied.map((v) => (
+              <li>
+                <a href={txExplorerUrl(net.network, v.txHash)} rel="noopener">{eventLabel(v.tag)}</a>
+                <span class="gr-meta"> block {v.blockHeight} · {v.reason ?? 'invalid'}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </section>
+  </Layout>
+)}
+<style>
+  .gr-crumbs { font-size: 0.875rem; color: var(--muted); margin-bottom: 1rem; display: flex; gap: 0.375rem; }
+  .gr-meta, .gr-note, .gr-empty { color: var(--muted); font-size: 0.875rem; }
+  .gr-id code { font-size: 0.8125rem; word-break: break-all; }
+  .gr-list { list-style: none; padding: 0; display: grid; gap: 0.375rem; }
+  .gr-links { list-style: none; padding: 0; display: flex; gap: 1rem; }
+  .gr-dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; }
+  .gr-pager { display: flex; gap: 1rem; margin-top: 0.75rem; font-size: 0.875rem; font-weight: 600; }
+</style>
