@@ -38,7 +38,8 @@ import { openRecoveryStatements, readMeta, slotsFromMeta } from './store/recover
 const MAX_ITEMS = 10;
 
 export interface PhaseReport {
-  lease: 'held' | 'busy' | 'skipped';
+  /** `lost`: another holder took the lease mid phase, the phase ended without a release. */
+  lease: 'held' | 'busy' | 'skipped' | 'lost';
   ingest: IngestResult | null;
   runs: number;
   recovery: Recovery | null;
@@ -190,9 +191,13 @@ export async function runDrepGroupsPhase(ctx: PhaseContext): Promise<PhaseReport
   try {
     await work(ctx, lease, phase, report);
   } catch (err) {
-    if (err instanceof LeaseLostError) return finish();
+    if (err instanceof LeaseLostError) {
+      report.lease = 'lost';
+      return finish();
+    }
     // Any other failure frees the lease for the next tick before it surfaces.
     await releaseLease(ctx.db, lease).catch((e) => console.error('[drep-groups] lease release failed', e));
+    finish();
     throw err;
   }
   await releaseLease(ctx.db, lease);

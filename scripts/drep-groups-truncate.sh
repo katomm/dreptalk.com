@@ -10,6 +10,7 @@
 #
 # Usage: bash scripts/drep-groups-truncate.sh <preprod|mainnet> <height>
 # Mainnet asks for a typed confirmation first (scripts/confirm-prod.sh).
+# On mainnet the request waits until the groups phase runs there.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

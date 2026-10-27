@@ -14,6 +14,7 @@ import {
   ADMIN_RESERVE_QUERIES,
   GOVERNANCE_QUERY_BUDGET,
   GROUPS_QUERY_SHARE,
+  MAX_ENGINE_RUNS_PER_TICK,
   PROFILE_QUERIES_PER_ITEM,
   PROFILE_SELECT_QUERIES,
   RELEASE_RESERVE_QUERIES,
@@ -42,6 +43,29 @@ const create: FakeTx = {
 };
 const founded = (): Chain => ({ tip: 200, txs: [create], regs: [regM] });
 /** `n` groups without members, one create per block. */
+/** `n` groups, one create with a founder join of its own registered member per block. */
+function foundings(n: number): Chain {
+  const member = (i: number): string => K(0x2000 + i);
+  return {
+    tip: 100 + n + 20,
+    txs: Array.from({ length: n }, (_, i) => ({
+      hash: T(0x3000 + i),
+      height: 100 + i,
+      index: 0,
+      cbor: txCbor({
+        payload: payloadValue([ev.create(control.hash), ev.join(0, member(i))], [control.bytes]),
+        requiredSigners: [CONTROL, member(i)],
+      }),
+    })),
+    regs: Array.from({ length: n }, (_, i) => ({
+      drepId: drepIdForCredential({ kind: 'key', hash: member(i) }),
+      action: 'registered' as const,
+      hash: T(0x5000 + i),
+      height: 50,
+      index: i,
+    })),
+  };
+}
 const creates = (n: number): Chain => ({
   tip: 100 + n + 20,
   txs: Array.from({ length: n }, (_, i) => ({
@@ -256,9 +280,12 @@ describe('runDrepGroupsPhase', () => {
 
   it('never exceeds the phase share', async () => {
     for (let n = 1; n <= 12; n++) await seedListed(n);
-    const chain = creates(60);
+    const chain = foundings(200);
     const full = await run({ chain, fetchImpl: siteFetch() });
+    // The budget stopped the engine with work left, not the run cap.
     expect(full.runs).toBeGreaterThan(0);
+    expect(full.runs).toBeLessThan(MAX_ENGINE_RUNS_PER_TICK);
+    expect(full.starved).toContain('engine');
     expect(full.queries).toBeLessThanOrEqual(GROUPS_QUERY_SHARE);
     expect(full.spent).toBe(full.queries);
     const usedBefore = 400;
@@ -308,10 +335,19 @@ describe('runDrepGroupsPhase', () => {
       return tip();
     };
     const r = await run({ koios, db: recording });
-    expect(r.lease).toBe('held');
+    expect(r.lease).toBe('lost');
     expect(r.runs).toBe(0);
     expect(seen).not.toContain(Q.leaseRelease.sql);
     expect(await leaseRow()).toMatchObject({ owner: 'other', token: 'stolen' });
     expect(await count('SELECT COUNT(*) AS n FROM drep_group_txs')).toBe(0);
+  });
+
+  it('releases the lease and rethrows when a step fails', async () => {
+    const koios = fakeKoios(founded());
+    koios.tip = async () => {
+      throw new Error('koios down');
+    };
+    await expect(run({ koios })).rejects.toThrow('koios down');
+    expect((await leaseRow())?.expires_at).toBe(0);
   });
 });
