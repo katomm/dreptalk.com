@@ -3,7 +3,7 @@
 // over a script stays bounded.
 import type { StatusNote } from '../db/drepGroups.js';
 
-export type ScriptView =
+type ScriptView =
   | { kind: 'sig'; keyHash: string }
   | { kind: 'all' | 'any'; children: ScriptView[] }
   | { kind: 'nOfK'; n: string; children: ScriptView[] }
@@ -139,7 +139,7 @@ export function statusNoteLabel(note: StatusNote): string | null {
   }
 }
 
-export type MemberSectionKind = 'all' | 'active' | 'pending' | 'former';
+type MemberSectionKind = 'all' | 'active' | 'pending' | 'former';
 
 /** The URL parameter that carries the cursor of a member section. */
 export const sectionParam = (kind: MemberSectionKind): string => (kind === 'all' ? 'members' : kind);

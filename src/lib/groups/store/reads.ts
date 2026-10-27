@@ -28,6 +28,8 @@ import {
   hashBytes,
   hashFromCol,
   labelTxFromRow,
+  MAX,
+  order,
   posFromRow,
   posOrNull,
   refBinds,
@@ -38,9 +40,6 @@ import { KEYED, KEYED_WIDTH, Q } from './queries.js';
 export { load } from './view.js';
 
 type Row = Record<string, unknown>;
-
-const MAX = Number.MAX_SAFE_INTEGER;
-const order = (p: Pos): [number, number, number, number] => [p.blockHeight, p.txIndex, p.phase, p.index];
 
 /**
  * The first (height, tx index) whose tx end lies strictly after `p`. A tx's events all sit

@@ -12,7 +12,11 @@ import type {
 import { bytesToHex, hexToBytes } from 'drep-groups';
 import { MAX_SCRIPT_DISPLAY_DEPTH } from './constants.js';
 
-export type PosRow = Record<`${string}_h` | `${string}_ti` | `${string}_ph` | `${string}_ix` | `${string}_tx`, unknown>;
+/** The largest tx index and event index a position takes, the index of a tx end. */
+export const MAX = Number.MAX_SAFE_INTEGER;
+
+/** The order columns of a position as binds: height, tx index, phase, index. */
+export const order = (p: Pos): [number, number, number, number] => [p.blockHeight, p.txIndex, p.phase, p.index];
 
 /** Position right after a tx. Mirrors the library's position helper of the same name, which its index does not export. */
 export const afterTx = (tx: TxPosition): Pos => ({
@@ -20,7 +24,7 @@ export const afterTx = (tx: TxPosition): Pos => ({
   txIndex: tx.txIndex,
   txHash: tx.txHash,
   phase: 2,
-  index: Number.MAX_SAFE_INTEGER,
+  index: MAX,
 });
 
 /** A BLOB column as bytes, whatever shape the driver returns it in. */

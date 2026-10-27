@@ -3,7 +3,7 @@
 // recomputes after a truncation, verdict trimming and the member power sum. Scenarios are built
 // through the store's own commit, ledger ingest and recovery steps.
 import { env } from 'cloudflare:test';
-import type { ChangeSet, Credential, EventRef, EventVerdict, Pos, StoredInstance } from 'drep-groups';
+import type { Credential, EventRef, EventVerdict, Pos, StoredInstance } from 'drep-groups';
 import { RETENTION_FLOOR, refKey } from 'drep-groups';
 import { engineProjection } from 'drep-groups/conformance';
 import { describe, expect, it } from 'vitest';
@@ -11,7 +11,7 @@ import { deactivateDreps, upsertDrep } from '../db/dreps.js';
 import { drepArgs } from '../drepLink/__fixtures__/drepHandles.js';
 import { type Allowance, allowance, countingDb, UNLIMITED } from '../sync/queryBudget.js';
 import { D1DriverStore } from './__tests__/d1DriverStore.js';
-import { emptyChange, hex, instance, keyCred, pos, ref, txHashOf, version } from './__tests__/engineFixtures.js';
+import { credUnit, groupUnit, hex, instance, keyCred, pos, ref, txHashOf, version } from './__tests__/engineFixtures.js';
 import { type Chain, ev, type FakeReg, type FakeTx, fakeKoios, K, payloadValue, sigScript, T, txCbor } from './__tests__/fixtures.js';
 import { settle } from './__tests__/loadFixtures.js';
 import { credBytes, hashBytes, posOrNull, refFromCols } from './codec.js';
@@ -26,7 +26,6 @@ import { finishRecovery, openRecovery, truncateStep } from './store/recovery.js'
 
 const db = env.DB;
 type Row = Record<string, unknown>;
-const MAX = Number.MAX_SAFE_INTEGER;
 const NOW = 1_700_000_000_000;
 const HEAVY = 120_000;
 
@@ -49,14 +48,6 @@ const M = (i: number): Credential => keyCred(1000 + i);
 const drep = (c: Credential): string => drepIdForCredential(c);
 const ANCHOR = { url: 'https://example.org/group.json', dataHash: hex(7, 64) };
 
-const groupUnit = (h: number, change: Partial<ChangeSet>) => ({
-  change: { ...emptyChange(), ...change },
-  cursor: { kind: 'group' as const, G: { ...pos(h), index: MAX } },
-});
-const credUnit = (c: Credential, through: Pos, change: Partial<ChangeSet>) => ({
-  change: { ...emptyChange(), ...change },
-  cursor: { kind: 'credential' as const, credential: c, appliedThrough: through },
-});
 
 async function track(creds: Credential[]): Promise<void> {
   const stmt = db.prepare(

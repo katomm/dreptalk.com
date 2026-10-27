@@ -12,7 +12,7 @@ export { PROFILE_RETRY_MS, WEBSITE_RECHECK_MS, WELL_KNOWN_MAX_BYTES } from './co
 const LIMITS = { name: 120, description: 2000, url: 500 };
 const MAX_ADDRESSES = 10;
 
-export interface GroupProfileFields {
+interface GroupProfileFields {
   name: string | null;
   description: string | null;
   website: string | null;

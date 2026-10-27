@@ -11,6 +11,8 @@ import {
   encodeEvent,
   hashBytes,
   hashFromCol,
+  MAX,
+  order,
   posBinds,
   posOrNull,
   refBinds,
@@ -27,9 +29,7 @@ type Row = Record<string, unknown>;
 type Unit = { change: ChangeSet; cursor: CursorUpdate };
 export type Counted = 'open' | 'pending' | 'former';
 
-const MAX = Number.MAX_SAFE_INTEGER;
 const NULL_POS = [null, null, null, null, null] as const;
-const order = (p: Pos): [number, number, number, number] => [p.blockHeight, p.txIndex, p.phase, p.index];
 const optPos = (p: Pos | null): readonly unknown[] => (p === null ? NULL_POS : posBinds(p));
 const later = (a: Pos | null, b: Pos | null): Pos | null => (a === null ? b : b === null || comparePos(a, b) >= 0 ? a : b);
 const earlier = (a: Pos | null, b: Pos | null): Pos | null => (a === null ? b : b === null || comparePos(a, b) <= 0 ? a : b);

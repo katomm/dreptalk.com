@@ -51,7 +51,7 @@ export interface PhaseReport {
   queries: number;
 }
 
-export interface PhaseContext {
+interface PhaseContext {
   db: D1Database;
   koios: GroupsKoios;
   meter: QueryMeter;
@@ -63,7 +63,7 @@ export interface PhaseContext {
 }
 
 /** A view of `parent` that stops at its own `cap` and at the parent's remaining budget minus `reserve`. */
-export function capAllowance(parent: Allowance, cap: number, reserve: number): Allowance {
+function capAllowance(parent: Allowance, cap: number, reserve: number): Allowance {
   const start = parent.spent();
   const spent = () => parent.spent() - start;
   const remaining = () => Math.min(cap - spent(), parent.remaining() - reserve);

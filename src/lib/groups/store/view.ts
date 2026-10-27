@@ -22,6 +22,7 @@ import {
   hashBytes,
   hashFromCol,
   instanceFromRow,
+  order,
   posOrNull,
   refBinds,
   refFromCols,
@@ -32,11 +33,10 @@ import { KEYED, KEYED_WIDTH } from './queries.js';
 type Row = Record<string, unknown>;
 
 /** Mirrors the library's position key, which its index does not export. */
-export const posKey = (p: Pick<Pos, 'blockHeight' | 'txIndex' | 'phase' | 'index'>): string =>
+const posKey = (p: Pick<Pos, 'blockHeight' | 'txIndex' | 'phase' | 'index'>): string =>
   `${p.blockHeight},${p.txIndex},${p.phase},${p.index}`;
 
 const rowPosKey = (r: Row): string => `${r.k_h},${r.k_ti},${r.k_ph},${r.k_ix}`;
-const order = (p: Pos): [number, number, number, number] => [p.blockHeight, p.txIndex, p.phase, p.index];
 
 function scriptFromCol(v: unknown): NativeScript | null {
   if (v === null || v === undefined) return null;

@@ -1,6 +1,6 @@
 /// <reference types="@cloudflare/workers-types" />
 import { env } from 'cloudflare:test';
-import type { Budget, ChainInput, ChainTx, ChangeSet, Credential, EventRef, LedgerInput, Pos, Recovery } from 'drep-groups';
+import type { Budget, ChainInput, ChainTx, Credential, EventRef, LedgerInput, Pos, Recovery } from 'drep-groups';
 import { bytesToHex, credKey, decodePayload, endOf, LeaseLostError, MemoryStore, memberScriptWitness, refKey, runEngine } from 'drep-groups';
 import { generateChain } from 'drep-groups/conformance';
 import { describe, expect, it } from 'vitest';
@@ -8,7 +8,8 @@ import {
   changesPerCall,
   comparableD1,
   comparableMemory,
-  emptyChange,
+  credUnit,
+  groupUnit,
   hex,
   instance,
   keyCred,
@@ -915,14 +916,6 @@ describe('drep groups ingest and recovery', () => {
   });
 });
 
-const groupUnit = (h: number, change: Partial<ChangeSet>) => ({
-  change: { ...emptyChange(), ...change },
-  cursor: { kind: 'group' as const, G: { ...pos(h), index: MAX } },
-});
-const credUnit = (c: Credential, through: Pos, change: Partial<ChangeSet>) => ({
-  change: { ...emptyChange(), ...change },
-  cursor: { kind: 'credential' as const, credential: c, appliedThrough: through },
-});
 
 async function groupRow(g: EventRef): Promise<Row> {
   return (await db.prepare('SELECT * FROM drep_groups WHERE group_tx = ? AND group_ix = ?').bind(hashBytes(g.txHash), g.index).first<Row>()) as Row;

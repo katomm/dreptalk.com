@@ -39,7 +39,7 @@ export function leaseGuardEnd(db: D1Database): D1PreparedStatement {
 }
 
 /** True when the error is the lease guard's CHECK, any other failure stays an error. */
-export function isLeaseFailure(err: unknown): boolean {
+function isLeaseFailure(err: unknown): boolean {
   for (let e: unknown = err; e instanceof Error; e = e.cause) {
     if (/CHECK constraint failed: lease_ok\b/.test(e.message)) return true;
   }

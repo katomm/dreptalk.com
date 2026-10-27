@@ -6,9 +6,11 @@ import { describe, expect, it } from 'vitest';
 import { D1_MAX_BINDS } from '../../db/sql.js';
 import {
   bindCountingDb,
+  credUnit,
   deepScript,
   emptyChange,
   emptyPreRead,
+  groupUnit,
   instance,
   keyCred,
   pos,
@@ -29,19 +31,10 @@ type Unit = { change: ChangeSet; cursor: CursorUpdate };
 
 const G = ref(10);
 const CREATED = pos(10);
-const afterTx = (h: number): Pos => ({ ...pos(h), index: Number.MAX_SAFE_INTEGER });
 const certPos = (h: number, ix = 0): Pos => pos(h, 0, 0, ix);
 const cb = (c: Credential): Uint8Array => credBytes(credKey(c));
 const GTX = hashBytes(G.txHash);
 
-const groupUnit = (h: number, change: Partial<ChangeSet>): Unit => ({
-  change: { ...emptyChange(), ...change },
-  cursor: { kind: 'group', G: afterTx(h) },
-});
-const credUnit = (c: Credential, through: Pos, change: Partial<ChangeSet>): Unit => ({
-  change: { ...emptyChange(), ...change },
-  cursor: { kind: 'credential', credential: c, appliedThrough: through },
-});
 const join = (h: number): EventRef => ({ txHash: txHashOf(h), index: 0 });
 const joined = (h: number, c: Credential, over: Partial<StoredInstance> = {}): StoredInstance =>
   instance(join(h), G, c, pos(h), over);

@@ -3,7 +3,7 @@
 // can inspect how SQLite executes each of them.
 import { RETENTION_FLOOR } from 'drep-groups';
 import { DB_NOW_MS } from '../../db/sql.js';
-import { credKeySql, refKeySql } from '../codec.js';
+import { credKeySql, MAX, refKeySql } from '../codec.js';
 import {
   LEASE_MS,
   LISTED_MIN_MEMBERS,
@@ -14,6 +14,7 @@ import {
   WITNESS_BACKOFF_BASE_MS,
   WITNESS_BACKOFF_MAX_MS,
 } from '../constants.js';
+import { GROUP_MEMBER_DREPS_SQL } from './memberDrepsSql.js';
 
 export interface RegisteredQuery {
   sql: string;
@@ -26,8 +27,6 @@ const LIVE_LEASE = `id = 1 AND token = ? AND expires_at > ${DB_NOW_MS}`;
 /** A VALUES list of `rows` tuples of `width` placeholders. */
 export const values = (width: number, rows: number): string =>
   Array.from({ length: rows }, () => `(${Array.from({ length: width }, () => '?').join(', ')})`).join(', ');
-
-const MAX = Number.MAX_SAFE_INTEGER;
 
 // Statements over a VALUES list of keys, built per chunk length. The registry holds the one row text.
 export const KEYED = Object.freeze({
@@ -260,7 +259,7 @@ export const COMMIT_WIDTH: Readonly<Record<keyof typeof COMMIT, number>> = Objec
 });
 
 /** Binds that follow the rows of a commit statement. */
-export const COMMIT_TRAILING: Readonly<Partial<Record<keyof typeof COMMIT, number>>> = Object.freeze({
+const COMMIT_TRAILING: Readonly<Partial<Record<keyof typeof COMMIT, number>>> = Object.freeze({
   dueProfileIfListed: 1,
   dueProfileIfAnchored: 2,
   deleteWebsiteDue: 1,
@@ -716,7 +715,7 @@ export const REC_KEYED_WIDTH: Readonly<Record<keyof typeof REC_KEYED, number>> =
   deleteGroups: 2,
 });
 
-export const REC_KEYED_TRAILING: Readonly<Partial<Record<keyof typeof REC_KEYED, number>>> = Object.freeze({
+const REC_KEYED_TRAILING: Readonly<Partial<Record<keyof typeof REC_KEYED, number>>> = Object.freeze({
   restoreGroups: 6,
 });
 
@@ -1229,11 +1228,7 @@ export const Q = Object.freeze({
           JOIN drep_groups g ON g.group_tx = i.group_tx AND g.group_ix = i.group_ix AND g.status = 'active' ${PROFILE_JOIN}
           WHERE i.drep_id = ? AND i.counted_as = 'open' ORDER BY i.group_tx, i.group_ix LIMIT ?`,
   },
-  // Binds the group twice. The DReps with an open instance in the group, none while it is closing.
-  groupMemberDreps: {
-    sql: `SELECT i.drep_id FROM drep_group_instances i WHERE i.group_tx = ? AND i.group_ix = ? AND i.counted_as = 'open'
-          AND NOT EXISTS (SELECT 1 FROM drep_groups g WHERE g.group_tx = ? AND g.group_ix = ? AND g.closing = 1)`,
-  },
+  groupMemberDreps: { sql: GROUP_MEMBER_DREPS_SQL },
   recForkCursors: {
     sql: `UPDATE drep_group_meta SET ${RESET_G}, L = -1, L_hash = NULL, R = NULL, reg_time = NULL, reg_offset = 0,
             probe_active = 0, probe_below = NULL, rec_phase = 'done'

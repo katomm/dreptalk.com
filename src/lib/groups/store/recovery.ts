@@ -27,7 +27,7 @@ import {
 
 type Row = Record<string, unknown>;
 
-export type RecoveryPhase = 'jobs' | 'raw' | 'state' | 'undo' | 'versions' | 'credentials' | 'flags' | 'markers' | 'cursors' | 'done';
+type RecoveryPhase = 'jobs' | 'raw' | 'state' | 'undo' | 'versions' | 'credentials' | 'flags' | 'markers' | 'cursors' | 'done';
 
 /** Both recovery slots with the cut time of each truncation, null when unknown. */
 export type Slots = RecoveryState & { firstTime: number | null; thenTime: number | null };

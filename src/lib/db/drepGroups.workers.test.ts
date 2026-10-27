@@ -2,6 +2,8 @@
 import { env } from 'cloudflare:test';
 import type { EventRef } from 'drep-groups';
 import { describe, expect, it } from 'vitest';
+import { type GroupSeed, seedGroup as seedGroupRow } from '../groups/__tests__/engineFixtures.js';
+import { keyHex as keyOf, txHex as txOf } from '../groups/__tests__/loadFixtures.js';
 import { credBytes, hashBytes } from '../groups/codec.js';
 import { drepIdForCredential, groupIdString } from '../groups/ids.js';
 import { runJobs } from '../groups/jobs.js';
@@ -26,37 +28,12 @@ import {
 } from './drepGroups.js';
 
 const db = env.DB as D1Database;
-const txOf = (n: number): string => n.toString(16).padStart(64, '0');
-const keyOf = (n: number): string => n.toString(16).padStart(56, '0');
+const seedGroup = (n: number, o?: GroupSeed): Promise<void> => seedGroupRow(db, n, o);
 const refOf = (n: number): EventRef => ({ txHash: txOf(n), index: 0 });
 const idOf = (n: number): string => groupIdString(refOf(n));
 const drepOf = (n: number): string => drepIdForCredential({ kind: 'key', hash: keyOf(n) });
 const lease = async (): Promise<string> => (await acquireLease(db, invocationOwner())) as string;
 const pos = (h: number): string => `${h}, 0, 2, 0, X'${txOf(h)}'`;
-
-interface GroupSeed {
-  members?: number;
-  power?: string;
-  status?: 'active' | 'dissolved';
-  closing?: number;
-  dissolvedAt?: number | null;
-  mode?: 'open' | 'permissioned';
-}
-
-/** A group row. member_power is a SQL integer literal, exact above 2^53. */
-async function seedGroup(n: number, o: GroupSeed = {}): Promise<void> {
-  const d = o.dissolvedAt ?? null;
-  await db
-    .prepare(
-      `INSERT INTO drep_groups (group_tx, group_ix, cur_h, cur_ti, cur_ph, cur_ix, cur_tx, mode, control, profile_url, profile_hash,
-        seq, status, created_h, created_ti, created_ph, created_ix, created_tx,
-        dissolved_h, dissolved_ti, dissolved_ph, dissolved_ix, dissolved_tx, members, member_power, closing)
-       VALUES (?1, 0, ${pos(1)}, ?2, X'aa', 'https://x.test/g.json', X'0a', '7', ?3, ${pos(1)},
-        ${d === null ? 'NULL, NULL, NULL, NULL, NULL' : pos(d)}, ?4, CAST(?5 AS INTEGER), ?6)`,
-    )
-    .bind(hashBytes(txOf(n)), o.mode ?? 'open', o.status ?? 'active', o.members ?? 2, o.power ?? '0', o.closing ?? 0)
-    .run();
-}
 
 interface InstanceSeed {
   member: number;

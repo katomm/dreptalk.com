@@ -15,7 +15,7 @@ import { writeBatch } from './store/lease.js';
 import { COMMIT, COMMIT_WIDTH, JOB, JOB_TRAILING, JOB_WIDTH, Q } from './store/queries.js';
 import { keyedStatements } from './store/recovery.js';
 
-export type JobKind = 'dissolve' | 'retire' | 'repair' | 'recompute' | 'trim' | 'power' | 'power-scan';
+type JobKind = 'dissolve' | 'retire' | 'repair' | 'recompute' | 'trim' | 'power' | 'power-scan';
 
 export interface JobReport {
   pages: number;

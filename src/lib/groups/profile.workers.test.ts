@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { blake2b256 } from '../crypto/blake.js';
 import { bytesToHex } from '../crypto/hex.js';
 import { profilesToFetch, upsertProfile, websitesToCheck, type ProfileRow } from '../db/drepGroups.js';
+import { type GroupSeed, seedGroup as seedGroupRow } from './__tests__/engineFixtures.js';
+import { txHex as txOf } from './__tests__/loadFixtures.js';
 import { hashBytes } from './codec.js';
 import { groupIdString } from './ids.js';
 import { extractGroupProfile, PROFILE_RETRY_MS, refreshGroupProfiles, verifyGroupWebsites, WEBSITE_RECHECK_MS } from './profile.js';
@@ -21,27 +23,11 @@ const docBytes = new TextEncoder().encode(
 const docHash = bytesToHex(blake2b256(docBytes));
 const okFetch = () => vi.fn().mockResolvedValue(new Response(docBytes, { status: 200, headers: { 'content-type': 'application/json' } }));
 const URL_A = 'https://host.test/g.json';
-const txOf = (n: number): string => n.toString(16).padStart(64, '0');
 const idOf = (n: number): string => groupIdString({ txHash: txOf(n), index: 0 });
 const lease = async (): Promise<string> => (await acquireLease(db, invocationOwner())) as string;
 
-/** A group row with its current anchor and member counter, and optionally a due row. */
-async function seedGroup(n: number, o: { members?: number; url?: string | null; hash?: string | null; due?: 'profile' | 'website' | null; dueAt?: number } = {}) {
-  const url = o.url === undefined ? URL_A : o.url;
-  const hash = o.hash === undefined ? docHash : o.hash;
-  const tx = hashBytes(txOf(n));
-  await db
-    .prepare(
-      `INSERT INTO drep_groups (group_tx, group_ix, cur_h, cur_ti, cur_ph, cur_ix, cur_tx, mode, control, profile_url, profile_hash, seq,
-        status, created_h, created_ti, created_ph, created_ix, created_tx, members)
-       VALUES (?1, 0, 1, 0, 2, 0, ?1, 'open', X'aa', ?2, ?3, '0', 'active', 1, 0, 2, 0, ?1, ?4)`,
-    )
-    .bind(tx, url, hash === null ? null : hashBytes(hash), o.members ?? 2)
-    .run();
-  if (o.due) {
-    await db.prepare('INSERT INTO drep_group_due (kind, group_tx, group_ix, due_at) VALUES (?, ?, 0, ?)').bind(o.due, tx, o.dueAt ?? 0).run();
-  }
-}
+/** A group row with the anchor of the test document unless the seed names another. */
+const seedGroup = (n: number, o: GroupSeed = {}): Promise<void> => seedGroupRow(db, n, { url: URL_A, hash: docHash, ...o });
 
 const dueRows = async (): Promise<Array<{ kind: string; due_at: number }>> =>
   ((await db.prepare('SELECT kind, due_at FROM drep_group_due ORDER BY kind, due_at').all<{ kind: string; due_at: number }>()).results ?? []);

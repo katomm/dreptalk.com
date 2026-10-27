@@ -163,7 +163,7 @@ export async function delayProfile(db: D1Database, lease: string, groupId: strin
   await writeBatch(db, lease, [db.prepare(Q.profileDueRetry.sql).bind(now + PROFILE_RETRY_MS, tx, ix, url, hashBytes(dataHash))]);
 }
 
-export interface GroupRow {
+interface GroupRow {
   groupId: string;
   ref: EventRef;
   mode: 'open' | 'permissioned';
@@ -203,7 +203,7 @@ export interface MemberRow {
   key: string;
 }
 
-export interface VerdictRow {
+interface VerdictRow {
   txHash: string;
   eventIndex: number;
   tag: string | null;

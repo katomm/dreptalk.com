@@ -18,12 +18,15 @@ import {
   credKeyFromCol,
   decodeContext,
   decodeEvent,
+  hashBytes,
   hashFromCol,
   instanceFromRow,
+  MAX,
   posFromRow,
   versionFromRow,
 } from '../codec.js';
 import type { PreRead } from '../store/commit.js';
+import { txHex } from './loadFixtures.js';
 
 export type Unit = { change: ChangeSet; cursor: CursorUpdate };
 
@@ -49,6 +52,18 @@ export const emptyChange = (): ChangeSet => ({
   txContexts: [],
   appliedQueue: [],
   effects: [],
+});
+
+/** A unit that moves the group cursor to the end of the tx at height h. */
+export const groupUnit = (h: number, change: Partial<ChangeSet>): Unit => ({
+  change: { ...emptyChange(), ...change },
+  cursor: { kind: 'group', G: { ...pos(h), index: MAX } },
+});
+
+/** A unit that moves the applied cursor of one credential. */
+export const credUnit = (c: Credential, through: Pos, change: Partial<ChangeSet>): Unit => ({
+  change: { ...emptyChange(), ...change },
+  cursor: { kind: 'credential', credential: c, appliedThrough: through },
 });
 
 export const emptyPreRead = (): PreRead => ({
@@ -373,4 +388,41 @@ export async function changesPerCall<T>(db: D1Database, call: (db: D1Database) =
   });
   const result = await call(counted);
   return { result, changes };
+}
+
+export interface GroupSeed {
+  members?: number;
+  /** A SQL integer literal, exact above 2^53. */
+  power?: string;
+  status?: 'active' | 'dissolved';
+  closing?: number;
+  dissolvedAt?: number | null;
+  mode?: 'open' | 'permissioned';
+  url?: string | null;
+  /** The anchor hash as lowercase hex. */
+  hash?: string | null;
+  due?: 'profile' | 'website' | null;
+  dueAt?: number;
+}
+
+/** A group row keyed by txHex(n), created at height 1, and optionally a due row. */
+export async function seedGroup(db: D1Database, n: number, o: GroupSeed = {}): Promise<void> {
+  const at = (h: number): string => `${h}, 0, 2, 0, X'${txHex(h)}'`;
+  const d = o.dissolvedAt ?? null;
+  const url = o.url === undefined ? 'https://x.test/g.json' : o.url;
+  const hash = o.hash === undefined ? '0a' : o.hash;
+  const tx = hashBytes(txHex(n));
+  await db
+    .prepare(
+      `INSERT INTO drep_groups (group_tx, group_ix, cur_h, cur_ti, cur_ph, cur_ix, cur_tx, mode, control, profile_url, profile_hash,
+        seq, status, created_h, created_ti, created_ph, created_ix, created_tx,
+        dissolved_h, dissolved_ti, dissolved_ph, dissolved_ix, dissolved_tx, members, member_power, closing)
+       VALUES (?1, 0, ${at(1)}, ?2, X'aa', ?3, ?4, '7', ?5, ${at(1)},
+        ${d === null ? 'NULL, NULL, NULL, NULL, NULL' : at(d)}, ?6, CAST(?7 AS INTEGER), ?8)`,
+    )
+    .bind(tx, o.mode ?? 'open', url, hash === null ? null : hashBytes(hash), o.status ?? 'active', o.members ?? 2, o.power ?? '0', o.closing ?? 0)
+    .run();
+  if (o.due) {
+    await db.prepare('INSERT INTO drep_group_due (kind, group_tx, group_ix, due_at) VALUES (?, ?, 0, ?)').bind(o.due, tx, o.dueAt ?? 0).run();
+  }
 }
