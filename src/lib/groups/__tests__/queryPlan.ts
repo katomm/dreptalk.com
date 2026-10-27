@@ -13,19 +13,35 @@ export function declaredCtes(sql: string): Set<string> {
 /**
  * Every plan step that scans a table or sorts: a SCAN that is neither a declared CTE nor the
  * declared bounded scan, and every temp b-tree. A bounded scan walks the named index of a
- * keyset read with ORDER BY and LIMIT. A scan of constant rows reads the VALUES list itself.
+ * keyset read with ORDER BY and LIMIT. A scan of constant rows reads the VALUES list itself. A
+ * seek constrained only by flag columns fails like a scan unless it is such a keyset page.
  */
 export function unboundedScans(q: RegisteredQuery, planDetails: string[]): string[] {
   const ctes = declaredCtes(q.sql);
   const keyset = /\bORDER\s+BY\b/i.test(q.sql) && /\bLIMIT\b/i.test(q.sql);
   return planDetails.filter((d) => {
     if (/^USE TEMP B-TREE\b/.test(d)) return true;
+    if (!keyset && flagOnlySearch(d)) return true;
     const scan = /^SCAN (\S+)(?: USING (?:COVERING )?INDEX (\S+))?/.exec(d);
     if (!scan) return false;
     if (/^SCAN (?:\d+ )?CONSTANT ROWS?$/.test(d)) return false;
     if (ctes.has(scan[1]) && scan[2] === undefined) return false;
     return !(keyset && q.boundedScan !== undefined && scan[2] === q.boundedScan);
   });
+}
+
+// Columns with a handful of values. A seek on them alone walks every row of one value.
+const FLAGS = new Set([
+  'known', 'history_done', 'solo', 'applied', 'marker', 'refetch', 'kind', 'witness_state', 'counted_as', 'status',
+  'complete', 'rebuilding',
+]);
+
+/** A SEARCH whose every constraint is on a flag column, outside a keyset page. */
+export function flagOnlySearch(detail: string): boolean {
+  const m = /^SEARCH \S+ USING (?:COVERING )?INDEX \S+ \((.*)\)$/.exec(detail);
+  if (!m) return false;
+  const cols = m[1].split(' AND ').map((c) => /^\(?([a-z_]+)/.exec(c)?.[1] ?? '');
+  return cols.every((c) => FLAGS.has(c));
 }
 
 /** The plan details of a statement with its binds. */

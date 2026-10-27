@@ -101,9 +101,10 @@ export type Input = { tx: ChainTx } | { ledger: LedgerInput };
 
 /**
  * Stores inputs through the production ingest, marks every credential they name complete (a known
- * DRep with its history done) and moves L and R to `top`.
+ * DRep with its history done) and moves L and R to `top`. The two production ingest calls run on
+ * `ingestDb`, so a caller can meter them alone.
  */
-export async function deliver(db: D1Database, lease: string, inputs: Input[], top: number): Promise<void> {
+export async function deliver(db: D1Database, lease: string, inputs: Input[], top: number, ingestDb: D1Database = db): Promise<void> {
   const ledger = inputs.flatMap((x) => ('ledger' in x ? [x.ledger] : []));
   const txs = inputs.flatMap((x) => ('tx' in x ? [x.tx] : []));
   const creds = new Map<string, Credential>(ledger.map((l) => [credKey(l.credential), l.credential]));
@@ -114,7 +115,7 @@ export async function deliver(db: D1Database, lease: string, inputs: Input[], to
       [...creds.entries()].map(([k, c]) => db.prepare(INGEST.trackCreds(1)).bind(k, drepIdForCredential(c), 1)),
     );
     await storeLedgerRows(
-      db,
+      ingestDb,
       lease,
       ledger.map((input) => ({
         input,
@@ -128,7 +129,7 @@ export async function deliver(db: D1Database, lease: string, inputs: Input[], to
     );
   }
   if (txs.length > 0) {
-    await storeLabelTxs(db, lease, txs.map((tx) => ({ tx, blockHash: tx.txHash })), null, async (h) => h * 20);
+    await storeLabelTxs(ingestDb, lease, txs.map((tx) => ({ tx, blockHash: tx.txHash })), null, async (h) => h * 20);
   }
   const members = txs.flatMap((t) => t.requiredSigners.map((k) => credKey(keyOf(k))));
   await writeBatch(db, lease, [
@@ -215,15 +216,16 @@ const credSql = (base: number, expr = 's.i'): string => `'key:' || printf('%056x
 const POS0 = (h: string, tx: string): string => `${h}, 0, 2, 0, ${tx}`;
 
 /** Label tx rows and their contexts at heights `h`, already applied by the group plane. */
-function txRows(db: D1Database, n: number, base: number, h: string, signers: string): D1PreparedStatement[] {
+function txRows(db: D1Database, n: number, base: number, h: string, signers: string, expr = 's.i'): D1PreparedStatement[] {
+  const tx = hashSql(base, expr);
   return [
     db.prepare(`${series(n)}
       INSERT INTO drep_group_txs (tx_hash, block_height, block_hash, tx_index, marker, payload, required_signers,
         witness_key_hashes, invalid_before, invalid_hereafter, is_valid, payload_repeated, bytes)
-      SELECT ${hashSql(base)}, ${h}, ${hashSql(base)}, 0, 0, X'a10001', ${signers}, '[]', NULL, NULL, 1, 0, 3 FROM s`),
+      SELECT ${tx}, ${h}, ${tx}, 0, 0, X'a10001', ${signers}, '[]', NULL, NULL, 1, 0, 3 FROM s`),
     db.prepare(`${series(n)}
       INSERT INTO drep_group_tx_context (tx_hash, block_height, tx_index, signers, required_signers, invalid_before, invalid_hereafter)
-      SELECT ${hashSql(base)}, ${h}, 0, ${signers}, ${signers}, NULL, NULL FROM s`),
+      SELECT ${tx}, ${h}, 0, ${signers}, ${signers}, NULL, NULL FROM s`),
   ];
 }
 
@@ -231,12 +233,12 @@ function txRows(db: D1Database, n: number, base: number, h: string, signers: str
 function joinRows(
   db: D1Database,
   n: number,
-  o: { txBase: number; credBase: number; h: string; group: Ref; valid: boolean; applied: boolean },
+  o: { txBase: number; txExpr?: string; credBase: number; h: string; group: Ref; valid: boolean; applied: boolean },
 ): D1PreparedStatement[] {
-  const tx = hashSql(o.txBase);
+  const tx = hashSql(o.txBase, o.txExpr);
   const signers = o.valid ? `json_array(printf('%056x', ${o.credBase} + s.i))` : `'[]'`;
   return [
-    ...txRows(db, n, o.txBase, o.h, signers),
+    ...txRows(db, n, o.txBase, o.h, signers, o.txExpr),
     db.prepare(`${series(n)}
       INSERT INTO drep_group_queue (tx_hash, idx, subject, at_h, at_ti, at_ph, at_ix, at_tx, group_tx, group_ix, event_json, applied)
       SELECT ${tx}, 0, ${credSql(o.credBase)}, ${POS0(o.h, tx)}, ?, ?,
@@ -267,11 +269,16 @@ function trackedRows(db: D1Database, n: number, credBase: number, o: { known: nu
 }
 
 /** Ledger rows of `cred` (an SQL expression), kind by `kind` (an SQL expression), at heights `h`. */
-function ledgerRows(db: D1Database, n: number, o: { txBase: number; cred: string; kind: string; h: string }): D1PreparedStatement {
+function ledgerRows(
+  db: D1Database,
+  n: number,
+  o: { txBase: number; txExpr?: string; cred: string; kind: string; h: string },
+): D1PreparedStatement {
+  const tx = hashSql(o.txBase, o.txExpr);
   return db.prepare(`${series(n)}
     INSERT INTO drep_group_ledger (tx_hash, cert_index, cred, drep_id, kind, block_height, block_hash, tx_index, block_time,
       witness, witness_state)
-    SELECT ${hashSql(o.txBase)}, 0, ${o.cred}, 'drep1load', ${o.kind}, ${o.h}, ${hashSql(o.txBase)}, 0, (${o.h}) * 20, NULL, 'na'
+    SELECT ${tx}, 0, ${o.cred}, 'drep1load', ${o.kind}, ${o.h}, ${tx}, 0, (${o.h}) * 20, NULL, 'na'
     FROM s`);
 }
 
@@ -383,8 +390,16 @@ export const SHAPES: Shape[] = [
       return {
         stmts: [
           trackedRows(db, n, 3_000_000, { known: 1, done: 1, applied: POS0(join, joinTx), next: 'NULL, NULL, NULL, NULL, NULL' }),
-          ledgerRows(db, n, { txBase: 2_000_000, cred: credSql(3_000_000), kind: "'reg'", h: reg }),
-          ...joinRows(db, n, { txBase: 2_000_001, credBase: 3_000_000, h: join, group: b.group, valid: true, applied: true }),
+          ledgerRows(db, n, { txBase: 2_000_000, txExpr: '2 * s.i', cred: credSql(3_000_000), kind: "'reg'", h: reg }),
+          ...joinRows(db, n, {
+            txBase: 2_000_000,
+            txExpr: '2 * s.i + 1',
+            credBase: 3_000_000,
+            h: join,
+            group: b.group,
+            valid: true,
+            applied: true,
+          }),
           db.prepare(`${series(n)}
             INSERT INTO drep_group_instances (join_tx, join_ix, group_tx, group_ix, cred, drep_id, mode, joined_h, joined_ti,
               joined_ph, joined_ix, joined_tx, counted_as)
@@ -589,4 +604,27 @@ export function compactCreates(count: number, from: number): { inputs: Input[]; 
     inputs.push({ tx: labelTx(h + 1, h + 1, { payload: payload([ev.create(control.hash), ev.join(0, f)], [control.bytes]), rs: [f], wk: [f] }) });
   }
   return { inputs, top: from + 2 * count - 1 };
+}
+
+/**
+ * The same number of groups at the lowest cost per create: one registered founder with one shared
+ * control script published once, 64 creates per tx, then the founder joins every group, 64 joins per tx.
+ */
+export function batchedCreates(count: number, from: number): { inputs: Input[]; top: number } {
+  const f = keyHex(400_000);
+  const control = sigScript(f);
+  const inputs: Input[] = [{ ledger: ledgerRow(from, from, keyOf(f), 'reg') }];
+  const txs = Math.ceil(count / 64);
+  const per = (t: number) => Math.min(64, count - 64 * t);
+  for (let t = 0; t < txs; t++) {
+    const events = Array.from({ length: per(t) }, () => ev.create(control.hash));
+    const h = from + 1 + t;
+    inputs.push({ tx: labelTx(h, h, { payload: payload(events, t === 0 ? [control.bytes] : []), wk: [f] }) });
+  }
+  for (let t = 0; t < txs; t++) {
+    const groups = Array.from({ length: per(t) }, (_, i) => ev.join({ txHash: txHex(from + 1 + t), index: i }, f));
+    const h = from + 1 + txs + t;
+    inputs.push({ tx: labelTx(h, h, { payload: payload(groups), rs: [f] }) });
+  }
+  return { inputs, top: from + 2 * txs };
 }

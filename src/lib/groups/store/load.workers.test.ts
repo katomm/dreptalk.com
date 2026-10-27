@@ -9,13 +9,16 @@
 // founder join grow the database by 6,262,784 to 6,266,880 bytes (one page apart between runs),
 // 6,263 to 6,267 bytes per create, above the bound of 2,000. The stored column values alone are
 // 3,301 bytes per create, mostly hashes and keys as hex text across 12 tables, before any index,
-// so the bound fails on the schema, not on a query.
+// so the bound fails on the schema, not on a query. Batched spam, one registered founder with one
+// shared control script, 64 creates per tx and the founder joining every group, costs 4,465 bytes
+// per create on the same measurement, also above 2,000, so that test records its value only.
 import { env } from 'cloudflare:test';
 import type { Budget } from 'drep-groups';
 import { endOf, runEngine } from 'drep-groups';
 import { describe, expect, it } from 'vitest';
 import {
   baseInputs,
+  batchedCreates,
   compactCreates,
   deliver,
   HISTORY_FROM,
@@ -48,6 +51,10 @@ interface Measured {
   work: { verdicts: number; valid: number };
   truncate: Cost;
   rebuildCall: Cost;
+  /** The production ingest of the 20 new inputs, storeLedgerRows and storeLabelTxs. */
+  ingest: Cost;
+  /** The most queries of one truncation call. */
+  truncateCallMax: number;
 }
 
 const heightOf = (x: Input): number => ('tx' in x ? x.tx.blockHeight : x.ledger.blockHeight);
@@ -79,7 +86,9 @@ async function measure(shape: (typeof SHAPES)[number], n: number): Promise<Measu
 
   const fresh = shape.fresh(history.top, b.base, n);
   const top = Math.max(...fresh.inputs.map(heightOf));
-  await deliver(env.DB, lease, fresh.inputs, top);
+  const ingestMeter = meteredDb(env.DB);
+  await deliver(env.DB, lease, fresh.inputs, top, ingestMeter.db);
+  const ingest = { queries: ingestMeter.queries(), rows: ingestMeter.rowsRead() };
 
   const runs: Cost[] = [];
   for (let more = true; more; ) {
@@ -111,7 +120,15 @@ async function measure(shape: (typeof SHAPES)[number], n: number): Promise<Measu
   await openRecovery(env.DB, { kind: 'rebuild' }, lease);
   const rebuildCall = (await meteredRun(lease)).cost;
 
-  return { runs, total: sum(runs), work, truncate: sum(truncation), rebuildCall };
+  return {
+    runs,
+    total: sum(runs),
+    work,
+    truncate: sum(truncation),
+    rebuildCall,
+    ingest,
+    truncateCallMax: Math.max(...truncation.map((c) => c.queries)),
+  };
 }
 
 const results = new Map<string, Map<number, Measured>>();
@@ -145,6 +162,15 @@ describe('the engine store cost does not grow with stored history', () => {
       // A rebuild call works one page whatever is stored beyond it.
       expect(r10k.rebuildCall.queries).toBe(r1k.rebuildCall.queries);
       expect(r10k.rebuildCall.rows).toBeLessThanOrEqual(r1k.rebuildCall.rows * 2 + 50);
+      // The ingest of the same new inputs costs the same whatever is stored.
+      expect(r10k.ingest.queries).toBe(r0.ingest.queries);
+      expect(r1k.ingest.queries).toBe(r0.ingest.queries);
+      expect(r10k.ingest.rows).toBeLessThanOrEqual(r0.ingest.rows * 2 + 50);
+      // Every recovery call is one engine run and fits its query limit.
+      for (const r of [r0, r1k, r10k]) {
+        expect(r.truncateCallMax).toBeLessThanOrEqual(RUN_MAX_QUERIES);
+        expect(r.rebuildCall.queries).toBeLessThanOrEqual(RUN_MAX_QUERIES);
+      }
     });
   }
 
@@ -163,7 +189,7 @@ describe('the engine store cost does not grow with stored history', () => {
     for (const [name, per] of results) {
       for (const [n, r] of per) {
         lines.push(
-          `${name} | ${n} | runs ${r.runs.length} | first ${r.runs[0].queries}q ${r.runs[0].rows}r | all ${r.total.queries}q ${r.total.rows}r | truncate ${r.truncate.queries}q ${r.truncate.rows}r | rebuild call ${r.rebuildCall.queries}q ${r.rebuildCall.rows}r`,
+          `${name} | ${n} | runs ${r.runs.length} | first ${r.runs[0].queries}q ${r.runs[0].rows}r | all ${r.total.queries}q ${r.total.rows}r | truncate ${r.truncate.queries}q ${r.truncate.rows}r | rebuild call ${r.rebuildCall.queries}q ${r.rebuildCall.rows}r | truncate call max ${r.truncateCallMax}q | ingest ${r.ingest.queries}q ${r.ingest.rows}r`,
         );
       }
     }
@@ -178,6 +204,7 @@ const membersDone = (done: 0 | 1): D1PreparedStatement =>
     JSON.stringify(WORST_MEMBERS),
   );
 
+// The worst measured normal run is 284 queries of 400 (64 anchored updates with control changes per tx).
 describe('the worst case of one engine run', () => {
   const worst = new Map<string, { queries: number; units: number; verdicts: { n: number; valid: number } }>();
   for (const variant of Object.keys(HOSTILE)) {
@@ -210,29 +237,39 @@ describe('the worst case of one engine run', () => {
 
 const sizeAfter = async (): Promise<number> => (await env.DB.prepare('SELECT 1').all()).meta.size_after as number;
 
+/** Database growth per create of the inputs, run in through the engine. */
+async function bytesPerCreate(c: { inputs: Input[]; top: number }, creates: number): Promise<number> {
+  // Earlier tests freed pages that new rows would reuse without growing the file, so a filler
+  // takes every free page first and the measurement starts at a file that only grows.
+  await env.DB.prepare('CREATE TABLE IF NOT EXISTS load_filler (b BLOB)').run();
+  for (let size = await sizeAfter(); ; ) {
+    const r = await env.DB.prepare('INSERT INTO load_filler (b) VALUES (zeroblob(262144))').run();
+    if ((r.meta.size_after as number) > size) break;
+    size = r.meta.size_after as number;
+  }
+  const before = await sizeAfter();
+  const lease = (await acquireLease(env.DB, invocationOwner())) as string;
+  await deliver(env.DB, lease, c.inputs, c.top);
+  await settle(env.DB, lease, BIG);
+  const after = await sizeAfter();
+  await env.DB.prepare('DROP TABLE load_filler').run();
+  const counts = await env.DB.prepare(
+    "SELECT (SELECT COUNT(*) FROM drep_groups) AS groups, (SELECT COUNT(*) FROM drep_group_instances WHERE counted_as = 'open') AS members",
+  ).first();
+  expect(counts).toEqual({ groups: creates, members: creates });
+  return (after - before) / creates;
+}
+
 describe('storage cost of spam', () => {
   it('stores a valid compact create with its founder join in under 2,000 bytes', { timeout: 120_000 }, async () => {
-    // Earlier tests freed pages that new rows would reuse without growing the file, so a filler
-    // takes every free page first and the measurement starts at a file that only grows.
-    await env.DB.prepare('CREATE TABLE IF NOT EXISTS load_filler (b BLOB)').run();
-    for (let size = await sizeAfter(); ; ) {
-      const r = await env.DB.prepare('INSERT INTO load_filler (b) VALUES (zeroblob(262144))').run();
-      if ((r.meta.size_after as number) > size) break;
-      size = r.meta.size_after as number;
-    }
-    const before = await sizeAfter();
-    const lease = (await acquireLease(env.DB, invocationOwner())) as string;
-    const c = compactCreates(1_000, HISTORY_FROM);
-    await deliver(env.DB, lease, c.inputs, c.top);
-    await settle(env.DB, lease, BIG);
-    const after = await sizeAfter();
-    await env.DB.prepare('DROP TABLE load_filler').run();
-    const counts = await env.DB.prepare(
-      "SELECT (SELECT COUNT(*) FROM drep_groups) AS groups, (SELECT COUNT(*) FROM drep_group_instances WHERE counted_as = 'open') AS members",
-    ).first();
-    expect(counts).toEqual({ groups: 1_000, members: 1_000 });
-    const perCreate = (after - before) / 1_000;
-    console.log(`storage: ${after - before} bytes for 1,000 creates, ${perCreate} bytes per create`);
+    const perCreate = await bytesPerCreate(compactCreates(1_000, HISTORY_FROM), 1_000);
+    console.log(`storage, one founder per create: ${perCreate} bytes per create`);
     expect(perCreate).toBeLessThan(2_000);
+  });
+
+  it('records the cost of creates batched 64 per tx with one founder', { timeout: 120_000 }, async () => {
+    const perCreate = await bytesPerCreate(batchedCreates(1_000, HISTORY_FROM), 1_000);
+    console.log(`storage, batched: ${perCreate} bytes per create`);
+    expect(perCreate).toBeGreaterThan(0);
   });
 });

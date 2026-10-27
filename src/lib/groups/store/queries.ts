@@ -282,16 +282,18 @@ export const INGEST = Object.freeze({
   insertLedger: (n: number) => `INSERT INTO drep_group_ledger (tx_hash, cert_index, cred, drep_id, kind, block_height,
       block_hash, tx_index, block_time, witness, witness_state) VALUES ${values(11, n)}
     ON CONFLICT (tx_hash, cert_index) DO NOTHING`,
+  // The unary plus keeps the flag index out, so the update seeks the key list on the primary key.
   knownFromLedger: (n: number) => `WITH k(cred) AS (VALUES ${values(1, n)})
-    UPDATE drep_group_tracked SET known = 1, history_done = 0 WHERE known = 0 AND cred IN (SELECT cred FROM k)`,
+    UPDATE drep_group_tracked SET known = 1, history_done = 0 WHERE cred IN (SELECT cred FROM k) AND +known = 0`,
   // Moves found back to an earlier checked row with a witness. One row per credential.
   moveFound: (n: number) => `WITH d(cred, h, ti, ph, ix, tx) AS (VALUES ${values(6, n)})
     UPDATE drep_group_tracked SET found_h = d.h, found_ti = d.ti, found_ph = d.ph, found_ix = d.ix, found_tx = d.tx
     FROM d WHERE drep_group_tracked.cred = d.cred
       AND (found_h IS NULL OR (found_h, found_ti, found_ph, found_ix) > (d.h, d.ti, d.ph, d.ix))`,
   // Binds the rows, then the known value. A credential is judged once, a later answer changes nothing.
+  // The unary plus keeps the flag index out, as in knownFromLedger.
   setKnown: (n: number) => `WITH k(cred) AS (VALUES ${values(1, n)})
-    UPDATE drep_group_tracked SET known = ? WHERE known IS NULL AND cred IN (SELECT cred FROM k)`,
+    UPDATE drep_group_tracked SET known = ? WHERE cred IN (SELECT cred FROM k) AND +known IS NULL`,
   historyDone: (n: number) => `WITH k(cred) AS (VALUES ${values(1, n)})
     UPDATE drep_group_tracked SET history_done = 1, history_offset = 0 WHERE cred IN (SELECT cred FROM k)`,
   markSolo: (n: number) => `WITH k(cred) AS (VALUES ${values(1, n)})

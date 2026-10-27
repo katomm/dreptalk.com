@@ -49,6 +49,26 @@ describe('query plans of the DRep groups store', () => {
     expect(unboundedScans(byRetry, await planOf(env.DB, byRetry.sql, [0]))).toEqual([]);
   });
 
+  it('flags a seek on flag columns only', async () => {
+    // known = 0 rows grow with a flood of fake keys, the flag index walks all of them.
+    const flagged = {
+      sql: `WITH k(cred) AS (VALUES (?))
+        UPDATE drep_group_tracked SET known = 1 WHERE known = 0 AND cred IN (SELECT cred FROM k)`,
+    };
+    const plan = await planOf(env.DB, flagged.sql, ['key:00']);
+    expect(plan.some((d) => d.startsWith('SEARCH drep_group_tracked USING'))).toBe(true);
+    expect(unboundedScans(flagged, plan)).toHaveLength(1);
+    // The same seek in a keyset page passes, the page bounds what it reads.
+    const page = { sql: 'SELECT cred FROM drep_group_tracked WHERE known = ? ORDER BY known, seq LIMIT ?' };
+    expect(unboundedScans(page, await planOf(env.DB, page.sql, [0, 10]))).toEqual([]);
+    // Keyed on the credential the update seeks the primary key.
+    const keyed = {
+      sql: `WITH k(cred) AS (VALUES (?))
+        UPDATE drep_group_tracked SET known = 1 WHERE cred IN (SELECT cred FROM k) AND +known = 0`,
+    };
+    expect(unboundedScans(keyed, await planOf(env.DB, keyed.sql, ['key:00']))).toEqual([]);
+  });
+
   it('uses an index for every registered query', { timeout: 30_000 }, async () => {
     const failures: Record<string, string[]> = {};
     for (const [name, q] of Object.entries(Q)) {
