@@ -14,7 +14,7 @@ let tableNames: string[] = [];
 // User tables only: excludes SQLite internals, Cloudflare internals, the
 // migration-tracking table, and the FTS5 virtual tables plus their shadow
 // tables. FTS tables cannot be cleared with a direct DELETE (external
-// content); deleting the source rows fires the sync triggers instead, which
+// content). Deleting the source rows fires the sync triggers instead, which
 // empties the index correctly.
 async function userTables(): Promise<string[]> {
   const result = await env.DB.prepare(

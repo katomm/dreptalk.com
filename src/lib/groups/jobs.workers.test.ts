@@ -48,7 +48,6 @@ const M = (i: number): Credential => keyCred(1000 + i);
 const drep = (c: Credential): string => drepIdForCredential(c);
 const ANCHOR = { url: 'https://example.org/group.json', dataHash: hex(7, 64) };
 
-
 async function track(creds: Credential[]): Promise<void> {
   const stmt = db.prepare(
     `INSERT OR IGNORE INTO drep_group_tracked (cred, seq, known, history_done)

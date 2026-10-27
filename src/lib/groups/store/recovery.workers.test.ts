@@ -916,7 +916,6 @@ describe('drep groups ingest and recovery', () => {
   });
 });
 
-
 async function groupRow(g: EventRef): Promise<Row> {
   return (await db.prepare('SELECT * FROM drep_groups WHERE group_tx = ? AND group_ix = ?').bind(hashBytes(g.txHash), g.index).first<Row>()) as Row;
 }
