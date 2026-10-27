@@ -22,7 +22,9 @@ import {
   baseInputs,
   batchedCreates,
   compactCreates,
+  credSql,
   deliver,
+  hashSql,
   HISTORY_FROM,
   HOSTILE,
   historyApplied,
@@ -30,14 +32,18 @@ import {
   type Input,
   meteredDb,
   SHAPES,
+  series,
   settle,
+  txHex,
   WORST_MEMBERS,
   worstCaseBase,
 } from '../__tests__/loadFixtures.js';
+import { hashBytes } from '../codec.js';
 import { ENGINE_BUDGET, RUN_MAX_QUERIES } from '../constants.js';
 import { D1Store } from './d1Store.js';
 import { acquireLease, invocationOwner } from './lease.js';
 import { frontiers, pendingRecovery } from './reads.js';
+import { INGEST, Q } from './queries.js';
 import { openRecovery } from './recovery.js';
 
 const SIZES = [0, 1_000, 10_000] as const;
@@ -198,6 +204,99 @@ describe('the engine store cost does not grow with stored history', () => {
     console.log(lines.join('\n'));
     expect(lines.length).toBe(SHAPES.length * SIZES.length);
   });
+});
+
+// The selections of the Koios ingest, each over n stored rows that it must not walk: the dedup of
+// discovered txs against n stored txs, the probe for the highest stored block below the top of n
+// txs and n ledger rows, the gate's oldest unchecked credentials among n unchecked and n judged
+// unknown ones, and the due witness checks among n pending rows that back off.
+const SELECTION_FROM = 1_000;
+const SELECTIONS: Array<{ name: string; seed: (n: number) => string[]; run: (db: D1Database, n: number) => Promise<number> }> = [
+  {
+    name: 'discovery dedup',
+    seed: (n) => [
+      `${series(n)} INSERT INTO drep_group_txs (tx_hash, block_height, block_hash, tx_index, marker)
+        SELECT ${hashSql(5_000_000)}, ${SELECTION_FROM} + s.i, ${hashSql(5_000_000)}, 0, 1 FROM s`,
+    ],
+    run: async (db, n) => {
+      // 20 discovered txs that are new and the two stored ones at either end of the history.
+      const hashes = [...Array.from({ length: 20 }, (_, i) => txHex(9_000_000 + i)), txHex(5_000_000), txHex(5_000_000 + Math.max(0, n - 1))];
+      const r = await db.prepare(INGEST.existingTxs(hashes.length)).bind(...hashes.map(hashBytes)).all();
+      return r.results.length;
+    },
+  },
+  {
+    name: 'probe selection',
+    seed: (n) => [
+      // One block of each table below the history, the answer when nothing else is stored.
+      `INSERT INTO drep_group_txs (tx_hash, block_height, block_hash, tx_index, marker) VALUES (${hashSql(4_000_000, '0')}, 10, ${hashSql(4_000_000, '0')}, 0, 1)`,
+      `INSERT INTO drep_group_ledger (tx_hash, cert_index, cred, kind, block_height, block_hash, tx_index, block_time, witness_state)
+        VALUES (${hashSql(4_000_001, '0')}, 0, ${credSql(4_000_001, '0')}, 'reg', 11, ${hashSql(4_000_001, '0')}, 0, 220, 'na')`,
+      `${series(n)} INSERT INTO drep_group_txs (tx_hash, block_height, block_hash, tx_index, marker)
+        SELECT ${hashSql(5_000_000)}, ${SELECTION_FROM} + s.i, ${hashSql(5_000_000)}, 0, 1 FROM s`,
+      `${series(n)} INSERT INTO drep_group_ledger (tx_hash, cert_index, cred, kind, block_height, block_hash, tx_index,
+          block_time, witness_state)
+        SELECT ${hashSql(6_000_000)}, 0, ${credSql(6_000_000)}, 'reg', ${SELECTION_FROM} + s.i, ${hashSql(6_000_000)}, 0,
+          (${SELECTION_FROM} + s.i) * 20, 'na' FROM s`,
+    ],
+    run: async (db, n) => {
+      const below = SELECTION_FROM + n;
+      const res = await db.batch([db.prepare(Q.probeTxBlock.sql).bind(below), db.prepare(Q.probeLedgerBlock.sql).bind(below)]);
+      return res.reduce((k, r) => k + r.results.length, 0);
+    },
+  },
+  {
+    name: 'gate selection',
+    seed: (n) => [
+      `${series(n)} INSERT INTO drep_group_tracked (cred, seq, known) SELECT ${credSql(7_000_000)}, 1 + s.i, 0 FROM s`,
+      `${series(n)} INSERT INTO drep_group_tracked (cred, seq, known) SELECT ${credSql(7_100_000)}, 100000 + s.i, NULL FROM s`,
+      `${series(20)} INSERT INTO drep_group_tracked (cred, seq, known) SELECT ${credSql(7_200_000)}, 200000 + s.i, NULL FROM s`,
+    ],
+    run: async (db) => (await db.prepare(Q.gateCandidates.sql).bind(20).all()).results.length,
+  },
+  {
+    name: 'witness search',
+    seed: (n) => [
+      `${series(n)} INSERT INTO drep_group_ledger (tx_hash, cert_index, cred, kind, block_height, block_hash, tx_index,
+          block_time, witness_state, witness_attempts, witness_retry_at)
+        SELECT ${hashSql(8_000_000)}, 0, ${credSql(8_000_000)}, 'reg', ${SELECTION_FROM} + s.i, ${hashSql(8_000_000)}, 0,
+          (${SELECTION_FROM} + s.i) * 20, 'pending', 5, 1000000000000 FROM s`,
+      `${series(20)} INSERT INTO drep_group_ledger (tx_hash, cert_index, cred, kind, block_height, block_hash, tx_index,
+          block_time, witness_state)
+        SELECT ${hashSql(8_100_000)}, 0, ${credSql(8_100_000)}, 'reg', 50 + s.i, ${hashSql(8_100_000)}, 0, (50 + s.i) * 20,
+          'pending' FROM s`,
+    ],
+    run: async (db) => (await db.prepare(Q.pendingWitnesses.sql).bind(1_000, 50).all()).results.length,
+  },
+];
+
+describe('the ingest selections do not grow with stored rows', () => {
+  const measured = new Map<string, Map<number, Cost & { found: number }>>();
+  for (const sel of SELECTIONS) {
+    for (const n of SIZES) {
+      it(`${sel.name}: ${n} rows`, { timeout: 60_000 }, async () => {
+        await env.DB.batch(sel.seed(n).map((sql) => env.DB.prepare(sql)));
+        const m = meteredDb(env.DB);
+        const found = await sel.run(m.db, n);
+        const per = measured.get(sel.name) ?? new Map();
+        per.set(n, { queries: m.queries(), rows: m.rowsRead(), found });
+        measured.set(sel.name, per);
+      });
+    }
+
+    it(`${sel.name}: queries equal and rows read flat across 0, 1,000 and 10,000 rows`, () => {
+      const per = measured.get(sel.name);
+      if (!per || per.size !== SIZES.length) throw new Error('a measurement is missing');
+      const [r0, r1k, r10k] = SIZES.map((n) => per.get(n) as Cost & { found: number });
+      console.log(`${sel.name}: ${SIZES.map((n, i) => `${n} rows ${[r0, r1k, r10k][i].queries}q ${[r0, r1k, r10k][i].rows}r`).join(', ')}`);
+      expect(r10k.queries).toBe(r0.queries);
+      expect(r1k.queries).toBe(r0.queries);
+      expect(r10k.rows).toBeLessThanOrEqual(r0.rows * 2 + 50);
+      expect(r1k.rows).toBeLessThanOrEqual(r0.rows * 2 + 50);
+      // Same answer whatever is stored beyond it, the stored dedup hits aside.
+      if (sel.name !== 'discovery dedup') expect(r10k.found).toBe(r0.found);
+    });
+  }
 });
 
 const membersDone = (done: 0 | 1): D1PreparedStatement =>

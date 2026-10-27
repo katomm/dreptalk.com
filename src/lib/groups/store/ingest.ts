@@ -246,8 +246,13 @@ export async function setKnown(db: D1Database, lease: string, known: string[], u
 }
 
 /** Stores the complete histories of a batch of credentials and marks them done. */
-export async function finishHistoryBatch(db: D1Database, lease: string, creds: string[], rows: StoredLedgerRow[]): Promise<void> {
-  await storeLedger(db, lease, rows, stmts(db, 'historyDone', creds, (c) => [credBytes(c)]));
+export async function finishHistoryBatch(
+  db: D1Database,
+  lease: string,
+  creds: string[],
+  rows: StoredLedgerRow[],
+): Promise<Array<'stored' | 'duplicate'>> {
+  return storeLedger(db, lease, rows, stmts(db, 'historyDone', creds, (c) => [credBytes(c)]));
 }
 
 /** Stores one page of a solo history. A null offset ends the history. */
@@ -257,8 +262,8 @@ export async function storeHistoryPage(
   cred: string,
   rows: StoredLedgerRow[],
   nextOffset: number | null,
-): Promise<void> {
-  await storeLedger(
+): Promise<Array<'stored' | 'duplicate'>> {
+  return storeLedger(
     db,
     lease,
     rows,

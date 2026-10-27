@@ -12,8 +12,9 @@ import { INGEST } from '../store/queries.js';
 
 const MAX = Number.MAX_SAFE_INTEGER;
 
-// A minimal definite length CBOR encoder: unsigned integers, bytes, text, arrays, maps with uint keys.
-type Cbor = number | Uint8Array | string | Cbor[] | Map<number, Cbor>;
+// A minimal definite length CBOR encoder: unsigned integers, bytes, text, arrays, maps with uint keys,
+// booleans and null.
+export type Cbor = number | boolean | null | Uint8Array | string | Cbor[] | Map<number, Cbor>;
 function head(out: number[], major: number, n: number): void {
   const m = major << 5;
   if (n < 24) out.push(m | n);
@@ -22,7 +23,9 @@ function head(out: number[], major: number, n: number): void {
   else out.push(m | 26, (n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff);
 }
 function put(out: number[], v: Cbor): void {
-  if (typeof v === 'number') head(out, 0, v);
+  if (v === null) out.push(0xf6);
+  else if (typeof v === 'boolean') out.push(v ? 0xf5 : 0xf4);
+  else if (typeof v === 'number') head(out, 0, v);
   else if (v instanceof Uint8Array) {
     head(out, 2, v.length);
     out.push(...v);
@@ -51,9 +54,12 @@ export const txHex = (n: number): string => n.toString(16).padStart(64, '0');
 export const keyHex = (n: number): string => n.toString(16).padStart(56, '0');
 export const keyOf = (hash: string): Credential => ({ kind: 'key', hash });
 
+/** The native script of a single key signature as a CBOR value. */
+export const sig = (key: string): Cbor => [0, hexToBytes(key)];
+
 /** The native script of a single key signature and its hash. */
 export function sigScript(key: string): { bytes: Uint8Array; hash: string } {
-  const bytes = cbor([0, hexToBytes(key)]);
+  const bytes = cbor(sig(key));
   return { bytes, hash: nativeScriptHash(bytes) };
 }
 
@@ -62,19 +68,34 @@ const refCbor = (r: Ref): Cbor => [hexToBytes(r.txHash), r.index];
 export const ev = {
   create: (control: string): Cbor => [0, 0, hexToBytes(control), []],
   update: (group: Ref, seq: number, changes = new Map<number, Cbor>()): Cbor => [1, refCbor(group), seq, changes],
-  join: (group: Ref | number, member: string): Cbor => [3, typeof group === 'number' ? [group] : refCbor(group), [0, hexToBytes(member)]],
+  join: (group: Ref | number, member: string, kind: 'key' | 'script' = 'key'): Cbor => [
+    3,
+    typeof group === 'number' ? [group] : refCbor(group),
+    [kind === 'key' ? 0 : 1, hexToBytes(member)],
+  ],
   approve: (join: Ref): Cbor => [4, refCbor(join)],
   leave: (join: Ref): Cbor => [5, refCbor(join)],
 };
 
-/** Payload bytes, scripts published under key 2 as single chunk entries. */
-export function payload(events: Cbor[], scripts: Uint8Array[] = []): Uint8Array {
+const chunks = (b: Uint8Array): Uint8Array[] => {
+  const out: Uint8Array[] = [];
+  for (let i = 0; i < b.length; i += 64) out.push(b.subarray(i, i + 64));
+  return out;
+};
+
+/** The payload as a CBOR value, scripts published under key 2 in chunks of at most 64 bytes. */
+export function payloadValue(events: Cbor[], scripts: Uint8Array[] = []): Cbor {
   const m = new Map<number, Cbor>([
     [0, 1],
     [1, events],
   ]);
-  if (scripts.length > 0) m.set(2, scripts.map((s) => [s]));
-  return cbor(m);
+  if (scripts.length > 0) m.set(2, scripts.map(chunks));
+  return m;
+}
+
+/** Payload bytes. */
+export function payload(events: Cbor[], scripts: Uint8Array[] = []): Uint8Array {
+  return cbor(payloadValue(events, scripts));
 }
 
 export function labelTx(n: number, h: number, o: { payload: Uint8Array; rs?: string[]; wk?: string[] }): ChainTx {
@@ -208,11 +229,11 @@ export function meteredDb(real: D1Database): { db: D1Database; queries: () => nu
 // Bulk histories. Every statement generates its rows from a series 0..n-1 in SQL, so 10,000
 // rows take one statement per table. Hashes are the bytes of printf('%064x', ...) of a counter,
 // keys of printf('%056x', ...), exactly txHex and keyHex. A history row sits at its own height.
-const series = (n: number): string =>
+export const series = (n: number): string =>
   `WITH RECURSIVE s(i) AS (SELECT 0 WHERE ${n} > 0 UNION ALL SELECT i + 1 FROM s WHERE i + 1 < ${n})`;
-const hashSql = (base: number, expr = 's.i'): string => `unhex(printf('%064x', ${base} + ${expr}))`;
+export const hashSql = (base: number, expr = 's.i'): string => `unhex(printf('%064x', ${base} + ${expr}))`;
 const keySql = (base: number, expr = 's.i'): string => `unhex(printf('%056x', ${base} + ${expr}))`;
-const credSql = (base: number, expr = 's.i'): string => `unhex('00' || printf('%056x', ${base} + ${expr}))`;
+export const credSql = (base: number, expr = 's.i'): string => `unhex('00' || printf('%056x', ${base} + ${expr}))`;
 /** SQL literal of a stored key credential. */
 const credLit = (c: Credential): string => `X'${bytesToHex(credBytes(credKey(c)))}'`;
 const POS0 = (h: string, tx: string): string => `${h}, 0, 2, 0, ${tx}`;

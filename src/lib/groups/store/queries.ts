@@ -3,7 +3,7 @@
 // can inspect how SQLite executes each of them.
 import { DB_NOW_MS } from '../../db/sql.js';
 import { credKeySql, refKeySql } from '../codec.js';
-import { LEASE_MS, LISTED_MIN_MEMBERS, WITNESS_BACKOFF_BASE_MS, WITNESS_BACKOFF_MAX_MS } from '../constants.js';
+import { LEASE_MS, LISTED_MIN_MEMBERS, MARKER_REFETCH_ATTEMPTS, WITNESS_BACKOFF_BASE_MS, WITNESS_BACKOFF_MAX_MS } from '../constants.js';
 
 export interface RegisteredQuery {
   sql: string;
@@ -313,6 +313,13 @@ export const INGEST = Object.freeze({
       witness_retry_at = ? + MIN(${WITNESS_BACKOFF_BASE_MS} * (1 << MIN(witness_attempts, 30)), ${WITNESS_BACKOFF_MAX_MS})
     FROM k WHERE drep_group_ledger.tx_hash = k.tx AND drep_group_ledger.cert_index = k.ix
       AND drep_group_ledger.witness_state = 'pending'`,
+  // A failed refetch of a flagged marker counts an attempt. The last attempt clears the flag and
+  // the count, the marker stays. The unary plus keeps the flag index out.
+  refetchFailed: (n: number) => `WITH k(tx) AS (VALUES ${values(1, n)})
+    UPDATE drep_group_txs SET
+      refetch = CASE WHEN refetch_attempts + 1 >= ${MARKER_REFETCH_ATTEMPTS} THEN 0 ELSE 1 END,
+      refetch_attempts = CASE WHEN refetch_attempts + 1 >= ${MARKER_REFETCH_ATTEMPTS} THEN 0 ELSE refetch_attempts + 1 END
+    WHERE tx_hash IN (SELECT tx FROM k) AND +refetch = 1`,
 });
 
 export const INGEST_WIDTH: Readonly<Record<keyof typeof INGEST, number>> = Object.freeze({
@@ -330,6 +337,7 @@ export const INGEST_WIDTH: Readonly<Record<keyof typeof INGEST, number>> = Objec
   witnessChecked: 3,
   witnessFound: 2,
   witnessFailed: 2,
+  refetchFailed: 1,
 });
 
 export const INGEST_TRAILING: Readonly<Partial<Record<keyof typeof INGEST, number>>> = Object.freeze({
@@ -727,6 +735,8 @@ function recoveryRegistry(): { q: Record<RecName, RegisteredQuery>; binds: Recor
 }
 const RECOVERY_REGISTRY = recoveryRegistry();
 
+const STORED_BLOCK_BELOW = (table: string): string =>
+  `SELECT block_height, block_hash FROM ${table} WHERE block_height < ? ORDER BY block_height DESC LIMIT 1`;
 const LABEL_TX_RANGE = 'marker = 0 AND (block_height, tx_index) >= (?, ?) AND block_height <= ?';
 const READY_TRACKED = `SELECT cred, applied_h, applied_ti, applied_ph, applied_ix, applied_tx,
     next_h, next_ti, next_ph, next_ix, next_tx
@@ -820,6 +830,35 @@ export const Q = Object.freeze({
   // Binds the reader time, the offset and R (NULL keeps R).
   regCursor: { sql: 'UPDATE drep_group_meta SET reg_time = ?, reg_offset = ?, R = COALESCE(?, R) WHERE id = 1' },
   historyOffset: { sql: 'UPDATE drep_group_tracked SET history_offset = ? WHERE cred = ?' },
+  // Binds the height. The highest stored label tx block below it, and the same for ledger rows.
+  probeTxBlock: { sql: STORED_BLOCK_BELOW('drep_group_txs') },
+  probeLedgerBlock: { sql: STORED_BLOCK_BELOW('drep_group_ledger') },
+  // Binds the flag and the lowest height probed so far (NULL with the flag cleared).
+  probeState: { sql: 'UPDATE drep_group_meta SET probe_active = ?, probe_below = CAST(? AS INTEGER) WHERE id = 1' },
+  // Binds the limit. Credentials not judged by the gate yet, oldest first.
+  gateCandidates: { sql: 'SELECT cred FROM drep_group_tracked WHERE known IS NULL ORDER BY seq LIMIT ?' },
+  // Binds solo (0 for the batched read, 1 for paged ones) and the limit. Known credentials whose history is not read yet.
+  historyCandidates: {
+    sql: 'SELECT cred, history_offset FROM drep_group_tracked WHERE known = 1 AND history_done = 0 AND solo = ? ORDER BY seq LIMIT ?',
+  },
+  // Binds now and the limit. Pending reg rows whose witness check is due, in the order of the partial index.
+  pendingWitnesses: {
+    sql: `SELECT tx_hash, cert_index, cred, block_height, tx_index FROM drep_group_ledger
+          WHERE witness_state = 'pending' AND witness_retry_at <= ?
+          ORDER BY witness_retry_at, block_height, tx_index, cert_index LIMIT ?`,
+  },
+  // Binds the limit. Markers flagged for refetch by a rebuild, lowest first.
+  refetchMarkers: {
+    sql: `SELECT tx_hash, block_height, block_hash, tx_index, refetch_attempts FROM drep_group_txs
+          WHERE refetch = 1 ORDER BY block_height, tx_index LIMIT ?`,
+    boundedScan: 'drep_group_txs_refetch',
+  },
+  // Whether any label tx or ledger row is stored.
+  storedInputs: {
+    sql: `SELECT (SELECT 1 FROM drep_group_txs WHERE block_height >= 0 LIMIT 1) AS txs,
+            (SELECT 1 FROM drep_group_ledger WHERE block_height >= 0 LIMIT 1) AS ledger`,
+  },
+  libVersion: { sql: 'UPDATE drep_group_meta SET lib_version = ? WHERE id = 1' },
   // Binds both slots, then whether to set the phase and the phase, then rebuilding (NULL keeps it).
   recoverySlots: {
     sql: `UPDATE drep_group_meta SET rec_first_kind = ?, rec_first_above = ?, rec_first_time = ?,
@@ -895,6 +934,15 @@ export const Q_SAMPLE_BINDS: Readonly<Record<keyof typeof Q, unknown[]>> = Objec
   createRegCursor: [1, 0],
   regCursor: [0, 0, 1],
   historyOffset: [0, CRED],
+  probeTxBlock: [100],
+  probeLedgerBlock: [100],
+  probeState: [1, 100],
+  gateCandidates: [10],
+  historyCandidates: [0, 10],
+  pendingWitnesses: [0, 10],
+  refetchMarkers: [10],
+  storedInputs: [],
+  libVersion: ['0.2.0'],
   recoverySlots: ['truncate', 1, 0, null, null, 1, 'jobs', null],
   ...RECOVERY_REGISTRY.binds,
   recVersionsProbe: [1],
