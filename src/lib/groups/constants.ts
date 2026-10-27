@@ -40,6 +40,7 @@ export const CHANGES_PER_ROW = {
   flags: 2,
   reset: 2,
 } as const;
+// Measured worst case of one commit, guard included: 60 for the group commit, 35 for the credential commit.
 export const COMMIT_MAX_STATEMENTS = 150; // worst case of one commit
 export const RUN_MAX_QUERIES = 400; // worst case of one runEngine call
 export const MAX_ENGINE_RUNS_PER_TICK = 10;
