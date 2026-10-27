@@ -14,12 +14,13 @@ import {
   listMembers,
   listVerdicts,
   type MemberRow,
-  nativeScripts,
   pendingVerification,
   scriptDisplays,
   statusNote,
+  treasuryScripts,
 } from '@/lib/db/drepGroups.js';
 import { drepPath } from '@/lib/dreps/profile.js';
+import { isHttpUrl } from '@/lib/governance/metadata.js';
 import { cacheControlForSynced, formatAda } from '@/lib/forum/view.js';
 import { GROUP_PAGE_SIZE, RETENTION_KEEP_APPLIED, RETENTION_KEEP_NOT_APPLIED } from '@/lib/groups/constants.js';
 import { drepGroupsAvailable } from '@/lib/groups/gate.js';
@@ -53,18 +54,19 @@ if (group) {
 
 const profile = group?.profile?.status === 'ok' ? group.profile : null;
 // Profile links are checked when stored, and again here so only web links render.
-const webLink = (u: string | null | undefined): string | null => (u && /^https?:/i.test(u) ? u : null);
+const webLink = (u: string | null | undefined): string | null => (u && isHttpUrl(u) ? u : null);
 const website = webLink(profile?.website);
 const charter = webLink(profile?.charter);
 const addresses = profile?.paymentAddresses ?? [];
 const treasuryHashes = [...new Set(addresses.flatMap((a) => (a.treasuryScript ? [a.treasuryScript] : [])))];
 const policyHashes = group ? [group.controlHash, ...(group.admissionHash ? [group.admissionHash] : [])] : [];
 
-const [note, verification, sections, applied, notApplied, displays, treasuryScripts] =
+const [note, verification, sections, applied, notApplied, displays, treasury] =
   group && db
     ? await Promise.all([
         statusNote(db),
-        pendingVerification(db, group.ref),
+        // A closing group shows its own indicator, the verification count is not read then.
+        group.closing ? null : pendingVerification(db, group.ref),
         Promise.all(
           memberSections(group, Astro.url.searchParams).map(async (s) => ({
             ...s,
@@ -76,20 +78,20 @@ const [note, verification, sections, applied, notApplied, displays, treasuryScri
         ),
         listVerdicts(db, group.ref, true, RETENTION_KEEP_APPLIED),
         listVerdicts(db, group.ref, false, RETENTION_KEEP_NOT_APPLIED),
-        scriptDisplays(db, [...policyHashes, ...treasuryHashes]),
-        nativeScripts(db, treasuryHashes),
+        scriptDisplays(db, policyHashes),
+        treasuryScripts(db, treasuryHashes),
       ])
-    : [null, null, [], [], [], new Map<string, string>(), new Map()];
+    : [null, null, [], [], [], new Map<string, string>(), { displays: new Map<string, string>(), scripts: new Map() }];
 
 const control = group ? scriptFromJson(displays.get(group.controlHash)) : null;
 const admission = group?.admissionHash ? scriptFromJson(displays.get(group.admissionHash)) : null;
 const admins = new Set([...policyKeyHashes(control), ...policyKeyHashes(admission)]);
-const treasuryViews = new Map(treasuryHashes.map((h) => [h, scriptFromJson(displays.get(h))]));
+const treasuryViews = new Map(treasuryHashes.map((h) => [h, scriptFromJson(treasury.displays.get(h))]));
 const allKeys = [...admins, ...[...treasuryViews.values()].flatMap(policyKeyHashes)];
 const names = db && allKeys.length > 0 ? await drepNamesForKeyHashes(db, allKeys) : new Map<string, string>();
 // These pages exist on preprod only, so every address is checked as a testnet address.
 const addressChecks = addresses
-  .map((entry) => ({ entry, check: checkPaymentAddress(entry, 'testnet', treasuryScripts) }))
+  .map((entry) => ({ entry, check: checkPaymentAddress(entry, 'testnet', treasury.scripts) }))
   .filter((a) => a.check.status !== 'invalid');
 
 const title = profile?.name ?? (group ? shortHash(group.groupId) : '');
@@ -103,8 +105,6 @@ const indicator = !group
       : null;
 
 const SECTION_TITLE = { all: 'Members', active: 'Members', pending: 'Requests', former: 'Former members' } as const;
-const sectionCount = (kind: keyof typeof SECTION_TITLE): number | null =>
-  !group ? null : kind === 'pending' ? group.pending : kind === 'former' ? group.former : group.members;
 const MARK = { retiring: 'retired, being updated', unapplied: 'registration change being verified' } as const;
 const rowNote = (m: MemberRow, showState: boolean): string =>
   [
@@ -114,10 +114,11 @@ const rowNote = (m: MemberRow, showState: boolean): string =>
   ]
     .filter((s) => s !== '')
     .join(' · ');
-const pageHref = (kind: keyof typeof SECTION_TITLE, after: string): string => {
+// The query of a section's next page, the other sections keep their cursors.
+const nextQuery = (kind: keyof typeof SECTION_TITLE, after: string): string => {
   const params = new URLSearchParams(Astro.url.searchParams);
   params.set(sectionParam(kind), after);
-  return `/groups/${group?.groupId ?? ''}/?${params.toString()}`;
+  return `?${params.toString()}`;
 };
 ---
 {!available ? (
@@ -146,14 +147,15 @@ const pageHref = (kind: keyof typeof SECTION_TITLE, after: string): string => {
       {noteText && <p class="gr-note">{noteText}</p>}
       {indicator && <p class="gr-note">{indicator}</p>}
       {sections.map((s) => {
-        const count = sectionCount(s.kind);
-        const show = s.kind === 'active' || s.kind === 'all' || s.rows.length > 0 || s.after !== null || (count ?? 0) > 0;
+        const primary = s.kind === 'active' || s.kind === 'all';
+        const count = s.kind === 'pending' ? group.pending : s.kind === 'former' ? group.former : group.members;
+        const show = primary || s.rows.length > 0 || s.after !== null || count > 0;
         const next = s.rows.length === GROUP_PAGE_SIZE ? s.rows[s.rows.length - 1].key : null;
         return show && (
           <>
-            {s.kind !== 'active' && s.kind !== 'all' && <h3>{SECTION_TITLE[s.kind]} ({count})</h3>}
+            {!primary && <h3>{SECTION_TITLE[s.kind]} ({count})</h3>}
             {s.rows.length === 0 ? (
-              s.kind === 'active' || s.kind === 'all' ? <p class="gr-empty">No active members.</p> : null
+              primary ? <p class="gr-empty">No active members.</p> : null
             ) : (
               <ul class="gr-list">
                 {s.rows.map((m) => {
@@ -170,7 +172,7 @@ const pageHref = (kind: keyof typeof SECTION_TITLE, after: string): string => {
             )}
             {next && (
               <nav class="gr-pager" aria-label={`${SECTION_TITLE[s.kind]} pages`}>
-                <a href={pageHref(s.kind, next)} rel="next">Next</a>
+                <a href={`/groups/${group.groupId}/${nextQuery(s.kind, next)}`} rel="next">Next</a>
               </nav>
             )}
           </>

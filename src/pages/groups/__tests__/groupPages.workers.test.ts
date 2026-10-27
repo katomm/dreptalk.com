@@ -1,7 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 import { env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
-import { getGroup, listListedGroups, listMembers, listVerdicts, nativeScripts, scriptDisplays } from '../../../lib/db/drepGroups.js';
+import { getGroup, listListedGroups, listMembers, listVerdicts, scriptDisplays, treasuryScripts } from '../../../lib/db/drepGroups.js';
 import { groupIdParam, groupIdString } from '../../../lib/groups/ids.js';
 import seedSql from './twoMemberGroup.sql?raw';
 
@@ -43,6 +43,8 @@ describe('group detail lookup', () => {
     expect((await listVerdicts(db, ref, true, 200)).map((v) => v.tag)).toEqual(['join', 'join', 'create']);
     const treasury = 'c3'.repeat(28);
     expect((await scriptDisplays(db, [group?.controlHash ?? '', treasury])).size).toBe(2);
-    expect([...(await nativeScripts(db, [treasury, 'ee'.repeat(28)])).keys()]).toEqual([treasury]);
+    const read = await treasuryScripts(db, [treasury, 'ee'.repeat(28)]);
+    expect([...read.scripts.keys()]).toEqual([treasury]);
+    expect([...read.displays.keys()]).toEqual([treasury]);
   });
 });

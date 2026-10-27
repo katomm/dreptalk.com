@@ -79,8 +79,8 @@ export const KEYED = Object.freeze({
     SELECT c.* FROM k JOIN drep_group_tx_context c ON c.tx_hash = k.tx`,
   scriptDisplays: (n: number) => `WITH k(hash) AS (VALUES ${values(1, n)})
     SELECT s.hash, s.display_json FROM k JOIN drep_group_scripts s ON s.hash = k.hash WHERE s.display_json IS NOT NULL`,
-  scriptBytes: (n: number) => `WITH k(hash) AS (VALUES ${values(1, n)})
-    SELECT s.hash, s.bytes FROM k JOIN drep_group_scripts s ON s.hash = k.hash`,
+  treasuryScripts: (n: number) => `WITH k(hash) AS (VALUES ${values(1, n)})
+    SELECT s.hash, s.display_json, s.bytes FROM k JOIN drep_group_scripts s ON s.hash = k.hash`,
   drepNames: (n: number) => `WITH k(id) AS (VALUES ${values(1, n)})
     SELECT d.drep_id, d.name FROM k JOIN dreps d ON d.drep_id = k.id WHERE d.name IS NOT NULL`,
 });
@@ -95,7 +95,7 @@ export const KEYED_WIDTH: Readonly<Record<keyof typeof KEYED, number>> = Object.
   queuedJoins: 2,
   txContexts: 1,
   scriptDisplays: 1,
-  scriptBytes: 1,
+  treasuryScripts: 1,
   drepNames: 1,
 });
 
@@ -1014,6 +1014,7 @@ export const Q = Object.freeze({
   queuedJoins: { sql: KEYED.queuedJoins(1) },
   txContexts: { sql: KEYED.txContexts(1) },
   scriptDisplays: { sql: KEYED.scriptDisplays(1) },
+  treasuryScripts: { sql: KEYED.treasuryScripts(1) },
   drepNames: { sql: KEYED.drepNames(1) },
   ...(Object.fromEntries(
     (Object.keys(COMMIT) as Array<keyof typeof COMMIT>).map((k) => [k, { sql: COMMIT[k](1) }]),

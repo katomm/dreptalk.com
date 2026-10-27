@@ -430,7 +430,7 @@ export async function listGroupIdsForSitemap(db: D1Database, limit: number): Pro
 }
 
 /** Runs a keyed read over the values in chunks within the bind limit. */
-async function keyedRead(db: D1Database, name: 'scriptDisplays' | 'scriptBytes' | 'drepNames', values: unknown[]): Promise<Row[]> {
+async function keyedRead(db: D1Database, name: 'scriptDisplays' | 'treasuryScripts' | 'drepNames', values: unknown[]): Promise<Row[]> {
   const chunks = chunked(values, Math.floor(D1_MAX_BINDS / KEYED_WIDTH[name]));
   if (chunks.length === 0) return [];
   const res = await db.batch<Row>(chunks.map((c) => db.prepare(KEYED[name](c.length)).bind(...c)));
@@ -443,15 +443,21 @@ export async function scriptDisplays(db: D1Database, hashes: string[]): Promise<
   return new Map(rows.map((r) => [hashFromCol(r.hash), String(r.display_json)]));
 }
 
-/** Stored native scripts by script hash, parsed from their bytes. Unknown hashes and bytes that do not parse are left out. */
-export async function nativeScripts(db: D1Database, hashes: string[]): Promise<Map<string, NativeScript>> {
-  const rows = await keyedRead(db, 'scriptBytes', [...new Set(hashes)].map(hashBytes));
-  const out = new Map<string, NativeScript>();
+/**
+ * Stored native scripts by script hash in one read: their display JSON, and the scripts parsed from their bytes.
+ * Unknown hashes, missing displays and bytes that do not parse are left out.
+ */
+export async function treasuryScripts(db: D1Database, hashes: string[]): Promise<{ displays: Map<string, string>; scripts: Map<string, NativeScript> }> {
+  const rows = await keyedRead(db, 'treasuryScripts', [...new Set(hashes)].map(hashBytes));
+  const displays = new Map<string, string>();
+  const scripts = new Map<string, NativeScript>();
   for (const r of rows) {
+    const hash = hashFromCol(r.hash);
+    if (r.display_json !== null) displays.set(hash, String(r.display_json));
     const script = parseNativeScript(bytesFromCol(r.bytes));
-    if (script) out.set(hashFromCol(r.hash), script);
+    if (script) scripts.set(hash, script);
   }
-  return out;
+  return { displays, scripts };
 }
 
 /** Names of the DReps whose key credential is one of the key hashes, by key hash. */
