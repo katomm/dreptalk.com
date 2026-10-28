@@ -6,6 +6,7 @@
 import type { ArtifactQuestion } from 'cip-179/tally';
 import type { ExclusionKey } from 'cip-179/domain';
 import { chunked, D1_MAX_BINDS, sqlPlaceholders } from './sql.js';
+import { drepAnswerableSql } from './surveys.js';
 
 /** Which source produced the weighted half of a tally. */
 export type WeightedSource = 'live' | 'artifact';
@@ -275,6 +276,7 @@ export async function getRefsWithoutTally(db: D1Database, limit: number): Promis
          AND s.cancelled = 0
          AND s.external_content = 0
          AND (s.final_state IS NULL OR s.final_state <> 'untalliable')
+         AND ${drepAnswerableSql('s')}
        ORDER BY s.ref
        LIMIT ?`,
     )

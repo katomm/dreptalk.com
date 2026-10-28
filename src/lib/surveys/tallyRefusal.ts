@@ -8,7 +8,7 @@
 // second list above it would repeat the whole survey. Two copies of this
 // decision could drift apart and leave a page with both lists or neither.
 
-import { Role } from 'cip-179';
+import { drepAnswerable } from './admission.js';
 import type { SurveyLifecycle } from './state.js';
 
 export interface TallyRefusalInput {
@@ -66,7 +66,7 @@ export function tallyRefusal(s: TallyRefusalInput): string | null {
   if (s.lifecycle === 'untalliable') {
     return "This survey's definition is invalid under CIP-179, so it was never talliable and no reading of it exists.";
   }
-  if (!s.eligibleRoles.includes(Role.DRep)) {
+  if (!drepAnswerable(s.eligibleRoles)) {
     return 'This survey does not accept DRep responses, and a DRep reading is the only one this site counts.';
   }
   if (sealedWithoutArtifact) {

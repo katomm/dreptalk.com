@@ -19,7 +19,7 @@ import GlossaryTerms from '@/components/glossary/GlossaryTerms.astro';
 import ShareButton from '@/components/ShareButton.astro';
 import SurveyCard from '@/components/survey/SurveyCard.astro';
 import SurveySidebar from '@/components/survey/SurveySidebar.astro';
-import LinkedSurveyCard from '@/components/survey/LinkedSurveyCard.astro';
+import LinkedSurveyBanner from '@/components/survey/LinkedSurveyBanner.astro';
 import RespondPanel from '@/components/survey/RespondPanel.astro';
 import {
   getLinkedSurveyForAction,
@@ -843,6 +843,16 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
         {reviewWindow && (
           <p class="ga-review-link">Discussed in the <a href={`/governance-review/${reviewSlug}/`}>Governance Review for epochs {reviewWindow.from} to {reviewWindow.to}</a>.</p>
         )}
+        {linkedSurvey && (
+          <LinkedSurveyBanner
+            survey={linkedSurvey.survey}
+            topicSlug={linkedSurvey.topicSlug}
+            references={govAction.references}
+            cfg={netCfg}
+            now={now}
+            appUrl={env.TESSERA_APP_URL}
+          />
+        )}
         <GaTabs
           slug={topic.slug}
           active={tab}
@@ -978,16 +988,6 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
             >
               {nclMiniCardProps && (
                 <NclMiniCard slot="after-status" {...nclMiniCardProps} />
-              )}
-              {linkedSurvey && (
-                <LinkedSurveyCard
-                  slot="after-status"
-                  survey={linkedSurvey.survey}
-                  topicTitle={linkedSurvey.topicTitle}
-                  topicSlug={linkedSurvey.topicSlug}
-                  cfg={netCfg}
-                  now={now}
-                />
               )}
             </GaSidebar>
           </div>
