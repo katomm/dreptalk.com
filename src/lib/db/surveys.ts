@@ -4,8 +4,16 @@
 // string-concatenated SQL. Rows are Tessera's answers written down. The sync
 // (src/lib/surveys/sync.ts) is the only writer.
 
+import { Role } from 'cip-179';
 import type { TopicGuard } from './forum.js';
 import { chunked, D1_MAX_BINDS, sqlPlaceholders } from './sql.js';
+
+/** SQL twin of drepAnswerable (src/lib/surveys/admission.ts), over a survey
+ * row's stored role list. Every survey a linking action names is stored, so a
+ * query that opens a thread or computes a tally asks this as well. */
+export function drepAnswerableSql(table: string): string {
+  return `EXISTS (SELECT 1 FROM json_each(${table}.eligible_roles) WHERE json_each.value = ${Role.DRep})`;
+}
 
 /** A survey as the mirror writes it: Tessera's answer, no thread of its own
  * yet, the thread is opened later, over the stored rows. */
@@ -105,18 +113,20 @@ export interface PublishableSurvey {
   submittedAt: number;
 }
 
-/** DRepTalk's half of admission, asked of the stored rows: a survey with no
- * thread yet that at least one imported governance action links. Every step
- * is an index probe (the NULL group of idx_survey_topic, empty in steady
- * state, the link table's primary key, idx_governance_actions_proposal_id),
- * so asking on every run costs nothing while nothing is pending. Oldest
- * publication first, so a backlog opens its threads in chain order. */
+/** DRepTalk's half of admission, asked of the stored rows: a survey DReps may
+ * answer, with no thread yet, that at least one imported governance action
+ * links. Every step is an index probe (the NULL group of idx_survey_topic,
+ * which in steady state holds only the few surveys DReps cannot answer, the
+ * link table's primary key, idx_governance_actions_proposal_id), so asking on
+ * every run costs nothing while nothing is pending. Oldest publication first,
+ * so a backlog opens its threads in chain order. */
 export async function getPublishableSurveys(db: D1Database): Promise<PublishableSurvey[]> {
   const { results } = await db
     .prepare(
       `SELECT ref, definition, external_content, submitted_at
        FROM survey
        WHERE topic_id IS NULL
+         AND ${drepAnswerableSql('survey')}
          AND EXISTS (
            SELECT 1 FROM survey_gov_link l
            JOIN governance_actions ga ON ga.proposal_id = l.action_id
@@ -443,27 +453,28 @@ export async function getSurveyGovLinks(db: D1Database, ref: string): Promise<Su
   }));
 }
 
-/** The published survey one governance action links, at most one by
- * construction (an action's anchor declares a single survey). Null when the
- * action links none, or links one that was never published. */
+/** The survey one governance action links, at most one by construction (an
+ * action's anchor declares a single survey), with its thread when it has one.
+ * A survey DReps cannot answer never gets a thread and comes back with a null
+ * slug, so its action can still point readers at it. Null when the action
+ * links none, or links one whose thread was deleted. */
 export async function getLinkedSurveyForAction(
   db: D1Database,
   proposalId: string,
-): Promise<{ survey: SurveyRow; topicTitle: string; topicSlug: string } | null> {
+): Promise<{ survey: SurveyRow; topicSlug: string | null } | null> {
   const row = await db
     .prepare(
-      `SELECT ${SURVEY_COLUMNS}, t.title AS topic_title, t.slug AS topic_slug
+      `SELECT ${SURVEY_COLUMNS}, t.slug AS topic_slug
        FROM survey_gov_link l
        JOIN survey ON survey.ref = l.survey_ref
-       JOIN topics t ON t.id = survey.topic_id
-       WHERE l.action_id = ? AND t.deleted = 0
+       LEFT JOIN topics t ON t.id = survey.topic_id AND t.deleted = 0
+       WHERE l.action_id = ? AND (survey.topic_id IS NULL OR t.id IS NOT NULL)
+       ORDER BY t.id IS NULL, l.survey_ref
        LIMIT 1`,
     )
     .bind(proposalId)
-    .first<RawSurveyRow & { topic_title: string; topic_slug: string }>();
-  return row
-    ? { survey: rowToSurvey(row), topicTitle: row.topic_title, topicSlug: row.topic_slug }
-    : null;
+    .first<RawSurveyRow & { topic_slug: string | null }>();
+  return row ? { survey: rowToSurvey(row), topicSlug: row.topic_slug } : null;
 }
 
 /** Thread slug for a survey ref, the /s/<ref> redirect target. */

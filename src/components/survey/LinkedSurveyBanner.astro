@@ -1,0 +1,148 @@
+---
+// Banner above a governance action's tabs when its anchor links a CIP-179
+// survey, at most one, since an action's metadata declares a single survey.
+// Above the tabs so every tab shows it, and in the main column so a phone,
+// where the sidebar stacks below a long abstract, sees it first.
+//
+// A survey DReps may answer has a thread here, and the banner leads to it. One
+// they cannot answer has none, so the banner leads off-site instead: to the
+// survey's own site when the action names one, else to Tessera's survey page.
+// "Linked by the action's metadata", never "official": the linkage is a
+// discovery relation, not an endorsement.
+import SurveyBadges from '@/components/survey/SurveyBadges.astro';
+import type { NetworkConfig } from '@/lib/config/network.js';
+import type { SurveyRow } from '@/lib/db/surveys.js';
+import { CHECKLIST_PATH } from '@/lib/forum/icons.js';
+import { drepAnswerable } from '@/lib/surveys/admission.js';
+import { deadlineLabel, participationLabel, surveyState } from '@/lib/surveys/state.js';
+import {
+  parseSurveyDefinition,
+  surveyDescription,
+  surveySiteUrl,
+  surveyTitle,
+  tesseraSurveyUrl,
+  whoMayAnswer,
+} from '@/lib/surveys/view.js';
+
+interface Props {
+  survey: SurveyRow;
+  /** The survey's thread here, null for a survey DReps cannot answer. */
+  topicSlug: string | null;
+  /** The linking action's anchor references, where the survey's site may be. */
+  references: readonly { label: string; uri: string }[] | null;
+  cfg: NetworkConfig;
+  now: number;
+  appUrl: string | undefined;
+}
+
+const { survey, topicSlug, references, cfg, now, appUrl } = Astro.props;
+
+const def = parseSurveyDefinition(survey.definitionJson);
+// An unreadable stored record costs the banner its text, never the page.
+const title = def ? surveyTitle(def, survey.ref) : 'CIP-179 survey';
+const description = def && !survey.externalContent ? surveyDescription(def) : '';
+const { lifecycle, answerable, participation } = surveyState(survey, now, cfg);
+const forDreps = drepAnswerable(survey.eligibleRoles);
+
+const href = topicSlug
+  ? `/t/${topicSlug}/`
+  : (surveySiteUrl(references, title) ?? tesseraSurveyUrl(appUrl, survey.ref));
+const external = !topicSlug;
+const cta = topicSlug && answerable ? 'Answer the survey' : 'Open the survey';
+---
+
+<section class:list={['callout', 'lsvy', { 'callout--info': lifecycle === 'open' }]} aria-label="Linked survey">
+  <svg class="callout__icon lsvy__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d={CHECKLIST_PATH} />
+  </svg>
+  <div class="callout__body">
+    <p class="lsvy__eyebrow">This action links a CIP-179 survey</p>
+    <p class="lsvy__title">{title}</p>
+    {description && <p class="lsvy__desc">{description}</p>}
+    <p class="lsvy__meta">
+      <SurveyBadges lifecycle={lifecycle} sealed={survey.sealed} unavailable={survey.unavailable} />
+      <span>{deadlineLabel(lifecycle, survey.endEpoch, cfg)}</span>
+      <span>{whoMayAnswer(survey.eligibleRoles)}</span>
+      {forDreps && <span>{participationLabel(participation)}</span>}
+    </p>
+    {!forDreps && (
+      <p class="lsvy__note">DReps cannot answer this survey, so it has no thread on DRepTalk.</p>
+    )}
+  </div>
+  {href && (
+    <a
+      class:list={['btn', lifecycle === 'open' ? 'btn-primary' : 'btn-secondary', 'lsvy__cta']}
+      href={href}
+      {...(external ? { target: '_blank', rel: 'noopener noreferrer nofollow' } : {})}
+    >
+      {cta}
+    </a>
+  )}
+</section>
+
+<style>
+  /* The global callout supplies border, tint and icon colour. This only lays
+     the call to action out beside the text. */
+  .lsvy {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 0.75rem 1rem;
+    margin: 0 0 1.25rem;
+    padding: 1rem 1.125rem;
+  }
+  .lsvy__icon {
+    width: 24px;
+    height: 24px;
+    align-self: start;
+  }
+  .lsvy__eyebrow {
+    margin: 0;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--accent);
+  }
+  .lsvy__title {
+    margin: 0.2rem 0 0;
+    font-size: 1.05rem;
+    font-weight: 700;
+    line-height: 1.3;
+    color: var(--fg);
+  }
+  .lsvy__desc {
+    margin: 0.3rem 0 0;
+    font-size: 0.875rem;
+    color: var(--fg);
+    line-height: 1.45;
+    /* A teaser: the full text is one click away, on the survey itself. */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .lsvy__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem 0.75rem;
+    margin: 0.5rem 0 0;
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+  .lsvy__note {
+    margin: 0.4rem 0 0;
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+  @media (max-width: 640px) {
+    .lsvy {
+      grid-template-columns: auto 1fr;
+    }
+    .lsvy__cta {
+      grid-column: 1 / -1;
+      width: 100%;
+    }
+  }
+</style>
