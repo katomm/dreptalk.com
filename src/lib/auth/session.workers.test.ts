@@ -1,4 +1,4 @@
-// Opaque KV session tests -- runs in real workerd via @cloudflare/vitest-pool-workers.
+// Opaque KV session tests -- runs in real workerd via @cloudflare/vitest-plugin.
 // env.SESSIONS is the real KV binding provided by miniflare.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';

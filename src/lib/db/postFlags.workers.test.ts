@@ -1,5 +1,5 @@
 /// <reference types="@cloudflare/workers-types" />
-// Post-flag tests -- run in real workerd via @cloudflare/vitest-pool-workers.
+// Post-flag tests -- run in real workerd via @cloudflare/vitest-plugin.
 // Exercise flagPost / unflagPost / flaggedPostIdsStmts against the real D1 binding.
 // Focus: per-writer dedup, the hide threshold, un-hiding on withdrawal, and the
 // per-flagger flagged-id lookup.

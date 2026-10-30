@@ -1,5 +1,5 @@
 /// <reference types="@cloudflare/workers-types" />
-// Tally/vote sync tests, run in real workerd via vitest-pool-workers.
+// Tally/vote sync tests, run in real workerd via @cloudflare/vitest-plugin.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { buildInsertGovernanceAction, getGovernanceActionByTopicId, getActionsNeedingVotedPower, markBackfillAttempt, markVotesSynced } from '../db/governance.js';

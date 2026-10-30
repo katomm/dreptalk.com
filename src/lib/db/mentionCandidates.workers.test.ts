@@ -1,5 +1,5 @@
 /// <reference types="@cloudflare/workers-types" />
-// Mention candidate listing tests, run in real workerd via vitest-pool-workers.
+// Mention candidate listing tests, run in real workerd via @cloudflare/vitest-plugin.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { listMentionCandidates } from './mentionCandidates.js';

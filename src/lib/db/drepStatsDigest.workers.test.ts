@@ -1,5 +1,5 @@
 /// <reference types="@cloudflare/workers-types" />
-// DRep stats digest evaluation, run in real workerd via vitest-pool-workers.
+// DRep stats digest evaluation, run in real workerd via @cloudflare/vitest-plugin.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { runDrepStatsDigest } from './drepStatsDigest.js';

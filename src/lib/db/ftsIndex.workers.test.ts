@@ -1,7 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 // FTS5 index maintenance tests: the 0019 triggers must index inserts, follow
 // updates of indexed columns, drop deletions, and stay untouched by tally-only
-// updates. Runs in real workerd via vitest-pool-workers.
+// updates. Runs in real workerd via @cloudflare/vitest-plugin.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 

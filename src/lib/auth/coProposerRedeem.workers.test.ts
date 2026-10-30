@@ -1,5 +1,5 @@
 // Workers-runtime tests for co-proposer invite redemption -- runs in real
-// workerd via @cloudflare/vitest-pool-workers. Uses the real D1/KV bindings
+// workerd via @cloudflare/vitest-plugin. Uses the real D1/KV bindings
 // and the shared CIP-8 reward-address fixture (stakeVector) that
 // handlers.workers.test.ts and linkStake.workers.test.ts already sign against.
 //

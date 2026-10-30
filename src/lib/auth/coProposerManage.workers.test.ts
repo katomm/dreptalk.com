@@ -1,6 +1,6 @@
 // Workers-runtime tests for the proposer-facing co-proposer management
 // handlers: create invite, revoke an active grant, withdraw a pending one.
-// Runs in real workerd via @cloudflare/vitest-pool-workers, using the real
+// Runs in real workerd via @cloudflare/vitest-plugin, using the real
 // D1/KV bindings, mirroring coProposerRedeem.workers.test.ts's setup.
 
 import { describe, it, expect } from 'vitest';

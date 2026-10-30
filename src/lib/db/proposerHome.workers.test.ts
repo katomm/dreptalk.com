@@ -1,4 +1,4 @@
-// /home data for proposers and co-proposers, runs in real workerd via @cloudflare/vitest-pool-workers.
+// /home data for proposers and co-proposers, runs in real workerd via @cloudflare/vitest-plugin.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { listProposerActions, listMandates, loadProposerActionViews } from './proposerHome.js';
