@@ -1,5 +1,5 @@
 /// <reference types="@cloudflare/workers-types" />
-// Activity event log tests, run in real workerd via vitest-pool-workers.
+// Activity event log tests, run in real workerd via @cloudflare/vitest-plugin.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { activityInsert, getActivityPage, insertGovStatusEventIfNew, type ActivityRow } from './activity.js';

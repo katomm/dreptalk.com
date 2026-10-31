@@ -1,5 +1,5 @@
 /// <reference types="@cloudflare/workers-types" />
-// Viewer post-state tests -- run in real workerd via @cloudflare/vitest-pool-workers.
+// Viewer post-state tests -- run in real workerd via @cloudflare/vitest-plugin.
 // Focus: the batched flag + reaction lookup stays correct AND under D1's
 // 100-bind cap when a thread page passes more than 100 post ids (top-level
 // posts are capped at 100 per page, but replies are unbounded).

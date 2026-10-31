@@ -1,7 +1,7 @@
 // Workers-runtime tests for handleTrack -- the testable core behind
 // POST /api/delegation/track (starts opt-in delegation tracking for the
 // authenticated account). Runs in real workerd via
-// @cloudflare/vitest-pool-workers against the real D1 binding, with an
+// @cloudflare/vitest-plugin against the real D1 binding, with an
 // injected fake Koios client (same pattern as refresh.workers.test.ts).
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';

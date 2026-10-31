@@ -52,13 +52,13 @@
     "postinstall": "patch-package"
   },
   "dependencies": {
-    "@astrojs/cloudflare": "~14.2.6",
-    "@astrojs/markdown-remark": "7.3.2",
+    "@astrojs/cloudflare": "^14.4.3",
+    "@astrojs/markdown-remark": "^7.3.5",
     "@astrojs/react": "^7.0.1",
     "@evolution-sdk/evolution": "0.7.1",
     "@noble/curves": "^2.4.0",
     "@stricahq/cardano-identicon": "^1.0.0",
-    "astro": "~7.2.10",
+    "astro": "^7.4.4",
     "bech32": "^2.0.0",
     "blakejs": "^1.2.1",
     "cardano-tessera-client": "0.5.0",
@@ -76,7 +76,7 @@
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
     "@biomejs/biome": "^2.5.15",
-    "@cloudflare/vitest-pool-workers": "^0.23.0",
+    "@cloudflare/vitest-plugin": "^1.4.11",
     "@cloudflare/workers-types": "^5.20261010.1",
     "@effect/platform": "^0.96.3",
     "@effect/platform-node": "^0.106.0",
@@ -91,11 +91,11 @@
     "@types/react-dom": "^19.3.0",
     "cip30-test-wallet": "0.9.1",
     "es-module-lexer": "^3.0.3",
-    "happy-dom": "^20.14.6",
+    "happy-dom": "^21.0.4",
     "patch-package": "^8.0.1",
     "satori": "^0.15.2",
     "typescript": "^6.0.3",
-    "vitest": "^4.1.10",
+    "vitest": "^4.1.12",
     "wrangler": "^4.149.0"
   },
   "overrides": {

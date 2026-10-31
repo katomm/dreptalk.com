@@ -1,4 +1,4 @@
-// Proposer grants D1 access tests, runs in real workerd via @cloudflare/vitest-pool-workers.
+// Proposer grants D1 access tests, runs in real workerd via @cloudflare/vitest-plugin.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import {

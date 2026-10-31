@@ -1,5 +1,5 @@
 /// <reference types="@cloudflare/workers-types" />
-// Reaction handler tests -- run in real workerd via @cloudflare/vitest-pool-workers.
+// Reaction handler tests -- run in real workerd via @cloudflare/vitest-plugin.
 // Tests handleReactToPost / handleClearReaction authorization and state
 // transitions against real D1/KV bindings with injected fake user objects.
 import { describe, it, expect } from 'vitest';

@@ -1,5 +1,5 @@
 /// <reference types="@cloudflare/workers-types" />
-// One-level threading tests -- run in real workerd via @cloudflare/vitest-pool-workers.
+// One-level threading tests -- run in real workerd via @cloudflare/vitest-plugin.
 // Covers createPost's parent validation and level lifting, getThreadPage's
 // grouping and top-level pagination, and the getTopicStats aggregate.
 import { describe, it, expect } from 'vitest';

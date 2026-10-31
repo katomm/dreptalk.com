@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { defineConfig } from 'vitest/config';
-import { cloudflareTest, readD1Migrations } from '@cloudflare/vitest-pool-workers';
+import { cloudflareTest, readD1Migrations } from '@cloudflare/vitest-plugin';
 
 // Tests must run under the same runtime compatibility date as the deployed
 // worker, so read it from wrangler.toml instead of pinning a copy here (the
@@ -17,7 +17,7 @@ function deployCompatibilityDate(): string {
 // GitHub Actions sets CI=true. The timeouts below widen only there.
 const isCI = Boolean(process.env.CI);
 
-// Vitest 4 / pool-workers 0.16: the old defineWorkersProject + poolOptions.workers
+// Vitest 4 / pool-workers 0.16 (now @cloudflare/vitest-plugin): the old defineWorkersProject + poolOptions.workers
 // shape is replaced by the cloudflareTest() plugin. The previous worker pool
 // options object is now passed straight to cloudflareTest().
 export default defineConfig(async () => {
