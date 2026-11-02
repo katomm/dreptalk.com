@@ -455,16 +455,20 @@ export async function getTopicsByIds(db: D1Database, ids: readonly string[]): Pr
 }
 
 /**
- * The busiest recent thread: among topics with any activity since the given
- * time (ms), the one with the most posts. Powers the /home/ discussions
- * teaser; returns null when the window saw no activity at all.
+ * The busiest recent thread: the topic with the most posts written since the
+ * given time (ms), ties broken by distinct authors in that window, then by
+ * recency. Only in-window posts count, so a long thread that got one new reply
+ * cannot outrank a new thread with a dozen. Powers the /home/ discussions
+ * teaser and returns null when the window saw no activity at all.
  */
 export async function getMostRepliedRecentTopic(db: D1Database, sinceMs: number): Promise<Topic | null> {
   const row = await db
     .prepare(
-      `SELECT * FROM topics
-       WHERE deleted = 0 AND last_post_at > ?
-       ORDER BY post_count DESC, last_post_at DESC
+      `SELECT t.* FROM topics t
+       JOIN posts p ON p.topic_id = t.id AND p.deleted = 0 AND p.created_at > ?1
+       WHERE t.deleted = 0 AND t.last_post_at > ?1
+       GROUP BY t.id
+       ORDER BY COUNT(*) DESC, COUNT(DISTINCT p.author_id) DESC, t.last_post_at DESC
        LIMIT 1`,
     )
     .bind(sinceMs)
