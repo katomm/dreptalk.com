@@ -5,6 +5,7 @@
 // koios/committee.ts, which is pure math on a single live committee_info snapshot.
 import type { CommitteeMember } from '../koios/client.js';
 import { committeeBoundaryForAction, type CommitteeMemberTerm } from '../koios/committeeTimeline.js';
+import { epochStartUnix, type NetworkConfig } from '../config/network.js';
 import { ccTallyPct, type CcVote } from '../koios/corrections.js';
 import { concludedStatusSql } from './sql.js';
 
@@ -119,17 +120,49 @@ export async function syncCurrentCommitteeMembership(
   return { hotKeys: hotPairs.length, updated, unknown };
 }
 
-/** The committee votes on one action, keyed by hot key, for the recompute. */
+// Every committee vote, current and superseded. drep_vote_history carries no
+// hot key, so a superseded row borrows it from the voter's current row. The
+// superseded rows matter once a cutoff applies: a member who voted in time and
+// changed the vote during the tally epoch is judged on the in-time vote.
+const ccVotesSql = (forOneAction: boolean): string => `
+  SELECT ga_id, voter_hex, vote, block_time FROM drep_votes
+   WHERE voter_role = 'ConstitutionalCommittee'${forOneAction ? ' AND ga_id = ?1' : ''}
+  UNION ALL
+  SELECT h.ga_id, v.voter_hex, h.vote, h.block_time FROM drep_vote_history h
+    JOIN drep_votes v ON v.ga_id = h.ga_id AND v.voter_id = h.voter_id
+   WHERE h.voter_role = 'ConstitutionalCommittee'${forOneAction ? ' AND h.ga_id = ?1' : ''}`;
+
+type CcVoteDbRow = { ga_id: string; voter_hex: string | null; vote: string; block_time: number | null };
+
+/** A stored vote string narrowed to the three ledger choices (anything else is skipped). */
+function isCcChoice(vote: string): vote is CcVote['vote'] {
+  return vote === 'Yes' || vote === 'No' || vote === 'Abstain';
+}
+
+function toCcVote(r: CcVoteDbRow): CcVote | null {
+  if (!r.voter_hex || !isCcChoice(r.vote)) return null;
+  return { hotKeyHex: r.voter_hex, vote: r.vote, blockTime: r.block_time };
+}
+
+/** The committee votes on one action, current and superseded, keyed by hot key, for the recompute. */
 export async function getCommitteeVotes(db: D1Database, gaId: string): Promise<CcVote[]> {
   const res = await db
-    .prepare(`SELECT voter_hex, vote, block_time FROM drep_votes WHERE ga_id = ? AND voter_role = 'ConstitutionalCommittee'`)
+    .prepare(ccVotesSql(true))
     .bind(gaId)
-    .all<{ voter_hex: string | null; vote: string; block_time: number | null }>();
-  const out: CcVote[] = [];
+    .all<CcVoteDbRow>();
+  return (res.results ?? []).map(toCcVote).filter((v): v is CcVote => v != null);
+}
+
+/** Every committee vote grouped by action, one read for the whole recompute. */
+async function getCommitteeVotesByAction(db: D1Database): Promise<Map<string, CcVote[]>> {
+  const res = await db.prepare(ccVotesSql(false)).all<CcVoteDbRow>();
+  const out = new Map<string, CcVote[]>();
   for (const r of res.results ?? []) {
-    if (!r.voter_hex) continue;
-    if (r.vote !== 'Yes' && r.vote !== 'No' && r.vote !== 'Abstain') continue;
-    out.push({ hotKeyHex: r.voter_hex, vote: r.vote, blockTime: r.block_time });
+    const v = toCcVote(r);
+    if (!v) continue;
+    const list = out.get(r.ga_id);
+    if (list) list.push(v);
+    else out.set(r.ga_id, [v]);
   }
   return out;
 }
@@ -158,7 +191,7 @@ export async function getActionCcVoteRows(db: D1Database, gaId: string): Promise
     .all<{ voter_id: string; hot_key_hex: string; vote: string; block_time: number | null; meta_url: string | null }>();
   const out: CcVoteRow[] = [];
   for (const r of res.results ?? []) {
-    if (r.vote !== 'Yes' && r.vote !== 'No' && r.vote !== 'Abstain') continue;
+    if (!isCcChoice(r.vote)) continue;
     out.push({ voterId: r.voter_id, hotKeyHex: r.hot_key_hex, vote: r.vote, blockTime: r.block_time, metaUrl: r.meta_url });
   }
   return out;
@@ -240,7 +273,7 @@ export async function listDecidedCcVoteRows(db: D1Database): Promise<Map<string,
     }>();
   const out = new Map<string, CcVoteRow[]>();
   for (const r of res.results ?? []) {
-    if (r.vote !== 'Yes' && r.vote !== 'No' && r.vote !== 'Abstain') continue;
+    if (!isCcChoice(r.vote)) continue;
     const row: CcVoteRow = { voterId: r.voter_id, hotKeyHex: r.hot_key_hex, vote: r.vote, blockTime: r.block_time, metaUrl: r.meta_url };
     const existing = out.get(r.ga_id);
     if (existing) existing.push(row);
@@ -258,7 +291,8 @@ export interface CommitteeTimeline {
 /**
  * Ledger-exact committee tally for one action, computed from the local
  * per-voter votes and the membership timeline (the same math as
- * recomputeCommitteePct). Returns null when it cannot improve on Koios: empty
+ * recomputeCommitteePct). Votes cast from the start of the boundary epoch on do
+ * not count (see ccTallyPct). Without a network config every vote counts. Returns null when it cannot improve on Koios: empty
  * timeline (preprod), unknown epoch, no local CC votes yet, or no active
  * committee at that epoch. The tally sync uses this to write ledger-exact cc_*
  * values in the first place, so a later tally pass can never revert an already
@@ -269,11 +303,12 @@ export async function ledgerCcTally(
   timeline: CommitteeTimeline,
   gaId: string,
   boundaryEpoch: number | null,
+  cfg: NetworkConfig | null,
 ): Promise<{ yesPct: number; noPct: number; yes: number; no: number; abstain: number } | null> {
   if (timeline.members.length === 0 || boundaryEpoch == null) return null;
   const votes = await getCommitteeVotes(db, gaId);
   if (votes.length === 0) return null;
-  const t = ccTallyPct(votes, timeline.members, timeline.hotToCold, boundaryEpoch);
+  const t = ccTallyPct(votes, timeline.members, timeline.hotToCold, boundaryEpoch, cfg ? epochStartUnix(boundaryEpoch, cfg) : null);
   if (t.yesPct == null || t.noPct == null) return null;
   return { yesPct: t.yesPct, noPct: t.noPct, yes: t.yes, no: t.no, abstain: t.abstain };
 }
@@ -291,16 +326,18 @@ interface RecomputeRow {
   ccAbstain: number | null;
 }
 
-/** Actions that carry committee votes, with their stored pct/counts and decided epoch. */
-async function getActionsForCommitteeRecompute(db: D1Database, limit: number): Promise<RecomputeRow[]> {
+/**
+ * Every action with its stored pct/counts and decided epoch. All of them on
+ * purpose: a capped scan without an order returns whatever the storage yields
+ * first, on prod the oldest rows, so the newest actions were never visited. The
+ * caller keeps those with committee votes. The set is small (low hundreds).
+ */
+async function getActionsForCommitteeRecompute(db: D1Database): Promise<RecomputeRow[]> {
   const res = await db
     .prepare(
-      `SELECT ga.id, ga.status, ga.decided_epoch, ga.ratified_epoch, ga.expiry_epoch, ga.cc_yes_pct, ga.cc_no_pct, ga.cc_yes, ga.cc_no, ga.cc_abstain
-         FROM governance_actions ga
-        WHERE EXISTS (SELECT 1 FROM drep_votes v WHERE v.ga_id = ga.id AND v.voter_role = 'ConstitutionalCommittee')
-        LIMIT ?`,
+      `SELECT id, status, decided_epoch, ratified_epoch, expiry_epoch, cc_yes_pct, cc_no_pct, cc_yes, cc_no, cc_abstain
+         FROM governance_actions`,
     )
-    .bind(limit)
     .all<{
       id: string;
       status: string;
@@ -337,19 +374,25 @@ export interface CommitteePctRecomputeResult {
  * Replaces the stored Koios committee_yes_pct with the ledger-exact recompute for
  * every action that has committee votes. Resolves the committee at the action's
  * decision boundary (or the next transition while still open, see
- * committeeBoundaryForAction), and dedupes the per-voter votes per member. Only-changed: writes only when the pct actually moves,
- * so a settled action converges after one pass. Skips (keeps the Koios value) when
- * the committee at that epoch is unknown (data older than the seed).
+ * committeeBoundaryForAction), dedupes the per-voter votes per member and, once
+ * counts only votes cast before the boundary epoch. Only-changed: writes only
+ * when a value actually moves, so a settled action converges after one pass.
+ * Skips (keeps the Koios value) when the committee at that epoch is unknown
+ * (data older than the seed). Three reads and one batched write per run.
  */
 export async function recomputeCommitteePct(
   db: D1Database,
   currentEpoch: number | null,
-  limit: number,
+  cfg: NetworkConfig,
 ): Promise<CommitteePctRecomputeResult> {
-  const { members, hotToCold } = await getCommitteeTimeline(db);
+  const [{ members, hotToCold }, allActions, votesByAction] = await Promise.all([
+    getCommitteeTimeline(db),
+    getActionsForCommitteeRecompute(db),
+    getCommitteeVotesByAction(db),
+  ]);
   if (members.length === 0) return { scanned: 0, updated: 0, skipped: 0 };
-  const actions = await getActionsForCommitteeRecompute(db, limit);
-  let updated = 0;
+  const actions = allActions.filter((a) => votesByAction.has(a.id));
+  const writes: D1PreparedStatement[] = [];
   let skipped = 0;
   for (const a of actions) {
     const boundary = committeeBoundaryForAction(a, currentEpoch);
@@ -357,8 +400,8 @@ export async function recomputeCommitteePct(
       skipped++;
       continue;
     }
-    const votes = await getCommitteeVotes(db, a.id);
-    const { yesPct, noPct, yes, no, abstain } = ccTallyPct(votes, members, hotToCold, boundary);
+    const votes = votesByAction.get(a.id) ?? [];
+    const { yesPct, noPct, yes, no, abstain } = ccTallyPct(votes, members, hotToCold, boundary, epochStartUnix(boundary, cfg));
     if (yesPct == null || noPct == null) {
       skipped++;
       continue;
@@ -370,12 +413,14 @@ export async function recomputeCommitteePct(
       no !== a.ccNo ||
       abstain !== a.ccAbstain
     ) {
-      await db
-        .prepare('UPDATE governance_actions SET cc_yes_pct = ?, cc_no_pct = ?, cc_yes = ?, cc_no = ?, cc_abstain = ? WHERE id = ?')
-        .bind(yesPct, noPct, yes, no, abstain, a.id)
-        .run();
-      updated++;
+      writes.push(
+        db
+          .prepare('UPDATE governance_actions SET cc_yes_pct = ?, cc_no_pct = ?, cc_yes = ?, cc_no = ?, cc_abstain = ? WHERE id = ?')
+          .bind(yesPct, noPct, yes, no, abstain, a.id),
+      );
     }
   }
-  return { scanned: actions.length, updated, skipped };
+  const CHUNK = 50;
+  for (let i = 0; i < writes.length; i += CHUNK) await db.batch(writes.slice(i, i + CHUNK));
+  return { scanned: actions.length, updated: writes.length, skipped };
 }

@@ -105,12 +105,12 @@ export const votePhases: readonly SyncPhaseDef<VoteSyncContext>[] = [
   {
     // Recompute the committee yes-percentage to the ledger-exact value once an
     // action's votes are synced, replacing Koios' committee_yes_pct (which miscounts
-    // rotated hot keys and resigned members). Only-changed and idempotent, so it
-    // converges as the finalized-vote backfill drains.
+    // rotated hot keys and resigned members). Walks every action in three reads.
+    // Only-changed and idempotent, so it converges as the finalized-vote backfill drains.
     name: 'committee-pct',
     run: async (ctx) => {
       const tip = await ctx.koios.tip();
-      const r = await recomputeCommitteePct(ctx.db, tip.epoch_no, 100);
+      const r = await recomputeCommitteePct(ctx.db, tip.epoch_no, ctx.cfg);
       if (r.updated > 0 || r.skipped > 0) console.log(`[committee-pct] scanned=${r.scanned} updated=${r.updated} skipped=${r.skipped}`);
       return { items: r.updated };
     },

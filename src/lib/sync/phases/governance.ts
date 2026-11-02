@@ -189,7 +189,7 @@ export const governancePhases: readonly SyncPhaseDef<GovernanceSyncContext>[] = 
     name: 'threshold-backfill',
     when: heavyOnly,
     run: async (ctx) => {
-      const bf = await backfillThresholdSnapshots({ koios: ctx.koios, db: ctx.db, now: ctx.now, limit: 15, paceMs: 100 });
+      const bf = await backfillThresholdSnapshots({ koios: ctx.koios, db: ctx.db, now: ctx.now, network: ctx.cfg.network, limit: 15, paceMs: 100 });
       console.log(`[gov-threshold-backfill] actions=${bf.actions} failed=${bf.failed}`);
       return { items: bf.actions, failed: bf.failed };
     },
