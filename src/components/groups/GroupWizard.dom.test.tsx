@@ -215,6 +215,23 @@ describe('GroupWizard refusals', () => {
     expect((screen.getByRole('button', { name: 'Next' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it('stays mounted when a threshold is cleared after the review was reached', async () => {
+    show([PROFILE]);
+    next();
+    next();
+    next();
+    await profileStep();
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'Back' })[0]);
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Threshold' }), { target: { value: '0' } });
+    expect(screen.getByText('The threshold must be at least 1.')).toBeTruthy();
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Threshold' }), { target: { value: '' } });
+    expect(screen.getByText('The threshold must be at least 1.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('checkbox', { name: /separate admission policy/ }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'You' }));
+    expect(screen.getAllByText('Tick at least one admission key.').length).toBeGreaterThan(0);
+  });
+
   it('asks for a group name before storing the profile', () => {
     show();
     next();

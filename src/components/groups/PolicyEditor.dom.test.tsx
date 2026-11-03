@@ -46,7 +46,7 @@ function stubFetch(replies: Reply[]) {
   );
 }
 
-const onContinue = vi.fn((_i: GroupIntent, _l: string) => {});
+const onContinue = vi.fn((_i: GroupIntent, _l: string, _n: Map<string, string>) => {});
 function editor(o: Partial<PolicyEditorProps> = {}, replies: Reply[] = []) {
   stubFetch(replies);
   render(
@@ -148,7 +148,7 @@ describe('PolicyEditor management policy', () => {
     fireEvent.change(field, { target: { value: drep(E) } });
     fireEvent.click(screen.getByRole('button', { name: 'Add' }));
     expect(await screen.findByRole('checkbox', { name: 'Erin' })).toBeTruthy();
-    expect(screen.getByText('Each newly listed member has to sign the update: Erin.')).toBeTruthy();
+    expect(screen.getByText('Each newly listed admin has to sign the update: Erin.')).toBeTruthy();
     // 1 of 2 carried to three keys.
     expect(screen.getByText(/2 of 3 must sign/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
@@ -172,7 +172,7 @@ describe('PolicyEditor dissolve', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: /Yes, dissolve this group/ }));
     expect(go.disabled).toBe(false);
     fireEvent.click(go);
-    expect(onContinue.mock.calls[0]).toEqual([{ kind: 'group_dissolve', group: GID }, 'Dissolve the group']);
+    expect(onContinue.mock.calls[0].slice(0, 2)).toEqual([{ kind: 'group_dissolve', group: GID }, 'Dissolve the group']);
   });
 
   it('is not offered when the key may not dissolve', () => {
@@ -217,6 +217,22 @@ describe('PolicyEditor on the group page', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     expect(await screen.findByText('Must sign: Erin')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Build and sign' })).toBeTruthy();
+  });
+
+  it('shows the name of an admin added by id in the draft panel', async () => {
+    const Z = key('9');
+    stubFetch([
+      { url: /\/state$/, body: v },
+      { url: /check-drep/, body: { registered: true, script: false, keyHash: Z, name: 'Zoltan' } },
+    ]);
+    render(<GroupActions groupId={GID} network="preprod" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage the group' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Change admins or threshold' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Add an admin by DRep id' }), { target: { value: drep(Z) } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    await screen.findByRole('checkbox', { name: 'Zoltan' });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(await screen.findByText('Must sign: Zoltan')).toBeTruthy();
   });
 
   it('is not offered to a member outside the policies', async () => {

@@ -133,15 +133,19 @@ export const profileDraftOf = (p: GroupProfileInput | null | undefined): Profile
 });
 
 const webUrl = (v: string): boolean => {
-  const u = URL.parse(v);
-  return u !== null && (u.protocol === 'https:' || u.protocol === 'http:');
+  try {
+    const u = new URL(v);
+    return u.protocol === 'https:' || u.protocol === 'http:';
+  } catch {
+    return false;
+  }
 };
 
 /** Why the profile cannot be stored, null when it can. */
 export function profileError(p: ProfileDraft): string | null {
   if (p.name.trim() === '') return 'Give the group a name.';
-  if (p.website.trim() !== '' && !webUrl(p.website.trim())) return 'The website must be a web address starting with https://.';
-  if (p.charter.trim() !== '' && !webUrl(p.charter.trim())) return 'The charter must be a web address starting with https://.';
+  if (p.website.trim() !== '' && !webUrl(p.website.trim())) return 'The website must be a web address starting with https:// or http://.';
+  if (p.charter.trim() !== '' && !webUrl(p.charter.trim())) return 'The charter must be a web address starting with https:// or http://.';
   return null;
 }
 

@@ -107,6 +107,8 @@ export default function GroupActions({ groupId, network, profile = null }: Group
   const [offer, setOffer] = useState<Proposal | null>(null);
   // The policy editor, open with the proposal it starts from.
   const [editor, setEditor] = useState<{ initial: Proposal | null } | null>(null);
+  // Names of admins the editor added by DRep id, the state route does not know them.
+  const [addedNames, setAddedNames] = useState<Map<string, string>>(new Map());
 
   const load = useCallback(async () => {
     try {
@@ -132,8 +134,11 @@ export default function GroupActions({ groupId, network, profile = null }: Group
   const isAdmin = viewerKey !== null && policyKeys.has(viewerKey);
   const activeIds = useMemo(() => v?.activeKeyMembers.map((m) => m.drepId) ?? [], [v]);
   const nameOf = useCallback(
-    (key: string) => v?.names[key] ?? v?.activeKeyMembers.find((m) => m.keyHash === key)?.name ?? shortHash(drepIdForCredential({ kind: 'key', hash: key })),
-    [v],
+    (key: string) =>
+      v?.names[key] ??
+      addedNames.get(key) ??
+      v?.activeKeyMembers.find((m) => m.keyHash === key)?.name ?? shortHash(drepIdForCredential({ kind: 'key', hash: key })),
+    [v, addedNames],
   );
   const current = useMemo(() => (state ? thresholdOf(state.control) : { n: 1, k: 1 }), [state]);
 
@@ -393,7 +398,10 @@ export default function GroupActions({ groupId, network, profile = null }: Group
           initial={editor.initial}
           slotHeld={v.openControl !== null}
           canDissolve={canDissolve}
-          onContinue={(intent, label) => void open(intent, label)}
+          onContinue={(intent, label, names) => {
+            setAddedNames(names);
+            void open(intent, label);
+          }}
           onClose={() => {
             setEditor(null);
             setDraft(null);

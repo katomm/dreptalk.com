@@ -181,7 +181,7 @@ describe('GroupActions combined update offer', () => {
     );
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Carol' }));
     expect(screen.getByText(/4 of 5 must sign \(80%\)/)).toBeTruthy();
-    expect(screen.getByText(/Each newly listed member has to sign the update/)).toBeTruthy();
+    expect(screen.getByText(/Each newly listed admin has to sign the update/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'More than half' }));
     expect(screen.getByText(/3 of 5 must sign \(60%\)/)).toBeTruthy();
     // Declining the update leaves a plain approval.

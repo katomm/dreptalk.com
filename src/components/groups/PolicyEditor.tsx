@@ -55,7 +55,7 @@ export function PolicyFields({
         ))}
       </ul>
       {k > 0 && <ThresholdField n={proposal.n} k={k} onChange={(n) => onChange({ ...proposal, n })} />}
-      {newlyListed.length > 0 && <p style={muted}>Each newly listed member has to sign the update: {newlyListed.map(nameOf).join(', ')}.</p>}
+      {newlyListed.length > 0 && <p style={muted}>Each newly listed admin has to sign the update: {newlyListed.map(nameOf).join(', ')}.</p>}
     </div>
   );
 }
@@ -82,7 +82,8 @@ export interface PolicyEditorProps {
   initial: Proposal | null;
   slotHeld: boolean;
   canDissolve: boolean;
-  onContinue: (intent: GroupIntent, label: string) => void;
+  /** `names` holds the names of admins added by DRep id, by key hash. */
+  onContinue: (intent: GroupIntent, label: string, names: Map<string, string>) => void;
   onClose: () => void;
 }
 
@@ -120,7 +121,7 @@ export default function PolicyEditor(props: PolicyEditorProps) {
     setBusy(true);
     try {
       const anchor = await storeProfile(profile);
-      onContinue({ kind: 'group_update', group: groupId, approvals: [], profile: anchor }, 'Change the profile');
+      onContinue({ kind: 'group_update', group: groupId, approvals: [], profile: anchor }, 'Change the profile', added);
     } catch (err) {
       setError(readableError(err));
     } finally {
@@ -199,6 +200,7 @@ export default function PolicyEditor(props: PolicyEditorProps) {
                         ...(proposal.sameAdmission ? { admission: 'same' as const } : {}),
                       },
                       'Update the management policy',
+                      added,
                     )
                   }
                 >
@@ -220,7 +222,7 @@ export default function PolicyEditor(props: PolicyEditorProps) {
                   type="button"
                   className="btn btn-primary"
                   disabled={!confirmDissolve}
-                  onClick={() => onContinue({ kind: 'group_dissolve', group: groupId }, 'Dissolve the group')}
+                  onClick={() => onContinue({ kind: 'group_dissolve', group: groupId }, 'Dissolve the group', added)}
                 >
                   Continue
                 </button>

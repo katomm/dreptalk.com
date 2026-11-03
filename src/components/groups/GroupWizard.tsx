@@ -28,6 +28,15 @@ const MODE_TEXT = {
 
 const radioRow = { display: 'inline-flex', gap: '0.375rem', alignItems: 'center' } as const;
 
+/** The keys of the founding, null when the builder refuses the intent, so render never throws. */
+function keysOf(intent: GroupIntent): { mandatory: string[]; optional: string[] } | null {
+  try {
+    return neededKeys(intent, null, null);
+  } catch {
+    return null;
+  }
+}
+
 export default function GroupWizard({ network, viewer, serverSlot }: GroupWizardProps) {
   const runner = useActionRunner(network);
   const renderedAt = useRef(typeof performance !== 'undefined' ? performance.now() : 0);
@@ -59,7 +68,9 @@ export default function GroupWizard({ network, viewer, serverSlot }: GroupWizard
     if (d.name) setNames((m) => new Map(m).set(d.keyHash, d.name as string));
   };
 
-  const intent: GroupIntent | null = anchor
+  // Built on the review step only, the earlier steps may hold a threshold the builder refuses.
+  const intent: GroupIntent | null =
+    step === 'review' && anchor
     ? {
         kind: 'group_create',
         mode,
@@ -114,7 +125,8 @@ export default function GroupWizard({ network, viewer, serverSlot }: GroupWizard
   async function build() {
     if (!intent) return;
     const tipSlot = serverSlot + Math.floor((performance.now() - renderedAt.current) / 1000);
-    const keys = neededKeys(intent, null, null);
+    const keys = keysOf(intent);
+    if (!keys) return;
     const o = await runner.run({ intent, state: null, memberScript: null, keys, signers: [], viewerKey, tipSlot });
     if (o) setOutcome(o);
   }
@@ -141,7 +153,7 @@ export default function GroupWizard({ network, viewer, serverSlot }: GroupWizard
     );
   }
 
-  const keys = intent ? neededKeys(intent, null, null) : null;
+  const keys = intent ? keysOf(intent) : null;
   const solo = keys !== null && keys.mandatory.length === 1 && keys.mandatory[0] === viewerKey;
 
   return (
@@ -264,6 +276,11 @@ export default function GroupWizard({ network, viewer, serverSlot }: GroupWizard
         </section>
       )}
 
+      {step === 'review' && !keys && (
+        <p role="alert" style={muted}>
+          These thresholds cannot be used. Go back and check them.
+        </p>
+      )}
       {step === 'review' && intent && keys && intent.kind === 'group_create' && (
         <DraftPanel
           label="Found the group"
