@@ -482,7 +482,7 @@ export function moreThanHalf(k: number): number {
 }
 
 /** n and k of a policy: n of k for nOfK, all for all, one for any and a single key. */
-function thresholdOf(s: NativeScript): { n: number; k: number } {
+export function thresholdOf(s: NativeScript): { n: number; k: number } {
   switch (s.type) {
     case 'nOfK':
       return { n: Number(s.n), k: s.scripts.length };

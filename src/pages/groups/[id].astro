@@ -4,6 +4,7 @@ import { env } from 'cloudflare:workers';
 import { checkPaymentAddress } from 'drep-groups';
 import Layout from '@/layouts/Layout.astro';
 import NotFound from '@/components/NotFound.astro';
+import GroupActions from '@/components/groups/GroupActions.js';
 import NotFoundPage from '../404.astro';
 import { currentNetwork } from '@/lib/api/response';
 import { txExplorerUrl } from '@/lib/config/network.js';
@@ -178,6 +179,10 @@ const nextQuery = (kind: keyof typeof SECTION_TITLE, after: string): string => {
           </>
         );
       })}
+      {/* The island reads the session's view itself, so this page stays cacheable. The anchor is server rendered so a link to the requests jumps on load. */}
+      <div id="requests" class="gr-actions">
+        <GroupActions client:load groupId={group.groupId} network={net.network} />
+      </div>
     </section>
 
     <section>
@@ -237,5 +242,6 @@ const nextQuery = (kind: keyof typeof SECTION_TITLE, after: string): string => {
   .gr-list { list-style: none; padding: 0; display: grid; gap: 0.375rem; }
   .gr-links { list-style: none; padding: 0; display: flex; gap: 1rem; }
   .gr-dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; }
+  .gr-actions { margin-top: 1.5rem; scroll-margin-top: 4rem; }
   .gr-pager { display: flex; gap: 1rem; margin-top: 0.75rem; font-size: 0.875rem; font-weight: 600; }
 </style>

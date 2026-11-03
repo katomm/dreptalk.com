@@ -113,6 +113,14 @@ export async function buildGroupTxFrom(txb: DrepTxBuilder, i: GroupTxInputs): Pr
   return { unsignedTxHex, bodyHashHex: decoded.bodyHash };
 }
 
+/**
+ * The preprod slot of the wall clock, which is the tip slot within seconds. The server accepts a
+ * validity end that far off.
+ */
+export function wallClockSlot(now = Date.now()): number {
+  return Number(Time.unixTimeToSlot(BigInt(now), preprod.slotConfig));
+}
+
 function assertGroupsNetwork(network: CardanoNetwork): void {
   if (!drepGroupsAvailable(network)) throw new Error('DRep groups are not available on this network.');
 }

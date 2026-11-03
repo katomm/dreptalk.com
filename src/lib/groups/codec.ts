@@ -10,6 +10,7 @@ import type {
   TxPosition,
 } from 'drep-groups';
 import { bytesToHex, hexToBytes } from 'drep-groups';
+import type { NativeScript as CliScript } from '../cardano/nativeScript.js';
 import { MAX_SCRIPT_DISPLAY_DEPTH } from './constants.js';
 
 /** A D1 result row. */
@@ -299,5 +300,21 @@ export function scriptFromDisplayJson(json: string): NativeScript | null {
     return s && typeof s === 'object' && s.type !== ('tooDeep' as string) ? s : null;
   } catch {
     return null;
+  }
+}
+
+/** A cardano-cli or Koios native script in the library's shape. */
+export function libraryScript(s: CliScript): NativeScript {
+  switch (s.type) {
+    case 'sig':
+      return { type: 'sig', keyHash: s.keyHash };
+    case 'all':
+    case 'any':
+      return { type: s.type, scripts: s.scripts.map(libraryScript) };
+    case 'atLeast':
+      return { type: 'nOfK', n: BigInt(s.required), scripts: s.scripts.map(libraryScript) };
+    case 'before':
+    case 'after':
+      return { type: s.type, slot: BigInt(s.slot) };
   }
 }

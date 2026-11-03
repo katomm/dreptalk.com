@@ -19,12 +19,13 @@ import {
   previewTransaction,
   type View,
 } from 'drep-groups';
-import { type NativeScript as CliScript, parseNativeScriptJson } from '../cardano/nativeScript.js';
+import { parseNativeScriptJson } from '../cardano/nativeScript.js';
 import { blake2b256 } from '../crypto/blake.js';
 import { bytesToHex } from '../crypto/hex.js';
 import type { createKoiosClient } from '../koios/client.js';
 import { KOIOS_BATCH_CONCURRENCY, mapLimit } from '../koios/concurrency.js';
 import type { GroupState } from './actions.js';
+import { libraryScript } from './codec.js';
 import { drepIdForCredential } from './ids.js';
 import { frontiers, load, pendingRecovery, queuedJoins, readyCredentials } from './store/reads.js';
 
@@ -43,29 +44,13 @@ export interface LiveFacts {
   asked: Set<string>;
 }
 
-/** cardano-cli script JSON in the library's shape. */
-function toLibraryScript(s: CliScript): NativeScript {
-  switch (s.type) {
-    case 'sig':
-      return { type: 'sig', keyHash: s.keyHash };
-    case 'all':
-    case 'any':
-      return { type: s.type, scripts: s.scripts.map(toLibraryScript) };
-    case 'atLeast':
-      return { type: 'nOfK', n: BigInt(s.required), scripts: s.scripts.map(toLibraryScript) };
-    case 'before':
-    case 'after':
-      return { type: s.type, slot: BigInt(s.slot) };
-  }
-}
-
 /** A script DRep's native script, null unless Koios returns one whose hash is the credential. */
 async function memberScriptOf(koios: Pick<KoiosClient, 'scriptInfo'>, hash: string): Promise<NativeScript | null> {
   const info = await koios.scriptInfo(hash);
   if (info?.type !== 'timelock') return null;
   try {
     const cli = parseNativeScriptJson(info.value);
-    const s = cli ? toLibraryScript(cli) : null;
+    const s = cli ? libraryScript(cli) : null;
     return s && nativeScriptHash(encodeNativeScript(s)) === hash ? s : null;
   } catch {
     return null;

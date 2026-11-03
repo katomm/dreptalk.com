@@ -124,6 +124,24 @@ export function eventLabel(tag: string | null): string {
   }
 }
 
+/** A group action of the signing table in a word, for the lists of actions in progress. */
+export const ACTION_KIND_LABEL: Readonly<Record<string, string>> = {
+  group_create: 'Founding',
+  group_join: 'Join',
+  group_leave: 'Leave',
+  group_approve: 'Approval',
+  group_remove: 'Removal',
+  group_update: 'Policy update',
+  group_dissolve: 'Dissolution',
+};
+
+/** Where an unresolved group action stands. A submitted one is confirming until the chain confirms it. */
+export const ACTION_STATUS_LABEL: Readonly<Record<string, string>> = {
+  collecting: 'collecting signatures',
+  submitted: 'confirming',
+  cancelled: 'cancelled, held until it expires',
+};
+
 export function addressStatusLabel(status: 'invalid' | 'declared' | 'script-controlled'): string {
   return status === 'script-controlled' ? 'Controlled by' : status === 'declared' ? 'Declared address' : 'Invalid address';
 }

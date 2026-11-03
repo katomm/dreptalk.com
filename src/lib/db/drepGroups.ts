@@ -25,11 +25,16 @@ import {
   type Row,
   START,
 } from '../groups/codec.js';
-import { drepIdForCredential, groupIdParam, groupIdString } from '../groups/ids.js';
+import { openControlAction } from '../groups/actionStore.js';
+import { credentialForDrepId, drepIdForCredential, groupIdParam, groupIdString } from '../groups/ids.js';
 import { picked } from '../groups/jobs.js';
+import { noKeys } from '../groups/preview.js';
 import { certPos, countedAs } from '../groups/store/commit.js';
 import { guardedBatch, writeBatch } from '../groups/store/lease.js';
 import { KEYED, KEYED_WIDTH, Q } from '../groups/store/queries.js';
+import { load } from '../groups/store/reads.js';
+import { policyKeyHashes, scriptFromJson } from '../groups/view.js';
+import type { GroupActionKind } from './pendingMultisigTx.js';
 import { chunked, D1_MAX_BINDS } from './sql.js';
 
 export interface PaymentAddress {
@@ -175,7 +180,7 @@ export async function delayProfile(db: D1Database, lease: string, groupId: strin
   await writeBatch(db, lease, [db.prepare(Q.profileDueRetry.sql).bind(now + PROFILE_RETRY_MS, tx, ix, url, hashBytes(dataHash))]);
 }
 
-interface GroupRow {
+export interface GroupRow {
   groupId: string;
   ref: EventRef;
   mode: 'open' | 'permissioned';
@@ -465,4 +470,148 @@ export async function drepNamesForKeyHashes(db: D1Database, keyHashes: string[])
   const byDrep = new Map([...new Set(keyHashes)].map((h) => [drepIdForCredential({ kind: 'key', hash: h }), h]));
   const rows = await keyedRead(db, 'drepNames', [...byDrep.keys()]);
   return new Map(rows.map((r) => [byDrep.get(String(r.drep_id)) as string, String(r.name)]));
+}
+
+/** An unresolved group row of the signing table as the group page and the DRep profile show it. */
+export interface GroupActionRow {
+  id: string;
+  kind: GroupActionKind;
+  status: 'collecting' | 'submitted' | 'cancelled';
+  subjectKind: 'member' | 'group';
+  /** The group the action is about, for a create the group it founds. */
+  groupId: string;
+  controlSlot: boolean;
+  createdBy: string;
+  requiredSigners: string[];
+}
+
+const ROW_COLS = `id, action, status, subject_kind, drep_id, control_slot, created_by, required_signers, created_at,
+  json_extract(action_params, '$.group') AS grp`;
+
+// Binds the group id and the limit. Unresolved rows whose subject is the group, a create included.
+const GROUP_ROWS_SQL = `SELECT ${ROW_COLS} FROM pending_multisig_tx
+  WHERE subject_kind = 'group' AND drep_id = ? AND resolved_at IS NULL ORDER BY created_at DESC LIMIT ?`;
+// Binds the member DRep id, the group id and the limit. The member's own unresolved join and leave rows of the group.
+const MEMBER_ROWS_SQL = `SELECT ${ROW_COLS} FROM pending_multisig_tx
+  WHERE subject_kind = 'member' AND drep_id = ?1 AND resolved_at IS NULL AND json_extract(action_params, '$.group') = ?2
+  ORDER BY created_at DESC LIMIT ?3`;
+/**
+ * Binds the DRep id, its key hash (NULL for a script DRep) and the limit. Its own member rows, and
+ * every unresolved group row that lists its key as a required signer, which covers a joint create
+ * before the group exists. Cancelled rows are left out.
+ */
+export const UNRESOLVED_FOR_DREP_SQL = `SELECT ${ROW_COLS} FROM pending_multisig_tx
+    WHERE subject_kind = 'member' AND drep_id = ?1 AND resolved_at IS NULL AND status != 'cancelled'
+  UNION
+  SELECT ${ROW_COLS} FROM pending_multisig_tx INDEXED BY pending_multisig_tx_unresolved
+    WHERE subject_kind != 'drep' AND resolved_at IS NULL AND status != 'cancelled'
+      AND EXISTS (SELECT 1 FROM json_each(required_signers) j WHERE j.value = ?2)
+  ORDER BY created_at DESC LIMIT ?3`;
+
+/** Rows per list the group page and the profile read, far above what a group has open at once. */
+const ACTION_ROWS_LIMIT = 20;
+/** Members per list the action island reads, one more than a policy can hold. */
+const ACTION_MEMBERS_LIMIT = 65;
+
+function actionRowFrom(r: Row): GroupActionRow {
+  const subjectKind = String(r.subject_kind) as GroupActionRow['subjectKind'];
+  return {
+    id: String(r.id),
+    kind: String(r.action) as GroupActionKind,
+    status: String(r.status) as GroupActionRow['status'],
+    subjectKind,
+    groupId: subjectKind === 'group' ? String(r.drep_id) : String(r.grp ?? ''),
+    controlSlot: Number(r.control_slot) === 1,
+    createdBy: String(r.created_by),
+    requiredSigners: r.required_signers === null ? [] : (JSON.parse(String(r.required_signers)) as string[]),
+  };
+}
+
+/** The unresolved group rows of a DRep, newest first: its join and leave rows and the rows its key must sign. */
+export async function unresolvedGroupActionsForDrep(db: D1Database, drepId: string): Promise<GroupActionRow[]> {
+  const cred = credentialForDrepId(drepId);
+  if (!cred) return [];
+  const key = cred.kind === 'key' ? cred.hash.toLowerCase() : null;
+  return pageRead('DRep group actions', [], async () => {
+    const res = await db.prepare(UNRESOLVED_FOR_DREP_SQL).bind(drepId, key, ACTION_ROWS_LIMIT).all<Row>();
+    return (res.results ?? []).map(actionRowFrom);
+  });
+}
+
+export interface PolicyKeys {
+  hash: string;
+  /** Display JSON of the native script, empty when the store does not hold it. */
+  json: string;
+  keys: string[];
+}
+
+export interface GroupActionState {
+  control: PolicyKeys;
+  admission: PolicyKeys | null;
+  /** DRep names by key hash, for policy keys and members. */
+  names: Map<string, string>;
+  openControl: GroupActionRow | null;
+  /** Unresolved rows whose subject is the group. */
+  rows: GroupActionRow[];
+  /** The viewer's own unresolved join and leave rows of the group. */
+  viewerRows: GroupActionRow[];
+  activeKeyMembers: Array<{ drepId: string; keyHash: string; name: string | null }>;
+  pending: Array<{ joinId: string; drepId: string; name: string | null }>;
+  viewerJoin: { joinId: string; state: 'pending' | 'active' } | null;
+}
+
+/**
+ * What the action island of a group page needs: the policies and their keys, the open control
+ * action, the unresolved rows of the group and the viewer's own rows, the active key DRep members
+ * and the pending requests, and the viewer's open membership.
+ */
+export async function groupActionState(
+  db: D1Database,
+  group: GroupRow,
+  viewer: { keyHash: string | null; drepId: string | null },
+): Promise<GroupActionState> {
+  const hashes = [group.controlHash, ...(group.admissionHash ? [group.admissionHash] : [])];
+  const viewerCred = viewer.drepId ? credentialForDrepId(viewer.drepId) : null;
+  const [displays, openControl, rows, viewerRows, active, pending, view] = await Promise.all([
+    scriptDisplays(db, hashes),
+    openControlAction(db, group.groupId),
+    db.prepare(GROUP_ROWS_SQL).bind(group.groupId, ACTION_ROWS_LIMIT).all<Row>(),
+    viewer.drepId
+      ? db.prepare(MEMBER_ROWS_SQL).bind(viewer.drepId, group.groupId, ACTION_ROWS_LIMIT).all<Row>()
+      : Promise.resolve({ results: [] as Row[] }),
+    listMembers(db, group.ref, 'active', null, ACTION_MEMBERS_LIMIT),
+    listMembers(db, group.ref, 'pending', null, ACTION_MEMBERS_LIMIT),
+    viewerCred
+      ? load(db, { ...noKeys(), latestInstances: [[group.ref, { kind: viewerCred.kind, hash: viewerCred.hash.toLowerCase() }]] }, [])
+      : Promise.resolve(null),
+  ]);
+  const policy = (hash: string): PolicyKeys => {
+    const json = displays.get(hash) ?? '';
+    return { hash, json, keys: policyKeyHashes(scriptFromJson(json || undefined)) };
+  };
+  const control = policy(group.controlHash);
+  const admission = group.admissionHash ? policy(group.admissionHash) : null;
+
+  const activeKeyMembers = active.flatMap((m) => {
+    const c = credentialForDrepId(m.drepId);
+    return c?.kind === 'key' ? [{ drepId: m.drepId, keyHash: c.hash.toLowerCase(), name: m.drepName }] : [];
+  });
+  const names = await drepNamesForKeyHashes(db, [...new Set([...control.keys, ...(admission?.keys ?? [])])]);
+  for (const m of activeKeyMembers) if (m.name) names.set(m.keyHash, m.name);
+
+  const inst = view && viewerCred ? view.latestInstance(group.ref, { kind: viewerCred.kind, hash: viewerCred.hash.toLowerCase() }) : null;
+  const viewerJoin =
+    inst && inst.closedAt === null ? { joinId: refKey(inst.joinId), state: countedAs(inst, null) === 'open' ? ('active' as const) : ('pending' as const) } : null;
+
+  return {
+    control,
+    admission,
+    names,
+    openControl: openControl ? actionRowFrom({ ...openControl, grp: null } as unknown as Row) : null,
+    rows: (rows.results ?? []).map(actionRowFrom),
+    viewerRows: (viewerRows.results ?? []).map(actionRowFrom),
+    activeKeyMembers,
+    pending: pending.map((m) => ({ joinId: m.joinId, drepId: m.drepId, name: m.drepName })),
+    viewerJoin,
+  };
 }

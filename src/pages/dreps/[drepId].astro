@@ -40,7 +40,7 @@ import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
 import { ogCardVersion } from '@/lib/og/version.js';
 import { currentNetwork } from '@/lib/api/response';
 import { drepGroupsAvailable } from '@/lib/groups/gate.js';
-import { shortHash } from '@/lib/groups/view.js';
+import { ACTION_KIND_LABEL, ACTION_STATUS_LABEL, shortHash } from '@/lib/groups/view.js';
 import Avatar from '@/components/Avatar.astro';
 import CopyButton from '@/components/CopyButton.astro';
 import ShareButton from '@/components/ShareButton.astro';
@@ -94,7 +94,7 @@ const isOwner =
 
 // Forum activity + total active power + voting history load together (independent reads).
 const drepUser = drep && db ? await getUserByDrepId(db, drep.drepId) : null;
-const [posts, activeStake, votingHistory, votesCast, voteBreakdown, rationaleStats, participation, earnedBadges, holderCounts, powerSeries, voteHistoryMap, reportCard, timingRows, drepLinkHandle, groups] =
+const [posts, activeStake, votingHistory, votesCast, voteBreakdown, rationaleStats, participation, earnedBadges, holderCounts, powerSeries, voteHistoryMap, reportCard, timingRows, drepLinkHandle, groups, groupActions] =
   await Promise.all([
     drepUser && db ? getPostsByAuthor(db, drepUser.id, { limit: 20 }) : Promise.resolve([]),
     db ? getActiveDrepStake(db) : Promise.resolve({ total: 0, asOf: null }),
@@ -120,6 +120,16 @@ const [posts, activeStake, votingHistory, votesCast, voteBreakdown, rationaleSta
     // Group chips exist on preprod only, elsewhere the groups store is not even loaded.
     drep && db && drepGroupsAvailable(currentNetwork().network)
       ? import('@/lib/db/drepGroups.js').then((m) => m.groupsForDrep(db, drep.drepId, 20))
+      : Promise.resolve([]),
+    // Group actions of the DRep still waiting for signatures or for the chain, a joint founding included.
+    drep && db && drepGroupsAvailable(currentNetwork().network)
+      ? import('@/lib/db/drepGroups.js')
+          .then((m) => m.unresolvedGroupActionsForDrep(db, drep.drepId))
+          .catch((err) => {
+            // The chips are secondary, a failed read must not take the profile down.
+            console.error('[drep-groups] group actions of the profile could not be read', err);
+            return [];
+          })
       : Promise.resolve([]),
   ]);
 // The DRep's short link, shown under its id. Absent until the drep.link seed ran.
@@ -325,6 +335,13 @@ const profileSummary = drep
           {groups.map((g) => (
             <a class="drep-hd__group" href={`/groups/${g.groupId}/`} title={g.groupId}>{g.name ? `${g.name} · ${shortHash(g.groupId)}` : shortHash(g.groupId)}</a>
           ))}
+          {groupActions.map((a) => {
+            const label = `${ACTION_KIND_LABEL[a.kind] ?? a.kind} · ${shortHash(a.groupId)} · ${ACTION_STATUS_LABEL[a.status] ?? a.status}`;
+            // A founding group has no page until the chain confirms it.
+            return a.kind === 'group_create'
+              ? <span class="drep-hd__group drep-hd__group--pending" title={a.groupId}>{label}</span>
+              : <a class="drep-hd__group drep-hd__group--pending" href={`/groups/${a.groupId}/`} title={a.groupId}>{label}</a>;
+          })}
         </div>
         <div class="drep-hd__titlerow">
           <h1 class="drep-hd__name">{displayName}</h1>
@@ -649,6 +666,7 @@ const profileSummary = drep
   }
   .drep-hd__dot { width: 0.4rem; height: 0.4rem; border-radius: 50%; background: currentColor; flex: none; }
   .drep-hd__group { font-size: 0.75rem; padding: 0.125rem 0.5rem; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); text-decoration: none; }
+  .drep-hd__group--pending { border-style: dashed; }
   .drep-hd__status--ok {
     color: var(--c-pos);
     background: color-mix(in srgb, var(--c-pos) 12%, transparent);
