@@ -14,6 +14,7 @@ import {
 } from 'drep-groups';
 import { describe, expect, it } from 'vitest';
 import { cbor, deliver, type Input, keyHex as K, labelTx, ledgerRow, settle, txHex as T } from './__tests__/loadFixtures.js';
+import { KOIOS_BATCH_CONCURRENCY } from '../koios/concurrency.js';
 import { ENGINE_BUDGET } from './constants.js';
 import { type LiveFacts, liveFactsFor, PreviewUnavailable, previewGroupTx, readGroupState } from './preview.js';
 import { acquireLease, invocationOwner } from './store/lease.js';
@@ -197,5 +198,25 @@ describe('liveFactsFor', () => {
     const retired = await liveFactsFor({ ...koios, drepInfo: async () => null }, [key(ALICE)]);
     expect(retired.registered.size).toBe(0);
     expect(retired.asked.has(credKey(key(ALICE)))).toBe(true);
+  });
+
+  it('keeps at most the Koios batch window in flight for many founders', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const koios = {
+      drepInfo: async (id: string) => {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        await new Promise((r) => setTimeout(r, 1));
+        inFlight -= 1;
+        return { drep_id: id, hex: '', has_script: false, drep_status: 'registered', deposit: null, active: true, expires_epoch_no: null } as never;
+      },
+      scriptInfo: async () => null,
+    };
+    const founders = Array.from({ length: 63 }, (_, i) => key(K(100 + i)));
+    const facts = await liveFactsFor(koios, founders);
+    expect(facts.registered.size).toBe(63);
+    expect(peak).toBeLessThanOrEqual(KOIOS_BATCH_CONCURRENCY);
+    expect(peak).toBeGreaterThan(1);
   });
 });

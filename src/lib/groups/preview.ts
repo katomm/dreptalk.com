@@ -23,6 +23,7 @@ import { type NativeScript as CliScript, parseNativeScriptJson } from '../cardan
 import { blake2b256 } from '../crypto/blake.js';
 import { bytesToHex } from '../crypto/hex.js';
 import type { createKoiosClient } from '../koios/client.js';
+import { KOIOS_BATCH_CONCURRENCY, mapLimit } from '../koios/concurrency.js';
 import type { GroupState } from './actions.js';
 import { drepIdForCredential } from './ids.js';
 import { frontiers, load, pendingRecovery, queuedJoins, readyCredentials } from './store/reads.js';
@@ -75,16 +76,15 @@ async function memberScriptOf(koios: Pick<KoiosClient, 'scriptInfo'>, hash: stri
 export async function liveFactsFor(koios: Pick<KoiosClient, 'drepInfo' | 'scriptInfo'>, members: Credential[]): Promise<LiveFacts> {
   const unique = new Map(members.map((c) => [credKey({ kind: c.kind, hash: c.hash.toLowerCase() }), { kind: c.kind, hash: c.hash.toLowerCase() }]));
   const live: LiveFacts = { registered: new Set(), memberScripts: new Map(), asked: new Set(unique.keys()) };
-  await Promise.all(
-    [...unique].map(async ([k, c]) => {
-      const [info, script] = await Promise.all([
-        koios.drepInfo(drepIdForCredential(c)),
-        c.kind === 'script' ? memberScriptOf(koios, c.hash) : Promise.resolve(null),
-      ]);
-      if (info?.drep_status === 'registered') live.registered.add(k);
-      if (script) live.memberScripts.set(k, script);
-    }),
-  );
+  // Up to 63 founders, so the Koios calls run in a bounded window.
+  await mapLimit([...unique], KOIOS_BATCH_CONCURRENCY, async ([k, c]) => {
+    const [info, script] = await Promise.all([
+      koios.drepInfo(drepIdForCredential(c)),
+      c.kind === 'script' ? memberScriptOf(koios, c.hash) : Promise.resolve(null),
+    ]);
+    if (info?.drep_status === 'registered') live.registered.add(k);
+    if (script) live.memberScripts.set(k, script);
+  });
   return live;
 }
 

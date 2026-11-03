@@ -3,7 +3,7 @@ import { ed25519 } from '@noble/curves/ed25519.js';
 import { blake2b } from '@noble/hashes/blake2.js';
 import { TransactionWitnessSet, VKey, Ed25519Signature } from '@evolution-sdk/evolution';
 import { bytesToHex, hexToBytes } from '../crypto/hex.js';
-import { validateWitness } from './multisigWitness.js';
+import { parseWitnessSetHex, singleWitnessSetHex, validateWitness, verifyVkeyWitness } from './multisigWitness.js';
 
 function makeWitnessSetHex(priv: Uint8Array, bodyHash: Uint8Array): { hex: string; keyHashHex: string } {
   const pub = ed25519.getPublicKey(priv);
@@ -42,5 +42,20 @@ describe('validateWitness', () => {
     const { hex, keyHashHex } = makeWitnessSetHex(priv, bodyHash);
     const r = validateWitness({ witnessSetHex: hex, bodyHashHex: bytesToHex(bodyHash), sigLeaves: new Set([keyHashHex]), already: new Set([keyHashHex]) });
     expect(r).toEqual({ ok: false, reason: 'duplicate' });
+  });
+});
+
+describe('verifyVkeyWitness', () => {
+  it('verifies each witness of a split set on its own and re-encodes it alone', () => {
+    const body = 'cd'.repeat(32);
+    const a = makeWitnessSetHex(hexToBytes('03'.repeat(32)), hexToBytes(body));
+    const b = makeWitnessSetHex(hexToBytes('04'.repeat(32)), hexToBytes('ef'.repeat(32)));
+    const [wa] = parseWitnessSetHex(a.hex);
+    const [wb] = parseWitnessSetHex(b.hex);
+    expect(verifyVkeyWitness(wa, body)).toBe(true);
+    // Signed over another body.
+    expect(verifyVkeyWitness(wb, body)).toBe(false);
+    expect(verifyVkeyWitness({ ...wa, signatureHex: 'zz' }, body)).toBe(false);
+    expect(singleWitnessSetHex(wa)).toBe(a.hex);
   });
 });

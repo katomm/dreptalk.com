@@ -26,6 +26,7 @@ import {
   posFromRow,
   posOrNull,
   scriptDisplayJson,
+  scriptFromDisplayJson,
   versionFromRow,
 } from './codec.js';
 
@@ -209,5 +210,17 @@ describe('scriptDisplayJson', () => {
       scripts: ['11', '22', '33'].map((h) => ({ type: 'sig', keyHash: h.repeat(28) }) as NativeScript),
     };
     expect(JSON.parse(scriptDisplayJson(nOfK2of3))).toMatchObject({ type: 'nOfK', n: '2' });
+  });
+});
+
+describe('scriptFromDisplayJson', () => {
+  it('reads back what scriptDisplayJson writes', () => {
+    const s: NativeScript = {
+      type: 'all',
+      scripts: [{ type: 'nOfK', n: 2n, scripts: [{ type: 'sig', keyHash: 'ab'.repeat(28) }, { type: 'after', slot: 100n }] }],
+    };
+    expect(scriptFromDisplayJson(scriptDisplayJson(s))).toEqual(s);
+    expect(scriptFromDisplayJson('{"type":"tooDeep"}')).toBeNull();
+    expect(scriptFromDisplayJson('not json')).toBeNull();
   });
 });

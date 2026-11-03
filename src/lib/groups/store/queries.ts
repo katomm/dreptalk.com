@@ -1261,6 +1261,32 @@ export const Q = Object.freeze({
           ORDER BY never_included_at DESC LIMIT ?`,
     boundedScan: 'pending_multisig_tx_never_included',
   },
+  // Binds the 20 columns of a new group signing row, the control slot flag last. A control row is stored only while
+  // the group has no open control row, in the same statement.
+  actionCreate: {
+    sql: `INSERT INTO pending_multisig_tx (id, drep_id, action, action_params, unsigned_tx_cbor, body_hash, native_script,
+            witnesses, status, tx_hash, created_by, created_at, expires_at, subject_kind, required_signers, invalid_hereafter,
+            fee_inputs, event_count, profile_hash, control_slot)
+          SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, '[]', 'collecting', NULL, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17
+          WHERE ?17 = 0 OR NOT EXISTS (
+            SELECT 1 FROM pending_multisig_tx WHERE drep_id = ?2 AND control_slot = 1 AND resolved_at IS NULL)`,
+  },
+  // Binds the group id. The row holding the group's control slot.
+  actionOpenControl: {
+    sql: 'SELECT * FROM pending_multisig_tx WHERE drep_id = ? AND control_slot = 1 AND resolved_at IS NULL LIMIT 1',
+  },
+  // Binds the row id and now. A collecting or cancelled control row whose seq is stale resolves failed and closes.
+  actionFreeStale: {
+    sql: `UPDATE pending_multisig_tx SET resolution = 'failed', resolved_at = ?2, status = 'cancelled',
+            cancelled_at = COALESCE(cancelled_at, ?2)
+          WHERE id = ?1 AND control_slot = 1 AND resolved_at IS NULL AND status != 'submitted'`,
+  },
+  // Binds the row id and now. Cancels a collecting row, its slot stays held.
+  actionCancel: {
+    sql: `UPDATE pending_multisig_tx SET status = 'cancelled', cancelled_at = ?2 WHERE id = ?1 AND status = 'collecting'`,
+  },
+  // Binds the group. The name of the group's stored profile.
+  actionGroupName: { sql: 'SELECT name FROM drep_group_profiles WHERE group_tx = ? AND group_ix = ?' },
   // Binds the limit. The oldest queued join requests with their instance, group policy, names and whether the join
   // tx is processed.
   joinNotifyPage: {

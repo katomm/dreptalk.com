@@ -30,6 +30,9 @@ export type PendingMultisigRow = {
   cancelled_at: number | null;
 };
 
+/** A stored witness. Group rows tell signer witnesses from the initiator's funding witness, vote rows carry no role. */
+export type PendingWitness = { key_hash: string; witness_hex: string; role?: 'signer' | 'funding' };
+
 export async function createPendingMultisig(
   db: D1Database,
   rec: {
@@ -70,13 +73,13 @@ const ADD_WITNESS_MAX_ATTEMPTS = 8;
 export async function addPendingWitness(
   db: D1Database,
   id: string,
-  witness: { key_hash: string; witness_hex: string },
+  witness: PendingWitness,
   _now: number,
 ): Promise<'added' | 'gone'> {
   for (let attempt = 0; attempt < ADD_WITNESS_MAX_ATTEMPTS; attempt++) {
     const row = await getPendingMultisig(db, id);
     if (row?.status !== 'collecting') return 'gone';
-    const list = JSON.parse(row.witnesses) as Array<{ key_hash: string; witness_hex: string }>;
+    const list = JSON.parse(row.witnesses) as PendingWitness[];
     if (list.some((w) => w.key_hash === witness.key_hash)) return 'added'; // idempotent on duplicate key
     list.push(witness);
     // Compare-and-swap: only write when witnesses is still exactly what we read,

@@ -291,3 +291,13 @@ export function scriptDisplayJson(s: NativeScript): string {
   if (scriptDepth(s) > MAX_SCRIPT_DISPLAY_DEPTH) return '{"type":"tooDeep"}';
   return JSON.stringify(s, (_k, v) => (typeof v === 'bigint' ? v.toString() : v));
 }
+
+/** The native script back from its display JSON, null for the depth marker or anything unreadable. */
+export function scriptFromDisplayJson(json: string): NativeScript | null {
+  try {
+    const s = JSON.parse(json, (k, v) => ((k === 'n' || k === 'slot') && typeof v === 'string' ? BigInt(v) : v)) as NativeScript;
+    return s && typeof s === 'object' && s.type !== ('tooDeep' as string) ? s : null;
+  } catch {
+    return null;
+  }
+}

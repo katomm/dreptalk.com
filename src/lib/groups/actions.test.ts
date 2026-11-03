@@ -20,8 +20,10 @@ import {
   type GroupIntent,
   type GroupState,
   mayInitiate,
+  maySign,
   moreThanHalf,
   neededKeys,
+  neededPolicyKeys,
   neededPolicies,
   proposeDrift,
   proposeUpdate,
@@ -151,6 +153,26 @@ describe('policies, keys and initiators', () => {
     const dissolve: GroupIntent = { kind: 'group_dissolve', group: GID };
     expect(mayInitiate(dissolve, s, { keyHash: K(CAROL), drepId: keyId(CAROL) })).toBe(false);
     expect(mayInitiate(dissolve, s, { keyHash: null, drepId: scriptId(ALICE) })).toBe(false);
+  });
+
+  it('refuses an initiator for a dissolved group and for the state of another group', () => {
+    const dissolve: GroupIntent = { kind: 'group_dissolve', group: GID };
+    const alice = { keyHash: K(ALICE), drepId: keyId(ALICE) };
+    expect(mayInitiate(dissolve, state(), alice)).toBe(true);
+    expect(mayInitiate(dissolve, { ...state(), status: 'dissolved' }, alice)).toBe(false);
+    expect(mayInitiate(dissolve, { ...state(), ref: { txHash: T(11), index: 0 } }, alice)).toBe(false);
+  });
+
+  it('lets every mandatory and optional key sign and a script DRep only its own join or leave', () => {
+    const s = state({ admission: policy([ALICE, BOB], 1) });
+    for (const n of [ALICE, BOB, CAROL, DAVE, ERIN]) expect(maySign(combined, s, null, { keyHash: K(n), drepId: keyId(n) })).toBe(true);
+    expect(maySign(combined, s, null, { keyHash: K(OUTSIDER), drepId: keyId(OUTSIDER) })).toBe(false);
+    expect(maySign(combined, s, null, { keyHash: null, drepId: scriptId(ALICE) })).toBe(false);
+    const member: NativeScript = { type: 'sig', keyHash: K(7) };
+    const scriptJoin: GroupIntent = { kind: 'group_join', group: GID, member: scriptId(8) };
+    expect(maySign(scriptJoin, s, member, { keyHash: null, drepId: scriptId(8) })).toBe(true);
+    expect(maySign(scriptJoin, s, member, { keyHash: K(7), drepId: keyId(7) })).toBe(false);
+    expect(neededPolicyKeys(scriptJoin, s, member)).toEqual([K(7)]);
   });
 
   it('lists extra admission keys as signers without joining', () => {

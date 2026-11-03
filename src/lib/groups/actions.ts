@@ -291,11 +291,42 @@ export function mayInitiate(intent: GroupIntent, state: GroupState | null, sessi
     case 'group_leave':
       return sameCredential(session.drepId, intent.member);
     default: {
-      if (!session.keyHash || !state) return false;
+      // A dissolved group takes no further actions, and the state must be the intent's group.
+      if (!session.keyHash || !state || state.status === 'dissolved') return false;
+      try {
+        groupRef(intent, state);
+      } catch {
+        return false;
+      }
       const p = neededPolicies(intent, state, null);
       return policyKeys(p.control, p.admission).includes(session.keyHash.toLowerCase());
     }
   }
+}
+
+/**
+ * Who may open and sign the link: the script DRep itself for its own join or leave, otherwise a
+ * session whose key is a mandatory or optional key of the action.
+ */
+export function maySign(
+  intent: GroupIntent,
+  state: GroupState | null,
+  memberScript: NativeScript | null,
+  session: { keyHash: string | null; drepId: string | null },
+): boolean {
+  if (memberCredentialOf(intent)?.kind === 'script') {
+    return sameCredential(session.drepId, (intent as { member: string }).member);
+  }
+  if (!session.keyHash) return false;
+  const { mandatory, optional } = neededKeys(intent, state, memberScript);
+  const key = session.keyHash.toLowerCase();
+  return mandatory.includes(key) || optional.includes(key);
+}
+
+/** Lowercase key hashes of every `sig` leaf of the policies the action needs in the state. */
+export function neededPolicyKeys(intent: GroupIntent, state: GroupState | null, memberScript: NativeScript | null): string[] {
+  const p = neededPolicies(intent, state, memberScript);
+  return policyKeys(p.control, p.admission, p.member);
 }
 
 /** True when the signers satisfy every needed policy within the interval and every mandatory key signed. */
