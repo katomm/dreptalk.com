@@ -1,8 +1,8 @@
 // The signed-in part of a DRep group page, loaded only for a session: joining, requesting to join
 // and leaving, the request queue of the admins with approve or remove and the offer to update the
-// management policy in the same transaction, the notice when the policy keys drifted from the
-// members, and the policy editor. Every action is built in the browser and either completes in one
-// wallet step or gives a link.
+// management policy in the same transaction, removing active members, the notice when the policy
+// keys drifted from the members, and the policy editor. Every action is built in the browser and
+// either completes in one wallet step or gives a link.
 import { evaluateNativeScript, type NativeScript } from 'drep-groups';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { CardanoNetwork } from '@/lib/config/network.js';
@@ -82,6 +82,8 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
   const [editor, setEditor] = useState<{ initial: Proposal | null } | null>(null);
   // Names of admins the editor added by DRep id, the state route does not know them.
   const [addedNames, setAddedNames] = useState<Map<string, string>>(new Map());
+  // The active member whose removal waits for the confirmation.
+  const [removing, setRemoving] = useState<{ joinId: string; name: string } | null>(null);
 
   const state = useMemo(() => stateOf(v), [v]);
   const viewerKey = v.viewer?.keyHash ?? null;
@@ -251,6 +253,11 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
         })
       : false;
   const canDissolve = allowed({ kind: 'group_dissolve', group: v.groupId });
+  // Active members the viewer may remove, the viewer's own membership ends with Leave instead.
+  const removable =
+    active && v.mode === 'permissioned'
+      ? v.activeMembers.filter((m) => m.drepId !== viewerDrep && allowed({ kind: 'group_remove', group: v.groupId, joins: [m.joinId] }))
+      : [];
 
   return (
     <>
@@ -415,6 +422,53 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
               </button>
             )}
           </div>
+        </section>
+      )}
+
+      {removable.length > 0 && (
+        <section aria-label="Remove members" style={stack}>
+          <h2 style={h2}>Remove members</h2>
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: '0.25rem' }}>
+            {removable.map((m) => {
+              const name = m.name ?? shortHash(m.drepId);
+              return (
+                <li key={m.joinId} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  <span>{name}</span>
+                  <button
+                    type="button"
+                    className="btn"
+                    aria-label={`Remove ${name}`}
+                    onClick={() => {
+                      setDraft(null);
+                      setRemoving({ joinId: m.joinId, name });
+                    }}
+                  >
+                    Remove
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          {removing && (
+            <div style={stack}>
+              <p style={{ margin: 0 }}>Remove {removing.name} from the group? Their delegations do not change.</p>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => {
+                    setRemoving(null);
+                    void open({ kind: 'group_remove', group: v.groupId, joins: [removing.joinId] }, `Remove ${removing.name}`);
+                  }}
+                >
+                  Yes, remove
+                </button>
+                <button type="button" className="btn" onClick={() => setRemoving(null)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </section>
       )}
 

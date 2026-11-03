@@ -29,6 +29,8 @@ CREATE INDEX IF NOT EXISTS pending_multisig_tx_unresolved ON pending_multisig_tx
 CREATE INDEX IF NOT EXISTS pending_multisig_tx_resolved_h ON pending_multisig_tx (resolved_h) WHERE resolved_h IS NOT NULL;
 -- Rows resolved as never included, newest first, for the resolver to let later outcomes override them.
 CREATE INDEX IF NOT EXISTS pending_multisig_tx_never_included ON pending_multisig_tx (never_included_at) WHERE never_included_at IS NOT NULL;
+-- Resolved group and member rows, oldest first, for the retention that deletes them 90 days after resolution.
+CREATE INDEX IF NOT EXISTS pending_multisig_tx_group_resolved ON pending_multisig_tx (resolved_at) WHERE subject_kind != 'drep' AND resolved_at IS NOT NULL;
 
 -- Verdicts of tracked transactions, written by the engine commit and read by the resolver.
 CREATE TABLE IF NOT EXISTS drep_group_own_outcomes (

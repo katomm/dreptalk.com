@@ -1,6 +1,6 @@
 ---
 title: "DRep groups: found a group, admit members and manage it together"
-description: "How DRep groups work on DRepTalk: open and permissioned groups, founding alone or with other DReps, joining and leaving, approving requests, keeping the management policy in step with the members, signing links, cancelling and dissolving."
+description: "How DRep groups work on DRepTalk: open and permissioned groups, founding alone or with other DReps, joining and leaving, approving requests, removing members, keeping the management policy in step with the members, signing links, cancelling and dissolving."
 cardLabel: "DRep groups"
 category: "For DReps"
 order: 7
@@ -53,7 +53,7 @@ before the second member joins.
   No admin is involved, and an open group cannot remove anyone.
 - **Permissioned group:** membership is confirmed by the group. A join is a
   request that stays pending until the admins approve it. Admins can also
-  decline a request.
+  decline a request and remove an active member.
 
 The mode is chosen at founding and cannot be changed later.
 
@@ -63,7 +63,7 @@ A group is managed by a **management policy**: a native script over the DRep
 keys of its admins with a threshold, for example **3 of 4**. Any three of the
 four admins together can change the profile, change the admins or the
 threshold, or dissolve the group. In a permissioned group an **admission
-policy** approves and declines requests. By default it is the same policy as
+policy** approves and declines requests and removes members. By default it is the same policy as
 the management policy. As an advanced option, a permissioned group can use a
 separate admission policy with its own keys and threshold, for example any two
 admins to approve a member and three to change the profile.
@@ -96,8 +96,9 @@ change after the founding. Keys of a separate admission policy that are not
 founders also sign the founding, without becoming members. After you sign,
 DRepTalk gives you a signing link to share with the other founders.
 
-The profile needs a name. Description, website, a link to the group's charter
-and an image (JPG or PNG, up to 256 KB) are optional. DRepTalk hosts the
+The profile needs a name, a description and an image (JPG or PNG, up to
+256 KB). A website and a link to the group's charter are optional. A later
+change of the profile keeps all three required fields. DRepTalk hosts the
 profile document and the founding transaction records its hash, so anyone can
 check that the profile shown is the one the group signed.
 
@@ -123,6 +124,17 @@ and get a notification for each new request. Tick one or more requests and use
 **Approve** or **Remove** (which declines them). Several requests go into one
 transaction. When the admission policy needs more signatures than yours,
 DRepTalk gives you a signing link for the other admins.
+
+## Remove members
+
+In a permissioned group, admins who may approve requests can also remove an
+active member. Under the member list, admins see **Remove members**, with
+**Remove** next to each active member, and a confirmation that names the member
+before anything is built. Removing a member changes no delegation, and the member's DRep keeps
+voting on its own. The removal is signed and submitted like an approval, with a
+signing link when the admission policy needs more signatures than yours. An
+admin who is removed stays in the management policy until the group updates it.
+Your own membership ends with **Leave** instead.
 
 ## Keep the management policy in step with the members
 

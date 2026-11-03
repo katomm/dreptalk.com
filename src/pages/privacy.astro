@@ -197,8 +197,8 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
     <p>
       For DRep groups, the record of each group action (the transaction, its
       signatures, the keys that must sign, the initiator's account and fee inputs, and
-      how the action ended) is kept, since it documents a change to a public on-chain
-      group. A hosted group profile that a group transaction on chain points to is kept
+      how the action ended) is kept while the action is open and deleted about 90 days
+      after it ended. An applied change stays public on chain. A hosted group profile that a group transaction on chain points to is kept
       for good, since the chain keeps referring to it. A hosted group profile that no
       transaction on chain points to is deleted about 7 days after it was stored, once
       no open group action uses it any more.

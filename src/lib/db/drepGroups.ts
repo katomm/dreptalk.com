@@ -556,6 +556,8 @@ export interface GroupActionState {
   /** The viewer's own unresolved join and leave rows of the group. */
   viewerRows: GroupActionRow[];
   activeKeyMembers: Array<{ drepId: string; keyHash: string; name: string | null }>;
+  /** Every active member with its join, key and script DReps, for the admins' remove control. */
+  activeMembers: Array<{ joinId: string; drepId: string; name: string | null }>;
   pending: Array<{ joinId: string; drepId: string; name: string | null }>;
   viewerJoin: { joinId: string; state: 'pending' | 'active' } | null;
 }
@@ -612,6 +614,7 @@ export async function groupActionState(
     rows: (rows.results ?? []).map(actionRowFrom),
     viewerRows: (viewerRows.results ?? []).map(actionRowFrom),
     activeKeyMembers,
+    activeMembers: active.map((m) => ({ joinId: m.joinId, drepId: m.drepId, name: m.drepName })),
     pending: pending.map((m) => ({ joinId: m.joinId, drepId: m.drepId, name: m.drepName })),
     viewerJoin,
   };

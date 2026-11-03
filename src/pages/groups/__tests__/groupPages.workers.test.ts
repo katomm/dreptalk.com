@@ -14,11 +14,11 @@ import {
 } from '../../../lib/db/drepGroups.js';
 import { planOf } from '../../../lib/groups/__tests__/queryPlan.js';
 import { createGroupAction, type NewGroupAction } from '../../../lib/groups/actionStore.js';
-import type { GroupIntent } from '../../../lib/groups/actions.js';
+import { type GroupIntent, parseJoinRef } from '../../../lib/groups/actions.js';
 import { wallClockSlot } from '../../../lib/groups/groupTx.js';
 import { groupIdParam, groupIdString } from '../../../lib/groups/ids.js';
 import { GET as stateRoute } from '../../api/groups/[id]/state.js';
-import { ALICE, BOB, CAROL, call, DAVE, PERM, seedPermissioned, sessionOf } from '../../api/groups/actions/__tests__/fixtures.js';
+import { ALICE, BOB, CAROL, call, DAVE, groupTx, PERM, seed, seedPermissioned, sessionOf } from '../../api/groups/actions/__tests__/fixtures.js';
 import seedSql from './twoMemberGroup.sql?raw';
 
 const db = env.DB as D1Database;
@@ -219,6 +219,15 @@ describe('group action state route', () => {
     const carol = await call<StateBody>(stateRoute, sessionOf('u-carol', CAROL), { id: PERM_ID });
     expect(carol.json.rows[0].id).toBeNull();
     expect(carol.json.viewer).toEqual({ keyHash: CAROL.hash, drepId: CAROL.drepId, join: { joinId: PERM.carolJoin, state: 'pending' } });
+  });
+
+  it('lists the active members with their joins for the remove control', async () => {
+    await seedPermissioned();
+    expect((await call<StateBody & { activeMembers: unknown[] }>(stateRoute, null, { id: PERM_ID })).json.activeMembers).toEqual([]);
+    await seed([groupTx(50, { events: [{ tag: 'approve', join: parseJoinRef(PERM.carolJoin) }] }, [BOB])], 50);
+    const res = await call<StateBody & { activeMembers: Array<{ joinId: string; drepId: string }> }>(stateRoute, null, { id: PERM_ID });
+    expect(res.json.activeMembers.map((m) => [m.joinId, m.drepId])).toEqual([[PERM.carolJoin, CAROL.drepId]]);
+    expect(res.json.pending).toEqual([]);
   });
 
   it('gives the server clock slot so a client with a wrong clock still builds a valid end', async () => {

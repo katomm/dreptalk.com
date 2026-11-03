@@ -31,6 +31,8 @@ export interface GroupActionView {
   /** DRep names by key hash. */
   names: Record<string, string>;
   activeKeyMembers: Array<{ drepId: string; keyHash: string; name: string | null }>;
+  /** Every active member with its join, key and script DReps. */
+  activeMembers: Array<{ joinId: string; drepId: string; name: string | null }>;
   pending: Array<{ joinId: string; drepId: string; name: string | null }>;
   openControl: { id: string | null } | null;
   rows: Array<{ id: string | null; kind: string; status: string }>;

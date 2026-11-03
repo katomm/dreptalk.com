@@ -45,6 +45,7 @@ export const GET: APIRoute = async ({ params, locals }) => {
       admission: s.admission,
       names: Object.fromEntries(s.names),
       activeKeyMembers: s.activeKeyMembers,
+      activeMembers: s.activeMembers,
       pending: s.pending,
       // Admins see the open control action they would compete with.
       openControl: s.openControl ? { id: key !== null && policyKeys.has(key) ? s.openControl.id : linkFor(s.openControl) } : null,

@@ -58,7 +58,7 @@ function editor(o: Partial<PolicyEditorProps> = {}, replies: Reply[] = []) {
       listed={new Set([A, B])}
       memberKeys={[A, B]}
       nameOf={(k) => NAMES[k] ?? k.slice(0, 8)}
-      profile={{ name: 'Council', website: 'https://c.test' }}
+      profile={{ name: 'Council', description: 'DReps who vote together.', website: 'https://c.test', image: 'https://dreptalk.com/drep-images/c.png' }}
       initial={null}
       slotHeld={false}
       canDissolve
@@ -84,7 +84,12 @@ describe('PolicyEditor profile', () => {
     fireEvent.change(name, { target: { value: 'New council' } });
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     await waitFor(() => expect(onContinue).toHaveBeenCalled());
-    expect(calls[0].body).toEqual({ name: 'New council', website: 'https://c.test' });
+    expect(calls[0].body).toEqual({
+      name: 'New council',
+      description: 'DReps who vote together.',
+      website: 'https://c.test',
+      image: 'https://dreptalk.com/drep-images/c.png',
+    });
     expect(onContinue.mock.calls[0][0]).toEqual({
       kind: 'group_update',
       group: GID,
@@ -97,6 +102,16 @@ describe('PolicyEditor profile', () => {
     editor({ profile: null });
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     expect(await screen.findByText('Give the group a name.')).toBeTruthy();
+    expect(calls).toHaveLength(0);
+  });
+
+  it('asks for a description and an image before storing anything', async () => {
+    editor({ profile: { name: 'Council', website: 'https://c.test' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(await screen.findByText('Add a description.')).toBeTruthy();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Description' }), { target: { value: 'DReps who vote together.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(await screen.findByText('Add an image.')).toBeTruthy();
     expect(calls).toHaveLength(0);
   });
 });
@@ -197,6 +212,7 @@ describe('PolicyEditor on the group page', () => {
     admission: control,
     names: NAMES,
     activeKeyMembers: [A, B].map((k) => ({ drepId: drep(k), keyHash: k, name: NAMES[k] })),
+    activeMembers: [],
     pending: [],
     openControl: null,
     rows: [],

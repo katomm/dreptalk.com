@@ -177,7 +177,8 @@ export const Q_SAMPLE_BINDS: Readonly<Record<keyof typeof Q, unknown[]>> = Objec
   joinNotifyPage: [10],
   actionCreate: [...Array.from({ length: 16 }, () => 'x'), 1, '[]'],
   actionOpenControl: ['group1x'],
-  actionFreeStale: ['id', 0],
+  actionFreeStale: ['id', 0, 0],
+  actionPruneResolved: [0, 10],
   actionCancel: ['id', 0],
   actionGroupName: [new Uint8Array(32), 0],
 });

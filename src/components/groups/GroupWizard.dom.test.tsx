@@ -38,12 +38,14 @@ const registered = (k: string, name: string): Reply => ({
   body: { registered: true, script: false, keyHash: k, name },
 });
 const PROFILE: Reply = { url: /\/api\/groups\/profile$/, body: { url: ANCHOR.url, hash: HASH } };
+const IMAGE_URL = 'https://dreptalk.com/drep-images/council.png';
+const IMAGE: Reply = { url: /\/api\/drep\/image$/, body: { url: IMAGE_URL, sha256: '9'.repeat(64) } };
 
 function show(replies: Reply[] = []) {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
-      calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+      calls.push({ url, body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined });
       const r = replies.find((x) => x.url.test(url));
       return r ? Response.json(r.body, { status: r.status ?? 200 }) : Response.json({ error: 'unexpected' }, { status: 500 });
     }),
@@ -58,8 +60,21 @@ async function addFounder(k: string) {
   fireEvent.click(screen.getByRole('button', { name: 'Add' }));
 }
 
-async function profileStep(name = 'Council') {
+/** Picks an image in the profile step, the upload is answered by the IMAGE reply. */
+async function pickImage() {
+  const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+  fireEvent.change(input, { target: { files: [new File(['png'], 'council.png', { type: 'image/png' })] } });
+  await screen.findByRole('button', { name: 'Change image' });
+}
+
+async function fillProfile(name = 'Council') {
   fireEvent.change(screen.getByRole('textbox', { name: 'Name' }), { target: { value: name } });
+  fireEvent.change(screen.getByRole('textbox', { name: 'Description' }), { target: { value: 'DReps who vote on treasury withdrawals.' } });
+  await pickImage();
+}
+
+async function profileStep(name = 'Council') {
+  await fillProfile(name);
   next();
   await screen.findByRole('button', { name: 'Build and sign' });
 }
@@ -79,6 +94,7 @@ describe('GroupWizard founding alone', () => {
   it('founds an open group in one wallet step', async () => {
     show([
       PROFILE,
+      IMAGE,
       { url: /\/api\/groups\/actions$/, body: { id: 'c1' } },
       { url: /\/witness$/, body: { accepted: [V], ignored: [], satisfied: true } },
       { url: /\/submit$/, body: { assembledTxHex: '84bb' } },
@@ -94,7 +110,11 @@ describe('GroupWizard founding alone', () => {
     expect(screen.queryByRole('checkbox', { name: /separate admission policy/ })).toBeNull();
     next();
     await profileStep();
-    expect(calls.find((c) => c.url.endsWith('/api/groups/profile'))?.body).toEqual({ name: 'Council' });
+    expect(calls.find((c) => c.url.endsWith('/api/groups/profile'))?.body).toEqual({
+      name: 'Council',
+      description: 'DReps who vote on treasury withdrawals.',
+      image: IMAGE_URL,
+    });
     expect(screen.getByText('Must sign: You')).toBeTruthy();
     expect(screen.getByText(/in one wallet step/)).toBeTruthy();
 
@@ -115,7 +135,7 @@ describe('GroupWizard founding alone', () => {
   });
 
   it('offers a separate admission policy with its own keys and threshold', async () => {
-    show([PROFILE, registered(E, 'Erin'), { url: /\/api\/groups\/actions$/, body: { id: 'c3' } }]);
+    show([PROFILE, IMAGE, registered(E, 'Erin'), { url: /\/api\/groups\/actions$/, body: { id: 'c3' } }]);
     next();
     next();
     fireEvent.click(screen.getByRole('checkbox', { name: /separate admission policy/ }));
@@ -143,7 +163,7 @@ describe('GroupWizard founding alone', () => {
 
 describe('GroupWizard founding together', () => {
   it('founds a permissioned group with every founder as a signer and gives the signing link', async () => {
-    show([PROFILE, registered(B, 'Bob'), registered(C, 'Carol'), { url: /\/api\/groups\/actions$/, body: { id: 'c2' } }]);
+    show([PROFILE, IMAGE, registered(B, 'Bob'), registered(C, 'Carol'), { url: /\/api\/groups\/actions$/, body: { id: 'c2' } }]);
     next();
     fireEvent.click(screen.getByRole('radio', { name: 'Found together with other DReps' }));
     await addFounder(B);
@@ -216,7 +236,7 @@ describe('GroupWizard refusals', () => {
   });
 
   it('stays mounted when a threshold is cleared after the review was reached', async () => {
-    show([PROFILE]);
+    show([PROFILE, IMAGE]);
     next();
     next();
     next();
@@ -240,5 +260,24 @@ describe('GroupWizard refusals', () => {
     next();
     expect(screen.getByText('Give the group a name.')).toBeTruthy();
     expect(calls).toHaveLength(0);
+  });
+
+  it('asks for a description and an image before storing the profile', async () => {
+    show([IMAGE]);
+    next();
+    next();
+    next();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Name' }), { target: { value: 'Council' } });
+    next();
+    expect(screen.getByText('Add a description.')).toBeTruthy();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Description' }), { target: { value: '   ' } });
+    next();
+    expect(screen.getByText('Add a description.')).toBeTruthy();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Description' }), { target: { value: 'DReps who vote together.' } });
+    next();
+    expect(screen.getByText('Add an image.')).toBeTruthy();
+    // Website and charter stay optional, nothing was stored.
+    expect(calls.some((c) => c.url.endsWith('/api/groups/profile'))).toBe(false);
+    expect(screen.queryByRole('button', { name: 'Build and sign' })).toBeNull();
   });
 });

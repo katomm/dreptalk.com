@@ -204,9 +204,11 @@ describe('drepPhases', () => {
     expect(activePhaseNames(drepPhases, drepCtx())).toEqual(drepPhases.map((d) => d.name));
   });
 
-  it('runs the group profile cleanup on preprod only', () => {
-    expect(activePhaseNames(drepPhases, drepCtx({ network: 'preprod' }))).toContain('group-profile-docs-gc');
-    expect(activePhaseNames(drepPhases, drepCtx({ network: 'mainnet' }))).not.toContain('group-profile-docs-gc');
+  it('runs the group profile cleanup and the group action retention on preprod only', () => {
+    for (const name of ['group-profile-docs-gc', 'group-action-retention']) {
+      expect(activePhaseNames(drepPhases, drepCtx({ network: 'preprod' }))).toContain(name);
+      expect(activePhaseNames(drepPhases, drepCtx({ network: 'mainnet' }))).not.toContain(name);
+    }
   });
 
   it('skips the R2-backed avatar phase when the binding is missing', () => {

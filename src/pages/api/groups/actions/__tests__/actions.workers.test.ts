@@ -463,6 +463,20 @@ describe('group action routes', () => {
     expect((await sign(first.json.id as string, bob, first.bodyHash, BOB)).json).toEqual({ error: 'stale' });
   });
 
+  it('accepts the remove of an active member', async () => {
+    await seedPermissioned();
+    await seed([groupTx(50, { events: [{ tag: 'approve', join: parseJoinRef(PERM.carolJoin) }] }, [BOB])], 50);
+    // Carol is an active member now, a second approval is refused.
+    expect((await openIn(bob, approveCarol, [BOB.hash])).status).toBe(422);
+    const removeCarol: GroupIntent = { kind: 'group_remove', group: GID, joins: [PERM.carolJoin] };
+    const res = await openIn(bob, removeCarol, [BOB.hash]);
+    expect(res.status).toBe(200);
+    const row = await getPendingMultisig(env.DB, res.json.id as string);
+    expect(row).toMatchObject({ action: 'group_remove', subject_kind: 'group', drep_id: GID, status: 'collecting' });
+    // Alice manages the group but is not in the admission policy, she may not initiate it.
+    expect((await openIn(alice, removeCarol, [BOB.hash])).status).toBe(403);
+  });
+
   it('lets exactly one submitted claim win', async () => {
     const payload = expectedPayload(soloCreate, null, new Map());
     const row = await open(alice, soloCreate, { payload, signers: [ALICE.hash] });

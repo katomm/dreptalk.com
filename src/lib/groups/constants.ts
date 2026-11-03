@@ -76,6 +76,10 @@ export const RESOLVE_KOIOS_PER_TICK = 10;
 export const JOIN_NOTIFY_PER_TICK = 50;
 export const PROFILE_DOC_MAX_BYTES = 16_384;
 export const PROFILE_DOC_GRACE_MS = 7 * 86_400_000;
+// Resolved group and member rows of the signing table are deleted this long after resolved_at,
+// at most GROUP_ACTION_PRUNE_PER_RUN per run. Open rows stay.
+export const GROUP_ACTION_RETENTION_MS = 90 * 86_400_000;
+export const GROUP_ACTION_PRUNE_PER_RUN = 500;
 export const PROFILE_DOC_RATE = { max: 10, windowSec: 60 };
 export const ACTION_RATE = { max: 20, windowSec: 300 };
 export const WITNESS_FEE_BYTES = 101; // one vkey witness in the witness set

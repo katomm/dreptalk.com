@@ -27,17 +27,21 @@ function validUrl(v: unknown): v is string {
   return u !== null && (u.protocol === 'http:' || u.protocol === 'https:');
 }
 
-/** The validated profile, or null for anything off. Optional fields may be missing or empty. */
+const REQUIRED = ['name', 'description', 'image'] as const;
+
+/** The first required field that is missing or blank, null when all are there. */
+function missingField(raw: unknown): (typeof REQUIRED)[number] | null {
+  const r = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  return REQUIRED.find((key) => typeof r[key] !== 'string' || r[key].trim() === '') ?? null;
+}
+
+/** The validated profile, or null for anything off. Website and charter may be missing or empty. */
 function parseProfile(raw: unknown): GroupProfileInput | null {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Record<string, unknown>;
-  if (!validText(r.name, 1, MAX_NAME)) return null;
-  const out: GroupProfileInput = { name: r.name.trim() };
-  if (r.description !== undefined && r.description !== '') {
-    if (!validText(r.description, 0, MAX_DESCRIPTION)) return null;
-    out.description = r.description.trim();
-  }
-  for (const key of ['website', 'image', 'charter'] as const) {
+  if (!validText(r.name, 1, MAX_NAME) || !validText(r.description, 1, MAX_DESCRIPTION) || !validUrl(r.image)) return null;
+  const out: GroupProfileInput = { name: r.name.trim(), description: r.description.trim(), image: r.image };
+  for (const key of ['website', 'charter'] as const) {
     const v = r[key];
     if (v === undefined || v === '') continue;
     if (!validUrl(v)) return null;
@@ -73,6 +77,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
   } catch {
     return jsonResponse({ error: 'invalid JSON' }, 400);
   }
+  // Name, description and image are required, also for tools that do not go through the forms.
+  const missing = missingField(raw);
+  if (missing) return jsonResponse({ error: `missing ${missing}` }, 422);
   const profile = parseProfile(raw);
   if (!profile) return jsonResponse({ error: 'invalid profile' }, 400);
   const doc = buildProfileDoc(profile);

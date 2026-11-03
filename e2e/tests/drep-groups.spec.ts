@@ -13,6 +13,8 @@ const ALICE = { drepId: 'drep1ygxk54m7j3q6mrkevcunryrwf4p7e68c93cjk8gzxkhlkps6qc
 const ERIN = { drepId: 'drep1yt74jw0m2cq7tdq7aenxmws5cznaz5w5ekdsu9nfrn36nfqv4qv3r', hash: 'fd5939fb5601e5b41eee666dba14c0a7d151d4cd9b0e16691ce3a9a4' };
 const CAROL = 'drep1y29ftj8dtzpsd65gsc94f6cvvhnhm74en9ufe30xegqg0xg9gts5g';
 const WALLET_KEY = 'a5b45515a3ff8cb7c02ce351834da324eb6dfc41b5779cb5e6b832aa';
+// A 1 by 1 PNG for the required profile image.
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
 /** The signing page lists keys as their first 8 and last 6 characters. */
 const shortKey = (k: string) => `${k.slice(0, 8)}...${k.slice(-6)}`;
 
@@ -78,7 +80,15 @@ test('the founding wizard walks the alone and together paths to the review', asy
   await page.getByRole('button', { name: 'Next' }).click();
   await expect(page.getByText('1 of 1 must sign (100%)')).toBeVisible();
   await page.getByRole('button', { name: 'Next' }).click();
+  // Name, description and image are required, the step refuses to go on without them.
   await page.getByLabel('Name').fill('E2E Solo Group');
+  await page.getByRole('button', { name: 'Next' }).click();
+  await expect(page.getByText('Add a description.')).toBeVisible();
+  await page.getByLabel('Description').fill('E2E DReps who vote together.');
+  await page.getByRole('button', { name: 'Next' }).click();
+  await expect(page.getByText('Add an image.')).toBeVisible();
+  await page.locator('input[type="file"]').setInputFiles({ name: 'group.png', mimeType: 'image/png', buffer: PNG });
+  await expect(page.getByRole('button', { name: 'Change image' })).toBeVisible();
   await page.getByRole('button', { name: 'Next' }).click();
   const review = page.getByRole('region', { name: 'Found the group' });
   await expect(review.getByText('Must sign: You')).toBeVisible();
@@ -136,6 +146,15 @@ test('an admin sees the request queue, the combined update offer, the policy edi
   await expect(queue.getByText('Each newly listed admin has to sign the update: E2E Applicant Bob.')).toBeVisible();
   await expect(queue.getByRole('button', { name: 'Approve' })).toBeEnabled();
   await shot(page, '3a-admin-queue-combined-offer');
+
+  // Removing an active member asks first and names them, the admin's own membership is not listed.
+  const members = island.getByRole('region', { name: 'Remove members' });
+  await expect(members.getByRole('button', { name: 'Remove E2E Wallet DRep' })).toHaveCount(0);
+  await members.getByRole('button', { name: 'Remove E2E Admin Erin' }).click();
+  await expect(members.getByText('Remove E2E Admin Erin from the group? Their delegations do not change.')).toBeVisible();
+  await shot(page, '3a2-admin-remove-member');
+  await members.getByRole('button', { name: 'Cancel' }).click();
+  await expect(members.getByText(/from the group\?/)).toHaveCount(0);
 
   // The policy editor.
   await queue.getByRole('checkbox', { name: 'E2E Applicant Bob' }).first().uncheck();

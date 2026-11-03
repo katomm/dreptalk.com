@@ -1,9 +1,9 @@
 /// <reference types="@cloudflare/workers-types" />
 // Group rows of the signing table: storing a new action together with the one open control action
-// check, reading and freeing a group's control slot, and cancelling.
+// check, reading and freeing a group's control slot, cancelling, and deleting old resolved rows.
 import type { GroupActionKind, PendingMultisigRow } from '../db/pendingMultisigTx.js';
 import type { GroupIntent } from './actions.js';
-import { ACTION_TTL_SECONDS } from './constants.js';
+import { ACTION_TTL_SECONDS, GROUP_ACTION_PRUNE_PER_RUN, GROUP_ACTION_RETENTION_MS } from './constants.js';
 import { Q } from './store/queries.js';
 
 export interface NewGroupAction {
@@ -63,9 +63,21 @@ export async function openControlAction(db: D1Database, groupId: string): Promis
   return (await db.prepare(Q.actionOpenControl.sql).bind(groupId).first<PendingMultisigRow>()) ?? null;
 }
 
-/** Frees the slot of a control row whose seq is stale: it resolves failed and stays closed. */
+/**
+ * Frees the slot of a control row whose seq is stale: it resolves failed and stays closed. `now` is
+ * in seconds like the other signing columns, resolved_at is written in milliseconds.
+ */
 export async function freeStaleSlot(db: D1Database, id: string, now: number): Promise<void> {
-  await db.prepare(Q.actionFreeStale.sql).bind(id, now).run();
+  await db.prepare(Q.actionFreeStale.sql).bind(id, now, now * 1000).run();
+}
+
+/**
+ * Deletes group and member rows resolved more than GROUP_ACTION_RETENTION_MS before `now` (in
+ * milliseconds), at most GROUP_ACTION_PRUNE_PER_RUN per call, and returns how many went.
+ */
+export async function pruneResolvedGroupActions(db: D1Database, now: number): Promise<number> {
+  const res = await db.prepare(Q.actionPruneResolved.sql).bind(now - GROUP_ACTION_RETENTION_MS, GROUP_ACTION_PRUNE_PER_RUN).run();
+  return res.meta.changes ?? 0;
 }
 
 /** Cancels a collecting row. The slot stays held, handed out witnesses stay usable until expiry. */

@@ -54,6 +54,7 @@ function view(o: Partial<GroupActionView> = {}): GroupActionView {
     admission: control,
     names: NAMES,
     activeKeyMembers: [member(A), member(B)],
+    activeMembers: [],
     pending: [],
     openControl: null,
     rows: [],
@@ -267,6 +268,54 @@ describe('GroupActions leave warning', () => {
     show(view({ control: policy([A, B], 1), admission: null, mode: 'open', viewer: viewer(A, { joinId: `${'01'.repeat(32)}#1`, state: 'active' }) }));
     expect(await screen.findByRole('button', { name: 'Leave' })).toBeTruthy();
     expect(screen.queryByText(/can no longer reach its threshold/)).toBeNull();
+  });
+});
+
+describe('GroupActions member removal', () => {
+  const BOB_JOIN = `${'02'.repeat(32)}#1`;
+  const SCRIPT_MEMBER = drepIdForCredential({ kind: 'script', hash: key('f') });
+  const activeMembers = [
+    { joinId: `${'01'.repeat(32)}#1`, drepId: drep(A), name: 'Alice' },
+    { joinId: BOB_JOIN, drepId: drep(B), name: 'Bob' },
+    { joinId: `${'03'.repeat(32)}#0`, drepId: SCRIPT_MEMBER, name: 'Script council' },
+  ];
+  const both = policy([A, B], 2);
+
+  it('lets an admin remove an active member after a confirmation naming them', async () => {
+    show(
+      view({ control: both, admission: both, activeMembers, viewer: viewer(A, { joinId: activeMembers[0].joinId, state: 'active' }) }),
+      [{ url: /\/api\/groups\/actions$/, body: { id: 'r5' } }],
+    );
+    expect(await screen.findByRole('button', { name: 'Remove Bob' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Remove Script council' })).toBeTruthy();
+    // The admin leaves with Leave, not by removing themselves.
+    expect(screen.queryByRole('button', { name: 'Remove Alice' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Bob' }));
+    expect(screen.getByText('Remove Bob from the group? Their delegations do not change.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByText(/Remove Bob from the group/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Build and sign' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Bob' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, remove' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Build and sign' }));
+    expect(await screen.findByText(/\/groups\/sign\/r5\//)).toBeTruthy();
+    expect(signTx).not.toHaveBeenCalled();
+    const post = calls.find((c) => c.url.endsWith('/api/groups/actions'));
+    expect(post?.body).toMatchObject({ intent: { kind: 'group_remove', group: GID, joins: [BOB_JOIN] }, selected: [A, B] });
+  });
+
+  it('gives a member who is not an admin no remove control', async () => {
+    show(view({ activeMembers, viewer: viewer(D, { joinId: `${'04'.repeat(32)}#1`, state: 'active' }) }));
+    expect(await screen.findByRole('button', { name: 'Leave' })).toBeTruthy();
+    expect(screen.queryAllByRole('button', { name: /^Remove/ })).toHaveLength(0);
+  });
+
+  it('gives the admins of an open group no remove control', async () => {
+    show(view({ mode: 'open', admission: null, activeMembers, viewer: viewer(A, { joinId: activeMembers[0].joinId, state: 'active' }) }));
+    expect(await screen.findByRole('button', { name: 'Leave' })).toBeTruthy();
+    expect(screen.queryAllByRole('button', { name: /^Remove/ })).toHaveLength(0);
   });
 });
 

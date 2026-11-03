@@ -1271,13 +1271,20 @@ export const Q = Object.freeze({
           WHERE ?17 = 0 OR NOT EXISTS (
             SELECT 1 FROM pending_multisig_tx WHERE drep_id = ?2 AND control_slot = 1 AND resolved_at IS NULL)`,
   },
+  // Binds the cutoff in milliseconds and the limit. Group and member rows resolved before the cutoff, the oldest first.
+  actionPruneResolved: {
+    sql: `DELETE FROM pending_multisig_tx WHERE rowid IN (
+            SELECT rowid FROM pending_multisig_tx WHERE subject_kind != 'drep' AND resolved_at IS NOT NULL AND resolved_at < ?
+            ORDER BY resolved_at LIMIT ?)`,
+  },
   // Binds the group id. The row holding the group's control slot.
   actionOpenControl: {
     sql: 'SELECT * FROM pending_multisig_tx WHERE drep_id = ? AND control_slot = 1 AND resolved_at IS NULL LIMIT 1',
   },
-  // Binds the row id and now. A collecting or cancelled control row whose seq is stale resolves failed and closes.
+  // Binds the row id, now in seconds and now in milliseconds. A collecting or cancelled control row whose seq is
+  // stale resolves failed and closes. resolved_at counts milliseconds like the resolver's, cancelled_at seconds.
   actionFreeStale: {
-    sql: `UPDATE pending_multisig_tx SET resolution = 'failed', resolved_at = ?2, status = 'cancelled',
+    sql: `UPDATE pending_multisig_tx SET resolution = 'failed', resolved_at = ?3, status = 'cancelled',
             cancelled_at = COALESCE(cancelled_at, ?2)
           WHERE id = ?1 AND control_slot = 1 AND resolved_at IS NULL AND status != 'submitted'`,
   },

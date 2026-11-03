@@ -144,6 +144,8 @@ const webUrl = (v: string): boolean => {
 /** Why the profile cannot be stored, null when it can. */
 export function profileError(p: ProfileDraft): string | null {
   if (p.name.trim() === '') return 'Give the group a name.';
+  if (p.description.trim() === '') return 'Add a description.';
+  if (p.image.trim() === '') return 'Add an image.';
   if (p.website.trim() !== '' && !webUrl(p.website.trim())) return 'The website must be a web address starting with https:// or http://.';
   if (p.charter.trim() !== '' && !webUrl(p.charter.trim())) return 'The charter must be a web address starting with https:// or http://.';
   return null;
