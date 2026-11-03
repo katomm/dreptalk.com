@@ -102,7 +102,12 @@ export const POST: APIRoute = async ({ request, locals }) => {
     return jsonResponse({ error: 'invalid JSON' }, 400);
   }
   const parsed = schema.safeParse(raw);
-  if (!parsed.success) return jsonResponse({ error: 'invalid input' }, 400);
+  if (!parsed.success) {
+    // A founding without its profile is a refused action rather than malformed input.
+    const founding = (raw as { intent?: { kind?: unknown } } | null)?.intent?.kind === 'group_create';
+    const noProfile = founding && parsed.error.issues.some((i) => i.path.join('.') === 'intent.profile');
+    return noProfile ? jsonResponse({ error: 'a group needs a profile' }, 422) : jsonResponse({ error: 'invalid input' }, 400);
+  }
   const { intent, unsignedTxCbor } = parsed.data;
   const selected = uniq(parsed.data.selected);
   const refuse = (error: string, status = 422) => jsonResponse({ error }, status);

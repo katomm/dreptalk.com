@@ -10,6 +10,7 @@ import { hashBytes } from './codec.js';
 import { groupIdString } from './ids.js';
 import { PROFILE_RETRY_MS, WEBSITE_RECHECK_MS } from './constants.js';
 import { extractGroupProfile, refreshGroupProfiles, verifyGroupWebsites } from './profile.js';
+import { buildProfileDoc, putProfileDoc } from './profileDocs.js';
 import { anchorDueBatch } from './store/commit.js';
 import { acquireLease, invocationOwner, writeBatch } from './store/lease.js';
 
@@ -75,6 +76,17 @@ describe('group profiles', () => {
     expect(await refreshGroupProfiles({ db, lease: l, fetchImpl: okFetch(), now: 5, limit: 10 })).toEqual({ fetched: 1, failed: 0 });
     expect(await profileOf(1)).toMatchObject({ status: 'ok', name: 'Council', website: 'https://council.test' });
     expect(await dueRows()).toEqual([{ kind: 'website', due_at: 5 }]);
+  });
+
+  it('reads a profile hosted on our own zone from the document store', async () => {
+    const doc = buildProfileDoc({ name: 'Hosted council', website: 'https://hosted.test' });
+    await putProfileDoc(db, { hash: doc.hash, body: doc.body, createdBy: 'u1', now: 1 });
+    await seedGroup(1, { url: `https://preprod.dreptalk.com/group-profile/${doc.hash}.json`, hash: doc.hash, due: 'profile' });
+    const fetchImpl = vi.fn();
+    const l = await lease();
+    expect(await refreshGroupProfiles({ db, lease: l, fetchImpl, now: 5, limit: 10 })).toEqual({ fetched: 1, failed: 0 });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(await profileOf(1)).toMatchObject({ status: 'ok', name: 'Hosted council', website: 'https://hosted.test' });
   });
 
   it('marks a hash mismatch and keeps fields empty', async () => {

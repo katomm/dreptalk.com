@@ -67,13 +67,17 @@ export default function NotificationPrefsMatrix({
   error,
   disabled = false,
   showDrepStats = false,
+  showDrepGroups = false,
 }: {
   prefs: Record<NotificationEventType, boolean>;
   onChange: (eventType: NotificationEventType, enabled: boolean) => void;
   error?: string | null;
   disabled?: boolean;
   showDrepStats?: boolean;
+  /** Where DRep groups exist. Elsewhere the toggle is hidden and its stored value left as it is. */
+  showDrepGroups?: boolean;
 }) {
+  const drepTypes = showDrepGroups ? DREP_EVENT_TYPES : DREP_EVENT_TYPES.filter((t) => t !== 'drep_groups');
   return (
     <div className="nset__matrix">
       <EventGroup
@@ -93,7 +97,7 @@ export default function NotificationPrefsMatrix({
       {showDrepStats && (
         <EventGroup
           heading="As a DRep"
-          eventTypes={DREP_EVENT_TYPES}
+          eventTypes={drepTypes}
           prefs={prefs}
           onChange={onChange}
           disabled={disabled}

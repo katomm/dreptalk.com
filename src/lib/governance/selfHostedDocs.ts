@@ -3,7 +3,8 @@
 //
 // URLs minted by our own flows point back at this site: CIP-119 profile docs at
 // /drep/<hash>.json (drepMetadataHandler), vote rationales at
-// /vote-rationale/<hash>.json (voteRationaleHandler), and uploaded avatars at
+// /vote-rationale/<hash>.json (voteRationaleHandler), DRep group profiles at
+// /group-profile/<hash>.json (the group profile route), and uploaded avatars at
 // /api/avatar/<hash> (drepImageHandler). Fetching ANY URL on our own zone from
 // a Worker is a same-zone subrequest: Cloudflare's loop prevention bypasses our
 // Worker and connects to the placeholder origin DNS record, a blackhole that
@@ -20,6 +21,7 @@ import { getVoteRationaleBody } from '../db/voteRationale.js';
 export type SelfHostedRef =
   | { kind: 'drep-metadata'; hash: string }
   | { kind: 'vote-rationale'; hash: string }
+  | { kind: 'group-profile'; hash: string }
   | { kind: 'avatar'; hash: string }
   /** On our zone, but not one of the hosted-content paths: nothing to read. */
   | { kind: 'other' };
@@ -33,6 +35,7 @@ const ZONE_HOST = new URL(SITE_ORIGIN).hostname;
 // HASH_RE): a URL the route would 404 must resolve the same way here.
 const DREP_DOC_RE = new RegExp(`^/drep/(${HEX_64_SOURCE})\\.json$`);
 const VOTE_RATIONALE_RE = new RegExp(`^/vote-rationale/(${HEX_64_SOURCE})\\.json$`);
+const GROUP_PROFILE_RE = new RegExp(`^/group-profile/(${HEX_64_SOURCE})\\.json$`);
 const AVATAR_RE = new RegExp(`^/api/avatar/(${HEX_64_SOURCE})$`);
 
 /**
@@ -56,6 +59,8 @@ export function selfHostedRef(rawUrl: string): SelfHostedRef | null {
   if (m) return { kind: 'drep-metadata', hash: m[1] };
   m = VOTE_RATIONALE_RE.exec(url.pathname);
   if (m) return { kind: 'vote-rationale', hash: m[1] };
+  m = GROUP_PROFILE_RE.exec(url.pathname);
+  if (m) return { kind: 'group-profile', hash: m[1] };
   m = AVATAR_RE.exec(url.pathname);
   if (m) return { kind: 'avatar', hash: m[1] };
   return { kind: 'other' };
@@ -69,5 +74,19 @@ export function selfHostedRef(rawUrl: string): SelfHostedRef | null {
 export async function readSelfHostedBody(db: D1Database, ref: SelfHostedRef): Promise<string | null> {
   if (ref.kind === 'drep-metadata') return getDrepMetadataBodyByHash(db, ref.hash);
   if (ref.kind === 'vote-rationale') return getVoteRationaleBody(db, ref.hash);
+  if (ref.kind === 'group-profile') return readGroupProfileBody(db, ref.hash);
   return null;
+}
+
+// The group document store exists only where the group migrations ran. Elsewhere any anchor on
+// that path reads as missing, the same answer the serving route gives there. The anchor reader has
+// no network to gate on, so a failed read counts as missing.
+async function readGroupProfileBody(db: D1Database, hash: string): Promise<string | null> {
+  try {
+    const { getProfileDocBody } = await import('../groups/profileDocs.js');
+    return await getProfileDocBody(db, hash);
+  } catch (err) {
+    console.error('[self-hosted] group profile document could not be read', err);
+    return null;
+  }
 }

@@ -25,12 +25,20 @@ describe('NotificationPrefsMatrix', () => {
 
   it('shows the As a DRep group when showDrepStats is set', () => {
     const html = renderToStaticMarkup(
-      <NotificationPrefsMatrix prefs={allEnabled} onChange={() => {}} showDrepStats />,
+      <NotificationPrefsMatrix prefs={allEnabled} onChange={() => {}} showDrepStats showDrepGroups />,
     );
     expect(html).toContain('As a DRep');
     expect(html).toContain('Voting power and delegators');
     expect(html).toContain('Epoch summary of your own DRep statistics');
     expect(html).toContain('Rationale ready to share');
     expect(html).toContain('DRep groups');
+  });
+
+  it('hides the DRep groups toggle where groups do not exist, whatever its stored value', () => {
+    const html = renderToStaticMarkup(
+      <NotificationPrefsMatrix prefs={allEnabled} onChange={() => {}} showDrepStats />,
+    );
+    expect(html).toContain('Rationale ready to share');
+    expect(html).not.toContain('DRep groups');
   });
 });

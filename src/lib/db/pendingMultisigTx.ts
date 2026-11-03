@@ -14,8 +14,9 @@ export type PendingMultisigRow = {
   created_by: string;
   created_at: number;
   expires_at: number;
-  // Group rows only, a vote row keeps the defaults.
-  subject_kind: 'drep' | 'member' | 'group';
+  // Group rows only, a vote row keeps the defaults. The group columns exist where the group
+  // migrations ran (preprod), elsewhere a row read with SELECT * has none of them.
+  subject_kind?: 'drep' | 'member' | 'group';
   required_signers: string | null;
   invalid_hereafter: number | null;
   fee_inputs: string | null;
@@ -63,10 +64,20 @@ export async function getPendingMultisig(db: D1Database, id: string): Promise<Pe
   return (await db.prepare(`SELECT * FROM pending_multisig_tx WHERE id = ?`).bind(id).first<PendingMultisigRow>()) ?? null;
 }
 
-/** A DRep vote row, null for a missing row. Group rows share the table, the vote routes never serve them. */
+/**
+ * A DRep vote row, null for a missing row. Group rows share the table, the vote routes never serve
+ * them. A row without the subject_kind column comes from a database without the group migrations,
+ * where every row is a vote row.
+ */
 export async function getPendingVote(db: D1Database, id: string): Promise<PendingMultisigRow | null> {
   const row = await getPendingMultisig(db, id);
-  return row?.action === 'vote' && row.subject_kind === 'drep' ? row : null;
+  return row?.action === 'vote' && (row.subject_kind ?? 'drep') === 'drep' ? row : null;
+}
+
+// Vote rows only. The subject_kind column exists only where the group migrations ran, which is
+// where groups are available, so the filter names it only there.
+function voteRowFilter(groups: boolean): string {
+  return groups ? `action = 'vote' AND subject_kind = 'drep'` : `action = 'vote'`;
 }
 
 // Optimistic-concurrency retries: witnesses live in a single JSON column, so two
@@ -115,15 +126,17 @@ export async function markPendingSubmitted(db: D1Database, id: string, txHash: s
   return (res.meta.changes ?? 0) > 0;
 }
 
-export async function listPendingForDrep(db: D1Database, drepId: string, now: number): Promise<PendingMultisigRow[]> {
+/** Open vote rows of a DRep. `groups` tells whether DRep groups are available on the network (drepGroupsAvailable). */
+export async function listPendingForDrep(db: D1Database, drepId: string, now: number, groups: boolean): Promise<PendingMultisigRow[]> {
   const res = await db
-    .prepare(`SELECT * FROM pending_multisig_tx WHERE drep_id = ? AND subject_kind = 'drep' AND status = 'collecting' AND expires_at > ? ORDER BY created_at DESC`)
+    .prepare(`SELECT * FROM pending_multisig_tx WHERE drep_id = ? AND ${voteRowFilter(groups)} AND status = 'collecting' AND expires_at > ? ORDER BY created_at DESC`)
     .bind(drepId, now)
     .all<PendingMultisigRow>();
   return res.results ?? [];
 }
 
-export async function deleteExpiredPending(db: D1Database, now: number): Promise<number> {
-  const res = await db.prepare(`DELETE FROM pending_multisig_tx WHERE subject_kind = 'drep' AND status = 'collecting' AND expires_at <= ?`).bind(now).run();
+/** Deletes expired vote rows. `groups` tells whether DRep groups are available on the network (drepGroupsAvailable). */
+export async function deleteExpiredPending(db: D1Database, now: number, groups: boolean): Promise<number> {
+  const res = await db.prepare(`DELETE FROM pending_multisig_tx WHERE ${voteRowFilter(groups)} AND status = 'collecting' AND expires_at <= ?`).bind(now).run();
   return res.meta.changes ?? 0;
 }

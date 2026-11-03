@@ -135,13 +135,15 @@ const carol = sessionOf('u-carol', CAROL);
 const dave = sessionOf('u-dave', DAVE);
 const erin = sessionOf('u-erin', ERIN);
 
+const PROFILE_HASH = '5a'.repeat(32);
+const PROFILE = { url: `https://preprod.dreptalk.com/group-profile/${PROFILE_HASH}.json`, dataHash: PROFILE_HASH };
 const soloCreate: GroupIntent = {
   kind: 'group_create',
   mode: 'open',
   control: { keys: [ALICE.hash], n: 1 },
   admission: null,
   founders: [ALICE.drepId],
-  profile: null,
+  profile: PROFILE,
 };
 const approveCarol: GroupIntent = { kind: 'group_approve', group: GID, joins: [PERM.carolJoin] };
 const dissolvePerm: GroupIntent = { kind: 'group_dissolve', group: GID };
@@ -180,7 +182,7 @@ describe('group action routes', () => {
       control: { keys: [ALICE.hash, DAVE.hash], n: 1 },
       admission: 'same',
       founders: [ALICE.drepId, DAVE.drepId],
-      profile: null,
+      profile: PROFILE,
     };
     const extra: GroupEvent = { tag: 'approve', join: parseJoinRef(`${'ee'.repeat(32)}#0`) };
     const cases: Array<[GroupIntent, SessionUser, string[]]> = [
@@ -425,7 +427,7 @@ describe('group action routes', () => {
       fee_inputs: JSON.stringify([FEE_INPUT]),
       fee_pay_keys: JSON.stringify([PAY.hash]),
       control_slot: 0,
-      profile_hash: null,
+      profile_hash: PROFILE_HASH,
       status: 'collecting',
     });
     expect(stored?.native_script).toContain(ALICE.hash);
@@ -436,6 +438,15 @@ describe('group action routes', () => {
     expect((await call(submitted, alice, { id, body: { txHash: 'ab'.repeat(32) } })).status).toBe(422);
     expect(await call(submitted, alice, { id, body: { txHash: row.bodyHash.toUpperCase() } })).toEqual({ status: 200, json: { ok: true } });
     expect(await getPendingMultisig(env.DB, id)).toMatchObject({ status: 'submitted', tx_hash: row.bodyHash });
+  });
+
+  it('refuses a create without a profile anchor', async () => {
+    const refused = { status: 422, json: { error: 'a group needs a profile' } };
+    expect(await call(create, alice, { body: { intent: { ...soloCreate, profile: null }, unsignedTxCbor: '00', selected: [] } })).toEqual(refused);
+    const { profile: _dropped, ...withoutProfile } = soloCreate as Extract<GroupIntent, { kind: 'group_create' }>;
+    expect(await call(create, alice, { body: { intent: withoutProfile, unsignedTxCbor: '00', selected: [] } })).toEqual(refused);
+    // A malformed profile stays malformed input.
+    expect((await call(create, alice, { body: { intent: { ...soloCreate, profile: { url: '' } }, unsignedTxCbor: '00', selected: [] } })).status).toBe(400);
   });
 
   it('refuses a create whose founder is not a registered DRep', async () => {
@@ -481,8 +492,26 @@ describe('group action routes', () => {
     const payload = expectedPayload(soloCreate, null, new Map());
     const row = await open(alice, soloCreate, { payload, signers: [ALICE.hash] });
     const id = row.json.id as string;
+    await sign(id, alice, row.bodyHash, PAY, ALICE);
     const claims = await Promise.all([1, 2, 3].map(() => call(submitted, alice, { id, body: { txHash: row.bodyHash } })));
     expect(claims.map((c) => c.status).sort()).toEqual([200, 409, 409]);
+  });
+
+  it('refuses a submitted report for a row whose witnesses are incomplete', async () => {
+    const payload = expectedPayload(soloCreate, null, new Map());
+    const row = await open(alice, soloCreate, { payload, signers: [ALICE.hash] });
+    const id = row.json.id as string;
+    koios.calls = 0;
+    expect(await call(submitted, alice, { id, body: { txHash: row.bodyHash } })).toEqual({
+      status: 409,
+      json: { error: 'not every required signer has signed' },
+    });
+    // The signer alone still lacks the funding witness.
+    await sign(id, alice, row.bodyHash, ALICE);
+    koios.calls = 0;
+    expect(await call(submitted, alice, { id, body: { txHash: row.bodyHash } })).toEqual({ status: 409, json: { error: 'funding signature missing' } });
+    expect(koios.calls).toBe(0);
+    expect(await getPendingMultisig(env.DB, id)).toMatchObject({ status: 'collecting', tx_hash: null });
   });
 
   it('lets a group signer dissolve a solo group', async () => {

@@ -17,6 +17,7 @@ import { getFollowedDrepIds } from '../../db/delegatorFollows.js';
 import type { ImageDownscaler } from '../../dreps/avatarStore.js';
 import { recomputeCommitteePct } from '../../db/committee.js';
 import { deleteExpiredPending } from '../../db/pendingMultisigTx.js';
+import { drepGroupsAvailable } from '../../groups/gate.js';
 import { gcVoteRationale } from '../../db/voteRationale.js';
 import { awardBadges } from '../../badges/engine.js';
 import type { CoreSyncContext } from './context.js';
@@ -143,7 +144,7 @@ export const votePhases: readonly SyncPhaseDef<VoteSyncContext>[] = [
     // alongside reconcile-pending; a cleanup failure must not abort the sync.
     name: 'expire-multisig',
     run: async (ctx) => {
-      const deleted = await deleteExpiredPending(ctx.db, Math.floor(Date.now() / 1000));
+      const deleted = await deleteExpiredPending(ctx.db, Math.floor(Date.now() / 1000), drepGroupsAvailable(ctx.cfg.network));
       if (deleted > 0) console.log(`[multisig-expire] deleted=${deleted}`);
       return { items: deleted };
     },

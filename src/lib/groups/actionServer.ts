@@ -54,7 +54,8 @@ export const intentSchema: z.ZodType<GroupIntent> = z.discriminatedUnion('kind',
       control: majority,
       admission: z.union([majority, z.literal('same'), z.null()]),
       founders: z.array(drepId).min(1).max(63),
-      profile: anchor.nullable(),
+      // A group is founded with its profile anchor.
+      profile: anchor,
     })
     .strict(),
   z.object({ kind: z.enum(['group_join', 'group_leave']), group: groupId, member: drepId, join: joinRef.optional() }).strict(),
