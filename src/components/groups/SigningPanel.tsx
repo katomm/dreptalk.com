@@ -85,6 +85,8 @@ export default function SigningPanel({ actionId, network }: SigningPanelProps) {
   const apiRef = useRef<EnabledWalletApi | null>(null);
   const [view, setView] = useState<ActionView | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [transient, setTransient] = useState<string | null>(null);
+  const [cancelledForReal, setCancelledForReal] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -99,6 +101,7 @@ export default function SigningPanel({ actionId, network }: SigningPanelProps) {
       if (res.ok) {
         setView((await res.json()) as ActionView);
         setLoadError(null);
+        setTransient(null);
       } else if (res.status === 401) {
         window.location.assign('/login/');
       } else if (res.status === 403 || res.status === 404) {
@@ -106,7 +109,8 @@ export default function SigningPanel({ actionId, network }: SigningPanelProps) {
       } else if (res.status === 410) {
         setLoadError('This signing link has expired.');
       } else if (res.status === 409 || res.status === 503) {
-        setLoadError(await errorOf(res, 'This action cannot be shown right now.'));
+        // Not terminal, the chain or the store may just be busy. Polling goes on.
+        setTransient(await errorOf(res, 'This action cannot be shown right now, trying again.'));
       }
     } catch {
       // A transient read error is not fatal, the next poll retries.
@@ -213,12 +217,13 @@ export default function SigningPanel({ actionId, network }: SigningPanelProps) {
       const api = await connect();
       if (!api) return;
       const txHash = await api.submitTx(assembledTxHex);
-      await fetchWithTimeout(`/api/groups/actions/${actionId}/submitted`, {
+      const recorded = await fetchWithTimeout(`/api/groups/actions/${actionId}/submitted`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ txHash }),
-      });
+      }).catch(() => null);
       setSubmittedHash(txHash);
+      if (!recorded?.ok) setNote(`Submitted (${txHash}). Recording it failed, it will be picked up shortly.`);
       await refresh();
     });
 
@@ -236,16 +241,18 @@ export default function SigningPanel({ actionId, network }: SigningPanelProps) {
       if (!api) return;
       const { buildSendToSelf } = await import('@/lib/groups/groupTx.js');
       const { txHash } = await buildSendToSelf({ walletApi: api, network, origin, inputs: view.feeInputs });
-      setNote(`The fee input was sent back to your wallet in transaction ${txHash}.`);
+      setCancelledForReal(true);
+      setNote(`The fee input was sent back to your wallet in transaction ${txHash}. This action can no longer be submitted.`);
     });
 
   if (loadError) return <Callout kind="error">{loadError}</Callout>;
-  if (!view) return <p style={{ color: 'var(--muted)', margin: 0 }}>Loading the action...</p>;
+  if (!view) {
+    return transient ? <Callout kind="info">{transient}</Callout> : <p style={{ color: 'var(--muted)', margin: 0 }}>Loading the action...</p>;
+  }
 
   const signedSet = new Set([...view.signed, ...view.optionalSigned]);
   const collecting = view.status === 'collecting';
   const confirming = view.status === 'submitted' && view.resolution === null;
-  const hash = submittedHash ?? null;
   const command = `cardano-signer sign --data-hex ${view.bodyHash} --secret-key drep.skey`;
   const walletPicker =
     wallets.length === 0 ? (
@@ -287,10 +294,10 @@ export default function SigningPanel({ actionId, network }: SigningPanelProps) {
       {confirming && (
         <Callout kind="info">
           The transaction is submitted and waiting for the chain to confirm it. This can take a few minutes.
-          {hash && (
+          {submittedHash && (
             <>
               {' '}
-              <a href={txExplorerUrl(network, hash)} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
+              <a href={txExplorerUrl(network, submittedHash)} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
                 View transaction
               </a>
             </>
@@ -348,7 +355,7 @@ export default function SigningPanel({ actionId, network }: SigningPanelProps) {
         </section>
       )}
 
-      {view.isInitiator && view.status === 'cancelled' && (view.feeInputs?.length ?? 0) > 0 && (
+      {view.isInitiator && view.status === 'cancelled' && (view.feeInputs?.length ?? 0) > 0 && !cancelledForReal && (
         <section aria-label="Cancel for real" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           {walletPicker}
           <button type="button" className="btn" onClick={() => void cancelForReal()} disabled={busy} style={{ alignSelf: 'flex-start' }}>
@@ -357,6 +364,7 @@ export default function SigningPanel({ actionId, network }: SigningPanelProps) {
         </section>
       )}
 
+      {transient && <Callout kind="info">{transient}</Callout>}
       {note && <p role="status" style={{ margin: 0, fontSize: '0.875rem' }}>{note}</p>}
       {error && <Callout kind="error">{error}</Callout>}
     </div>

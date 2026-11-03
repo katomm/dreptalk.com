@@ -275,6 +275,16 @@ describe('group action routes', () => {
     expect((await call(GET, alice, { id: first.json.id })).json).toMatchObject({ slotHeld: true });
   });
 
+  it('tells the initiator apart and hands only the initiator the fee inputs', async () => {
+    await seedPermissioned();
+    const first = await openIn(alice, combined, [ALICE.hash, BOB.hash], [CAROL.hash]);
+    const id = first.json.id as string;
+    expect((await call(GET, alice, { id })).json).toMatchObject({ isInitiator: true, feeInputs: [FEE_INPUT] });
+    const other = await call(GET, bob, { id });
+    expect(other.status).toBe(200);
+    expect(other.json).toMatchObject({ isInitiator: false, feeInputs: [] });
+  });
+
   it('frees the slot when seq moved under a collecting action', async () => {
     await seedPermissioned();
     const first = await openIn(alice, dissolvePerm, [ALICE.hash]);

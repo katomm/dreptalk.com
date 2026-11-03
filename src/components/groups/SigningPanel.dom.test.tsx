@@ -1,9 +1,18 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
+const submitTx = vi.fn(async (_tx: string) => 'e'.repeat(64));
+const WALLET = {
+  key: 'w',
+  name: 'Test wallet',
+  icon: '',
+  supportsCip95: true,
+  raw: { name: 'Test wallet', icon: '', enable: async () => ({ getNetworkId: async () => 0, submitTx }) },
+};
+let walletList: unknown[] = [];
 vi.mock('@/lib/wallet/useCardanoWallets.js', () => ({
-  useCardanoWallets: () => ({ wallets: [], selected: '', setSelected: () => {} }),
+  useCardanoWallets: () => ({ wallets: walletList, selected: 'w', setSelected: () => {} }),
   rememberWallet: () => {},
 }));
 vi.mock('@/lib/wallet/networkGuard.js', () => ({ assertWalletNetwork: async () => {} }));
@@ -38,6 +47,8 @@ function show(view: Partial<ActionView>, extra: Record<string, unknown> = {}) {
 }
 
 afterEach(() => {
+  walletList = [];
+  submitTx.mockClear();
   cleanup();
   vi.unstubAllGlobals();
 });
@@ -94,5 +105,44 @@ describe('SigningPanel', () => {
     vi.stubGlobal('fetch', vi.fn(async () => Response.json({ error: 'not a signer of this action' }, { status: 403 })));
     render(<SigningPanel actionId="x" network="preprod" />);
     await waitFor(() => expect(screen.getByText(/not available to your login/)).toBeTruthy());
+  });
+
+  it('keeps polling after a 503 and shows the action once it answers', async () => {
+    let n = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => (n++ === 0 ? Response.json({ error: 'service unavailable' }, { status: 503 }) : Response.json(base))),
+    );
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      render(<SigningPanel actionId="x" network="preprod" />);
+      expect(await screen.findByText(/service unavailable/)).toBeTruthy();
+      await vi.advanceTimersByTimeAsync(4100);
+      expect(await screen.findByText('Must sign')).toBeTruthy();
+      expect(screen.queryByText(/service unavailable/)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('assembles, submits with the wallet and records the hash', async () => {
+    walletList = [WALLET];
+    const calls: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        calls.push(url);
+        if (url.endsWith('/submit')) return Response.json({ assembledTxHex: 'abcd' });
+        if (url.endsWith('/submitted')) return new Response('boom', { status: 500 });
+        return Response.json({ ...base, canSubmit: true, satisfied: true, signed: [REQ] });
+      }),
+    );
+    render(<SigningPanel actionId="x" network="preprod" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Submit transaction' }));
+    await waitFor(() => expect(submitTx).toHaveBeenCalledWith('abcd'));
+    expect(await screen.findByText(/Recording it failed/)).toBeTruthy();
+    const order = calls.filter((u) => /\/(submit|submitted)$/.test(u)).map((u) => u.split('/').pop());
+    expect(order).toEqual(['submit', 'submitted']);
   });
 });
