@@ -21,7 +21,7 @@ import type { PendingWitness } from '../db/pendingMultisigTx.js';
 import type { DrepTxBuilder, WalletApi } from '../governance/drepTx.js';
 import { assembleTx, decodeGroupTx, unsignedShapeError } from './actionTx.js';
 import { ACTION_TTL_SECONDS, WITNESS_FEE_BYTES } from './constants.js';
-import { buildGroupTxFrom, feeHeadroomKeys, keyPaymentUtxos, queueGroupOps, withWitnessHeadroom } from './groupTx.js';
+import { buildGroupTxFrom, buildSendToSelfFrom, feeHeadroomKeys, keyPaymentUtxos, queueGroupOps, withWitnessHeadroom } from './groupTx.js';
 
 const PARAMS = {
   minFeeA: 44,
@@ -253,5 +253,28 @@ describe('buildGroupTxFrom', () => {
       witness(bare.bodyHashHex, PAY, 'funding'),
     ]);
     expect(BigInt(PARAMS.minFeeA) * BigInt(bareSigned.length / 2) + BigInt(PARAMS.minFeeB)).toBeGreaterThan(bareFee);
+  });
+});
+
+describe('buildSendToSelfFrom', () => {
+  const SECOND = utxo(keyAddress, 'f3', 20_000_000n);
+  const TINY = utxo(keyAddress, 'f4', 500_000n);
+  const send = (inputs: Array<{ txHash: string; index: number }>) =>
+    buildSendToSelfFrom(offlineTx(), { utxos: [KEY_UTXO, SECOND, TINY, SCRIPT_UTXO], inputs, params: PARAMS, changeAddress: keyAddress });
+
+  it('spends exactly the given fee inputs, all value back to the wallet', async () => {
+    const tx = await (await send([{ txHash: 'F3'.repeat(32), index: 0 }])).toTransaction();
+    expect(tx.body.inputs.map((i) => `${TransactionHash.toHex(i.transactionId)}#${i.index}`)).toEqual([`${'f3'.repeat(32)}#0`]);
+    expect(tx.body.outputs).toHaveLength(1);
+    expect(Address.toHex(tx.body.outputs[0].address)).toBe(Address.toHex(keyAddress));
+    expect(BigInt(tx.body.outputs[0].assets.lovelace) + tx.body.fee).toBe(20_000_000n);
+  });
+
+  it('fails on a fee input set too small for the fee instead of adding wallet inputs', async () => {
+    await expect(send([{ txHash: 'f4'.repeat(32), index: 0 }])).rejects.toThrow(/Insufficient funds/);
+  });
+
+  it('fails when a fee input is no longer in the wallet', async () => {
+    await expect(send([{ txHash: 'f9'.repeat(32), index: 0 }])).rejects.toThrow(/no longer in the wallet/);
   });
 });

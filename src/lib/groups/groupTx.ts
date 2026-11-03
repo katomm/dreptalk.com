@@ -91,20 +91,19 @@ export async function buildGroupTxFrom(txb: DrepTxBuilder, i: GroupTxInputs): Pr
   const funding = keyPaymentUtxos(i.utxos);
   if (funding.length === 0) throw new Error('The wallet holds no ada at a key payment address to pay the fee.');
   const inputs = pickInputsToCover(funding, FUNDING_HEADROOM_LOVELACE);
-  const built = await queueGroupOps(txb, {
+  const queued = queueGroupOps(txb, {
     payload: i.payload,
     requiredSigners: i.requiredSigners,
     invalidHereafterSlot: BigInt(i.tipSlot + ACTION_TTL_SECONDS),
     invalidBeforeSlot: i.invalidBeforeSlot === undefined ? undefined : BigInt(i.invalidBeforeSlot),
     slotConfig: i.slotConfig,
-  })
-    .collectFrom({ inputs })
-    .build({
-      // Only key address UTxOs, so coin selection cannot add a script address input either.
-      availableUtxos: funding,
-      fullProtocolParameters: withWitnessHeadroom(i.params, feeHeadroomKeys(i.requiredSigners, i.optionalKeys)),
-      ...(i.changeAddress ? { changeAddress: i.changeAddress } : {}),
-    });
+  }).collectFrom({ inputs });
+  const built = await queued.build({
+    // Only key address UTxOs, so coin selection cannot add a script address input either.
+    availableUtxos: funding,
+    fullProtocolParameters: withWitnessHeadroom(i.params, feeHeadroomKeys(i.requiredSigners, i.optionalKeys)),
+    ...(i.changeAddress ? { changeAddress: i.changeAddress } : {}),
+  });
   const unsignedTxHex = Transaction.toCBORHex(await built.toTransaction());
   // The server splices witnesses next to the body bytes as they are, so the shape is checked here
   // and the hash is taken over those bytes, never over a re-encoded body.
@@ -139,7 +138,51 @@ export async function buildGroupTx(opts: {
     collectWalletUtxos(opts.network, opts.origin, opts.walletApi),
     client.getProtocolParameters(),
   ]);
-  return buildGroupTxFrom(client.newTx(), { ...opts, utxos, params, slotConfig: client.chain.slotConfig });
+  const { payload, requiredSigners, optionalKeys, tipSlot, invalidBeforeSlot } = opts;
+  return buildGroupTxFrom(client.newTx(), {
+    utxos,
+    params,
+    payload,
+    requiredSigners,
+    optionalKeys,
+    tipSlot,
+    invalidBeforeSlot,
+    slotConfig: client.chain.slotConfig,
+  });
+}
+
+/**
+ * Builds the transaction that spends exactly the given fee inputs back to the wallet, all value
+ * going to the change output. Coin selection sees only those inputs, so a set too small for the fee
+ * fails instead of pulling in other wallet UTxOs. Throws when a fee input is not among the UTxOs.
+ * Exported for the offline tests, `params` and `changeAddress` are only set there.
+ */
+export async function buildSendToSelfFrom(
+  txb: DrepTxBuilder,
+  i: {
+    utxos: readonly UTxO.UTxO[];
+    inputs: ReadonlyArray<{ txHash: string; index: number }>;
+    params?: ProtocolParameters;
+    changeAddress?: Address.Address;
+  },
+): Promise<Awaited<ReturnType<DrepTxBuilder['build']>>> {
+  const refOf = (txHash: string, index: number | bigint) => `${txHash.toLowerCase()}#${index}`;
+  const byRef = new Map(keyPaymentUtxos(i.utxos).map((u) => [refOf(TransactionHash.toHex(u.transactionId), u.index), u]));
+  const spent: UTxO.UTxO[] = [];
+  for (const ref of i.inputs) {
+    const utxo = byRef.get(refOf(ref.txHash, ref.index));
+    if (!utxo) throw new Error('A fee input of this transaction is no longer in the wallet.');
+    spent.push(utxo);
+  }
+  if (spent.length === 0) throw new Error('No fee inputs to spend.');
+  const queued = txb
+    .collectFrom({ inputs: spent })
+    .attachMetadata({ label: DREPTALK_CIP20_LABEL, metadata: dreptalkCip20Metadatum() });
+  return queued.build({
+    availableUtxos: spent,
+    ...(i.params ? { fullProtocolParameters: i.params } : {}),
+    ...(i.changeAddress ? { changeAddress: i.changeAddress } : {}),
+  });
 }
 
 /**
@@ -154,17 +197,7 @@ export async function buildSendToSelf(opts: {
 }): Promise<{ txHash: string }> {
   assertGroupsNetwork(opts.network);
   const client = makeClient(opts.network, opts.origin, opts.walletApi);
-  const utxos = keyPaymentUtxos(await collectWalletUtxos(opts.network, opts.origin, opts.walletApi));
-  const refOf = (txHash: string, index: number | bigint) => `${txHash.toLowerCase()}#${index}`;
-  const byRef = new Map(utxos.map((u) => [refOf(TransactionHash.toHex(u.transactionId), u.index), u]));
-  const inputs = opts.inputs.map((i) => byRef.get(refOf(i.txHash, i.index)));
-  if (inputs.length === 0 || inputs.some((u) => u === undefined)) {
-    throw new Error('A fee input of this transaction is no longer in the wallet.');
-  }
-  const built = await client
-    .newTx()
-    .collectFrom({ inputs: inputs as UTxO.UTxO[] })
-    .attachMetadata({ label: DREPTALK_CIP20_LABEL, metadata: dreptalkCip20Metadatum() })
-    .build({ availableUtxos: utxos });
+  const utxos = await collectWalletUtxos(opts.network, opts.origin, opts.walletApi);
+  const built = await buildSendToSelfFrom(client.newTx(), { utxos, inputs: opts.inputs });
   return signAndSubmit(built, opts.walletApi);
 }
