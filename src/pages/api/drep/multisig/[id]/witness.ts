@@ -42,7 +42,8 @@ export const POST: APIRoute = async ({ request, params, locals }) => {
   const body = parsed.data;
 
   const row = await getPendingMultisig(db, id);
-  if (!row) return jsonResponse({ error: 'not found' }, 404);
+  // Group rows share the table, the vote routes never serve them.
+  if (!row || row.action !== 'vote' || row.subject_kind !== 'drep') return jsonResponse({ error: 'not found' }, 404);
   if (row.status !== 'collecting') return jsonResponse({ error: 'no longer collecting' }, 409);
 
   // Member gate: the session user's drep_id must match the row's drep_id.

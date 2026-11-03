@@ -27,7 +27,8 @@ export const POST: APIRoute = async ({ params, locals }) => {
   if (!db) return jsonResponse({ error: 'service unavailable' }, 503);
 
   const row = await getPendingMultisig(db, id);
-  if (!row) return jsonResponse({ error: 'not found' }, 404);
+  // Group rows share the table, the vote routes never serve them.
+  if (!row || row.action !== 'vote' || row.subject_kind !== 'drep') return jsonResponse({ error: 'not found' }, 404);
 
   // Member gate: the session user's drep_id must match the row's drep_id.
   const dbUser = await getUserById(db, user.id);

@@ -1,17 +1,33 @@
+export type GroupActionKind = 'group_create' | 'group_join' | 'group_leave' | 'group_approve' | 'group_remove' | 'group_update' | 'group_dissolve';
+
 export type PendingMultisigRow = {
   id: string;
   drep_id: string;
-  action: 'vote';
+  action: 'vote' | GroupActionKind;
   action_params: string;
   unsigned_tx_cbor: string;
   body_hash: string;
   native_script: string;
   witnesses: string;
-  status: 'collecting' | 'submitted' | 'expired';
+  status: 'collecting' | 'submitted' | 'cancelled' | 'expired';
   tx_hash: string | null;
   created_by: string;
   created_at: number;
   expires_at: number;
+  // Group rows only, a vote row keeps the defaults.
+  subject_kind: 'drep' | 'member' | 'group';
+  required_signers: string | null;
+  invalid_hereafter: number | null;
+  fee_inputs: string | null;
+  event_count: number | null;
+  control_slot: number;
+  profile_hash: string | null;
+  resolution: string | null;
+  resolved_at: number | null;
+  resolved_h: number | null;
+  never_included_at: number | null;
+  spent_seen_h: number | null;
+  cancelled_at: number | null;
 };
 
 export async function createPendingMultisig(
@@ -19,7 +35,7 @@ export async function createPendingMultisig(
   rec: {
     id: string;
     drepId: string;
-    action: 'vote';
+    action: PendingMultisigRow['action'];
     actionParams: string;
     unsignedTxCbor: string;
     bodyHash: string;
@@ -91,13 +107,13 @@ export async function markPendingSubmitted(db: D1Database, id: string, txHash: s
 
 export async function listPendingForDrep(db: D1Database, drepId: string, now: number): Promise<PendingMultisigRow[]> {
   const res = await db
-    .prepare(`SELECT * FROM pending_multisig_tx WHERE drep_id = ? AND status = 'collecting' AND expires_at > ? ORDER BY created_at DESC`)
+    .prepare(`SELECT * FROM pending_multisig_tx WHERE drep_id = ? AND subject_kind = 'drep' AND status = 'collecting' AND expires_at > ? ORDER BY created_at DESC`)
     .bind(drepId, now)
     .all<PendingMultisigRow>();
   return res.results ?? [];
 }
 
 export async function deleteExpiredPending(db: D1Database, now: number): Promise<number> {
-  const res = await db.prepare(`DELETE FROM pending_multisig_tx WHERE status = 'collecting' AND expires_at <= ?`).bind(now).run();
+  const res = await db.prepare(`DELETE FROM pending_multisig_tx WHERE subject_kind = 'drep' AND status = 'collecting' AND expires_at <= ?`).bind(now).run();
   return res.meta.changes ?? 0;
 }

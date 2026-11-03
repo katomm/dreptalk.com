@@ -57,4 +57,16 @@ describe('pendingMultisigTx', () => {
     expect(await deleteExpiredPending(env.DB, 1000)).toBe(1);
     expect(await getPendingMultisig(env.DB, 'tok5')).toBeNull();
   });
+
+  it('never expires or lists group rows on the vote paths', async () => {
+    await createPendingMultisig(env.DB, { ...base, id: 'vote-old', drepId: 'drepG', expiresAt: 50 });
+    await createPendingMultisig(env.DB, { ...base, id: 'group-old', drepId: 'drepG', action: 'group_join', expiresAt: 50 });
+    await createPendingMultisig(env.DB, { ...base, id: 'group-live', drepId: 'drepG', action: 'group_join', expiresAt: 5000 });
+    await env.DB.prepare(`UPDATE pending_multisig_tx SET subject_kind = 'group' WHERE id IN ('group-old', 'group-live')`).run();
+    expect((await listPendingForDrep(env.DB, 'drepG', 1000)).map((r) => r.id)).toEqual([]);
+    expect(await deleteExpiredPending(env.DB, 1000)).toBe(1);
+    expect(await getPendingMultisig(env.DB, 'vote-old')).toBeNull();
+    expect((await getPendingMultisig(env.DB, 'group-old'))?.subject_kind).toBe('group');
+    expect((await getPendingMultisig(env.DB, 'group-live'))?.control_slot).toBe(0);
+  });
 });
