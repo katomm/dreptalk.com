@@ -509,6 +509,21 @@ export type DrepRegistrationRow = z.infer<typeof drepRegistrationRowSchema>;
 
 const blockAtRowSchema = z.object({ hash: z.string(), block_time: z.number() });
 
+const utxoInfoRowSchema = z.object({
+  tx_hash: z.string(),
+  tx_index: z.number(),
+  address: z.string(),
+  is_spent: z.boolean(),
+});
+const txStatusRowSchema = z.object({
+  tx_hash: z.string(),
+  num_confirmations: z.number().nullish(),
+});
+const firstBlockRowSchema = z.object({ block_height: z.number(), abs_slot: z.number() });
+
+// Refs and hashes per POST for the signing-state readers.
+const SIGNING_READ_CHUNK = 50;
+
 // Filter first, then the fixed action, select and order, so paging is stable.
 const DREP_REGISTRATION_QUERY =
   'action=in.(registered,deregistered)&select=drep_id,action,block_time,update_tx_hash,cert_index&order=block_time.asc,update_tx_hash.asc,cert_index.asc';
@@ -1196,6 +1211,58 @@ export function createKoiosClient(opts: KoiosClientOptions) {
     async blockAt(height: number): Promise<{ hash: string; block_time: number } | null> {
       const data = await request(`/blocks?block_height=eq.${height}&select=hash,block_time`, { method: 'GET' });
       return z.array(blockAtRowSchema).parse(data)[0] ?? null;
+    },
+
+    // Spend state per UTxO ref. Refs Koios does not return are omitted.
+    // 50 refs per POST.
+    async utxoInfo(
+      refs: Array<{ txHash: string; index: number }>,
+    ): Promise<Array<{ txHash: string; index: number; address: string; isSpent: boolean }>> {
+      const chunks: Array<typeof refs> = [];
+      for (let i = 0; i < refs.length; i += SIGNING_READ_CHUNK) chunks.push(refs.slice(i, i + SIGNING_READ_CHUNK));
+      const results = await mapLimit(chunks, KOIOS_BATCH_CONCURRENCY, async (chunk) => {
+        const data = await request('/utxo_info', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ _utxo_refs: chunk.map((r) => `${r.txHash}#${r.index}`), _extended: false }),
+        });
+        return z.array(utxoInfoRowSchema).parse(data);
+      });
+      return results.flat().map((r) => ({
+        txHash: r.tx_hash,
+        index: r.tx_index,
+        address: r.address,
+        isSpent: r.is_spent,
+      }));
+    },
+
+    // Confirmations per tx hash, null when Koios does not know the tx.
+    // Every requested hash is present in the map. 50 hashes per POST.
+    async txStatus(txHashes: string[]): Promise<Map<string, number | null>> {
+      const out = new Map<string, number | null>(txHashes.map((h) => [h, null]));
+      const chunks: string[][] = [];
+      for (let i = 0; i < txHashes.length; i += SIGNING_READ_CHUNK) chunks.push(txHashes.slice(i, i + SIGNING_READ_CHUNK));
+      const results = await mapLimit(chunks, KOIOS_BATCH_CONCURRENCY, async (chunk) => {
+        const data = await request('/tx_status', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ _tx_hashes: chunk }),
+        });
+        return z.array(txStatusRowSchema).parse(data);
+      });
+      for (const row of results.flat()) out.set(row.tx_hash, row.num_confirmations ?? null);
+      return out;
+    },
+
+    // The first block with a slot above the given one, or null when the chain
+    // has none yet.
+    async firstBlockAfterSlot(slot: number): Promise<{ height: number; slot: number } | null> {
+      const data = await request(
+        `/blocks?abs_slot=gt.${slot}&order=abs_slot.asc&limit=1&select=block_height,abs_slot`,
+        { method: 'GET' },
+      );
+      const row = z.array(firstBlockRowSchema).parse(data)[0];
+      return row ? { height: row.block_height, slot: row.abs_slot } : null;
     },
 
     // drep_info lists every id ever registered, a retired DRep comes back with
