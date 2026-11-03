@@ -25,6 +25,7 @@ export const POST: APIRoute = async ({ request, params, locals }) => {
   if (!parsed.success) return jsonResponse({ error: 'invalid input' }, 400);
   const txHash = parsed.data.txHash.toLowerCase();
   if (txHash !== ctx.row.body_hash) return jsonResponse({ error: 'transaction hash does not match this action' }, 422);
+  if (ctx.row.status === 'cancelled') return jsonResponse({ error: 'action was cancelled' }, 409);
   if (!(await markPendingSubmitted(db, ctx.row.id, txHash, Math.floor(Date.now() / 1000)))) {
     return jsonResponse({ error: 'already submitted' }, 409);
   }

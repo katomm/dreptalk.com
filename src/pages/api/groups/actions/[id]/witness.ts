@@ -7,7 +7,7 @@ import type { APIRoute } from 'astro';
 import { z } from 'zod';
 import { jsonResponse } from '@/lib/api/response';
 import { addPendingWitness, getPendingMultisig, type PendingWitness } from '@/lib/db/pendingMultisigTx';
-import { checkFresh, checkRowRate, collectedSatisfy, koiosFor, openRowRequest } from '@/lib/groups/actionServer';
+import { checkFresh, collectedSatisfy, koiosFor, openRowRequest, rowRateRefusal } from '@/lib/groups/actionServer';
 import { neededPolicyKeys } from '@/lib/groups/actions';
 import { type ParsedWitness, parseWitnessSetHex, singleWitnessSetHex, verifyVkeyWitness } from '@/lib/governance/multisigWitness';
 
@@ -19,7 +19,8 @@ export const POST: APIRoute = async ({ request, params, locals }) => {
   const req = await openRowRequest(locals as App.Locals, params.id);
   if (req instanceof Response) return req;
   const { db, env, user, ctx } = req;
-  if (!(await checkRowRate(env, user.id))) return jsonResponse({ error: 'rate_limited' }, 429);
+  const limited = await rowRateRefusal(env, user.id);
+  if (limited) return limited;
 
   let raw: unknown;
   try {

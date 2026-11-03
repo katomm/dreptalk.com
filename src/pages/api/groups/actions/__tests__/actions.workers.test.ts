@@ -35,6 +35,7 @@ import {
   sessionOf,
   type TestKey,
   TIP_SLOT,
+  testKey,
   TTL,
   type TxParts,
   witnessSet,
@@ -51,12 +52,17 @@ const koios = vi.hoisted(() => ({
   spent: new Set<string>(),
   retired: new Set<string>(),
   scripts: new Map<string, unknown>(),
+  addresses: new Map<string, string>(),
 }));
 vi.mock('@/lib/koios/client', () => ({
   createKoiosClient: () => ({
     tip: async () => ({ epoch_no: 1, block_no: 100, abs_slot: koios.tipSlot }),
     utxoInfo: async (refs: Array<{ txHash: string; index: number }>) =>
-      refs.map((r) => ({ ...r, address: enterpriseAddress(PAY).bech32, isSpent: koios.spent.has(`${r.txHash}#${r.index}`) })),
+      refs.map((r) => ({
+        ...r,
+        address: koios.addresses.get(`${r.txHash}#${r.index}`) ?? enterpriseAddress(PAY).bech32,
+        isSpent: koios.spent.has(`${r.txHash}#${r.index}`),
+      })),
     drepInfo: async (id: string) => ({
       drep_id: id,
       hex: '',
@@ -85,6 +91,7 @@ beforeEach(() => {
   koios.spent.clear();
   koios.retired.clear();
   koios.scripts.clear();
+  koios.addresses.clear();
 });
 
 const uniq = (xs: string[]): string[] => [...new Set(xs)].sort();
@@ -520,5 +527,71 @@ describe('group action routes', () => {
     }
     net.network = 'mainnet';
     expect((await open(alice, soloCreate, { payload: expectedPayload(soloCreate, null, new Map()), signers: [ALICE.hash] })).status).toBe(404);
+  });
+
+  it('refuses a transaction that is not a definite four element array', async () => {
+    const t = buildTx({ payload: expectedPayload(soloCreate, null, new Map()), requiredSigners: [ALICE.hash] });
+    const indefinite = `9f${t.hex.slice(2)}ff`;
+    const res = await call(create, alice, { body: { intent: soloCreate, unsignedTxCbor: indefinite, selected: [] } });
+    expect(res).toEqual({ status: 422, json: { error: 'transaction must be a definite four element array' } });
+    expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM pending_multisig_tx').first<{ n: number }>()).toEqual({ n: 0 });
+  });
+
+  it('treats the tip at the validity end as expired', async () => {
+    await seedPermissioned();
+    const row = await openIn(bob, approveCarol, [BOB.hash]);
+    koios.tipSlot = TTL;
+    expect(await sign(row.json.id as string, bob, row.bodyHash, BOB)).toEqual({ status: 410, json: { error: 'expired' } });
+  });
+
+  it('shows submit only when every fee input payment key signed, across two addresses', async () => {
+    await seedPermissioned();
+    const PAY2 = testKey(8);
+    const FEE2 = { txHash: 'f2'.repeat(32), index: 3 };
+    koios.addresses.set(`${FEE2.txHash}#${FEE2.index}`, enterpriseAddress(PAY2).bech32);
+    const row = await open(bob, approveCarol, { payload: await payloadIn(approveCarol), selected: [BOB.hash], tx: { inputs: [FEE_INPUT, FEE2] } });
+    expect(row.status).toBe(200);
+    const id = row.json.id as string;
+    await sign(id, bob, row.bodyHash, PAY, BOB);
+    expect((await call(GET, bob, { id })).json).toMatchObject({ satisfied: true, canSubmit: false });
+    expect(await call(submit, bob, { id, body: {} })).toEqual({ status: 409, json: { error: 'funding signature missing' } });
+    expect((await sign(id, bob, row.bodyHash, PAY2)).json).toMatchObject({ accepted: [PAY2.hash] });
+    expect((await call(GET, bob, { id })).json).toMatchObject({ canSubmit: true });
+    expect((await call(submit, bob, { id, body: {} })).status).toBe(200);
+  });
+
+  it('counts a payment key stored as signer for the funding', async () => {
+    // The initiator pays from an address of its own DRep key.
+    koios.addresses.set(`${FEE_INPUT.txHash}#${FEE_INPUT.index}`, enterpriseAddress(ALICE).bech32);
+    const row = await open(alice, soloCreate, { payload: expectedPayload(soloCreate, null, new Map()), signers: [ALICE.hash] });
+    const id = row.json.id as string;
+    expect((await sign(id, alice, row.bodyHash, ALICE)).json).toMatchObject({ accepted: [ALICE.hash] });
+    const stored = JSON.parse((await getPendingMultisig(env.DB, id))?.witnesses ?? '[]') as PendingWitness[];
+    expect(stored.map((w) => w.role)).toEqual(['signer']);
+    expect((await call(GET, alice, { id })).json).toMatchObject({ canSubmit: true });
+    expect((await call(submit, alice, { id, body: {} })).status).toBe(200);
+  });
+
+  it('answers 409 for a row whose group state is missing or whose record does not read', async () => {
+    await seedPermissioned();
+    const row = await openIn(bob, approveCarol, [BOB.hash]);
+    const id = row.json.id as string;
+    const gone: GroupIntent = { ...approveCarol, group: groupIdString({ txHash: '77'.repeat(32), index: 0 }) };
+    await env.DB.prepare('UPDATE pending_multisig_tx SET action_params = ? WHERE id = ?').bind(JSON.stringify(gone), id).run();
+    expect((await call(GET, bob, { id })).status).toBe(409);
+    for (const route of [witness, submit, cancel]) {
+      expect((await call(route, bob, { id, body: { witnessSetHex: witnessSet(row.bodyHash, BOB) } })).status).toBe(409);
+    }
+    await env.DB.prepare(`UPDATE pending_multisig_tx SET action_params = ?, unsigned_tx_cbor = '00' WHERE id = ?`)
+      .bind(JSON.stringify(approveCarol), id)
+      .run();
+    expect(await call(GET, bob, { id })).toEqual({ status: 409, json: { error: 'group state unavailable' } });
+  });
+
+  it('tells a cancelled row apart from a submitted one', async () => {
+    const row = await open(alice, soloCreate, { payload: expectedPayload(soloCreate, null, new Map()), signers: [ALICE.hash] });
+    const id = row.json.id as string;
+    await call(cancel, alice, { id, body: {} });
+    expect(await call(submitted, alice, { id, body: { txHash: row.bodyHash } })).toEqual({ status: 409, json: { error: 'action was cancelled' } });
   });
 });

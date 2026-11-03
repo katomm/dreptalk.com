@@ -7,12 +7,12 @@ import { jsonResponse } from '@/lib/api/response';
 import {
   assembleTx,
   checkFresh,
-  checkRowRate,
-  collectedSatisfy,
   decodeGroupTx,
   koiosFor,
   openRowRequest,
   payloadMembers,
+  rowRateRefusal,
+  submitBlocker,
   witnessKeys,
 } from '@/lib/groups/actionServer';
 import { liveFactsFor, PreviewUnavailable, previewGroupTx } from '@/lib/groups/preview';
@@ -23,20 +23,17 @@ export const POST: APIRoute = async ({ params, locals }) => {
   const req = await openRowRequest(locals as App.Locals, params.id);
   if (req instanceof Response) return req;
   const { db, env, user, ctx } = req;
-  if (!(await checkRowRate(env, user.id))) return jsonResponse({ error: 'rate_limited' }, 429);
+  const limited = await rowRateRefusal(env, user.id);
+  if (limited) return limited;
   const koios = koiosFor(env);
   const now = Math.floor(Date.now() / 1000);
 
   try {
     const fresh = await checkFresh(db, koios, ctx, now);
     if (!fresh.ok) return jsonResponse({ error: fresh.error }, fresh.status);
+    const blocker = submitBlocker(ctx, fresh.payKeys);
+    if (blocker) return jsonResponse({ error: blocker }, 409);
     const signed = new Set(witnessKeys(ctx.witnesses));
-    if (!ctx.requiredSigners.every((k) => signed.has(k))) return jsonResponse({ error: 'not every required signer has signed' }, 409);
-    // The fee inputs spend from the initiator's wallet, each of its payment keys must have signed.
-    if (fresh.payKeys.size === 0 || ![...fresh.payKeys].every((k) => signed.has(k))) {
-      return jsonResponse({ error: 'funding signature missing' }, 409);
-    }
-    if (!collectedSatisfy(ctx)) return jsonResponse({ error: 'the signatures do not satisfy the action' }, 409);
     const live = await liveFactsFor(koios, payloadMembers(ctx.intent));
     const preview = await previewGroupTx(db, ctx.tx.bytes, ctx.tx.chain.requiredSigners, [...signed], live);
     if (!('events' in preview)) return jsonResponse({ error: `transaction would be ignored: ${preview.ignored}` }, 409);

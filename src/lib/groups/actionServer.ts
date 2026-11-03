@@ -35,7 +35,7 @@ import { drepGroupsAvailable } from './gate.js';
 import { describeEvents, type GroupIntent, type GroupState, IntentError, maySign, parseJoinRef, signerSetSatisfies } from './actions.js';
 import { hashBytes, scriptDisplayJson, scriptFromDisplayJson } from './codec.js';
 import { credentialForDrepId, drepIdForCredential, groupIdParam } from './ids.js';
-import { readGroupState } from './preview.js';
+import { PreviewUnavailable, readGroupState } from './preview.js';
 import { txProgress } from './resolve.js';
 import { KEYED, KEYED_WIDTH, OWN, OWN_WIDTH, Q } from './store/queries.js';
 import { load } from './store/reads.js';
@@ -111,12 +111,22 @@ export function decodeGroupTx(hex: string): DecodedGroupTx {
   return { bytes, facts, chain, decoded: chain.payload ? decodePayload(chain.payload) : null, bodyHash, inputs };
 }
 
-// The empty witness set of an unsigned DRepTalk group transaction, no scripts attached.
+// The definite four element array head of a transaction and the empty witness set of an unsigned
+// DRepTalk group transaction, no scripts attached. The witness splice relies on both being one byte.
+const TX_ARRAY_HEAD = 0x84;
 const EMPTY_WITNESS_SET = 0xa0;
 
-/** True when the unsigned transaction carries an empty witness set right after its body. */
-export function hasEmptyWitnessSet(tx: DecodedGroupTx): boolean {
-  return tx.bytes[1 + Transaction.extractBodyBytes(tx.bytes).length] === EMPTY_WITNESS_SET;
+/** Offset of the witness set, null unless the tx is a one byte array head followed by the body. */
+function witnessSetOffset(bytes: Uint8Array): number | null {
+  if (bytes[0] !== TX_ARRAY_HEAD) return null;
+  return 1 + Transaction.extractBodyBytes(bytes).length;
+}
+
+/** Why the unsigned transaction cannot take spliced witnesses, null when it can. */
+export function unsignedShapeError(tx: DecodedGroupTx): string | null {
+  const at = witnessSetOffset(tx.bytes);
+  if (at === null) return 'transaction must be a definite four element array';
+  return tx.bytes[at] === EMPTY_WITNESS_SET ? null : 'transaction must carry no witnesses';
 }
 
 /**
@@ -125,8 +135,8 @@ export function hasEmptyWitnessSet(tx: DecodedGroupTx): boolean {
  */
 export function assembleTx(unsignedHex: string, witnesses: PendingWitness[]): string {
   const bytes = hexToBytes(unsignedHex);
-  const bodyEnd = 1 + Transaction.extractBodyBytes(bytes).length;
-  if (bytes[bodyEnd] !== EMPTY_WITNESS_SET) throw new Error('unsigned transaction carries witnesses');
+  const bodyEnd = witnessSetOffset(bytes);
+  if (bodyEnd === null || bytes[bodyEnd] !== EMPTY_WITNESS_SET) throw new Error('unsigned transaction is not a plain unsigned array');
   const vkeys = witnesses.flatMap((w) =>
     parseWitnessSetHex(w.witness_hex).map(
       (p) =>
@@ -228,6 +238,43 @@ export async function openJoinsOf(db: D1Database, group: EventRef, member: Crede
 export type Refusal = { status: number; error: string };
 
 /**
+ * The payment key hashes of the fee input addresses, and whether any fee input is spent or
+ * unknown to Koios.
+ */
+export async function feeInputKeys(
+  koios: Pick<GroupKoios, 'utxoInfo'>,
+  feeInputs: Array<{ txHash: string; index: number }>,
+): Promise<{ payKeys: Set<string>; spent: boolean }> {
+  const utxos = await koios.utxoInfo(feeInputs);
+  const byRef = new Map(utxos.map((u) => [`${u.txHash.toLowerCase()}#${u.index}`, u]));
+  const payKeys = new Set<string>();
+  let spent = false;
+  for (const f of feeInputs) {
+    const u = byRef.get(`${f.txHash}#${f.index}`);
+    if (!u || u.isSpent) spent = true;
+    else {
+      const k = paymentKeyHash(u.address);
+      if (k) payKeys.add(k);
+    }
+  }
+  return { payKeys, spent };
+}
+
+/**
+ * Why the collected witnesses cannot be submitted yet, null when they can: every required signer
+ * signed, every key payment credential of the fee inputs signed in any role, and the signers
+ * satisfy the action. Shared by submit and the signing page.
+ */
+export function submitBlocker(ctx: GroupRowContext, payKeys: Set<string>): string | null {
+  const signed = new Set(witnessKeys(ctx.witnesses));
+  if (!ctx.requiredSigners.every((k) => signed.has(k))) return 'not every required signer has signed';
+  // The fee inputs spend from the initiator's wallet, each of its payment keys must have signed.
+  if (payKeys.size === 0 || ![...payKeys].every((k) => signed.has(k))) return 'funding signature missing';
+  if (!collectedSatisfy(ctx)) return 'the signatures do not satisfy the action';
+  return null;
+}
+
+/**
  * Frees the control slot of a row whose seq went stale. A row whose own tx the store already
  * holds is left to the resolver, its outcomes decide.
  */
@@ -253,16 +300,10 @@ export async function checkFresh(
   const no = (status: number, error: string) => ({ ok: false as const, status, error });
   if (row.status !== 'collecting') return no(409, 'no longer collecting');
   const tip = await koios.tip();
-  if (row.invalid_hereafter === null || tip.abs_slot > row.invalid_hereafter) return no(410, 'expired');
-  const utxos = await koios.utxoInfo(ctx.feeInputs);
-  const byRef = new Map(utxos.map((u) => [`${u.txHash.toLowerCase()}#${u.index}`, u]));
-  const payKeys = new Set<string>();
-  for (const f of ctx.feeInputs) {
-    const u = byRef.get(`${f.txHash}#${f.index}`);
-    if (!u || u.isSpent) return no(409, 'fee input spent');
-    const k = paymentKeyHash(u.address);
-    if (k) payKeys.add(k);
-  }
+  if (row.invalid_hereafter === null || tip.abs_slot >= row.invalid_hereafter) return no(410, 'expired');
+  const fee = await feeInputKeys(koios, ctx.feeInputs);
+  if (fee.spent) return no(409, 'fee input spent');
+  const payKeys = fee.payKeys;
   if (intent.kind === 'group_create') return { ok: true, payKeys };
 
   if (!state || state.status === 'dissolved' || (isControlKind(intent.kind) && controlSeq(ctx.tx.decoded) !== state.seq)) {
@@ -390,8 +431,17 @@ export async function openRowRequest(locals: App.Locals, id: string | undefined)
   const env = runtimeEnv(locals);
   const db = env.DB as D1Database | undefined;
   if (!db) return jsonResponse({ error: 'service unavailable' }, 503);
-  const ctx = await loadGroupRow(db, id);
+  let ctx: GroupRowContext | null;
+  try {
+    ctx = await loadGroupRow(db, id);
+  } catch (err) {
+    if (err instanceof PreviewUnavailable) return jsonResponse({ error: err.message }, 503);
+    console.error(`[drep-groups] signing row ${id} could not be read`, err);
+    return jsonResponse({ error: 'group state unavailable' }, 409);
+  }
   if (!ctx) return jsonResponse({ error: 'not found' }, 404);
+  // A control or admission row whose group the store no longer holds cannot be judged.
+  if (ctx.intent.kind !== 'group_create' && !ctx.state) return jsonResponse({ error: 'group state unavailable' }, 409);
   const session = sessionOf(user);
   if (!rowMaySign(ctx, session)) return jsonResponse({ error: 'not a signer of this action' }, 403);
   return { db, env, user, session, ctx };
@@ -402,11 +452,12 @@ export function koiosFor(env: Cloudflare.Env): ReturnType<typeof createKoiosClie
   return createKoiosClient({ baseUrl: koiosBaseUrl, token: (env.KOIOS_API_KEY as string | undefined) || undefined });
 }
 
-/** Rate limit of the Koios backed checks of the row routes, per user. */
-export async function checkRowRate(env: Cloudflare.Env, userId: string): Promise<boolean> {
+/** Rate limit of the Koios backed checks of the row routes, per user. The refusal, null when allowed. */
+export async function rowRateRefusal(env: Cloudflare.Env, userId: string): Promise<Response | null> {
   const limiter = env.RATE_LIMITER;
-  if (!limiter) return false;
-  return checkRate(limiter, `group-action-check:${userId}`, { ...ACTION_RATE, now: Date.now() });
+  if (!limiter) return jsonResponse({ error: 'service unavailable' }, 503);
+  const ok = await checkRate(limiter, `group-action-check:${userId}`, { ...ACTION_RATE, now: Date.now() });
+  return ok ? null : jsonResponse({ error: 'rate_limited' }, 429);
 }
 
 /** Key hashes with a stored witness of the role, all roles without one. */

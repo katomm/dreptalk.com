@@ -14,7 +14,6 @@ import {
   decodeGroupTx,
   type DecodedGroupTx,
   eventsOf,
-  hasEmptyWitnessSet,
   intentSchema,
   isControlKind,
   isIntentFailure,
@@ -26,6 +25,7 @@ import {
   policyJson,
   releaseStaleSlot,
   sessionOf,
+  unsignedShapeError,
 } from '@/lib/groups/actionServer';
 import {
   bindContent,
@@ -118,7 +118,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
     return refuse('invalid transaction');
   }
   // Witnesses are folded in at submit next to the original body bytes.
-  if (!hasEmptyWitnessSet(tx)) return refuse('transaction must carry no witnesses');
+  const shape = unsignedShapeError(tx);
+  if (shape) return refuse(shape);
 
   const koios = koiosFor(env);
   const now = Math.floor(Date.now() / 1000);

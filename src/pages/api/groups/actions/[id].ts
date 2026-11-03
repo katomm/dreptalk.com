@@ -3,7 +3,7 @@
 // a session that may sign the action reads it, the link alone is not a capability for group rows.
 import type { APIRoute } from 'astro';
 import { jsonResponse } from '@/lib/api/response';
-import { collectedSatisfy, linesOf, openRowRequest, witnessKeys } from '@/lib/groups/actionServer';
+import { collectedSatisfy, feeInputKeys, koiosFor, linesOf, openRowRequest, submitBlocker, witnessKeys } from '@/lib/groups/actionServer';
 import { groupIdString } from '@/lib/groups/ids';
 
 export const prerender = false;
@@ -11,12 +11,21 @@ export const prerender = false;
 export const GET: APIRoute = async ({ params, locals }) => {
   const req = await openRowRequest(locals as App.Locals, params.id);
   if (req instanceof Response) return req;
-  const { db, ctx } = req;
+  const { db, env, ctx } = req;
   const { row, intent } = ctx;
   const required = new Set(ctx.requiredSigners);
   const signers = witnessKeys(ctx.witnesses, 'signer');
   const satisfied = collectedSatisfy(ctx);
-  const funded = witnessKeys(ctx.witnesses, 'funding').length > 0;
+  // The same rule as submit, without its Koios backed freshness checks. Koios failing hides the button.
+  let canSubmit = false;
+  if (row.status === 'collecting') {
+    try {
+      const fee = await feeInputKeys(koiosFor(env), ctx.feeInputs);
+      canSubmit = !fee.spent && submitBlocker(ctx, fee.payKeys) === null;
+    } catch (err) {
+      console.warn(`[drep-groups] fee inputs of ${row.id} could not be read`, err);
+    }
+  }
   return jsonResponse(
     {
       id: row.id,
@@ -33,7 +42,7 @@ export const GET: APIRoute = async ({ params, locals }) => {
       invalidHereafter: row.invalid_hereafter,
       unsignedTxCbor: row.unsigned_tx_cbor,
       bodyHash: row.body_hash,
-      canSubmit: row.status === 'collecting' && satisfied && funded,
+      canSubmit,
       slotHeld: row.control_slot === 1 && row.resolved_at === null,
     },
     200,
