@@ -27,6 +27,11 @@ import {
 import { drepPath, profileTabHref } from '../dreps/profile.js';
 import { parseReviewPayload } from '../db/reviewAnnouncements.js';
 import { editionPath } from '../review/windows.js';
+import {
+  parseGroupNotificationPayload,
+  formatGroupNotificationTitle,
+  groupNotificationHref,
+} from './groupNotifications.js';
 
 const INBOX_PATH = '/notifications/';
 
@@ -44,6 +49,8 @@ const PERSONAL_PREF: Record<string, NotificationEventType | 'always'> = {
   delegation_digest: 'delegation_digest',
   rationale_ready: 'rationale_ready',
   review_published: 'governance_review',
+  group_join_request: 'drep_groups',
+  group_signature_request: 'drep_groups',
   device_paired: 'always',
 };
 
@@ -223,6 +230,20 @@ async function hydratePersonal(db: D1Database, row: PersonalRow): Promise<Pendin
       const p = parseReviewPayload(row.payload);
       if (!p) return null;
       return { title: clip(p.title), body: `New Governance Review, edition ${p.edition}`, href: editionPath(p.slug) };
+    }
+
+    case 'group_join_request':
+    case 'group_signature_request': {
+      const p = parseGroupNotificationPayload(row.payload);
+      if (!p) return null;
+      const title = formatGroupNotificationTitle(row.type, p);
+      const href = groupNotificationHref(row.type, p);
+      if (!title || !href) return null;
+      return {
+        title: clip(title),
+        body: row.type === 'group_join_request' ? 'Tap to review the request' : 'Tap to review and sign',
+        href,
+      };
     }
 
     default: {

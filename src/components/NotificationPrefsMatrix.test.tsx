@@ -31,5 +31,6 @@ describe('NotificationPrefsMatrix', () => {
     expect(html).toContain('Voting power and delegators');
     expect(html).toContain('Epoch summary of your own DRep statistics');
     expect(html).toContain('Rationale ready to share');
+    expect(html).toContain('DRep groups');
   });
 });

@@ -27,7 +27,10 @@ export interface NotificationInsert {
     | 'review_published'
     // delegation_digest rows are written by delegationDigest.ts, one per
     // follower and completed epoch, with payload + event_key.
-    | 'delegation_digest';
+    | 'delegation_digest'
+    // group_* rows are written by groupNotifications.ts with payload + event_key.
+    | 'group_join_request'
+    | 'group_signature_request';
   actorId: string | null;
   topicId: string | null;
   postId: string | null;

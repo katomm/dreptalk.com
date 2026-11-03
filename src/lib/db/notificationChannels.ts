@@ -17,6 +17,7 @@ export const NOTIFICATION_EVENT_TYPES = [
   'rationale_ready',
   'governance_review',
   'delegation_digest',
+  'drep_groups',
 ] as const;
 export type NotificationEventType = (typeof NOTIFICATION_EVENT_TYPES)[number];
 
@@ -275,6 +276,8 @@ export interface PendingCounts {
   rationaleReady: number;
   /** New Governance Review editions. */
   reviews: number;
+  /** DRep group join requests and signature requests. */
+  drepGroups: number;
   /** Security notices; deliberately not prefs-filtered, unlike the others. */
   devices: number;
   total: number;
@@ -314,6 +317,7 @@ export async function getPendingCounts(
          (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'delegation_digest' AND created_at > ?2 AND created_at <= ?3) AS delegationDigest,
          (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'rationale_ready' AND created_at > ?2 AND created_at <= ?3) AS rationaleReady,
          (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type = 'review_published' AND created_at > ?2 AND created_at <= ?3) AS reviews,
+         (SELECT COUNT(*) FROM notifications WHERE recipient_id = ?1 AND type IN ('group_join_request', 'group_signature_request') AND created_at > ?2 AND created_at <= ?3) AS drepGroups,
          ${govThreadsSinceSql('?2', '?3')} AS governance`
     )
     .bind(row.user_id, row.delivered_until, passEnd)
@@ -329,6 +333,7 @@ export async function getPendingCounts(
       delegationDigest: number;
       rationaleReady: number;
       reviews: number;
+      drepGroups: number;
     }>();
 
   const replies = prefs.reply ? (result?.replies ?? 0) : 0;
@@ -341,6 +346,7 @@ export async function getPendingCounts(
   const delegationDigest = prefs.delegation_digest ? (result?.delegationDigest ?? 0) : 0;
   const rationaleReady = prefs.rationale_ready ? (result?.rationaleReady ?? 0) : 0;
   const reviews = prefs.governance_review ? (result?.reviews ?? 0) : 0;
+  const drepGroups = prefs.drep_groups ? (result?.drepGroups ?? 0) : 0;
   // Security notices are deliberately not gated on prefs: an alert that can be
   // switched off is worthless, so a device pairing always contributes.
   const devices = result?.devices ?? 0;
@@ -355,6 +361,7 @@ export async function getPendingCounts(
     delegationDigest,
     rationaleReady,
     reviews,
+    drepGroups,
     devices,
   };
   // Summed from the terms themselves, so a new term can never be left out of the total.

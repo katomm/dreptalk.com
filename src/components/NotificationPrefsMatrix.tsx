@@ -11,7 +11,7 @@ import type { NotificationEventType } from '@/lib/db/notificationChannels.js';
 
 const GENERAL_EVENT_TYPES: NotificationEventType[] = ['reply', 'mention', 'governance', 'governance_review'];
 const DELEGATION_EVENT_TYPES: NotificationEventType[] = ['drep_activity', 'drep_status', 'my_delegation', 'delegation_digest'];
-const DREP_EVENT_TYPES: NotificationEventType[] = ['drep_stats', 'rationale_ready'];
+const DREP_EVENT_TYPES: NotificationEventType[] = ['drep_stats', 'rationale_ready', 'drep_groups'];
 
 const EVENT_LABELS: Record<NotificationEventType, { label: string; hint: string }> = {
   reply: { label: 'Replies', hint: 'When someone replies in a thread you posted in' },
@@ -23,6 +23,7 @@ const EVENT_LABELS: Record<NotificationEventType, { label: string; hint: string 
   delegation_digest: { label: 'Epoch summary', hint: 'One summary per epoch of the votes your DRep cast, off by default' },
   drep_stats: { label: 'Voting power and delegators', hint: 'Epoch summary of your own DRep statistics' },
   rationale_ready: { label: 'Rationale ready to share', hint: 'When a vote you cast here is confirmed on chain and its rationale can be shared' },
+  drep_groups: { label: 'DRep groups', hint: 'Join requests for groups you manage and signature requests' },
   governance_review: { label: 'Governance Review', hint: 'When a new edition is published' },
 };
 

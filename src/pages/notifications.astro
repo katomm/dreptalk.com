@@ -32,6 +32,7 @@ import { parseDelegationChangePayload } from '@/lib/delegation/payload.js';
 import { parseDrepEventPayload } from '@/lib/delegation/notifyPayload.js';
 import { drepPath, profileTabHref } from '@/lib/dreps/profile.js';
 import { parseDrepStatsPayload, formatDrepStatsSummary } from '@/lib/notifications/drepStats.js';
+import { parseGroupNotificationPayload, formatGroupNotificationTitle, groupNotificationHref } from '@/lib/notifications/groupNotifications.js';
 import { parseDelegationDigestPayload, formatDelegationDigestInboxTitle } from '@/lib/notifications/delegationDigest.js';
 import { parseReviewPayload } from '@/lib/db/reviewAnnouncements.js';
 import { editionPath } from '@/lib/review/windows.js';
@@ -255,6 +256,24 @@ if (db) {
           verb: null,
           title: formatDelegationDigestInboxTitle(p),
           href: profileTabHref({ drepId: p.drepId }, 'votes', null),
+          pill: null,
+        },
+      ];
+    }
+    if (n.type === 'group_join_request' || n.type === 'group_signature_request') {
+      const p = parseGroupNotificationPayload(n.payload);
+      const title = p ? formatGroupNotificationTitle(n.type, p) : null;
+      if (!p || !title) return [];
+      return [
+        {
+          kind: n.type,
+          createdAt: n.created_at,
+          unread: n.read_at === null,
+          actorName: null,
+          actorHref: null,
+          verb: null,
+          title,
+          href: groupNotificationHref(n.type, p),
           pill: null,
         },
       ];
