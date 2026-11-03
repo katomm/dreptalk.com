@@ -1879,7 +1879,7 @@ describe('handleVerify: group signer login', () => {
     proposalsByReturnAddress: async () => [],
   });
 
-  async function login(opts: { seedByte: number; status: string; active: boolean; inGroup: boolean; groupStatus?: string; offline?: boolean }) {
+  async function login(opts: { seedByte: number; status: string; active: boolean; inGroup: boolean; groupStatus?: string; offline?: boolean; network?: 'mainnet' | 'preprod' }) {
     const payload = `dreptalk:dreptalk.com:group-signer-${opts.seedByte}:1700000000`;
     const seed = new Uint8Array(32).fill(opts.seedByte);
     const { publicKeyHex, signatureHex, pubKey } = rawSign(payload, seed);
@@ -1887,7 +1887,7 @@ describe('handleVerify: group signer login', () => {
     if (opts.inGroup) await seedGroupKey(env.DB, { key: keyHash, tag: opts.seedByte, status: opts.groupStatus });
     const koios = koiosWith(opts.status, opts.active);
     const nonce = makeSingleUseNonceOverride(payload);
-    const common = { sessionKv: env.SESSIONS, db: env.DB, koios, network: 'preprod' as const, now: 1_700_000_100, secure: false };
+    const common = { sessionKv: env.SESSIONS, db: env.DB, koios, network: opts.network ?? ('preprod' as const), now: 1_700_000_100, secure: false };
     let result: Awaited<ReturnType<typeof handleVerify>>;
     if (opts.offline) {
       result = await handleVerify({ ...common, body: { payload, signatureHex, publicKeyHex, role: 'drep' } }, { consumeNonce: nonce });
@@ -1925,6 +1925,12 @@ describe('handleVerify: group signer login', () => {
   it('still rejects a retired DRep whose only group is dissolved', async () => {
     const { result } = await login({ seedByte: 64, status: 'retired', active: false, inGroup: true, groupStatus: 'dissolved' });
     expect(result.status).toBe(401);
+  });
+
+  it('does not look at group policies off preprod', async () => {
+    const { result } = await login({ seedByte: 67, status: 'retired', active: false, inGroup: true, offline: true, network: 'mainnet' });
+    expect(result.status).toBe(401);
+    expect((result.json as { error: string }).error).toBe('not an active DRep');
   });
 
   it('leaves users.drep_id set and no is_drep change', async () => {

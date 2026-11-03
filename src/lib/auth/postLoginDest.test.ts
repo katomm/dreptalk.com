@@ -46,3 +46,15 @@ describe('loginHref', () => {
     expect(postLoginDest(href.slice(href.indexOf('?')))).toBe('/notifications/#notification-settings');
   });
 });
+
+describe('postLoginDest with roles', () => {
+  it('sends a group signer to the groups page', () => {
+    expect(postLoginDest('', ['group-signer'])).toBe('/groups/');
+  });
+  it('keeps the default for a group signer who is also a DRep', () => {
+    expect(postLoginDest('', ['drep', 'group-signer'])).toBe('/home/');
+  });
+  it('lets a safe next win', () => {
+    expect(postLoginDest('?next=%2Fnotifications%2F', ['group-signer'])).toBe('/notifications/');
+  });
+});

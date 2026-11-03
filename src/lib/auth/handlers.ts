@@ -358,7 +358,7 @@ async function verifyWalletCip8(
     drepId = drepIdFromPubKey(pubKey);
     const resolution = await resolveDRep(koios, drepId);
     if (!resolution.isDrep) {
-      if (await isGroupSigner(db, resolution, ccHotKeyHashHex(pubKey))) {
+      if (await isGroupSigner(db, input.network, resolution, drepId)) {
         return finishLogin(input, { drepId, grantedRoles: [], modRole: null, sessionRoles: [GROUP_SIGNER_ROLE] });
       }
       return { status: 401, json: { ok: false, error: 'not an active DRep' } };
@@ -446,7 +446,7 @@ async function verifyRawEd25519(
     const drepId = drepIdFromPubKey(pubKey);
     const resolution = await resolveDRep(koios, drepId);
     if (!resolution.isDrep) {
-      if (await isGroupSigner(db, resolution, ccHotKeyHashHex(pubKey))) {
+      if (await isGroupSigner(db, input.network, resolution, drepId)) {
         return finishLogin(input, { drepId, grantedRoles: [], modRole: null, sessionRoles: [GROUP_SIGNER_ROLE] });
       }
       return { status: 401, json: { ok: false, error: 'not an active DRep' } };

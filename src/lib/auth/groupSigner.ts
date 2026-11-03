@@ -6,6 +6,8 @@ import { parseDrepId } from '../cardano/identity.js';
 import { hashBytes, refFromCols } from '../groups/codec.js';
 import { Q } from '../groups/store/queries.js';
 import { GROUP_SIGNER_ROLE } from './roles.js';
+import type { CardanoNetwork } from '../config/network.js';
+import { drepGroupsAvailable } from '../groups/gate.js';
 import type { DRepResolution } from './resolveRole.js';
 
 export { GROUP_SIGNER_ROLE };
@@ -31,7 +33,16 @@ export async function groupsForPolicyKey(db: D1Database, keyHash: string): Promi
  * True when a key DRep that failed the on-chain check may sign in as a group signer: it is
  * retired or inactive (any other rejection stays) and its key is in an active group's policy.
  */
-export async function isGroupSigner(db: D1Database, resolution: DRepResolution, keyHash: string): Promise<boolean> {
+export async function isGroupSigner(
+  db: D1Database,
+  network: CardanoNetwork,
+  resolution: DRepResolution,
+  drepId: string,
+): Promise<boolean> {
+  // The group tables exist where groups are live only.
+  if (!drepGroupsAvailable(network)) return false;
   if (resolution.reason !== 'not registered' && resolution.reason !== 'inactive') return false;
-  return (await groupsForPolicyKey(db, keyHash)).length > 0;
+  const parsed = parseDrepId(drepId);
+  if (parsed?.kind !== 'key') return false;
+  return (await groupsForPolicyKey(db, parsed.hashHex)).length > 0;
 }
