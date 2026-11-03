@@ -1116,6 +1116,15 @@ export const Q = Object.freeze({
   scriptDisplays: { sql: KEYED.scriptDisplays(1) },
   treasuryScripts: { sql: KEYED.treasuryScripts(1) },
   drepNames: { sql: KEYED.drepNames(1) },
+  // Binds the key hash. The active groups with the key in their control or admission policy.
+  groupsForPolicyKey: {
+    sql: `SELECT g.group_tx, g.group_ix FROM drep_group_policy_keys p
+          JOIN drep_groups g ON g.control = p.script AND g.status = 'active' WHERE p.key = ?1
+          UNION
+          SELECT g.group_tx, g.group_ix FROM drep_group_policy_keys p
+          JOIN drep_groups g ON g.admission = p.script AND g.status = 'active' WHERE p.key = ?1
+          LIMIT 100`,
+  },
   ...(Object.fromEntries(
     (Object.keys(COMMIT) as Array<keyof typeof COMMIT>).map((k) => [k, { sql: COMMIT[k](1) }]),
   ) as Record<keyof typeof COMMIT, RegisteredQuery>),

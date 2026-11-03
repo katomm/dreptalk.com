@@ -8,6 +8,13 @@ export const WRITER_ROLES = ['drep', 'spo', 'cc', 'proposer'] as const;
 /** Session role of a user who acts under a per-action co-proposer grant. Not a writer role. */
 export const CO_PROPOSER_ROLE = 'co-proposer';
 
+/**
+ * Narrow session role of a key DRep whose registration is retired or inactive but whose key sits
+ * in the policy of an active DRep group. It lets the key sign group actions and nothing else.
+ * Not a writer role.
+ */
+export const GROUP_SIGNER_ROLE = 'group-signer';
+
 /** Moderation roles granted via the operator allowlist. */
 export const MODERATOR_ROLES = ['admin', 'moderator'] as const;
 
@@ -32,6 +39,7 @@ const ROLE_DISPLAY: Record<string, string> = {
   cc: 'CC',
   proposer: 'Proposer',
   'co-proposer': 'Co-proposer',
+  'group-signer': 'Group signer',
   admin: 'Admin',
   moderator: 'Moderator',
   member: 'Member',
@@ -39,7 +47,7 @@ const ROLE_DISPLAY: Record<string, string> = {
 
 // Badge priority: the governance identity role comes first (it answers "who you
 // are"), then moderation privileges, then the plain member fallback.
-export const ROLE_PRIORITY = ['drep', 'spo', 'cc', 'proposer', 'co-proposer', 'admin', 'moderator', 'member'] as const;
+export const ROLE_PRIORITY = ['drep', 'spo', 'cc', 'proposer', 'co-proposer', 'group-signer', 'admin', 'moderator', 'member'] as const;
 
 /**
  * Display labels for the roles a session holds, in priority order. Unknown role

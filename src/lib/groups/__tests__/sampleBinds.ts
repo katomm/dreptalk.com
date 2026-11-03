@@ -66,6 +66,7 @@ export const Q_SAMPLE_BINDS: Readonly<Record<keyof typeof Q, unknown[]>> = Objec
   scriptDisplays: [new Uint8Array(28)],
   treasuryScripts: [new Uint8Array(28)],
   drepNames: ['drep1x'],
+  groupsForPolicyKey: [new Uint8Array(28)],
   ...(Object.fromEntries(
     (Object.keys(COMMIT) as Array<keyof typeof COMMIT>).map((k) => [
       k,

@@ -32,6 +32,7 @@ import { normalizeExpectedDrepId } from '../delegation/expectedDrepId.js';
 import { parseSignupRef } from '../analytics/signupRef.js';
 import { resolveFollow } from '../delegation/refresh.js';
 import { hasActiveGrantForCoUser } from '../db/proposerGrants.js';
+import { GROUP_SIGNER_ROLE, isGroupSigner } from './groupSigner.js';
 
 // ---------------------------------------------------------------------------
 // Address header bytes
@@ -357,6 +358,9 @@ async function verifyWalletCip8(
     drepId = drepIdFromPubKey(pubKey);
     const resolution = await resolveDRep(koios, drepId);
     if (!resolution.isDrep) {
+      if (await isGroupSigner(db, resolution, ccHotKeyHashHex(pubKey))) {
+        return finishLogin(input, { drepId, grantedRoles: [], modRole: null, sessionRoles: [GROUP_SIGNER_ROLE] });
+      }
       return { status: 401, json: { ok: false, error: 'not an active DRep' } };
     }
     grantedRoles.push('drep');
@@ -442,6 +446,9 @@ async function verifyRawEd25519(
     const drepId = drepIdFromPubKey(pubKey);
     const resolution = await resolveDRep(koios, drepId);
     if (!resolution.isDrep) {
+      if (await isGroupSigner(db, resolution, ccHotKeyHashHex(pubKey))) {
+        return finishLogin(input, { drepId, grantedRoles: [], modRole: null, sessionRoles: [GROUP_SIGNER_ROLE] });
+      }
       return { status: 401, json: { ok: false, error: 'not an active DRep' } };
     }
     return finishLogin(input, { drepId, grantedRoles: ['drep'], modRole: null });
@@ -483,10 +490,12 @@ async function finishLogin(
     ccCred?: string;
     grantedRoles: AuthRole[];
     modRole: ModeratorRole | null;
+    /** Session roles that replace the ones derived from the users row (the group signer login). */
+    sessionRoles?: string[];
   },
 ): Promise<VerifyResult> {
   const { db, now } = input;
-  const { drepId, stakeAddr, poolId, ccCred, grantedRoles, modRole } = args;
+  const { drepId, stakeAddr, poolId, ccCred, grantedRoles, modRole, sessionRoles } = args;
 
   const user = await upsertUserFromAuth(db, {
     drepId,
@@ -499,6 +508,12 @@ async function finishLogin(
   });
 
   const hasGrant = await hasActiveGrantForCoUser(db, user.id);
+  if (sessionRoles) {
+    // The roles come from the override, never from the users row: a former DRep keeps is_drep = 1
+    // there and must not get the drep role back.
+    const roles = hasGrant ? withCoProposerRole(sessionRoles) : sessionRoles;
+    return mintSessionResult(input, user, modRole, { roles, drepId: user.drep_id });
+  }
   if (!hasGrant) return mintSessionResult(input, user, modRole);
   const roles = coProposerRoles(user, modRole);
   return mintSessionResult(input, user, modRole, { roles, drepId: user.drep_id });

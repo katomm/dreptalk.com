@@ -23,8 +23,9 @@ export function safeNextPath(raw: string | null): string | null {
 }
 
 /** The destination for a login that happened on a page with this query string. */
-export function postLoginDest(search: string): string {
-  return safeNextPath(new URLSearchParams(search).get('next')) ?? DEFAULT_POST_LOGIN_DEST;
+export function postLoginDest(search: string, roles?: readonly string[]): string {
+  const dest = roles?.includes('group-signer') && !roles.includes('drep') ? '/groups/' : DEFAULT_POST_LOGIN_DEST;
+  return safeNextPath(new URLSearchParams(search).get('next')) ?? dest;
 }
 
 /** A /login/ link that returns to `next` afterwards. */

@@ -505,7 +505,7 @@ function WalletTab({ network, loginState, onLoginStateChange, walletScan }: Wall
     if (result.ok && result.user) {
       rememberWallet(selectedWallet);
       onLoginStateChange({ status: 'success', userId: result.user.id, roles: result.user.roles });
-      window.location.assign(postLoginDest(window.location.search));
+      window.location.assign(postLoginDest(window.location.search, result.user.roles));
     } else {
       onLoginStateChange({ status: 'error', message: friendlyLoginError(result.error, signRole, network) });
     }
@@ -702,7 +702,7 @@ function SignerTab({ network, loginState, onLoginStateChange }: SignerTabProps) 
     });
 
     if (r.ok && r.user) {
-      window.location.assign(postLoginDest(window.location.search));
+      window.location.assign(postLoginDest(window.location.search, r.user.roles));
     } else {
       onLoginStateChange({ status: 'error', message: friendlyLoginError(r.error, role, network) });
       // Challenge is single-use; refresh so the user can retry without reloading.
