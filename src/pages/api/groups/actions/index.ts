@@ -14,6 +14,7 @@ import {
   decodeGroupTx,
   type DecodedGroupTx,
   eventsOf,
+  feeInputKeys,
   intentSchema,
   isControlKind,
   isIntentFailure,
@@ -170,6 +171,11 @@ export const POST: APIRoute = async ({ request, locals }) => {
     const invalid = preview.events.find((e) => !e.valid);
     if (invalid) return refuse(invalid.reason ?? 'event not valid');
 
+    // The payment keys of the fee inputs never change for the row, they are read once here.
+    const fee = await feeInputKeys(koios, tx.inputs);
+    if (fee.spent) return refuse('fee input spent');
+    if (fee.payKeys.size === 0) return refuse('fee inputs must come from a key address');
+
     const controlSlot = isControlKind(intent.kind);
     const subjectId =
       intent.kind === 'group_create'
@@ -191,6 +197,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       requiredSigners: signers,
       invalidHereafter: Number(ttl),
       feeInputs: tx.inputs,
+      feePayKeys: [...fee.payKeys],
       eventCount: expected.events.length,
       controlSlot,
       profileHash: profile?.dataHash.toLowerCase() ?? null,

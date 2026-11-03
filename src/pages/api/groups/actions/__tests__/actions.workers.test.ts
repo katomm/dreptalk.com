@@ -53,16 +53,22 @@ const koios = vi.hoisted(() => ({
   retired: new Set<string>(),
   scripts: new Map<string, unknown>(),
   addresses: new Map<string, string>(),
+  calls: 0,
 }));
 vi.mock('@/lib/koios/client', () => ({
   createKoiosClient: () => ({
-    tip: async () => ({ epoch_no: 1, block_no: 100, abs_slot: koios.tipSlot }),
-    utxoInfo: async (refs: Array<{ txHash: string; index: number }>) =>
-      refs.map((r) => ({
+    tip: async () => {
+      koios.calls += 1;
+      return { epoch_no: 1, block_no: 100, abs_slot: koios.tipSlot };
+    },
+    utxoInfo: async (refs: Array<{ txHash: string; index: number }>) => {
+      koios.calls += 1;
+      return refs.map((r) => ({
         ...r,
         address: koios.addresses.get(`${r.txHash}#${r.index}`) ?? enterpriseAddress(PAY).bech32,
         isSpent: koios.spent.has(`${r.txHash}#${r.index}`),
-      })),
+      }));
+    },
     drepInfo: async (id: string) => ({
       drep_id: id,
       hex: '',
@@ -92,6 +98,7 @@ beforeEach(() => {
   koios.retired.clear();
   koios.scripts.clear();
   koios.addresses.clear();
+  koios.calls = 0;
 });
 
 const uniq = (xs: string[]): string[] => [...new Set(xs)].sort();
@@ -406,6 +413,7 @@ describe('group action routes', () => {
       required_signers: JSON.stringify([ALICE.hash]),
       invalid_hereafter: TTL,
       fee_inputs: JSON.stringify([FEE_INPUT]),
+      fee_pay_keys: JSON.stringify([PAY.hash]),
       control_slot: 0,
       profile_hash: null,
       status: 'collecting',
@@ -572,7 +580,7 @@ describe('group action routes', () => {
     expect((await call(submit, alice, { id, body: {} })).status).toBe(200);
   });
 
-  it('answers 409 for a row whose group state is missing or whose record does not read', async () => {
+  it('answers 409 for a row whose group state is missing and 503 for a record that does not read', async () => {
     await seedPermissioned();
     const row = await openIn(bob, approveCarol, [BOB.hash]);
     const id = row.json.id as string;
@@ -585,7 +593,8 @@ describe('group action routes', () => {
     await env.DB.prepare(`UPDATE pending_multisig_tx SET action_params = ?, unsigned_tx_cbor = '00' WHERE id = ?`)
       .bind(JSON.stringify(approveCarol), id)
       .run();
-    expect(await call(GET, bob, { id })).toEqual({ status: 409, json: { error: 'group state unavailable' } });
+    // A record that does not read is a server fault, not a missing group.
+    expect(await call(GET, bob, { id })).toEqual({ status: 503, json: { error: 'service unavailable' } });
   });
 
   it('tells a cancelled row apart from a submitted one', async () => {
@@ -593,5 +602,31 @@ describe('group action routes', () => {
     const id = row.json.id as string;
     await call(cancel, alice, { id, body: {} });
     expect(await call(submitted, alice, { id, body: { txHash: row.bodyHash } })).toEqual({ status: 409, json: { error: 'action was cancelled' } });
+  });
+
+  it('asks Koios nothing on a GET while signatures are missing and once when they are complete', async () => {
+    await seedPermissioned();
+    const row = await openIn(bob, approveCarol, [BOB.hash]);
+    const id = row.json.id as string;
+    koios.calls = 0;
+    expect((await call(GET, bob, { id })).json).toMatchObject({ canSubmit: false });
+    expect(koios.calls).toBe(0);
+    await sign(id, bob, row.bodyHash, BOB);
+    koios.calls = 0;
+    // Bob signed, the funding witness is still missing.
+    expect((await call(GET, bob, { id })).json).toMatchObject({ satisfied: true, canSubmit: false });
+    expect(koios.calls).toBe(0);
+    await sign(id, bob, row.bodyHash, PAY);
+    koios.calls = 0;
+    expect((await call(GET, bob, { id })).json).toMatchObject({ canSubmit: true });
+    expect(koios.calls).toBeLessThanOrEqual(1);
+    koios.spent.add(`${FEE_INPUT.txHash}#${FEE_INPUT.index}`);
+    expect((await call(GET, bob, { id })).json).toMatchObject({ canSubmit: false });
+  });
+
+  it('refuses a create whose fee input is already spent', async () => {
+    koios.spent.add(`${FEE_INPUT.txHash}#${FEE_INPUT.index}`);
+    const res = await open(alice, soloCreate, { payload: expectedPayload(soloCreate, null, new Map()), signers: [ALICE.hash] });
+    expect(res).toMatchObject({ status: 422, json: { error: 'fee input spent' } });
   });
 });

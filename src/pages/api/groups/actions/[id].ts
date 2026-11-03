@@ -16,12 +16,12 @@ export const GET: APIRoute = async ({ params, locals }) => {
   const required = new Set(ctx.requiredSigners);
   const signers = witnessKeys(ctx.witnesses, 'signer');
   const satisfied = collectedSatisfy(ctx);
-  // The same rule as submit, without its Koios backed freshness checks. Koios failing hides the button.
+  // The same rule as submit with the payment keys stored on the row. Koios is asked only once the
+  // signatures are complete, for whether a fee input was spent. Koios failing hides the button.
   let canSubmit = false;
-  if (row.status === 'collecting') {
+  if (row.status === 'collecting' && submitBlocker(ctx, ctx.feePayKeys) === null) {
     try {
-      const fee = await feeInputKeys(koiosFor(env), ctx.feeInputs);
-      canSubmit = !fee.spent && submitBlocker(ctx, fee.payKeys) === null;
+      canSubmit = !(await feeInputKeys(koiosFor(env), ctx.feeInputs)).spent;
     } catch (err) {
       console.warn(`[drep-groups] fee inputs of ${row.id} could not be read`, err);
     }

@@ -195,6 +195,8 @@ export interface GroupRowContext {
   witnesses: PendingWitness[];
   requiredSigners: string[];
   feeInputs: Array<{ txHash: string; index: number }>;
+  /** Payment key hashes of the fee input addresses, stored with the row. */
+  feePayKeys: Set<string>;
 }
 
 /** A group signing row with its intent and the current state of its group, null for any other row. */
@@ -218,6 +220,7 @@ export async function loadGroupRow(db: D1Database, id: string): Promise<GroupRow
     witnesses: JSON.parse(row.witnesses) as PendingWitness[],
     requiredSigners: JSON.parse(row.required_signers ?? '[]') as string[],
     feeInputs: JSON.parse(row.fee_inputs ?? '[]') as Array<{ txHash: string; index: number }>,
+    feePayKeys: new Set(JSON.parse(row.fee_pay_keys ?? '[]') as string[]),
   };
 }
 
@@ -303,7 +306,7 @@ export async function checkFresh(
   if (row.invalid_hereafter === null || tip.abs_slot >= row.invalid_hereafter) return no(410, 'expired');
   const fee = await feeInputKeys(koios, ctx.feeInputs);
   if (fee.spent) return no(409, 'fee input spent');
-  const payKeys = fee.payKeys;
+  const payKeys = ctx.feePayKeys.size > 0 ? ctx.feePayKeys : fee.payKeys;
   if (intent.kind === 'group_create') return { ok: true, payKeys };
 
   if (!state || state.status === 'dissolved' || (isControlKind(intent.kind) && controlSeq(ctx.tx.decoded) !== state.seq)) {
@@ -435,9 +438,8 @@ export async function openRowRequest(locals: App.Locals, id: string | undefined)
   try {
     ctx = await loadGroupRow(db, id);
   } catch (err) {
-    if (err instanceof PreviewUnavailable) return jsonResponse({ error: err.message }, 503);
     console.error(`[drep-groups] signing row ${id} could not be read`, err);
-    return jsonResponse({ error: 'group state unavailable' }, 409);
+    return jsonResponse({ error: err instanceof PreviewUnavailable ? err.message : 'service unavailable' }, 503);
   }
   if (!ctx) return jsonResponse({ error: 'not found' }, 404);
   // A control or admission row whose group the store no longer holds cannot be judged.

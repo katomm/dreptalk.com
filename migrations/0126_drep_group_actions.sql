@@ -8,6 +8,8 @@ ALTER TABLE pending_multisig_tx ADD COLUMN subject_kind TEXT NOT NULL DEFAULT 'd
 ALTER TABLE pending_multisig_tx ADD COLUMN required_signers TEXT;
 ALTER TABLE pending_multisig_tx ADD COLUMN invalid_hereafter INTEGER;
 ALTER TABLE pending_multisig_tx ADD COLUMN fee_inputs TEXT;
+-- Payment key hashes of the fee input addresses, read once when the row is stored.
+ALTER TABLE pending_multisig_tx ADD COLUMN fee_pay_keys TEXT;
 ALTER TABLE pending_multisig_tx ADD COLUMN event_count INTEGER;
 ALTER TABLE pending_multisig_tx ADD COLUMN control_slot INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE pending_multisig_tx ADD COLUMN profile_hash TEXT;

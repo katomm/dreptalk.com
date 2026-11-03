@@ -19,6 +19,7 @@ export type PendingMultisigRow = {
   required_signers: string | null;
   invalid_hereafter: number | null;
   fee_inputs: string | null;
+  fee_pay_keys: string | null;
   event_count: number | null;
   control_slot: number;
   profile_hash: string | null;

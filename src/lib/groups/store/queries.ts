@@ -1261,13 +1261,13 @@ export const Q = Object.freeze({
           ORDER BY never_included_at DESC LIMIT ?`,
     boundedScan: 'pending_multisig_tx_never_included',
   },
-  // Binds the 20 columns of a new group signing row, the control slot flag last. A control row is stored only while
+  // Binds the columns of a new group signing row, the control slot flag 17th, the fee payment keys last. A control row is stored only while
   // the group has no open control row, in the same statement.
   actionCreate: {
     sql: `INSERT INTO pending_multisig_tx (id, drep_id, action, action_params, unsigned_tx_cbor, body_hash, native_script,
             witnesses, status, tx_hash, created_by, created_at, expires_at, subject_kind, required_signers, invalid_hereafter,
-            fee_inputs, event_count, profile_hash, control_slot)
-          SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, '[]', 'collecting', NULL, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17
+            fee_inputs, event_count, profile_hash, control_slot, fee_pay_keys)
+          SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, '[]', 'collecting', NULL, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18
           WHERE ?17 = 0 OR NOT EXISTS (
             SELECT 1 FROM pending_multisig_tx WHERE drep_id = ?2 AND control_slot = 1 AND resolved_at IS NULL)`,
   },

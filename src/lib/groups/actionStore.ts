@@ -18,6 +18,8 @@ export interface NewGroupAction {
   requiredSigners: string[];
   invalidHereafter: number;
   feeInputs: Array<{ txHash: string; index: number }>;
+  /** Payment key hashes of the fee input addresses. */
+  feePayKeys: string[];
   eventCount: number;
   controlSlot: boolean;
   profileHash: string | null;
@@ -50,6 +52,7 @@ export async function createGroupAction(db: D1Database, rec: NewGroupAction): Pr
       rec.eventCount,
       rec.profileHash?.toLowerCase() ?? null,
       rec.controlSlot ? 1 : 0,
+      JSON.stringify([...new Set(rec.feePayKeys.map((k) => k.toLowerCase()))].sort()),
     )
     .run();
   return (res.meta.changes ?? 0) > 0 ? 'created' : 'slot taken';
