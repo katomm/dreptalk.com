@@ -17,7 +17,7 @@
 import { env } from 'cloudflare:test';
 import type { Budget } from 'drep-groups';
 import { endOf, runEngine } from 'drep-groups';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   baseInputs,
   batchedCreates,
@@ -49,9 +49,19 @@ import {
 } from '../../db/drepGroups.js';
 import { hashBytes } from '../codec.js';
 import { groupIdString } from '../ids.js';
-import { ENGINE_BUDGET, JOB_MAX_QUERIES, MAX_JOB_ROWS_PER_RUN, RUN_MAX_QUERIES } from '../constants.js';
+import {
+  ENGINE_BUDGET,
+  GROUPS_QUERY_SHARE,
+  JOB_MAX_QUERIES,
+  MAX_JOB_ROWS_PER_RUN,
+  PROFILE_QUERIES_PER_ITEM,
+  PROFILE_SELECT_QUERIES,
+  RUN_MAX_QUERIES,
+  WEBSITE_SELECT_QUERIES,
+} from '../constants.js';
 import { runJobs } from '../jobs.js';
-import { allowance } from '../../sync/queryBudget.js';
+import { maintainProfiles } from '../phase.js';
+import { allowance, countingDb } from '../../sync/queryBudget.js';
 import { D1Store } from './d1Store.js';
 import { acquireLease, invocationOwner } from './lease.js';
 import { frontiers, pendingRecovery } from './reads.js';
@@ -568,4 +578,32 @@ describe('the job pages do not grow with stored rows', () => {
       expect(r0.rows).toBeLessThanOrEqual(r1k.rows);
     });
   }
+});
+
+// A profile is due from the first member on, so every one member group with an anchor queues a fetch. One
+// tick fetches at most the item cap of one profile pass, whatever the number of due groups.
+describe('profile upkeep with many one member groups', () => {
+  it('bounds profile fetches with many one member groups', { timeout: 60_000 }, async () => {
+    const cols = `group_tx, group_ix, cur_h, cur_ti, cur_ph, cur_ix, cur_tx, mode, control, profile_url, profile_hash, seq,
+      status, created_h, created_ti, created_ph, created_ix, created_tx, members`;
+    await env.DB.batch(
+      [
+        `${series(500)} INSERT INTO drep_groups (${cols}) SELECT ${hashSql(9_700_000)}, 0, 1, 0, 2, 0, ${hashSql(9_700_000)}, 'open',
+          X'aa', 'https://x.test/g' || s.i || '.json', X'0a', '0', 'active', 1, 0, 2, 0, ${hashSql(9_700_000)}, 1 FROM s`,
+        `${series(500)} INSERT INTO drep_group_due (kind, group_tx, group_ix, due_at) SELECT 'profile', ${hashSql(9_700_000)}, 0, s.i FROM s`,
+      ].map((sql) => env.DB.prepare(sql)),
+    );
+    const lease = (await acquireLease(env.DB, invocationOwner())) as string;
+    const fetchImpl = vi.fn(async () => new Response('not found', { status: 404 })) as unknown as typeof fetch;
+    const c = countingDb(env.DB);
+    const phase = allowance(c.meter, GROUPS_QUERY_SHARE);
+    const report = { profiles: { fetched: 0, failed: 0 }, websites: { checked: 0, verified: 0 }, starved: [] as string[] };
+    await maintainProfiles({ db: c.db, lease, fetchImpl, gateway: null, network: 'preprod', now: 1_000 }, phase, report);
+    // The item cap of one profile pass in the groups phase.
+    expect(report.profiles.fetched + report.profiles.failed).toBe(10);
+    expect(vi.mocked(fetchImpl).mock.calls.length).toBeLessThanOrEqual(10);
+    expect(c.meter.used()).toBeLessThanOrEqual(PROFILE_SELECT_QUERIES + 10 * PROFILE_QUERIES_PER_ITEM + WEBSITE_SELECT_QUERIES);
+    expect(c.meter.used()).toBeLessThanOrEqual(GROUPS_QUERY_SHARE);
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM drep_group_due WHERE kind = 'profile' AND due_at <= 1000").first()).toEqual({ n: 490 });
+  });
 });

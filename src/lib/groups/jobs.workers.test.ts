@@ -318,14 +318,17 @@ describe('retire and repair jobs', () => {
     await retire(t, m, 90);
     await run(t);
     expect(await groupRow(0)).toMatchObject({ members: 1, former: 1, power: '5' });
-    expect(await count('SELECT COUNT(*) AS n FROM drep_group_due')).toBe(0);
+    // Unlisted at one member, the profile stays due.
+    expect(await count("SELECT COUNT(*) AS n FROM drep_group_due WHERE kind = 'profile'")).toBe(1);
     await truncate(t, 80);
     expect(await trackedRow(m)).toMatchObject({ retiring: 0, retired_at_h: null });
     expect(await jobs('repair')).toBe(1);
     await run(t);
     expect(await instanceRow(pos(21))).toMatchObject({ counted_as: 'open', eff_h: null, eff_reason: null });
     expect(await groupRow(0)).toMatchObject({ members: 2, former: 0, power: '12' });
-    expect(await one("SELECT due_at FROM drep_group_due WHERE kind = 'profile'")).toEqual({ due_at: NOW });
+    // The profile due row of the first member is kept, no profile names a website yet.
+    expect(await count("SELECT COUNT(*) AS n FROM drep_group_due WHERE kind = 'profile'")).toBe(1);
+    expect(await count("SELECT COUNT(*) AS n FROM drep_group_due WHERE kind = 'website'")).toBe(0);
     await expectFresh({ power: true });
   });
 });

@@ -31,7 +31,9 @@ export const ENGINE_BUDGET: Budget = {
 export const RECOVERY_STEP_OVERHEAD = 13;
 // Worst case D1 rows_written per source row of each phase, trigger rows included. An insert counts its row and
 // every index entry, a delete 1, an update its row and the index entries it inserts, an ignored insert 1.
-// raw: the row and the pending_witness trigger. state: the row, a new recompute job (5) and the group's gen.
+// raw: the row and the pending_witness trigger. state: the row, a new recompute job (5) and the group's gen, more
+// than an outcome or join request delete (1) or a reopened resolution (the row and its open control and unresolved
+// entries, 3).
 // undo: the instance, a new recompute job and gen. versions: the group row with its cur_h entry (2), a new
 // recompute job (5), a new profile due row (3) and the website due delete, or for a deleted group its row, two due
 // rows and the trim due row. credentials: the tracked row with its retired_at_h entry (2) and a new repair job (5).

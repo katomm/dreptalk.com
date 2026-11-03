@@ -1,9 +1,11 @@
 /// <reference types="@cloudflare/workers-types" />
 // Writes engine change sets to D1 in one lease checked batch: the state the reference store
 // keeps, plus the DRepTalk caches (counted_as, effective close), the published counters, the
-// listing due rows, job triggers and the exact next input of every tracked credential.
+// listing due rows, job triggers and the exact next input of every tracked credential, and for
+// DRepTalk's own group actions the verdicts of tracked transactions, the keys of every policy,
+// the anchored mark of hosted profile documents and the join requests to notify.
 import type { ChangeSet, Credential, CursorUpdate, EventRef, GroupVersion, Pos, StoredInstance } from 'drep-groups';
-import { comparePos, credKey, effectiveClose, refKey } from 'drep-groups';
+import { collectKeyHashes, comparePos, credKey, effectiveClose, refKey } from 'drep-groups';
 import { chunked, D1_MAX_BINDS } from '../../db/sql.js';
 import {
   credBytes,
@@ -22,7 +24,7 @@ import {
   type Row,
 } from '../codec.js';
 import { drepIdForCredential } from '../ids.js';
-import { LISTED_MIN_MEMBERS } from '../constants.js';
+import { LISTED_MIN_MEMBERS, PROFILE_MIN_MEMBERS } from '../constants.js';
 import { COMMIT, COMMIT_WIDTH, KEYED, KEYED_WIDTH, Q } from './queries.js';
 import { writeBatch } from './lease.js';
 
@@ -182,18 +184,21 @@ export type MemberChange = { group: EventRef; before: { members: number; open: b
  * The only writer of `members`, for any number of groups. `members` is the counter before and
  * after, `before.members` the stored value read in the same pre-read. `open` is true on a side
  * that holds an open instance the other side lacks, so a member swap at an unchanged count still
- * enqueues a `power` job. Applies the listing rule, increments each group's `gen` (the members
- * update runs last, so `atGen` guards every statement against the same gen).
+ * enqueues a `power` job. Applies the profile rule at PROFILE_MIN_MEMBERS and the listing rule at
+ * LISTED_MIN_MEMBERS, increments each group's `gen` (the members update runs last, so `atGen`
+ * guards every statement against the same gen).
  */
 export function memberPublishBatch(db: D1Database, changes: MemberChange[], now: number, atGen?: number): D1PreparedStatement[] {
   const guard = [atGen ?? null];
   const key = (x: MemberChange): [Uint8Array, number] => refBinds(x.group);
-  const up = changes.filter((x) => x.before.members < LISTED_MIN_MEMBERS && x.after.members >= LISTED_MIN_MEMBERS);
-  const down = changes.filter((x) => x.before.members >= LISTED_MIN_MEMBERS && x.after.members < LISTED_MIN_MEMBERS);
+  const up = (min: number) => changes.filter((x) => x.before.members < min && x.after.members >= min);
+  const down = (min: number) => changes.filter((x) => x.before.members >= min && x.after.members < min);
   const power = changes.filter((x) => x.before.open || x.after.open || x.before.members !== x.after.members);
   return [
-    ...rows(db, 'deleteAllDue', down, key, guard),
-    ...rows(db, 'dueProfileIfAnchored', up, key, [now, ...guard]),
+    ...rows(db, 'deleteProfileDue', down(PROFILE_MIN_MEMBERS), key, guard),
+    ...rows(db, 'dueProfileIfAnchored', up(PROFILE_MIN_MEMBERS), key, [now, ...guard]),
+    ...rows(db, 'deleteWebsiteDue', down(LISTED_MIN_MEMBERS), key, guard),
+    ...rows(db, 'dueWebsiteIfProfiled', up(LISTED_MIN_MEMBERS), key, [now, ...guard]),
     ...rows(db, 'enqueueGroupJobs', power, (x) => ['power', refKey(x.group), ...key(x), ...NULL_POS], guard),
     ...rows(db, 'publishMembers', changes, (x) => [...key(x), x.after.members - x.before.members], guard),
   ];
@@ -213,7 +218,7 @@ export function memberPublishStatements(
 type Anchor = { url: string | null; hash: string | null };
 type AnchorChange = { group: EventRef; before: Anchor; after: Anchor };
 
-/** Listed groups with a changed anchor: profile due now, website due row deleted. */
+/** Groups with a member and a changed anchor: profile due now, website due row deleted. */
 export function anchorDueBatch(db: D1Database, changes: AnchorChange[], now: number): D1PreparedStatement[] {
   const changed = changes.filter((x) => x.before.url !== x.after.url || x.before.hash !== x.after.hash);
   const key = (x: AnchorChange): [Uint8Array, number] => refBinds(x.group);
@@ -299,9 +304,18 @@ export function commitStatements(db: D1Database, units: Unit[], pre: PreRead, no
     };
   });
   const groupCursor = units.reduce<Pos | null>((p, u) => (u.cursor.kind === 'group' ? u.cursor.G : p), null);
+  const scripts = changes.flatMap((c) => c.scripts);
+  const policyKeys = new Map<string, [string, string]>();
+  for (const s of scripts) for (const k of collectKeyHashes(s.script)) policyKeys.set(`${k}:${s.hash}`, [k, s.hash]);
+  const anchored = [...new Set(versions.flatMap((v) => (v.profile ? [v.profile.dataHash] : [])))];
+  const joinRequests = changes.flatMap((c) =>
+    c.effects.flatMap((e) => (e.kind === 'instanceCreated' && e.instance.mode === 'permissioned' ? [e.instance] : [])),
+  );
+  const grouped = [...f.verdicts.values()].filter((v) => v.group !== null);
 
   return [
-    ...rows(db, 'insertScripts', changes.flatMap((c) => c.scripts), (s) => [hashBytes(s.hash), ...posBinds(s.at), s.bytes, scriptDisplayJson(s.script)]),
+    ...rows(db, 'insertScripts', scripts, (s) => [hashBytes(s.hash), ...posBinds(s.at), s.bytes, scriptDisplayJson(s.script)]),
+    ...rows(db, 'insertPolicyKeys', [...policyKeys.values()], ([k, h]) => [hashBytes(k), hashBytes(h)]),
     ...rows(db, 'insertMemberScripts', changes.flatMap((c) => c.memberScripts), (m) => [
       credBytes(credKey(m.credential)),
       ...posBinds(m.at),
@@ -318,6 +332,7 @@ export function commitStatements(db: D1Database, units: Unit[], pre: PreRead, no
       ...optPos(v.profileSetAt),
     ]),
     ...rows(db, 'upsertGroups', latest, (v) => [...g(v.id), ...order(v.at)]),
+    ...rows(db, 'markProfileDocsAnchored', anchored, (h) => [h]),
     ...anchorDueBatch(db, anchors, now),
     ...rows(db, 'enqueueGroupJobs', dissolveJobs, (v) => ['dissolve', refKey(v.id), ...g(v.id), ...posBinds(v.at)], [null]),
     ...rows(db, 'upsertInstances', instanceRows, ({ i, eff, counted }) => [
@@ -334,7 +349,7 @@ export function commitStatements(db: D1Database, units: Unit[], pre: PreRead, no
       ...optPos(eff?.at ?? null),
       eff?.reason ?? null,
     ]),
-    ...rows(db, 'insertVerdicts', [...f.verdicts.values()].filter((v) => v.group !== null), (v) => [
+    ...rows(db, 'insertVerdicts', grouped, (v) => [
       ...g(v.ref),
       ...g(v.group as EventRef),
       ...posBinds(v.at),
@@ -343,6 +358,8 @@ export function commitStatements(db: D1Database, units: Unit[], pre: PreRead, no
       v.reason,
       v.subject === null ? null : credBytes(credKey(v.subject)),
     ]),
+    ...rows(db, 'insertOwnOutcomes', grouped, (v) => [v.ref.txHash, v.ref.index, v.valid ? 1 : 0, v.reason, v.at.blockHeight, now]),
+    ...rows(db, 'insertJoinNotify', joinRequests, (i) => [...g(i.joinId), i.joinedAt.blockHeight]),
     // One gen increment per touched group: here, unless its members publication owns it.
     ...rows(db, 'groupDeltas', [...deltas.values()], (d) => [
       ...g(d.group),

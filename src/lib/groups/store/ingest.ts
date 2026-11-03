@@ -28,6 +28,21 @@ export function isMarkerTx(tx: ChainTx): boolean {
   return d === null || (d.scripts.length === 0 && !d.events.some((e) => e.ok));
 }
 
+/**
+ * The profile anchor hashes a stored label tx references: one per decodable create or update that
+ * sets a profile. A marker references none.
+ */
+export function anchorHashes(tx: ChainTx): string[] {
+  if (isMarkerTx(tx)) return [];
+  const out = new Set<string>();
+  for (const e of decodePayload(tx.payload as Uint8Array)?.events ?? []) {
+    if (!e.ok) continue;
+    const profile = e.event.tag === 'create' ? e.event.profile : e.event.tag === 'update' ? e.event.changes.profile : undefined;
+    if (profile) out.add(profile.dataHash);
+  }
+  return [...out];
+}
+
 /** Runs keyed reads in one batch and returns all rows. */
 async function readKeyed<T>(db: D1Database, name: keyof typeof INGEST, items: T[], binds: (x: T) => unknown[]): Promise<Row[]> {
   const stmts = chunked(items, Math.floor(D1_MAX_BINDS / INGEST_WIDTH[name])).map((c) =>
@@ -69,7 +84,8 @@ function txRow(tx: ChainTx, blockHash: string, marker: boolean): unknown[] {
 }
 
 /**
- * Stores label txs, markers without payload. Join members of a stored payload become tracked.
+ * Stores label txs, markers without payload. Join members of a stored payload become tracked, and
+ * the profile anchors it references are recorded.
  * `L` moves the discovery frontier and, when the first credential is tracked, creates the
  * registration cursor at the safe block. With `L` null (the safe block is unknown) no L, R or
  * reader cursor is written. A re-delivered marker flagged for refetch is judged again and stays
@@ -95,6 +111,7 @@ export async function storeLabelTxs(
   const rows: unknown[][] = [];
   const heights: number[] = [];
   const members = new Map<string, Credential>();
+  const anchors: Array<[Uint8Array, Uint8Array]> = [];
   const seen = new Set<string>();
   for (const { tx, blockHash } of txs) {
     const prev = existing.get(tx.txHash);
@@ -112,6 +129,7 @@ export async function storeLabelTxs(
     for (const e of decodePayload(tx.payload as Uint8Array)?.events ?? []) {
       if (e.ok && e.event.tag === 'join') members.set(credKey(e.event.member), e.event.member);
     }
+    for (const h of anchorHashes(tx)) anchors.push([hashBytes(h), hashBytes(tx.txHash)]);
     const r = classifyNewInput({ kind: 'labelTx', at: afterTx(tx) }, { G, appliedThrough: null, L: storedL });
     if (r !== 'ordinary') slots = mergeSlots(slots, r, r.kind === 'truncate' ? await cutTime(tx.blockHeight) : null);
   }
@@ -119,6 +137,7 @@ export async function storeLabelTxs(
   await writeBatch(db, lease, [
     ...stmts(db, 'upsertTxs', rows, (r) => r),
     ...stmts(db, 'trackCreds', tracked, (r) => r),
+    ...stmts(db, 'insertAnchorRefs', anchors, (r) => r),
     ...(L === null
       ? []
       : [

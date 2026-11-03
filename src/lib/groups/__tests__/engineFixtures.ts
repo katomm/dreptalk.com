@@ -12,7 +12,7 @@ import type {
   StoredInstance,
 } from 'drep-groups';
 import type { EngineSnapshot } from 'drep-groups';
-import { credKey, parseNativeScript } from 'drep-groups';
+import { credKey, majorityScript, MAX_SCRIPT_NODES, parseNativeScript } from 'drep-groups';
 import {
   credFromKey,
   credKeyFromCol,
@@ -167,9 +167,11 @@ export function worstCaseGroupUnits(txs: number): Unit[] {
   for (let t = 0; t < txs; t++) {
     const h = 1000 + t;
     const change = emptyChange();
+    // The most scripts a payload publishes, each with the most keys a script may carry.
     for (let s = 0; s < 8; s++) {
-      const bytes = sigScriptBytes(t * 100 + s + 1);
-      change.scripts.push({ hash: hex(t * 100 + s + 1), script: parseNativeScript(bytes) as NativeScript, bytes, at: pos(h, 0, 1, -1) });
+      const keys = Array.from({ length: MAX_SCRIPT_NODES - 1 }, (_, k) => hex(t * 100_000 + s * 1000 + k + 1));
+      const m = majorityScript(keys, 1);
+      change.scripts.push({ hash: m.hash, script: m.script, bytes: m.bytes, at: pos(h, 0, 1, -1) });
     }
     for (let e = 0; e < 32; e++) {
       const group = ref(10 + t * 32 + e);
@@ -225,7 +227,7 @@ export function worstCaseCredentialUnits(units: number, inputs: number): Unit[] 
       const at = pos(h, 0, 2, 0);
       const group = ref(100 + u * per + i);
       const join = { txHash: at.txHash, index: 0 };
-      const inst = instance(join, group, c, at);
+      const inst = instance(join, group, c, at, { mode: 'permissioned' });
       change.instances.push(inst);
       change.effects.push({ kind: 'instanceCreated', instance: inst });
       change.appliedQueue.push(join);

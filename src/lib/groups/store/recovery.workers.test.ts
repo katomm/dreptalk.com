@@ -67,6 +67,30 @@ const BLOCK = hex(11, 64);
 const certAt = (h: number, ix = 0): Pos => pos(h, 0, 0, ix);
 const noTime = async (): Promise<number | null> => null;
 
+/** A tracked group action row, with the given extra columns as SQL literals. */
+const pendingRow = (id: string, bodyHash: string, over: Record<string, string | number> = {}): string => {
+  const cols: Record<string, string | number> = {
+    id: `'${id}'`,
+    drep_id: "'g'",
+    action: "'group_update'",
+    action_params: "'{}'",
+    unsigned_tx_cbor: "'00'",
+    body_hash: `'${bodyHash}'`,
+    native_script: "'{}'",
+    created_by: "'u1'",
+    created_at: 1,
+    expires_at: 2,
+    subject_kind: "'group'",
+    control_slot: 1,
+    ...over,
+  };
+  return `INSERT INTO pending_multisig_tx (${Object.keys(cols).join(', ')}) VALUES (${Object.values(cols).join(', ')})`;
+};
+const outcomeRow = (tx: string, idx: number, h: number): string =>
+  `INSERT INTO drep_group_own_outcomes (tx_hash, idx, valid, reason, at_h, written_at) VALUES ('${tx}', ${idx}, 1, NULL, ${h}, 1)`;
+const resolutionOf = async (id: string): Promise<Row | null> =>
+  db.prepare('SELECT resolution, resolved_at, resolved_h FROM pending_multisig_tx WHERE id = ?').bind(id).first<Row>();
+
 async function track(c: Credential, seq: number, over: Record<string, string | number> = {}): Promise<void> {
   const cols = { cred: C(credKey(c)), seq, known: 1, history_done: 1, ...over };
   await exec(`INSERT INTO drep_group_tracked (${Object.keys(cols).join(', ')}) VALUES (${Object.values(cols).join(', ')})`);
@@ -276,6 +300,14 @@ async function seedLarge(groups: number, creds: number, worst = { groups: 0, cre
         (X'${hex(900_000 + g, 64)}', 0, ${id}, ${at(20, 4)}, 'update', 1, NULL, NULL)`);
     sql.push(`INSERT INTO drep_group_txs (tx_hash, block_height, block_hash, tx_index, marker, bytes) VALUES
       (X'${hex(800_000 + g, 64)}', 60, X'0b', ${4 + g}, 0, 1), (X'${hex(950_000 + g, 64)}', 30, X'0b', ${4 + g}, 1, 0)`);
+    // A tracked action resolved at 60 with its outcomes, an older one at 20, and join requests on both sides.
+    sql.push(
+      pendingRow(`seed-${g}-60`, hex(800_000 + g, 64), { resolution: "'applied'", resolved_at: 1, resolved_h: 60 }).replace('INSERT', 'INSERT OR REPLACE'),
+      pendingRow(`seed-${g}-20`, hex(900_000 + g, 64), { resolution: "'applied'", resolved_at: 1, resolved_h: 20 }).replace('INSERT', 'INSERT OR REPLACE'),
+    );
+    sql.push(`INSERT INTO drep_group_own_outcomes (tx_hash, idx, valid, reason, at_h, written_at)
+      VALUES ('${hex(800_000 + g, 64)}', 0, 1, NULL, 60, 1), ('${hex(900_000 + g, 64)}', 0, 1, NULL, 20, 1)`);
+    sql.push(`INSERT INTO drep_group_join_notify (join_tx, join_ix, join_h) VALUES (X'${hex(700_000 + g, 64)}', 0, 60), (X'${hex(600_000 + g, 64)}', 0, 20)`);
     if (g % 10 === 0) {
       sql.push(`INSERT INTO drep_group_jobs (kind, job_key, group_tx, group_ix, cursor_json, staging, start_gen)
         VALUES ('recompute', '${gtx(g)}#0', ${id}, '{"pass":"instances"}', '{}', 0)`);
@@ -327,6 +359,9 @@ async function rowsAbove(h: number): Promise<number> {
     'SELECT COUNT(*) AS n FROM drep_group_tx_context WHERE block_height > ?',
     'SELECT COUNT(*) AS n FROM drep_groups WHERE cur_h > ?',
     'SELECT COUNT(*) AS n FROM drep_group_tracked WHERE applied_h > ?1 OR next_h > ?1 OR found_h > ?1 OR retired_at_h > ?1',
+    'SELECT COUNT(*) AS n FROM drep_group_own_outcomes WHERE at_h > ?',
+    'SELECT COUNT(*) AS n FROM drep_group_join_notify WHERE join_h > ?',
+    'SELECT COUNT(*) AS n FROM pending_multisig_tx WHERE resolved_h > ?',
   ];
   let n = 0;
   for (const sql of checks) n += await count(sql, h);
@@ -348,6 +383,8 @@ const STORED_TABLES = [
   'drep_group_jobs',
   'drep_group_trim_due',
   'drep_group_due',
+  'drep_group_own_outcomes',
+  'drep_group_join_notify',
 ];
 
 async function storedRows(tables = STORED_TABLES): Promise<number> {
@@ -497,7 +534,10 @@ describe('drep groups ingest and recovery', () => {
       };
       await seedLarge(300, 1000);
       await runReset('rebuild', 50);
-      expect(await storedRows(['drep_group_versions', 'drep_groups', 'drep_group_instances', 'drep_group_jobs', 'drep_group_due'])).toBe(0);
+      expect(
+        await storedRows(['drep_group_versions', 'drep_groups', 'drep_group_instances', 'drep_group_jobs', 'drep_group_due', 'drep_group_own_outcomes', 'drep_group_join_notify']),
+      ).toBe(0);
+      expect(await count('SELECT COUNT(*) AS n FROM pending_multisig_tx WHERE resolved_h IS NOT NULL')).toBe(0);
       expect(await count('SELECT COUNT(*) AS n FROM drep_group_tracked WHERE applied_h IS NOT NULL')).toBe(0);
       expect(await count('SELECT COUNT(*) AS n FROM drep_group_txs WHERE marker = 1 AND refetch = 0')).toBe(0);
       await runReset('fork', 50);
@@ -630,6 +670,76 @@ describe('drep groups ingest and recovery', () => {
     expect(Number(due?.due_at)).toBeGreaterThanOrEqual(now);
     expect(Number(due?.due_at)).toBeLessThanOrEqual(Date.now());
     expect(await count("SELECT COUNT(*) AS n FROM drep_group_due WHERE kind = 'website'")).toBe(0);
+  });
+
+  it('clears outcomes and resolution when recovery truncates the tx', async () => {
+    const t = await lease();
+    await exec(
+      pendingRow('low', txHashOf(40), { resolution: "'applied'", resolved_at: 5, resolved_h: 40 }),
+      pendingRow('high', txHashOf(60), { resolution: "'partial'", resolved_at: 5, resolved_h: 60, profile_hash: `'${hex(7, 64)}'` }),
+      outcomeRow(txHashOf(40), 0, 40),
+      outcomeRow(txHashOf(60), 0, 60),
+      outcomeRow(txHashOf(60), 1, 60),
+      `INSERT INTO drep_group_profile_docs (hash, body, created_by, created_at, anchored) VALUES ('${hex(7, 64)}', '{}', 'u1', 1, 1)`,
+    );
+    await openRecovery(db, { kind: 'truncate', above: 50 }, t, 1000);
+    await stepToDone(() => truncateStep(db, 50, 400, t));
+    expect(await count('SELECT COUNT(*) AS n FROM drep_group_own_outcomes')).toBe(1);
+    expect(await count('SELECT COUNT(*) AS n FROM drep_group_own_outcomes WHERE at_h = 40')).toBe(1);
+    expect(await resolutionOf('high')).toEqual({ resolution: null, resolved_at: null, resolved_h: null });
+    expect(await resolutionOf('low')).toEqual({ resolution: 'applied', resolved_at: 5, resolved_h: 40 });
+    expect(await count('SELECT anchored AS n FROM drep_group_profile_docs')).toBe(1);
+  });
+
+  it('clears all outcomes on a rebuild', async () => {
+    const t = await lease();
+    await exec(
+      pendingRow('low', txHashOf(10), { resolution: "'applied'", resolved_at: 5, resolved_h: 10 }),
+      outcomeRow(txHashOf(10), 0, 10),
+      outcomeRow(txHashOf(60), 0, 60),
+    );
+    await openRecovery(db, { kind: 'rebuild' }, t);
+    await stepToDone(() => resetStep(db, 'rebuild', 400, t));
+    expect(await count('SELECT COUNT(*) AS n FROM drep_group_own_outcomes')).toBe(0);
+    expect(await resolutionOf('low')).toEqual({ resolution: null, resolved_at: null, resolved_h: null });
+  });
+
+  it('reopens a resolution without outcome rows on truncate and on a rebuild', async () => {
+    const t = await lease();
+    // Resolved failed by "no verdict recorded": no outcome row was ever written.
+    const failed = { resolution: "'failed'", resolved_at: 5, resolved_h: 60 };
+    await exec(pendingRow('p', txHashOf(60), failed));
+    await openRecovery(db, { kind: 'truncate', above: 50 }, t, 1000);
+    await stepToDone(() => truncateStep(db, 50, 400, t));
+    await finishRecovery(db, { kind: 'truncate', above: 50 }, t);
+    expect(await resolutionOf('p')).toEqual({ resolution: null, resolved_at: null, resolved_h: null });
+    await exec(`UPDATE pending_multisig_tx SET resolution = 'failed', resolved_at = 5, resolved_h = 60 WHERE id = 'p'`);
+    await openRecovery(db, { kind: 'rebuild' }, t);
+    await stepToDone(() => resetStep(db, 'rebuild', 400, t));
+    expect(await resolutionOf('p')).toEqual({ resolution: null, resolved_at: null, resolved_h: null });
+  });
+
+  it('keeps never included rows on truncate', async () => {
+    const t = await lease();
+    await exec(pendingRow('n', txHashOf(60), { resolution: "'never_included'", resolved_at: 5, resolved_h: 60, never_included_at: 5 }));
+    await openRecovery(db, { kind: 'truncate', above: 50 }, t, 1000);
+    await stepToDone(() => truncateStep(db, 50, 400, t));
+    expect(await resolutionOf('n')).toEqual({ resolution: 'never_included', resolved_at: 5, resolved_h: 60 });
+  });
+
+  it('deletes join notify rows above the cut and on a rebuild', async () => {
+    const t = await lease();
+    await exec(
+      `INSERT INTO drep_group_join_notify (join_tx, join_ix, join_h) VALUES (X'${txHashOf(40)}', 0, 40), (X'${txHashOf(60)}', 1, 60)`,
+    );
+    await openRecovery(db, { kind: 'truncate', above: 50 }, t, 1000);
+    await stepToDone(() => truncateStep(db, 50, 400, t));
+    await finishRecovery(db, { kind: 'truncate', above: 50 }, t);
+    expect(await count('SELECT COUNT(*) AS n FROM drep_group_join_notify')).toBe(1);
+    expect(await count('SELECT join_h AS n FROM drep_group_join_notify')).toBe(40);
+    await openRecovery(db, { kind: 'rebuild' }, t);
+    await stepToDone(() => resetStep(db, 'rebuild', 400, t));
+    expect(await count('SELECT COUNT(*) AS n FROM drep_group_join_notify')).toBe(0);
   });
 
   it('sets reg_time from the cut time and falls back to the ledger time', async () => {

@@ -40,6 +40,7 @@ import {
 } from './constants.js';
 import { credentialForDrepId, drepIdForCredential } from './ids.js';
 import {
+  anchorHashes,
   finishHistoryBatch,
   isMarkerTx,
   markSolo,
@@ -108,8 +109,10 @@ const per = (name: keyof typeof INGEST, n: number): number =>
   n === 0 ? 0 : Math.ceil(n / Math.floor((D1_MAX_BINDS - (INGEST_TRAILING[name] ?? 0)) / INGEST_WIDTH[name]));
 
 // Query counts of the store calls, the meta read and the lease guard included.
-const labelStatements = (txs: number, members: number): number => 2 + per('upsertTxs', txs) + per('trackCreds', members) + 3;
-const labelCost = (txs: number, members: number): number => 1 + per('existingTxs', txs) + labelStatements(txs, members);
+const labelStatements = (txs: number, members: number, anchors: number): number =>
+  2 + per('upsertTxs', txs) + per('trackCreds', members) + per('insertAnchorRefs', anchors) + 3;
+const labelCost = (txs: number, members: number, anchors: number): number =>
+  1 + per('existingTxs', txs) + labelStatements(txs, members, anchors);
 const ledgerCost = (rows: number, creds: number): number =>
   1 +
   per('existingLedger', rows) +
@@ -260,16 +263,21 @@ async function storeBlocks(
     else blocks.push([x]);
   }
   const batches: LabelInput[][] = [];
+  const refsOf = (txs: LabelInput[]): number => txs.reduce((n, x) => n + anchorHashes(x.tx).length, 0);
   let members = 0;
+  let anchors = 0;
   for (const block of blocks) {
     const m = block.reduce((n, x) => n + joinMembers(x.tx).length, 0);
+    const a = refsOf(block);
     const cur = batches.at(-1);
-    if (cur && labelStatements(cur.length + block.length, members + m) <= DISCOVERY_MAX_STATEMENTS) {
+    if (cur && labelStatements(cur.length + block.length, members + m, anchors + a) <= DISCOVERY_MAX_STATEMENTS) {
       cur.push(...block);
       members += m;
+      anchors += a;
     } else {
       batches.push([...block]);
       members = m;
+      anchors = a;
     }
   }
   if (batches.length === 0 && top !== null && top.height > L) batches.push([]);
@@ -279,7 +287,7 @@ async function storeBlocks(
   let lHeight = L;
   for (const [i, batch] of batches.entries()) {
     const joins = batch.flatMap((x) => joinMembers(x.tx));
-    if (!ctx.fits(step, labelCost(batch.length, new Set(joins).size))) return { out, members: named, done: false };
+    if (!ctx.fits(step, labelCost(batch.length, new Set(joins).size, refsOf(batch)))) return { out, members: named, done: false };
     const last = batch.at(-1);
     const to = top === null ? null : i === batches.length - 1 ? top : last ? { height: last.tx.blockHeight, hash: last.blockHash } : null;
     const moveL = to !== null && to.height >= lHeight ? { height: to.height, hash: to.hash, safeHeight: safe, safeTime: safeBlock.block_time } : null;

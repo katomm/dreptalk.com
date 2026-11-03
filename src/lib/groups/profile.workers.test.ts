@@ -128,9 +128,9 @@ describe('group profiles', () => {
     }
   });
 
-  it('skips unlisted groups and picks a group once it reaches two members', async () => {
-    // Group 1 is unlisted, group 2 has no anchor, group 3 is due, group 4 is due behind the page.
-    await seedGroup(1, { members: 1, due: 'profile' });
+  it('skips groups without members and picks a group once it gets its first member', async () => {
+    // Group 1 has no member, group 2 has no anchor, group 3 is due, group 4 is due behind the page.
+    await seedGroup(1, { members: 0, due: 'profile' });
     await seedGroup(2, { url: null, hash: null, due: 'profile', dueAt: 1 });
     await seedGroup(3, { due: 'profile', dueAt: 2 });
     const plain = new TextEncoder().encode(JSON.stringify({ body: { name: 'No site' } }));
@@ -139,9 +139,9 @@ describe('group profiles', () => {
     expect(await profilesToFetch(db, 100, 3, l)).toEqual([{ groupId: idOf(3), url: URL_A, dataHash: docHash }]);
     // The two stale rows of the page are gone, the other two stay.
     expect(await dueRows()).toHaveLength(2);
-    // Group 5 reaches two members, a due row is written like commit does it.
-    await seedGroup(5, { members: 1 });
-    await db.prepare('UPDATE drep_groups SET members = 2 WHERE group_tx = ?').bind(hashBytes(txOf(5))).run();
+    // Group 5 gets its first member, a due row is written like commit does it.
+    await seedGroup(5, { members: 0 });
+    await db.prepare('UPDATE drep_groups SET members = 1 WHERE group_tx = ?').bind(hashBytes(txOf(5))).run();
     await db.prepare('DELETE FROM drep_group_due WHERE group_tx = ?').bind(hashBytes(txOf(3))).run();
     // A successful profile without a website writes no website due row.
     const fetchImpl = vi.fn().mockResolvedValue(new Response(plain, { status: 200, headers: { 'content-type': 'application/json' } }));

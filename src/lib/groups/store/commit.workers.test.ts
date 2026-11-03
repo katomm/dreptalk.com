@@ -1,7 +1,8 @@
 /// <reference types="@cloudflare/workers-types" />
 import { env } from 'cloudflare:test';
 import type { ChangeSet, Credential, CursorUpdate, EventRef, Pos, StoredInstance } from 'drep-groups';
-import { credKey, endOf, LeaseLostError, refKey } from 'drep-groups';
+import type { NativeScript } from 'drep-groups';
+import { credKey, endOf, LeaseLostError, majorityScript, parseNativeScript, refKey } from 'drep-groups';
 import { describe, expect, it } from 'vitest';
 import { D1_MAX_BINDS } from '../../db/sql.js';
 import {
@@ -11,6 +12,7 @@ import {
   emptyChange,
   emptyPreRead,
   groupUnit,
+  hex,
   instance,
   keyCred,
   pos,
@@ -20,7 +22,10 @@ import {
   worstCaseCredentialUnits,
   worstCaseGroupUnits,
 } from '../__tests__/engineFixtures.js';
+import { sigScript } from '../__tests__/fixtures.js';
+import { profilesToFetch } from '../../db/drepGroups.js';
 import { ENGINE_BUDGET } from '../constants.js';
+import { groupIdString } from '../ids.js';
 import { credBytes, hashBytes, posOrNull, type Row } from '../codec.js';
 import { acquireLease, invocationOwner } from './lease.js';
 import { commit, commitStatements, preRead } from './commit.js';
@@ -85,6 +90,17 @@ async function ledger(c: Credential, kind: 'reg' | 'unreg', h: number, certIndex
     .run();
 }
 
+async function pendingRow(id: string, bodyHash: string): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO pending_multisig_tx (id, drep_id, action, action_params, unsigned_tx_cbor, body_hash, native_script,
+         created_by, created_at, expires_at, subject_kind)
+       VALUES (?, 'g', 'group_update', '{}', '00', ?, '{}', 'u1', 1, 2, 'group')`,
+    )
+    .bind(id, bodyHash)
+    .run();
+}
+
 async function labelTx(h: number): Promise<void> {
   await db
     .prepare(
@@ -96,7 +112,7 @@ async function labelTx(h: number): Promise<void> {
     .run();
 }
 
-// Worst case of one commit batch. Measured, guard included: 60 for the group commit, 35 for the credential commit.
+// Worst case of one commit batch. Measured, guard included: 85 for the group commit, 34 for the credential commit.
 const COMMIT_MAX_STATEMENTS = 150;
 
 describe('drep groups commit', () => {
@@ -247,20 +263,130 @@ describe('drep groups commit', () => {
     expect(await count("SELECT COUNT(*) AS n FROM drep_group_jobs WHERE kind = 'retire' AND job_key = ?", credKey(a))).toBe(1);
   });
 
-  it('writes due rows when a group becomes listed and removes them when it drops', async () => {
+  it('writes the profile due row at one member and the website due row at two', async () => {
     const t = await lease();
     const [a, b] = [keyCred(1), keyCred(2)];
-    const dueCount = () => count('SELECT COUNT(*) AS n FROM drep_group_due WHERE group_tx = ?', GTX);
-    await commit(db, [create({ profile: { url: 'https://example.org/g.json', dataHash: 'aa' }, profileSetAt: CREATED })], t);
+    const anchor = { url: 'https://example.org/g.json', dataHash: 'aa'.repeat(32) };
+    const due = (kind: string) => count('SELECT COUNT(*) AS n FROM drep_group_due WHERE kind = ? AND group_tx = ?', kind, GTX);
+    await commit(db, [create({ profile: anchor, profileSetAt: CREATED })], t);
+    expect(await due('profile')).toBe(0);
     await commit(db, [credUnit(a, pos(20), { instances: [joined(20, a)] })], t);
-    expect(await dueCount()).toBe(0);
+    expect(await due('profile')).toBe(1);
+    expect(await due('website')).toBe(0);
+    // The profile was fetched before the second member and names a website.
+    await db
+      .prepare(
+        `INSERT INTO drep_group_profiles (group_tx, group_ix, profile_url, data_hash, status, website, fetched_at)
+         VALUES (?, ?, ?, ?, 'ok', 'https://example.org', 1)`,
+      )
+      .bind(GTX, G.index, anchor.url, hashBytes(anchor.dataHash))
+      .run();
     await commit(db, [credUnit(b, pos(21), { instances: [joined(21, b)] })], t);
-    expect(await count("SELECT COUNT(*) AS n FROM drep_group_due WHERE kind = 'profile' AND group_tx = ?", GTX)).toBe(1);
+    expect(await group()).toMatchObject({ members: 2 });
+    expect(await due('website')).toBe(1);
     expect(await count("SELECT COUNT(*) AS n FROM drep_group_jobs WHERE kind = 'power' AND job_key = ?", refKey(G))).toBe(1);
-    await db.prepare("INSERT INTO drep_group_due (kind, group_tx, group_ix, due_at) VALUES ('website', ?, ?, 0)").bind(GTX, G.index).run();
     await commit(db, [credUnit(b, pos(22), { instances: [joined(21, b, { closedAt: pos(22), closeReason: 'left' })] })], t);
     expect(await group()).toMatchObject({ members: 1 });
-    expect(await dueCount()).toBe(0);
+    expect(await due('website')).toBe(0);
+    expect(await due('profile')).toBe(1);
+    await commit(db, [credUnit(a, pos(23), { instances: [joined(20, a, { closedAt: pos(23), closeReason: 'left' })] })], t);
+    expect(await group()).toMatchObject({ members: 0 });
+    expect(await due('profile')).toBe(0);
+  });
+
+  it('keeps a profile due row fresh at one member through the stale check', async () => {
+    const t = await lease();
+    const a = keyCred(1);
+    const anchor = { url: 'https://example.org/g.json', dataHash: 'aa'.repeat(32) };
+    await commit(db, [create({ profile: anchor, profileSetAt: CREATED })], t);
+    await commit(db, [credUnit(a, pos(20), { instances: [joined(20, a)] })], t);
+    await db.prepare("UPDATE drep_group_due SET due_at = 0 WHERE kind = 'profile'").run();
+    const page = await profilesToFetch(db, 1_000, 10, t);
+    expect(page).toEqual([{ groupId: groupIdString(G), url: anchor.url, dataHash: anchor.dataHash }]);
+    expect(await count("SELECT COUNT(*) AS n FROM drep_group_due WHERE kind = 'profile'")).toBe(1);
+  });
+
+  it('writes outcomes only for tracked transactions', async () => {
+    const t = await lease();
+    await commit(db, [create()], t);
+    await pendingRow('p1', txHashOf(30));
+    const verdict = (h: number, index: number, valid: boolean) => ({
+      ref: { txHash: txHashOf(h), index },
+      tag: 'update' as const,
+      valid,
+      reason: valid ? null : 'stale seq',
+      at: pos(h, 0, 2, index),
+      group: G,
+      subject: null,
+    });
+    await commit(db, [groupUnit(30, { verdicts: [verdict(30, 0, true), verdict(30, 1, false)] }), groupUnit(31, { verdicts: [verdict(31, 0, true)] })], t);
+    const rows = (await db.prepare('SELECT tx_hash, idx, valid, reason, at_h FROM drep_group_own_outcomes ORDER BY idx').all<Row>()).results;
+    expect(rows).toEqual([
+      { tx_hash: txHashOf(30), idx: 0, valid: 1, reason: null, at_h: 30 },
+      { tx_hash: txHashOf(30), idx: 1, valid: 0, reason: 'stale seq', at_h: 30 },
+    ]);
+    // A retried result overwrites the verdict of the same event.
+    await commit(db, [groupUnit(30, { verdicts: [{ ...verdict(30, 1, false), reason: 'bad witness' }] })], t);
+    expect(await count("SELECT COUNT(*) AS n FROM drep_group_own_outcomes WHERE idx = 1 AND reason = 'bad witness'")).toBe(1);
+  });
+
+  it('marks a hosted document anchored when a version applies its hash', async () => {
+    const t = await lease();
+    const [mine, other] = ['a1'.repeat(32), 'b2'.repeat(32)];
+    for (const h of [mine, other]) {
+      await db
+        .prepare("INSERT INTO drep_group_profile_docs (hash, body, created_by, created_at) VALUES (?, '{}', 'u1', 1)")
+        .bind(h)
+        .run();
+    }
+    await commit(db, [create({ profile: { url: 'https://dreptalk.test/p.json', dataHash: mine }, profileSetAt: CREATED })], t);
+    const rows = (await db.prepare('SELECT hash, anchored FROM drep_group_profile_docs ORDER BY hash').all<Row>()).results;
+    expect(rows).toEqual([
+      { hash: mine, anchored: 1 },
+      { hash: other, anchored: 0 },
+    ]);
+  });
+
+  it('queues a join notification for a pending join only', async () => {
+    const t = await lease();
+    const [a, b] = [keyCred(1), keyCred(2)];
+    await commit(db, [create()], t);
+    const pending = joined(20, a, { mode: 'permissioned' });
+    const open = joined(21, b);
+    await commit(
+      db,
+      [
+        credUnit(a, pos(20), { instances: [pending], effects: [{ kind: 'instanceCreated', instance: pending }] }),
+        credUnit(b, pos(21), { instances: [open], effects: [{ kind: 'instanceCreated', instance: open }] }),
+      ],
+      t,
+    );
+    const rows = (await db.prepare('SELECT join_tx, join_ix, join_h FROM drep_group_join_notify').all<Row>()).results;
+    expect(rows).toEqual([{ join_tx: Array.from(hashBytes(txHashOf(20))), join_ix: 0, join_h: 20 }]);
+  });
+
+  it('records policy keys for every published script', async () => {
+    const t = await lease();
+    const keys = [hex(1), hex(2), hex(3)];
+    const m = majorityScript(keys, 2);
+    const single = sigScript(hex(4));
+    await commit(
+      db,
+      [
+        groupUnit(10, {
+          scripts: [
+            { hash: m.hash, script: m.script, bytes: m.bytes, at: pos(10, 0, 1, -1) },
+            { hash: single.hash, script: parseNativeScript(single.bytes) as NativeScript, bytes: single.bytes, at: pos(10, 0, 1, -1) },
+          ],
+        }),
+      ],
+      t,
+    );
+    const rows = (await db.prepare('SELECT lower(hex(key)) AS k, lower(hex(script)) AS s FROM drep_group_policy_keys ORDER BY k').all<Row>()).results;
+    expect(rows).toEqual([...keys.map((k) => ({ k, s: m.hash })), { k: hex(4), s: single.hash }]);
+    // Publishing the same script again writes no second row.
+    await commit(db, [groupUnit(11, { scripts: [{ hash: m.hash, script: m.script, bytes: m.bytes, at: pos(11, 0, 1, -1) }] })], t);
+    expect(await count('SELECT COUNT(*) AS n FROM drep_group_policy_keys')).toBe(4);
   });
 
   it('enqueues a power job when the open set changes at an unchanged member count', async () => {

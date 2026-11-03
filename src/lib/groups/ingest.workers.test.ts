@@ -2,8 +2,8 @@
 // The Koios ingest of the DRep groups store against a fake Koios. After every ingest run the engine
 // runs with a fresh lease until it reports no more work, then the stored state is read.
 import { env } from 'cloudflare:test';
-import type { ChainInput, Credential, Recovery } from 'drep-groups';
-import { decodeTransaction, hexToBytes, LIBRARY_VERSION, RETENTION_FLOOR, refKey, replay } from 'drep-groups';
+import type { ChainInput, ChainTx, Credential, Recovery } from 'drep-groups';
+import { decodeTransaction, encodePayload, hexToBytes, LIBRARY_VERSION, RETENTION_FLOOR, refKey, replay } from 'drep-groups';
 import { describe, expect, it, vi } from 'vitest';
 import { type Allowance, allowance, countingDb, UNLIMITED } from '../sync/queryBudget.js';
 import {
@@ -30,6 +30,7 @@ import { DEPTH, ENGINE_BUDGET, WITNESS_BACKOFF_BASE_MS } from './constants.js';
 import { credentialForDrepId, drepIdForCredential } from './ids.js';
 import { checkLibraryVersion, type IngestResult, ingestDrepGroups } from './ingest.js';
 import { acquireLease, invocationOwner, releaseLease } from './store/lease.js';
+import { storeLabelTxs } from './store/ingest.js';
 import { openRecovery } from './store/recovery.js';
 import { resetD1 } from '../test-d1-reset.workers.js';
 
@@ -156,6 +157,49 @@ async function verdictsVsReplay(chain: Chain): Promise<{ stored: string[]; repla
 }
 
 describe('ingestDrepGroups: events and registrations', () => {
+  it('records anchor references when a label tx is stored', async () => {
+    const lease = (await acquireLease(db, invocationOwner())) as string;
+    const [h1, h2, h3] = ['a1'.repeat(32), 'b2'.repeat(32), 'c3'.repeat(32)];
+    const anchor = (dataHash: string) => ({ url: 'https://dreptalk.test/p.json', dataHash });
+    const payload = encodePayload({
+      events: [
+        { tag: 'create', mode: 'open', control: control.hash, admission: null, profile: anchor(h1) },
+        { tag: 'update', group: GROUP, seq: 1n, changes: { profile: anchor(h2) } },
+        { tag: 'update', group: GROUP, seq: 2n, changes: { control: control.hash } },
+      ],
+    });
+    const labelTx = (hash: string, isValid: boolean, p: Uint8Array): ChainTx => ({
+      txHash: hash,
+      blockHeight: 100,
+      txIndex: 0,
+      isValid,
+      invalidBefore: null,
+      invalidHereafter: null,
+      requiredSigners: [],
+      witnessKeyHashes: [],
+      payload: p,
+      payloadRepeated: false,
+      witnessScripts: [],
+    });
+    const rejected = encodePayload({ events: [{ tag: 'create', mode: 'open', control: control.hash, admission: null, profile: anchor(h3) }] });
+    const out = await storeLabelTxs(
+      db,
+      lease,
+      [
+        { tx: labelTx(T(1), true, payload), blockHash: blockHash(100) },
+        { tx: labelTx(T(2), false, rejected), blockHash: blockHash(100) },
+      ],
+      null,
+      async () => null,
+    );
+    expect(out).toEqual(['stored', 'marker']);
+    const refs = await all('SELECT lower(hex(hash)) AS h, lower(hex(tx_hash)) AS tx FROM drep_group_anchor_refs ORDER BY h');
+    expect(refs).toEqual([
+      { h: h1, tx: T(1) },
+      { h: h2, tx: T(1) },
+    ]);
+  });
+
   it('ingests a create with a founder join', async () => {
     const r = await tick({ tip: 200, txs: [create], regs: [regM] });
     expect(r).toMatchObject({ newTxs: 1, markers: 0, tracked: 1, probing: false, recovery: null });

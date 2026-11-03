@@ -23,6 +23,8 @@ CREATE INDEX IF NOT EXISTS pending_multisig_tx_body ON pending_multisig_tx (body
 CREATE INDEX IF NOT EXISTS pending_multisig_tx_profile ON pending_multisig_tx (profile_hash) WHERE profile_hash IS NOT NULL;
 CREATE INDEX IF NOT EXISTS pending_multisig_tx_open_control ON pending_multisig_tx (drep_id) WHERE control_slot = 1 AND resolved_at IS NULL;
 CREATE INDEX IF NOT EXISTS pending_multisig_tx_unresolved ON pending_multisig_tx (invalid_hereafter) WHERE subject_kind != 'drep' AND resolved_at IS NULL;
+-- Resolutions by the engine, by height, for recovery to reopen above a cut.
+CREATE INDEX IF NOT EXISTS pending_multisig_tx_resolved_h ON pending_multisig_tx (resolved_h) WHERE resolved_h IS NOT NULL;
 
 -- Verdicts of tracked transactions, written by the engine commit and read by the resolver.
 CREATE TABLE IF NOT EXISTS drep_group_own_outcomes (

@@ -8,6 +8,7 @@ import {
   LEASE_MS,
   LISTED_MIN_MEMBERS,
   MARKER_REFETCH_ATTEMPTS,
+  PROFILE_MIN_MEMBERS,
   PENDING_INDICATOR_CAP,
   RETENTION_KEEP_APPLIED,
   RETENTION_KEEP_NOT_APPLIED,
@@ -169,21 +170,29 @@ export const COMMIT = Object.freeze({
       closing = CASE WHEN excluded.status = 'dissolved' THEN 1 ELSE closing END
     WHERE (excluded.cur_h, excluded.cur_ti, excluded.cur_ph, excluded.cur_ix)
       >= (drep_groups.cur_h, drep_groups.cur_ti, drep_groups.cur_ph, drep_groups.cur_ix)`,
-  // Binds the rows, then now. A listed group's profile is due at once.
+  // Binds the rows, then now. The profile of a group with a member is due at once.
   dueProfileIfListed: (n: number) => `WITH k(gtx, gix) AS (VALUES ${values(2, n)})
     INSERT INTO drep_group_due (kind, group_tx, group_ix, due_at)
     SELECT 'profile', g.group_tx, g.group_ix, ? FROM k JOIN drep_groups g ON ${GROUP_KEY}
-    WHERE g.members >= ${LISTED_MIN_MEMBERS}
+    WHERE g.members >= ${PROFILE_MIN_MEMBERS}
     ON CONFLICT (kind, group_tx, group_ix) DO UPDATE SET due_at = excluded.due_at`,
-  // Binds the rows, then now and the gen guard. A group that becomes listed with an anchor.
+  // Binds the rows, then now and the gen guard. A group with an anchor that gets its first member.
   dueProfileIfAnchored: (n: number) => `WITH k(gtx, gix) AS (VALUES ${values(2, n)})
     INSERT INTO drep_group_due (kind, group_tx, group_ix, due_at)
     SELECT 'profile', g.group_tx, g.group_ix, ? FROM k JOIN drep_groups g ON ${GROUP_KEY}
     WHERE g.profile_url IS NOT NULL AND ${GEN_OK('g')}
     ON CONFLICT (kind, group_tx, group_ix) DO UPDATE SET due_at = excluded.due_at`,
+  // Binds the rows, then now and the gen guard. A group that becomes listed with a stored profile of its
+  // current anchor that names a website.
+  dueWebsiteIfProfiled: (n: number) => `WITH k(gtx, gix) AS (VALUES ${values(2, n)})
+    INSERT INTO drep_group_due (kind, group_tx, group_ix, due_at)
+    SELECT 'website', g.group_tx, g.group_ix, ? FROM k JOIN drep_groups g ON ${GROUP_KEY}
+    JOIN drep_group_profiles p ON p.group_tx = g.group_tx AND p.group_ix = g.group_ix
+    WHERE p.website IS NOT NULL AND p.profile_url = g.profile_url AND p.data_hash = g.profile_hash AND ${GEN_OK('g')}
+    ON CONFLICT (kind, group_tx, group_ix) DO UPDATE SET due_at = excluded.due_at`,
   // Binds the rows, then the gen guard.
+  deleteProfileDue: deleteDue("'profile'"),
   deleteWebsiteDue: deleteDue("'website'"),
-  deleteAllDue: deleteDue("'profile', 'website'"),
   // Binds the rows (kind, key, group, trigger position or NULLs), then the gen guard.
   enqueueGroupJobs: (n: number) => `WITH k(kind, key, gtx, gix, h, ti, ph, ix, tx) AS (VALUES ${values(9, n)})
     INSERT OR IGNORE INTO drep_group_jobs (kind, job_key, group_tx, group_ix, ${POS('trigger')})
@@ -229,6 +238,19 @@ export const COMMIT = Object.freeze({
     UPDATE drep_group_tracked SET retiring = 1, retired_at_h = d.h, retired_at_ti = d.ti, retired_at_ph = d.ph,
       retired_at_ix = d.ix, retired_at_tx = d.tx
     FROM d WHERE drep_group_tracked.cred = d.cred`,
+  // Verdicts of the transactions DRepTalk tracks for signing (hex text, as the signing table keeps them).
+  // A retried verdict replaces the stored one.
+  insertOwnOutcomes: (n: number) => `WITH k(tx, ix, valid, reason, h, now) AS (VALUES ${values(6, n)})
+    INSERT INTO drep_group_own_outcomes (tx_hash, idx, valid, reason, at_h, written_at)
+    SELECT k.tx, k.ix, k.valid, k.reason, k.h, k.now FROM k
+    WHERE EXISTS (SELECT 1 FROM pending_multisig_tx p WHERE p.body_hash = k.tx)
+    ON CONFLICT (tx_hash, idx) DO UPDATE SET valid = excluded.valid, reason = excluded.reason`,
+  insertPolicyKeys: (n: number) => `INSERT OR IGNORE INTO drep_group_policy_keys (key, script) VALUES ${values(2, n)}`,
+  // Binds the hex hashes of applied profile anchors. A hosted document stays anchored for good.
+  markProfileDocsAnchored: (n: number) => `WITH k(h) AS (VALUES ${values(1, n)})
+    UPDATE drep_group_profile_docs SET anchored = 1 WHERE hash IN (SELECT h FROM k)`,
+  insertJoinNotify: (n: number) =>
+    `INSERT OR IGNORE INTO drep_group_join_notify (join_tx, join_ix, join_h) VALUES ${values(3, n)}`,
 });
 
 /** Bound parameters per row of each commit statement. */
@@ -242,8 +264,9 @@ export const COMMIT_WIDTH: Readonly<Record<keyof typeof COMMIT, number>> = Objec
   upsertGroups: 6,
   dueProfileIfListed: 2,
   dueProfileIfAnchored: 2,
+  dueWebsiteIfProfiled: 2,
+  deleteProfileDue: 2,
   deleteWebsiteDue: 2,
-  deleteAllDue: 2,
   enqueueGroupJobs: 9,
   enqueueRetireJobs: 7,
   publishMembers: 3,
@@ -256,14 +279,19 @@ export const COMMIT_WIDTH: Readonly<Record<keyof typeof COMMIT, number>> = Objec
   insertTxContexts: 5,
   markApplied: 2,
   retireCredentials: 6,
+  insertOwnOutcomes: 6,
+  insertPolicyKeys: 2,
+  markProfileDocsAnchored: 1,
+  insertJoinNotify: 3,
 });
 
 /** Binds that follow the rows of a commit statement. */
 export const COMMIT_TRAILING: Readonly<Partial<Record<keyof typeof COMMIT, number>>> = Object.freeze({
   dueProfileIfListed: 1,
   dueProfileIfAnchored: 2,
+  dueWebsiteIfProfiled: 2,
+  deleteProfileDue: 1,
   deleteWebsiteDue: 1,
-  deleteAllDue: 1,
   enqueueGroupJobs: 1,
   publishMembers: 1,
 });
@@ -333,6 +361,7 @@ export const INGEST = Object.freeze({
       AND drep_group_ledger.witness_state = 'pending'`,
   // A failed refetch of a flagged marker counts an attempt. The last attempt clears the flag and
   // the count, the marker stays. The unary plus keeps the flag index out.
+  insertAnchorRefs: (n: number) => `INSERT OR IGNORE INTO drep_group_anchor_refs (hash, tx_hash) VALUES ${values(2, n)}`,
   refetchFailed: (n: number) => `WITH k(tx) AS (VALUES ${values(1, n)})
     UPDATE drep_group_txs SET
       refetch = CASE WHEN refetch_attempts + 1 >= ${MARKER_REFETCH_ATTEMPTS} THEN 0 ELSE 1 END,
@@ -355,6 +384,7 @@ export const INGEST_WIDTH: Readonly<Record<keyof typeof INGEST, number>> = Objec
   witnessChecked: 3,
   witnessFound: 2,
   witnessFailed: 2,
+  insertAnchorRefs: 2,
   refetchFailed: 1,
 });
 
@@ -445,6 +475,23 @@ const stateDeletes: PagedPart[] = [
   above('memberScripts', 'drep_group_member_scripts', 'at_h'),
 ];
 const tailDeletes: PagedPart[] = [above('queue', 'drep_group_queue', 'at_h'), above('contexts', 'drep_group_tx_context', 'block_height')];
+// The verdicts of tracked transactions and the resolutions the engine derived from them above the cut, and
+// the join requests above it. A resolution is reopened by its height, so one without any outcome row is
+// reopened too. A row the resolver found never included keeps its resolution, it does not depend on the chain
+// state above the cut.
+const ownDeletes: PagedPart[] = [
+  above('outcomes', 'drep_group_own_outcomes', 'at_h'),
+  {
+    name: 'resolutions',
+    from: 'pending_multisig_tx',
+    where: 'resolved_h > ? AND never_included_at IS NULL',
+    cut: true,
+    order: 'resolved_h, rowid',
+    key: 'rowid',
+    stmts: [{ sql: (page) => `UPDATE pending_multisig_tx SET resolution = NULL, resolved_at = NULL, resolved_h = NULL WHERE rowid IN (${page})` }],
+  },
+  above('joinNotify', 'drep_group_join_notify', 'join_h'),
+];
 const rawDeletes: PagedPart[] = [above('txs', 'drep_group_txs', 'block_height'), above('ledger', 'drep_group_ledger', 'block_height')];
 
 // A rebuild keeps the tracked rows: each page of deleted queue entries derives next again for its
@@ -485,6 +532,7 @@ const resetState = (queue: PagedPart): PagedPart[] => [
     key: 'rowid',
     stmts: [{ sql: del('drep_group_due') }],
   },
+  ...ownDeletes,
 ];
 
 /** The paged parts of each phase, in order. `versions` and `cursors` are run by the recovery step itself. */
@@ -518,6 +566,7 @@ export const PHASE_PARTS: Readonly<Record<RecoveryMode, Readonly<Record<string, 
       above('instances', 'drep_group_instances', 'joined_h', [...groupTouch('drep_group_instances'), { sql: del('drep_group_instances') }]),
       above('verdicts', 'drep_group_verdicts', 'at_h', [...groupTouch('drep_group_verdicts'), { sql: del('drep_group_verdicts') }]),
       ...tailDeletes,
+      ...ownDeletes,
     ],
     undo: [
       above('approved', 'drep_group_instances', 'approved_h', [
@@ -951,10 +1000,10 @@ const READY_TRACKED = `SELECT cred, applied_h, applied_ti, applied_ph, applied_i
   ORDER BY next_h, next_ti, next_ph, next_ix LIMIT ?`;
 
 // One page of the due queue, stale rows included so that the LIMIT bounds what is read. A profile due row is
-// stale when its group is gone, unlisted or has no anchor, a website due row when the group is gone or unlisted
-// or its profile names no website.
+// stale when its group is gone, has no member or has no anchor, a website due row when the group is gone or
+// unlisted or its profile names no website.
 const PROFILE_DUE_PAGE = `SELECT d.rowid AS id, d.group_tx, d.group_ix, g.profile_url, g.profile_hash,
-    (g.group_tx IS NULL OR g.profile_url IS NULL OR g.profile_hash IS NULL OR g.members < ${LISTED_MIN_MEMBERS}) AS stale
+    (g.group_tx IS NULL OR g.profile_url IS NULL OR g.profile_hash IS NULL OR g.members < ${PROFILE_MIN_MEMBERS}) AS stale
   FROM drep_group_due d LEFT JOIN drep_groups g ON g.group_tx = d.group_tx AND g.group_ix = d.group_ix
   WHERE d.kind = 'profile' AND d.due_at <= ? ORDER BY d.due_at, d.rowid LIMIT ?`;
 const WEBSITE_DUE_PAGE = `SELECT d.rowid AS id, d.group_tx, d.group_ix, p.website,

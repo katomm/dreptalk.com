@@ -248,7 +248,8 @@ async function versionsStatements(db: D1Database, cut: number, limit: number): P
       })),
       Date.now(),
     ),
-    ...keyedStatements(db, COMMIT.deleteAllDue, COMMIT_WIDTH.deleteAllDue, gone, key, [null]),
+    ...keyedStatements(db, COMMIT.deleteProfileDue, COMMIT_WIDTH.deleteProfileDue, gone, key, [null]),
+    ...keyedStatements(db, COMMIT.deleteWebsiteDue, COMMIT_WIDTH.deleteWebsiteDue, gone, key, [null]),
     ...keyedStatements(db, REC_KEYED.deleteTrimDue, REC_KEYED_WIDTH.deleteTrimDue, gone, key),
     ...keyedStatements(db, REC_KEYED.deleteGroups, REC_KEYED_WIDTH.deleteGroups, gone, key),
   ];
