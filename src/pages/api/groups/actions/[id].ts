@@ -13,6 +13,7 @@ export const GET: APIRoute = async ({ params, locals }) => {
   if (req instanceof Response) return req;
   const { db, env, ctx } = req;
   const { row, intent } = ctx;
+  const initiator = row.created_by === req.user.id;
   const required = new Set(ctx.requiredSigners);
   const signers = witnessKeys(ctx.witnesses, 'signer');
   const satisfied = collectedSatisfy(ctx);
@@ -43,6 +44,9 @@ export const GET: APIRoute = async ({ params, locals }) => {
       unsignedTxCbor: row.unsigned_tx_cbor,
       bodyHash: row.body_hash,
       canSubmit,
+      isInitiator: initiator,
+      // Only the initiator needs the fee inputs, for the real cancellation that spends them back.
+      feeInputs: initiator ? ctx.feeInputs : [],
       slotHeld: row.control_slot === 1 && row.resolved_at === null,
     },
     200,

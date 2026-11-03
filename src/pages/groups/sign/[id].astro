@@ -1,0 +1,45 @@
+---
+// Signing page of a DRep group action. The link alone shows nothing: the action GET route lets
+// only a session that may sign the action read it, so the panel shows a plain refusal to everyone
+// else and no row content reaches them.
+export const prerender = false;
+
+import Layout from '@/layouts/Layout.astro';
+import SigningPanel from '@/components/groups/SigningPanel.js';
+import { currentNetwork } from '@/lib/api/response.js';
+import { drepGroupsAvailable } from '@/lib/groups/gate.js';
+
+const { id } = Astro.params;
+const network = currentNetwork().network;
+
+if (!drepGroupsAvailable(network)) {
+  return new Response(null, { status: 404 });
+}
+if (!Astro.locals.user) {
+  return Astro.redirect('/login/');
+}
+
+Astro.response.headers.set('Cache-Control', 'no-store');
+---
+
+<Layout title="Sign a group action - DRepTalk" noindex={true}>
+  <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
+    <a href="/">DRepTalk</a>
+    <span style="margin:0 0.375rem;">/</span>
+    <span>Sign a group action</span>
+  </nav>
+
+  <h1 style="margin:0 0 0.25rem;">Sign a group action</h1>
+  <p style="margin:0 0 2rem;max-width:62ch;font-size:0.9375rem;color:var(--muted);">
+    Check what this transaction does, add your signature, and submit it once everyone who must sign has signed.
+    <a href="/help/drep-groups/">How group signing works</a>
+  </p>
+
+  {id ? (
+    <SigningPanel client:load actionId={id} network={network} />
+  ) : (
+    <div class="callout callout--error" role="alert">
+      <div class="callout__body">Missing signing link id.</div>
+    </div>
+  )}
+</Layout>
