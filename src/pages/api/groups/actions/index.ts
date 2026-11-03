@@ -10,10 +10,6 @@ import { currentNetwork, jsonResponse, runtimeEnv } from '@/lib/api/response';
 import { checkRate } from '@/lib/rate';
 import { createGroupAction, openControlAction } from '@/lib/groups/actionStore';
 import {
-  controlSeq,
-  decodeGroupTx,
-  type DecodedGroupTx,
-  eventsOf,
   feeInputKeys,
   intentSchema,
   isControlKind,
@@ -26,8 +22,8 @@ import {
   policyJson,
   releaseStaleSlot,
   sessionOf,
-  unsignedShapeError,
 } from '@/lib/groups/actionServer';
+import { controlSeq, type DecodedGroupTx, decodeGroupTx, eventsOf, unsignedShapeError } from '@/lib/groups/actionTx';
 import {
   bindContent,
   describeEvents,
@@ -37,12 +33,13 @@ import {
   mayInitiate,
   neededKeys,
   signerSetSatisfies,
+  uniq,
 } from '@/lib/groups/actions';
 import { scriptDisplayJson } from '@/lib/groups/codec';
 import { ACTION_RATE, ACTION_TTL_SECONDS } from '@/lib/groups/constants';
 import { drepGroupsAvailable } from '@/lib/groups/gate';
 import { credentialForDrepId, drepIdForCredential, groupIdParam, groupIdString } from '@/lib/groups/ids';
-import { liveFactsFor, PreviewUnavailable, previewGroupTx, readGroupState } from '@/lib/groups/preview';
+import { liveFactsFor, PreviewUnavailable, previewGroupTx, previewRefusal, readGroupState } from '@/lib/groups/preview';
 
 export const prerender = false;
 
@@ -54,8 +51,6 @@ const schema = z.object({
   unsignedTxCbor: z.string().regex(/^[0-9a-fA-F]+$/).max(32_768),
   selected: z.array(z.string().regex(/^[0-9a-fA-F]{56}$/)).max(64),
 });
-
-const uniq = (xs: string[]): string[] => [...new Set(xs.map((x) => x.toLowerCase()))].sort();
 
 /** Keys a create or an update adds to a policy, which must belong to currently registered key DReps. */
 function addedKeys(intent: GroupIntent, mandatory: string[]): string[] {
@@ -166,10 +161,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
     const interval = { invalidBefore: tx.chain.invalidBefore, invalidHereafter: tx.chain.invalidHereafter };
     if (!signerSetSatisfies(state, intent, memberScript, signers, interval)) return refuse('the selected signers do not satisfy the action');
 
-    const preview = await previewGroupTx(db, tx.bytes, tx.chain.requiredSigners, signers, live);
-    if (!('events' in preview)) return refuse(`transaction would be ignored: ${preview.ignored}`);
-    const invalid = preview.events.find((e) => !e.valid);
-    if (invalid) return refuse(invalid.reason ?? 'event not valid');
+    const previewError = previewRefusal(await previewGroupTx(db, tx.bytes, tx.chain.requiredSigners, signers, live));
+    if (previewError) return refuse(previewError);
 
     // The payment keys of the fee inputs never change for the row, they are read once here.
     const fee = await feeInputKeys(koios, tx.inputs);

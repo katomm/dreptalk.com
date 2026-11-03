@@ -3,7 +3,7 @@
 // progress. No auth is required: the link token itself is the read capability.
 import type { APIRoute } from 'astro';
 import { jsonResponse, runtimeEnv } from '@/lib/api/response';
-import { getPendingMultisig } from '@/lib/db/pendingMultisigTx';
+import { getPendingVote } from '@/lib/db/pendingMultisigTx';
 import { parseNativeScriptJson, satisfactionProgress } from '@/lib/cardano/nativeScript';
 
 export const prerender = false;
@@ -16,9 +16,8 @@ export const GET: APIRoute = async ({ params, locals }) => {
   const db = env.DB as D1Database | undefined;
   if (!db) return jsonResponse({ error: 'service unavailable' }, 503);
 
-  const row = await getPendingMultisig(db, id);
-  // Group rows share the table, the vote routes never serve them.
-  if (!row || row.action !== 'vote' || row.subject_kind !== 'drep') return jsonResponse({ error: 'not found' }, 404);
+  const row = await getPendingVote(db, id);
+  if (!row) return jsonResponse({ error: 'not found' }, 404);
 
   let script: ReturnType<typeof parseNativeScriptJson>;
   let witnesses: Array<{ key_hash: string; witness_hex: string }>;

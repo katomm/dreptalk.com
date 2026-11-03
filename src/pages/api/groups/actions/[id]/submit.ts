@@ -4,18 +4,9 @@
 // collected signers. Does not call the chain, the browser submits the returned transaction.
 import type { APIRoute } from 'astro';
 import { jsonResponse } from '@/lib/api/response';
-import {
-  assembleTx,
-  checkFresh,
-  decodeGroupTx,
-  koiosFor,
-  openRowRequest,
-  payloadMembers,
-  rowRateRefusal,
-  submitBlocker,
-  witnessKeys,
-} from '@/lib/groups/actionServer';
-import { liveFactsFor, PreviewUnavailable, previewGroupTx } from '@/lib/groups/preview';
+import { checkFresh, koiosFor, openRowRequest, payloadMembers, rowRateRefusal, submitBlocker, witnessKeys } from '@/lib/groups/actionServer';
+import { assembleTx, decodeGroupTx } from '@/lib/groups/actionTx';
+import { liveFactsFor, PreviewUnavailable, previewGroupTx, previewRefusal } from '@/lib/groups/preview';
 
 export const prerender = false;
 
@@ -35,10 +26,8 @@ export const POST: APIRoute = async ({ params, locals }) => {
     if (blocker) return jsonResponse({ error: blocker }, 409);
     const signed = new Set(witnessKeys(ctx.witnesses));
     const live = await liveFactsFor(koios, payloadMembers(ctx.intent));
-    const preview = await previewGroupTx(db, ctx.tx.bytes, ctx.tx.chain.requiredSigners, [...signed], live);
-    if (!('events' in preview)) return jsonResponse({ error: `transaction would be ignored: ${preview.ignored}` }, 409);
-    const invalid = preview.events.find((e) => !e.valid);
-    if (invalid) return jsonResponse({ error: invalid.reason ?? 'event not valid' }, 409);
+    const previewError = previewRefusal(await previewGroupTx(db, ctx.tx.bytes, ctx.tx.chain.requiredSigners, [...signed], live));
+    if (previewError) return jsonResponse({ error: previewError }, 409);
 
     const assembled = assembleTx(ctx.row.unsigned_tx_cbor, ctx.witnesses);
     if (decodeGroupTx(assembled).bodyHash !== ctx.row.body_hash) throw new Error('assembly changed the body');

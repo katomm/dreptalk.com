@@ -60,7 +60,7 @@ import {
   WEBSITE_SELECT_QUERIES,
 } from '../constants.js';
 import { runJobs } from '../jobs.js';
-import { maintainProfiles } from '../phase.js';
+import { MAX_ITEMS, maintainProfiles } from '../phase.js';
 import { allowance, countingDb } from '../../sync/queryBudget.js';
 import { D1Store } from './d1Store.js';
 import { acquireLease, invocationOwner } from './lease.js';
@@ -600,10 +600,10 @@ describe('profile upkeep with many one member groups', () => {
     const report = { profiles: { fetched: 0, failed: 0 }, websites: { checked: 0, verified: 0 }, starved: [] as string[] };
     await maintainProfiles({ db: c.db, lease, fetchImpl, gateway: null, network: 'preprod', now: 1_000 }, phase, report);
     // The item cap of one profile pass in the groups phase.
-    expect(report.profiles.fetched + report.profiles.failed).toBe(10);
-    expect(vi.mocked(fetchImpl).mock.calls.length).toBeLessThanOrEqual(10);
-    expect(c.meter.used()).toBeLessThanOrEqual(PROFILE_SELECT_QUERIES + 10 * PROFILE_QUERIES_PER_ITEM + WEBSITE_SELECT_QUERIES);
+    expect(report.profiles.fetched + report.profiles.failed).toBe(MAX_ITEMS);
+    expect(vi.mocked(fetchImpl).mock.calls.length).toBeLessThanOrEqual(MAX_ITEMS);
+    expect(c.meter.used()).toBeLessThanOrEqual(PROFILE_SELECT_QUERIES + MAX_ITEMS * PROFILE_QUERIES_PER_ITEM + WEBSITE_SELECT_QUERIES);
     expect(c.meter.used()).toBeLessThanOrEqual(GROUPS_QUERY_SHARE);
-    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM drep_group_due WHERE kind = 'profile' AND due_at <= 1000").first()).toEqual({ n: 490 });
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM drep_group_due WHERE kind = 'profile' AND due_at <= 1000").first()).toEqual({ n: 500 - MAX_ITEMS });
   });
 });

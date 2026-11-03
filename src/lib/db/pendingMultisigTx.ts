@@ -63,6 +63,12 @@ export async function getPendingMultisig(db: D1Database, id: string): Promise<Pe
   return (await db.prepare(`SELECT * FROM pending_multisig_tx WHERE id = ?`).bind(id).first<PendingMultisigRow>()) ?? null;
 }
 
+/** A DRep vote row, null for a missing row. Group rows share the table, the vote routes never serve them. */
+export async function getPendingVote(db: D1Database, id: string): Promise<PendingMultisigRow | null> {
+  const row = await getPendingMultisig(db, id);
+  return row?.action === 'vote' && row.subject_kind === 'drep' ? row : null;
+}
+
 // Optimistic-concurrency retries: witnesses live in a single JSON column, so two
 // co-signers appending at once would otherwise clobber each other (last write
 // wins, one signature silently lost). The UPDATE is guarded on the exact prior

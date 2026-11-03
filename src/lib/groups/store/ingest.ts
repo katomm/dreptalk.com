@@ -2,7 +2,7 @@
 // Stores chain inputs of the DRep groups store. Every function is one lease checked batch per
 // call, the caller pages. A new input is classified against the applied progress and a late one
 // opens its recovery in the same batch, a row already stored under its key is no input.
-import type { ChainTx, Credential, LedgerInput, Pos } from 'drep-groups';
+import type { ChainTx, Credential, DecodedPayload, LedgerInput, Pos } from 'drep-groups';
 import { classifyNewInput, comparePos, credKey, decodePayload, posOfCert } from 'drep-groups';
 import { chunked, D1_MAX_BINDS } from '../../db/sql.js';
 import { afterTx, credBytes, credKeyFromCol, hashBytes, hashFromCol, hashListBytes, posBinds, posFromRow, posOrNull, type Row } from '../codec.js';
@@ -23,24 +23,31 @@ export interface StoredLedgerRow {
  * a readable event or script. Mirrors the rule of its reference store, which is not exported.
  */
 export function isMarkerTx(tx: ChainTx): boolean {
-  if (!tx.isValid || tx.payloadRepeated || tx.payload === undefined) return true;
-  const d = decodePayload(tx.payload);
-  return d === null || (d.scripts.length === 0 && !d.events.some((e) => e.ok));
+  return storedPayload(tx) === null;
 }
 
-/**
- * The profile anchor hashes a stored label tx references: one per decodable create or update that
- * sets a profile. A marker references none.
- */
-export function anchorHashes(tx: ChainTx): string[] {
-  if (isMarkerTx(tx)) return [];
+/** The decoded payload of a label tx stored with its payload, null for a marker. Decodes once. */
+function storedPayload(tx: ChainTx): DecodedPayload | null {
+  if (!tx.isValid || tx.payloadRepeated || tx.payload === undefined) return null;
+  const d = decodePayload(tx.payload);
+  return d === null || (d.scripts.length === 0 && !d.events.some((e) => e.ok)) ? null : d;
+}
+
+/** The profile anchor hashes of a stored payload: one per readable create or update that sets a profile. */
+function payloadAnchors(d: DecodedPayload): string[] {
   const out = new Set<string>();
-  for (const e of decodePayload(tx.payload as Uint8Array)?.events ?? []) {
+  for (const e of d.events) {
     if (!e.ok) continue;
     const profile = e.event.tag === 'create' ? e.event.profile : e.event.tag === 'update' ? e.event.changes.profile : undefined;
     if (profile) out.add(profile.dataHash);
   }
   return [...out];
+}
+
+/** The profile anchor hashes a stored label tx references. A marker references none. */
+export function anchorHashes(tx: ChainTx): string[] {
+  const d = storedPayload(tx);
+  return d === null ? [] : payloadAnchors(d);
 }
 
 /** Runs keyed reads in one batch and returns all rows. */
@@ -120,16 +127,17 @@ export async function storeLabelTxs(
       continue;
     }
     seen.add(tx.txHash);
-    const marker = isMarkerTx(tx);
+    const payload = storedPayload(tx);
+    const marker = payload === null;
     rows.push(txRow(tx, blockHash, marker));
     out.push(prev ? 'duplicate' : marker ? 'marker' : 'stored');
     if (prev && marker) continue;
     heights.push(tx.blockHeight);
-    if (marker) continue;
-    for (const e of decodePayload(tx.payload as Uint8Array)?.events ?? []) {
+    if (payload === null) continue;
+    for (const e of payload.events) {
       if (e.ok && e.event.tag === 'join') members.set(credKey(e.event.member), e.event.member);
     }
-    for (const h of anchorHashes(tx)) anchors.push([hashBytes(h), hashBytes(tx.txHash)]);
+    for (const h of payloadAnchors(payload)) anchors.push([hashBytes(h), hashBytes(tx.txHash)]);
     const r = classifyNewInput({ kind: 'labelTx', at: afterTx(tx) }, { G, appliedThrough: null, L: storedL });
     if (r !== 'ordinary') slots = mergeSlots(slots, r, r.kind === 'truncate' ? await cutTime(tx.blockHeight) : null);
   }

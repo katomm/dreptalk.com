@@ -98,7 +98,8 @@ function majority(m: Majority): Policy {
 }
 
 const hashOf = (s: NativeScript): string => nativeScriptHash(encodeNativeScript(s));
-const uniq = (xs: string[]): string[] => [...new Set(xs.map((x) => x.toLowerCase()))].sort();
+/** Lowercased, deduplicated and sorted. */
+export const uniq = (xs: string[]): string[] => [...new Set(xs.map((x) => x.toLowerCase()))].sort();
 
 /** The control and admission policy a create founds. */
 function createPolicies(intent: Extract<GroupIntent, { kind: 'group_create' }>): { control: Policy; admission: Policy | null } {

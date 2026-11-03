@@ -23,7 +23,7 @@ export interface ObservedResult {
 }
 
 /** Statements a keyed OWN statement needs for `n` rows. */
-const statementsFor = (name: keyof typeof OWN, n: number): number => Math.ceil(n / Math.floor(D1_MAX_BINDS / OWN_WIDTH[name]));
+export const statementsFor = (name: keyof typeof OWN, n: number): number => Math.ceil(n / Math.floor(D1_MAX_BINDS / OWN_WIDTH[name]));
 
 /** Worst case D1 queries of one resolver pass: both candidate pages, the progress read and the write batch. */
 export const RESOLVE_MAX_QUERIES =

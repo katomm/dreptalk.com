@@ -51,13 +51,15 @@ export function verifyVkeyWitness(w: ParsedWitness, bodyHashHex: string): boolea
   }
 }
 
+/** The SDK vkey witness of a parsed witness. */
+export function vkeyWitnessOf(w: ParsedWitness): TransactionWitnessSet.VKeyWitness {
+  return new TransactionWitnessSet.VKeyWitness({
+    vkey: VKey.fromBytes(hexToBytes(w.vkeyHex)),
+    signature: Ed25519Signature.fromBytes(hexToBytes(w.signatureHex)),
+  });
+}
+
 /** A witness set CBOR hex that carries only this one vkey witness. */
 export function singleWitnessSetHex(w: ParsedWitness): string {
-  const ws = TransactionWitnessSet.fromVKeyWitnesses([
-    new TransactionWitnessSet.VKeyWitness({
-      vkey: VKey.fromBytes(hexToBytes(w.vkeyHex)),
-      signature: Ed25519Signature.fromBytes(hexToBytes(w.signatureHex)),
-    }),
-  ]);
-  return TransactionWitnessSet.toCBORHex(ws);
+  return TransactionWitnessSet.toCBORHex(TransactionWitnessSet.fromVKeyWitnesses([vkeyWitnessOf(w)]));
 }

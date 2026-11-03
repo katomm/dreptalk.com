@@ -7,7 +7,7 @@ import type { APIRoute } from 'astro';
 import { z } from 'zod';
 import { jsonResponse, runtimeEnv } from '@/lib/api/response';
 import { getUserById } from '@/lib/db/users';
-import { getPendingMultisig, addPendingWitness } from '@/lib/db/pendingMultisigTx';
+import { getPendingMultisig, getPendingVote, addPendingWitness } from '@/lib/db/pendingMultisigTx';
 import { parseNativeScriptJson, collectSigKeyHashes, satisfactionProgress } from '@/lib/cardano/nativeScript';
 import { validateWitness, parseWitnessSetHex } from '@/lib/governance/multisigWitness';
 
@@ -41,9 +41,8 @@ export const POST: APIRoute = async ({ request, params, locals }) => {
   if (!parsed.success) return jsonResponse({ error: 'invalid input' }, 400);
   const body = parsed.data;
 
-  const row = await getPendingMultisig(db, id);
-  // Group rows share the table, the vote routes never serve them.
-  if (!row || row.action !== 'vote' || row.subject_kind !== 'drep') return jsonResponse({ error: 'not found' }, 404);
+  const row = await getPendingVote(db, id);
+  if (!row) return jsonResponse({ error: 'not found' }, 404);
   if (row.status !== 'collecting') return jsonResponse({ error: 'no longer collecting' }, 409);
 
   // Member gate: the session user's drep_id must match the row's drep_id.

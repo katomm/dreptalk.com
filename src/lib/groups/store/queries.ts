@@ -359,9 +359,9 @@ export const INGEST = Object.freeze({
       witness_retry_at = ? + MIN(${WITNESS_BACKOFF_BASE_MS} * (1 << MIN(witness_attempts, 30)), ${WITNESS_BACKOFF_MAX_MS})
     FROM k WHERE drep_group_ledger.tx_hash = k.tx AND drep_group_ledger.cert_index = k.ix
       AND drep_group_ledger.witness_state = 'pending'`,
+  insertAnchorRefs: (n: number) => `INSERT OR IGNORE INTO drep_group_anchor_refs (hash, tx_hash) VALUES ${values(2, n)}`,
   // A failed refetch of a flagged marker counts an attempt. The last attempt clears the flag and
   // the count, the marker stays. The unary plus keeps the flag index out.
-  insertAnchorRefs: (n: number) => `INSERT OR IGNORE INTO drep_group_anchor_refs (hash, tx_hash) VALUES ${values(2, n)}`,
   refetchFailed: (n: number) => `WITH k(tx) AS (VALUES ${values(1, n)})
     UPDATE drep_group_txs SET
       refetch = CASE WHEN refetch_attempts + 1 >= ${MARKER_REFETCH_ATTEMPTS} THEN 0 ELSE 1 END,

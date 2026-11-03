@@ -110,9 +110,10 @@ function withLive(view: View, live: LiveFacts): View {
 }
 
 /** The first height after everything ingested, R is null before the first ledger frontier. */
+const nextHeight = (f: { L: number; R: number | null }): number => Math.max(f.L, f.R ?? f.L) + 1;
+
 async function previewHeight(db: D1Database): Promise<number> {
-  const f = await frontiers(db);
-  return Math.max(f.L, f.R ?? f.L) + 1;
+  return nextHeight(await frontiers(db));
 }
 
 /**
@@ -127,7 +128,7 @@ async function assertSettled(db: D1Database): Promise<number> {
   if (comparePos(f.G, endOf(f.L)) < 0) throw new PreviewUnavailable('group index is catching up');
   const ready = await readyCredentials(db, 1, 1, { G: f.G, R: f.R });
   if (ready.some((r) => r.inputs.length > 0)) throw new PreviewUnavailable('group index is catching up');
-  return Math.max(f.L, f.R ?? f.L) + 1;
+  return nextHeight(f);
 }
 
 /**
@@ -159,7 +160,15 @@ export async function previewGroupTx(
   );
 }
 
-const noKeys = (): Keys => ({ instances: [], latestInstances: [], groupsAt: [], scriptsAt: [], credentialAt: [] });
+/** Why the preview refuses the transaction: ignored as a whole, or the reason of its first invalid event. Null when every event is valid. */
+export function previewRefusal(preview: Preview): string | null {
+  if (!('events' in preview)) return `transaction would be ignored: ${preview.ignored}`;
+  const invalid = preview.events.find((e) => !e.valid);
+  return invalid ? (invalid.reason ?? 'event not valid') : null;
+}
+
+/** Keys that load nothing, spread and filled in by the callers of a single read. */
+export const noKeys = (): Keys => ({ instances: [], latestInstances: [], groupsAt: [], scriptsAt: [], credentialAt: [] });
 
 /** The group's committed version with its policies, null for a group the store does not hold. */
 export async function readGroupState(db: D1Database, group: EventRef): Promise<GroupState | null> {

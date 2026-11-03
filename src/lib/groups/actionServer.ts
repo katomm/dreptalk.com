@@ -1,41 +1,25 @@
 /// <reference types="@cloudflare/workers-types" />
-// Server side of the group signing link, shared by the action routes: the session's keys, the
-// decoded transaction, a stored row with its intent and the current group state, the staleness
-// checks before every witness and submit, display names and signature request notifications.
-import { Ed25519Signature, Transaction, TransactionBody, TransactionHash, TransactionWitnessSet, VKey } from '@evolution-sdk/evolution';
-import {
-  type ChainTx,
-  type Credential,
-  type DecodedPayload,
-  decodePayload,
-  decodeTransaction,
-  EncodeError,
-  type EventRef,
-  type GroupEvent,
-  inspectTransaction,
-  type Keys,
-  type NativeScript,
-  refKey,
-  type TxFacts,
-} from 'drep-groups';
+// Server side of the group signing link, shared by the action routes: the session's keys, a stored
+// row with its intent, decoded transaction and the current group state, the staleness checks
+// before every witness and submit, display names and signature request notifications. The
+// transaction codec lives in actionTx.ts.
+import { type Credential, EncodeError, type EventRef, type GroupEvent, type NativeScript, refKey } from 'drep-groups';
 import { z } from 'zod';
 import { currentNetwork, jsonResponse, runtimeEnv } from '../api/response.js';
 import { sessionKeyHash } from '../auth/groupSigner.js';
 import { GROUP_SIGNER_ROLE } from '../auth/roles.js';
-import { decodeBech32 } from '../crypto/bech32.js';
-import { bytesToHex, hexToBytes } from '../crypto/hex.js';
 import { insertGroupNotifications } from '../db/groupNotifications.js';
 import { getPendingMultisig, type PendingMultisigRow, type PendingWitness } from '../db/pendingMultisigTx.js';
 import { createKoiosClient } from '../koios/client.js';
-import { parseWitnessSetHex } from '../governance/multisigWitness.js';
 import { checkRate } from '../rate.js';
 import { freeStaleSlot } from './actionStore.js';
+import { controlSeq, type DecodedGroupTx, decodeGroupTx, eventsOf, paymentKeyHash } from './actionTx.js';
 import { ACTION_RATE } from './constants.js';
 import { drepGroupsAvailable } from './gate.js';
 import { describeEvents, type GroupIntent, type GroupState, IntentError, maySign, parseJoinRef, signerSetSatisfies } from './actions.js';
 import { hashBytes, scriptDisplayJson, scriptFromDisplayJson } from './codec.js';
 import { credentialForDrepId, drepIdForCredential, groupIdParam } from './ids.js';
-import { PreviewUnavailable, readGroupState } from './preview.js';
+import { noKeys, PreviewUnavailable, readGroupState } from './preview.js';
 import { txProgress } from './resolve.js';
 import { KEYED, KEYED_WIDTH, OWN, OWN_WIDTH, Q } from './store/queries.js';
 import { load } from './store/reads.js';
@@ -88,68 +72,6 @@ export const intentSchema: z.ZodType<GroupIntent> = z.discriminatedUnion('kind',
   z.object({ kind: z.literal('group_dissolve'), group: groupId }).strict(),
 ]) as unknown as z.ZodType<GroupIntent>;
 
-export interface DecodedGroupTx {
-  bytes: Uint8Array;
-  facts: TxFacts;
-  chain: ChainTx;
-  decoded: DecodedPayload | null;
-  /** Lowercase hex blake2b-256 of the body bytes as they are, the tx hash. */
-  bodyHash: string;
-  inputs: Array<{ txHash: string; index: number }>;
-}
-
-/** Decodes an unsigned group transaction. Throws on anything that is not a well formed Conway transaction. */
-export function decodeGroupTx(hex: string): DecodedGroupTx {
-  const bytes = hexToBytes(hex);
-  const facts = inspectTransaction(bytes);
-  const tx = Transaction.fromCBORHex(hex);
-  // The hash of the original body bytes, a re-encoded body could hash differently.
-  const bodyHash = TransactionHash.toHex(TransactionBody.toHashFromBytes(Transaction.extractBodyBytes(bytes))).toLowerCase();
-  const chain = decodeTransaction(bytes, { txHash: bodyHash, blockHeight: 0, txIndex: 0 });
-  if (chain.invalidHereafter !== (tx.body.ttl ?? null)) throw new Error('validity end read differently');
-  const inputs = tx.body.inputs.map((i) => ({ txHash: TransactionHash.toHex(i.transactionId).toLowerCase(), index: Number(i.index) }));
-  return { bytes, facts, chain, decoded: chain.payload ? decodePayload(chain.payload) : null, bodyHash, inputs };
-}
-
-// The definite four element array head of a transaction and the empty witness set of an unsigned
-// DRepTalk group transaction, no scripts attached. The witness splice relies on both being one byte.
-const TX_ARRAY_HEAD = 0x84;
-const EMPTY_WITNESS_SET = 0xa0;
-
-/** Offset of the witness set, null unless the tx is a one byte array head followed by the body. */
-function witnessSetOffset(bytes: Uint8Array): number | null {
-  if (bytes[0] !== TX_ARRAY_HEAD) return null;
-  return 1 + Transaction.extractBodyBytes(bytes).length;
-}
-
-/** Why the unsigned transaction cannot take spliced witnesses, null when it can. */
-export function unsignedShapeError(tx: DecodedGroupTx): string | null {
-  const at = witnessSetOffset(tx.bytes);
-  if (at === null) return 'transaction must be a definite four element array';
-  return tx.bytes[at] === EMPTY_WITNESS_SET ? null : 'transaction must carry no witnesses';
-}
-
-/**
- * The unsigned transaction with the stored vkey witnesses in its witness set. The body and the
- * metadata bytes are kept as they are, so the tx hash stays the body hash the witnesses signed.
- */
-export function assembleTx(unsignedHex: string, witnesses: PendingWitness[]): string {
-  const bytes = hexToBytes(unsignedHex);
-  const bodyEnd = witnessSetOffset(bytes);
-  if (bodyEnd === null || bytes[bodyEnd] !== EMPTY_WITNESS_SET) throw new Error('unsigned transaction is not a plain unsigned array');
-  const vkeys = witnesses.flatMap((w) =>
-    parseWitnessSetHex(w.witness_hex).map(
-      (p) =>
-        new TransactionWitnessSet.VKeyWitness({
-          vkey: VKey.fromBytes(hexToBytes(p.vkeyHex)),
-          signature: Ed25519Signature.fromBytes(hexToBytes(p.signatureHex)),
-        }),
-    ),
-  );
-  const set = hexToBytes(TransactionWitnessSet.toCBORHex(TransactionWitnessSet.fromVKeyWitnesses(vkeys)));
-  return bytesToHex(Uint8Array.from([...bytes.subarray(0, bodyEnd), ...set, ...bytes.subarray(bodyEnd + 1)]));
-}
-
 export const isControlKind = (kind: GroupIntent['kind']): boolean => kind === 'group_update' || kind === 'group_dissolve';
 
 /** The DRep members a payload's joins and leaves name, whose registration and scripts Koios answers. */
@@ -163,27 +85,6 @@ export function payloadMembers(intent: GroupIntent): Credential[] {
 
 /** Display JSON of a policy, without the hash the state attaches. */
 export const policyJson = (p: NativeScript): string => scriptDisplayJson({ ...p, hash: undefined } as unknown as NativeScript);
-
-/** The seq of the control event of a payload, null without one. */
-export function controlSeq(decoded: DecodedPayload | null): bigint | null {
-  for (const e of decoded?.events ?? []) {
-    if (e.ok && (e.event.tag === 'update' || e.event.tag === 'dissolve')) return e.event.seq;
-  }
-  return null;
-}
-
-/** The payment key hash of a Shelley address, null for a script payment credential or anything else. */
-export function paymentKeyHash(address: string): string | null {
-  try {
-    const { prefix, data } = decodeBech32(address);
-    if (prefix !== 'addr' && prefix !== 'addr_test') return null;
-    const type = data[0] >> 4;
-    if (type > 7 || type % 2 !== 0 || data.length < 29) return null;
-    return bytesToHex(data.subarray(1, 29));
-  } catch {
-    return null;
-  }
-}
 
 export interface GroupRowContext {
   row: PendingMultisigRow;
@@ -223,8 +124,6 @@ export async function loadGroupRow(db: D1Database, id: string): Promise<GroupRow
     feePayKeys: new Set(JSON.parse(row.fee_pay_keys ?? '[]') as string[]),
   };
 }
-
-const noKeys = (): Keys => ({ instances: [], latestInstances: [], groupsAt: [], scriptsAt: [], credentialAt: [] });
 
 /** The stored instance of each join, absent when the store does not hold it. */
 async function instancesOf(db: D1Database, refs: EventRef[]) {
@@ -359,9 +258,6 @@ export async function namesFor(db: D1Database, keyHashes: string[], events: Grou
   }
   return names;
 }
-
-/** The events of a decoded payload that read, in order. */
-export const eventsOf = (decoded: DecodedPayload | null): GroupEvent[] => (decoded?.events ?? []).flatMap((e) => (e.ok ? [e.event] : []));
 
 /** Plain words of the row's events. */
 export async function linesOf(db: D1Database, ctx: GroupRowContext): Promise<string[]> {

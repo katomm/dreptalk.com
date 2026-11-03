@@ -47,7 +47,7 @@ import { pendingRecovery } from './store/reads.js';
 import { openRecoveryStatements, readMeta, slotsFromMeta } from './store/recovery.js';
 
 /** Items of one profile or website pass at most. */
-const MAX_ITEMS = 10;
+export const MAX_ITEMS = 10;
 
 export interface PhaseReport {
   /** `lost`: another holder took the lease mid phase, the phase ended without a release. */

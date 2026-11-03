@@ -266,7 +266,9 @@ async function storeBlocks(
     else blocks.push([x]);
   }
   const batches: LabelInput[][] = [];
-  const refsOf = (txs: LabelInput[]): number => txs.reduce((n, x) => n + anchorHashes(x.tx).length, 0);
+  // Anchor counts per input, decoded once for the batch cut and the cost check.
+  const anchorCount = new Map(items.map((x) => [x, anchorHashes(x.tx).length]));
+  const refsOf = (txs: LabelInput[]): number => txs.reduce((n, x) => n + (anchorCount.get(x) ?? 0), 0);
   let members = 0;
   let anchors = 0;
   for (const block of blocks) {

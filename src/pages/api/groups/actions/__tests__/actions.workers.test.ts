@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { hexToBytes } from '@/lib/crypto/hex';
 import { createPendingMultisig, getPendingMultisig, type PendingWitness } from '@/lib/db/pendingMultisigTx';
 import { expectedPayload, type GroupIntent, parseJoinRef } from '@/lib/groups/actions';
-import { decodeGroupTx } from '@/lib/groups/actionServer';
+import { decodeGroupTx } from '@/lib/groups/actionTx';
 import { openControlAction } from '@/lib/groups/actionStore';
 import { drepIdForCredential, groupIdParam, groupIdString } from '@/lib/groups/ids';
 import { readGroupState } from '@/lib/groups/preview';

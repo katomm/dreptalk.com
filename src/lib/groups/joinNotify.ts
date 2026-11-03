@@ -9,6 +9,7 @@ import { D1_MAX_BINDS } from '../db/sql.js';
 import { bytesFromCol, refBinds, refFromCols, type Row } from './codec.js';
 import { JOIN_NOTIFY_PER_TICK } from './constants.js';
 import { drepIdForCredential, groupIdString } from './ids.js';
+import { statementsFor } from './resolve.js';
 import { writeBatch } from './store/lease.js';
 import { OWN, OWN_WIDTH, Q } from './store/queries.js';
 import { keyedStatements } from './store/recovery.js';
@@ -25,7 +26,7 @@ export const JOIN_NOTIFY_MAX_QUERIES =
   1 +
   Math.ceil(MAX_NOTIFY_ROWS / ROWS_PER_STATEMENT) +
   2 +
-  Math.ceil(JOIN_NOTIFY_PER_TICK / Math.floor(D1_MAX_BINDS / OWN_WIDTH.deleteJoinNotify));
+  statementsFor('deleteJoinNotify', JOIN_NOTIFY_PER_TICK);
 
 interface PendingJoin {
   join: EventRef;
