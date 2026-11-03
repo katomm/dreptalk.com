@@ -3,11 +3,12 @@
 // that the group page builds and signs like every other group action. All of them hold the
 // group's single management slot, so the editor waits while another one is open.
 import { useState } from 'react';
-import { carryThreshold, type GroupIntent, uniq } from '@/lib/groups/actions.js';
+import { carryThreshold, type GroupIntent, sameSet, uniq } from '@/lib/groups/actions.js';
 import type { GroupProfileInput } from '@/lib/groups/profileDocs.js';
 import { readableError } from '@/lib/wallet/walletError.js';
-import { Callout, h2, muted, SLOT_HELD, stack } from './actionFlow.js';
+import { SLOT_HELD } from './actionFlow.js';
 import { DrepAdder, ProfileFields, profileDraftOf, profileError, storeProfile, ThresholdField, thresholdError } from './groupForms.js';
+import { Callout, h2, muted, stack } from './groupUi.js';
 
 /** The policy proposal a form edits: the keys offered, those ticked and the threshold. */
 export interface Proposal {
@@ -18,6 +19,15 @@ export interface Proposal {
 }
 
 export const proposalOf = (p: { keys: string[]; n: number; sameAdmission: boolean }): Proposal => ({ keys: p.keys, ticked: p.keys, n: p.n, sameAdmission: p.sameAdmission });
+
+/** The update of the management policy a proposal stands for, with the given join approvals. */
+export const updateIntent = (group: string, p: Proposal, approvals: string[]): GroupIntent => ({
+  kind: 'group_update',
+  group,
+  approvals,
+  control: { keys: p.ticked, n: p.n },
+  ...(p.sameAdmission ? { admission: 'same' as const } : {}),
+});
 
 export const DISSOLVE_WARNING = "This cannot be undone. Members' delegations do not change.";
 
@@ -60,12 +70,6 @@ export function PolicyFields({
   );
 }
 
-const sameKeys = (a: string[], b: string[]): boolean => {
-  const x = uniq(a);
-  const y = uniq(b);
-  return x.length === y.length && x.every((v, i) => v === y[i]);
-};
-
 export interface PolicyEditorProps {
   groupId: string;
   /** Threshold of the current control policy. */
@@ -106,7 +110,7 @@ export default function PolicyEditor(props: PolicyEditorProps) {
   const otherProblem =
     proposal.ticked.length === 0
       ? 'Tick at least one admin.'
-      : sameKeys(proposal.ticked, controlKeys) && proposal.n === current.n
+      : sameSet(proposal.ticked, controlKeys) && proposal.n === current.n
         ? 'This is the current policy.'
         : null;
   const policyProblem = (proposal.ticked.length > 0 ? thresholdError(proposal.n, proposal.ticked.length) : null) ?? otherProblem;
@@ -190,19 +194,7 @@ export default function PolicyEditor(props: PolicyEditorProps) {
                   type="button"
                   className="btn btn-primary"
                   disabled={policyProblem !== null}
-                  onClick={() =>
-                    onContinue(
-                      {
-                        kind: 'group_update',
-                        group: groupId,
-                        approvals: [],
-                        control: { keys: proposal.ticked, n: proposal.n },
-                        ...(proposal.sameAdmission ? { admission: 'same' as const } : {}),
-                      },
-                      'Update the management policy',
-                      added,
-                    )
-                  }
+                  onClick={() => onContinue(updateIntent(groupId, proposal, []), 'Update the management policy', added)}
                 >
                   Continue
                 </button>

@@ -571,7 +571,8 @@ export async function groupActionState(
   viewer: { drepId: string | null },
 ): Promise<GroupActionState> {
   const hashes = [group.controlHash, ...(group.admissionHash ? [group.admissionHash] : [])];
-  const viewerCred = viewer.drepId ? credentialForDrepId(viewer.drepId) : null;
+  const cred = viewer.drepId ? credentialForDrepId(viewer.drepId) : null;
+  const viewerCred = cred ? { kind: cred.kind, hash: cred.hash.toLowerCase() } : null;
   const [displays, openControl, rows, viewerRows, active, pending, view] = await Promise.all([
     scriptDisplays(db, hashes),
     openControlAction(db, group.groupId),
@@ -582,7 +583,7 @@ export async function groupActionState(
     listMembers(db, group.ref, 'active', null, ACTION_MEMBERS_LIMIT),
     listMembers(db, group.ref, 'pending', null, ACTION_MEMBERS_LIMIT),
     viewerCred
-      ? load(db, { ...noKeys(), latestInstances: [[group.ref, { kind: viewerCred.kind, hash: viewerCred.hash.toLowerCase() }]] }, [])
+      ? load(db, { ...noKeys(), latestInstances: [[group.ref, viewerCred]] }, [])
       : Promise.resolve(null),
   ]);
   const policy = (hash: string): PolicyKeys => {
@@ -599,7 +600,7 @@ export async function groupActionState(
   const names = await drepNamesForKeyHashes(db, [...new Set([...control.keys, ...(admission?.keys ?? [])])]);
   for (const m of activeKeyMembers) if (m.name) names.set(m.keyHash, m.name);
 
-  const inst = view && viewerCred ? view.latestInstance(group.ref, { kind: viewerCred.kind, hash: viewerCred.hash.toLowerCase() }) : null;
+  const inst = view && viewerCred ? view.latestInstance(group.ref, viewerCred) : null;
   const viewerJoin =
     inst && inst.closedAt === null ? { joinId: refKey(inst.joinId), state: countedAs(inst, null) === 'open' ? ('active' as const) : ('pending' as const) } : null;
 

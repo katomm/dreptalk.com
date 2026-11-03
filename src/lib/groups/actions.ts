@@ -376,7 +376,8 @@ function eventCanon(e: GroupEvent): string {
   }
 }
 
-const sameSet = (a: string[], b: string[]): boolean => {
+/** Whether two key lists hold the same keys, in any order and case. */
+export const sameSet = (a: string[], b: string[]): boolean => {
   const x = uniq(a);
   const y = uniq(b);
   return x.length === y.length && x.every((v, i) => v === y[i]);

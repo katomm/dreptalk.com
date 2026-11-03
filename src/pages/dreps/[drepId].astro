@@ -94,6 +94,8 @@ const isOwner =
 
 // Forum activity + total active power + voting history load together (independent reads).
 const drepUser = drep && db ? await getUserByDrepId(db, drep.drepId) : null;
+// The group store is loaded only where groups exist, both group reads share the import.
+const groupStore = drep && db && drepGroupsAvailable(currentNetwork().network) ? import('@/lib/db/drepGroups.js') : null;
 const [posts, activeStake, votingHistory, votesCast, voteBreakdown, rationaleStats, participation, earnedBadges, holderCounts, powerSeries, voteHistoryMap, reportCard, timingRows, drepLinkHandle, groups, groupActions] =
   await Promise.all([
     drepUser && db ? getPostsByAuthor(db, drepUser.id, { limit: 20 }) : Promise.resolve([]),
@@ -118,12 +120,10 @@ const [posts, activeStake, votingHistory, votesCast, voteBreakdown, rationaleSta
     drep && db ? listDrepVoteTimings(db, drep.drepId) : Promise.resolve([]),
     drep && db ? getPrimaryHandle(db, drep.drepId, Math.floor(Date.now() / 1000)) : Promise.resolve(null),
     // Group chips exist on preprod only, elsewhere the groups store is not even loaded.
-    drep && db && drepGroupsAvailable(currentNetwork().network)
-      ? import('@/lib/db/drepGroups.js').then((m) => m.groupsForDrep(db, drep.drepId, 20))
-      : Promise.resolve([]),
+    groupStore && drep && db ? groupStore.then((m) => m.groupsForDrep(db, drep.drepId, 20)) : Promise.resolve([]),
     // Group actions of the DRep still waiting for signatures or for the chain, a joint founding included.
-    drep && db && drepGroupsAvailable(currentNetwork().network)
-      ? import('@/lib/db/drepGroups.js')
+    groupStore && drep && db
+      ? groupStore
           .then((m) => m.unresolvedGroupActionsForDrep(db, drep.drepId))
           .catch((err) => {
             // The chips are secondary, a failed read must not take the profile down.

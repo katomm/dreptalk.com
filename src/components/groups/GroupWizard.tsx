@@ -8,8 +8,9 @@ import type { CardanoNetwork } from '@/lib/config/network.js';
 import { type GroupIntent, moreThanHalf, neededKeys } from '@/lib/groups/actions.js';
 import { shortHash } from '@/lib/groups/view.js';
 import { readableError } from '@/lib/wallet/walletError.js';
-import { Callout, DraftPanel, h2, muted, type Outcome, OutcomeNotice, stack, useActionRunner } from './actionFlow.js';
+import { DraftPanel, type Outcome, OutcomeNotice, useActionRunner } from './actionFlow.js';
 import { type CheckedDrep, DrepAdder, ProfileFields, profileDraftOf, profileError, storeProfile, ThresholdField, thresholdError } from './groupForms.js';
+import { Callout, h2, muted, stack } from './groupUi.js';
 
 export interface GroupWizardProps {
   network: CardanoNetwork;

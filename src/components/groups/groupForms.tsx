@@ -7,7 +7,7 @@ import DrepImageUpload from '@/components/DrepImageUpload.js';
 import { credentialForDrepId } from '@/lib/groups/ids.js';
 import type { GroupProfileInput } from '@/lib/groups/profileDocs.js';
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
-import { errorOf, muted, post, stack } from './actionFlow.js';
+import { errorOf, muted, post, stack } from './groupUi.js';
 
 export interface CheckedDrep {
   drepId: string;

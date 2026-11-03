@@ -3,47 +3,19 @@
 // transaction in the browser, opening its signing link, and completing it in one wallet step when
 // the initiator is the only signer. The outcome is either a submitted transaction or a link.
 import { encodePayload, type NativeScript } from 'drep-groups';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { CopyButton } from '@/components/CopyButton.js';
 import WalletConnection from '@/components/WalletConnection.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import { txExplorerUrl } from '@/lib/config/network.js';
-import type { WalletApi } from '@/lib/governance/walletUtxos.js';
 import { expectedPayload, type GroupIntent, type GroupState, signerSetSatisfies, uniq } from '@/lib/groups/actions.js';
 import { ACTION_TTL_SECONDS } from '@/lib/groups/constants.js';
-import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
-import { assertWalletNetwork } from '@/lib/wallet/networkGuard.js';
-import { rememberWallet, useCardanoWallets } from '@/lib/wallet/useCardanoWallets.js';
 import { readableError } from '@/lib/wallet/walletError.js';
-
-export type EnabledWalletApi = WalletApi & { getNetworkId(): Promise<number> };
+import { Callout, type EnabledWalletApi, errorOf, h2, muted, post, stack, useWalletConnect } from './groupUi.js';
 
 export type Outcome = { link: string } | { submitted: string } | { slotTaken: string | null };
 
 export const SLOT_HELD = 'Another management action is open, so the policy cannot be changed until it is resolved or expires.';
-
-export const muted = { color: 'var(--muted)', fontSize: '0.875rem', margin: 0 } as const;
-export const h2 = { fontSize: '1.0625rem', margin: '0 0 0.5rem' } as const;
-export const stack = { display: 'flex', flexDirection: 'column', gap: '0.5rem' } as const;
-
-export function Callout({ kind, children }: { kind: 'error' | 'info' | 'success'; children: React.ReactNode }) {
-  return (
-    <div className={`callout callout--${kind}`} role={kind === 'error' ? 'alert' : 'status'}>
-      <div className="callout__body">{children}</div>
-    </div>
-  );
-}
-
-export async function errorOf(res: Response, fallback: string): Promise<string> {
-  const body = (await res.json().catch(() => null)) as { error?: string } | null;
-  return body?.error ? `${fallback} ${body.error}.` : fallback;
-}
-
-export const post = (url: string, body?: unknown) =>
-  fetchWithTimeout(url, {
-    method: 'POST',
-    ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
-  });
 
 /** The latest after lock of a member script, the earliest slot its transactions may be valid from. */
 export function afterLock(s: NativeScript | null): number | undefined {
@@ -55,6 +27,9 @@ export function afterLock(s: NativeScript | null): number | undefined {
   }
   return undefined;
 }
+
+/** The validity start of an after lock as a validity interval holds it, null when there is none. */
+export const lockBound = (lock: number | undefined): bigint | null => (lock === undefined ? null : BigInt(lock));
 
 export interface ActionKeys {
   mandatory: string[];
@@ -88,7 +63,7 @@ async function runGroupAction(
     const { buildGroupTx } = await import('@/lib/groups/groupTx.js');
     const lock = afterLock(r.memberScript);
     const required = uniq([...r.keys.mandatory, ...r.signers]);
-    const interval = { invalidBefore: lock === undefined ? null : BigInt(lock), invalidHereafter: BigInt(r.tipSlot + ACTION_TTL_SECONDS) };
+    const interval = { invalidBefore: lockBound(lock), invalidHereafter: BigInt(r.tipSlot + ACTION_TTL_SECONDS) };
     if (!signerSetSatisfies(r.state, r.intent, r.memberScript, required, interval)) {
       throw new Error('The selected signers do not satisfy the policies of this action.');
     }
@@ -119,7 +94,8 @@ async function runGroupAction(
     if (!assembled.ok) throw new Error(await errorOf(assembled, 'Could not assemble the transaction.'));
     const { assembledTxHex } = (await assembled.json()) as { assembledTxHex: string };
     const txHash = await api.submitTx(assembledTxHex);
-    // The transaction is on its way, a failed record only delays the confirming state.
+    // The transaction is on its way, so a failed record is swallowed on purpose. It only delays the
+    // confirming state.
     await post(`/api/groups/actions/${id}/submitted`, { txHash }).catch(() => null);
     return { outcome: { submitted: txHash }, error: null };
   } catch (err) {
@@ -129,29 +105,9 @@ async function runGroupAction(
 
 /** The fee wallet, its connection and the run of one action. */
 export function useActionRunner(network: CardanoNetwork) {
-  const { wallets, selected: walletKey, setSelected: setWalletKey } = useCardanoWallets({ preferCip95: true });
-  const apiRef = useRef<EnabledWalletApi | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const connect = useCallback(async (): Promise<EnabledWalletApi | null> => {
-    if (apiRef.current) return apiRef.current;
-    const info = wallets.find((w) => w.key === walletKey);
-    if (!info) {
-      setError('Select a wallet to continue.');
-      return null;
-    }
-    try {
-      const api = (await info.raw.enable({ extensions: [{ cip: 95 }] })) as unknown as EnabledWalletApi;
-      await assertWalletNetwork(api, network);
-      apiRef.current = api;
-      rememberWallet(walletKey);
-      return api;
-    } catch (err) {
-      setError(readableError(err));
-      return null;
-    }
-  }, [wallets, walletKey, network]);
+  const { wallets, walletKey, setWalletKey, connect } = useWalletConnect(network, setError);
 
   /** Runs the action, the outcome is null when nothing was opened. */
   const run = useCallback(

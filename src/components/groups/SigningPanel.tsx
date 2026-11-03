@@ -1,18 +1,14 @@
 // React island of the DRep group signing page. It shows what the transaction does in the words the
 // server decoded from it, who must sign and who has, and offers the signing, submitting and
 // cancelling steps. Signatures come from the connected wallet or from pasted cardano-signer output.
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { CopyButton } from '@/components/CopyButton.js';
 import WalletConnection from '@/components/WalletConnection.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import { txExplorerUrl } from '@/lib/config/network.js';
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
-import type { WalletApi } from '@/lib/governance/walletUtxos.js';
-import { rememberWallet, useCardanoWallets } from '@/lib/wallet/useCardanoWallets.js';
-import { assertWalletNetwork } from '@/lib/wallet/networkGuard.js';
 import { readableError } from '@/lib/wallet/walletError.js';
-
-type EnabledWalletApi = WalletApi & { getNetworkId(): Promise<number> };
+import { Callout, errorOf, h2, muted, post, stack, useWalletConnect } from './groupUi.js';
 
 /** Shape returned by GET /api/groups/actions/[id]. */
 export interface ActionView {
@@ -55,14 +51,6 @@ const shortKey = (k: string) => (k.length > 16 ? `${k.slice(0, 8)}...${k.slice(-
 
 const mono = { fontFamily: 'var(--font-mono)', fontSize: '0.8125rem' } as const;
 
-function Callout({ kind, children }: { kind: 'error' | 'info' | 'success'; children: React.ReactNode }) {
-  return (
-    <div className={`callout callout--${kind}`} role={kind === 'error' ? 'alert' : 'status'}>
-      <div className="callout__body">{children}</div>
-    </div>
-  );
-}
-
 function KeyList({ keys, signed }: { keys: string[]; signed: Set<string> }) {
   return (
     <ul style={{ margin: 0, paddingLeft: '1.25rem' }}>
@@ -75,14 +63,7 @@ function KeyList({ keys, signed }: { keys: string[]; signed: Set<string> }) {
   );
 }
 
-async function errorOf(res: Response, fallback: string): Promise<string> {
-  const body = (await res.json().catch(() => null)) as { error?: string } | null;
-  return body?.error ? `${fallback} ${body.error}.` : fallback;
-}
-
 export default function SigningPanel({ actionId, network }: SigningPanelProps) {
-  const { wallets, selected, setSelected } = useCardanoWallets({ preferCip95: true });
-  const apiRef = useRef<EnabledWalletApi | null>(null);
   const [view, setView] = useState<ActionView | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [transient, setTransient] = useState<string | null>(null);
@@ -92,6 +73,7 @@ export default function SigningPanel({ actionId, network }: SigningPanelProps) {
   const [busy, setBusy] = useState(false);
   const [paste, setPaste] = useState('');
   const [submittedHash, setSubmittedHash] = useState<string | null>(null);
+  const { wallets, walletKey: selected, setWalletKey: setSelected, connect } = useWalletConnect(network, setError);
 
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
 
@@ -125,31 +107,8 @@ export default function SigningPanel({ actionId, network }: SigningPanelProps) {
     return () => clearInterval(timer);
   }, [refresh, loadError, finished]);
 
-  const connect = useCallback(async (): Promise<EnabledWalletApi | null> => {
-    if (apiRef.current) return apiRef.current;
-    const info = wallets.find((w) => w.key === selected);
-    if (!info) {
-      setError('Select a wallet to continue.');
-      return null;
-    }
-    try {
-      const api = (await info.raw.enable({ extensions: [{ cip: 95 }] })) as unknown as EnabledWalletApi;
-      await assertWalletNetwork(api, network);
-      apiRef.current = api;
-      rememberWallet(selected);
-      return api;
-    } catch (err) {
-      setError(readableError(err));
-      return null;
-    }
-  }, [wallets, selected, network]);
-
   async function postWitness(witnessSetHex: string): Promise<boolean> {
-    const res = await fetchWithTimeout(`/api/groups/actions/${actionId}/witness`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ witnessSetHex }),
-    });
+    const res = await post(`/api/groups/actions/${actionId}/witness`, { witnessSetHex });
     if (!res.ok) throw new Error(await errorOf(res, 'Could not add the signature.'));
     const body = (await res.json()) as { accepted: string[] };
     if (body.accepted.length === 0) {
@@ -211,17 +170,14 @@ export default function SigningPanel({ actionId, network }: SigningPanelProps) {
 
   const submit = () =>
     run(async () => {
-      const assembled = await fetchWithTimeout(`/api/groups/actions/${actionId}/submit`, { method: 'POST' });
+      const assembled = await post(`/api/groups/actions/${actionId}/submit`);
       if (!assembled.ok) throw new Error(await errorOf(assembled, 'Could not assemble the transaction.'));
       const { assembledTxHex } = (await assembled.json()) as { assembledTxHex: string };
       const api = await connect();
       if (!api) return;
       const txHash = await api.submitTx(assembledTxHex);
-      const recorded = await fetchWithTimeout(`/api/groups/actions/${actionId}/submitted`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ txHash }),
-      }).catch(() => null);
+      // The transaction is on its way, a failed record is only reported in the note below.
+      const recorded = await post(`/api/groups/actions/${actionId}/submitted`, { txHash }).catch(() => null);
       setSubmittedHash(txHash);
       if (!recorded?.ok) setNote(`Submitted (${txHash}). Recording it failed, it will be picked up shortly.`);
       await refresh();
@@ -229,7 +185,7 @@ export default function SigningPanel({ actionId, network }: SigningPanelProps) {
 
   const cancel = () =>
     run(async () => {
-      const res = await fetchWithTimeout(`/api/groups/actions/${actionId}/cancel`, { method: 'POST' });
+      const res = await post(`/api/groups/actions/${actionId}/cancel`);
       if (!res.ok) throw new Error(await errorOf(res, 'Could not cancel.'));
       await refresh();
     });
@@ -256,7 +212,7 @@ export default function SigningPanel({ actionId, network }: SigningPanelProps) {
   const command = `cardano-signer sign --data-hex ${view.bodyHash} --secret-key drep.skey`;
   const walletPicker =
     wallets.length === 0 ? (
-      <p style={{ color: 'var(--muted)', margin: 0, fontSize: '0.875rem' }}>No Cardano wallet extension detected.</p>
+      <p style={muted}>No Cardano wallet extension detected.</p>
     ) : (
       <WalletConnection wallets={wallets} selected={selected} onSelect={setSelected} disabled={busy} label="Signing wallet" />
     );
@@ -264,7 +220,7 @@ export default function SigningPanel({ actionId, network }: SigningPanelProps) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', maxWidth: '40rem' }}>
       <section aria-label="What this transaction does">
-        <h2 style={{ fontSize: '1.0625rem', margin: '0 0 0.5rem' }}>What this transaction does</h2>
+        <h2 style={h2}>What this transaction does</h2>
         <ul style={{ margin: 0, paddingLeft: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
           {view.lines.map((line) => (
             <li key={line}>{line}</li>
@@ -273,7 +229,7 @@ export default function SigningPanel({ actionId, network }: SigningPanelProps) {
       </section>
 
       <section aria-label="Signatures">
-        <h2 style={{ fontSize: '1.0625rem', margin: '0 0 0.5rem' }}>Signatures</h2>
+        <h2 style={h2}>Signatures</h2>
         <p style={{ margin: '0 0 0.25rem', fontWeight: 600, fontSize: '0.875rem' }}>Must sign</p>
         <KeyList keys={view.requiredSigners} signed={signedSet} />
         {view.optionalSigned.length > 0 && (
@@ -307,7 +263,7 @@ export default function SigningPanel({ actionId, network }: SigningPanelProps) {
       {view.status === 'cancelled' && <Callout kind="info">This signing link was cancelled. {view.isInitiator ? CANCEL_NOTE : ''}</Callout>}
 
       {collecting && (
-        <section aria-label="Add your signature" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+        <section aria-label="Add your signature" style={stack}>
           <h2 style={{ fontSize: '1.0625rem', margin: 0 }}>Add your signature</h2>
           {walletPicker}
           {wallets.length > 0 && (
@@ -338,8 +294,8 @@ export default function SigningPanel({ actionId, network }: SigningPanelProps) {
       )}
 
       {collecting && view.canSubmit && (
-        <section aria-label="Submit" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--muted)' }}>Every required signature is collected. Submitting sends the transaction to the chain.</p>
+        <section aria-label="Submit" style={stack}>
+          <p style={muted}>Every required signature is collected. Submitting sends the transaction to the chain.</p>
           <button type="button" className="btn btn-primary" onClick={() => void submit()} disabled={busy} style={{ alignSelf: 'flex-start' }}>
             Submit transaction
           </button>
@@ -347,8 +303,8 @@ export default function SigningPanel({ actionId, network }: SigningPanelProps) {
       )}
 
       {view.isInitiator && collecting && (
-        <section aria-label="Cancel" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-          <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--muted)' }}>{CANCEL_NOTE}</p>
+        <section aria-label="Cancel" style={stack}>
+          <p style={muted}>{CANCEL_NOTE}</p>
           <button type="button" className="btn" onClick={() => void cancel()} disabled={busy} style={{ alignSelf: 'flex-start' }}>
             Cancel this signing link
           </button>
@@ -356,7 +312,7 @@ export default function SigningPanel({ actionId, network }: SigningPanelProps) {
       )}
 
       {view.isInitiator && view.status === 'cancelled' && (view.feeInputs?.length ?? 0) > 0 && !cancelledForReal && (
-        <section aria-label="Cancel for real" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+        <section aria-label="Cancel for real" style={stack}>
           {walletPicker}
           <button type="button" className="btn" onClick={() => void cancelForReal()} disabled={busy} style={{ alignSelf: 'flex-start' }}>
             Cancel for real
