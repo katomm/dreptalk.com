@@ -8,6 +8,7 @@ import { listListedGroups } from '@/lib/db/drepGroups.js';
 import { cacheControlForSynced, formatAda } from '@/lib/forum/view.js';
 import { GROUP_PAGE_SIZE } from '@/lib/groups/constants.js';
 import { drepGroupsAvailable } from '@/lib/groups/gate.js';
+import { sessionKeyHash } from '@/lib/auth/groupSigner.js';
 import { modeLabel, shortHash } from '@/lib/groups/view.js';
 
 const available = drepGroupsAvailable(currentNetwork().network);
@@ -19,6 +20,9 @@ const dot = afterParam?.indexOf('.') ?? -1;
 const after = afterParam && dot > 0 ? { power: afterParam.slice(0, dot), groupId: afterParam.slice(dot + 1) } : null;
 const groups = available && db ? await listListedGroups(db, after, GROUP_PAGE_SIZE) : [];
 const last = groups.length === GROUP_PAGE_SIZE ? groups[groups.length - 1] : null;
+// Signed-in pages are not cached, so the link can follow the session.
+const user = Astro.locals.user;
+const mayFound = !!user && user.roles.includes('drep') && sessionKeyHash(user) !== null;
 const nextHref = last ? `/groups/?after=${encodeURIComponent(`${last.memberPower}.${last.groupId}`)}` : null;
 if (available) {
   Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
@@ -34,6 +38,7 @@ if (available) {
     <nav class="gr-crumbs"><a href="/">DRepTalk</a><span>/</span><span>Groups</span></nav>
     <h1>DRep groups</h1>
     <p class="gr-intro">Groups record which DReps belong together, on chain under metadata label 8416. Open groups are self-declared, permissioned groups confirm every member. A group never votes, its members vote on their own. Groups with at least two members are listed, sorted by the voting power of their members.</p>
+    {mayFound && <p class="gr-found"><a class="btn" href="/groups/new/">Found a group</a></p>}
     {groups.length === 0 ? (
       <p class="gr-empty">No groups yet.</p>
     ) : (
@@ -58,6 +63,7 @@ if (available) {
   .gr-intro { color: var(--muted); max-width: 46rem; }
   .gr-pager { display: flex; gap: 1rem; margin-top: 1.5rem; font-size: 0.875rem; font-weight: 600; }
   .gr-empty { color: var(--muted); }
+  .gr-found { margin: 0 0 1.5rem; }
   .gr-list { list-style: none; padding: 0; display: grid; gap: 0.75rem; }
   .gr-item { display: flex; flex-direction: column; gap: 0.125rem; }
   .gr-meta { font-size: 0.875rem; color: var(--muted); }

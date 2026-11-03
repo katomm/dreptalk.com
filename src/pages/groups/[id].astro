@@ -95,6 +95,16 @@ const addressChecks = addresses
   .map((entry) => ({ entry, check: checkPaymentAddress(entry, 'testnet', treasury.scripts) }))
   .filter((a) => a.check.status !== 'invalid');
 
+// The public profile the admins' editor starts from.
+const editableProfile = profile
+  ? {
+      name: profile.name ?? '',
+      ...(profile.description ? { description: profile.description } : {}),
+      ...(website ? { website } : {}),
+      ...(charter ? { charter } : {}),
+      ...(profile.image ? { image: profile.image } : {}),
+    }
+  : null;
 const title = profile?.name ?? (group ? shortHash(group.groupId) : '');
 const noteText = statusNoteLabel(note);
 const indicator = !group
@@ -181,7 +191,7 @@ const nextQuery = (kind: keyof typeof SECTION_TITLE, after: string): string => {
       })}
       {/* The island reads the session's view itself, so this page stays cacheable. The anchor is server rendered so a link to the requests jumps on load. */}
       <div id="requests" class="gr-actions">
-        <GroupActions client:load groupId={group.groupId} network={net.network} />
+        <GroupActions client:load groupId={group.groupId} network={net.network} profile={editableProfile} />
       </div>
     </section>
 
