@@ -189,6 +189,21 @@ describe('GroupActions combined update offer', () => {
     expect(screen.queryByText(/of 5 must sign/)).toBeNull();
   });
 
+  it('names an applicant in the offer by the name of the request, which the policy names lack', async () => {
+    // The state route names the policy keys only, the applicant's name comes with the request.
+    const names = { [A]: 'Alice', [B]: 'Bob' };
+    show(
+      view({
+        names,
+        pending: [{ joinId: CAROL_JOIN, drepId: drep(C), name: 'Carol' }],
+        viewer: viewer(A, { joinId: `${'01'.repeat(32)}#1`, state: 'active' }),
+      }),
+    );
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Carol' }));
+    expect(screen.getAllByRole('checkbox', { name: 'Carol' })).toHaveLength(2);
+    expect(screen.getByText('Each newly listed admin has to sign the update: Carol.')).toBeTruthy();
+  });
+
   it('holds the offer back while another management action is open', async () => {
     show(
       view({

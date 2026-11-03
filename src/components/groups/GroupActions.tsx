@@ -133,12 +133,25 @@ export default function GroupActions({ groupId, network, profile = null }: Group
   const policyKeys = useMemo(() => new Set(v ? [...v.control.keys, ...(v.admission?.keys ?? [])] : []), [v]);
   const isAdmin = viewerKey !== null && policyKeys.has(viewerKey);
   const activeIds = useMemo(() => v?.activeKeyMembers.map((m) => m.drepId) ?? [], [v]);
+  // Applicants by key hash, the combined offer lists them before the policy names know them.
+  const pendingNames = useMemo(
+    () =>
+      new Map(
+        (v?.pending ?? []).flatMap((p) => {
+          const c = credentialForDrepId(p.drepId);
+          return c?.kind === 'key' && p.name ? [[c.hash.toLowerCase(), p.name] as const] : [];
+        }),
+      ),
+    [v],
+  );
   const nameOf = useCallback(
     (key: string) =>
       v?.names[key] ??
       addedNames.get(key) ??
-      v?.activeKeyMembers.find((m) => m.keyHash === key)?.name ?? shortHash(drepIdForCredential({ kind: 'key', hash: key })),
-    [v, addedNames],
+      v?.activeKeyMembers.find((m) => m.keyHash === key)?.name ??
+      pendingNames.get(key) ??
+      shortHash(drepIdForCredential({ kind: 'key', hash: key })),
+    [v, addedNames, pendingNames],
   );
   const current = useMemo(() => (state ? thresholdOf(state.control) : { n: 1, k: 1 }), [state]);
 
