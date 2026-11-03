@@ -14,8 +14,10 @@ import {
 import { activeCommitteeSizeAtBoundary, type CommitteeMemberTerm } from '../koios/committeeTimeline.js';
 import type { CommitteeMember } from '../koios/client.js';
 import { upsertVotes } from './drepVotes.js';
+import { epochStartUnix, resolveNetwork } from '../config/network.js';
 
 const db = () => env.DB;
+const mainnet = resolveNetwork('mainnet');
 
 describe('committee membership accessors', () => {
   // Start from an empty timeline so these accessor tests are independent of the
@@ -131,7 +133,7 @@ describe('recomputeCommitteePct', () => {
         .run();
     }
 
-    const res = await recomputeCommitteePct(db(), 641, 100);
+    const res = await recomputeCommitteePct(db(), 641, mainnet);
     expect(res.updated).toBe(1);
 
     const row = await db()
@@ -144,8 +146,70 @@ describe('recomputeCommitteePct', () => {
     expect(row?.cc_abstain).toBe(0);
 
     // Second pass is a no-op (only-changed).
-    const again = await recomputeCommitteePct(db(), 641, 100);
+    const again = await recomputeCommitteePct(db(), 641, mainnet);
     expect(again.updated).toBe(0);
+  });
+
+  // Seven seated members at the boundary to 643, all hot keys from the seed.
+  const seated = [
+    '68bb0b4276021f82364056aa9f4d38ba5ac59b26c166cbeaa9408746',
+    '84feba943c574d25984175cf8257959e6b3a1c64143d85e64fef6bd5',
+    '646d1b3ac94568a422b687db6c47acdf849f1674982ae4f9a494be43',
+    '4a8227024748d7ff9d52cb0ed38b715b8c41833ddfd13c0ddca93d76',
+    '71aa5b3a9240a02a89c4e2839579ec5eb60c410af0a5bb483e1b8f04',
+    '725d4d44499865071536d54674b080322bd366be15338db221807b31',
+    '64f97568e72ff7e0035b4bae7bb080a10ec6fae5c0f381ed40053a49',
+  ];
+  const insertAction = (id: string) =>
+    db()
+      .prepare(
+        `INSERT INTO governance_actions (id, type, title, status, decided_epoch, ratified_epoch, cc_yes_pct, cc_no_pct, cc_yes, cc_no, cc_abstain, created_at, last_synced_at)
+         VALUES (?, 'TreasuryWithdrawals', 'CC test', 'enacted', 644, 643, 87.5, 12.5, 7, 0, 0, 0, 0)`,
+      )
+      .bind(id)
+      .run();
+  const insertVote = (gaId: string, hk: string, vote: string, blockTime: number) =>
+    db()
+      .prepare(
+        `INSERT INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, block_time, synced_at)
+         VALUES (?, 'ConstitutionalCommittee', ?, ?, ?, ?, 0)`,
+      )
+      .bind(gaId, `cc_hot_${hk}`, hk, vote, blockTime)
+      .run();
+
+  it('counts only votes cast before the tally epoch, restoring a superseded in-time vote from the history', async () => {
+    const cutoff = epochStartUnix(643, mainnet);
+    await insertAction('lateVotes');
+    // Five members voted Yes in time.
+    for (const hk of seated.slice(0, 5)) await insertVote('lateVotes', hk, 'Yes', cutoff - 1000);
+    // The sixth voted Yes in time and changed to No during the tally epoch: the
+    // vote write archives the Yes into the history, and the Yes counts.
+    const sixth = { voterRole: 'ConstitutionalCommittee', voterId: `cc_hot_${seated[5]}`, voterHex: seated[5] };
+    await upsertVotes(db(), 'lateVotes', [{ ...sixth, vote: 'Yes', blockTime: cutoff - 500 }], 0);
+    await upsertVotes(db(), 'lateVotes', [{ ...sixth, vote: 'No', blockTime: cutoff + 1000 }], 0);
+    // The seventh first voted during the tally epoch: not counted.
+    await insertVote('lateVotes', seated[6], 'Yes', cutoff);
+
+    await recomputeCommitteePct(db(), 665, mainnet);
+    const row = await db()
+      .prepare('SELECT cc_yes_pct, cc_yes, cc_no, cc_abstain FROM governance_actions WHERE id = ?')
+      .bind('lateVotes')
+      .first<{ cc_yes_pct: number; cc_yes: number; cc_no: number; cc_abstain: number }>();
+    expect(row).toEqual({ cc_yes_pct: 85.71, cc_yes: 6, cc_no: 0, cc_abstain: 0 });
+  });
+
+  it('visits every action with committee votes, not only the first hundred', async () => {
+    const ids = Array.from({ length: 120 }, (_, i) => `many${String(i).padStart(3, '0')}`);
+    for (const id of ids) {
+      await insertAction(id);
+      for (const hk of seated) await insertVote(id, hk, 'Yes', 1);
+    }
+    const res = await recomputeCommitteePct(db(), 665, mainnet);
+    expect(res.updated).toBe(120);
+    const stale = await db()
+      .prepare("SELECT COUNT(*) AS n FROM governance_actions WHERE id LIKE 'many%' AND cc_yes_pct <> 100")
+      .first<{ n: number }>();
+    expect(stale?.n).toBe(0);
   });
 });
 

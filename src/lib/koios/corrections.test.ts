@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { CommitteeMemberTerm } from './committeeTimeline.js';
+import { epochStartUnix, resolveNetwork } from '../config/network.js';
+import { evaluateThresholds } from '../governance/thresholds.js';
+import type { ProtocolParams } from '../db/protocolParams.js';
 import {
   ccFinalVotesByMember,
   ccTallyPct,
@@ -138,6 +141,72 @@ describe('ccTallyPct', () => {
 
   it('is null when no committee is active at the epoch', () => {
     expect(ccTallyPct([], v3, new Map(), 700)).toEqual({ yesPct: null, noPct: null, yes: 0, no: 0, abstain: 0 });
+  });
+});
+
+describe('ccTallyPct with the vote cutoff of a decided action', () => {
+  // Real mainnet cases checked against the ledger. The committee of seven
+  // seated at both boundaries, keyed by hot key prefix for readability.
+  const hots = ['64f97568', '84feba94', '646d1b3a', '725d4d44', '71aa5b3a', '68bb0b42', '2ea7a78e'];
+  const members: CommitteeMemberTerm[] = hots.map((h) => ({
+    coldKeyHex: `cold_${h}`, versionFrom: 602, versionTo: null, termExpiration: 700, authorizedFrom: 507, resignedAt: null,
+  }));
+  const hotToCold = new Map(hots.map((h) => [h, `cold_${h}`]));
+  const mainnet = resolveNetwork('mainnet');
+
+  it('leaves out a vote cast during the tally epoch and keeps the exact 2/3 met (2f2fc253, T 620)', () => {
+    const cutoff = epochStartUnix(620, mainnet);
+    expect(cutoff).toBe(1774043091);
+    const votes: CcVote[] = [
+      { hotKeyHex: '64f97568', vote: 'Abstain', blockTime: 1771916313 },
+      { hotKeyHex: '84feba94', vote: 'Yes', blockTime: 1772061882 },
+      { hotKeyHex: '646d1b3a', vote: 'Yes', blockTime: 1772477421 },
+      { hotKeyHex: '725d4d44', vote: 'Yes', blockTime: 1773482211 },
+      { hotKeyHex: '71aa5b3a', vote: 'Yes', blockTime: 1773520698 },
+      { hotKeyHex: '68bb0b42', vote: 'Yes', blockTime: 1774062984 }, // inside epoch 620
+    ];
+    const t = ccTallyPct(votes, members, hotToCold, 620, cutoff);
+    expect(t).toEqual({ yesPct: 66.67, noPct: 33.33, yes: 4, no: 0, abstain: 1 });
+    // Without the cutoff it reads 5 of 6 counted seats, the stored value the ledger never saw.
+    expect(ccTallyPct(votes, members, hotToCold, 620).yesPct).toBe(83.33);
+
+    // Mainnet's committee threshold is exactly 2/3, so 66.67 clears 66.666...
+    const params = {
+      dvtTreasuryWithdrawal: 0.67, ccThreshold: 2 / 3, committeeMinSize: 7, committeeSize: 7,
+    } as ProtocolParams;
+    const cc = evaluateThresholds({ type: 'TreasuryWithdrawals', drepYesPct: null, spoYesPct: null, ccYesPct: t.yesPct }, params)
+      .find((r) => r.body === 'CC');
+    expect(cc?.met).toBe(true);
+  });
+
+  it('counts six of seven on fdd468da (T 643), never the Koios denominator of eight', () => {
+    const cutoff = epochStartUnix(643, mainnet);
+    const votes: CcVote[] = [
+      { hotKeyHex: '725d4d44', vote: 'Yes', blockTime: 1782304021 },
+      { hotKeyHex: '646d1b3a', vote: 'Yes', blockTime: 1783346333 },
+      { hotKeyHex: '84feba94', vote: 'Yes', blockTime: 1783378108 },
+      { hotKeyHex: '71aa5b3a', vote: 'Yes', blockTime: 1783572452 },
+      { hotKeyHex: '64f97568', vote: 'Yes', blockTime: 1783949204 },
+      { hotKeyHex: '68bb0b42', vote: 'Yes', blockTime: 1783977211 },
+      { hotKeyHex: '2ea7a78e', vote: 'Yes', blockTime: cutoff + 3600 }, // late vote, in db-sync only so far
+    ];
+    expect(ccTallyPct(votes, members, hotToCold, 643, cutoff)).toEqual({ yesPct: 85.71, noPct: 14.29, yes: 6, no: 0, abstain: 0 });
+  });
+
+  it('counts the in-time vote of a member who changed it during the tally epoch', () => {
+    const cutoff = 1000;
+    const votes: CcVote[] = [
+      { hotKeyHex: '84feba94', vote: 'Yes', blockTime: 900 }, // superseded row from the vote history
+      { hotKeyHex: '84feba94', vote: 'No', blockTime: 1100 }, // current row, cast too late
+    ];
+    expect(ccTallyPct(votes, members, hotToCold, 643, cutoff)).toMatchObject({ yes: 1, no: 0 });
+    // Without a cutoff the latest vote stands.
+    expect(ccTallyPct(votes, members, hotToCold, 643, null)).toMatchObject({ yes: 0, no: 1 });
+  });
+
+  it('keeps a vote without a block time, which cannot be placed on either side', () => {
+    const votes: CcVote[] = [{ hotKeyHex: '84feba94', vote: 'Yes', blockTime: null }];
+    expect(ccTallyPct(votes, members, hotToCold, 643, 1000)).toMatchObject({ yes: 1 });
   });
 });
 

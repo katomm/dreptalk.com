@@ -247,8 +247,10 @@ export function evaluateThresholds(input: ThresholdInput, p: ProtocolParams): Bo
 // Snapshot schema version. v1 (no `v` field): per-body threshold percentages.
 // v2: plus ccBelowMinSize, the frozen committee quorum gate. v3: the gate is
 // measured at the decision boundary (see decisionBoundaryEpoch) with its
-// provenance, plus the outcome check. Bumping it re-drives the backfill.
-export const THRESHOLD_SNAPSHOT_VERSION = 3;
+// provenance, plus the outcome check. v4: the outcome check judges the committee
+// share on the votes cast before the tally epoch. Bumping it
+// re-drives the backfill.
+export const THRESHOLD_SNAPSHOT_VERSION = 4;
 
 /** Where the frozen committee minimum came from: the parameters of the boundary epoch, or the live cache for an action still open. */
 export type CcMinSizeSource = 'epoch-params' | 'live';

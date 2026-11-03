@@ -369,11 +369,12 @@ export async function syncGovernanceTallies(deps: TallySyncDeps): Promise<TallyS
       // membership timeline covers the action's epoch, replace the raw cc_*
       // numbers with the same recompute the committee-pct phase runs, so a
       // tally pass never reverts an already recomputed action and the
-      // threshold check below judges the exact value. The quorum gate reads the
+      // threshold check below judges the exact value. Only votes cast before the
+      // boundary epoch count. The quorum gate reads the
       // boundary's parameters from Koios, independent of the tally, so both run
       // at once (the gate only matters once params are synced).
       const [ledgerCc, gate] = await Promise.all([
-        ledgerCcTally(db, committee, ga.id, ccBoundary),
+        ledgerCcTally(db, committee, ga.id, ccBoundary, cfg),
         params ? ccGateFor(decisionBoundaryEpoch(decision), committee.members, params, minSizeAt) : null,
       ]);
       if (ledgerCc) {
@@ -591,6 +592,8 @@ export interface ThresholdBackfillDeps {
   db: D1Database;
   /** Unix ms, the attempt clock of the retry window. */
   now: number;
+  /** Network, for the committee vote cutoff at the start of the boundary epoch. */
+  network: CardanoNetwork;
   limit?: number;
   paceMs?: number;
 }
@@ -654,7 +657,8 @@ async function ccGateFor(
  * rests for BACKFILL_RETRY_MS instead of heading the candidate set every tick.
  */
 export async function backfillThresholdSnapshots(deps: ThresholdBackfillDeps): Promise<ThresholdBackfillResult> {
-  const { koios, db, now, limit = DEFAULT_TALLY_LIMIT, paceMs = 0 } = deps;
+  const { koios, db, now, network, limit = DEFAULT_TALLY_LIMIT, paceMs = 0 } = deps;
+  const cfg = resolveNetwork(network);
   const candidates = await getActionsNeedingThresholdSnapshot(db, THRESHOLD_SNAPSHOT_VERSION, limit, now - BACKFILL_RETRY_MS);
   if (candidates.length === 0) return { actions: 0, failed: 0 };
 
@@ -678,7 +682,7 @@ export async function backfillThresholdSnapshots(deps: ThresholdBackfillDeps): P
       const boundary = decisionBoundaryEpoch(ga);
       const [gate, ledgerCc] = await Promise.all([
         ccGateFor(boundary, members, null, minSizeAt),
-        ledgerCcTally(db, committee, ga.id, boundary),
+        ledgerCcTally(db, committee, ga.id, boundary, cfg),
       ]);
       // A boundary whose minimum Koios did not return this time is a data gap,
       // not an answer: leave the row for a later run instead of freezing v3 on it.
