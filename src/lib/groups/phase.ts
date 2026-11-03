@@ -1,11 +1,12 @@
 /// <reference types="@cloudflare/workers-types" />
 // The DRep groups step of a governance tick. Under the lease it opens an operator truncation, checks
-// the library version and the power change queue, runs the ingest, the engine, the jobs and the profile
-// and website upkeep, each within what is left of one query allowance. The allowance is the smaller of
+// the library version and the power change queue, runs the ingest, the engine, the resolution of
+// DRepTalk's own group transactions and the join notifications, the jobs and the profile and website
+// upkeep, each within what is left of one query allowance. The allowance is the smaller of
 // the groups share and what the earlier phases of the invocation left, and the release of the lease is
 // reserved from it up front.
 import type { Recovery } from 'drep-groups';
-import { LeaseLostError, LIBRARY_VERSION, runEngine } from 'drep-groups';
+import { LeaseLostError, LIBRARY_VERSION, refKey, runEngine } from 'drep-groups';
 import type { CardanoNetwork } from '../config/network.js';
 import type { DedicatedGateway } from '../governance/metadata.js';
 import type { PhaseResult } from '../sync/runRecorder.js';
@@ -28,7 +29,17 @@ import {
 import type { Row } from './codec.js';
 import { checkLibraryVersion, type GroupsKoios, type IngestResult, ingestDrepGroups } from './ingest.js';
 import { enqueuePowerScan, type JobReport, runJobs } from './jobs.js';
+import { drainJoinNotifications, JOIN_NOTIFY_MAX_QUERIES } from './joinNotify.js';
 import { refreshGroupProfiles, verifyGroupWebsites } from './profile.js';
+import {
+  grouplessCost,
+  type ObservedResult,
+  RESOLVE_MAX_QUERIES,
+  resolveGroupActions,
+  trackedResults,
+  trackedResultsCost,
+  writeGrouplessOutcomes,
+} from './resolve.js';
 import { D1Store } from './store/d1Store.js';
 import { acquireLease, invocationOwner, releaseLease, writeBatch } from './store/lease.js';
 import { Q } from './store/queries.js';
@@ -47,6 +58,10 @@ export interface PhaseReport {
   jobs: JobReport | null;
   profiles: { fetched: number; failed: number };
   websites: { checked: number; verified: number };
+  /** Own group transactions resolved by outcomes and marked never included. */
+  resolved: { resolved: number; neverIncluded: number };
+  /** Join request notifications written. */
+  joins: { sent: number };
   /** Steps skipped because the allowance did not cover them. */
   starved: string[];
   queries: number;
@@ -105,6 +120,35 @@ export async function maintainProfiles(
   }
 }
 
+/**
+ * After the engine runs: outcomes of tracked refs without a group, then the resolver, then the join notification
+ * drain. The resolver waits for this tick's outcomes, a missing one would read as not applied.
+ */
+async function ownActions(ctx: PhaseContext, lease: string, phase: Allowance, report: PhaseReport, observed: ObservedResult[]): Promise<void> {
+  const { db, now } = ctx;
+  // The last verdict of each ref.
+  const results = [...new Map(observed.map((o) => [refKey(o.ref), o])).values()];
+  let outcomes = results.length === 0;
+  if (!outcomes && phase.covers(trackedResultsCost(results) + RELEASE_RESERVE_QUERIES)) {
+    const tracked = await trackedResults(db, results);
+    if (phase.covers(grouplessCost(tracked.length) + RELEASE_RESERVE_QUERIES)) {
+      await writeGrouplessOutcomes(db, lease, tracked, now);
+      outcomes = true;
+    }
+  }
+  if (!outcomes) starve(report.starved, 'outcomes');
+  if (outcomes && phase.covers(RESOLVE_MAX_QUERIES + RELEASE_RESERVE_QUERIES)) {
+    report.resolved = await resolveGroupActions({ db, lease, koios: ctx.koios, now });
+  } else {
+    starve(report.starved, 'resolve');
+  }
+  if (phase.covers(JOIN_NOTIFY_MAX_QUERIES + RELEASE_RESERVE_QUERIES)) {
+    report.joins = await drainJoinNotifications(db, lease, now);
+  } else {
+    starve(report.starved, 'joins');
+  }
+}
+
 async function work(ctx: PhaseContext, lease: string, phase: Allowance, report: PhaseReport): Promise<void> {
   const { db, now } = ctx;
   // One meta read serves the steps below, read again only after a step changed it.
@@ -123,16 +167,24 @@ async function work(ctx: PhaseContext, lease: string, phase: Allowance, report: 
   for (const s of ingest.starved) starve(report.starved, s);
 
   const store = new D1Store(db);
+  const observed: ObservedResult[] = [];
+  const observe = (r: ObservedResult): void => {
+    observed.push(r);
+  };
   let more = true;
   while (more && report.runs < MAX_ENGINE_RUNS_PER_TICK) {
     if (!phase.covers(RUN_MAX_QUERIES + RELEASE_RESERVE_QUERIES)) {
       starve(report.starved, 'engine');
       break;
     }
-    const r = await runEngine(store, ENGINE_BUDGET, lease);
+    const r = await runEngine(store, ENGINE_BUDGET, lease, { observe });
     report.runs++;
     more = r.more;
   }
+
+  // A recovery step in progress leaves outcomes and cursors half reset, the own steps wait until it is done.
+  report.recovery = phase.covers(1 + RELEASE_RESERVE_QUERIES) ? await pendingRecovery(db) : ingest.recovery;
+  if (report.recovery === null) await ownActions(ctx, lease, phase, report, observed);
 
   report.jobs = await runJobs(db, lease, {
     maxRows: MAX_JOB_ROWS_PER_RUN,
@@ -142,8 +194,6 @@ async function work(ctx: PhaseContext, lease: string, phase: Allowance, report: 
   if (report.jobs.skipped === 'budget') starve(report.starved, 'jobs');
 
   await maintainProfiles({ db, lease, fetchImpl: ctx.fetchImpl ?? fetch, gateway: ctx.gateway, network: ctx.network, now }, phase, report);
-
-  report.recovery = phase.covers(1 + RELEASE_RESERVE_QUERIES) ? await pendingRecovery(db) : ingest.recovery;
 }
 
 function log(r: PhaseReport): void {
@@ -153,7 +203,8 @@ function log(r: PhaseReport): void {
     `[drep-groups] lease=${r.lease} txs=${i?.newTxs ?? 0} markers=${i?.markers ?? 0} ledger=${i?.newLedgerRows ?? 0}` +
       ` tracked=${i?.tracked ?? 0} gate=${i?.gateChecked ?? 0} witness=${i?.witnessChecks ?? 0} probing=${i?.probing ?? false}` +
       ` runs=${r.runs} recovery=${recovery} jobs=${r.jobs?.pages ?? 0} profiles=${r.profiles.fetched}/${r.profiles.failed}` +
-      ` websites=${r.websites.checked}/${r.websites.verified} starved=${r.starved.join(',') || 'none'} queries=${r.queries}`,
+      ` websites=${r.websites.checked}/${r.websites.verified} resolved=${r.resolved.resolved}/${r.resolved.neverIncluded}` +
+      ` joins=${r.joins.sent} starved=${r.starved.join(',') || 'none'} queries=${r.queries}`,
   );
 }
 
@@ -169,6 +220,8 @@ export async function runDrepGroupsPhase(ctx: PhaseContext): Promise<PhaseReport
     jobs: null,
     profiles: { fetched: 0, failed: 0 },
     websites: { checked: 0, verified: 0 },
+    resolved: { resolved: 0, neverIncluded: 0 },
+    joins: { sent: 0 },
     starved: [],
     queries: 0,
   };

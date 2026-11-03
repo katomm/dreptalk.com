@@ -2,7 +2,7 @@
 // The DRep groups sync phase: lease, query allowance and the order of its steps, against a fake Koios.
 import { env } from 'cloudflare:test';
 import type { Credential } from 'drep-groups';
-import { LIBRARY_VERSION } from 'drep-groups';
+import { hexToBytes, LIBRARY_VERSION } from 'drep-groups';
 import { describe, expect, it, vi } from 'vitest';
 import { blake2b256 } from '../crypto/blake.js';
 import { bytesToHex } from '../crypto/hex.js';
@@ -139,6 +139,28 @@ function siteFetch(): typeof fetch {
       : new Response(docBytes, { status: 200, headers: { 'content-type': 'application/json' } }),
   ) as unknown as typeof fetch;
 }
+
+/** A tracked group transaction of DRepTalk, its tx hash as body hash. */
+async function tracked(id: string, body: string, events: number): Promise<void> {
+  await real
+    .prepare(
+      `INSERT INTO pending_multisig_tx (id, drep_id, action, action_params, unsigned_tx_cbor, body_hash, native_script, status,
+         created_by, created_at, expires_at, subject_kind, event_count, invalid_hereafter, control_slot)
+       VALUES (?, 'g1', 'group_update', '{}', '00', ?, '{}', 'submitted', 'u1', 1, 2, 'group', ?, 1000000, 0)`,
+    )
+    .bind(id, body, events)
+    .run();
+}
+const resolution = (id: string): Promise<Row> =>
+  one('SELECT resolution, resolved_h, never_included_at FROM pending_multisig_tx WHERE id = ?', id);
+const groupRef = { txHash: T(1), index: 0 };
+const refCbor = (r: { txHash: string; index: number }) => [hexToBytes(r.txHash), r.index];
+const controlTx = (hash: string, height: number, events: Parameters<typeof payloadValue>[0], scripts: Uint8Array[] = []): FakeTx => ({
+  hash,
+  height,
+  index: 0,
+  cbor: txCbor({ payload: payloadValue(events, scripts), requiredSigners: [CONTROL] }),
+});
 
 const dueCount = (kind: string, now: number): Promise<number> =>
   count('SELECT COUNT(*) AS n FROM drep_group_due WHERE kind = ? AND due_at <= ?', kind, now);
@@ -339,6 +361,46 @@ describe('runDrepGroupsPhase', () => {
     expect(seen).not.toContain(Q.leaseRelease.sql);
     expect(await leaseRow()).toMatchObject({ owner: 'other', token: 'stolen' });
     expect(await count('SELECT COUNT(*) AS n FROM drep_group_txs')).toBe(0);
+  });
+
+  it('resolves a create, a dissolve and an update made stale by a foreign update', async () => {
+    const changes = new Map([[0, hexToBytes(control.hash)]]);
+    const chain: Chain = {
+      tip: 200,
+      txs: [
+        controlTx(T(1), 100, [ev.create(control.hash)], [control.bytes]),
+        controlTx(T(2), 101, [ev.update(groupRef, 0, changes)]),
+        controlTx(T(3), 102, [ev.update(groupRef, 0, changes)]),
+        controlTx(T(4), 103, [[2, refCbor(groupRef), 1]]),
+      ],
+      regs: [],
+    };
+    await tracked('create', T(1), 1);
+    await tracked('stale', T(3), 1);
+    await tracked('dissolve', T(4), 1);
+    const r = await run({ chain });
+    expect(r.resolved).toEqual({ resolved: 3, neverIncluded: 0 });
+    expect(await resolution('create')).toMatchObject({ resolution: 'applied', resolved_h: 100 });
+    expect(await resolution('stale')).toMatchObject({ resolution: 'failed', resolved_h: 102 });
+    expect(await resolution('dissolve')).toMatchObject({ resolution: 'applied', resolved_h: 103 });
+    expect(await one('SELECT valid, reason FROM drep_group_own_outcomes WHERE tx_hash = ?', T(3))).toEqual({ valid: 0, reason: 'stale seq' });
+  });
+
+  it('writes groupless outcomes for an orphan approve', async () => {
+    const chain: Chain = {
+      tip: 200,
+      txs: [controlTx(T(1), 100, [ev.create(control.hash), ev.approve({ txHash: T(0x77), index: 0 })], [control.bytes])],
+      regs: [],
+    };
+    await tracked('orphan', T(1), 2);
+    await run({ chain });
+    const outcomes = await all('SELECT idx, valid, reason, at_h FROM drep_group_own_outcomes WHERE tx_hash = ? ORDER BY idx', T(1));
+    expect(outcomes).toHaveLength(2);
+    expect(outcomes[0]).toMatchObject({ idx: 0, valid: 1, at_h: 100 });
+    expect(outcomes[1]).toMatchObject({ idx: 1, valid: 0, at_h: 100 });
+    expect(outcomes[1].reason).not.toBeNull();
+    expect(outcomes[1].reason).not.toBe('no verdict recorded');
+    expect(await resolution('orphan')).toMatchObject({ resolution: 'partial', resolved_h: 100 });
   });
 
   it('releases the lease and rethrows when a step fails', async () => {

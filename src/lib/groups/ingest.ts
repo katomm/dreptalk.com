@@ -67,6 +67,9 @@ export type GroupsKoios = Pick<
   | 'drepRegistrationsForMany'
   | 'blockAt'
   | 'knownDrepIds'
+  | 'firstBlockAfterSlot'
+  | 'txStatus'
+  | 'utxoInfo'
 >;
 
 export interface IngestResult {

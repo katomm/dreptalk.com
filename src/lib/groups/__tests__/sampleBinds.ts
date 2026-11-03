@@ -10,6 +10,8 @@ import {
   JOB,
   JOB_TRAILING,
   JOB_WIDTH,
+  OWN,
+  OWN_WIDTH,
   PHASE_ORDER,
   PHASE_PARTS,
   phaseProbes,
@@ -166,4 +168,10 @@ export const Q_SAMPLE_BINDS: Readonly<Record<keyof typeof Q, unknown[]>> = Objec
       Array.from({ length: JOB_WIDTH[k] + (JOB_TRAILING[k] ?? 0) }, () => 0),
     ]),
   ) as Record<`job_${keyof typeof JOB}`, unknown[]>),
+  ...(Object.fromEntries(
+    (Object.keys(OWN) as Array<keyof typeof OWN>).map((k) => [`own_${k}`, Array.from({ length: OWN_WIDTH[k] }, () => 0)]),
+  ) as Record<`own_${keyof typeof OWN}`, unknown[]>),
+  resolveOpen: [10],
+  resolveNeverIncluded: [10],
+  joinNotifyPage: [10],
 });

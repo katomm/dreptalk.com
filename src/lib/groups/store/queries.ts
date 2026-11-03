@@ -965,6 +965,57 @@ const JOB_Q = {
   },
 } satisfies Record<string, RegisteredQuery>;
 
+// A stored tx the engine has fully processed: the group cursor is past the tx end and every credential plane event
+// of the tx is at or below its subject's applied cursor, both inclusive. An event of a subject without a tracked
+// cursor is not processed. Needs the tx row as `t` and the meta row as `m`, `tx` is the stored tx hash.
+const processedSql = (tx: string): string => `(t.tx_hash IS NOT NULL
+    AND (m.G_h, m.G_ti, m.G_ph, m.G_ix) >= (t.block_height, t.tx_index, 2, ${MAX})
+    AND NOT EXISTS (SELECT 1 FROM drep_group_queue q LEFT JOIN drep_group_tracked c ON c.cred = q.subject
+      WHERE q.tx_hash = ${tx} AND (c.applied_h IS NULL
+        OR (c.applied_h, c.applied_ti, c.applied_ph, c.applied_ix) < (q.at_h, q.at_ti, q.at_ph, q.at_ix))))`;
+
+// Statements of the resolver and the join notification drain over a VALUES list of rows, built per chunk length.
+// The signing table and the outcomes keep hex text, the engine tables BLOBs, so a tx is bound in both forms.
+export const OWN = Object.freeze({
+  // Binds the stored hash and the hex of each tx. Its height, whether it is processed, and its valid outcomes.
+  txProgress: (n: number) => `WITH k(tx, hx) AS (VALUES ${values(2, n)})
+    SELECT k.hx AS hx, t.block_height AS h, ${processedSql('k.tx')} AS processed,
+      (SELECT COUNT(*) FROM drep_group_own_outcomes o WHERE o.tx_hash = k.hx AND o.valid = 1) AS valid
+    FROM k LEFT JOIN drep_group_txs t ON t.tx_hash = k.tx LEFT JOIN drep_group_meta m ON m.id = 1`,
+  // Binds tx hex. The txs a signing row tracks.
+  trackedTxs: (n: number) => `WITH k(hx) AS (VALUES ${values(1, n)})
+    SELECT k.hx AS hx FROM k WHERE EXISTS (SELECT 1 FROM pending_multisig_tx p WHERE p.body_hash = k.hx)`,
+  // Verdicts the commit does not write, those without a group, at the height of the stored tx. A stored outcome
+  // stays as it is.
+  insertGrouplessOutcomes: (n: number) => `WITH k(hx, tx, ix, valid, reason, now) AS (VALUES ${values(6, n)})
+    INSERT INTO drep_group_own_outcomes (tx_hash, idx, valid, reason, at_h, written_at)
+    SELECT k.hx, k.ix, k.valid, k.reason, t.block_height, k.now FROM k JOIN drep_group_txs t ON t.tx_hash = k.tx
+    WHERE EXISTS (SELECT 1 FROM pending_multisig_tx p WHERE p.body_hash = k.hx)
+    ON CONFLICT (tx_hash, idx) DO NOTHING`,
+  // The resolution columns of signing rows. An open row takes any write, a resolved one only a resolution by the
+  // engine (a height) over never included.
+  resolveRows: (n: number) => `WITH k(id, res, at, h, ni, spent) AS (VALUES ${values(6, n)})
+    UPDATE pending_multisig_tx SET resolution = k.res, resolved_at = k.at, resolved_h = k.h, never_included_at = k.ni,
+      spent_seen_h = k.spent
+    FROM k WHERE pending_multisig_tx.id = k.id
+      AND (pending_multisig_tx.resolved_at IS NULL OR (k.h IS NOT NULL AND pending_multisig_tx.never_included_at IS NOT NULL))`,
+  // Binds DRep ids. The active accounts of those DReps.
+  notifyUsers: (n: number) => `WITH k(drep) AS (VALUES ${values(1, n)})
+    SELECT u.id, u.drep_id FROM k JOIN users u ON u.drep_id = k.drep WHERE u.status = 'active'`,
+  deleteJoinNotify: (n: number) => `DELETE FROM drep_group_join_notify WHERE (join_tx, join_ix) IN (VALUES ${values(2, n)})`,
+});
+
+export const OWN_WIDTH: Readonly<Record<keyof typeof OWN, number>> = Object.freeze({
+  txProgress: 2,
+  trackedTxs: 1,
+  insertGrouplessOutcomes: 6,
+  resolveRows: 6,
+  notifyUsers: 1,
+  deleteJoinNotify: 2,
+});
+
+const RESOLVE_COLS = 'id, body_hash, status, event_count, invalid_hereafter, fee_inputs, spent_seen_h, never_included_at';
+
 const END_G = `G_h = ?, G_ti = ?, G_ph = ?, G_ix = ?, G_tx = ?`;
 const RESET_G = `G_h = -1, G_ti = ${MAX}, G_ph = 2, G_ix = ${MAX}, G_tx = X''`;
 
@@ -1186,6 +1237,37 @@ export const Q = Object.freeze({
   ...(Object.fromEntries(
     (Object.keys(JOB) as Array<keyof typeof JOB>).map((k) => [`job_${k}`, { sql: JOB[k](1) }]),
   ) as Record<`job_${keyof typeof JOB}`, RegisteredQuery>),
+  ...(Object.fromEntries(
+    (Object.keys(OWN) as Array<keyof typeof OWN>).map((k) => [`own_${k}`, { sql: OWN[k](1) }]),
+  ) as Record<`own_${keyof typeof OWN}`, RegisteredQuery>),
+  // Binds the limit. Open group rows, the oldest expiry first.
+  resolveOpen: {
+    sql: `SELECT ${RESOLVE_COLS} FROM pending_multisig_tx WHERE subject_kind != 'drep' AND resolved_at IS NULL
+          ORDER BY invalid_hereafter LIMIT ?`,
+    boundedScan: 'pending_multisig_tx_unresolved',
+  },
+  // Binds the limit. Rows resolved as never included, the newest first.
+  resolveNeverIncluded: {
+    sql: `SELECT ${RESOLVE_COLS} FROM pending_multisig_tx WHERE never_included_at IS NOT NULL
+          ORDER BY never_included_at DESC LIMIT ?`,
+    boundedScan: 'pending_multisig_tx_never_included',
+  },
+  // Binds the limit. The oldest queued join requests with their instance, group policy, names and whether the join
+  // tx is processed.
+  joinNotifyPage: {
+    sql: `SELECT n.join_tx, n.join_ix, i.join_tx AS i_tx, i.group_tx, i.group_ix, i.approved_h, i.closed_h, i.eff_h,
+            s.bytes AS policy, p.name AS group_name, d.name AS member_name, ${processedSql('n.join_tx')} AS processed
+          FROM drep_group_join_notify n
+          LEFT JOIN drep_group_txs t ON t.tx_hash = n.join_tx
+          LEFT JOIN drep_group_meta m ON m.id = 1
+          LEFT JOIN drep_group_instances i ON i.join_tx = n.join_tx AND i.join_ix = n.join_ix
+          LEFT JOIN drep_groups g ON g.group_tx = i.group_tx AND g.group_ix = i.group_ix
+          LEFT JOIN drep_group_scripts s ON s.hash = COALESCE(g.admission, g.control)
+          LEFT JOIN drep_group_profiles p ON p.group_tx = i.group_tx AND p.group_ix = i.group_ix
+          LEFT JOIN dreps d ON d.drep_id = i.drep_id
+          ORDER BY n.join_h, n.rowid LIMIT ?`,
+    boundedScan: 'drep_group_join_notify_h',
+  },
   // Binds now and the limit. The oldest due profile rows with their group's anchor.
   profileDuePage: { sql: PROFILE_DUE_PAGE },
   // Binds now and the limit, the same page as profileDuePage. Drops its stale rows.

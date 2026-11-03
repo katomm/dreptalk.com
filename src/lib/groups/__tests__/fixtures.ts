@@ -53,6 +53,10 @@ export interface Chain {
   hashAt?: (h: number) => string | null;
   /** Tx hashes txCborBatch leaves out. */
   leaveOut?: Set<string>;
+  /** Tx hashes txStatus knows besides the chain's txs at or below the tip. */
+  known?: Set<string>;
+  /** UTxO refs (`hash#index`) utxoInfo reports spent, every other ref is unspent. */
+  spent?: Set<string>;
 }
 
 export type FakeKoios = GroupsKoios & { calls: string[] };
@@ -78,7 +82,26 @@ export function fakeKoios(chain: Chain): FakeKoios {
     calls,
     async tip() {
       calls.push('tip');
-      return { block_no: chain.tip } as Awaited<ReturnType<GroupsKoios['tip']>>;
+      return { block_no: chain.tip, abs_slot: blockTime(chain.tip), epoch_no: 0 };
+    },
+    // One block per height, its slot is its time.
+    async firstBlockAfterSlot(slot) {
+      calls.push(`after:${slot}`);
+      const h = Math.floor(slot / 20) + 1;
+      return h <= chain.tip ? { height: h, slot: blockTime(h) } : null;
+    },
+    async txStatus(hashes) {
+      calls.push(`status:${hashes.length}`);
+      return new Map(
+        hashes.map((h) => {
+          const t = chain.txs.find((x) => x.hash === h && x.height <= chain.tip);
+          return [h, t ? chain.tip - t.height + 1 : chain.known?.has(h) ? 1 : null];
+        }),
+      );
+    },
+    async utxoInfo(refs) {
+      calls.push(`utxo:${refs.length}`);
+      return refs.map((r) => ({ ...r, address: 'addr_test1x', isSpent: chain.spent?.has(`${r.txHash}#${r.index}`) ?? false }));
     },
     async txByMetalabel(_label, after, limit, offset) {
       calls.push(`label:${after}:${offset ?? 0}`);

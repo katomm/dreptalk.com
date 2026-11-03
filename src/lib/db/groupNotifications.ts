@@ -14,7 +14,7 @@ export interface GroupNotification {
 
 // id, recipient_id, type, event_key, payload per row.
 const BINDS_PER_ROW = 5;
-const ROWS_PER_STATEMENT = Math.floor(D1_MAX_BINDS / BINDS_PER_ROW);
+export const ROWS_PER_STATEMENT = Math.floor(D1_MAX_BINDS / BINDS_PER_ROW);
 
 /** Insert statements for the rows, chunked under the bind limit, for callers that batch them with other writes. */
 export function groupNotificationStatements(db: D1Database, rows: GroupNotification[]): D1PreparedStatement[] {
