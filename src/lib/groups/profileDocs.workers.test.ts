@@ -114,4 +114,21 @@ describe('profile documents', () => {
     expect((await gcProfileDocs(db, NOW)).deleted).toBe(200);
     expect((await gcProfileDocs(db, NOW)).deleted).toBe(30);
   });
+
+  it('keeps a document that is posted again between the candidate read and the delete', async () => {
+    await put(hex('a'));
+    const real = db.batch.bind(db);
+    let first = true;
+    const racing = Object.create(db) as D1Database;
+    racing.prepare = db.prepare.bind(db);
+    racing.batch = (async (stmts: D1PreparedStatement[]) => {
+      if (!first) return real(stmts);
+      first = false;
+      const out = await real(stmts);
+      await put(hex('a'), NOW);
+      return out;
+    }) as D1Database['batch'];
+    expect((await gcProfileDocs(racing, NOW)).deleted).toBe(1);
+    expect(await exists(hex('a'))).toBe(true);
+  });
 });

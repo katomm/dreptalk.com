@@ -25,7 +25,7 @@ describe('GET /group-profile/[hash].json', () => {
   it('answers 404 for an unknown or malformed hash', async () => {
     expect((await get('b'.repeat(64))).status).toBe(404);
     expect((await get('xyz')).status).toBe(404);
-    expect((await get('A'.repeat(63))).status).toBe(404);
+    expect((await get('A'.repeat(64))).status).toBe(404);
   });
 
   it('answers 404 off preprod', async () => {

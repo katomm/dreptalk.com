@@ -10,7 +10,7 @@ const HASH_RE = /^[0-9a-f]{64}$/;
 
 export const GET: APIRoute = async ({ params, locals }) => {
   if (!drepGroupsAvailable(currentNetwork().network)) return new Response('Not found', { status: 404 });
-  const hash = (params.hash ?? '').toLowerCase();
+  const hash = params.hash ?? '';
   if (!HASH_RE.test(hash)) return new Response('Not found', { status: 404 });
   const db = runtimeEnv(locals as App.Locals).DB as D1Database | undefined;
   if (!db) return new Response('service unavailable', { status: 503 });

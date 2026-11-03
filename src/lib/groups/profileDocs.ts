@@ -132,7 +132,7 @@ export async function gcProfileDocs(db: D1Database, now: number): Promise<{ dele
     const doomed = results.filter((r) => !refd.has(r.hash)).slice(0, GC_MAX_DELETES - deleted);
     if (doomed.length > 0) {
       await db.batch(
-        doomed.map((r) => db.prepare('DELETE FROM drep_group_profile_docs WHERE hash = ? AND anchored = 0').bind(r.hash)),
+        doomed.map((r) => db.prepare('DELETE FROM drep_group_profile_docs WHERE hash = ? AND anchored = 0 AND created_at < ?').bind(r.hash, cutoff)),
       );
       deleted += doomed.length;
     }

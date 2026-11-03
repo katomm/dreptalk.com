@@ -64,9 +64,10 @@ function voteCtx(opts: { hourly?: boolean; avatars?: boolean } = {}): VoteSyncCo
   };
 }
 
-function drepCtx(opts: { avatars?: boolean } = {}): DrepSyncContext {
+function drepCtx(opts: { avatars?: boolean; network?: CardanoNetwork } = {}): DrepSyncContext {
   return {
     ...core,
+    cfg: { network: opts.network ?? 'preprod' } as NetworkConfig,
     avatars: opts.avatars === false ? null : R2_STUB,
     downscale: undefined,
     state: initialDrepSyncState(),
@@ -201,6 +202,11 @@ describe('votePhases', () => {
 describe('drepPhases', () => {
   it('reaches every registered phase with the R2 binding', () => {
     expect(activePhaseNames(drepPhases, drepCtx())).toEqual(drepPhases.map((d) => d.name));
+  });
+
+  it('runs the group profile cleanup on preprod only', () => {
+    expect(activePhaseNames(drepPhases, drepCtx({ network: 'preprod' }))).toContain('group-profile-docs-gc');
+    expect(activePhaseNames(drepPhases, drepCtx({ network: 'mainnet' }))).not.toContain('group-profile-docs-gc');
   });
 
   it('skips the R2-backed avatar phase when the binding is missing', () => {
