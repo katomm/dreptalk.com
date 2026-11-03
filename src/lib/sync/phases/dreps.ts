@@ -11,6 +11,7 @@ import { runDrepStatsDigest } from '../../db/drepStatsDigest.js';
 import { backfillVoteHistorySweep } from '../../governance/voteHistoryBackfill.js';
 import { syncCurrentEpochStats, backfillEpochStats } from '../../analytics/epochStatsSync.js';
 import { getFollowedDrepIds } from '../../db/delegatorFollows.js';
+import { gcProfileDocs } from '../../groups/profileDocs.js';
 import { pruneNotifications } from '../../db/notificationRetention.js';
 import {
   listCohortCandidates,
@@ -324,6 +325,16 @@ export const drepPhases: readonly SyncPhaseDef<DrepSyncContext>[] = [
       if (r.deleted > 0 || r.capped) {
         console.log(`[notification-retention] deleted=${r.deleted} batches=${r.batches} capped=${r.capped}`);
       }
+      return { items: r.deleted };
+    },
+  },
+  {
+    // Hosted group profile documents that no chain transaction or open signature collection
+    // references go after a grace period. Runs with the 6-hourly phases, capped per run.
+    name: 'group-profile-docs-gc',
+    run: async (ctx) => {
+      const r = await gcProfileDocs(ctx.db, Date.now());
+      if (r.deleted > 0) console.log(`[group-profile-docs-gc] deleted=${r.deleted}`);
       return { items: r.deleted };
     },
   },
