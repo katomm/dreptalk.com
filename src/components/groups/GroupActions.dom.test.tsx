@@ -20,7 +20,7 @@ vi.mock('@/lib/wallet/useCardanoWallets.js', () => ({
 }));
 vi.mock('@/lib/wallet/networkGuard.js', () => ({ assertWalletNetwork: async () => {} }));
 const buildGroupTx = vi.fn(async (_o: unknown) => ({ unsignedTxHex: '84aa', bodyHashHex: 'c'.repeat(64) }));
-vi.mock('@/lib/groups/groupTx.js', () => ({ buildGroupTx: (o: unknown) => buildGroupTx(o), wallClockSlot: () => 1_000_000 }));
+vi.mock('@/lib/groups/groupTx.js', () => ({ buildGroupTx: (o: unknown) => buildGroupTx(o), wallClockSlot: () => 1_000_900 }));
 
 import GroupActions, { type GroupActionView } from './GroupActions.js';
 
@@ -49,6 +49,7 @@ function view(o: Partial<GroupActionView> = {}): GroupActionView {
     mode: 'permissioned',
     status: 'active',
     seq: '0',
+    serverSlot: 1_000_000,
     control,
     admission: control,
     names: NAMES,
@@ -110,11 +111,15 @@ describe('GroupActions buttons by role', () => {
   });
 
   it('lets a pending member leave and says leaving is always possible', async () => {
-    show(view({ viewer: viewer(C, { joinId: CAROL_JOIN, state: 'pending' }), rows: [{ id: 'r1', kind: 'group_leave', status: 'collecting' }] }));
+    show(view({ viewer: viewer(C, { joinId: CAROL_JOIN, state: 'pending' }) }));
     expect(await screen.findByRole('button', { name: 'Leave' })).toBeTruthy();
     expect(screen.getByText(/Leaving is always possible with your own signature, also while your request is pending/)).toBeTruthy();
     expect(screen.queryByRole('button', { name: /join/i })).toBeNull();
-    // Own rows are shown with their signing page.
+    cleanup();
+    // While the own leave is open it is shown with its signing page and Leave is not offered again.
+    show(view({ viewer: viewer(C, { joinId: CAROL_JOIN, state: 'pending' }), rows: [{ id: 'r1', kind: 'group_leave', status: 'collecting' }] }));
+    expect(await screen.findByText(/Leave: collecting signatures/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Leave' })).toBeNull();
     expect(screen.getByText(/Leave: collecting signatures/)).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Open the signing page' }).getAttribute('href')).toBe('/groups/sign/r1/');
   });
@@ -129,6 +134,36 @@ describe('GroupActions buttons by role', () => {
     show(view({ pending, viewer: viewer(D, { joinId: `${'02'.repeat(32)}#1`, state: 'active' }) }));
     expect(await screen.findByRole('button', { name: 'Leave' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
+  });
+});
+
+describe('GroupActions initiation rules', () => {
+  const separate = { control: policy([A], 1), admission: policy([B], 1), activeKeyMembers: [member(A), member(B)] };
+  const carol = [{ joinId: CAROL_JOIN, drepId: drep(C), name: 'Carol' }];
+
+  it('lets a control only key approve just with the update, and not remove', async () => {
+    show(view({ ...separate, pending: carol, viewer: viewer(A, { joinId: `${'01'.repeat(32)}#1`, state: 'active' }) }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Carol' }));
+    expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull();
+    expect(screen.queryByRole('checkbox', { name: /Also update the management policy/ })).toBeNull();
+    expect(screen.getByText(/only together with an update/)).toBeTruthy();
+    expect(screen.getByText(/2 of 2 must sign/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Approve' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('gives an admission only key approve and remove but no policy update', async () => {
+    show(
+      view({
+        ...separate,
+        activeKeyMembers: [member(A), member(B), member(C)],
+        pending: [{ joinId: `${'40'.repeat(32)}#0`, drepId: drep(D), name: 'Dave' }],
+        viewer: viewer(B, { joinId: `${'02'.repeat(32)}#1`, state: 'active' }),
+      }),
+    );
+    expect(await screen.findByRole('button', { name: 'Approve' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Remove' })).toBeTruthy();
+    expect(screen.getByText(/still managed by/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Update the policy' })).toBeNull();
   });
 });
 
@@ -178,6 +213,17 @@ describe('GroupActions drift notice', () => {
     expect(screen.queryByRole('button', { name: 'Update the policy' })).toBeNull();
   });
 
+  it('shows no notice to a pending request', async () => {
+    show(view({ ...drifted, viewer: viewer(D, { joinId: `${'40'.repeat(32)}#0`, state: 'pending' }) }));
+    expect(await screen.findByRole('button', { name: 'Leave' })).toBeTruthy();
+    expect(screen.queryByText(/still managed by/)).toBeNull();
+  });
+
+  it('names admins who are no longer members also next to members outside the policy', async () => {
+    show(view({ activeKeyMembers: [member(A), member(C)], viewer: viewer(A, { joinId: `${'01'.repeat(32)}#1`, state: 'active' }) }));
+    expect(await screen.findByText('The group is still managed by: Alice, Bob. Members not in the policy: Carol. No longer members: Bob.')).toBeTruthy();
+  });
+
   it('gives admins the button, pre-filled with every active key member', async () => {
     show(view({ ...drifted, viewer: viewer(A, { joinId: `${'01'.repeat(32)}#1`, state: 'active' }) }));
     expect(await screen.findByText(TEXT)).toBeTruthy();
@@ -222,8 +268,11 @@ describe('GroupActions building', () => {
     await waitFor(() => expect(submitTx).toHaveBeenCalledWith('84bb'));
     expect(screen.getByText(/shows as confirming/)).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Build and sign' })).toBeNull();
-    const built = buildGroupTx.mock.calls[0][0] as { requiredSigners: string[] };
+    const built = buildGroupTx.mock.calls[0][0] as { requiredSigners: string[]; tipSlot: number };
     expect(built.requiredSigners).toEqual([C]);
+    // The browser clock runs 15 minutes fast, the validity end follows the server's slot.
+    expect(built.tipSlot).toBeGreaterThanOrEqual(1_000_000);
+    expect(built.tipSlot).toBeLessThanOrEqual(1_000_000 + 600);
     expect(signTx).toHaveBeenCalledWith('84aa', true);
     const post = calls.find((c) => c.url.endsWith('/api/groups/actions'));
     expect(post?.body).toMatchObject({ intent: { kind: 'group_join', group: GID, member: drep(C) }, unsignedTxCbor: '84aa', selected: [] });

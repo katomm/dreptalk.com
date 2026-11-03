@@ -16,6 +16,7 @@ import {
   type GroupIntent,
   type GroupState,
   IntentError,
+  mayInitiate,
   moreThanHalf,
   neededKeys,
   proposeDrift,
@@ -48,6 +49,8 @@ export interface GroupActionView {
   mode: 'open' | 'permissioned';
   status: 'active' | 'dissolved';
   seq: string;
+  /** The server's wall clock slot when the state was read, the client clock may be off. */
+  serverSlot: number;
   control: PolicyView;
   admission: PolicyView | null;
   /** DRep names by key hash. */
@@ -69,6 +72,8 @@ const JOIN_PERMISSIONED_NOTE = 'Membership in this group is confirmed by the gro
 const LEAVE_NOTE = 'Leaving is always possible with your own signature, also while your request is pending.';
 const LEAVE_WARNING =
   'If you leave, the remaining members in the management policy can no longer reach its threshold. You can update the policy first. Leaving stays possible either way.';
+// A join reference standing for any request, mayInitiate does not read it.
+const ANY_JOIN = `${'0'.repeat(64)}#0`;
 const SLOT_HELD = 'Another management action is open, so the policy cannot be changed until it is resolved or expires.';
 
 const muted = { color: 'var(--muted)', fontSize: '0.875rem', margin: 0 } as const;
@@ -203,6 +208,7 @@ type Outcome = { link: string } | { submitted: string } | { slotTaken: string | 
 export default function GroupActions({ groupId, network }: GroupActionsProps) {
   const { wallets, selected: walletKey, setSelected: setWalletKey } = useCardanoWallets({ preferCip95: true });
   const apiRef = useRef<EnabledWalletApi | null>(null);
+  const fetchedAt = useRef(0);
   const [v, setV] = useState<GroupActionView | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [memberScript, setMemberScript] = useState<NativeScript | null>(null);
@@ -220,7 +226,11 @@ export default function GroupActions({ groupId, network }: GroupActionsProps) {
   const load = useCallback(async () => {
     try {
       const res = await fetchWithTimeout(`/api/groups/${groupId}/state`);
-      if (res.ok) setV((await res.json()) as GroupActionView);
+      if (res.ok) {
+        const body = (await res.json()) as GroupActionView;
+        fetchedAt.current = performance.now();
+        setV(body);
+      }
     } catch {
       // The island stays empty, the page around it is complete without it.
     }
@@ -344,8 +354,10 @@ export default function GroupActions({ groupId, network }: GroupActionsProps) {
     try {
       const api = await connect();
       if (!api) return;
-      const { buildGroupTx, wallClockSlot } = await import('@/lib/groups/groupTx.js');
-      const tipSlot = wallClockSlot();
+      const { buildGroupTx } = await import('@/lib/groups/groupTx.js');
+      // The server's clock, moved on by the time since the state was read, since the server bounds
+      // the validity end by its own tip and the browser clock may be off by minutes.
+      const tipSlot = (v?.serverSlot ?? 0) + Math.floor((performance.now() - fetchedAt.current) / 1000);
       const lock = afterLock(memberScript);
       const required = uniq([...keys.mandatory, ...signers]);
       const interval = { invalidBefore: lock === undefined ? null : BigInt(lock), invalidHereafter: BigInt(tipSlot + ACTION_TTL_SECONDS) };
@@ -400,6 +412,19 @@ export default function GroupActions({ groupId, network }: GroupActionsProps) {
   const active = v.status === 'active' && state !== null;
   const join = v.viewer?.join ?? null;
   const ownJoinOpen = v.rows.some((r) => r.kind === 'group_join' && r.status !== 'cancelled');
+  const ownLeaveOpen = v.rows.some((r) => r.kind === 'group_leave' && r.status !== 'cancelled');
+  // The same initiation rule as the server, so no control is offered that the server would refuse.
+  const session = { keyHash: viewerKey, drepId: viewerDrep };
+  const allowed = (intent: GroupIntent): boolean => state !== null && mayInitiate(intent, state, session);
+  const canApprove = allowed({ kind: 'group_approve', group: v.groupId, joins: [] });
+  const canRemove = allowed({ kind: 'group_remove', group: v.groupId, joins: [] });
+  const canUpdate = allowed({ kind: 'group_update', group: v.groupId, approvals: [] });
+  // Only whether approvals are present decides the policies a combined update needs.
+  const canCombined = allowed({ kind: 'group_update', group: v.groupId, approvals: [ANY_JOIN] });
+  // A key that may only open the combined update approves with the update, without a decline.
+  const updateForced = !canApprove && canCombined;
+  const useUpdate = offer !== null && !v.openControl && offer.ticked.length > 0 && canCombined && (withUpdate || updateForced);
+  const approveOk = picked.length > 0 && (useUpdate || canApprove);
   const controlKeys = v.control.keys;
   const memberKeys = v.activeKeyMembers.map((m) => m.keyHash);
   const drift = v.mode === 'permissioned' && !sameKeys(controlKeys, memberKeys);
@@ -408,7 +433,7 @@ export default function GroupActions({ groupId, network }: GroupActionsProps) {
   const driftText = [
     `The group is still managed by: ${controlKeys.map(nameOf).join(', ')}.`,
     notInPolicy.length > 0 ? `Members not in the policy: ${notInPolicy.map(nameOf).join(', ')}.` : '',
-    formerInPolicy.length > 0 && notInPolicy.length === 0 ? `No longer members: ${formerInPolicy.map(nameOf).join(', ')}.` : '',
+    formerInPolicy.length > 0 ? `No longer members: ${formerInPolicy.map(nameOf).join(', ')}.` : '',
   ]
     .filter((s) => s !== '')
     .join(' ');
@@ -494,7 +519,7 @@ export default function GroupActions({ groupId, network }: GroupActionsProps) {
               {leaveWarning && (
                 <>
                   <p style={muted}>{LEAVE_WARNING}</p>
-                  {v.openControl ? (
+                  {!canUpdate ? null : v.openControl ? (
                     <p style={muted}>{SLOT_HELD}</p>
                   ) : (
                     <button type="button" className="btn" style={{ alignSelf: 'flex-start' }} onClick={() => openPolicyForm(activeIds.filter((d) => d !== viewerDrep))}>
@@ -503,6 +528,7 @@ export default function GroupActions({ groupId, network }: GroupActionsProps) {
                   )}
                 </>
               )}
+              {!ownLeaveOpen && (
               <button
                 type="button"
                 className="btn"
@@ -511,15 +537,16 @@ export default function GroupActions({ groupId, network }: GroupActionsProps) {
               >
                 Leave
               </button>
+              )}
             </>
           )}
         </section>
       )}
 
-      {active && drift && (join !== null || isAdmin) && (
+      {active && drift && (join?.state === 'active' || isAdmin) && (
         <section aria-label="Management policy" style={stack}>
           <p style={muted}>{driftText}</p>
-          {isAdmin &&
+          {canUpdate &&
             (v.openControl ? (
               <p style={muted}>{SLOT_HELD}</p>
             ) : (
@@ -550,7 +577,7 @@ export default function GroupActions({ groupId, network }: GroupActionsProps) {
         </section>
       )}
 
-      {active && isAdmin && v.mode === 'permissioned' && v.pending.length > 0 && (
+      {active && (canApprove || canRemove || canCombined) && v.mode === 'permissioned' && v.pending.length > 0 && (
         <section aria-label="Requests to join" style={stack}>
           <h2 style={h2}>Requests to join</h2>
           <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: '0.25rem' }}>
@@ -572,41 +599,48 @@ export default function GroupActions({ groupId, network }: GroupActionsProps) {
             })}
           </ul>
           {offer &&
+            canCombined &&
             (v.openControl ? (
               <p style={muted}>{SLOT_HELD}</p>
             ) : (
               <div style={stack}>
-                <label style={{ display: 'inline-flex', gap: '0.375rem', alignItems: 'center', fontSize: '0.875rem' }}>
-                  <input type="checkbox" checked={withUpdate} onChange={() => setWithUpdate((x) => !x)} />
-                  Also update the management policy in the same transaction
-                </label>
-                {withUpdate && <PolicyFields proposal={offer} onChange={setOffer} current={current} listed={policyKeys} nameOf={nameOf} />}
+                {updateForced ? (
+                  <p style={muted}>Your key may approve only together with an update of the management policy.</p>
+                ) : (
+                  <label style={{ display: 'inline-flex', gap: '0.375rem', alignItems: 'center', fontSize: '0.875rem' }}>
+                    <input type="checkbox" checked={withUpdate} onChange={() => setWithUpdate((x) => !x)} />
+                    Also update the management policy in the same transaction
+                  </label>
+                )}
+                {(withUpdate || updateForced) && <PolicyFields proposal={offer} onChange={setOffer} current={current} listed={policyKeys} nameOf={nameOf} />}
               </div>
             ))}
           <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button
-              type="button"
-              className="btn btn-primary"
-              disabled={picked.length === 0}
-              onClick={() =>
-                void open(
-                  offer && withUpdate && !v.openControl && offer.ticked.length > 0
-                    ? policyIntent(offer, picked)
-                    : { kind: 'group_approve', group: v.groupId, joins: picked },
-                  'Approve',
-                )
-              }
-            >
-              Approve
-            </button>
-            <button
-              type="button"
-              className="btn"
-              disabled={picked.length === 0}
-              onClick={() => void open({ kind: 'group_remove', group: v.groupId, joins: picked }, 'Remove')}
-            >
-              Remove
-            </button>
+            {(canApprove || canCombined) && (
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={!approveOk}
+                onClick={() =>
+                  void open(
+                    useUpdate && offer ? policyIntent(offer, picked) : { kind: 'group_approve', group: v.groupId, joins: picked },
+                    'Approve',
+                  )
+                }
+              >
+                Approve
+              </button>
+            )}
+            {canRemove && (
+              <button
+                type="button"
+                className="btn"
+                disabled={picked.length === 0}
+                onClick={() => void open({ kind: 'group_remove', group: v.groupId, joins: picked }, 'Remove')}
+              >
+                Remove
+              </button>
+            )}
           </div>
         </section>
       )}

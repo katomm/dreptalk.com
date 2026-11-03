@@ -7,6 +7,7 @@ import { currentNetwork, jsonResponse, runtimeEnv } from '@/lib/api/response';
 import { type GroupActionRow, getGroup, groupActionState } from '@/lib/db/drepGroups';
 import { sessionOf } from '@/lib/groups/actionServer';
 import { drepGroupsAvailable } from '@/lib/groups/gate';
+import { wallClockSlot } from '@/lib/groups/groupTx';
 
 export const prerender = false;
 
@@ -23,7 +24,7 @@ export const GET: APIRoute = async ({ params, locals }) => {
   const user = (locals as App.Locals).user;
   const session = user ? sessionOf(user) : { keyHash: null, drepId: null };
   const viewer = session.keyHash || session.drepId ? session : null;
-  const s = await groupActionState(db, group, viewer ?? { keyHash: null, drepId: null });
+  const s = await groupActionState(db, group, { drepId: viewer?.drepId ?? null });
 
   // A signing link is handed out to its initiator, to the keys it lists and to the member it is about.
   const key = viewer?.keyHash?.toLowerCase() ?? null;
@@ -38,6 +39,8 @@ export const GET: APIRoute = async ({ params, locals }) => {
       mode: group.mode,
       status: group.closing ? 'dissolved' : group.status,
       seq: group.seq,
+      // The client builds its validity end from this clock, the one the server bounds it by.
+      serverSlot: wallClockSlot(),
       control: s.control,
       admission: s.admission,
       names: Object.fromEntries(s.names),

@@ -568,7 +568,7 @@ export interface GroupActionState {
 export async function groupActionState(
   db: D1Database,
   group: GroupRow,
-  viewer: { keyHash: string | null; drepId: string | null },
+  viewer: { drepId: string | null },
 ): Promise<GroupActionState> {
   const hashes = [group.controlHash, ...(group.admissionHash ? [group.admissionHash] : [])];
   const viewerCred = viewer.drepId ? credentialForDrepId(viewer.drepId) : null;

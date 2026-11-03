@@ -15,6 +15,7 @@ import {
 import { planOf } from '../../../lib/groups/__tests__/queryPlan.js';
 import { createGroupAction, type NewGroupAction } from '../../../lib/groups/actionStore.js';
 import type { GroupIntent } from '../../../lib/groups/actions.js';
+import { wallClockSlot } from '../../../lib/groups/groupTx.js';
 import { groupIdParam, groupIdString } from '../../../lib/groups/ids.js';
 import { GET as stateRoute } from '../../api/groups/[id]/state.js';
 import { ALICE, BOB, CAROL, call, DAVE, PERM, seedPermissioned, sessionOf } from '../../api/groups/actions/__tests__/fixtures.js';
@@ -117,7 +118,7 @@ describe('group action readers', () => {
 
     const group = await getGroup(db, PERM_ID);
     if (!group) throw new Error('seeded group missing');
-    const s = await groupActionState(db, group, { keyHash: CAROL.hash, drepId: CAROL.drepId });
+    const s = await groupActionState(db, group, { drepId: CAROL.drepId });
     expect(s.openControl?.id).toBe('u1');
     expect(s.rows.map((r) => r.id).sort()).toEqual(['a1', 'c1', 'u1']);
     const c1 = s.rows.find((r) => r.id === 'c1');
@@ -131,10 +132,10 @@ describe('group action readers', () => {
     expect(s.control.hash).toBe(PERM.control.hash);
 
     // A second founder sees the confirming joint create on the group page too, Dave has no own rows.
-    const bob = await groupActionState(db, group, { keyHash: BOB.hash, drepId: BOB.drepId });
+    const bob = await groupActionState(db, group, { drepId: BOB.drepId });
     expect(bob.rows.some((r) => r.id === 'c1' && r.status === 'submitted')).toBe(true);
     expect(bob.viewerJoin).toBeNull();
-    const dave = await groupActionState(db, group, { keyHash: DAVE.hash, drepId: DAVE.drepId });
+    const dave = await groupActionState(db, group, { drepId: DAVE.drepId });
     expect(dave.viewerRows).toEqual([]);
   });
 
@@ -218,6 +219,12 @@ describe('group action state route', () => {
     const carol = await call<StateBody>(stateRoute, sessionOf('u-carol', CAROL), { id: PERM_ID });
     expect(carol.json.rows[0].id).toBeNull();
     expect(carol.json.viewer).toEqual({ keyHash: CAROL.hash, drepId: CAROL.drepId, join: { joinId: PERM.carolJoin, state: 'pending' } });
+  });
+
+  it('gives the server clock slot so a client with a wrong clock still builds a valid end', async () => {
+    await seedPermissioned();
+    const res = await call<StateBody & { serverSlot: number }>(stateRoute, null, { id: PERM_ID });
+    expect(Math.abs(res.json.serverSlot - wallClockSlot())).toBeLessThanOrEqual(2);
   });
 
   it('answers 404 for an unknown group', async () => {
