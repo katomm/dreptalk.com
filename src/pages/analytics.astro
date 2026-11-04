@@ -42,6 +42,7 @@ import type { EpochStatsRow } from '@/lib/analytics/epochStats.js';
 import { HUB_SECTION_IDS as HUB } from '@/lib/analytics/hubSections.js';
 import DrepStatCard from '@/components/DrepStatCard.astro';
 import { loadEditions, editionSlug } from '@/lib/review/editions.js';
+import { awaitAll } from '@/lib/awaitAll.js';
 
 // The site's governance actions list route, same href as the header nav's
 // "Governance Actions" link (src/lib/config/nav.ts).
@@ -53,16 +54,110 @@ const env = runtimeEnv(Astro.locals);
 const db = env.DB as D1Database | undefined;
 if (db) Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
 
-const [stats, defaults, activity, params, concRows, repActions] = db
-  ? await Promise.all([
-      listEpochStats(db),
-      getDefaultDelegationCurrent(db),
-      getDrepActivityBreakdown(db),
-      getProtocolParams(db),
-      listDrepsForConcentration(db),
-      listDecidedActionsForRepresentation(db),
-    ])
-  : [[], { abstain: null, noConfidence: null }, null, null, [], []];
+// Every read starts at once. The few that depend on another read (vote
+// powers on the decided actions, the submitted window on the current epoch,
+// lineage successors on the dropped rows) chain onto that one promise only,
+// so the longest chain is two reads deep instead of seven sequential steps.
+const loadHub = (d: D1Database) => {
+  const paramsP = getProtocolParams(d);
+  const repActionsP = listDecidedActionsForRepresentation(d);
+  const droppedRowsP = listDroppedActions(d);
+  return awaitAll({
+    stats: listEpochStats(d),
+    defaults: getDefaultDelegationCurrent(d),
+    activity: getDrepActivityBreakdown(d),
+    params: paramsP,
+    concRows: listDrepsForConcentration(d),
+    repActions: repActionsP,
+    votePowers: repActionsP.then((rows) => listDrepVotePowersByAction(d, rows.map((a) => a.id))) as Promise<
+      Map<string, (number | null)[]> | undefined
+    >,
+    // Vote-change analytics over all decided actions with swept history: one
+    // read for the classified pairs, one for the coverage denominators and the
+    // unclassifiable-pair disclosure.
+    changeRows: listDecidedVoteChangeRows(d),
+    changeCoverage: countVoteChangeCoverage(d),
+    // Rationale coverage over decided actions: one aggregate read plus the
+    // re-vote-added count. Quality is never claimed, coverage is measured.
+    coverageRows: listDecidedActionRationaleCoverage(d),
+    revoteAdded: countRationaleAddedViaRevote(d),
+    // Constitutional Committee panel: batch CC reads plus the shared committee
+    // timeline and name index.
+    ccActions: listDecidedCcActions(d),
+    ccVotesByAction: listDecidedCcVoteRows(d),
+    committee: getCommitteeTimeline(d),
+    ccNameRows: getAllCcMemberNames(d),
+    // Decided-outcome rows feed both the SPO snapshot (chapter 2) and the
+    // governance throughput chapter (chapter 5). The 12-epoch submitted window
+    // counts back from the current epoch, or from epoch 0 (and is not
+    // rendered) while the current epoch is not yet known.
+    outcomeRows: listDecidedOutcomeRows(d),
+    submittedRecent: paramsP.then((p) => countSubmittedSince(d, (p?.epoch ?? 0) - 11)),
+    statusCounts: countActionsByStatus(d),
+    // The voting timing (chapter 3) is one ready-built view: the resolver reads
+    // the precomputed snapshot and only computes live when there is no usable
+    // row.
+    timing: resolveVotingTimingView(d, currentNetwork()),
+    // A count of dropped actions with no way to see which ones raises more
+    // questions than it answers, so the panel lists them by name.
+    droppedRows: droppedRowsP,
+    // The successor lookup returns without a query when there is nothing to
+    // look up, which is the usual case: dropped actions are rare.
+    successorRows: droppedRowsP.then((rows) =>
+      listLineageSuccessors(d, lineagePredecessorTxIds(rows.map((r) => r.payload))),
+    ),
+  });
+};
+// The no-database fallback has no activity breakdown yet.
+type Hub = Omit<Awaited<ReturnType<typeof loadHub>>, 'activity'> & {
+  activity: Awaited<ReturnType<typeof loadHub>>['activity'] | null;
+};
+const EMPTY_HUB: Hub = {
+  stats: [],
+  defaults: { abstain: null, noConfidence: null },
+  activity: null,
+  params: null,
+  concRows: [],
+  repActions: [],
+  votePowers: undefined,
+  changeRows: [],
+  changeCoverage: { decidedSwept: 0, decidedUnswept: 0, orphanPairs: 0 },
+  coverageRows: [],
+  revoteAdded: 0,
+  ccActions: [],
+  ccVotesByAction: new Map<string, CcVoteRow[]>(),
+  committee: { members: [], hotToCold: new Map<string, string>() },
+  ccNameRows: [],
+  outcomeRows: [],
+  submittedRecent: 0,
+  statusCounts: {},
+  timing: EMPTY_TIMING_VIEW,
+  droppedRows: [],
+  successorRows: [],
+};
+const {
+  stats,
+  defaults,
+  activity,
+  params,
+  concRows,
+  repActions,
+  votePowers,
+  changeRows,
+  changeCoverage,
+  coverageRows,
+  revoteAdded,
+  ccActions,
+  ccVotesByAction,
+  committee,
+  ccNameRows,
+  outcomeRows,
+  submittedRecent,
+  statusCounts,
+  timing,
+  droppedRows,
+  successorRows,
+} = db ? await loadHub(db) : EMPTY_HUB;
 
 // Charts only ever draw the gapless head of the series: during the one-time
 // epoch backfill the stored rows are a growing prefix plus the live current
@@ -149,35 +244,14 @@ const vitals = buildVitals(current, prev, params?.circulationLovelace ?? null);
 // Per-action vote powers for the concentration read, one batched query for the
 // listed actions. Completeness gating happens in the builder: an action with
 // any missing per-vote power renders no half-count, never a zero.
-const votePowers = db ? await listDrepVotePowersByAction(db, repActions.map((a) => a.id)) : undefined;
 const effRep = buildEffRep(repActions, votePowers);
 
-// Vote-change analytics over all decided actions with swept history: one read
-// for the classified pairs, one for the coverage denominators and the
-// unclassifiable-pair disclosure.
-const [changeRows, changeCoverage] = db
-  ? await Promise.all([listDecidedVoteChangeRows(db), countVoteChangeCoverage(db)])
-  : [[], { decidedSwept: 0, decidedUnswept: 0, orphanPairs: 0 }];
 const voteChanges = buildVoteChangeView(changeRows, changeCoverage);
 
-// Rationale coverage over decided actions: one aggregate read plus the
-// re-vote-added count. Quality is never claimed, coverage is measured.
-const [coverageRows, revoteAdded] = db
-  ? await Promise.all([listDecidedActionRationaleCoverage(db), countRationaleAddedViaRevote(db)])
-  : [[], 0];
 const rationaleCoverage = buildRationaleCoverage(coverageRows, revoteAdded);
 
-// Constitutional Committee panel: batch CC reads plus the shared committee
-// timeline and name index, aggregated with the exact per-action logic the
-// GA pages use.
-const [ccActions, ccVotesByAction, committee, ccNameRows] = db
-  ? await Promise.all([
-      listDecidedCcActions(db),
-      listDecidedCcVoteRows(db),
-      getCommitteeTimeline(db),
-      getAllCcMemberNames(db),
-    ])
-  : [[], new Map<string, CcVoteRow[]>(), { members: [], hotToCold: new Map<string, string>() }, []];
+// Constitutional Committee panel, aggregated with the exact per-action logic
+// the GA pages use.
 const ccPanel = buildCcPanel({
   actions: ccActions,
   votesByAction: ccVotesByAction,
@@ -200,39 +274,8 @@ const ccMemberLists = [
 const tenureLabel = (t: { from: number; to: number | null }): string =>
   t.to == null ? `since epoch ${t.from}` : `epochs ${t.from} to ${t.to}`;
 
-// Decided-outcome rows feed both the SPO snapshot (chapter 2) and the
-// governance throughput chapter (chapter 5), so they share one read plus the
-// two whole-table reads those panels also need. The 12-epoch submitted
-// window counts back from the current epoch, or from epoch 0 (and is not
-// rendered) while the current epoch is not yet known.
-// The voting timing (chapter 3) joins this batch as one ready-built view: the
-// resolver reads the precomputed snapshot and only computes live when there is
-// no usable row, so it stays a single entry here rather than six reads.
-const [
-  outcomeRows,
-  submittedRecent,
-  statusCounts,
-  timing,
-  droppedRows,
-] = db
-  ? await Promise.all([
-      listDecidedOutcomeRows(db),
-      countSubmittedSince(db, (params?.epoch ?? 0) - 11),
-      countActionsByStatus(db),
-      resolveVotingTimingView(db, currentNetwork()),
-      // A count of dropped actions with no way to see which ones raises more
-      // questions than it answers, so the panel lists them by name.
-      listDroppedActions(db),
-    ])
-  : [[], 0, {}, EMPTY_TIMING_VIEW, []];
 const spo = buildSpoSnapshot(outcomeRows);
 const throughput = buildThroughput(outcomeRows, statusCounts, submittedRecent);
-// The successor lookup depends on the dropped rows, so it cannot join the
-// batch above. It returns without a query when there is nothing to look up,
-// which is the usual case: dropped actions are rare.
-const successorRows = db
-  ? await listLineageSuccessors(db, lineagePredecessorTxIds(droppedRows.map((r) => r.payload)))
-  : [];
 const droppedActions = buildDroppedActions(droppedRows, successorRows);
 // Guards the footnote line and the number in it against drifting apart.
 const unlistedDropped = throughput.dropped - droppedActions.length;
