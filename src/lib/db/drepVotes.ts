@@ -998,16 +998,23 @@ export async function listDrepVotePowersByAction(
   gaIds: string[],
 ): Promise<Map<string, (number | null)[]>> {
   const map = new Map<string, (number | null)[]>();
-  for (const chunk of chunked(gaIds, D1_MAX_BINDS)) {
-    const rows = (
-      await db
-        .prepare(
-          `SELECT ga_id, voted_power FROM drep_votes
-            WHERE ga_id IN (${sqlPlaceholders(chunk)}) AND voter_role = 'DRep' AND ${liveVoteSql()}`,
-        )
-        .bind(...chunk)
-        .all<{ ga_id: string; voted_power: number | null }>()
-    ).results ?? [];
+  // Chunks run in parallel, one round trip instead of one per chunk. They are
+  // merged in chunk order, so each action's list keeps its row order.
+  const chunkRows = await Promise.all(
+    chunked(gaIds, D1_MAX_BINDS).map(
+      async (chunk) =>
+        (
+          await db
+            .prepare(
+              `SELECT ga_id, voted_power FROM drep_votes
+                WHERE ga_id IN (${sqlPlaceholders(chunk)}) AND voter_role = 'DRep' AND ${liveVoteSql()}`,
+            )
+            .bind(...chunk)
+            .all<{ ga_id: string; voted_power: number | null }>()
+        ).results ?? [],
+    ),
+  );
+  for (const rows of chunkRows) {
     for (const r of rows) {
       const list = map.get(r.ga_id);
       if (list) list.push(r.voted_power);

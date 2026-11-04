@@ -123,9 +123,10 @@ export interface AuthorIdentities {
 }
 
 /**
- * Batch-loads the users and (where present) dreps for the given author ids and
- * returns a resolver. Exactly two queries at most: one over users, one over
- * dreps. The system author and falsy ids are excluded from the lookups.
+ * Batch-loads the users and (where present) their dreps and pools, and
+ * returns a resolver. At most three queries in two round trips: users first,
+ * then dreps and pools together. The system author and falsy ids are excluded
+ * from the lookups.
  */
 export async function loadAuthorIdentities(
   db: D1Database,
@@ -146,17 +147,16 @@ export async function loadAuthorIdentities(
         .filter((id): id is string => !!id),
     ),
   ];
-
-  const drepsById = drepIds.length
-    ? await getDrepsByIds(db, drepIds)
-    : new Map<string, Drep>();
-
   const poolIds = [
     ...new Set(
       [...usersById.values()].map((u) => u.pool_id).filter((id): id is string => !!id),
     ),
   ];
-  const poolsById = poolIds.length ? await getPoolsByIds(db, poolIds) : new Map<string, Pool>();
+
+  const [drepsById, poolsById] = await Promise.all([
+    drepIds.length ? getDrepsByIds(db, drepIds) : new Map<string, Drep>(),
+    poolIds.length ? getPoolsByIds(db, poolIds) : new Map<string, Pool>(),
+  ]);
 
   return {
     describe: (authorId: string) => describeAuthor(authorId, usersById, drepsById, poolsById),

@@ -91,10 +91,19 @@ function earnedTile(badge: Badge, award: BadgeAwardRow, progress: BadgeProgress 
   };
 }
 
-async function loadAwardsMap(db: D1Database, subject: BadgeSubject): Promise<Map<string, BadgeAwardRow>> {
+/**
+ * A subject whose linked account may still be loading. The role awards need
+ * only the role id, so they start at once and only the user awards wait for
+ * the account lookup.
+ */
+type PendingUserSubject = Omit<BadgeSubject, 'userId'> & { userId: string | null | Promise<string | null> };
+
+async function loadAwardsMap(db: D1Database, subject: PendingUserSubject): Promise<Map<string, BadgeAwardRow>> {
   const [subjectAwards, userAwards] = await Promise.all([
     getSubjectAwards(db, subject.role, subject.id),
-    subject.userId ? getSubjectAwards(db, 'user', subject.userId) : Promise.resolve([] as BadgeAwardRow[]),
+    Promise.resolve(subject.userId).then((userId) =>
+      userId ? getSubjectAwards(db, 'user', userId) : ([] as BadgeAwardRow[]),
+    ),
   ]);
   return new Map([...subjectAwards, ...userAwards].map((a) => [a.badgeId, a]));
 }
@@ -103,7 +112,7 @@ async function loadAwardsMap(db: D1Database, subject: BadgeSubject): Promise<Map
  * Earned badges only, newest first. Filtered to the categories this role can
  * earn so a profile never shows another role's badges.
  */
-export async function loadEarnedBadges(db: D1Database, subject: BadgeSubject): Promise<BadgeTileModel[]> {
+export async function loadEarnedBadges(db: D1Database, subject: PendingUserSubject): Promise<BadgeTileModel[]> {
   const awards = await loadAwardsMap(db, subject);
   const allowed = categorySet(subject.role);
   const earned: BadgeTileModel[] = [];
