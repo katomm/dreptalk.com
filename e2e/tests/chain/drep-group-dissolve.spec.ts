@@ -1,0 +1,35 @@
+// Chain-write tier, one group transaction on preprod: the account 0 DRep dissolves the throwaway
+// group of the solo founding spec, managed 1 of 1 by its key. Afterwards the group page shows it as
+// dissolved and offers no management any more.
+import { expect, test } from 'cip30-test-wallet/playwright';
+import { signIn, waitForHydration } from '../helpers.js';
+import { APPLIED, buildAlone, CHAIN_TIMEOUT, chainWallet, groupIdByName, resumeOr, SOLO_GROUP, untilVisible } from './groups.js';
+
+test.use({ walletOptions: chainWallet(0) });
+
+test('the only admin dissolves a throwaway group', async ({ page, wallet }) => {
+  test.setTimeout(CHAIN_TIMEOUT);
+  await signIn(page, 'drep');
+  await page.waitForURL('**/home/');
+  const groupId = await groupIdByName(page, SOLO_GROUP, wallet.drepId);
+  const groupPage = `/groups/${groupId}/`;
+
+  const actionId = await resumeOr(async () => {
+    await page.goto(groupPage);
+    await waitForHydration(page);
+    await expect(page.locator('h1 + .gr-meta')).not.toContainText('Dissolved');
+    const island = page.locator('#requests');
+    await island.getByRole('button', { name: 'Manage the group' }).click();
+    const editor = island.getByRole('region', { name: 'Manage the group' });
+    await editor.getByRole('button', { name: 'Dissolve the group' }).click();
+    await editor.getByRole('checkbox', { name: 'Yes, dissolve this group' }).check();
+    await editor.getByRole('button', { name: 'Continue' }).click();
+    return (await buildAlone(page, 'Dissolve the group')).actionId;
+  });
+
+  await untilVisible(page, `/groups/sign/${actionId}/`, (p) => p.getByText(APPLIED), 'dissolve applied');
+  await page.goto(groupPage);
+  await waitForHydration(page);
+  await expect(page.locator('h1 + .gr-meta')).toContainText('Dissolved');
+  await expect(page.locator('#requests').getByRole('button', { name: 'Manage the group' })).toHaveCount(0);
+});
