@@ -27,6 +27,7 @@ import {
   getSurveyGovLinks,
   getSurveySyncState,
 } from '@/lib/db/surveys.js';
+import { awaitAll } from '@/lib/awaitAll.js';
 import { getSurveyTally } from '@/lib/db/surveyTally.js';
 import { newestPowerEpoch } from '@/lib/db/drepPower.js';
 import { surveyState } from '@/lib/surveys/state.js';
@@ -242,8 +243,7 @@ const compareSlug = tab === 'history' ? Astro.url.searchParams.get('compare') : 
 const isParamChange = tab === 'overview' && govAction?.type === 'ParameterChange';
 const basis = govAction ? basisEpoch(govAction) : null;
 
-// Round two. Every promise starts here, the single await below settles them all.
-const ga = isGovernanceTopic && db ? govAction : null;
+// Round two. Every promise starts here, the single awaitAll settles them all.
 
 const positionsPageP: Promise<number> =
   tab === 'positions' && voterParam && positionsRoleParam !== 'cc' && govAction && db
@@ -254,14 +254,14 @@ const positionsPageP: Promise<number> =
 
 // Positions tab: paginated voter list. Top participants and total count are always
 // loaded (sidebar card + tab badge), voter rows only on the positions tab.
-const topVotersP = ga && db ? getActionVoters(db, ga.id, { limit: 5 }) : Promise.resolve([] as ActionVoterRow[]);
+const topVotersP = govAction && db ? getActionVoters(db, govAction.id, { limit: 5 }) : Promise.resolve([] as ActionVoterRow[]);
 const positionVotersP =
-  ga && db && tab === 'positions'
-    ? positionsPageP.then((p) => getActionVoters(db, ga.id, { limit: PAGE_SIZE, offset: pageToOffset(p, PAGE_SIZE) }))
+  govAction && db && tab === 'positions'
+    ? positionsPageP.then((p) => getActionVoters(db, govAction.id, { limit: PAGE_SIZE, offset: pageToOffset(p, PAGE_SIZE) }))
     : Promise.resolve([] as ActionVoterRow[]);
 const rationaleHighlightsP =
-  ga && db && tab === 'overview'
-    ? getRationaleHighlights(db, ga.id, RATIONALE_HIGHLIGHT_PER_VOTE)
+  govAction && db && tab === 'overview'
+    ? getRationaleHighlights(db, govAction.id, RATIONALE_HIGHLIGHT_PER_VOTE)
     : Promise.resolve([] as RationaleHighlight[]);
 
 // DRep identities for the voter lists and the highlights in a single batch
@@ -297,7 +297,7 @@ const compareP =
 // TreasuryWithdrawals action), so one read serves both.
 const needsWithdrawals = !!nclPeriod || govAction?.type === 'TreasuryWithdrawals';
 
-const round2 = {
+const round2 = await awaitAll({
   identities: db ? loadAuthorIdentities(db, [topic?.author_id, ...pagePosts.map((p) => p.author_id)]) : Promise.resolve(null),
   // Co-proposer mandate badges: one batched lookup for the topic and every post
   // on this page, keyed by their persisted proposer_grant_id, never the
@@ -326,24 +326,24 @@ const round2 = {
       ? getNclActionLinks(db, [...nclPeriod.definingActionIds, ...nclPeriod.relatedActionIds])
       : Promise.resolve(null),
   // Other actions from the same proposer, for the sidebar.
-  related: ga && db
-    ? getRelatedActions(db, { excludeId: ga.id, returnAddress: ga.returnAddress, limit: 6 })
+  related: govAction && db
+    ? getRelatedActions(db, { excludeId: govAction.id, returnAddress: govAction.returnAddress, limit: 6 })
     : Promise.resolve([] as RelatedActionRow[]),
   govVotes: govAction && db
     ? getVotesByGaId(db, govAction.id)
     : Promise.resolve(new Map<string, { role: string; vote: string; meta_url: string | null; voted_power: number | null }>()),
   // DRep vote panel: only for logged-in DReps on votable (active) actions.
-  // Gate on ga.status === 'active', deriveStatus already accounts for expiry boundary.
+  // Gate on govAction.status === 'active', deriveStatus already accounts for expiry boundary.
   viewerVote: isDrep && isVotable && viewerDrepId && db && govAction
     ? getViewerVote(db, govAction.id, viewerDrepId)
     : Promise.resolve(null),
   positionsPage: positionsPageP,
   topVoters: topVotersP,
   positionVoters: positionVotersP,
-  positionsTotal: ga && db ? countActionVoters(db, ga.id) : Promise.resolve(0),
+  positionsTotal: govAction && db ? countActionVoters(db, govAction.id) : Promise.resolve(0),
   rationaleHighlights: rationaleHighlightsP,
   drepsMap: drepsMapP,
-  spoTotal: ga && db ? countActionSpoVoters(db, ga.id) : Promise.resolve(0),
+  spoTotal: govAction && db ? countActionSpoVoters(db, govAction.id) : Promise.resolve(0),
   spoVoters: spoVotersP,
   poolsMap: poolsMapP,
   // Rationales plus superseded votes (voters who changed their vote) for the
@@ -356,16 +356,16 @@ const round2 = {
     : Promise.resolve(new Map<string, SupersededVote[]>()),
   // Action-wide rationale count (cheap): drives the sidebar "See all" link on every tab.
   rationaleCount: db && govAction ? countActionRationales(db, govAction.id) : Promise.resolve(0),
-  params: ga && db ? getProtocolParams(db) : Promise.resolve(null),
+  params: govAction && db ? getProtocolParams(db) : Promise.resolve(null),
   // Stake participation is only meaningful for DRep-led types. SPO-led types
   // (hard fork) do not show DRep turnout, mirroring the list page logic.
-  activeDrepStake: ga && db && !isSpoLedType(ga.type) ? getActiveDrepStake(db) : Promise.resolve(null),
+  activeDrepStake: govAction && db && !isSpoLedType(govAction.type) ? getActiveDrepStake(db) : Promise.resolve(null),
   // Voting-trend data (DRep/SPO power rows + CC votes/timeline): loaded for any
   // governance topic, not just the History tab, because the sidebar's teaser
   // sparkline (built below) shows on every tab. The History tab's full chart
   // reuses these same rows, so this is the only load.
-  trend: ga && db
-    ? Promise.all([getVoteTrendRows(db, ga.id), getCommitteeVotes(db, ga.id), getCommitteeTimeline(db)])
+  trend: govAction && db
+    ? Promise.all([getVoteTrendRows(db, govAction.id), getCommitteeVotes(db, govAction.id), getCommitteeTimeline(db)])
     : Promise.resolve(null),
   compareCandidates: db && govAction && tab === 'history'
     ? getCompareCandidates(db, { excludeId: govAction.id, type: govAction.type, limit: 6 })
@@ -385,11 +385,10 @@ const round2 = {
     db && tab === 'overview' && (govAction?.type === 'UpdateCommittee' || govAction?.type === 'NewCommittee')
       ? getAllCcMemberNames(db)
       : Promise.resolve(null),
-};
-await Promise.all(Object.values(round2));
+});
 
-const identities = await round2.identities;
-const mandateLoad = await round2.mandateLoad;
+const identities = round2.identities;
+const mandateLoad = round2.mandateLoad;
 const mandates = mandateLoad?.badges ?? new Map<string, MandateBadge>();
 
 const describe = (authorId: string): AuthorDescriptor =>
@@ -454,11 +453,11 @@ const viewerIsDraftAuthor =
   mayEditRow(topic.proposer_grant_id, true, !!topic.proposer_grant_id && viewerActiveGrantIds.has(topic.proposer_grant_id));
 const viewerCanUnlink = viewerIsDraftAuthor || (!!user && isModerator(user.roles));
 
-const { flaggedPostIds, reactions: viewerReactions } = await round2.viewerPostState;
+const { flaggedPostIds, reactions: viewerReactions } = round2.viewerPostState;
 
-const draftOrigin = await round2.draftOrigin;
+const draftOrigin = round2.draftOrigin;
 
-const editionIndex = await round2.editionIndex;
+const editionIndex = round2.editionIndex;
 const reviewSlug = govAction && editionIndex ? editionIndex.byActionId.get(govAction.id) ?? null : null;
 const reviewWindow = reviewSlug ? parseSlug(reviewSlug) : null;
 
@@ -468,11 +467,11 @@ const reviewWindow = reviewSlug ? parseSlug(reviewSlug) : null;
 const surveyDefinition: SurveyDefinition | null = surveyRow
   ? parseSurveyDefinition(surveyRow.definitionJson)
   : null;
-const surveyLinks = await round2.surveyLinks;
-const linkedSurvey = await round2.linkedSurvey;
-const surveySync = await round2.surveySync;
-const surveyTally = await round2.surveyTally;
-const surveyPowerEpoch = await round2.surveyPowerEpoch;
+const surveyLinks = round2.surveyLinks;
+const linkedSurvey = round2.linkedSurvey;
+const surveySync = round2.surveySync;
+const surveyTally = round2.surveyTally;
+const surveyPowerEpoch = round2.surveyPowerEpoch;
 
 // A tally computed from a different artifact than the survey now names is not a
 // current result, whatever its own columns say. Recognising a hash change as
@@ -481,8 +480,8 @@ const surveyPowerEpoch = await round2.surveyPowerEpoch;
 const tallyIsCurrent =
   surveyTally !== null && surveyTally.artifactHash === (surveyRow?.artifactHash ?? null);
 
-const withdrawals = await round2.withdrawals;
-const nclLinks = await round2.nclLinks;
+const withdrawals = round2.withdrawals;
+const nclLinks = round2.nclLinks;
 let nclProps: {
   status: ReturnType<typeof nclStatusFor>;
   definingLinks: NclActionLink[];
@@ -497,8 +496,8 @@ if (nclPeriod && withdrawals && nclLinks) {
   };
 }
 
-const params = await round2.params;
-const activeDrepStake = await round2.activeDrepStake;
+const params = round2.params;
+const activeDrepStake = round2.activeDrepStake;
 
 // TreasuryWithdrawals sidebar card: tells the reader this withdrawal counts
 // toward its NCL period and how full that cap already is. Separate from
@@ -527,9 +526,9 @@ if (govAction?.type === 'TreasuryWithdrawals' && withdrawals) {
   }
 }
 
-const related = await round2.related;
-const govVotes = await round2.govVotes;
-const viewerVote = await round2.viewerVote;
+const related = round2.related;
+const govVotes = round2.govVotes;
+const viewerVote = round2.viewerVote;
 
 // A script-credential DRep cannot sign votes directly: it needs the multisig
 // initiate/co-sign flow instead of the key-DRep VotePanel.
@@ -560,17 +559,17 @@ const canAnswerSurvey =
   !!viewerDrepId &&
   !isScriptDrep;
 
-const positionsPage = await round2.positionsPage;
-const topVoters = await round2.topVoters;
-const positionVoters = await round2.positionVoters;
-const positionsTotal = await round2.positionsTotal;
-const rationaleHighlights = await round2.rationaleHighlights;
-const drepsMap = await round2.drepsMap;
-const spoTotal = await round2.spoTotal;
-const spoVoters = await round2.spoVoters;
-const poolsMap = await round2.poolsMap;
-const rationales = await round2.rationales;
-const voteHistory = await round2.voteHistory;
+const positionsPage = round2.positionsPage;
+const topVoters = round2.topVoters;
+const positionVoters = round2.positionVoters;
+const positionsTotal = round2.positionsTotal;
+const rationaleHighlights = round2.rationaleHighlights;
+const drepsMap = round2.drepsMap;
+const spoTotal = round2.spoTotal;
+const spoVoters = round2.spoVoters;
+const poolsMap = round2.poolsMap;
+const rationales = round2.rationales;
+const voteHistory = round2.voteHistory;
 
 // Net vote-change summaries per role for the Positions tab. History alone
 // cannot say a vote changed (anchor-only re-votes archive too), so the
@@ -585,7 +584,7 @@ const notCountedVoters = govAction
   ? lateVoterIds([...positionVoters, ...spoVoters], govAction, network)
   : new Set<string>();
 
-const rationaleCount = await round2.rationaleCount;
+const rationaleCount = round2.rationaleCount;
 
 // Total active DRep voting power: the denominator for the Voting Information card's
 // DRep composition and turnout. Null for SPO-led types (activeDrepStake skipped) or
@@ -593,13 +592,13 @@ const rationaleCount = await round2.rationaleCount;
 const drepStakeTotal =
   activeDrepStake && activeDrepStake.total > 0 ? activeDrepStake.total : null;
 
-const trend = await round2.trend;
+const trend = round2.trend;
 const trendRows = trend?.[0] ?? [];
 const ccVotes = trend?.[1] ?? [];
 const committee = trend?.[2] ?? { members: [], hotToCold: new Map() };
 
-const compareCandidates = await round2.compareCandidates;
-const compare: { action: CompareAction; trendRows: TrendVoteRow[]; ccVotes: CcVote[] } | null = await round2.compare;
+const compareCandidates = round2.compareCandidates;
+const compare: { action: CompareAction; trendRows: TrendVoteRow[]; ccVotes: CcVote[] } | null = round2.compare;
 
 // CC segment on the Positions tab: the breakdown row per active committee member,
 // eligible at the same committee boundary the CC tally itself uses (committeeBoundaryForAction),
@@ -610,7 +609,7 @@ const ccEpoch = govAction ? committeeBoundaryForAction(govAction, currentEpoch) 
 
 let ccRows: CcPositionRow[] = [];
 let ccTotal = 0;
-const ccLoad = await round2.ccLoad;
+const ccLoad = round2.ccLoad;
 if (ccLoad && committee.members.length > 0 && ccEpoch != null) {
   const [ccVoteRows, nameRows, ccRationales] = ccLoad;
   const nameIndex = buildCcNameIndex(nameRows, committee.hotToCold);
@@ -632,7 +631,7 @@ if (ccLoad && committee.members.length > 0 && ccEpoch != null) {
 // the full-stake bar's marker (yes plus the No side), so the two never disagree.
 let voteConcentration: VoteConcentrationView | null = null;
 let concThresholdPct: number | null = null;
-const powers = await round2.drepPowers;
+const powers = round2.drepPowers;
 if (govAction && powers) {
   concThresholdPct = readThresholdSnapshot(govAction.thresholdsJson)?.drep ?? null;
   const required = requiredYesPower(govAction.drepYesPower, govAction.drepNoSidePower, concThresholdPct);
@@ -656,7 +655,7 @@ if (govAction && (trendRows.length || ccVotes.length)) {
 }
 const trendHref = topic ? `/t/${topic.slug}/?tab=history` : '';
 
-const basisData = await round2.basisData;
+const basisData = round2.basisData;
 const basisRow: Record<string, unknown> | null = basisData?.basisRow ?? null;
 const poolDataStored = basisData?.poolDataStored ?? true;
 
@@ -684,7 +683,7 @@ if (govAction && isParamChange) {
 // Committee member names for the Overview's "On-chain changes" block: only when
 // the payload actually adds or removes members. Current names only, no as-of lookup.
 let committeeNames = new Map<string, string>();
-const committeeNameRows = await round2.committeeNameRows;
+const committeeNameRows = round2.committeeNameRows;
 if (committeeNameRows && onchainChanges?.kind === 'committee' && committee.members.length > 0) {
   const idx = buildCcNameIndex(committeeNameRows, committee.hotToCold);
   for (const m of [...onchainChanges.added, ...onchainChanges.removed]) {
