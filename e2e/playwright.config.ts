@@ -13,8 +13,10 @@ if (tier !== 'mock' && !process.env.PREPROD_TEST_WALLET_MNEMONIC) {
 }
 
 // A chain-write spec spends real test funds and deposits, so a write run takes
-// exactly one spec file named on the command line, never a whole folder.
-if (tier === 'write' && process.argv.filter((a) => a.endsWith('.spec.ts')).length !== 1) {
+// exactly one spec file named on the command line, never a whole folder. Test workers load this
+// config again with their own argv, so only the runner process checks it.
+const runnerProcess = process.env.TEST_WORKER_INDEX === undefined;
+if (tier === 'write' && runnerProcess && process.argv.filter((a) => a.endsWith('.spec.ts')).length !== 1) {
   throw new Error('DREPTALK_E2E_CHAIN=write runs exactly one spec file, name it on the command line');
 }
 
