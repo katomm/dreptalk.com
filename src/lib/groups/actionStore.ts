@@ -116,9 +116,16 @@ function feeInputsOf(raw: unknown): OutRef[] {
  * cancelled row is left out, its initiator chose to let it go.
  */
 export async function openActionInputs(db: D1Database): Promise<OpenInputs[]> {
-  const res = await db.prepare(Q.actionOpenInputs.sql).bind(OPEN_INPUT_ROWS).all<Record<string, unknown>>();
-  return (res.results ?? []).map((r) => ({ id: String(r.id), createdBy: String(r.created_by), feeInputs: feeInputsOf(r.fee_inputs) }));
+  return openInputsOf(await db.prepare(Q.actionOpenInputs.sql).bind(OPEN_INPUT_ROWS).all<Record<string, unknown>>());
 }
+
+/** openActionInputs for the rows one user opened. */
+export async function openActionInputsOf(db: D1Database, userId: string): Promise<OpenInputs[]> {
+  return openInputsOf(await db.prepare(Q.actionOpenInputsOf.sql).bind(userId, OPEN_INPUT_ROWS).all<Record<string, unknown>>());
+}
+
+const openInputsOf = (res: D1Result<Record<string, unknown>>): OpenInputs[] =>
+  (res.results ?? []).map((r) => ({ id: String(r.id), createdBy: String(r.created_by), feeInputs: feeInputsOf(r.fee_inputs) }));
 
 /** The first open row that spends any of the inputs, null when none does. */
 export function actionHoldingInputs(open: readonly OpenInputs[], inputs: readonly OutRef[]): OpenInputs | null {

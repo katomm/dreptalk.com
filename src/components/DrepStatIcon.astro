@@ -2,8 +2,10 @@
 // The inline SVG glyphs of the stat cards (DReps directory, home, analytics, group page). Consistent 24x24
 // line icons (stroke: currentColor) so they inherit the card's tint colour. Kept
 // out of the page so the markup there stays about layout, not path data.
+import type { StatIconName } from '@/lib/analytics/hubView.js';
+
 interface Props {
-  name: 'people' | 'power' | 'gauge' | 'share' | 'shield' | 'calendar';
+  name: StatIconName;
 }
 const { name } = Astro.props;
 ---

@@ -29,7 +29,9 @@ import {
   treasuryScripts,
 } from '@/lib/db/drepGroups.js';
 import { isHttpUrl } from '@/lib/governance/metadata.js';
-import { cacheControlForSynced, formatAda, formatAdaCompact, SITE_ORIGIN, truncateIdMiddle } from '@/lib/forum/view.js';
+import { cacheControlForSynced, clipExcerpt, formatAda, formatAdaCompact, SITE_ORIGIN, truncateIdMiddle } from '@/lib/forum/view.js';
+import { formatEpochDate, formatSubmittedDateTime } from '@/lib/governance/view.js';
+import { buildBreadcrumbLd } from '@/lib/jsonld/breadcrumb.js';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import type { VitalCard } from '@/lib/analytics/hubView.js';
 import { GROUP_PAGE_SIZE, RETENTION_KEEP_APPLIED, RETENTION_KEEP_NOT_APPLIED } from '@/lib/groups/constants.js';
@@ -150,8 +152,7 @@ const HISTORY_KIND_LABEL: Record<HistoryKind, string> = {
 const blockDate = (h: number): { iso: string; text: string } | null => {
   const t = blockTimes.get(h);
   if (t === undefined) return null;
-  const d = new Date(t * 1000);
-  return { iso: d.toISOString(), text: `${d.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' })} UTC` };
+  return { iso: new Date(t * 1000).toISOString(), text: formatSubmittedDateTime(t * 1000) };
 };
 // These pages exist on preprod only, so every address is checked as a testnet address.
 const addressChecks = addresses
@@ -202,7 +203,7 @@ const adminKeys = new Set([...admins].map((k) => k.toLowerCase()));
 const founded = group ? (group.createdTime ?? blockTimes.get(group.createdHeight) ?? null) : null;
 const foundedText =
   founded !== null
-    ? new Date(founded * 1000).toLocaleDateString('en-US', { dateStyle: 'medium', timeZone: 'UTC' })
+    ? formatEpochDate(founded)
     : group
       ? `Block ${group.createdHeight}`
       : '';
@@ -243,15 +244,10 @@ const memberIdentity = (m: MemberRow): AuthorDescriptor => ({
 const siteOrigin = Astro.site?.origin ?? SITE_ORIGIN;
 const canonical = group ? `${siteOrigin}/groups/${group.groupId}/` : siteOrigin;
 const breadcrumbLd = group
-  ? {
-      '@context': 'https://schema.org',
-      '@type': 'BreadcrumbList',
-      itemListElement: [
-        { '@type': 'ListItem', position: 1, name: 'DRepTalk', item: `${siteOrigin}/` },
-        { '@type': 'ListItem', position: 2, name: 'Groups', item: `${siteOrigin}/groups/` },
-        { '@type': 'ListItem', position: 3, name: title, item: canonical },
-      ],
-    }
+  ? buildBreadcrumbLd(siteOrigin, [
+      { name: 'Groups', path: '/groups/' },
+      { name: title, path: `/groups/${group.groupId}/` },
+    ])
   : null;
 // The group as an organization of DReps, the members are not listed in it.
 const organizationLd = group
@@ -269,7 +265,7 @@ const organizationLd = group
 const metaLead = group ? `${title}, a DRep group with ${group.members} ${group.members === 1 ? 'member' : 'members'}. ${modeLabel(group.mode)}.` : '';
 const metaFull = profile?.description ? `${metaLead} ${profile.description}` : metaLead;
 // Cut at a word near 300 characters, the full description stays on the page.
-const metaDescription = metaFull.length <= 300 ? metaFull : `${metaFull.slice(0, metaFull.lastIndexOf(' ', 297))}...`;
+const metaDescription = clipExcerpt(metaFull, 300);
 ---
 {!available ? (
   <NotFoundPage />

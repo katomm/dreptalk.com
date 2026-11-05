@@ -4,7 +4,7 @@
 import type { Anchor } from 'drep-groups';
 import { useState } from 'react';
 import DrepImageUpload from '@/components/DrepImageUpload.js';
-import { inputStyle, labelStyle } from '@/components/drepFormStyles.js';
+import { inputStyle, labelStyle, textAreaStyle } from '@/components/drepFormStyles.js';
 import { credentialForDrepId } from '@/lib/groups/ids.js';
 import type { GroupProfileInput } from '@/lib/groups/profileDocs.js';
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
@@ -168,9 +168,6 @@ export async function storeProfile(p: ProfileDraft): Promise<Anchor> {
   const { url, hash } = (await res.json()) as { url: string; hash: string };
   return { url, dataHash: hash };
 }
-
-// The text area of the DRep profile forms: the input style in the body font, growing downwards.
-const textAreaStyle = { ...inputStyle, lineHeight: '1.6', resize: 'vertical' as const, fontFamily: 'inherit' };
 
 export function ProfileFields({ value, onChange, disabled }: { value: ProfileDraft; onChange: (p: ProfileDraft) => void; disabled?: boolean }) {
   const field = (key: 'name' | 'website' | 'charter', label: string, placeholder?: string) => (

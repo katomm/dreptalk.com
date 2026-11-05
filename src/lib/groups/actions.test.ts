@@ -15,8 +15,8 @@ import { describe, expect, it } from 'vitest';
 import {
   bindContent,
   carryThreshold,
+  changesOfEvents,
   changesOfIntent,
-  describeEvents,
   expectedPayload,
   type GroupIntent,
   type GroupState,
@@ -291,7 +291,7 @@ describe('proposals', () => {
   });
 });
 
-describe('describeEvents', () => {
+describe('describing the events of a transaction', () => {
   it('describes a combined action in plain words', () => {
     const s = state({ admission: policy([ALICE, BOB], 1) });
     const p = expectedPayload(combined, s, joins);
@@ -306,7 +306,7 @@ describe('describeEvents', () => {
       [K(ERIN), 'Erin'],
     ]);
     const joinMembers = new Map([[refKey({ txHash: T(50), index: 0 }), { kind: 'key' as const, hash: K(CAROL) }]]);
-    expect(describeEvents(events, names, s, decoded.scripts, { joinMembers })).toEqual([
+    expect(describeAction(changesOfEvents(events, s, decoded.scripts, { joinMembers }), names)).toEqual([
       'Approve Carol as a member.',
       'Management policy changes from 3 of 4 to 4 of 5. Added: Carol.',
     ]);
@@ -316,7 +316,7 @@ describe('describeEvents', () => {
     const s = state({ admission: policy([ALICE, BOB], 1) });
     const events: GroupEvent[] = [{ tag: 'approve', join: { txHash: T(50), index: 0 } }];
     const joinMembers = new Map([[refKey({ txHash: T(50), index: 0 }), { kind: 'key' as const, hash: K(CAROL) }]]);
-    const [line] = describeEvents(events, new Map(), s, [], { joinMembers });
+    const [line] = describeAction(changesOfEvents(events, s, [], { joinMembers }), new Map());
     expect(line).toBe(`Approve ${keyId(CAROL).slice(0, 8)}...${keyId(CAROL).slice(-4)} as a member.`);
   });
 
@@ -328,7 +328,7 @@ describe('describeEvents', () => {
       [K(CAROL), 'Carol'],
     ]);
     const scripts = (p.scripts ?? []).map((script) => ({ hash: (p.events[0] as Extract<GroupEvent, { tag: 'create' }>).control, script }));
-    expect(describeEvents(p.events, names, null, scripts)).toEqual([
+    expect(describeAction(changesOfEvents(p.events, null, scripts), names)).toEqual([
       'Found a permissioned group with Alice, Bob and Carol as founders, managed by 2 of 3: Alice, Bob and Carol.',
     ]);
   });

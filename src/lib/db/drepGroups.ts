@@ -29,6 +29,7 @@ import {
   START,
 } from '../groups/codec.js';
 import { openControlAction } from '../groups/actionStore.js';
+import { type ProfileFields, profileFieldsOfDoc } from '../groups/describe.js';
 import { credentialForDrepId, drepIdForCredential, groupIdParam, groupIdString } from '../groups/ids.js';
 import { picked } from '../groups/jobs.js';
 import { noKeys } from '../groups/preview.js';
@@ -423,7 +424,7 @@ export async function listVerdicts(db: D1Database, group: EventRef, valid: boole
     valid: Number(r.valid) === 1,
     reason: optStr(r.reason),
     blockHeight: Number(r.at_h),
-    blockTime: r.block_time === null || r.block_time === undefined ? null : Number(r.block_time),
+    blockTime: optNum(r.block_time),
   }));
 }
 
@@ -467,7 +468,7 @@ export async function groupHistory(
     tag: String(r.tag),
     subject: r.subject === null ? null : credFromKey(credKeyFromCol(r.subject)),
     blockHeight: Number(r.at_h),
-    blockTime: r.block_time === null || r.block_time === undefined ? null : Number(r.block_time),
+    blockTime: optNum(r.block_time),
   }));
   const versions = (ver.results ?? [])
     .map((r) => ({
@@ -558,6 +559,34 @@ export async function drepNamesForCredentials(db: D1Database, creds: Credential[
 export async function hostedProfileDocs(db: D1Database, hashes: string[]): Promise<Map<string, string>> {
   const rows = await keyedRead(db, 'profileDocs', [...new Set(hashes.map((h) => h.toLowerCase()))]);
   return new Map(rows.map((r) => [String(r.hash), String(r.body)]));
+}
+
+/**
+ * The profile of a group before and after an update that sets the anchor `hash`. Before is the
+ * stored profile of the group while it still has another anchor, else (the update is already in
+ * effect) the hosted document of the latest earlier anchor. After is the hosted document of the new
+ * anchor. A side that cannot be read is null, a group that is not founded yet has no before.
+ */
+export async function profileAround(
+  db: D1Database,
+  group: EventRef | null,
+  hash: string,
+): Promise<{ before: ProfileFields | null; after: ProfileFields | null }> {
+  const body = db.prepare(Q.profileDocBody.sql).bind(hash);
+  if (!group) {
+    const r = await body.first<Row>();
+    return { before: null, after: profileFieldsOfDoc(r ? String(r.body) : null) };
+  }
+  const [after, current, earlier] = await db.batch<Row>([
+    body,
+    db.prepare(Q.profileCurrent.sql).bind(...refBinds(group)),
+    db.prepare(Q.profileEarlier.sql).bind(...refBinds(group), hashBytes(hash)),
+  ]);
+  const afterFields = profileFieldsOfDoc(after.results?.[0] ? String(after.results[0].body) : null);
+  const stored = current.results?.[0];
+  if (stored && stored.hash !== hash) return { before: stored as unknown as ProfileFields, after: afterFields };
+  const prev = earlier.results?.[0];
+  return { before: prev ? profileFieldsOfDoc(prev.body === null || prev.body === undefined ? null : String(prev.body)) : null, after: afterFields };
 }
 
 /** An unresolved group row of the signing table as the group page and the DRep profile show it. */

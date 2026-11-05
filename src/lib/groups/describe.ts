@@ -198,9 +198,6 @@ function settingSentences(c: GroupChanges, names: Names, pending: boolean): stri
   return out;
 }
 
-/** The founders of a founding: the members that join in the founding transaction. */
-const foundersOf = (c: GroupChanges): Member[] => c.joins;
-
 /** The founding in words, with its policies. */
 function foundingLine(c: GroupChanges, names: Names, lead: string): string {
   const create = c.create;
@@ -219,7 +216,7 @@ export function describeAction(c: GroupChanges, names: Names): string[] {
   const lines: string[] = [];
   if (c.create) {
     const kind = c.mode === 'open' ? 'an open' : 'a permissioned';
-    const founders = foundersOf(c);
+    const founders = c.joins; // the members that join in the founding transaction
     const lead = founders.length > 0 ? `Found ${kind} group with ${members(founders, names)} as founders` : `Found ${kind} group`;
     lines.push(foundingLine(c, names, lead));
   } else {
@@ -249,7 +246,7 @@ export function describeHistory(c: GroupChanges, signers: string[], names: Names
   const settings = settingSentences(c, names, false);
   const withSettings = (kind: HistoryKind, lead: string) => ({ kind, text: [lead, ...settings].join(' ') });
   if (c.create) {
-    const founders = foundersOf(c);
+    const founders = c.joins; // the members that join in the founding transaction
     const lead = founders.length > 0 ? `Group founded by ${members(founders, names)}` : 'Group founded';
     return { kind: 'founded', text: foundingLine(c, names, lead) };
   }
@@ -261,8 +258,7 @@ export function describeHistory(c: GroupChanges, signers: string[], names: Names
     sentences.push(s);
   };
   // Joins approved in the same transaction read as one entry.
-  const approvedJoin = c.joins.filter((j) => j && c.approvals.some((a) => a && a.hash === j.hash && a.kind === j.kind));
-  const otherJoins = c.joins.filter((j) => !approvedJoin.includes(j));
+  const otherJoins = c.joins.filter((j) => !(j && c.approvals.some((a) => a && a.hash === j.hash && a.kind === j.kind)));
   if (c.approvals.length > 0) note('approved', `${members(c.approvals, names)} joined, approved${by}.`);
   if (otherJoins.length > 0) {
     note(c.mode === 'permissioned' ? 'requested' : 'joined', c.mode === 'permissioned' ? `${members(otherJoins, names)} requested to join.` : `${members(otherJoins, names)} joined.`);

@@ -21,6 +21,7 @@ import {
   listVerdicts,
   type MemberRow,
   pendingVerification,
+  profileAround,
   type ProfileRow,
   scriptDisplays,
   statusNote,
@@ -403,5 +404,62 @@ describe('drepGroups readers: status note', () => {
     // The flag outlives the rebuild slot until the replay reaches L.
     await db.prepare('UPDATE drep_group_meta SET rebuilding = 1 WHERE id = 1').run();
     expect(await statusNote(db)).toBe('rebuilding');
+  });
+});
+
+describe('drepGroups readers: profile around an update', () => {
+  const NEW = 'ab'.repeat(32);
+  const OLD = 'cd'.repeat(32);
+  const doc = (name: string): string => JSON.stringify({ body: { name } });
+  const seedDoc = (hash: string, name: string) =>
+    db.prepare("INSERT INTO drep_group_profile_docs (hash, body, created_by, created_at) VALUES (?, ?, 'u', 0)").bind(hash, doc(name)).run();
+  const seedVersion = (group: number, h: number, profileHash: string | null) =>
+    db
+      .prepare(
+        `INSERT INTO drep_group_versions (group_tx, group_ix, at_h, at_ti, at_ph, at_ix, at_tx, mode, control, profile_hash, seq, status,
+          created_h, created_ti, created_ph, created_ix, created_tx)
+         VALUES (?1, 0, ?2, 0, 2, 0, X'aa', 'open', X'01', ?3, '7', 'active', 1, 0, 2, 0, X'aa')`,
+      )
+      .bind(hashBytes(txOf(group)), h, profileHash === null ? null : hashBytes(profileHash))
+      .run();
+  const seedStored = (group: number, hash: string, name: string) =>
+    db
+      .prepare("INSERT INTO drep_group_profiles (group_tx, group_ix, data_hash, status, name) VALUES (?, 0, ?, 'ok', ?)")
+      .bind(hashBytes(txOf(group)), hashBytes(hash), name)
+      .run();
+
+  it('has no before for a group that is not founded yet', async () => {
+    await seedDoc(NEW, 'New');
+    const r = await profileAround(db, null, NEW);
+    expect(r.before).toBeNull();
+    expect(r.after?.name).toBe('New');
+  });
+
+  it('takes the before from the stored profile while it has another anchor', async () => {
+    await seedGroup(1);
+    await seedDoc(NEW, 'New');
+    await seedStored(1, OLD, 'Old');
+    const r = await profileAround(db, refOf(1), NEW);
+    expect(r.before?.name).toBe('Old');
+    expect(r.after?.name).toBe('New');
+  });
+
+  it('takes the before from the latest earlier anchor once the update is in effect', async () => {
+    await seedGroup(1);
+    await seedDoc(NEW, 'New');
+    await seedDoc(OLD, 'Old');
+    await seedStored(1, NEW, 'New');
+    await seedVersion(1, 5, OLD);
+    await seedVersion(1, 6, NEW);
+    const r = await profileAround(db, refOf(1), NEW);
+    expect(r.before?.name).toBe('Old');
+    expect(r.after?.name).toBe('New');
+  });
+
+  it('leaves a side null when its document is not hosted', async () => {
+    await seedGroup(1);
+    await seedStored(1, NEW, 'New');
+    await seedVersion(1, 5, OLD);
+    expect(await profileAround(db, refOf(1), NEW)).toEqual({ before: null, after: null });
   });
 });

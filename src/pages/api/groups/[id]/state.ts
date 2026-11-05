@@ -3,6 +3,7 @@
 // requests the actions are built from, the unresolved actions of the group and of the viewer, and
 // the viewer's own membership. The page itself stays cacheable, this route is never cached.
 import type { APIRoute } from 'astro';
+import type { Credential } from 'drep-groups';
 import { currentNetwork, jsonResponse, runtimeEnv } from '@/lib/api/response';
 import { type GroupActionRow, getGroup, groupActionState } from '@/lib/db/drepGroups';
 import { sessionOf } from '@/lib/groups/actionServer';
@@ -54,16 +55,14 @@ export const GET: APIRoute = async ({ params, locals }) => {
   // A row the session may open is described in words, from its intent and the state read above.
   const state = groupStateOf(group, s);
   const names = new Map(s.names);
+  const joinMembers = new Map<string, Credential>();
   for (const m of [...s.pending, ...s.activeMembers]) {
     const c = credentialForDrepId(m.drepId);
-    if (c && m.name) names.set(c.hash.toLowerCase(), m.name);
+    if (!c) continue;
+    const hash = c.hash.toLowerCase();
+    if (m.name) names.set(hash, m.name);
+    joinMembers.set(m.joinId.toLowerCase(), { kind: c.kind, hash });
   }
-  const joinMembers = new Map(
-    [...s.pending, ...s.activeMembers].flatMap((m) => {
-      const c = credentialForDrepId(m.drepId);
-      return c ? [[m.joinId.toLowerCase(), { kind: c.kind, hash: c.hash.toLowerCase() }] as const] : [];
-    }),
-  );
   const linesOf = (r: GroupActionRow): string[] => {
     try {
       return describeAction(changesOfIntent(JSON.parse(r.params) as GroupIntent, state, { joinMembers }), names);

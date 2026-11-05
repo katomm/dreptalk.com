@@ -3,9 +3,9 @@
 // a session that may sign the action reads it, the link alone is not a capability for group rows.
 import type { APIRoute } from 'astro';
 import { jsonResponse } from '@/lib/api/response';
-import { collectedSatisfy, feeInputKeys, koiosFor, linesOf, openRowRequest, submitBlocker, witnessKeys } from '@/lib/groups/actionServer';
+import { collectedSatisfy, describeTxNamed, feeInputKeys, koiosFor, openRowRequest, submitBlocker, witnessKeys } from '@/lib/groups/actionServer';
+import { eventsOf } from '@/lib/groups/actionTx';
 import { groupIdString } from '@/lib/groups/ids';
-import { drepNamesForKeyHashes } from '@/lib/db/drepGroups';
 
 export const prerender = false;
 
@@ -24,17 +24,25 @@ export const GET: APIRoute = async ({ params, locals }) => {
   // to tell. The check before submitting can find it first.
   let feeInputSpent = row.spent_seen_h !== null;
   let canSubmit = false;
-  if (row.status === 'collecting' && !feeInputSpent && submitBlocker(ctx, ctx.feePayKeys) === null) {
+  const askKoios = row.status === 'collecting' && !feeInputSpent && submitBlocker(ctx, ctx.feePayKeys) === null;
+  const checkFeeInputs = async () => {
     try {
       feeInputSpent = (await feeInputKeys(koiosFor(env), ctx.feeInputs)).spent;
       canSubmit = !feeInputSpent;
     } catch (err) {
       console.warn(`[drep-groups] fee inputs of ${row.id} could not be read`, err);
     }
-  }
-  const lines = await linesOf(db, ctx);
-  // DRep names of the signers and the viewer, so the page names who signs.
-  const names = await drepNamesForKeyHashes(db, [...new Set([...ctx.requiredSigners, ...signers, ...(session.keyHash ? [session.keyHash] : [])])]);
+  };
+  // The events in words and the DRep names of the signers and the viewer, so the page names who signs.
+  const [{ lines, names }] = await Promise.all([
+    describeTxNamed(db, {
+      events: eventsOf(ctx.tx.decoded),
+      state: ctx.state,
+      scripts: ctx.tx.decoded?.scripts ?? [],
+      signers: [...new Set([...ctx.requiredSigners, ...signers, ...(session.keyHash ? [session.keyHash] : [])])],
+    }),
+    askKoios ? checkFeeInputs() : Promise.resolve(),
+  ]);
   return jsonResponse(
     {
       id: row.id,

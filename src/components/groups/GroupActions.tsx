@@ -35,8 +35,7 @@ export interface GroupActionView {
   activeMembers: Array<{ joinId: string; drepId: string; name: string | null }>;
   pending: Array<{ joinId: string; drepId: string; name: string | null }>;
   openControl: { id: string | null } | null;
-  /** Unresolved actions, those the session may open with what they do in words. */
-  /** `inputSpent`: a fee input was spent by another transaction, the action can no longer be submitted. */
+  /** Unresolved actions, those the session may open with what they do in words. `inputSpent`: a fee input was spent by another transaction, the action can no longer be submitted. */
   rows: Array<{ id: string | null; kind: string; status: string; inputSpent?: boolean; lines?: string[] }>;
   viewer: { keyHash: string | null; drepId: string | null; join: { joinId: string; state: 'pending' | 'active' } | null } | null;
 }

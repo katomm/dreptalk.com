@@ -100,7 +100,7 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
   const policyKeys = useMemo(() => new Set([...v.control.keys, ...(v.admission?.keys ?? [])]), [v]);
   const isAdmin = viewerKey !== null && policyKeys.has(viewerKey);
   const activeIds = useMemo(() => v.activeKeyMembers.map((m) => m.drepId), [v]);
-  const memberKeys = useMemo(() => v.activeKeyMembers.map((m) => m.keyHash), [v]);
+  const memberKeys = useMemo(() => new Set(v.activeKeyMembers.map((m) => m.keyHash)), [v]);
   // Policy keys of neither an active member nor an applicant: DReps that left or were removed.
   const formerKeys = useMemo(() => {
     const applicants = new Set(
@@ -109,29 +109,9 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
         return c?.kind === 'key' ? [c.hash.toLowerCase()] : [];
       }),
     );
-    return new Set([...policyKeys].filter((k) => !memberKeys.includes(k) && !applicants.has(k)));
+    return new Set([...policyKeys].filter((k) => !memberKeys.has(k) && !applicants.has(k)));
   }, [v, policyKeys, memberKeys]);
-  // Applicants by key hash, the combined offer lists them before the policy names know them.
-  const pendingNames = useMemo(
-    () =>
-      new Map(
-        v.pending.flatMap((p) => {
-          const c = credentialForDrepId(p.drepId);
-          return c?.kind === 'key' && p.name ? [[c.hash.toLowerCase(), p.name] as const] : [];
-        }),
-      ),
-    [v],
-  );
-  const nameOf = useCallback(
-    (key: string) =>
-      v.names[key] ??
-      addedNames.get(key) ??
-      pendingNames.get(key) ??
-      shortHash(drepIdForCredential({ kind: 'key', hash: key })),
-    [v, addedNames, pendingNames],
-  );
-  const current = useMemo(() => (state ? thresholdOf(state.control) : { n: 1, k: 1 }), [state]);
-  // Names by credential hash and the member of every known join, for the words of a draft.
+  // Names by credential hash, the applicants and members included: the combined offer lists them before the policy names know them.
   const nameMap = useMemo(() => {
     const m = new Map<string, string>(Object.entries(v.names));
     for (const p of [...v.pending, ...v.activeMembers]) {
@@ -141,6 +121,9 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
     for (const [k, n] of addedNames) m.set(k, n);
     return m;
   }, [v, addedNames]);
+  const nameOf = useCallback((key: string) => nameMap.get(key) ?? shortHash(drepIdForCredential({ kind: 'key', hash: key })), [nameMap]);
+  const current = useMemo(() => (state ? thresholdOf(state.control) : { n: 1, k: 1 }), [state]);
+  // The member of every known join, for the words of a draft.
   const joinMembers = useMemo(() => {
     const m = new Map<string, Credential>();
     for (const p of [...v.pending, ...v.activeMembers]) {
@@ -181,7 +164,7 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
     (intent: GroupIntent, script: NativeScript | null, lock: number | undefined): string[] => {
       const keys = keysOf(intent, script);
       if (!keys) return [];
-      const rank = (k: string) => (k === viewerKey ? 0 : memberKeys.includes(k) ? 1 : 2);
+      const rank = (k: string) => (k === viewerKey ? 0 : memberKeys.has(k) ? 1 : 2);
       const order = [...keys.optional].sort((a, b) => rank(a) - rank(b));
       const chosen: string[] = [];
       const holds = () =>
@@ -256,9 +239,9 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
   const useUpdate = offer !== null && !v.openControl && offer.ticked.length > 0 && canCombined && (withUpdate || updateForced);
   const approveOk = picked.length > 0 && (useUpdate || canApprove);
   const controlKeys = v.control.keys;
-  const drift = v.mode === 'permissioned' && !sameSet(controlKeys, memberKeys);
-  const notInPolicy = memberKeys.filter((k) => !controlKeys.includes(k));
-  const formerInPolicy = controlKeys.filter((k) => !memberKeys.includes(k));
+  const drift = v.mode === 'permissioned' && !sameSet(controlKeys, [...memberKeys]);
+  const notInPolicy = [...memberKeys].filter((k) => !controlKeys.includes(k));
+  const formerInPolicy = controlKeys.filter((k) => !memberKeys.has(k));
   // Signer labels mark policy keys of DReps that are no longer members, applicants are not marked.
   const signerName = (key: string) =>
     formerKeys.has(key) ? `${nameOf(key)} (no longer a member)` : nameOf(key);
@@ -276,7 +259,7 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
     viewerKey !== null &&
     controlKeys.includes(viewerKey) &&
     !evaluateNativeScript(state.control, {
-      signers: new Set(controlKeys.filter((k) => k !== viewerKey && memberKeys.includes(k))),
+      signers: new Set(controlKeys.filter((k) => k !== viewerKey && memberKeys.has(k))),
       invalidBefore: null,
       invalidHereafter: null,
     });
@@ -411,7 +394,7 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
               controlKeys={controlKeys}
               sameAdmission={v.admission?.hash === v.control.hash}
               listed={policyKeys}
-              memberKeys={memberKeys}
+              memberKeys={[...memberKeys]}
               nameOf={nameOf}
               profile={profile}
               initial={editor.initial}

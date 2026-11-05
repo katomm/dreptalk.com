@@ -127,12 +127,12 @@ export const POST: APIRoute = async ({ request, locals }) => {
   try {
     // A second action on an output an open action spends could never be valid once the first one is
     // on chain. The holder is named only to its own initiator.
-    const holder = actionHoldingInputs(await openActionInputs(db), tx.inputs);
+    const group = intent.kind === 'group_create' ? null : groupIdParam(intent.group);
+    const [open, state] = await Promise.all([openActionInputs(db), group ? readGroupState(db, group) : null]);
+    const holder = actionHoldingInputs(open, tx.inputs);
     if (holder) return jsonResponse({ error: 'fee inputs held', id: holder.createdBy === user.id ? holder.id : null }, 409);
 
-    const group = intent.kind === 'group_create' ? null : groupIdParam(intent.group);
     if (intent.kind !== 'group_create' && !group) return refuse('bad group id');
-    const state = group ? await readGroupState(db, group) : null;
     if (group && !state) return refuse('unknown group');
     if (!mayInitiate(intent, state, session)) return refuse('not allowed to open this action', 403);
 

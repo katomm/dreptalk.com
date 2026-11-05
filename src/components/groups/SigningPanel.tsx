@@ -1,14 +1,14 @@
 // React island of the DRep group signing page. It shows what the transaction does in the words the
 // server decoded from it, who must sign and who has, and offers the signing, submitting and
 // cancelling steps. Signatures come from the connected wallet or from pasted cardano-signer output.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CopyButton } from '@/components/CopyButton.js';
 import WalletConnection from '@/components/WalletConnection.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import { txExplorerUrl } from '@/lib/config/network.js';
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
-import { drepIdForCredential } from '@/lib/groups/ids.js';
-import { INPUT_SPENT_TEXT, shortHash } from '@/lib/groups/view.js';
+import { keyLabel } from '@/lib/groups/describe.js';
+import { INPUT_SPENT_TEXT } from '@/lib/groups/view.js';
 import { readableError } from '@/lib/wallet/walletError.js';
 import { inputStyle, labelStyle } from '@/components/drepFormStyles.js';
 import { Callout, card, errorOf, fieldHeading, h2, muted, post, rows, stack, useWalletConnect } from './groupUi.js';
@@ -60,9 +60,6 @@ const CANCEL_NOTE =
 
 const mono = { fontFamily: 'var(--font-mono)', fontSize: '0.8125rem' } as const;
 
-/** A signer by DRep name, else by the short DRep id of the key. */
-const signerName = (view: ActionView, key: string): string => view.names?.[key] ?? shortHash(drepIdForCredential({ kind: 'key', hash: key }));
-
 function KeyList({ keys, signed, nameOf }: { keys: string[]; signed: Set<string>; nameOf: (k: string) => string }) {
   return (
     <ul style={rows}>
@@ -103,6 +100,9 @@ export default function SigningPanel({ actionId, network }: SigningPanelProps) {
 
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
 
+  // A signer by DRep name, else by the short DRep id of the key.
+  const names = useMemo(() => new Map(Object.entries(view?.names ?? {}).map(([k, v]) => [k.toLowerCase(), v])), [view?.names]);
+  const nameOf = useCallback((k: string) => keyLabel(k, names), [names]);
   const refresh = useCallback(async () => {
     try {
       const res = await fetchWithTimeout(`/api/groups/actions/${actionId}`);
@@ -238,7 +238,6 @@ export default function SigningPanel({ actionId, network }: SigningPanelProps) {
   const collecting = open && !dead;
   const confirming = view.status === 'submitted' && view.resolution === null;
   const command = `cardano-signer sign --data-hex ${view.bodyHash} --secret-key drep.skey`;
-  const nameOf = (k: string) => signerName(view, k);
   const viewerKey = view.viewerKey ?? null;
   const viewerSigned = viewerKey !== null && signedSet.has(viewerKey);
   // The wallet signs only for the required signers the transaction was built with, and the

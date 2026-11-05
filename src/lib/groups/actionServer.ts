@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { currentNetwork, jsonResponse, runtimeEnv } from '../api/response.js';
 import { sessionKeyHash } from '../auth/groupSigner.js';
 import { GROUP_SIGNER_ROLE } from '../auth/roles.js';
+import { profileAround } from '../db/drepGroups.js';
 import { insertGroupNotifications } from '../db/groupNotifications.js';
 import { getPendingMultisig, type PendingMultisigRow, type PendingWitness } from '../db/pendingMultisigTx.js';
 import { createKoiosClient } from '../koios/client.js';
@@ -16,10 +17,9 @@ import { freeStaleSlot } from './actionStore.js';
 import { controlSeq, type DecodedGroupTx, decodeGroupTx, eventsOf, paymentKeyHash } from './actionTx.js';
 import { ACTION_RATE } from './constants.js';
 import { drepGroupsAvailable } from './gate.js';
-import { describeEvents, type GroupIntent, type GroupState, IntentError, maySign, parseJoinRef, signerSetSatisfies } from './actions.js';
+import { changesOfEvents, type GroupIntent, type GroupState, IntentError, maySign, parseJoinRef, signerSetSatisfies } from './actions.js';
 import { hashBytes, scriptDisplayJson, scriptFromDisplayJson } from './codec.js';
-import { type GroupChanges, type ProfileFields, profileFieldsOfDoc } from './describe.js';
-import { getProfileDocBody } from './profileDocs.js';
+import { describeAction, type GroupChanges } from './describe.js';
 import { credentialForDrepId, drepIdForCredential, groupIdParam } from './ids.js';
 import { noKeys, PreviewUnavailable, readGroupState } from './preview.js';
 import { txProgress } from './resolve.js';
@@ -270,48 +270,17 @@ export async function namesFor(
   return { names, joinMembers };
 }
 
-/**
- * The profile before and after an update that sets a new anchor. Before is the stored profile of
- * the group while it still has another anchor, else (the update is already in effect) the hosted
- * document of the latest earlier anchor. After is the hosted document of the new anchor. A side
- * that cannot be read stays null, the words then only say that the profile changes.
- */
+/** The profile before and after the update of a transaction's events that sets a new anchor, see profileAround. */
 async function profileChangeOf(db: D1Database, group: EventRef | null, events: GroupEvent[]): Promise<GroupChanges['profile'] | undefined> {
   const anchor = events.flatMap((e) => (e.tag === 'update' && e.changes.profile ? [e.changes.profile] : []))[0];
-  if (!anchor) return undefined;
-  const hash = anchor.dataHash.toLowerCase();
-  const after = profileFieldsOfDoc(await getProfileDocBody(db, hash));
-  if (!group) return { before: null, after };
-  const [current, earlier] = await db.batch<Record<string, unknown>>([
-    db
-      .prepare("SELECT lower(hex(data_hash)) AS hash, name, description, website, charter, image FROM drep_group_profiles WHERE group_tx = ? AND group_ix = ? AND status = 'ok'")
-      .bind(hashBytes(group.txHash), group.index),
-    db
-      .prepare(
-        `SELECT lower(hex(profile_hash)) AS hash FROM drep_group_versions WHERE group_tx = ? AND group_ix = ? AND profile_hash IS NOT NULL AND profile_hash != ?
-         ORDER BY at_h DESC, at_ti DESC, at_ph DESC, at_ix DESC LIMIT 1`,
-      )
-      .bind(hashBytes(group.txHash), group.index, hashBytes(hash)),
-  ]);
-  const stored = current.results?.[0];
-  if (stored && stored.hash !== hash) return { before: stored as ProfileFields, after };
-  const prev = earlier.results?.[0]?.hash;
-  return { before: typeof prev === 'string' ? profileFieldsOfDoc(await getProfileDocBody(db, prev)) : null, after };
+  return anchor ? profileAround(db, group, anchor.dataHash.toLowerCase()) : undefined;
 }
 
 /**
  * The plain words of a transaction's events for the signing page and the signature request:
  * members and policy keys by DRep name, policy changes from the current policy, profile changes
- * by field.
+ * by field. Also returns the DRep names it read, by key or credential hash.
  */
-export async function describeTx(
-  db: D1Database,
-  o: { events: GroupEvent[]; state: GroupState | null; scripts: ReadonlyArray<{ hash: string; script: NativeScript }>; signers: string[] },
-): Promise<string[]> {
-  return (await describeTxNamed(db, o)).lines;
-}
-
-/** describeTx with the DRep names it read, by key or credential hash. */
 export async function describeTxNamed(
   db: D1Database,
   o: { events: GroupEvent[]; state: GroupState | null; scripts: ReadonlyArray<{ hash: string; script: NativeScript }>; signers: string[] },
@@ -325,12 +294,13 @@ export async function describeTxNamed(
     namesFor(db, keys, o.events),
     profileChangeOf(db, o.state?.ref ?? null, o.events),
   ]);
-  return { lines: describeEvents(o.events, names, o.state, o.scripts, { joinMembers, ...(profile ? { profile } : {}) }), names };
+  const changes = changesOfEvents(o.events, o.state, o.scripts, { joinMembers, ...(profile ? { profile } : {}) });
+  return { lines: describeAction(changes, names), names };
 }
 
 /** Plain words of the row's events. */
 export async function linesOf(db: D1Database, ctx: GroupRowContext): Promise<string[]> {
-  return describeTx(db, { events: eventsOf(ctx.tx.decoded), state: ctx.state, scripts: ctx.tx.decoded?.scripts ?? [], signers: ctx.requiredSigners });
+  return (await describeTxNamed(db, { events: eventsOf(ctx.tx.decoded), state: ctx.state, scripts: ctx.tx.decoded?.scripts ?? [], signers: ctx.requiredSigners })).lines;
 }
 
 /**

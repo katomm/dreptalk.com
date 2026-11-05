@@ -1302,6 +1302,13 @@ export const Q = Object.freeze({
           ORDER BY invalid_hereafter LIMIT ?`,
     boundedScan: 'pending_multisig_tx_unresolved',
   },
+  // Binds the user, then the limit. The same rows, only those the user opened.
+  actionOpenInputsOf: {
+    sql: `SELECT id, created_by, fee_inputs FROM pending_multisig_tx
+          WHERE subject_kind != 'drep' AND resolved_at IS NULL AND status IN ('collecting', 'submitted') AND fee_inputs IS NOT NULL AND created_by = ?
+          ORDER BY invalid_hereafter LIMIT ?`,
+    boundedScan: 'pending_multisig_tx_unresolved',
+  },
   // Binds the group id. The row holding the group's control slot.
   actionOpenControl: {
     sql: 'SELECT * FROM pending_multisig_tx WHERE drep_id = ? AND control_slot = 1 AND resolved_at IS NULL LIMIT 1',
@@ -1421,6 +1428,18 @@ export const Q = Object.freeze({
     sql: `SELECT at_tx, control, admission, profile_hash FROM drep_group_versions WHERE group_tx = ? AND group_ix = ?
           ORDER BY at_h DESC, at_ti DESC, at_ph DESC, at_ix DESC LIMIT ?`,
   },
+  // Binds the group. The stored profile of the group while it has a verified one.
+  profileCurrent: {
+    sql: "SELECT lower(hex(data_hash)) AS hash, name, description, website, charter, image FROM drep_group_profiles WHERE group_tx = ? AND group_ix = ? AND status = 'ok'",
+  },
+  // Binds the group, then the anchor to skip. The latest earlier profile anchor of the group with its hosted document, if any.
+  profileEarlier: {
+    sql: `SELECT d.body AS body FROM drep_group_versions v LEFT JOIN drep_group_profile_docs d ON d.hash = lower(hex(v.profile_hash))
+          WHERE v.group_tx = ? AND v.group_ix = ? AND v.profile_hash IS NOT NULL AND v.profile_hash != ?
+          ORDER BY v.at_h DESC, v.at_ti DESC, v.at_ph DESC, v.at_ix DESC LIMIT 1`,
+  },
+  // Binds the anchor hash. The hosted profile document.
+  profileDocBody: { sql: 'SELECT body FROM drep_group_profile_docs WHERE hash = ?' },
   // Binds the group twice. Whether it is closing and its queued membership events, at most the cap.
   pendingVerification: {
     sql: `WITH q AS (SELECT 1 FROM drep_group_queue WHERE group_tx = ?1 AND group_ix = ?2 AND applied = 0 LIMIT ${PENDING_INDICATOR_CAP})

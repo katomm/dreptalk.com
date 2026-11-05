@@ -27,7 +27,7 @@ import {
 } from 'drep-groups';
 import { scriptDisplayJson } from './codec.js';
 import { credentialForDrepId, groupIdParam } from './ids.js';
-import { describeAction, type GroupChanges, type Names, noChanges } from './describe.js';
+import { type GroupChanges, noChanges } from './describe.js';
 import { type ScriptView, scriptFromJson } from './view.js';
 
 type Policy = NativeScript & { hash: string };
@@ -417,6 +417,14 @@ export function bindContent(
   return { ok: true };
 }
 
+/** The members and the profile change that the words of a change need beyond the events themselves. */
+export interface DescribeOpts {
+  joinMembers?: ReadonlyMap<string, Credential>;
+  profile?: GroupChanges['profile'];
+}
+
+const viewOf = (s: NativeScript | null | undefined): ScriptView | null => (s ? scriptFromJson(scriptDisplayJson(s)) : null);
+
 /**
  * The changes of a transaction's events. Policies come from the transaction's scripts or the
  * current state, which is the state before the transaction. Approved, removed and leaving members
@@ -426,11 +434,10 @@ export function changesOfEvents(
   events: GroupEvent[],
   state: GroupState | null,
   scripts: ReadonlyArray<{ hash: string; script: NativeScript }> = [],
-  o: { joinMembers?: ReadonlyMap<string, Credential>; profile?: GroupChanges['profile'] } = {},
+  o: DescribeOpts = {},
 ): GroupChanges {
-  const view = (s: NativeScript | null | undefined): ScriptView | null => (s ? scriptFromJson(scriptDisplayJson(s)) : null);
   const policy = (hash: string): ScriptView | null =>
-    view(
+    viewOf(
       scripts.find((x) => x.hash === hash)?.script ??
         (state?.control.hash === hash ? state.control : state?.admission?.hash === hash ? state.admission : null),
     );
@@ -453,9 +460,9 @@ export function changesOfEvents(
         break;
       case 'update': {
         const ch = e.changes;
-        if (ch.control !== undefined) c.control = { before: view(state?.control), after: policy(ch.control) };
+        if (ch.control !== undefined) c.control = { before: viewOf(state?.control), after: policy(ch.control) };
         if (ch.admission !== undefined) {
-          c.admission = ch.admission === ch.control ? 'same' : { before: view(state?.admission), after: policy(ch.admission) };
+          c.admission = ch.admission === ch.control ? 'same' : { before: viewOf(state?.admission), after: policy(ch.admission) };
         }
         if (ch.profile !== undefined) c.profile = o.profile ?? { before: null, after: null };
         break;
@@ -488,9 +495,8 @@ export function changesOfEvents(
 export function changesOfIntent(
   intent: GroupIntent,
   state: GroupState | null,
-  o: { joinMembers?: ReadonlyMap<string, Credential>; profile?: GroupChanges['profile'] } = {},
+  o: DescribeOpts = {},
 ): GroupChanges {
-  const view = (s: NativeScript | null | undefined): ScriptView | null => (s ? scriptFromJson(scriptDisplayJson(s)) : null);
   const member = (j: string): Credential | null => o.joinMembers?.get(j.toLowerCase()) ?? null;
   const cred = (id: string): Credential | null => {
     const c = credentialForDrepId(id);
@@ -500,7 +506,7 @@ export function changesOfIntent(
   switch (intent.kind) {
     case 'group_create': {
       const p = createPolicies(intent);
-      c.create = { control: view(p.control), admission: intent.admission === 'same' ? 'same' : view(p.admission) };
+      c.create = { control: viewOf(p.control), admission: intent.admission === 'same' ? 'same' : viewOf(p.admission) };
       c.joins = intent.founders.map(cred);
       break;
     }
@@ -518,9 +524,9 @@ export function changesOfIntent(
       break;
     case 'group_update': {
       c.approvals = intent.approvals.map(member);
-      if (intent.control) c.control = { before: view(state?.control), after: view(majority(intent.control)) };
+      if (intent.control) c.control = { before: viewOf(state?.control), after: viewOf(majority(intent.control)) };
       if (intent.admission === 'same' && intent.control) c.admission = 'same';
-      else if (intent.admission && intent.admission !== 'same') c.admission = { before: view(state?.admission), after: view(majority(intent.admission)) };
+      else if (intent.admission && intent.admission !== 'same') c.admission = { before: viewOf(state?.admission), after: viewOf(majority(intent.admission)) };
       if (intent.profile) c.profile = o.profile ?? { before: null, after: null };
       break;
     }
@@ -529,17 +535,6 @@ export function changesOfIntent(
       break;
   }
   return c;
-}
-
-/** Plain words of a transaction's events, one line per change, see changesOfEvents. */
-export function describeEvents(
-  events: GroupEvent[],
-  names: Names,
-  state: GroupState | null,
-  scripts: ReadonlyArray<{ hash: string; script: NativeScript }> = [],
-  o: { joinMembers?: ReadonlyMap<string, Credential>; profile?: GroupChanges['profile'] } = {},
-): string[] {
-  return describeAction(changesOfEvents(events, state, scripts, o), names);
 }
 
 /** The ratio of the current policy carried to a new key count, rounded up. */

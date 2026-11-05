@@ -75,6 +75,8 @@ async function runGroupAction(
   r: ActionRun,
 ): Promise<{ outcome: Outcome | null; error: string | null }> {
   let id: string | null = null;
+  // Asked while the builder loads, it never rejects.
+  const held = heldInputs();
   try {
     const { buildGroupTx } = await import('@/lib/groups/groupTx.js');
     const lock = afterLock(r.memberScript);
@@ -85,7 +87,7 @@ async function runGroupAction(
     }
     const payload = encodePayload(expectedPayload(r.intent, r.state, new Map()));
     const { unsignedTxHex } = await buildGroupTx({
-      excludeInputs: await heldInputs(),
+      excludeInputs: await held,
       walletApi: api,
       network,
       origin,

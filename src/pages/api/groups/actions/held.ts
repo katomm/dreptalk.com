@@ -3,7 +3,7 @@
 // leaves them out. Only the session's own rows are read out, never another user's.
 import type { APIRoute } from 'astro';
 import { currentNetwork, jsonResponse, runtimeEnv } from '@/lib/api/response';
-import { inputsHeldBy, openActionInputs } from '@/lib/groups/actionStore';
+import { inputsHeldBy, openActionInputsOf } from '@/lib/groups/actionStore';
 import { drepGroupsAvailable } from '@/lib/groups/gate';
 
 export const prerender = false;
@@ -16,5 +16,5 @@ export const GET: APIRoute = async ({ locals }) => {
   if (!user) return jsonResponse({ error: 'unauthorized' }, 401, NO_STORE);
   const db = runtimeEnv(locals as App.Locals).DB as D1Database | undefined;
   if (!db) return jsonResponse({ error: 'service unavailable' }, 503, NO_STORE);
-  return jsonResponse({ heldInputs: inputsHeldBy(await openActionInputs(db), user.id) }, 200, NO_STORE);
+  return jsonResponse({ heldInputs: inputsHeldBy(await openActionInputsOf(db, user.id), user.id) }, 200, NO_STORE);
 };
