@@ -7,8 +7,11 @@ import WalletConnection from '@/components/WalletConnection.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import { txExplorerUrl } from '@/lib/config/network.js';
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
+import { drepIdForCredential } from '@/lib/groups/ids.js';
+import { INPUT_SPENT_TEXT, shortHash } from '@/lib/groups/view.js';
 import { readableError } from '@/lib/wallet/walletError.js';
-import { Callout, errorOf, h2, muted, post, stack, useWalletConnect } from './groupUi.js';
+import { inputStyle, labelStyle } from '@/components/drepFormStyles.js';
+import { Callout, card, errorOf, fieldHeading, h2, muted, post, rows, stack, useWalletConnect } from './groupUi.js';
 
 /** Shape returned by GET /api/groups/actions/[id]. */
 export interface ActionView {
@@ -26,8 +29,16 @@ export interface ActionView {
   unsignedTxCbor: string;
   bodyHash: string;
   canSubmit: boolean;
+  /** A fee input was spent by another transaction, this one can never be submitted. */
+  feeInputSpent?: boolean;
   isInitiator?: boolean;
   feeInputs?: Array<{ txHash: string; index: number }>;
+  /** The viewer's DRep key hash, null for a session without one. */
+  viewerKey?: string | null;
+  /** DRep names of the signers and the viewer, by key hash. */
+  names?: Record<string, string>;
+  /** Whether the initiator's wallet signed for the fee inputs. */
+  fundingSigned?: boolean;
 }
 
 export interface SigningPanelProps {
@@ -47,20 +58,33 @@ const RESOLUTION_TEXT: Record<NonNullable<ActionView['resolution']>, string> = {
 const CANCEL_NOTE =
   'Cancelling stops this link for everyone. Signatures that were already handed out stay usable until the expiry below, so a copy of this transaction could still be submitted by someone who holds it. To make it unusable for good, use "Cancel for real", which spends the fee input back to your wallet.';
 
-const shortKey = (k: string) => (k.length > 16 ? `${k.slice(0, 8)}...${k.slice(-6)}` : k);
-
 const mono = { fontFamily: 'var(--font-mono)', fontSize: '0.8125rem' } as const;
 
-function KeyList({ keys, signed }: { keys: string[]; signed: Set<string> }) {
+/** A signer by DRep name, else by the short DRep id of the key. */
+const signerName = (view: ActionView, key: string): string => view.names?.[key] ?? shortHash(drepIdForCredential({ kind: 'key', hash: key }));
+
+function KeyList({ keys, signed, nameOf }: { keys: string[]; signed: Set<string>; nameOf: (k: string) => string }) {
   return (
-    <ul style={{ margin: 0, paddingLeft: '1.25rem' }}>
+    <ul style={rows}>
       {keys.map((k) => (
-        <li key={k} style={mono}>
-          {shortKey(k)} {signed.has(k) ? '(signed)' : '(waiting)'}
+        <li key={k} data-key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'baseline' }}>
+          <span style={{ overflowWrap: 'anywhere' }}>{nameOf(k)}</span>
+          <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: signed.has(k) ? 'var(--accent)' : 'var(--muted)', whiteSpace: 'nowrap' }}>
+            {signed.has(k) ? 'Signed' : 'Waiting'}
+          </span>
         </li>
       ))}
     </ul>
   );
+}
+
+/** Where the signatures stand after the viewer signed: who is still missing, or what comes next. */
+function progressText(view: ActionView, missing: string[], nameOf: (k: string) => string): string {
+  if (view.status === 'submitted') return 'The transaction is being submitted and waits for the chain to confirm it.';
+  const fee = view.fundingSigned === false ? ' The initiator still has to sign for the fee with the wallet that pays it.' : '';
+  if (missing.length === 0) return view.canSubmit ? 'Every required signature is collected. The transaction can be submitted now.' : `Every required DRep signature is collected.${fee}`;
+  const count = missing.length === 1 ? '1 signature is still missing' : `${missing.length} signatures are still missing`;
+  return `${count}: ${missing.map(nameOf).join(', ')}.${fee}`;
 }
 
 export default function SigningPanel({ actionId, network }: SigningPanelProps) {
@@ -73,6 +97,8 @@ export default function SigningPanel({ actionId, network }: SigningPanelProps) {
   const [busy, setBusy] = useState(false);
   const [paste, setPaste] = useState('');
   const [submittedHash, setSubmittedHash] = useState<string | null>(null);
+  // Set once a signature of this visit was stored, the success notice then says so.
+  const [justSigned, setJustSigned] = useState(false);
   const { wallets, walletKey: selected, setWalletKey: setSelected, connect } = useWalletConnect(network, setError);
 
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
@@ -111,11 +137,8 @@ export default function SigningPanel({ actionId, network }: SigningPanelProps) {
     const res = await post(`/api/groups/actions/${actionId}/witness`, { witnessSetHex });
     if (!res.ok) throw new Error(await errorOf(res, 'Could not add the signature.'));
     const body = (await res.json()) as { accepted: string[] };
-    if (body.accepted.length === 0) {
-      setNote('None of the keys of this signature are signers of this action.');
-      return false;
-    }
-    setNote(`Signature added for ${body.accepted.map(shortKey).join(', ')}.`);
+    if (body.accepted.length === 0) throw new Error('None of the keys of this signature is a signer of this action.');
+    setJustSigned(true);
     return true;
   }
 
@@ -207,9 +230,23 @@ export default function SigningPanel({ actionId, network }: SigningPanelProps) {
   }
 
   const signedSet = new Set([...view.signed, ...view.optionalSigned]);
-  const collecting = view.status === 'collecting';
+  const open = view.status === 'collecting' && view.resolution === null;
+  // A collecting row whose fee input another transaction spent can never be valid. The resolver
+  // later marks it never included, until then it stays open for its initiator to cancel.
+  const dead = view.feeInputSpent === true && view.status === 'collecting' && (view.resolution === null || view.resolution === 'never_included');
+  // A resolved row (never included, its time ran out) and a dead one take no more signatures.
+  const collecting = open && !dead;
   const confirming = view.status === 'submitted' && view.resolution === null;
   const command = `cardano-signer sign --data-hex ${view.bodyHash} --secret-key drep.skey`;
+  const nameOf = (k: string) => signerName(view, k);
+  const viewerKey = view.viewerKey ?? null;
+  const viewerSigned = viewerKey !== null && signedSet.has(viewerKey);
+  // The wallet signs only for the required signers the transaction was built with, and the
+  // initiator's wallet for the fee inputs.
+  const viewerRequired = viewerKey !== null && view.requiredSigners.includes(viewerKey);
+  const feeWanted = view.isInitiator === true && view.fundingSigned === false;
+  const maySign = collecting && ((viewerRequired && !viewerSigned) || feeWanted);
+  const missing = view.requiredSigners.filter((k) => !signedSet.has(k));
   const walletPicker =
     wallets.length === 0 ? (
       <p style={muted}>No Cardano wallet extension detected.</p>
@@ -219,8 +256,8 @@ export default function SigningPanel({ actionId, network }: SigningPanelProps) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', maxWidth: '40rem' }}>
-      <section aria-label="What this transaction does">
-        <h2 style={h2}>What this transaction does</h2>
+      <section aria-label="What this transaction does" style={card}>
+        <h2 style={{ ...h2, margin: 0 }}>What this transaction does</h2>
         <ul style={{ margin: 0, paddingLeft: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
           {view.lines.map((line) => (
             <li key={line}>{line}</li>
@@ -228,68 +265,90 @@ export default function SigningPanel({ actionId, network }: SigningPanelProps) {
         </ul>
       </section>
 
-      <section aria-label="Signatures">
-        <h2 style={h2}>Signatures</h2>
-        <p style={{ margin: '0 0 0.25rem', fontWeight: 600, fontSize: '0.875rem' }}>Must sign</p>
-        <KeyList keys={view.requiredSigners} signed={signedSet} />
+      <section aria-label="Signatures" style={card}>
+        <h2 style={{ ...h2, margin: 0 }}>Signatures</h2>
+        <p style={fieldHeading}>Must sign</p>
+        <KeyList keys={view.requiredSigners} signed={signedSet} nameOf={nameOf} />
         {view.optionalSigned.length > 0 && (
           <>
-            <p style={{ margin: '0.75rem 0 0.25rem', fontWeight: 600, fontSize: '0.875rem' }}>May sign, already signed</p>
-            <KeyList keys={view.optionalSigned} signed={signedSet} />
+            <p style={fieldHeading}>May sign, already signed</p>
+            <KeyList keys={view.optionalSigned} signed={signedSet} nameOf={nameOf} />
           </>
         )}
-        <p role="status" aria-live="polite" style={{ margin: '0.75rem 0 0', fontSize: '0.875rem', color: view.satisfied ? 'var(--accent)' : 'var(--muted)', fontWeight: 600 }}>
+        <p role="status" aria-live="polite" style={{ margin: 0, fontSize: '0.875rem', fontWeight: 600, color: view.satisfied ? 'var(--accent)' : 'var(--muted)' }}>
           {view.satisfied ? 'All required signatures are collected.' : 'More signatures are needed.'}
         </p>
-        <p style={{ margin: '0.25rem 0 0', fontSize: '0.8125rem', color: 'var(--muted)' }}>
-          Expires {new Date(view.expiresAt * 1000).toLocaleString()}
-        </p>
+        <p style={{ ...muted, fontSize: '0.8125rem' }}>Expires {new Date(view.expiresAt * 1000).toLocaleString()}</p>
       </section>
 
-      {view.resolution && <Callout kind={view.resolution === 'applied' ? 'success' : 'info'}>{RESOLUTION_TEXT[view.resolution]}</Callout>}
+      {dead && (
+        <Callout kind="error">
+          {INPUT_SPENT_TEXT} {open && view.isInitiator ? 'Cancel it and start it again.' : 'Start it again if you still want this change.'}
+        </Callout>
+      )}
+      {viewerSigned && !dead && view.resolution === null && view.status !== 'cancelled' && (
+        <Callout kind="success" title={justSigned ? 'Signature added' : 'You have signed'}>
+          {nameOf(viewerKey as string)} signed this transaction. {progressText(view, missing, nameOf)}
+        </Callout>
+      )}
+      {view.resolution && !dead && <Callout kind={view.resolution === 'applied' ? 'success' : 'info'}>{RESOLUTION_TEXT[view.resolution]}</Callout>}
       {confirming && (
         <Callout kind="info">
           The transaction is submitted and waiting for the chain to confirm it. This can take a few minutes.
           {submittedHash && (
             <>
               {' '}
-              <a href={txExplorerUrl(network, submittedHash)} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
+              <a href={txExplorerUrl(network, submittedHash)} target="_blank" rel="noopener noreferrer">
                 View transaction
               </a>
             </>
           )}
         </Callout>
       )}
-      {view.status === 'cancelled' && <Callout kind="info">This signing link was cancelled. {view.isInitiator ? CANCEL_NOTE : ''}</Callout>}
+      {view.status === 'cancelled' && (
+        <Callout kind="info">This signing link was cancelled. {view.isInitiator && !view.feeInputSpent ? CANCEL_NOTE : ''}</Callout>
+      )}
 
-      {collecting && (
-        <section aria-label="Add your signature" style={stack}>
-          <h2 style={{ fontSize: '1.0625rem', margin: 0 }}>Add your signature</h2>
+      {collecting && !maySign && !viewerSigned && (
+        <Callout kind="info">
+          Your DRep key is not a signer of this transaction. Its signers were chosen when it was built: {view.requiredSigners.map(nameOf).join(', ')}.
+        </Callout>
+      )}
+
+      {maySign && (
+        <section aria-label="Add your signature" style={card}>
+          <h2 style={{ ...h2, margin: 0 }}>{viewerRequired && !viewerSigned ? 'Add your signature' : 'Sign for the fee'}</h2>
+          {!(viewerRequired && !viewerSigned) && <p style={muted}>Your DRep signature is in. The wallet that pays the fee still has to sign.</p>}
           {walletPicker}
           {wallets.length > 0 && (
             <button type="button" className="btn btn-primary" onClick={() => void signWithWallet()} disabled={busy} style={{ alignSelf: 'flex-start' }}>
               Sign with wallet
             </button>
           )}
-          <p style={{ margin: '0.5rem 0 0', fontSize: '0.8125rem', color: 'var(--muted)' }}>
-            Or sign the transaction body hash offline with your DRep key and paste the output.
-          </p>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
-            <pre style={{ ...mono, flex: 1, margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{command}</pre>
-            <CopyButton value={command} label="Copy command" />
-          </div>
-          <textarea
-            value={paste}
-            onChange={(e) => setPaste(e.target.value)}
-            aria-label="cardano-signer output"
-            placeholder='Paste the cardano-signer JSON output here, e.g. { "signature": "...", "publicKey": "..." }'
-            rows={4}
-            disabled={busy}
-            style={{ ...mono, width: '100%', padding: '0.625rem 0.75rem', border: '1px solid var(--border)', borderRadius: '0.375rem', background: 'var(--bg)', color: 'var(--fg)', boxSizing: 'border-box' }}
-          />
-          <button type="button" className="btn" onClick={() => void addPasted()} disabled={busy || !paste.trim()} style={{ alignSelf: 'flex-start' }}>
-            Add signature
-          </button>
+          {viewerRequired && !viewerSigned && (
+            <>
+              <p style={{ ...muted, fontSize: '0.8125rem', marginTop: '0.5rem' }}>Or sign the transaction body hash offline with your DRep key and paste the output.</p>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+                <pre style={{ ...mono, flex: 1, margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>{command}</pre>
+                <CopyButton value={command} label="Copy command" />
+              </div>
+              <label style={labelStyle} htmlFor="gs-paste">
+                cardano-signer output
+              </label>
+              <textarea
+                id="gs-paste"
+                style={{ ...inputStyle, ...mono, fontSize: '0.875rem', resize: 'vertical' }}
+                value={paste}
+                onChange={(e) => setPaste(e.target.value)}
+                placeholder='{ "signature": "...", "publicKey": "..." }'
+                rows={4}
+                disabled={busy}
+              />
+              <button type="button" className="btn" onClick={() => void addPasted()} disabled={busy || !paste.trim()} style={{ alignSelf: 'flex-start' }}>
+                Add signature
+              </button>
+            </>
+          )}
         </section>
       )}
 
@@ -302,16 +361,16 @@ export default function SigningPanel({ actionId, network }: SigningPanelProps) {
         </section>
       )}
 
-      {view.isInitiator && collecting && (
+      {view.isInitiator && open && (
         <section aria-label="Cancel" style={stack}>
-          <p style={muted}>{CANCEL_NOTE}</p>
+          {!dead && <p style={muted}>{CANCEL_NOTE}</p>}
           <button type="button" className="btn" onClick={() => void cancel()} disabled={busy} style={{ alignSelf: 'flex-start' }}>
             Cancel this signing link
           </button>
         </section>
       )}
 
-      {view.isInitiator && view.status === 'cancelled' && (view.feeInputs?.length ?? 0) > 0 && !cancelledForReal && (
+      {view.isInitiator && view.status === 'cancelled' && !view.feeInputSpent && (view.feeInputs?.length ?? 0) > 0 && !cancelledForReal && (
         <section aria-label="Cancel for real" style={stack}>
           {walletPicker}
           <button type="button" className="btn" onClick={() => void cancelForReal()} disabled={busy} style={{ alignSelf: 'flex-start' }}>

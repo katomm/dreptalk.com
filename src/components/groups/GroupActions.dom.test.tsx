@@ -98,6 +98,15 @@ describe('GroupActions buttons by role', () => {
     expect(screen.queryByRole('link', { name: /signing page/ })).toBeNull();
   });
 
+  it('says an action in progress whose coin another transaction spent can no longer be submitted', async () => {
+    show(view({ rows: [{ id: 'r1', kind: 'group_approve', status: 'collecting', inputSpent: true }] }));
+    expect(await screen.findByText(/can no longer be submitted$/)).toBeTruthy();
+    expect(
+      screen.getByText('This transaction can no longer be submitted, a coin it spends was used by another transaction. Cancel it and start it again.'),
+    ).toBeTruthy();
+    expect(screen.queryByText(/collecting signatures/)).toBeNull();
+  });
+
   it('lets a key DRep join an open group as a self-declared member', async () => {
     show(view({ mode: 'open', admission: null, viewer: viewer(C) }));
     expect(await screen.findByRole('button', { name: 'Join' })).toBeTruthy();
@@ -304,6 +313,29 @@ describe('GroupActions member removal', () => {
     expect(signTx).not.toHaveBeenCalled();
     const post = calls.find((c) => c.url.endsWith('/api/groups/actions'));
     expect(post?.body).toMatchObject({ intent: { kind: 'group_remove', group: GID, joins: [BOB_JOIN] }, selected: [A, B] });
+  });
+
+  it('picks active members as signers before a former member still in the policy, and marks the former one', async () => {
+    const members = [activeMembers[0], { joinId: `${'05'.repeat(32)}#1`, drepId: drep(C), name: 'Carol' }, activeMembers[2]];
+    const drifted = policy([A, B, C], 2);
+    show(
+      view({
+        control: drifted,
+        admission: drifted,
+        activeKeyMembers: [member(A), member(C)],
+        activeMembers: members,
+        viewer: viewer(A, { joinId: members[0].joinId, state: 'active' }),
+      }),
+      [{ url: /\/api\/groups\/actions$/, body: { id: 'r6' } }],
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove Script council' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, remove' }));
+    expect((await screen.findByRole('checkbox', { name: 'Signer Carol' }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole('checkbox', { name: 'Signer Bob (no longer a member)' }) as HTMLInputElement).checked).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Build and sign' }));
+    expect(await screen.findByText(/\/groups\/sign\/r6\//)).toBeTruthy();
+    const post = calls.find((c) => c.url.endsWith('/api/groups/actions'));
+    expect(post?.body).toMatchObject({ selected: [A, C] });
   });
 
   it('gives a member who is not an admin no remove control', async () => {

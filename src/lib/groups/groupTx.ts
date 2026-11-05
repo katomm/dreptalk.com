@@ -20,6 +20,7 @@ import { collectWalletUtxos, FUNDING_HEADROOM_LOVELACE, pickInputsToCover, type 
 import { decodeGroupTx, unsignedShapeError } from './actionTx.js';
 import { ACTION_TTL_SECONDS, WITNESS_FEE_BYTES } from './constants.js';
 import { drepGroupsAvailable } from './gate.js';
+import { FUNDS_HELD } from './view.js';
 
 type ProtocolParameters = NonNullable<NonNullable<Parameters<DrepTxBuilder['build']>[0]>['fullProtocolParameters']>;
 type SlotConfig = typeof preprod.slotConfig;
@@ -71,6 +72,17 @@ export function keyPaymentUtxos(utxos: readonly UTxO.UTxO[]): UTxO.UTxO[] {
   return utxos.filter((u) => !Address.isScript(u.address));
 }
 
+export type OutRef = { txHash: string; index: number };
+
+const refOf = (txHash: string, index: number | bigint): string => `${txHash.toLowerCase()}#${index}`;
+
+/** The UTxOs that none of the given output references names. */
+export function withoutInputs(utxos: readonly UTxO.UTxO[], exclude: readonly OutRef[]): UTxO.UTxO[] {
+  if (exclude.length === 0) return [...utxos];
+  const held = new Set(exclude.map((r) => refOf(r.txHash, r.index)));
+  return utxos.filter((u) => !held.has(refOf(TransactionHash.toHex(u.transactionId), u.index)));
+}
+
 export interface GroupTxInputs {
   utxos: readonly UTxO.UTxO[];
   params: ProtocolParameters;
@@ -81,6 +93,8 @@ export interface GroupTxInputs {
   tipSlot: number;
   invalidBeforeSlot?: number;
   slotConfig: SlotConfig;
+  /** Wallet UTxOs that open actions already spend, never selected again. */
+  excludeInputs?: readonly OutRef[];
 }
 
 /**
@@ -88,8 +102,10 @@ export interface GroupTxInputs {
  * without any provider call. Exported for the offline tests, buildGroupTx supplies the live values.
  */
 export async function buildGroupTxFrom(txb: DrepTxBuilder, i: GroupTxInputs): Promise<{ unsignedTxHex: string; bodyHashHex: string }> {
-  const funding = keyPaymentUtxos(i.utxos);
-  if (funding.length === 0) throw new Error('The wallet holds no ada at a key payment address to pay the fee.');
+  const keyed = keyPaymentUtxos(i.utxos);
+  if (keyed.length === 0) throw new Error('The wallet holds no ada at a key payment address to pay the fee.');
+  const funding = withoutInputs(keyed, i.excludeInputs ?? []);
+  if (funding.length === 0) throw new Error(FUNDS_HELD);
   const inputs = pickInputsToCover(funding, FUNDING_HEADROOM_LOVELACE);
   const queued = queueGroupOps(txb, {
     payload: i.payload,
@@ -128,7 +144,8 @@ function assertGroupsNetwork(network: CardanoNetwork): void {
 /**
  * Builds the unsigned group transaction funded by the connected wallet. The validity ends
  * ACTION_TTL_SECONDS after the tip slot, `invalidBeforeSlot` is only for a member script with an
- * after lock. Requires a live wallet and a reachable Koios proxy.
+ * after lock, `excludeInputs` are the fee inputs of the initiator's open actions. Requires a live
+ * wallet and a reachable Koios proxy.
  */
 export async function buildGroupTx(opts: {
   walletApi: WalletApi;
@@ -139,6 +156,7 @@ export async function buildGroupTx(opts: {
   optionalKeys: string[];
   tipSlot: number;
   invalidBeforeSlot?: number;
+  excludeInputs?: readonly OutRef[];
 }): Promise<{ unsignedTxHex: string; bodyHashHex: string }> {
   assertGroupsNetwork(opts.network);
   const client = makeClient(opts.network, opts.origin, opts.walletApi);
@@ -146,9 +164,10 @@ export async function buildGroupTx(opts: {
     collectWalletUtxos(opts.network, opts.origin, opts.walletApi),
     client.getProtocolParameters(),
   ]);
-  const { payload, requiredSigners, optionalKeys, tipSlot, invalidBeforeSlot } = opts;
+  const { payload, requiredSigners, optionalKeys, tipSlot, invalidBeforeSlot, excludeInputs } = opts;
   return buildGroupTxFrom(client.newTx(), {
     utxos,
+    excludeInputs,
     params,
     payload,
     requiredSigners,
@@ -174,7 +193,6 @@ export async function buildSendToSelfFrom(
     changeAddress?: Address.Address;
   },
 ): Promise<Awaited<ReturnType<DrepTxBuilder['build']>>> {
-  const refOf = (txHash: string, index: number | bigint) => `${txHash.toLowerCase()}#${index}`;
   const byRef = new Map(keyPaymentUtxos(i.utxos).map((u) => [refOf(TransactionHash.toHex(u.transactionId), u.index), u]));
   const spent: UTxO.UTxO[] = [];
   for (const ref of i.inputs) {

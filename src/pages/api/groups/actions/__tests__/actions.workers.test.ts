@@ -87,11 +87,16 @@ import { POST as cancel } from '../[id]/cancel';
 import { POST as submit } from '../[id]/submit';
 import { POST as submitted } from '../[id]/submitted';
 import { POST as witness } from '../[id]/witness';
+import { GET as held } from '../held';
 import { POST as create } from '../index';
 
 const GID = groupIdString(PERM.ref);
 
+// Every action opened in a test spends its own output, the first one FEE_INPUT.
+let opened = 0;
+
 beforeEach(() => {
+  opened = 0;
   net.network = 'preprod';
   koios.tipSlot = TIP_SLOT;
   koios.spent.clear();
@@ -112,7 +117,9 @@ async function open(
   intent: GroupIntent,
   o: { payload: PayloadInput; selected?: string[]; signers?: string[]; tx?: Partial<TxParts> },
 ): Promise<{ status: number; json: { id?: string; error?: string }; bodyHash: string; hex: string }> {
-  const t = buildTx({ payload: o.payload, requiredSigners: uniq(o.signers ?? o.selected ?? []), ...o.tx });
+  const index = opened++;
+  const inputs = index === 0 ? [FEE_INPUT] : [{ txHash: FEE_INPUT.txHash, index }];
+  const t = buildTx({ payload: o.payload, requiredSigners: uniq(o.signers ?? o.selected ?? []), inputs, ...o.tx });
   const res = await call<{ id?: string; error?: string }>(create, user, { body: { intent, unsignedTxCbor: t.hex, selected: o.selected ?? [] } });
   return { ...res, bodyHash: t.bodyHash, hex: t.hex };
 }
@@ -343,6 +350,28 @@ describe('group action routes', () => {
     expect(view.json).toMatchObject({ signed: [ERIN.hash, ALICE.hash], satisfied: true, canSubmit: true });
   });
 
+  it('accepts a repeated signature of the same key without storing it twice', async () => {
+    await seedPermissioned();
+    const row = await openIn(alice, addErin, [ALICE.hash], [ERIN.hash]);
+    const id = row.json.id as string;
+    const first = await sign(id, erin, row.bodyHash, ERIN);
+    const again = await sign(id, erin, row.bodyHash, ERIN);
+    expect(again.status).toBe(200);
+    expect(again.json).toEqual(first.json);
+    const stored = JSON.parse((await getPendingMultisig(env.DB, id))?.witnesses ?? '[]') as PendingWitness[];
+    expect(stored.map((w) => w.key_hash)).toEqual([ERIN.hash]);
+    const view = await call<Record<string, unknown>>(GET, erin, { id });
+    expect(view.json).toMatchObject({ signed: [ERIN.hash], viewerKey: ERIN.hash, fundingSigned: false });
+  });
+
+  it('refuses a signature without any key of a signer with its own reason', async () => {
+    await seedPermissioned();
+    const row = await openIn(bob, approveCarol, [BOB.hash]);
+    const res = await sign(row.json.id as string, bob, row.bodyHash, DAVE);
+    expect(res.status).toBe(422);
+    expect(res.json).toMatchObject({ error: 'None of the keys of this signature is a signer of this action.', ignored: [DAVE.hash] });
+  });
+
   it('splits a wallet witness set and ignores unneeded keys', async () => {
     await seedPermissioned();
     const row = await openIn(bob, approveCarol, [BOB.hash]);
@@ -558,7 +587,7 @@ describe('group action routes', () => {
       ['u-carol', 'group_signature_request', `group-sign:${row.json.id}`],
     ]);
     expect(JSON.parse(results[0].payload)).toMatchObject({ groupId: GID, actionId: row.json.id });
-    expect(JSON.parse(results[0].payload).summary).toMatch(/^Approve .*, Change management/);
+    expect(JSON.parse(results[0].payload).summary).toMatch(/^Approve .* as a member\. Management policy changes from /);
   });
 
   it('refuses a witness after expiry', async () => {
@@ -675,6 +704,54 @@ describe('group action routes', () => {
     expect(koios.calls).toBeLessThanOrEqual(1);
     koios.spent.add(`${FEE_INPUT.txHash}#${FEE_INPUT.index}`);
     expect((await call(GET, bob, { id })).json).toMatchObject({ canSubmit: false });
+  });
+
+  it('refuses an action on an output an open action spends, naming the holder to its initiator only', async () => {
+    await seedPermissioned();
+    const first = await openIn(bob, approveCarol, [BOB.hash]);
+    const id = first.json.id as string;
+    const reuse = { tx: { inputs: [FEE_INPUT] } };
+    const byBob = await open(bob, approveCarol, { payload: await payloadIn(approveCarol), selected: [BOB.hash], ...reuse });
+    expect(byBob).toMatchObject({ status: 409, json: { error: 'fee inputs held', id } });
+    const byAlice = await open(alice, dissolvePerm, { payload: await payloadIn(dissolvePerm), selected: [ALICE.hash], ...reuse });
+    expect(byAlice).toMatchObject({ status: 409, json: { error: 'fee inputs held', id: null } });
+    // A cancelled or resolved holder no longer blocks the output.
+    await call(cancel, bob, { id, body: {} });
+    expect((await open(alice, dissolvePerm, { payload: await payloadIn(dissolvePerm), selected: [ALICE.hash], ...reuse })).status).toBe(200);
+  });
+
+  it('lists the outputs of the own open actions of the session only', async () => {
+    await seedPermissioned();
+    const first = await openIn(bob, approveCarol, [BOB.hash]);
+    expect(await call(held, bob, {})).toEqual({ status: 200, json: { heldInputs: [FEE_INPUT] } });
+    expect(await call(held, alice, {})).toEqual({ status: 200, json: { heldInputs: [] } });
+    await env.DB.prepare(`UPDATE pending_multisig_tx SET resolution = 'never_included', resolved_at = 1, never_included_at = 1 WHERE id = ?`)
+      .bind(first.json.id as string)
+      .run();
+    expect((await call(held, bob, {})).json).toEqual({ heldInputs: [] });
+  });
+
+  it('marks a row whose fee input another transaction spent, from the stored mark without Koios', async () => {
+    await seedPermissioned();
+    const row = await openIn(bob, approveCarol, [BOB.hash]);
+    const id = row.json.id as string;
+    expect((await call(GET, bob, { id })).json).toMatchObject({ feeInputSpent: false });
+    await sign(id, bob, row.bodyHash, BOB);
+    await sign(id, bob, row.bodyHash, PAY);
+    await env.DB.prepare('UPDATE pending_multisig_tx SET spent_seen_h = 90 WHERE id = ?').bind(id).run();
+    koios.calls = 0;
+    expect((await call(GET, bob, { id })).json).toMatchObject({ feeInputSpent: true, canSubmit: false });
+    expect(koios.calls).toBe(0);
+  });
+
+  it('marks a complete row whose fee input Koios reports spent', async () => {
+    await seedPermissioned();
+    const row = await openIn(bob, approveCarol, [BOB.hash]);
+    const id = row.json.id as string;
+    await sign(id, bob, row.bodyHash, BOB);
+    await sign(id, bob, row.bodyHash, PAY);
+    koios.spent.add(`${FEE_INPUT.txHash}#${FEE_INPUT.index}`);
+    expect((await call(GET, bob, { id })).json).toMatchObject({ feeInputSpent: true, canSubmit: false });
   });
 
   it('refuses a create whose fee input is already spent', async () => {

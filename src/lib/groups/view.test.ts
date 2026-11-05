@@ -3,6 +3,7 @@ import {
   addressStatusLabel,
   describePolicy,
   eventLabel,
+  hostedAvatarHash,
   memberSections,
   modeLabel,
   policyKeyHashes,
@@ -95,5 +96,20 @@ describe('group view helpers', () => {
       { kind: 'pending', after: null },
       { kind: 'former', after: '7.1.2.0' },
     ]);
+  });
+});
+
+describe('hostedAvatarHash', () => {
+  const h = 'ab'.repeat(32);
+  it('reads the hash of an image the site hosts, on any origin', () => {
+    expect(hostedAvatarHash(`https://dreptalk.com/api/avatar/${h}`)).toBe(h);
+    expect(hostedAvatarHash(`http://localhost:4321/api/avatar/${h}/thumb`)).toBe(h);
+  });
+  it('leaves out other images and anything that is not a web link', () => {
+    expect(hostedAvatarHash('https://example.com/logo.png')).toBeNull();
+    expect(hostedAvatarHash(`ipfs://api/avatar/${h}`)).toBeNull();
+    expect(hostedAvatarHash(`https://dreptalk.com/api/avatar/${h.toUpperCase()}`)).toBeNull();
+    expect(hostedAvatarHash('not a url')).toBeNull();
+    expect(hostedAvatarHash(null)).toBeNull();
   });
 });

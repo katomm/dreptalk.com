@@ -3,12 +3,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 const submitTx = vi.fn(async (_tx: string) => 'e'.repeat(64));
+const signTx = vi.fn(async (_tx: string, _partial: boolean) => 'a0');
 const WALLET = {
   key: 'w',
   name: 'Test wallet',
   icon: '',
   supportsCip95: true,
-  raw: { name: 'Test wallet', icon: '', enable: async () => ({ getNetworkId: async () => 0, submitTx }) },
+  raw: { name: 'Test wallet', icon: '', enable: async () => ({ getNetworkId: async () => 0, submitTx, signTx }) },
 };
 let walletList: unknown[] = [];
 vi.mock('@/lib/wallet/useCardanoWallets.js', () => ({
@@ -39,6 +40,9 @@ const base: ActionView = {
   canSubmit: false,
   isInitiator: true,
   feeInputs: [{ txHash: 'd'.repeat(64), index: 0 }],
+  viewerKey: REQ,
+  names: { [REQ]: 'Alice', [OPT]: 'Bob' },
+  fundingSigned: false,
 };
 
 function show(view: Partial<ActionView>, extra: Record<string, unknown> = {}) {
@@ -49,6 +53,7 @@ function show(view: Partial<ActionView>, extra: Record<string, unknown> = {}) {
 afterEach(() => {
   walletList = [];
   submitTx.mockClear();
+  signTx.mockClear();
   cleanup();
   vi.unstubAllGlobals();
 });
@@ -63,9 +68,9 @@ describe('SigningPanel', () => {
   it('shows mandatory signers apart from optional ones', async () => {
     show({});
     await screen.findByText('Must sign');
-    expect(screen.getByText(/aaaaaaaa\.\.\.aaaaaa \(waiting\)/)).toBeTruthy();
+    expect(screen.getByText('Alice').nextSibling?.textContent).toBe('Waiting');
     expect(screen.getByText('May sign, already signed')).toBeTruthy();
-    expect(screen.getByText(/bbbbbbbb\.\.\.bbbbbb \(signed\)/)).toBeTruthy();
+    expect(screen.getByText('Bob').nextSibling?.textContent).toBe('Signed');
   });
 
   it('hides submit until canSubmit', async () => {
@@ -116,10 +121,10 @@ describe('SigningPanel', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       render(<SigningPanel actionId="x" network="preprod" />);
-      expect(await screen.findByText(/service unavailable/)).toBeTruthy();
+      expect(await screen.findByText(/service unavailable/i)).toBeTruthy();
       await vi.advanceTimersByTimeAsync(4100);
       expect(await screen.findByText('Must sign')).toBeTruthy();
-      expect(screen.queryByText(/service unavailable/)).toBeNull();
+      expect(screen.queryByText(/service unavailable/i)).toBeNull();
     } finally {
       vi.useRealTimers();
     }
@@ -144,5 +149,93 @@ describe('SigningPanel', () => {
     expect(await screen.findByText(/Recording it failed/)).toBeTruthy();
     const order = calls.filter((u) => /\/(submit|submitted)$/.test(u)).map((u) => u.split('/').pop());
     expect(order).toEqual(['submit', 'submitted']);
+  });
+
+  it('shows an unmistakable success after signing, says what is missing and offers no second signature', async () => {
+    walletList = [WALLET];
+    const OTHER = 'c'.repeat(56);
+    let signed = false;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/witness')) {
+          signed = true;
+          return Response.json({ accepted: [REQ], ignored: [], satisfied: false });
+        }
+        return Response.json({ ...base, requiredSigners: [REQ, OTHER], signed: signed ? [REQ] : [], fundingSigned: true, names: { ...base.names, [OTHER]: 'Carol' } });
+      }),
+    );
+    render(<SigningPanel actionId="x" network="preprod" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign with wallet' }));
+    expect(await screen.findByText('Signature added')).toBeTruthy();
+    expect(screen.getByText(/Alice signed this transaction\. 1 signature is still missing: Carol\./)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Sign with wallet' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Add signature' })).toBeNull();
+  });
+
+  it('keeps the signed state for a signer who comes back to the page', async () => {
+    walletList = [WALLET];
+    show({ signed: [REQ], satisfied: true, canSubmit: true, fundingSigned: true });
+    expect(await screen.findByText('You have signed')).toBeTruthy();
+    expect(screen.getByText(/The transaction can be submitted now/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Sign with wallet' })).toBeNull();
+  });
+
+  it('offers the initiator the fee signature after the DRep signature', async () => {
+    walletList = [WALLET];
+    show({ signed: [REQ], fundingSigned: false });
+    expect(await screen.findByText(/initiator still has to sign for the fee/)).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Sign for the fee' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Sign with wallet' })).toBeTruthy();
+  });
+
+  it('tells a DRep whose key is not a signer so and offers no signing', async () => {
+    walletList = [WALLET];
+    show({ viewerKey: 'f'.repeat(56), isInitiator: false, feeInputs: [] });
+    expect(await screen.findByText(/Your DRep key is not a signer of this transaction/)).toBeTruthy();
+    expect(screen.getByText(/chosen when it was built: Alice\./)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Sign with wallet' })).toBeNull();
+  });
+
+  it('says a transaction whose coin another transaction spent can no longer be submitted and offers no signing', async () => {
+    walletList = [WALLET];
+    show({ feeInputSpent: true, signed: [REQ], satisfied: true, canSubmit: false, fundingSigned: false });
+    expect(
+      await screen.findByText(
+        'This transaction can no longer be submitted, a coin it spends was used by another transaction. Cancel it and start it again.',
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Sign with wallet' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Submit transaction' })).toBeNull();
+    expect(screen.queryByText(/stay usable until the expiry/)).toBeNull();
+    expect(screen.getByRole('button', { name: 'Cancel this signing link' })).toBeTruthy();
+    cleanup();
+    // Once resolved never included it names the cause instead of the expiry, and offers nothing.
+    show({ feeInputSpent: true, resolution: 'never_included' });
+    expect(await screen.findByText(/a coin it spends was used by another transaction\. Start it again if you still want this change\./)).toBeTruthy();
+    expect(screen.queryByText(/its time ran out/)).toBeNull();
+    expect(screen.queryByRole('button', { name: /Cancel|Sign/ })).toBeNull();
+  });
+
+  it('offers no real cancellation once the fee input is spent', async () => {
+    show({ status: 'cancelled', feeInputSpent: true });
+    expect(await screen.findByText(/This signing link was cancelled\./)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Cancel for real' })).toBeNull();
+  });
+
+  it('shows the server reason of a refused signature in one sentence', async () => {
+    walletList = [WALLET];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input).endsWith('/witness')
+          ? Response.json({ error: 'None of the keys of this signature is a signer of this action.' }, { status: 422 })
+          : Response.json(base),
+      ),
+    );
+    render(<SigningPanel actionId="x" network="preprod" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign with wallet' }));
+    expect(await screen.findByText('Could not add the signature. None of the keys of this signature is a signer of this action.')).toBeTruthy();
   });
 });

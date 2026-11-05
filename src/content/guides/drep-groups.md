@@ -1,5 +1,5 @@
 ---
-title: "DRep groups: found a group, admit members and manage it together"
+title: "DRep groups: found a new group or DRep party and manage it together"
 description: "How DRep groups work on DRepTalk: open and permissioned groups, founding alone or with other DReps, joining and leaving, approving requests, removing members, keeping the management policy in step with the members, signing links, cancelling and dissolving."
 cardLabel: "DRep groups"
 category: "For DReps"
@@ -72,10 +72,10 @@ Admins are the DRep keys of key-based DReps. When a key is added to a policy,
 DRepTalk checks that it belongs to a currently registered DRep. Script DReps can
 be members of a group, but not admins.
 
-## Found a group
+## Found a new group or DRep party
 
 Sign in as a registered DRep with your DRep key and open
-[Found a group](https://preprod.dreptalk.com/groups/new/). The wizard asks how
+[Found a new group or DRep party](https://preprod.dreptalk.com/groups/new/). The wizard asks how
 members join, who founds the group, how many admins must sign, and for the
 profile, then shows a review of who has to sign.
 
@@ -199,6 +199,13 @@ A group has at most one open management action at a time: a change of the
 profile, the admins or the threshold, a dissolution, or an approval combined
 with a policy update. While one is open, the others show a note and a link to
 it. Joins, leaves, plain approvals and declines are not limited.
+
+Each open action holds the coins of your wallet that pay its fee until it is
+confirmed, cancelled or past its 48 hours. A new action is paid from your other coins, so
+a wallet that holds a single coin can run one action at a time. Should a coin
+of an open action be spent by another transaction anyway, its signing page says
+that the transaction can no longer be submitted and stops offering signing.
+Cancel it and start it again.
 
 ## When the majority does not sign in 48 hours
 

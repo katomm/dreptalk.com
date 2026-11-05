@@ -2,7 +2,8 @@
 // Adds the signatures of a wallet witness set to a group signing link. Each vkey witness is
 // verified over the body hash on its own and kept when its key is a required signer or a key of
 // a policy the action needs. The initiator's witness for the payment key of a fee input is kept
-// as the funding witness. Every other key is reported as ignored.
+// as the funding witness. Every other key is reported as ignored, and a witness set without any
+// kept key is refused as not a signer. A key that already signed is accepted again without a change.
 import type { APIRoute } from 'astro';
 import { z } from 'zod';
 import { jsonResponse } from '@/lib/api/response';
@@ -12,6 +13,8 @@ import { neededPolicyKeys } from '@/lib/groups/actions';
 import { type ParsedWitness, parseWitnessSetHex, singleWitnessSetHex, verifyVkeyWitness } from '@/lib/governance/multisigWitness';
 
 export const prerender = false;
+
+const NOT_A_SIGNER = 'None of the keys of this signature is a signer of this action.';
 
 const schema = z.object({ witnessSetHex: z.string().regex(/^[0-9a-fA-F]+$/).min(2).max(32_768) });
 
@@ -36,7 +39,8 @@ export const POST: APIRoute = async ({ request, params, locals }) => {
   } catch {
     return jsonResponse({ error: 'That signature could not be read.' }, 400);
   }
-  if (witnesses.length === 0) return jsonResponse({ error: 'That signature could not be read.' }, 400);
+  // A wallet asked to sign a transaction none of its keys is a signer of hands back an empty set.
+  if (witnesses.length === 0) return jsonResponse({ error: NOT_A_SIGNER }, 422);
   if (!witnesses.every((w) => verifyVkeyWitness(w, ctx.row.body_hash))) {
     return jsonResponse({ error: 'That signature does not match this transaction.' }, 422);
   }
@@ -69,6 +73,8 @@ export const POST: APIRoute = async ({ request, params, locals }) => {
     if (outcome === 'gone') return jsonResponse({ error: 'no longer collecting' }, 409);
     accepted.push(w.keyHashHex);
   }
+
+  if (accepted.length === 0) return jsonResponse({ error: NOT_A_SIGNER, ignored }, 422);
 
   const updated = await getPendingMultisig(db, ctx.row.id);
   const satisfied = updated ? collectedSatisfy({ ...ctx, witnesses: JSON.parse(updated.witnesses) as PendingWitness[] }) : false;

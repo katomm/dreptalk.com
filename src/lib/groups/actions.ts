@@ -26,8 +26,9 @@ import {
   type TxFacts,
 } from 'drep-groups';
 import { scriptDisplayJson } from './codec.js';
-import { credentialForDrepId, drepIdForCredential, groupIdParam } from './ids.js';
-import { describePolicy, scriptFromJson, shortHash } from './view.js';
+import { credentialForDrepId, groupIdParam } from './ids.js';
+import { describeAction, type GroupChanges, type Names, noChanges } from './describe.js';
+import { type ScriptView, scriptFromJson } from './view.js';
 
 type Policy = NativeScript & { hash: string };
 
@@ -417,60 +418,128 @@ export function bindContent(
 }
 
 /**
- * The events in plain words, one line each. `names` maps key hashes and member credential hashes
- * to DRep names and join references to the name of the member who joined. Policies are looked up
- * in `scripts` (the payload's published policies) and the current state.
+ * The changes of a transaction's events. Policies come from the transaction's scripts or the
+ * current state, which is the state before the transaction. Approved, removed and leaving members
+ * are found by their join reference in `joinMembers`, a local join by its event.
  */
-export function describeEvents(
+export function changesOfEvents(
   events: GroupEvent[],
-  names: Map<string, string>,
   state: GroupState | null,
   scripts: ReadonlyArray<{ hash: string; script: NativeScript }> = [],
-): string[] {
-  const policy = (hash: string): string => {
-    const s =
+  o: { joinMembers?: ReadonlyMap<string, Credential>; profile?: GroupChanges['profile'] } = {},
+): GroupChanges {
+  const view = (s: NativeScript | null | undefined): ScriptView | null => (s ? scriptFromJson(scriptDisplayJson(s)) : null);
+  const policy = (hash: string): ScriptView | null =>
+    view(
       scripts.find((x) => x.hash === hash)?.script ??
-      (state?.control.hash === hash ? state.control : state?.admission?.hash === hash ? state.admission : null);
-    return s ? describePolicy(scriptFromJson(scriptDisplayJson(s)), names) : `policy ${shortHash(hash)}`;
-  };
-  const member = (c: Credential): string => names.get(c.hash) ?? shortHash(drepIdForCredential(c));
-  const joined = (r: RefLike): string => {
+        (state?.control.hash === hash ? state.control : state?.admission?.hash === hash ? state.admission : null),
+    );
+  const create = events.find((e) => e.tag === 'create');
+  const c = noChanges(create?.tag === 'create' ? create.mode : (state?.mode ?? null));
+  const joined = (r: RefLike): Credential | null => {
     if ('local' in r) {
       const e = events[r.local];
-      return e?.tag === 'join' ? member(e.member) : `event ${r.local + 1}`;
+      return e?.tag === 'join' ? e.member : null;
     }
-    return names.get(refKey(r)) ?? `request ${shortHash(r.txHash)}#${r.index}`;
+    return o.joinMembers?.get(refKey(r)) ?? null;
   };
-  const line = (e: GroupEvent): string => {
+  for (const e of events) {
     switch (e.tag) {
-      case 'create': {
-        const managed = `Found ${e.mode === 'open' ? 'an open' : 'a permissioned'} group managed by ${policy(e.control)}`;
-        return e.admission !== null && e.admission !== e.control ? `${managed}, admission by ${policy(e.admission)}` : managed;
-      }
+      case 'create':
+        c.create = {
+          control: policy(e.control),
+          admission: e.admission === null ? null : e.admission === e.control ? 'same' : policy(e.admission),
+        };
+        break;
       case 'update': {
-        const c = e.changes;
-        const parts: string[] = [];
-        if (c.control !== undefined && c.admission === c.control) parts.push(`Change management and admission to ${policy(c.control)}`);
-        else {
-          if (c.control !== undefined) parts.push(`Change management to ${policy(c.control)}`);
-          if (c.admission !== undefined) parts.push(`Change admission to ${policy(c.admission)}`);
+        const ch = e.changes;
+        if (ch.control !== undefined) c.control = { before: view(state?.control), after: policy(ch.control) };
+        if (ch.admission !== undefined) {
+          c.admission = ch.admission === ch.control ? 'same' : { before: view(state?.admission), after: policy(ch.admission) };
         }
-        if (c.profile !== undefined) parts.push(parts.length > 0 ? 'change the profile' : 'Change the profile');
-        return parts.length > 0 ? parts.join(', ') : 'Confirm the group settings without changes';
+        if (ch.profile !== undefined) c.profile = o.profile ?? { before: null, after: null };
+        break;
       }
       case 'dissolve':
-        return 'Dissolve the group';
+        c.dissolve = true;
+        break;
       case 'join':
-        return `${member(e.member)} joins`;
-      case 'leave':
-        return `${joined(e.join)} leaves`;
+        c.joins.push(e.member);
+        break;
       case 'approve':
-        return `Approve ${joined(e.join)}`;
+        c.approvals.push(joined(e.join));
+        break;
+      case 'leave':
+        c.leaves.push(joined(e.join));
+        break;
       case 'remove':
-        return `Remove ${joined(e.join)}`;
+        c.removals.push(joined(e.join));
+        break;
     }
+  }
+  return c;
+}
+
+/**
+ * The changes an intent asks for, for the draft of an action before it is built. Members of the
+ * joins it approves, removes or leaves come from `joinMembers` by join reference, the profile
+ * before and after from the form that changed it.
+ */
+export function changesOfIntent(
+  intent: GroupIntent,
+  state: GroupState | null,
+  o: { joinMembers?: ReadonlyMap<string, Credential>; profile?: GroupChanges['profile'] } = {},
+): GroupChanges {
+  const view = (s: NativeScript | null | undefined): ScriptView | null => (s ? scriptFromJson(scriptDisplayJson(s)) : null);
+  const member = (j: string): Credential | null => o.joinMembers?.get(j.toLowerCase()) ?? null;
+  const cred = (id: string): Credential | null => {
+    const c = credentialForDrepId(id);
+    return c ? { kind: c.kind, hash: c.hash.toLowerCase() } : null;
   };
-  return events.map(line);
+  const c = noChanges(intent.kind === 'group_create' ? intent.mode : (state?.mode ?? null));
+  switch (intent.kind) {
+    case 'group_create': {
+      const p = createPolicies(intent);
+      c.create = { control: view(p.control), admission: intent.admission === 'same' ? 'same' : view(p.admission) };
+      c.joins = intent.founders.map(cred);
+      break;
+    }
+    case 'group_join':
+      c.joins = [cred(intent.member)];
+      break;
+    case 'group_leave':
+      c.leaves = [cred(intent.member)];
+      break;
+    case 'group_approve':
+      c.approvals = intent.joins.map(member);
+      break;
+    case 'group_remove':
+      c.removals = intent.joins.map(member);
+      break;
+    case 'group_update': {
+      c.approvals = intent.approvals.map(member);
+      if (intent.control) c.control = { before: view(state?.control), after: view(majority(intent.control)) };
+      if (intent.admission === 'same' && intent.control) c.admission = 'same';
+      else if (intent.admission && intent.admission !== 'same') c.admission = { before: view(state?.admission), after: view(majority(intent.admission)) };
+      if (intent.profile) c.profile = o.profile ?? { before: null, after: null };
+      break;
+    }
+    case 'group_dissolve':
+      c.dissolve = true;
+      break;
+  }
+  return c;
+}
+
+/** Plain words of a transaction's events, one line per change, see changesOfEvents. */
+export function describeEvents(
+  events: GroupEvent[],
+  names: Names,
+  state: GroupState | null,
+  scripts: ReadonlyArray<{ hash: string; script: NativeScript }> = [],
+  o: { joinMembers?: ReadonlyMap<string, Credential>; profile?: GroupChanges['profile'] } = {},
+): string[] {
+  return describeAction(changesOfEvents(events, state, scripts, o), names);
 }
 
 /** The ratio of the current policy carried to a new key count, rounded up. */

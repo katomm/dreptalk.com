@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { type Allowance, allowance, countingDb, UNLIMITED } from '../sync/queryBudget.js';
 import {
   blockHash,
+  blockTime,
   type Chain,
   deepScriptBytes,
   ev,
@@ -205,6 +206,15 @@ describe('ingestDrepGroups: events and registrations', () => {
     expect(r).toMatchObject({ newTxs: 1, markers: 0, tracked: 1, probing: false, recovery: null });
     expect(await groupRow()).toMatchObject({ status: 'active', members: 1 });
     expect((await instanceOf(credM)).map((i) => i.counted_as)).toEqual(['open']);
+  });
+
+  it('stores the block time of a label tx and backfills a tx stored without one', async () => {
+    await tick({ tip: 200, txs: [create], regs: [regM] });
+    const timeOf = async () => (await one('SELECT block_time FROM drep_group_txs WHERE tx_hash = ?', hashBytes(create.hash))).block_time;
+    expect(await timeOf()).toBe(blockTime(create.height));
+    await db.prepare('UPDATE drep_group_txs SET block_time = NULL').run();
+    await tick({ tip: 201, txs: [create], regs: [regM] });
+    expect(await timeOf()).toBe(blockTime(create.height));
   });
 
   it('waits for the depth', async () => {

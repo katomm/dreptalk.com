@@ -495,6 +495,8 @@ const txPositionRowSchema = z.object({
   block_hash: z.string(),
   block_height: z.number(),
   tx_block_index: z.number(),
+  // Unix seconds of the block. Optional so an answer without it still gives the position.
+  tx_timestamp: z.number().nullable().optional(),
 });
 export type TxPositionRow = z.infer<typeof txPositionRowSchema>;
 
@@ -1172,7 +1174,7 @@ export function createKoiosClient(opts: KoiosClientOptions) {
       return postHashChunks('/tx_cbor', {}, txCborRowSchema, txHashes);
     },
 
-    // Block hash, height and index within the block per tx: tx_info with every
+    // Block hash, height, index within the block and block time per tx: tx_info with every
     // heavy section switched off. Empty input short-circuits.
     async txPositionBatch(txHashes: string[]): Promise<TxPositionRow[]> {
       return postHashChunks(

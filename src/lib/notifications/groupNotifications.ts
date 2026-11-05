@@ -37,7 +37,8 @@ export function formatGroupNotificationTitle(type: GroupNotificationType, p: Gro
   const who = p.memberName ?? 'Someone';
   if (type === 'group_join_request') return `${who} asked to join ${p.groupName ?? 'your group'}`;
   if (!p.actionId) return null;
-  return p.summary ? `${who} asked you to sign: ${p.summary}` : `${who} asked you to sign an action`;
+  const group = p.groupName ? ` for ${p.groupName}` : '';
+  return p.summary ? `${who} asked you to sign${group}: ${p.summary}` : `${who} asked you to sign an action${group}`;
 }
 
 /** The in-app path a group notification opens, null when the payload cannot support its type. */

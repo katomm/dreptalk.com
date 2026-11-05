@@ -1,13 +1,15 @@
 ---
 // Body of the signed-in account menu: identity header (avatar, name, shortened
 // id with a copy button, linked to the public profile when the account has
-// one) above Home, the Voting Dashboard (DReps), Settings and Log out. Devices
+// one) above Home, the Voting Dashboard (DReps), My groups (DReps in a group), Settings and Log out. Devices
 // is a Settings tab.
 // Rendered by RoleEntry in both the desktop dropdown and the flat mobile list,
 // so the rows live here exactly once. The copy button is the only client JS,
 // shipped as a bundled script (the strict CSP forbids inline handlers).
 import { authorProfileHref, type AuthorDescriptor } from '@/lib/forum/author';
-import { SETTINGS_PATH, VOTE_PATH } from '@/lib/forum/icons';
+import { SETTINGS_PATH, USERS_PATH, VOTE_PATH } from '@/lib/forum/icons';
+import { currentNetwork } from '@/lib/api/response';
+import { myGroupsLink } from '@/lib/groups/myGroups';
 import { truncateIdMiddle } from '@/lib/forum/view';
 import Avatar from '@/components/Avatar.astro';
 import CopyButton from '@/components/CopyButton.astro';
@@ -50,12 +52,17 @@ interface MenuItem {
   icon: string;
 }
 
+// The DRep's groups, where groups run and the DRep is a member or asked to join.
+// Both menu instances share one read per request.
+const groups = await myGroupsLink(Astro.locals, currentNetwork().network, account.drepId);
+
 // Menu rows above Log out, most-used first. The Voting Dashboard is DRep-only,
 // since /vote redirects everyone else to /login, so it is gated on a synced
 // DRep id.
 const items: MenuItem[] = [
   { label: 'Home', href: '/home/', icon: icons.home },
   ...(account.drepId ? [{ label: 'Voting Dashboard', href: '/vote/', icon: icons.vote }] : []),
+  ...(groups ? [{ label: groups.label, href: groups.href, icon: USERS_PATH }] : []),
   { label: 'Submit action', href: '/ga/new/', icon: icons.pencilPlus },
   { label: 'Settings', href: '/settings/', icon: icons.settings },
 ];

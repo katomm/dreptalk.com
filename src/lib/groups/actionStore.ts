@@ -3,7 +3,8 @@
 // check, reading and freeing a group's control slot, cancelling, and deleting old resolved rows.
 import type { GroupActionKind, PendingMultisigRow } from '../db/pendingMultisigTx.js';
 import type { GroupIntent } from './actions.js';
-import { ACTION_TTL_SECONDS, GROUP_ACTION_PRUNE_PER_RUN, GROUP_ACTION_RETENTION_MS } from './constants.js';
+import type { OutRef } from './groupTx.js';
+import { ACTION_TTL_SECONDS, GROUP_ACTION_PRUNE_PER_RUN, GROUP_ACTION_RETENTION_MS, OPEN_INPUT_ROWS } from './constants.js';
 import { Q } from './store/queries.js';
 
 export interface NewGroupAction {
@@ -84,4 +85,50 @@ export async function pruneResolvedGroupActions(db: D1Database, now: number): Pr
 export async function cancelGroupAction(db: D1Database, id: string, now: number): Promise<boolean> {
   const res = await db.prepare(Q.actionCancel.sql).bind(id, now).run();
   return (res.meta.changes ?? 0) > 0;
+}
+
+/** An open group row with the wallet outputs its transaction spends. */
+export interface OpenInputs {
+  id: string;
+  createdBy: string;
+  feeInputs: OutRef[];
+}
+
+const outRefKey = (r: OutRef): string => `${r.txHash.toLowerCase()}#${r.index}`;
+
+function feeInputsOf(raw: unknown): OutRef[] {
+  if (typeof raw !== 'string') return [];
+  try {
+    const v = JSON.parse(raw) as unknown;
+    return Array.isArray(v)
+      ? v.flatMap((x: { txHash?: unknown; index?: unknown }) =>
+          typeof x?.txHash === 'string' && Number.isInteger(x.index) ? [{ txHash: x.txHash.toLowerCase(), index: Number(x.index) }] : [],
+        )
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The open group rows, collecting or submitted and not resolved, with their fee inputs. Their
+ * transactions may still reach the chain, so no new action may spend the same outputs. A
+ * cancelled row is left out, its initiator chose to let it go.
+ */
+export async function openActionInputs(db: D1Database): Promise<OpenInputs[]> {
+  const res = await db.prepare(Q.actionOpenInputs.sql).bind(OPEN_INPUT_ROWS).all<Record<string, unknown>>();
+  return (res.results ?? []).map((r) => ({ id: String(r.id), createdBy: String(r.created_by), feeInputs: feeInputsOf(r.fee_inputs) }));
+}
+
+/** The first open row that spends any of the inputs, null when none does. */
+export function actionHoldingInputs(open: readonly OpenInputs[], inputs: readonly OutRef[]): OpenInputs | null {
+  const wanted = new Set(inputs.map(outRefKey));
+  return open.find((o) => o.feeInputs.some((f) => wanted.has(outRefKey(f)))) ?? null;
+}
+
+/** The fee inputs the user's own open rows hold, each once. */
+export function inputsHeldBy(open: readonly OpenInputs[], userId: string): OutRef[] {
+  const out = new Map<string, OutRef>();
+  for (const o of open) if (o.createdBy === userId) for (const f of o.feeInputs) out.set(outRefKey(f), f);
+  return [...out.values()];
 }

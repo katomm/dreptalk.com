@@ -109,7 +109,7 @@ export async function signOnSigningPage(page: Page, actionId: string, keyHash: s
   await waitForHydration(page);
   await page.getByRole('button', { name: 'Sign with wallet' }).click();
   const signatures = page.getByRole('region', { name: 'Signatures' });
-  await expect(signatures.getByText(`${shortKey(keyHash)} (signed)`)).toBeVisible({ timeout: 60_000 });
+  await expect(signatures.locator(`li[data-key="${keyHash}"]`)).toContainText('Signed', { timeout: 60_000 });
 }
 
 /**

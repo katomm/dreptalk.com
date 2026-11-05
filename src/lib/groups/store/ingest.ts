@@ -69,9 +69,9 @@ function restarts(s: Slots, heights: number[]): boolean {
   return first?.kind === 'truncate' && heights.some((h) => h > first.above);
 }
 
-function txRow(tx: ChainTx, blockHash: string, marker: boolean): unknown[] {
+function txRow(tx: ChainTx, blockHash: string, blockTime: number | null, marker: boolean): unknown[] {
   const [hash, block] = [hashBytes(tx.txHash), hashBytes(blockHash)];
-  if (marker) return [hash, tx.blockHeight, block, tx.txIndex, 1, null, null, null, null, null, null, null, 0];
+  if (marker) return [hash, tx.blockHeight, block, tx.txIndex, 1, null, null, null, null, null, null, null, 0, blockTime];
   const payload = tx.payload as Uint8Array;
   return [
     hash,
@@ -87,6 +87,7 @@ function txRow(tx: ChainTx, blockHash: string, marker: boolean): unknown[] {
     tx.isValid ? 1 : 0,
     tx.payloadRepeated ? 1 : 0,
     payload.length,
+    blockTime,
   ];
 }
 
@@ -101,7 +102,7 @@ function txRow(tx: ChainTx, blockHash: string, marker: boolean): unknown[] {
 export async function storeLabelTxs(
   db: D1Database,
   lease: string,
-  txs: Array<{ tx: ChainTx; blockHash: string }>,
+  txs: Array<{ tx: ChainTx; blockHash: string; blockTime?: number | null }>,
   L: { height: number; hash: string; safeHeight: number; safeTime: number } | null,
   cutTime: (h: number) => Promise<number | null>,
 ): Promise<Array<'stored' | 'duplicate' | 'marker'>> {
@@ -120,7 +121,7 @@ export async function storeLabelTxs(
   const members = new Map<string, Credential>();
   const anchors: Array<[Uint8Array, Uint8Array]> = [];
   const seen = new Set<string>();
-  for (const { tx, blockHash } of txs) {
+  for (const { tx, blockHash, blockTime } of txs) {
     const prev = existing.get(tx.txHash);
     if (seen.has(tx.txHash) || (prev && !prev.flagged)) {
       out.push('duplicate');
@@ -129,7 +130,7 @@ export async function storeLabelTxs(
     seen.add(tx.txHash);
     const payload = storedPayload(tx);
     const marker = payload === null;
-    rows.push(txRow(tx, blockHash, marker));
+    rows.push(txRow(tx, blockHash, blockTime ?? null, marker));
     out.push(prev ? 'duplicate' : marker ? 'marker' : 'stored');
     if (prev && marker) continue;
     heights.push(tx.blockHeight);

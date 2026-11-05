@@ -1,9 +1,9 @@
 ---
-// The four inline SVG glyphs for the DReps directory stat cards. Consistent 24x24
+// The inline SVG glyphs of the stat cards (DReps directory, home, analytics, group page). Consistent 24x24
 // line icons (stroke: currentColor) so they inherit the card's tint colour. Kept
 // out of the page so the markup there stays about layout, not path data.
 interface Props {
-  name: 'people' | 'power' | 'gauge' | 'share';
+  name: 'people' | 'power' | 'gauge' | 'share' | 'shield' | 'calendar';
 }
 const { name } = Astro.props;
 ---
@@ -31,5 +31,17 @@ const { name } = Astro.props;
   <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
     <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.8" opacity="0.4" />
     <path d="M12 4a8 8 0 0 1 6.9 4L12 12z" fill="currentColor" stroke="none" />
+  </svg>
+)}
+{name === 'shield' && (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M12 3 5 6v5c0 4.4 3 8.3 7 10 4-1.7 7-5.6 7-10V6z" />
+    <path d="m9 12 2 2 4-4" />
+  </svg>
+)}
+{name === 'calendar' && (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <rect x="3.5" y="5" width="17" height="15" rx="2" />
+    <path d="M3.5 10h17M8 3v4M16 3v4" />
   </svg>
 )}

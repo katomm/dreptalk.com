@@ -18,9 +18,11 @@ interface MountOptions {
   trigger: HTMLButtonElement;
   signedIn: boolean;
   initialScope: Scope;
+  /** The network of the page, as the trigger carries it. */
+  network?: string;
 }
 
-export function mountSearch({ trigger, signedIn, initialScope }: MountOptions): SearchHost {
+export function mountSearch({ trigger, signedIn, initialScope, network }: MountOptions): SearchHost {
   // Open state lives outside React so the trigger script can flip it
   // synchronously: flushSync commits the palette inside the tap, which lets the
   // input's autoFocus raise the mobile keyboard.
@@ -45,6 +47,7 @@ export function mountSearch({ trigger, signedIn, initialScope }: MountOptions): 
         onClose={() => setState(false)}
         returnFocusRef={returnFocusRef}
         signedIn={signedIn}
+        network={network}
         initialScope={initialScope}
         seedQuery={seedQuery}
       />

@@ -26,6 +26,7 @@ import {
   statusNote,
   upsertProfile,
 } from './drepGroups.js';
+import { myGroupsHref } from '../groups/myGroups.js';
 
 const db = env.DB as D1Database;
 const seedGroup = (n: number, o?: GroupSeed): Promise<void> => seedGroupRow(db, n, o);
@@ -209,8 +210,22 @@ describe('drepGroups readers: groups', () => {
     await verdicts(0, 5000, 60);
     const applied = await listVerdicts(db, refOf(1), true, 500);
     expect(applied).toHaveLength(200);
-    expect(applied[0]).toEqual({ txHash: txOf(1249), eventIndex: 0, tag: 'join', valid: true, reason: null, blockHeight: 1249 });
+    expect(applied[0]).toEqual({ txHash: txOf(1249), eventIndex: 0, tag: 'join', valid: true, reason: null, blockHeight: 1249, blockTime: null });
     expect(applied.at(-1)?.blockHeight).toBe(1050);
+    // The block time comes from the stored label tx, else from the ledger row of a certificate tx.
+    await db.batch([
+      db
+        .prepare(`INSERT INTO drep_group_txs (tx_hash, block_height, block_hash, tx_index, marker, block_time) VALUES (?, 1249, ?, 0, 0, 1700000000)`)
+        .bind(hashBytes(txOf(1249)), hashBytes(txOf(1249))),
+      db
+        .prepare(
+          `INSERT INTO drep_group_ledger (tx_hash, cert_index, cred, kind, block_height, block_hash, tx_index, block_time, witness_state)
+           VALUES (?, 0, X'00', 'reg', 1248, ?, 0, 1690000000, 'na')`,
+        )
+        .bind(hashBytes(txOf(1248)), hashBytes(txOf(1248))),
+    ]);
+    const timed = await listVerdicts(db, refOf(1), true, 3);
+    expect(timed.map((v) => v.blockTime)).toEqual([1700000000, 1690000000, null]);
     expect(await listVerdicts(db, refOf(1), false, 500)).toHaveLength(50);
     expect(await listVerdicts(db, refOf(1), false, -1)).toEqual([]);
     const few = await listVerdicts(db, refOf(1), false, 5);
@@ -247,6 +262,20 @@ describe('drepGroups readers: groups', () => {
     await seedInstance(3, 103, { member: 7, joined: 10 });
     expect(await groupsForDrep(db, drepOf(7), 20)).toEqual([{ groupId: idOf(1), name: 'Council', mode: 'permissioned' }]);
     expect(await groupsForDrep(db, drepOf(8), 20)).toEqual([]);
+  });
+
+  it('links the account menu to the one group of a DRep, to the list for several, nothing for none', async () => {
+    await seedGroup(1, { mode: 'permissioned' });
+    await seedGroup(2);
+    await seedGroup(3, { status: 'dissolved', closing: 1 });
+    // A pending request counts, a closed membership and a dissolved group do not.
+    await seedInstance(1, 101, { member: 7, joined: 10, mode: 'permissioned', counted: 'pending' });
+    await seedInstance(2, 102, { member: 8, joined: 10, closed: { at: 12, reason: 'left' }, counted: 'former' });
+    await seedInstance(3, 103, { member: 8, joined: 10 });
+    expect(await myGroupsHref(db, drepOf(7))).toBe(`/groups/${idOf(1)}/`);
+    expect(await myGroupsHref(db, drepOf(8))).toBeNull();
+    await seedInstance(2, 104, { member: 7, joined: 11 });
+    expect(await myGroupsHref(db, drepOf(7))).toBe('/groups/');
   });
 
   it('names DReps by the key hashes of their credentials', async () => {

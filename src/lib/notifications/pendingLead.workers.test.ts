@@ -30,7 +30,7 @@ describe('resolvePendingLead for group notifications', () => {
       { recipientId: 'gl_signer', type: 'group_signature_request', eventKey: 'group-sign:r1', payload: { groupId: 'g1', groupName: 'Example Council', memberName: 'Alice', actionId: 'r1', summary: 'Approve Carol' } },
     ]);
     const lead = await resolvePendingLead(db(), { ...channel, delivered_until: 0 }, prefs, Number.MAX_SAFE_INTEGER);
-    expect(lead?.title).toBe('Alice asked you to sign: Approve Carol');
+    expect(lead?.title).toBe('Alice asked you to sign for Example Council: Approve Carol');
     expect(lead?.href).toBe('/groups/sign/r1/');
   });
 });

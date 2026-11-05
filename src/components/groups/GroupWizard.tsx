@@ -315,7 +315,8 @@ export default function GroupWizard({ network, viewer, serverSlot }: GroupWizard
           </p>
         </DraftPanel>
       )}
-      {runner.error && <Callout kind="error">{runner.error}</Callout>}
+      {/* The review shows its own error. */}
+      {runner.error && step !== 'review' && <Callout kind="error">{runner.error}</Callout>}
     </div>
   );
 }

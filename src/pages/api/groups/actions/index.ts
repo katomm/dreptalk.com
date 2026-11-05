@@ -2,20 +2,20 @@
 // Opens a signing link for a client built DRep group transaction. Nothing is stored unless the
 // transaction carries exactly the payload the intent asks for in the current state, its required
 // signers are the action's signers, and the engine's own rules find every event valid with them.
-// A group has at most one open control action.
+// A group has at most one open control action, and no two open actions spend the same output.
 import type { APIRoute } from 'astro';
 import { credKey, majorityScript, type NativeScript } from 'drep-groups';
 import { z } from 'zod';
 import { currentNetwork, jsonResponse, runtimeEnv } from '@/lib/api/response';
 import { checkRate } from '@/lib/rate';
-import { createGroupAction, openControlAction } from '@/lib/groups/actionStore';
+import { actionHoldingInputs, createGroupAction, openActionInputs, openControlAction } from '@/lib/groups/actionStore';
 import {
   feeInputKeys,
   intentSchema,
   isControlKind,
   isIntentFailure,
+  describeTxNamed,
   koiosFor,
-  namesFor,
   notifySigners,
   openJoinsOf,
   payloadMembers,
@@ -26,7 +26,6 @@ import {
 import { controlSeq, type DecodedGroupTx, decodeGroupTx, eventsOf, unsignedShapeError } from '@/lib/groups/actionTx';
 import {
   bindContent,
-  describeEvents,
   expectedPayload,
   type GroupIntent,
   type GroupState,
@@ -126,6 +125,11 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const now = Math.floor(Date.now() / 1000);
 
   try {
+    // A second action on an output an open action spends could never be valid once the first one is
+    // on chain. The holder is named only to its own initiator.
+    const holder = actionHoldingInputs(await openActionInputs(db), tx.inputs);
+    if (holder) return jsonResponse({ error: 'fee inputs held', id: holder.createdBy === user.id ? holder.id : null }, 409);
+
     const group = intent.kind === 'group_create' ? null : groupIdParam(intent.group);
     if (intent.kind !== 'group_create' && !group) return refuse('bad group id');
     const state = group ? await readGroupState(db, group) : null;
@@ -216,15 +220,17 @@ export const POST: APIRoute = async ({ request, locals }) => {
       }
     }
 
-    const events = eventsOf(tx.decoded);
-    const names = await namesFor(db, signers, events);
+    // The initiator's key joins the name lookup, the request names who asks.
+    const nameKeys = session.keyHash ? [...signers, session.keyHash] : signers;
+    const { lines, names } = await describeTxNamed(db, { events: eventsOf(tx.decoded), state, scripts: tx.decoded?.scripts ?? [], signers: nameKeys });
     await notifySigners(db, {
       rowId: id,
       groupId: state ? groupIdString(state.ref) : subjectId,
       group: state?.ref ?? null,
       signers,
       initiator: user.id,
-      summary: describeEvents(events, names, state, tx.decoded?.scripts ?? []).join(', '),
+      initiatorName: session.keyHash ? (names.get(session.keyHash) ?? null) : null,
+      summary: lines.join(' '),
     });
     return jsonResponse({ id }, 200);
   } catch (err) {

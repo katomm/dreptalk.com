@@ -23,6 +23,9 @@ export interface RegisteredQuery {
   boundedScan?: string;
 }
 
+// The block time of a verdict's tx: the stored label tx, else the ledger row of a certificate tx.
+const VERDICT_TIME = 'COALESCE(t.block_time, (SELECT l.block_time FROM drep_group_ledger l WHERE l.tx_hash = v.tx_hash LIMIT 1))';
+
 const LIVE_LEASE = `id = 1 AND token = ? AND expires_at > ${DB_NOW_MS}`;
 
 /** A VALUES list of `rows` tuples of `width` placeholders. */
@@ -84,6 +87,8 @@ export const KEYED = Object.freeze({
     SELECT s.hash, s.display_json, s.bytes FROM k JOIN drep_group_scripts s ON s.hash = k.hash`,
   drepNames: (n: number) => `WITH k(id) AS (VALUES ${values(1, n)})
     SELECT d.drep_id, d.name FROM k JOIN dreps d ON d.drep_id = k.id WHERE d.name IS NOT NULL`,
+  profileDocs: (n: number) => `WITH k(hash) AS (VALUES ${values(1, n)})
+    SELECT d.hash, d.body FROM k JOIN drep_group_profile_docs d ON d.hash = k.hash`,
 });
 
 /** Bound parameters per key of each keyed statement. */
@@ -98,6 +103,7 @@ export const KEYED_WIDTH: Readonly<Record<keyof typeof KEYED, number>> = Object.
   scriptDisplays: 1,
   treasuryScripts: 1,
   drepNames: 1,
+  profileDocs: 1,
 });
 
 const POS = (p: string): string => `${p}_h, ${p}_ti, ${p}_ph, ${p}_ix, ${p}_tx`;
@@ -308,13 +314,15 @@ export const INGEST = Object.freeze({
     SELECT t.tx_hash, t.marker, t.refetch FROM k JOIN drep_group_txs t ON t.tx_hash = k.tx`,
   // A new tx is inserted, a re-delivered marker flagged for refetch is judged again (its flag is
   // cleared, a tx that is no longer a marker gets its payload columns), anything else stays.
+  // A refetched marker comes without a block time and keeps the stored one.
   upsertTxs: (n: number) => `INSERT INTO drep_group_txs (tx_hash, block_height, block_hash, tx_index, marker, payload,
-      required_signers, witness_key_hashes, invalid_before, invalid_hereafter, is_valid, payload_repeated, bytes)
-    VALUES ${values(13, n)}
+      required_signers, witness_key_hashes, invalid_before, invalid_hereafter, is_valid, payload_repeated, bytes, block_time)
+    VALUES ${values(14, n)}
     ON CONFLICT (tx_hash) DO UPDATE SET marker = excluded.marker, refetch = 0, payload = excluded.payload,
       required_signers = excluded.required_signers, witness_key_hashes = excluded.witness_key_hashes,
       invalid_before = excluded.invalid_before, invalid_hereafter = excluded.invalid_hereafter,
-      is_valid = excluded.is_valid, payload_repeated = excluded.payload_repeated, bytes = excluded.bytes
+      is_valid = excluded.is_valid, payload_repeated = excluded.payload_repeated, bytes = excluded.bytes,
+      block_time = COALESCE(excluded.block_time, drep_group_txs.block_time)
     WHERE drep_group_txs.marker = 1 AND drep_group_txs.refetch = 1`,
   // The seq is above every tracked row: the maximum is read once per statement, the ordinal keeps rows apart.
   trackCreds: (n: number) => `WITH k(cred, n) AS (VALUES ${values(2, n)})
@@ -367,11 +375,14 @@ export const INGEST = Object.freeze({
       refetch = CASE WHEN refetch_attempts + 1 >= ${MARKER_REFETCH_ATTEMPTS} THEN 0 ELSE 1 END,
       refetch_attempts = CASE WHEN refetch_attempts + 1 >= ${MARKER_REFETCH_ATTEMPTS} THEN 0 ELSE refetch_attempts + 1 END
     WHERE tx_hash IN (SELECT tx FROM k) AND +refetch = 1`,
+  // Binds tx and block time pairs. The block time of stored txs that have none yet.
+  setTxTimes: (n: number) => `WITH k(tx, t) AS (VALUES ${values(2, n)})
+    UPDATE drep_group_txs SET block_time = k.t FROM k WHERE drep_group_txs.tx_hash = k.tx AND drep_group_txs.block_time IS NULL`,
 });
 
 export const INGEST_WIDTH: Readonly<Record<keyof typeof INGEST, number>> = Object.freeze({
   existingTxs: 1,
-  upsertTxs: 13,
+  upsertTxs: 14,
   trackCreds: 2,
   existingLedger: 2,
   trackedState: 1,
@@ -386,6 +397,7 @@ export const INGEST_WIDTH: Readonly<Record<keyof typeof INGEST, number>> = Objec
   witnessFailed: 2,
   insertAnchorRefs: 2,
   refetchFailed: 1,
+  setTxTimes: 2,
 });
 
 export const INGEST_TRAILING: Readonly<Partial<Record<keyof typeof INGEST, number>>> = Object.freeze({
@@ -791,10 +803,11 @@ const instancePass = (where: string, extra = { cols: '', joins: '' }): string =>
         AND (l.block_height, l.tx_index, l.cert_index) > (p.joined_h, p.joined_ti, CASE WHEN p.joined_ph = 0 THEN p.joined_ix ELSE ${MAX} END)
         AND (l.block_height, l.tx_index, l.cert_index) <= (t.applied_h, t.applied_ti, CASE WHEN t.applied_ph = 0 THEN t.applied_ix ELSE ${MAX} END)
       ORDER BY l.block_height, l.tx_index, l.cert_index LIMIT 1)`;
-// A member page: the instance pass with the DRep's name, slug and voting power, whether the member is
+// A member page: the instance pass with the DRep's name, slug, voting power, credential and avatar, whether the member is
 // retiring, and whether a stored ledger row of the member lies above its applied position.
 const MEMBER_EXTRA = {
-  cols: `, d.name AS drep_name, d.slug AS drep_slug, d.voting_power AS drep_power, t.retiring AS retiring,
+  cols: `, d.name AS drep_name, d.slug AS drep_slug, d.voting_power AS drep_power, d.hex AS drep_hex, d.image_content_hash AS drep_image,
+      t.retiring AS retiring,
       EXISTS (SELECT 1 FROM drep_group_ledger l WHERE l.cred = p.cred AND (l.block_height, l.tx_index, l.cert_index) >
         (COALESCE(t.applied_h, -1), COALESCE(t.applied_ti, ${MAX}), CASE WHEN t.applied_ph = 0 THEN t.applied_ix ELSE ${MAX} END)) AS unapplied`,
   joins: `
@@ -1213,6 +1226,11 @@ export const Q = Object.freeze({
           WHERE refetch = 1 ORDER BY block_height, tx_index LIMIT ?`,
     boundedScan: 'drep_group_txs_refetch',
   },
+  // Binds the limit. Stored txs without a block time, lowest first, for the backfill of rows stored before the column.
+  txsWithoutTime: {
+    sql: 'SELECT tx_hash FROM drep_group_txs WHERE block_time IS NULL ORDER BY block_height LIMIT ?',
+    boundedScan: 'drep_group_txs_no_time',
+  },
   // Whether any label tx or ledger row is stored.
   storedInputs: {
     sql: `SELECT (SELECT 1 FROM drep_group_txs WHERE block_height >= 0 LIMIT 1) AS txs,
@@ -1276,6 +1294,13 @@ export const Q = Object.freeze({
     sql: `DELETE FROM pending_multisig_tx WHERE rowid IN (
             SELECT rowid FROM pending_multisig_tx WHERE subject_kind != 'drep' AND resolved_at IS NOT NULL AND resolved_at < ?
             ORDER BY resolved_at LIMIT ?)`,
+  },
+  // Binds the limit. Fee inputs of the open group rows: collecting or submitted, not resolved. A cancelled row is left out.
+  actionOpenInputs: {
+    sql: `SELECT id, created_by, fee_inputs FROM pending_multisig_tx
+          WHERE subject_kind != 'drep' AND resolved_at IS NULL AND status IN ('collecting', 'submitted') AND fee_inputs IS NOT NULL
+          ORDER BY invalid_hereafter LIMIT ?`,
+    boundedScan: 'pending_multisig_tx_unresolved',
   },
   // Binds the group id. The row holding the group's control slot.
   actionOpenControl: {
@@ -1369,9 +1394,9 @@ export const Q = Object.freeze({
     sql: `SELECT g.group_tx, g.group_ix FROM drep_groups g WHERE ${LISTED} AND g.status = 'active' ORDER BY ${LISTED_ORDER} LIMIT ?`,
     boundedScan: 'drep_groups_listed',
   },
-  // Binds the group. The group with its stored profile.
+  // Binds the group. The group with its stored profile and the block time of its founding tx.
   groupRow: {
-    sql: `SELECT ${GROUP_READ}, ${PROFILE_READ} FROM drep_groups g ${PROFILE_JOIN} WHERE g.group_tx = ? AND g.group_ix = ?`,
+    sql: `SELECT ${GROUP_READ}, ${PROFILE_READ}, (SELECT t.block_time FROM drep_group_txs t WHERE t.tx_hash = g.group_tx) AS created_time FROM drep_groups g ${PROFILE_JOIN} WHERE g.group_tx = ? AND g.group_ix = ?`,
   },
   // Binds the group, counted_as, the cursor and the limit. One member list by join position.
   memberPage: { sql: instancePass('group_tx = ? AND group_ix = ? AND counted_as = ?', MEMBER_EXTRA) },
@@ -1379,7 +1404,21 @@ export const Q = Object.freeze({
   closingMemberPage: { sql: instancePass('group_tx = ? AND group_ix = ?', MEMBER_EXTRA) },
   // Binds the group, the validity class and the limit. Newest first.
   verdictPage: {
-    sql: `SELECT tx_hash, idx, tag, valid, reason, at_h FROM drep_group_verdicts WHERE group_tx = ? AND group_ix = ? AND valid = ?
+    sql: `SELECT v.tx_hash, v.idx, v.tag, v.valid, v.reason, v.at_h, ${VERDICT_TIME} AS block_time
+          FROM drep_group_verdicts v LEFT JOIN drep_group_txs t ON t.tx_hash = v.tx_hash
+          WHERE v.group_tx = ? AND v.group_ix = ? AND v.valid = ?
+          ORDER BY v.at_h DESC, v.at_ti DESC, v.at_ph DESC, v.at_ix DESC LIMIT ?`,
+  },
+  // The newest applied verdicts of a group with their subject, for the history.
+  historyVerdicts: {
+    sql: `SELECT v.tx_hash, v.idx, v.tag, v.subject, v.at_h, v.at_ti, v.at_ph, v.at_ix, ${VERDICT_TIME} AS block_time
+          FROM drep_group_verdicts v LEFT JOIN drep_group_txs t ON t.tx_hash = v.tx_hash
+          WHERE v.group_tx = ? AND v.group_ix = ? AND v.valid = 1
+          ORDER BY v.at_h DESC, v.at_ti DESC, v.at_ph DESC, v.at_ix DESC LIMIT ?`,
+  },
+  // The newest versions of a group, the policies and profile each change set.
+  historyVersions: {
+    sql: `SELECT at_tx, control, admission, profile_hash FROM drep_group_versions WHERE group_tx = ? AND group_ix = ?
           ORDER BY at_h DESC, at_ti DESC, at_ph DESC, at_ix DESC LIMIT ?`,
   },
   // Binds the group twice. Whether it is closing and its queued membership events, at most the cap.
@@ -1392,6 +1431,12 @@ export const Q = Object.freeze({
     sql: `SELECT i.group_tx, i.group_ix, g.mode, p.name FROM drep_group_instances i
           JOIN drep_groups g ON g.group_tx = i.group_tx AND g.group_ix = i.group_ix AND g.status = 'active' ${PROFILE_JOIN}
           WHERE i.drep_id = ? AND i.counted_as = 'open' ORDER BY i.group_tx, i.group_ix LIMIT ?`,
+  },
+  // Binds the DRep id and the limit. Active groups the DRep is a member of or has an open request in.
+  drepMemberships: {
+    sql: `SELECT i.group_tx, i.group_ix FROM drep_group_instances i
+          JOIN drep_groups g ON g.group_tx = i.group_tx AND g.group_ix = i.group_ix AND g.status = 'active'
+          WHERE i.drep_id = ? AND i.counted_as IN ('open', 'pending') LIMIT ?`,
   },
   groupMemberDreps: { sql: GROUP_MEMBER_DREPS_SQL },
   recForkCursors: {

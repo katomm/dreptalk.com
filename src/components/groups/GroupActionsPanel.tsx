@@ -3,10 +3,11 @@
 // management policy in the same transaction, removing active members, the notice when the policy
 // keys drifted from the members, and the policy editor. Every action is built in the browser and
 // either completes in one wallet step or gives a link.
-import { evaluateNativeScript, type NativeScript } from 'drep-groups';
+import { type Credential, evaluateNativeScript, type NativeScript } from 'drep-groups';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import {
+  changesOfIntent,
   type GroupIntent,
   type GroupState,
   IntentError,
@@ -21,13 +22,14 @@ import {
 } from '@/lib/groups/actions.js';
 import { libraryScript, scriptFromDisplayJson } from '@/lib/groups/codec.js';
 import { credentialForDrepId, drepIdForCredential, groupIdParam } from '@/lib/groups/ids.js';
+import { describeAction, type GroupChanges } from '@/lib/groups/describe.js';
 import type { GroupProfileInput } from '@/lib/groups/profileDocs.js';
 import { shortHash } from '@/lib/groups/view.js';
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { readableError } from '@/lib/wallet/walletError.js';
 import { afterLock, DraftPanel, lockBound, type Outcome, OutcomeNotice, SLOT_HELD, useActionRunner } from './actionFlow.js';
 import type { GroupActionView, PolicyView } from './GroupActions.js';
-import { Callout, h2, muted, stack } from './groupUi.js';
+import { buttons, Callout, choice, h3, muted, part, rows, stack } from './groupUi.js';
 import PolicyEditor, { type Proposal, PolicyFields, proposalOf, updateIntent } from './PolicyEditor.js';
 
 export interface GroupActionsPanelProps {
@@ -63,9 +65,15 @@ function stateOf(v: GroupActionView): GroupState | null {
   return { ref, mode: v.mode, status: v.status, seq: BigInt(v.seq), control, admission };
 }
 
+/** The section an action was opened from, its draft opens in place of that section's form. */
+type DraftSource = 'membership' | 'editor' | 'requests' | 'remove';
+
 interface Draft {
   intent: GroupIntent;
   label: string;
+  source: DraftSource;
+  /** What the transaction does, one line per change. */
+  lines: string[];
 }
 
 export default function GroupActionsPanel({ v, fetchedAt, network, profile, reload }: GroupActionsPanelProps) {
@@ -74,7 +82,7 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
   const [draft, setDraft] = useState<Draft | null>(null);
   const [memberScript, setMemberScript] = useState<NativeScript | null>(null);
   const [signers, setSigners] = useState<string[]>([]);
-  const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const [outcome, setOutcome] = useState<{ o: Outcome; at: DraftSource } | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
   const [withUpdate, setWithUpdate] = useState(true);
   const [offer, setOffer] = useState<Proposal | null>(null);
@@ -92,6 +100,17 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
   const policyKeys = useMemo(() => new Set([...v.control.keys, ...(v.admission?.keys ?? [])]), [v]);
   const isAdmin = viewerKey !== null && policyKeys.has(viewerKey);
   const activeIds = useMemo(() => v.activeKeyMembers.map((m) => m.drepId), [v]);
+  const memberKeys = useMemo(() => v.activeKeyMembers.map((m) => m.keyHash), [v]);
+  // Policy keys of neither an active member nor an applicant: DReps that left or were removed.
+  const formerKeys = useMemo(() => {
+    const applicants = new Set(
+      v.pending.flatMap((p) => {
+        const c = credentialForDrepId(p.drepId);
+        return c?.kind === 'key' ? [c.hash.toLowerCase()] : [];
+      }),
+    );
+    return new Set([...policyKeys].filter((k) => !memberKeys.includes(k) && !applicants.has(k)));
+  }, [v, policyKeys, memberKeys]);
   // Applicants by key hash, the combined offer lists them before the policy names know them.
   const pendingNames = useMemo(
     () =>
@@ -112,6 +131,24 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
     [v, addedNames, pendingNames],
   );
   const current = useMemo(() => (state ? thresholdOf(state.control) : { n: 1, k: 1 }), [state]);
+  // Names by credential hash and the member of every known join, for the words of a draft.
+  const nameMap = useMemo(() => {
+    const m = new Map<string, string>(Object.entries(v.names));
+    for (const p of [...v.pending, ...v.activeMembers]) {
+      const c = credentialForDrepId(p.drepId);
+      if (c && p.name) m.set(c.hash.toLowerCase(), p.name);
+    }
+    for (const [k, n] of addedNames) m.set(k, n);
+    return m;
+  }, [v, addedNames]);
+  const joinMembers = useMemo(() => {
+    const m = new Map<string, Credential>();
+    for (const p of [...v.pending, ...v.activeMembers]) {
+      const c = credentialForDrepId(p.drepId);
+      if (c) m.set(p.joinId.toLowerCase(), { kind: c.kind, hash: c.hash.toLowerCase() });
+    }
+    return m;
+  }, [v]);
 
   // The combined offer follows the selected requests: carried from the current policy, at the carried ratio.
   const approvedIds = useMemo(() => v.pending.filter((p) => picked.includes(p.joinId)).map((p) => p.drepId), [v, picked]);
@@ -136,12 +173,16 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
     [state],
   );
 
-  /** Signers that satisfy the action, the viewer first, then the other keys in order until it holds. */
+  /**
+   * Signers that satisfy the action: the viewer first, then active members, then the other keys
+   * (former members still named in a policy), each group in policy order, until it holds.
+   */
   const defaultSigners = useCallback(
     (intent: GroupIntent, script: NativeScript | null, lock: number | undefined): string[] => {
       const keys = keysOf(intent, script);
       if (!keys) return [];
-      const order = [...keys.optional].sort((a, b) => (a === viewerKey ? -1 : b === viewerKey ? 1 : 0));
+      const rank = (k: string) => (k === viewerKey ? 0 : memberKeys.includes(k) ? 1 : 2);
+      const order = [...keys.optional].sort((a, b) => rank(a) - rank(b));
       const chosen: string[] = [];
       const holds = () =>
         signerSetSatisfies(state, intent, script, uniq([...keys.mandatory, ...chosen]), { invalidBefore: lockBound(lock), invalidHereafter: null });
@@ -151,10 +192,10 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
       }
       return chosen;
     },
-    [keysOf, state, viewerKey],
+    [keysOf, state, viewerKey, memberKeys],
   );
 
-  async function open(intent: GroupIntent, label: string) {
+  async function open(intent: GroupIntent, label: string, source: DraftSource, profileChange?: GroupChanges['profile'], names = nameMap) {
     setError(null);
     setOutcome(null);
     let script: NativeScript | null = null;
@@ -175,7 +216,8 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
     }
     setMemberScript(script);
     setSigners(defaultSigners(intent, script, afterLock(script)));
-    setDraft({ intent, label });
+    const lines = describeAction(changesOfIntent(intent, state, { joinMembers, ...(profileChange ? { profile: profileChange } : {}) }), names);
+    setDraft({ intent, label, source, lines });
   }
 
   async function build() {
@@ -189,7 +231,7 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
     const o = await runner.run({ intent, state, memberScript, keys, signers, viewerKey, tipSlot });
     // Once the action exists the forms close, so a second click cannot open the same action again.
     if (o) {
-      setOutcome(o);
+      setOutcome({ o, at: draft.source });
       setDraft(null);
       setPicked([]);
       setEditor(null);
@@ -214,10 +256,12 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
   const useUpdate = offer !== null && !v.openControl && offer.ticked.length > 0 && canCombined && (withUpdate || updateForced);
   const approveOk = picked.length > 0 && (useUpdate || canApprove);
   const controlKeys = v.control.keys;
-  const memberKeys = v.activeKeyMembers.map((m) => m.keyHash);
   const drift = v.mode === 'permissioned' && !sameSet(controlKeys, memberKeys);
   const notInPolicy = memberKeys.filter((k) => !controlKeys.includes(k));
   const formerInPolicy = controlKeys.filter((k) => !memberKeys.includes(k));
+  // Signer labels mark policy keys of DReps that are no longer members, applicants are not marked.
+  const signerName = (key: string) =>
+    formerKeys.has(key) ? `${nameOf(key)} (no longer a member)` : nameOf(key);
   const driftText = [
     `The group is still managed by: ${controlKeys.map(nameOf).join(', ')}.`,
     notInPolicy.length > 0 ? `Members not in the policy: ${notInPolicy.map(nameOf).join(', ')}.` : '',
@@ -259,236 +303,263 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
       ? v.activeMembers.filter((m) => m.drepId !== viewerDrep && allowed({ kind: 'group_remove', group: v.groupId, joins: [m.joinId] }))
       : [];
 
+  // The signing step of the open draft, shown in place of the form it came from.
+  const draftPanel =
+    draft && keys ? (
+      <DraftPanel
+        label={draft.label}
+        lines={draft.lines}
+        keys={keys}
+        signers={signers}
+        onSigners={setSigners}
+        satisfied={satisfied}
+        nameOf={signerName}
+        viewerKey={viewerKey}
+        runner={runner}
+        onBuild={() => void build()}
+        onBack={() => setDraft(null)}
+      />
+    ) : null;
+  const drafting = (source: DraftSource) => draftPanel !== null && draft?.source === source;
+  // The outcome of a built action shows where its draft was.
+  const outcomeAt = (source: DraftSource) => (outcome && outcome.at === source ? <OutcomeNotice outcome={outcome.o} network={network} /> : null);
+
   return (
     <>
-      {active && viewerDrep && (
-        <section aria-label="Your membership" style={stack}>
+      {active && viewerDrep && drafting('membership') && draftPanel}
+      {outcomeAt('membership')}
+      {active && viewerDrep && !drafting('membership') && (
+        <section aria-label="Your membership" style={part}>
           {join === null ? (
             !ownJoinOpen && (
               <>
                 <p style={muted}>{v.mode === 'open' ? JOIN_OPEN_NOTE : JOIN_PERMISSIONED_NOTE}</p>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  style={{ alignSelf: 'flex-start' }}
-                  onClick={() =>
-                    void open({ kind: 'group_join', group: v.groupId, member: viewerDrep }, v.mode === 'open' ? 'Join the group' : 'Request to join')
-                  }
-                >
-                  {v.mode === 'open' ? 'Join' : 'Request to join'}
-                </button>
+                <div style={buttons}>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() =>
+                      void open({ kind: 'group_join', group: v.groupId, member: viewerDrep }, v.mode === 'open' ? 'Join the group' : 'Request to join', 'membership')
+                    }
+                  >
+                    {v.mode === 'open' ? 'Join' : 'Request to join'}
+                  </button>
+                </div>
               </>
             )
           ) : (
             <>
-              <p style={{ margin: 0 }}>{join.state === 'pending' ? 'Your request to join is pending.' : 'You are a member of this group.'}</p>
+              <h3 style={h3}>{join.state === 'pending' ? 'Your request to join is pending' : 'You are a member of this group'}</h3>
               {v.mode === 'permissioned' && <p style={muted}>{LEAVE_NOTE}</p>}
-              {leaveWarning && (
-                <>
-                  <p style={muted}>{LEAVE_WARNING}</p>
-                  {!canUpdate ? null : v.openControl ? (
-                    <p style={muted}>{SLOT_HELD}</p>
-                  ) : (
-                    <button type="button" className="btn" style={{ alignSelf: 'flex-start' }} onClick={() => openEditor(activeIds.filter((d) => d !== viewerDrep))}>
-                      Update the policy first
-                    </button>
-                  )}
-                </>
-              )}
-              {!ownLeaveOpen && (
-              <button
-                type="button"
-                className="btn"
-                style={{ alignSelf: 'flex-start' }}
-                onClick={() => void open({ kind: 'group_leave', group: v.groupId, member: viewerDrep, join: join.joinId }, 'Leave the group')}
-              >
-                Leave
-              </button>
-              )}
+              {leaveWarning && <p style={muted}>{LEAVE_WARNING}</p>}
+              {leaveWarning && canUpdate && v.openControl && <p style={muted}>{SLOT_HELD}</p>}
+              <div style={buttons}>
+                {leaveWarning && canUpdate && !v.openControl && (
+                  <button type="button" className="btn" onClick={() => openEditor(activeIds.filter((d) => d !== viewerDrep))}>
+                    Update the policy first
+                  </button>
+                )}
+                {!ownLeaveOpen && (
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => void open({ kind: 'group_leave', group: v.groupId, member: viewerDrep, join: join.joinId }, 'Leave the group', 'membership')}
+                  >
+                    Leave
+                  </button>
+                )}
+              </div>
             </>
           )}
         </section>
       )}
 
-      {active && drift && (join?.state === 'active' || isAdmin) && (
-        <section aria-label="Management policy" style={stack}>
-          <p style={muted}>{driftText}</p>
+      {active && drift && (join?.state === 'active' || isAdmin) && !editor && (
+        <section aria-label="Management policy" style={part}>
+          <Callout kind="info">{driftText}</Callout>
           {canUpdate &&
             (v.openControl ? (
               <p style={muted}>{SLOT_HELD}</p>
             ) : (
-              <button type="button" className="btn" style={{ alignSelf: 'flex-start' }} onClick={() => openEditor(activeIds)}>
-                Update the policy
-              </button>
+              <div style={buttons}>
+                <button type="button" className="btn" onClick={() => openEditor(activeIds)}>
+                  Update the policy
+                </button>
+              </div>
             ))}
         </section>
       )}
 
       {active && canUpdate && !editor && (
-        <section aria-label="Group management" style={stack}>
+        <section aria-label="Group management" style={part}>
           <p style={muted}>You are an admin of this group.</p>
-          <button type="button" className="btn" style={{ alignSelf: 'flex-start' }} onClick={() => openEditor(null)}>
-            Manage the group
-          </button>
-        </section>
-      )}
-
-      {active && canUpdate && editor && (
-        <PolicyEditor
-          groupId={v.groupId}
-          current={current}
-          controlKeys={controlKeys}
-          sameAdmission={v.admission?.hash === v.control.hash}
-          listed={policyKeys}
-          memberKeys={memberKeys}
-          nameOf={nameOf}
-          profile={profile}
-          initial={editor.initial}
-          slotHeld={v.openControl !== null}
-          canDissolve={canDissolve}
-          onContinue={(intent, label, names) => {
-            setAddedNames(names);
-            void open(intent, label);
-          }}
-          onClose={() => {
-            setEditor(null);
-            setDraft(null);
-          }}
-        />
-      )}
-
-      {active && (canApprove || canRemove || canCombined) && v.mode === 'permissioned' && v.pending.length > 0 && (
-        <section aria-label="Requests to join" style={stack}>
-          <h2 style={h2}>Requests to join</h2>
-          <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: '0.25rem' }}>
-            {v.pending.map((p) => {
-              const name = p.name ?? shortHash(p.drepId);
-              return (
-                <li key={p.joinId}>
-                  <label style={{ display: 'inline-flex', gap: '0.375rem', alignItems: 'center' }}>
-                    <input
-                      type="checkbox"
-                      aria-label={name}
-                      checked={picked.includes(p.joinId)}
-                      onChange={() => setPicked((xs) => (xs.includes(p.joinId) ? xs.filter((x) => x !== p.joinId) : [...xs, p.joinId]))}
-                    />
-                    {name}
-                  </label>
-                </li>
-              );
-            })}
-          </ul>
-          {offer &&
-            canCombined &&
-            (v.openControl ? (
-              <p style={muted}>{SLOT_HELD}</p>
-            ) : (
-              <div style={stack}>
-                {updateForced ? (
-                  <p style={muted}>Your key may approve only together with an update of the management policy.</p>
-                ) : (
-                  <label style={{ display: 'inline-flex', gap: '0.375rem', alignItems: 'center', fontSize: '0.875rem' }}>
-                    <input type="checkbox" checked={withUpdate} onChange={() => setWithUpdate((x) => !x)} />
-                    Also update the management policy in the same transaction
-                  </label>
-                )}
-                {(withUpdate || updateForced) && <PolicyFields proposal={offer} onChange={setOffer} current={current} listed={policyKeys} nameOf={nameOf} />}
-              </div>
-            ))}
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            {(canApprove || canCombined) && (
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={!approveOk}
-                onClick={() =>
-                  void open(
-                    useUpdate && offer ? updateIntent(v.groupId, offer, picked) : { kind: 'group_approve', group: v.groupId, joins: picked },
-                    'Approve',
-                  )
-                }
-              >
-                Approve
-              </button>
-            )}
-            {canRemove && (
-              <button
-                type="button"
-                className="btn"
-                disabled={picked.length === 0}
-                onClick={() => void open({ kind: 'group_remove', group: v.groupId, joins: picked }, 'Remove')}
-              >
-                Remove
-              </button>
-            )}
+          <div style={buttons}>
+            <button type="button" className="btn" onClick={() => openEditor(null)}>
+              Manage the group
+            </button>
           </div>
         </section>
       )}
 
-      {removable.length > 0 && (
-        <section aria-label="Remove members" style={stack}>
-          <h2 style={h2}>Remove members</h2>
-          <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: '0.25rem' }}>
-            {removable.map((m) => {
-              const name = m.name ?? shortHash(m.drepId);
-              return (
-                <li key={m.joinId} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                  <span>{name}</span>
-                  <button
-                    type="button"
-                    className="btn"
-                    aria-label={`Remove ${name}`}
-                    onClick={() => {
-                      setDraft(null);
-                      setRemoving({ joinId: m.joinId, name });
-                    }}
-                  >
-                    Remove
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-          {removing && (
-            <div style={stack}>
-              <p style={{ margin: 0 }}>Remove {removing.name} from the group? Their delegations do not change.</p>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
+      {active && canUpdate && editor && (
+        <>
+          {/* The editor stays mounted while its draft is open, so Back returns to the filled form. */}
+          <div hidden={drafting('editor')}>
+            <PolicyEditor
+              groupId={v.groupId}
+              current={current}
+              controlKeys={controlKeys}
+              sameAdmission={v.admission?.hash === v.control.hash}
+              listed={policyKeys}
+              memberKeys={memberKeys}
+              nameOf={nameOf}
+              profile={profile}
+              initial={editor.initial}
+              slotHeld={v.openControl !== null}
+              canDissolve={canDissolve}
+              onContinue={(intent, label, names, profileChange) => {
+                setAddedNames(names);
+                void open(intent, label, 'editor', profileChange, new Map([...nameMap, ...names]));
+              }}
+              onClose={() => {
+                setEditor(null);
+                setDraft(null);
+              }}
+            />
+          </div>
+          {drafting('editor') && draftPanel}
+        </>
+      )}
+      {outcomeAt('editor')}
+
+      {active && (canApprove || canRemove || canCombined) && v.mode === 'permissioned' && v.pending.length > 0 && (
+        drafting('requests') ? (
+          draftPanel
+        ) : (
+          <section aria-label="Requests to join" style={part}>
+            <h3 style={h3}>Requests to join</h3>
+            <ul style={rows}>
+              {v.pending.map((p) => {
+                const name = p.name ?? shortHash(p.drepId);
+                return (
+                  <li key={p.joinId}>
+                    <label style={choice}>
+                      <input
+                        type="checkbox"
+                        aria-label={name}
+                        checked={picked.includes(p.joinId)}
+                        onChange={() => setPicked((xs) => (xs.includes(p.joinId) ? xs.filter((x) => x !== p.joinId) : [...xs, p.joinId]))}
+                      />
+                      {name}
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+            {offer &&
+              canCombined &&
+              (v.openControl ? (
+                <p style={muted}>{SLOT_HELD}</p>
+              ) : (
+                <div style={stack}>
+                  {updateForced ? (
+                    <p style={muted}>Your key may approve only together with an update of the management policy.</p>
+                  ) : (
+                    <label style={choice}>
+                      <input type="checkbox" checked={withUpdate} onChange={() => setWithUpdate((x) => !x)} />
+                      Also update the management policy in the same transaction
+                    </label>
+                  )}
+                  {(withUpdate || updateForced) && <PolicyFields proposal={offer} onChange={setOffer} current={current} listed={policyKeys} nameOf={nameOf} />}
+                </div>
+              ))}
+            <div style={buttons}>
+              {(canApprove || canCombined) && (
                 <button
                   type="button"
                   className="btn btn-primary"
-                  onClick={() => {
-                    setRemoving(null);
-                    void open({ kind: 'group_remove', group: v.groupId, joins: [removing.joinId] }, `Remove ${removing.name}`);
-                  }}
+                  disabled={!approveOk}
+                  onClick={() =>
+                    void open(
+                      useUpdate && offer ? updateIntent(v.groupId, offer, picked) : { kind: 'group_approve', group: v.groupId, joins: picked },
+                      'Approve',
+                      'requests',
+                    )
+                  }
                 >
-                  Yes, remove
+                  Approve
                 </button>
-                <button type="button" className="btn" onClick={() => setRemoving(null)}>
-                  Cancel
+              )}
+              {canRemove && (
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={picked.length === 0}
+                  onClick={() => void open({ kind: 'group_remove', group: v.groupId, joins: picked }, 'Remove', 'requests')}
+                >
+                  Remove
                 </button>
-              </div>
+              )}
             </div>
-          )}
-        </section>
+          </section>
+        )
+      )}
+      {outcomeAt('requests')}
+
+      {removable.length > 0 && (
+        drafting('remove') ? (
+          draftPanel
+        ) : (
+          <section aria-label="Remove members" style={part}>
+            <h3 style={h3}>Remove members</h3>
+            <ul style={rows}>
+              {removable.map((m) => {
+                const name = m.name ?? shortHash(m.drepId);
+                return (
+                  <li key={m.joinId} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span>{name}</span>
+                    <button
+                      type="button"
+                      className="btn"
+                      aria-label={`Remove ${name}`}
+                      onClick={() => {
+                        setDraft(null);
+                        setRemoving({ joinId: m.joinId, name });
+                      }}
+                    >
+                      Remove
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            {removing && (
+              <Callout kind="info">
+                <p style={{ margin: '0 0 0.5rem' }}>Remove {removing.name} from the group? Their delegations do not change.</p>
+                <div style={buttons}>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => {
+                      setRemoving(null);
+                      void open({ kind: 'group_remove', group: v.groupId, joins: [removing.joinId] }, `Remove ${removing.name}`, 'remove');
+                    }}
+                  >
+                    Yes, remove
+                  </button>
+                  <button type="button" className="btn" onClick={() => setRemoving(null)}>
+                    Cancel
+                  </button>
+                </div>
+              </Callout>
+            )}
+          </section>
+        )
       )}
 
-      {draft && keys && (
-        <DraftPanel
-          label={draft.label}
-          keys={keys}
-          signers={signers}
-          onSigners={setSigners}
-          satisfied={satisfied}
-          nameOf={nameOf}
-          viewerKey={viewerKey}
-          runner={runner}
-          onBuild={() => void build()}
-          onBack={() => setDraft(null)}
-        />
-      )}
-
-      {outcome && <OutcomeNotice outcome={outcome} network={network} />}
-      {runner.error && <Callout kind="error">{runner.error}</Callout>}
+      {outcomeAt('remove')}
+      {/* An error while a draft is open shows in the draft. */}
+      {runner.error && !draftPanel && <Callout kind="error">{runner.error}</Callout>}
     </>
   );
 }

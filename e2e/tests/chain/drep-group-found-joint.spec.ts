@@ -65,14 +65,14 @@ test('three DReps found a 2 of 3 group through the signing link', async ({ page,
     for (const other of [one, two]) {
       await other.page.goto('/notifications/');
       await waitForHydration(other.page);
-      const request = other.page.getByRole('link', { name: /^Someone asked you to sign:/ }).first();
+      const request = other.page.getByRole('link', { name: / asked you to sign/ }).first();
       await expect(request).toHaveAttribute('href', `/groups/sign/${id}/`);
       await request.click();
       await other.page.waitForURL(`**/groups/sign/${id}/`);
       await signOnSigningPage(other.page, id, other.wallet.drepKeyHashHex);
     }
     await signOnSigningPage(page, id, wallet.drepKeyHashHex);
-    await expect(page.getByRole('region', { name: 'Signatures' }).getByText('(waiting)')).toHaveCount(0);
+    await expect(page.getByRole('region', { name: 'Signatures' }).getByText('Waiting', { exact: true })).toHaveCount(0);
     const txHash = await submitOnSigningPage(page, id);
     console.log(`[e2e] joint founding ${txHash}`);
     return id;

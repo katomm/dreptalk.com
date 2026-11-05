@@ -4,6 +4,7 @@
 import type { Anchor } from 'drep-groups';
 import { useState } from 'react';
 import DrepImageUpload from '@/components/DrepImageUpload.js';
+import { inputStyle, labelStyle } from '@/components/drepFormStyles.js';
 import { credentialForDrepId } from '@/lib/groups/ids.js';
 import type { GroupProfileInput } from '@/lib/groups/profileDocs.js';
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
@@ -67,7 +68,7 @@ export function DrepAdder({ label, listed, onAdd }: { label: string; listed: str
           placeholder="drep1..."
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          style={{ flex: '1 1 18rem', minWidth: 0 }}
+          style={{ ...inputStyle, flex: '1 1 18rem', minWidth: 0, width: 'auto' }}
         />
         <button type="button" className="btn" disabled={busy || value.trim() === ''} onClick={() => void add()}>
           Add
@@ -87,9 +88,16 @@ export function ThresholdField({ n, k, onChange, label = 'Threshold' }: { n: num
   return (
     <div style={stack}>
       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-        <label style={{ display: 'inline-flex', gap: '0.375rem', alignItems: 'center', fontSize: '0.875rem' }}>
+        <label style={{ display: 'inline-flex', gap: '0.5rem', alignItems: 'center', fontSize: '0.875rem', color: 'var(--muted)' }}>
           {label}
-          <input type="number" min={1} max={k} value={Number.isNaN(n) ? '' : n} onChange={(e) => onChange(Number.parseInt(e.target.value, 10))} style={{ width: '4rem' }} />
+          <input
+            type="number"
+            min={1}
+            max={k}
+            value={Number.isNaN(n) ? '' : n}
+            onChange={(e) => onChange(Number.parseInt(e.target.value, 10))}
+            style={{ ...inputStyle, width: '5rem' }}
+          />
         </label>
         {thresholdError(n, k) === null && (
           <span style={{ fontSize: '0.875rem' }}>
@@ -161,24 +169,27 @@ export async function storeProfile(p: ProfileDraft): Promise<Anchor> {
   return { url, dataHash: hash };
 }
 
+// The text area of the DRep profile forms: the input style in the body font, growing downwards.
+const textAreaStyle = { ...inputStyle, lineHeight: '1.6', resize: 'vertical' as const, fontFamily: 'inherit' };
+
 export function ProfileFields({ value, onChange, disabled }: { value: ProfileDraft; onChange: (p: ProfileDraft) => void; disabled?: boolean }) {
   const field = (key: 'name' | 'website' | 'charter', label: string, placeholder?: string) => (
-    <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.875rem' }}>
-      {label}
-      <input type="text" value={value[key]} placeholder={placeholder} disabled={disabled} onChange={(e) => onChange({ ...value, [key]: e.target.value })} />
+    <label style={{ display: 'block' }}>
+      <span style={labelStyle}>{label}</span>
+      <input type="text" value={value[key]} placeholder={placeholder} disabled={disabled} onChange={(e) => onChange({ ...value, [key]: e.target.value })} style={inputStyle} />
     </label>
   );
   return (
-    <div style={stack}>
+    <div style={{ ...stack, gap: '0.875rem' }}>
       {field('name', 'Name')}
-      <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.875rem' }}>
-        Description
-        <textarea rows={4} value={value.description} disabled={disabled} onChange={(e) => onChange({ ...value, description: e.target.value })} />
+      <label style={{ display: 'block' }}>
+        <span style={labelStyle}>Description</span>
+        <textarea rows={4} value={value.description} disabled={disabled} onChange={(e) => onChange({ ...value, description: e.target.value })} style={textAreaStyle} />
       </label>
       {field('website', 'Website', 'https://')}
       {field('charter', 'Charter', 'https://')}
-      <div style={{ fontSize: '0.875rem' }}>
-        Image
+      <div>
+        <span style={{ ...labelStyle, marginBottom: '0.75rem' }}>Image</span>
         <DrepImageUpload
           value={value.image ? { url: value.image } : null}
           onChange={(img) => onChange({ ...value, image: img?.url ?? '' })}

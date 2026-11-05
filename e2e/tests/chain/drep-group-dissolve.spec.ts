@@ -17,19 +17,19 @@ test('the only admin dissolves a throwaway group', async ({ page, wallet }) => {
   const actionId = await resumeOr(async () => {
     await page.goto(groupPage);
     await waitForHydration(page);
-    await expect(page.locator('h1 + .gr-meta')).not.toContainText('Dissolved');
+    await expect(page.locator('.drep-hd__status')).not.toContainText('Dissolved');
     const island = page.locator('#requests');
     await island.getByRole('button', { name: 'Manage the group' }).click();
     const editor = island.getByRole('region', { name: 'Manage the group' });
     await editor.getByRole('button', { name: 'Dissolve the group' }).click();
     await editor.getByRole('checkbox', { name: 'Yes, dissolve this group' }).check();
-    await editor.getByRole('button', { name: 'Continue' }).click();
+    await editor.getByRole('button', { name: 'Review and sign' }).click();
     return (await buildAlone(page, 'Dissolve the group')).actionId;
   });
 
   await untilVisible(page, `/groups/sign/${actionId}/`, (p) => p.getByText(APPLIED), 'dissolve applied');
   await page.goto(groupPage);
   await waitForHydration(page);
-  await expect(page.locator('h1 + .gr-meta')).toContainText('Dissolved');
+  await expect(page.locator('.drep-hd__status')).toContainText('Dissolved');
   await expect(page.locator('#requests').getByRole('button', { name: 'Manage the group' })).toHaveCount(0);
 });

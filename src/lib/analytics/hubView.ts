@@ -19,7 +19,7 @@ export interface VitalCard {
    * break across lines mid-figure. Absent when the full form already fits.
    */
   valueShort?: string;
-  icon: 'people' | 'power' | 'gauge' | 'share';
+  icon: 'people' | 'power' | 'gauge' | 'share' | 'shield' | 'calendar';
   alt?: boolean;
   trend?: { direction: 'up' | 'down' | 'flat'; label: string } | null;
   sub?: string;

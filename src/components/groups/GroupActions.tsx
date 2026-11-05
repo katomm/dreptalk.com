@@ -5,9 +5,9 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import type { GroupProfileInput } from '@/lib/groups/profileDocs.js';
-import { ACTION_KIND_LABEL, ACTION_STATUS_LABEL } from '@/lib/groups/view.js';
+import { ACTION_KIND_LABEL, ACTION_STATUS_LABEL, INPUT_SPENT_STATUS, INPUT_SPENT_TEXT } from '@/lib/groups/view.js';
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
-import { h2 } from './groupUi.js';
+import { h3, part } from './groupUi.js';
 
 const GroupActionsPanel = lazy(() => import('./GroupActionsPanel.js'));
 
@@ -35,7 +35,9 @@ export interface GroupActionView {
   activeMembers: Array<{ joinId: string; drepId: string; name: string | null }>;
   pending: Array<{ joinId: string; drepId: string; name: string | null }>;
   openControl: { id: string | null } | null;
-  rows: Array<{ id: string | null; kind: string; status: string }>;
+  /** Unresolved actions, those the session may open with what they do in words. */
+  /** `inputSpent`: a fee input was spent by another transaction, the action can no longer be submitted. */
+  rows: Array<{ id: string | null; kind: string; status: string; inputSpent?: boolean; lines?: string[] }>;
   viewer: { keyHash: string | null; drepId: string | null; join: { joinId: string; state: 'pending' | 'active' } | null } | null;
 }
 
@@ -67,33 +69,43 @@ export default function GroupActions({ groupId, network, profile = null }: Group
 
   if (!loaded) return null;
   const { v } = loaded;
+  // The panel has something to offer only to a DRep on an active group, everyone else sees the actions in progress at most.
+  const panel = v.viewer !== null && v.status === 'active' && (v.viewer.drepId !== null || v.viewer.keyHash !== null);
+  if (v.rows.length === 0 && !panel) return null;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', maxWidth: '40rem' }}>
-      {v.rows.length > 0 && (
-        <section aria-label="Group actions in progress">
-          <h2 style={h2}>In progress</h2>
-          <ul style={{ margin: 0, paddingLeft: '1.25rem', display: 'grid', gap: '0.25rem' }}>
-            {v.rows.map((r, i) => (
-              <li key={r.id ?? `row-${i}`}>
-                {ACTION_KIND_LABEL[r.kind] ?? r.kind}: {ACTION_STATUS_LABEL[r.status] ?? r.status}
-                {r.id && (
-                  <>
-                    {' '}
-                    <a href={`/groups/sign/${r.id}/`}>Open the signing page</a>
-                  </>
-                )}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+    <section className="group-manage" aria-labelledby="group-manage-heading">
+      <h2 id="group-manage-heading" className="group-manage__h">
+        Manage
+      </h2>
+      <div className="group-manage__body">
+        {v.rows.length > 0 && (
+          <section aria-label="Group actions in progress" style={part}>
+            <h3 style={h3}>In progress</h3>
+            <ul style={{ margin: 0, paddingLeft: '1.25rem', display: 'grid', gap: '0.25rem' }}>
+              {v.rows.map((r, i) => (
+                <li key={r.id ?? `row-${i}`}>
+                  {ACTION_KIND_LABEL[r.kind] ?? r.kind}: {r.inputSpent ? INPUT_SPENT_STATUS : (ACTION_STATUS_LABEL[r.status] ?? r.status)}
+                  {r.lines && r.lines.length > 0 && <span style={{ display: 'block', color: 'var(--muted)', fontSize: '0.875rem' }}>{r.lines.join(' ')}</span>}
+                  {r.inputSpent && <span style={{ display: 'block', fontSize: '0.875rem' }}>{INPUT_SPENT_TEXT} Cancel it and start it again.</span>}
+                  {r.id && (
+                    <>
+                      {' '}
+                      <a href={`/groups/sign/${r.id}/`}>Open the signing page</a>
+                    </>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
-      {v.viewer && (
-        <Suspense fallback={null}>
-          <GroupActionsPanel v={v} fetchedAt={loaded.at} network={network} profile={profile} reload={load} />
-        </Suspense>
-      )}
-    </div>
+        {panel && v.viewer && (
+          <Suspense fallback={null}>
+            <GroupActionsPanel v={v} fetchedAt={loaded.at} network={network} profile={profile} reload={load} />
+          </Suspense>
+        )}
+      </div>
+    </section>
   );
 }

@@ -6,7 +6,7 @@ import NotFoundPage from '../404.astro';
 import { currentNetwork } from '@/lib/api/response';
 import { listListedGroups } from '@/lib/db/drepGroups.js';
 import { cacheControlForSynced, formatAda } from '@/lib/forum/view.js';
-import { GROUP_PAGE_SIZE } from '@/lib/groups/constants.js';
+import { DREP_GROUPS_STANDARD_URL, GROUP_PAGE_SIZE } from '@/lib/groups/constants.js';
 import { drepGroupsAvailable } from '@/lib/groups/gate.js';
 import { sessionKeyHash } from '@/lib/auth/groupSigner.js';
 import { modeLabel, shortHash } from '@/lib/groups/view.js';
@@ -37,10 +37,20 @@ if (available) {
   <Layout title="DRep groups - DRepTalk" description="Groups, parties and councils of Cardano DReps, recorded on chain." wide>
     <nav class="gr-crumbs"><a href="/">DRepTalk</a><span>/</span><span>Groups</span></nav>
     <h1>DRep groups</h1>
-    <p class="gr-intro">Groups record which DReps belong together, on chain under metadata label 8416. Open groups are self-declared, permissioned groups confirm every member. A group never votes, its members vote on their own. Groups with at least two members are listed, sorted by the voting power of their members.</p>
-    {mayFound && <p class="gr-found"><a class="btn" href="/groups/new/">Found a group</a></p>}
-    {groups.length === 0 ? (
-      <p class="gr-empty">No groups yet.</p>
+    <p class="gr-intro">Groups record which DReps belong together, on chain under metadata label 8416. Open groups are self-declared, permissioned groups confirm every member. A group never votes, its members vote on their own. Groups with at least two members are listed, sorted by the voting power of their members. <a href="/help/drep-groups/">How DRep groups work</a></p>
+    {mayFound && <p class="gr-found"><a class="btn" href="/groups/new/">Found a new group or DRep party</a></p>}
+    {groups.length === 0 && !after ? (
+      <section class="gr-empty" aria-label="No groups yet">
+        <h2>No groups yet</h2>
+        <p>DRep groups are new. Be among the first to show voters which DReps work together.</p>
+        <ul>
+          <li><a href="/help/drep-groups/">How DRep groups work</a>: founding, admitting members, managing a group together and leaving it.</li>
+          <li>{mayFound ? <a href="/groups/new/">Found a new group or DRep party</a> : <><a href="/login/">Sign in as a DRep</a> to found a group</>}. A group shows up here once it has two members.</li>
+          <li><a href={DREP_GROUPS_STANDARD_URL} rel="noopener">The open standard</a> behind the groups, which any wallet or explorer can read.</li>
+        </ul>
+      </section>
+    ) : groups.length === 0 ? (
+      <p class="gr-meta">No more groups.</p>
     ) : (
       <ul class="gr-list">
         {groups.map((g) => (
@@ -62,7 +72,10 @@ if (available) {
   .gr-crumbs { font-size: 0.875rem; color: var(--muted); margin-bottom: 1rem; display: flex; gap: 0.375rem; }
   .gr-intro { color: var(--muted); max-width: 46rem; }
   .gr-pager { display: flex; gap: 1rem; margin-top: 1.5rem; font-size: 0.875rem; font-weight: 600; }
-  .gr-empty { color: var(--muted); }
+  .gr-empty { border: 1px solid var(--border); border-radius: 0.75rem; padding: 1.25rem 1.5rem; max-width: 46rem; }
+  .gr-empty h2 { margin: 0 0 0.5rem; font-size: 1.125rem; }
+  .gr-empty p { margin: 0 0 0.75rem; color: var(--muted); }
+  .gr-empty ul { margin: 0; padding-left: 1.25rem; display: grid; gap: 0.5rem; }
   .gr-found { margin: 0 0 1.5rem; }
   .gr-list { list-style: none; padding: 0; display: grid; gap: 0.75rem; }
   .gr-item { display: flex; flex-direction: column; gap: 0.125rem; }

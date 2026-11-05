@@ -4,7 +4,7 @@
 import type { StatusNote } from '../db/drepGroups.js';
 import { truncateIdMiddle } from '../forum/view.js';
 
-type ScriptView =
+export type ScriptView =
   | { kind: 'sig'; keyHash: string }
   | { kind: 'all' | 'any'; children: ScriptView[] }
   | { kind: 'nOfK'; n: string; children: ScriptView[] }
@@ -142,6 +142,13 @@ export const ACTION_STATUS_LABEL: Readonly<Record<string, string>> = {
   cancelled: 'cancelled, held until it expires',
 };
 
+/** The words of an action whose fee input another transaction spent, its own can never be valid. */
+export const INPUT_SPENT_TEXT = 'This transaction can no longer be submitted, a coin it spends was used by another transaction.';
+export const INPUT_SPENT_STATUS = 'can no longer be submitted';
+/** Why a new action cannot be paid when open actions hold every coin of the wallet. */
+export const FUNDS_HELD =
+  "Your wallet's funds are held by another open action. Wait until it is confirmed, cancel it, or add another coin to this wallet.";
+
 export function addressStatusLabel(status: 'invalid' | 'declared' | 'script-controlled'): string {
   return status === 'script-controlled' ? 'Controlled by' : status === 'declared' ? 'Declared address' : 'Invalid address';
 }
@@ -173,4 +180,22 @@ export function memberSections(
 ): Array<{ kind: MemberSectionKind; after: string | null }> {
   const kinds: MemberSectionKind[] = group.closing ? ['all'] : ['active', 'pending', 'former'];
   return kinds.map((kind) => ({ kind, after: params.get(sectionParam(kind)) }));
+}
+
+const HOSTED_AVATAR = /\/api\/avatar\/([0-9a-f]{64})(?:\/thumb)?\/?$/;
+
+/**
+ * The content hash of a group image that DRepTalk hosts, read off a profile image URL ending in
+ * /api/avatar/<hash>. The page then loads it from its own origin. Any other image is left out, the
+ * page's CSP loads images from its own origin only, so the identicon shows instead.
+ */
+export function hostedAvatarHash(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+    return HOSTED_AVATAR.exec(u.pathname)?.[1] ?? null;
+  } catch {
+    return null;
+  }
 }

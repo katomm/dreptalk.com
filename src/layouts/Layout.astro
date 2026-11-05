@@ -10,7 +10,7 @@ import LogoMark from '@/components/LogoMark.astro';
 import { showLogoHat } from '@/lib/brand/season';
 import ShareButton from '@/components/ShareButton.astro';
 import { currentNetwork } from '@/lib/api/response';
-import { NAV, NAV_LINKS, isNavGroup, type NavGroup } from '@/lib/config/nav.js';
+import { isNavGroup, type NavGroup, navFor, navLinksFor } from '@/lib/config/nav.js';
 import type { AuthorDescriptor } from '@/lib/forum/author';
 import { loadSessionHeader } from '@/lib/forum/sessionHeader';
 import { scopeForPath, type Scope } from '@/lib/search/scopes.js';
@@ -95,6 +95,9 @@ const pathname = Astro.url.pathname;
 // is ever current.
 const navPath = (href: string) => href.split('?')[0].replace(/\/$/, '');
 const currentPath = pathname.replace(/\/$/, '');
+// The navigation of this network, pages that exist only elsewhere are left out.
+const NAV = navFor(net.network);
+const NAV_LINKS = navLinksFor(net.network);
 const activeHref = NAV_LINKS.map((l) => l.href)
   .filter((href) => {
     const path = navPath(href);
@@ -233,7 +236,7 @@ const groupActive = (group: NavGroup) => group.items.some((item) => isActive(ite
         </nav>
 
         <div class="header-actions">
-          <SearchTrigger signedIn={!!sessionUser} initialScope={searchScope ?? scopeForPath(pathname)} />
+          <SearchTrigger signedIn={!!sessionUser} network={net.network} initialScope={searchScope ?? scopeForPath(pathname)} />
           {/* Share the current page. Only shown in the installed standalone app,
               where there is no address bar to copy or share the URL from. */}
           <span class="header-share"><ShareButton iconOnly ariaLabel="Share this page" /></span>

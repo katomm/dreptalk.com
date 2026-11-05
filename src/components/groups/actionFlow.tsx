@@ -3,15 +3,17 @@
 // transaction in the browser, opening its signing link, and completing it in one wallet step when
 // the initiator is the only signer. The outcome is either a submitted transaction or a link.
 import { encodePayload, type NativeScript } from 'drep-groups';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { CopyButton } from '@/components/CopyButton.js';
 import WalletConnection from '@/components/WalletConnection.js';
 import type { CardanoNetwork } from '@/lib/config/network.js';
 import { txExplorerUrl } from '@/lib/config/network.js';
 import { expectedPayload, type GroupIntent, type GroupState, signerSetSatisfies, uniq } from '@/lib/groups/actions.js';
 import { ACTION_TTL_SECONDS } from '@/lib/groups/constants.js';
+import { FUNDS_HELD } from '@/lib/groups/view.js';
+import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { readableError } from '@/lib/wallet/walletError.js';
-import { Callout, type EnabledWalletApi, errorOf, h2, muted, post, stack, useWalletConnect } from './groupUi.js';
+import { buttons, Callout, card, choice, type EnabledWalletApi, errorOf, fieldHeading, h2, muted, post, rows, stack, useWalletConnect } from './groupUi.js';
 
 export type Outcome = { link: string } | { submitted: string } | { slotTaken: string | null };
 
@@ -48,6 +50,20 @@ export interface ActionRun {
 }
 
 /**
+ * The wallet outputs the session's open actions already spend. Without an answer nothing is left
+ * out, the server still refuses a transaction on a held output.
+ */
+async function heldInputs(): Promise<Array<{ txHash: string; index: number }>> {
+  try {
+    const res = await fetchWithTimeout('/api/groups/actions/held');
+    if (!res.ok) return [];
+    return ((await res.json()) as { heldInputs?: Array<{ txHash: string; index: number }> }).heldInputs ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Builds the transaction, opens its signing link and, when the viewer's key is the only required
  * signer, signs, assembles and submits it. An action that exists when a later step fails still
  * gives its link, it can be finished on its signing page.
@@ -69,6 +85,7 @@ async function runGroupAction(
     }
     const payload = encodePayload(expectedPayload(r.intent, r.state, new Map()));
     const { unsignedTxHex } = await buildGroupTx({
+      excludeInputs: await heldInputs(),
       walletApi: api,
       network,
       origin,
@@ -80,7 +97,8 @@ async function runGroupAction(
     });
     const res = await post('/api/groups/actions', { intent: r.intent, unsignedTxCbor: unsignedTxHex, selected: r.signers });
     if (res.status === 409) {
-      const body = (await res.json().catch(() => ({}))) as { id?: string | null };
+      const body = (await res.json().catch(() => ({}))) as { error?: string; id?: string | null };
+      if (body.error === 'fee inputs held') throw new Error(FUNDS_HELD);
       return { outcome: { slotTaken: body.id ?? null }, error: null };
     }
     if (!res.ok) throw new Error(await errorOf(res, 'Could not open the action.'));
@@ -139,6 +157,7 @@ export type ActionRunner = ReturnType<typeof useActionRunner>;
  */
 export function DraftPanel({
   label,
+  lines,
   keys,
   signers,
   onSigners,
@@ -151,6 +170,8 @@ export function DraftPanel({
   children,
 }: {
   label: string;
+  /** What the transaction does, one line per change. */
+  lines?: string[];
   keys: ActionKeys;
   signers: string[];
   onSigners: (s: string[]) => void;
@@ -164,18 +185,36 @@ export function DraftPanel({
 }) {
   const choosable = keys.optional.filter((k) => k !== viewerKey || keys.optional.length > 1);
   const { wallets, walletKey, setWalletKey, busy } = runner;
+  const heading = useRef<HTMLHeadingElement>(null);
+  // The step opens in place of the form it came from, brought into view with the focus on it.
+  useEffect(() => {
+    heading.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+    heading.current?.focus({ preventScroll: true });
+  }, []);
   return (
-    <section aria-label={label} style={stack}>
-      <h2 style={h2}>{label}</h2>
+    <section aria-label={label} style={card}>
+      <h2 ref={heading} tabIndex={-1} style={{ ...h2, margin: 0, outline: 'none', scrollMarginTop: '5rem' }}>
+        {label}
+      </h2>
+      {lines && lines.length > 0 && (
+        <div style={stack}>
+          <p style={fieldHeading}>What this transaction does</p>
+          <ul style={{ margin: 0, paddingLeft: '1.25rem', display: 'grid', gap: '0.25rem' }}>
+            {lines.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       {children}
       {keys.mandatory.length > 0 && <p style={muted}>Must sign: {keys.mandatory.map(nameOf).join(', ')}</p>}
       {choosable.length > 0 && (
-        <>
-          <p style={{ margin: 0, fontWeight: 600, fontSize: '0.875rem' }}>Who signs</p>
-          <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: '0.25rem' }}>
+        <div style={stack}>
+          <p style={fieldHeading}>Who signs</p>
+          <ul style={rows}>
             {keys.optional.map((k) => (
               <li key={k}>
-                <label style={{ display: 'inline-flex', gap: '0.375rem', alignItems: 'center' }}>
+                <label style={choice}>
                   <input
                     type="checkbox"
                     aria-label={`Signer ${nameOf(k)}`}
@@ -187,15 +226,16 @@ export function DraftPanel({
               </li>
             ))}
           </ul>
-        </>
+        </div>
       )}
       {!satisfied && <p style={muted}>These signers do not satisfy the policies of this action yet.</p>}
+      {runner.error && <Callout kind="error">{runner.error}</Callout>}
       {wallets.length === 0 ? (
         <p style={muted}>No Cardano wallet extension detected.</p>
       ) : (
         <WalletConnection wallets={wallets} selected={walletKey} onSelect={setWalletKey} disabled={busy} label="Wallet that pays the fee" />
       )}
-      <div style={{ display: 'flex', gap: '0.5rem' }}>
+      <div style={buttons}>
         <button type="button" className="btn btn-primary" disabled={busy || !satisfied || wallets.length === 0} onClick={onBuild}>
           Build and sign
         </button>

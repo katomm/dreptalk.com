@@ -7,8 +7,9 @@ import { carryThreshold, type GroupIntent, sameSet, uniq } from '@/lib/groups/ac
 import type { GroupProfileInput } from '@/lib/groups/profileDocs.js';
 import { readableError } from '@/lib/wallet/walletError.js';
 import { SLOT_HELD } from './actionFlow.js';
-import { DrepAdder, ProfileFields, profileDraftOf, profileError, storeProfile, ThresholdField, thresholdError } from './groupForms.js';
-import { Callout, h2, muted, stack } from './groupUi.js';
+import SegmentedControl from '@/components/SegmentedControl.js';
+import { DrepAdder, type ProfileDraft, ProfileFields, profileDraftOf, profileError, storeProfile, ThresholdField, thresholdError } from './groupForms.js';
+import { Callout, choice, h3, muted, part, rows, stack } from './groupUi.js';
 
 /** The policy proposal a form edits: the keys offered, those ticked and the threshold. */
 export interface Proposal {
@@ -54,10 +55,10 @@ export function PolicyFields({
   const newlyListed = proposal.ticked.filter((x) => !listed.has(x));
   return (
     <div style={stack}>
-      <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: '0.25rem' }}>
+      <ul style={rows}>
         {proposal.keys.map((key) => (
           <li key={key}>
-            <label style={{ display: 'inline-flex', gap: '0.375rem', alignItems: 'center' }}>
+            <label style={choice}>
               <input type="checkbox" checked={proposal.ticked.includes(key)} onChange={() => toggle(key)} aria-label={nameOf(key)} />
               {nameOf(key)}
             </label>
@@ -86,8 +87,11 @@ export interface PolicyEditorProps {
   initial: Proposal | null;
   slotHeld: boolean;
   canDissolve: boolean;
-  /** `names` holds the names of admins added by DRep id, by key hash. */
-  onContinue: (intent: GroupIntent, label: string, names: Map<string, string>) => void;
+  /**
+   * `names` holds the names of admins added by DRep id, by key hash. A profile change gives the
+   * profile before and after, for the description of the draft.
+   */
+  onContinue: (intent: GroupIntent, label: string, names: Map<string, string>, profile?: { before: ProfileDraft; after: ProfileDraft }) => void;
   onClose: () => void;
 }
 
@@ -125,7 +129,10 @@ export default function PolicyEditor(props: PolicyEditorProps) {
     setBusy(true);
     try {
       const anchor = await storeProfile(profile);
-      onContinue({ kind: 'group_update', group: groupId, approvals: [], profile: anchor }, 'Change the profile', added);
+      onContinue({ kind: 'group_update', group: groupId, approvals: [], profile: anchor }, 'Change the profile', added, {
+        before: profileDraftOf(props.profile),
+        after: profile,
+      });
     } catch (err) {
       setError(readableError(err));
     } finally {
@@ -140,35 +147,30 @@ export default function PolicyEditor(props: PolicyEditorProps) {
   ];
 
   return (
-    <section aria-label="Manage the group" style={stack}>
-      <h2 style={h2}>Manage the group</h2>
+    <section aria-label="Manage the group" style={part}>
+      <h3 style={h3}>Manage the group</h3>
       {slotHeld ? (
         <p style={muted}>{SLOT_HELD}</p>
       ) : (
         <>
-          <fieldset aria-label="What to change" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', border: 0, padding: 0, margin: 0 }}>
-            {tabs.map(([t, label]) => (
-              <button
-                key={t}
-                type="button"
-                className={t === task ? 'btn btn-primary' : 'btn'}
-                aria-pressed={t === task}
-                onClick={() => {
-                  setError(null);
-                  setTask(t);
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          </fieldset>
+          <SegmentedControl
+            ariaLabel="What to change"
+            value={task}
+            onChange={(t) => {
+              setError(null);
+              setTask(t);
+            }}
+            wrap
+            minButtonInlineSize="11rem"
+            options={tabs.map(([value, label]) => ({ value, label }))}
+          />
 
           {task === 'profile' && (
             <div style={stack}>
               <ProfileFields value={profile} onChange={setProfile} disabled={busy} />
               <div>
                 <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void continueProfile()}>
-                  Continue
+                  Review and sign
                 </button>
               </div>
             </div>
@@ -176,7 +178,8 @@ export default function PolicyEditor(props: PolicyEditorProps) {
 
           {task === 'policy' && (
             <div style={stack}>
-              <h3 style={{ fontSize: '1rem', margin: 0 }}>Update the management policy</h3>
+              <h4 style={h3}>Update the management policy</h4>
+              <p style={muted}>Tick the admins of the new policy and how many of them must sign.</p>
               <PolicyFields proposal={proposal} onChange={setProposal} current={current} listed={listed} nameOf={nameOf} />
               <DrepAdder
                 label="Add an admin by DRep id"
@@ -196,7 +199,7 @@ export default function PolicyEditor(props: PolicyEditorProps) {
                   disabled={policyProblem !== null}
                   onClick={() => onContinue(updateIntent(groupId, proposal, []), 'Update the management policy', added)}
                 >
-                  Continue
+                  Review and sign
                 </button>
               </div>
             </div>
@@ -205,7 +208,7 @@ export default function PolicyEditor(props: PolicyEditorProps) {
           {task === 'dissolve' && (
             <div style={stack}>
               <p style={{ margin: 0 }}>{DISSOLVE_WARNING}</p>
-              <label style={{ display: 'inline-flex', gap: '0.375rem', alignItems: 'center', fontSize: '0.875rem' }}>
+              <label style={choice}>
                 <input type="checkbox" checked={confirmDissolve} onChange={() => setConfirmDissolve((x) => !x)} />
                 Yes, dissolve this group
               </label>
@@ -216,7 +219,7 @@ export default function PolicyEditor(props: PolicyEditorProps) {
                   disabled={!confirmDissolve}
                   onClick={() => onContinue({ kind: 'group_dissolve', group: groupId }, 'Dissolve the group', added)}
                 >
-                  Continue
+                  Review and sign
                 </button>
               </div>
             </div>

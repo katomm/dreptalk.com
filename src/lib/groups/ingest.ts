@@ -37,6 +37,7 @@ import {
   MAX_SCRIPT_SEARCH_ROWS_PER_RUN,
   MAX_SOLO_HISTORIES_PER_RUN,
   REG_OVERLAP_SECONDS,
+  TX_TIME_BACKFILL_PER_RUN,
 } from './constants.js';
 import { credentialForDrepId, drepIdForCredential } from './ids.js';
 import {
@@ -92,7 +93,8 @@ export interface IngestResult {
 }
 
 type Block = { height: number; hash: string };
-type LabelInput = { tx: ChainTx; blockHash: string };
+/** A label tx with its block, the block time in unix seconds when Koios gave it. */
+type LabelInput = { tx: ChainTx; blockHash: string; blockTime?: number | null };
 
 interface Ctx {
   db: D1Database;
@@ -318,6 +320,7 @@ async function fetchLabelTxs(koios: GroupsKoios, rows: MetalabelTxRow[]): Promis
     return {
       tx: chainTx((c.get(h) as (typeof cbors)[number]).cbor, { txHash: h, blockHeight: pos.block_height, txIndex: pos.tx_block_index }),
       blockHash: pos.block_hash,
+      blockTime: pos.tx_timestamp ?? null,
     };
   });
 }
@@ -553,6 +556,26 @@ async function refetchMarkers(ctx: Ctx): Promise<void> {
 }
 
 /**
+ * Block times of txs stored before the block_time column, up to TX_TIME_BACKFILL_PER_RUN per run
+ * from one tx_info call. A Koios failure leaves the rows for a later run.
+ */
+async function backfillTxTimes(ctx: Ctx): Promise<void> {
+  const { db, koios, lease } = ctx;
+  if (!ctx.fits('times', 1 + 2 + per('setTxTimes', TX_TIME_BACKFILL_PER_RUN))) return;
+  const rows = await all(db, Q.txsWithoutTime.sql, TX_TIME_BACKFILL_PER_RUN);
+  if (rows.length === 0) return;
+  let timed: Array<[Uint8Array, number]>;
+  try {
+    const positions = await koios.txPositionBatch(rows.map((r) => hashFromCol(r.tx_hash)));
+    timed = positions.flatMap((p) => (typeof p.tx_timestamp === 'number' ? [[hashBytes(p.tx_hash), p.tx_timestamp] as [Uint8Array, number]] : []));
+  } catch (err) {
+    console.warn('[drep-groups] block times of stored txs could not be read, retried later', err);
+    return;
+  }
+  if (timed.length > 0) await writeBatch(db, lease, keyedStatements(db, INGEST.setTxTimes, INGEST_WIDTH.setTxTimes, timed, (t) => t));
+}
+
+/**
  * One ingest run. Nothing runs while a recovery is open, and while a rollback probe search runs
  * only the probes do. Each step is skipped when the allowance does not cover it.
  */
@@ -617,6 +640,7 @@ export async function ingestDrepGroups(deps: {
   await readRegistrations(ctx);
   await searchWitnesses(ctx);
   await refetchMarkers(ctx);
+  await backfillTxTimes(ctx);
   // Stays null while a slot is open when this last check does not fit, callers read pendingRecovery.
   if (fits('ingest', 1)) result.recovery = await pendingRecovery(db);
   return result;

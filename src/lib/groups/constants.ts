@@ -17,6 +17,8 @@ export const WITNESS_BACKOFF_BASE_MS = 900_000;
 export const WITNESS_BACKOFF_MAX_MS = 86_400_000;
 export const MARKER_REFETCH_PER_RUN = 100;
 export const MARKER_REFETCH_ATTEMPTS = 5;
+/** Stored txs per run that get the block time they were stored without, one Koios call. */
+export const TX_TIME_BACKFILL_PER_RUN = 50;
 export const MAX_SCRIPT_DISPLAY_DEPTH = 32;
 export const ENGINE_BUDGET: Budget = {
   controlTxs: 2,
@@ -73,6 +75,8 @@ export const PROFILE_MIN_MEMBERS = 1;
 export const ACTION_TTL_SECONDS = 172_800;
 export const RESOLVE_ROWS_PER_TICK = 50;
 export const RESOLVE_KOIOS_PER_TICK = 10;
+/** Open group rows whose fee inputs a new action is checked against, far above what is open at once. */
+export const OPEN_INPUT_ROWS = 500;
 export const JOIN_NOTIFY_PER_TICK = 50;
 export const PROFILE_DOC_MAX_BYTES = 16_384;
 export const PROFILE_DOC_GRACE_MS = 7 * 86_400_000;
@@ -89,3 +93,5 @@ export const PENDING_INDICATOR_CAP = 100;
 export const WEBSITE_RECHECK_MS = 86_400_000;
 export const PROFILE_RETRY_MS = 6 * 3_600_000;
 export const WELL_KNOWN_MAX_BYTES = 64 * 1024;
+/** Where the DRep groups standard is published. Points to the library until the CIP pull request exists. */
+export const DREP_GROUPS_STANDARD_URL = 'https://github.com/katomm/cardano-drep-groups';

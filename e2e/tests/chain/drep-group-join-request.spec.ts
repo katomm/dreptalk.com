@@ -25,7 +25,7 @@ test('a DRep asks to join a permissioned group and the admins are told', async (
   await page.goto(groupPage);
   await waitForHydration(page);
   await expect(page.getByRole('heading', { name: 'Requests (1)' })).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Your membership' }).getByText('Your request to join is pending.')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Your membership' }).getByRole('heading', { name: 'Your request to join is pending' })).toBeVisible();
 
   // The join notifications are written by the tick after the request, so the admins may need one more.
   const admin = await signedInAccount(browser, testInfo, 0);

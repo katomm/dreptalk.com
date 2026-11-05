@@ -82,7 +82,7 @@ describe('PolicyEditor profile', () => {
     const name = screen.getByRole('textbox', { name: 'Name' }) as HTMLInputElement;
     expect(name.value).toBe('Council');
     fireEvent.change(name, { target: { value: 'New council' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Review and sign' }));
     await waitFor(() => expect(onContinue).toHaveBeenCalled());
     expect(calls[0].body).toEqual({
       name: 'New council',
@@ -100,17 +100,17 @@ describe('PolicyEditor profile', () => {
 
   it('asks for a name before storing anything', async () => {
     editor({ profile: null });
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Review and sign' }));
     expect(await screen.findByText('Give the group a name.')).toBeTruthy();
     expect(calls).toHaveLength(0);
   });
 
   it('asks for a description and an image before storing anything', async () => {
     editor({ profile: { name: 'Council', website: 'https://c.test' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Review and sign' }));
     expect(await screen.findByText('Add a description.')).toBeTruthy();
     fireEvent.change(screen.getByRole('textbox', { name: 'Description' }), { target: { value: 'DReps who vote together.' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Review and sign' }));
     expect(await screen.findByText('Add an image.')).toBeTruthy();
     expect(calls).toHaveLength(0);
   });
@@ -123,7 +123,7 @@ describe('PolicyEditor management policy', () => {
     expect(screen.getByText('This is the current policy.')).toBeTruthy();
     fireEvent.change(screen.getByRole('spinbutton', { name: 'Threshold' }), { target: { value: '2' } });
     expect(screen.getByText(/2 of 2 must sign \(100%\)/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Review and sign' }));
     expect(onContinue.mock.calls[0][0]).toEqual({ kind: 'group_update', group: GID, approvals: [], control: { keys: [A, B], n: 2 }, admission: 'same' });
   });
 
@@ -133,10 +133,10 @@ describe('PolicyEditor management policy', () => {
     const n = screen.getByRole('spinbutton', { name: 'Threshold' });
     fireEvent.change(n, { target: { value: '0' } });
     expect(screen.getByText('The threshold must be at least 1.')).toBeTruthy();
-    expect((screen.getByRole('button', { name: 'Continue' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Review and sign' }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(n, { target: { value: '3' } });
     expect(screen.getByText('The threshold cannot be higher than the number of keys (2).')).toBeTruthy();
-    expect((screen.getByRole('button', { name: 'Continue' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Review and sign' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('refuses script DReps and unregistered keys as admins and names a newly listed admin as a signer', async () => {
@@ -166,14 +166,14 @@ describe('PolicyEditor management policy', () => {
     expect(screen.getByText('Each newly listed admin has to sign the update: Erin.')).toBeTruthy();
     // 1 of 2 carried to three keys.
     expect(screen.getByText(/2 of 3 must sign/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Review and sign' }));
     expect(onContinue.mock.calls[0][0]).toMatchObject({ control: { keys: [A, B, E], n: 2 } });
   });
 
   it('waits while another management action holds the slot', () => {
     editor({ slotHeld: true });
     expect(screen.getByText(/Another management action is open/)).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Review and sign' })).toBeNull();
   });
 });
 
@@ -182,7 +182,7 @@ describe('PolicyEditor dissolve', () => {
     editor();
     fireEvent.click(screen.getByRole('button', { name: 'Dissolve the group' }));
     expect(screen.getByText("This cannot be undone. Members' delegations do not change.")).toBeTruthy();
-    const go = screen.getByRole('button', { name: 'Continue' }) as HTMLButtonElement;
+    const go = screen.getByRole('button', { name: 'Review and sign' }) as HTMLButtonElement;
     expect(go.disabled).toBe(true);
     fireEvent.click(screen.getByRole('checkbox', { name: /Yes, dissolve this group/ }));
     expect(go.disabled).toBe(false);
@@ -230,7 +230,7 @@ describe('PolicyEditor on the group page', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Add an admin by DRep id' }), { target: { value: drep(E) } });
     fireEvent.click(screen.getByRole('button', { name: 'Add' }));
     await screen.findByRole('checkbox', { name: 'Erin' });
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Review and sign' }));
     expect(await screen.findByText('Must sign: Erin')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Build and sign' })).toBeTruthy();
   });
@@ -247,7 +247,7 @@ describe('PolicyEditor on the group page', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Add an admin by DRep id' }), { target: { value: drep(Z) } });
     fireEvent.click(screen.getByRole('button', { name: 'Add' }));
     await screen.findByRole('checkbox', { name: 'Zoltan' });
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Review and sign' }));
     expect(await screen.findByText('Must sign: Zoltan')).toBeTruthy();
   });
 

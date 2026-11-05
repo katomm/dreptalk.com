@@ -66,7 +66,9 @@ export function fakeKoios(chain: Chain): FakeKoios {
   const hashOf = (h: number): string | null => (chain.hashAt ? chain.hashAt(h) : blockHash(h));
   const position = (hash: string) => {
     const t = chain.txs.find((x) => x.hash === hash) ?? chain.regs.find((x) => x.hash === hash);
-    return t ? { tx_hash: hash, block_hash: hashOf(t.height) ?? blockHash(t.height), block_height: t.height, tx_block_index: t.index } : null;
+    return t
+      ? { tx_hash: hash, block_hash: hashOf(t.height) ?? blockHash(t.height), block_height: t.height, tx_block_index: t.index, tx_timestamp: blockTime(t.height) }
+      : null;
   };
   const regRow = (r: FakeReg) => ({
     drep_id: r.drepId,

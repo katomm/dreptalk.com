@@ -2,7 +2,7 @@
 // DRep groups for the pages: bounded readers of groups, members and history, and the profile and
 // website due queue with the writes that move its rows. A group id is the bech32 id of the page,
 // decoded to the key of the stored group.
-import type { EventRef, NativeScript } from 'drep-groups';
+import type { Credential, EventRef, NativeScript } from 'drep-groups';
 import { comparePos, effectiveClose, parseNativeScript, refKey } from 'drep-groups';
 import {
   GROUP_PAGE_SIZE,
@@ -14,8 +14,11 @@ import {
 } from '../groups/constants.js';
 import {
   bytesFromCol,
+  credFromKey,
+  credKeyFromCol,
   hashBytes,
   hashFromCol,
+  hashListFromCol,
   instanceFromRow,
   type Key,
   optHashFromCol,
@@ -33,6 +36,7 @@ import { certPos, countedAs } from '../groups/store/commit.js';
 import { guardedBatch, writeBatch } from '../groups/store/lease.js';
 import { KEYED, KEYED_WIDTH, Q } from '../groups/store/queries.js';
 import { load } from '../groups/store/reads.js';
+import { keyedStatements } from '../groups/store/recovery.js';
 import { policyKeyHashes, scriptFromJson } from '../groups/view.js';
 import type { GroupActionKind } from './pendingMultisigTx.js';
 import { chunked, D1_MAX_BINDS } from './sql.js';
@@ -209,6 +213,10 @@ export interface MemberRow {
   drepName: string | null;
   drepSlug: string | null;
   votingPower: string | null;
+  /** Credential hex of the DRep as the dreps table stores it, null for a DRep not synced yet. */
+  drepHex: string | null;
+  /** Content hash of the DRep's stored avatar. */
+  drepImage: string | null;
   state: 'pending' | 'active' | 'closed';
   reason: string | null;
   joinedHeight: number;
@@ -227,6 +235,8 @@ interface VerdictRow {
   valid: boolean;
   reason: string | null;
   blockHeight: number;
+  /** Unix seconds of the block, null while the tx has no stored time. */
+  blockTime: number | null;
 }
 
 export type StatusNote = 'correcting' | 'rebuilding' | null;
@@ -329,15 +339,18 @@ function listedOrder(a: Row, b: Row): number {
   );
 }
 
-/** A group with its stored profile, null for an invalid id or an unknown group, undefined while the groups tables are missing. */
-export async function getGroup(db: D1Database, groupId: string): Promise<(GroupRow & { profile: ProfileRow | null }) | null | undefined> {
+/** A group with its stored profile and founding time, null for an invalid id or an unknown group, undefined while the groups tables are missing. */
+export async function getGroup(
+  db: D1Database,
+  groupId: string,
+): Promise<(GroupRow & { profile: ProfileRow | null; createdTime: number | null }) | null | undefined> {
   const ref = groupIdParam(groupId);
   if (!ref) return null;
   return pageRead('group', undefined, async () => {
     const r = await db.prepare(Q.groupRow.sql).bind(...refBinds(ref)).first<Row>();
     if (!r) return null;
     const g = groupFromRow(r);
-    return { ...g, profile: profileFromRow(g.groupId, r) };
+    return { ...g, profile: profileFromRow(g.groupId, r), createdTime: optNum(r.created_time) };
   });
 }
 
@@ -362,6 +375,8 @@ function membersFromRows(rows: Row[]): MemberRow[] {
         drepName: optStr(r.drep_name),
         drepSlug: optStr(r.drep_slug),
         votingPower: optStr(r.drep_power),
+        drepHex: optStr(r.drep_hex),
+        drepImage: optStr(r.drep_image),
         state: counted === 'open' ? 'active' : counted === 'pending' ? 'pending' : 'closed',
         reason: eff?.reason ?? null,
         joinedHeight: j.blockHeight,
@@ -408,7 +423,69 @@ export async function listVerdicts(db: D1Database, group: EventRef, valid: boole
     valid: Number(r.valid) === 1,
     reason: optStr(r.reason),
     blockHeight: Number(r.at_h),
+    blockTime: r.block_time === null || r.block_time === undefined ? null : Number(r.block_time),
   }));
+}
+
+/** An applied event of a group's history. The subject is the member of a join, approval, leave or removal. */
+export interface HistoryEvent {
+  txHash: string;
+  eventIndex: number;
+  tag: string;
+  subject: Credential | null;
+  blockHeight: number;
+  /** Unix seconds of the block, null while the tx has no stored time. */
+  blockTime: number | null;
+}
+
+/** A version of a group: the transaction that made it, its policies and its profile anchor hash. */
+export interface HistoryVersion {
+  txHash: string;
+  control: string;
+  admission: string | null;
+  profileHash: string | null;
+}
+
+/**
+ * The newest applied events of a group, newest first, the versions they made with the one before
+ * the oldest of them, oldest first, and the key hashes that signed each transaction.
+ */
+export async function groupHistory(
+  db: D1Database,
+  group: EventRef,
+  limit: number,
+): Promise<{ events: HistoryEvent[]; versions: HistoryVersion[]; signers: Map<string, string[]> }> {
+  const keep = Math.max(0, Math.min(limit, RETENTION_KEEP_APPLIED));
+  const [ev, ver] = await db.batch<Row>([
+    db.prepare(Q.historyVerdicts.sql).bind(...refBinds(group), keep),
+    // Every version comes from an applied event, one more reaches the version before the oldest event.
+    db.prepare(Q.historyVersions.sql).bind(...refBinds(group), keep + 1),
+  ]);
+  const events = (ev.results ?? []).map((r) => ({
+    txHash: hashFromCol(r.tx_hash),
+    eventIndex: Number(r.idx),
+    tag: String(r.tag),
+    subject: r.subject === null ? null : credFromKey(credKeyFromCol(r.subject)),
+    blockHeight: Number(r.at_h),
+    blockTime: r.block_time === null || r.block_time === undefined ? null : Number(r.block_time),
+  }));
+  const versions = (ver.results ?? [])
+    .map((r) => ({
+      txHash: hashFromCol(r.at_tx),
+      control: hashFromCol(r.control),
+      admission: optHashFromCol(r.admission),
+      profileHash: optHashFromCol(r.profile_hash),
+    }))
+    .reverse();
+  const txs = [...new Set(events.map((e) => e.txHash))];
+  const signers = new Map<string, string[]>();
+  const stmts = keyedStatements(db, KEYED.txContexts, KEYED_WIDTH.txContexts, txs, (t) => [hashBytes(t)]);
+  if (stmts.length > 0) {
+    for (const res of await db.batch<Row>(stmts)) {
+      for (const r of res.results ?? []) signers.set(hashFromCol(r.tx_hash), hashListFromCol(r.signers));
+    }
+  }
+  return { events, versions, signers };
 }
 
 /** Whether the group is closing and how many of its membership events wait for their member, capped. */
@@ -435,7 +512,7 @@ export async function listGroupIdsForSitemap(db: D1Database, limit: number): Pro
 }
 
 /** Runs a keyed read over the values in chunks within the bind limit. */
-async function keyedRead(db: D1Database, name: 'scriptDisplays' | 'treasuryScripts' | 'drepNames', values: unknown[]): Promise<Row[]> {
+async function keyedRead(db: D1Database, name: 'scriptDisplays' | 'treasuryScripts' | 'drepNames' | 'profileDocs', values: unknown[]): Promise<Row[]> {
   const chunks = chunked(values, Math.floor(D1_MAX_BINDS / KEYED_WIDTH[name]));
   if (chunks.length === 0) return [];
   const res = await db.batch<Row>(chunks.map((c) => db.prepare(KEYED[name](c.length)).bind(...c)));
@@ -467,9 +544,20 @@ export async function treasuryScripts(db: D1Database, hashes: string[]): Promise
 
 /** Names of the DReps whose key credential is one of the key hashes, by key hash. */
 export async function drepNamesForKeyHashes(db: D1Database, keyHashes: string[]): Promise<Map<string, string>> {
-  const byDrep = new Map([...new Set(keyHashes)].map((h) => [drepIdForCredential({ kind: 'key', hash: h }), h]));
+  return drepNamesForCredentials(db, keyHashes.map((hash) => ({ kind: 'key', hash })));
+}
+
+/** Names of the DReps of the credentials, by credential hash. */
+export async function drepNamesForCredentials(db: D1Database, creds: Credential[]): Promise<Map<string, string>> {
+  const byDrep = new Map(creds.map((c) => [drepIdForCredential(c), c.hash.toLowerCase()]));
   const rows = await keyedRead(db, 'drepNames', [...byDrep.keys()]);
   return new Map(rows.map((r) => [byDrep.get(String(r.drep_id)) as string, String(r.name)]));
+}
+
+/** The JSON of the profile documents DRepTalk hosts, by anchor hash. Unknown hashes are left out. */
+export async function hostedProfileDocs(db: D1Database, hashes: string[]): Promise<Map<string, string>> {
+  const rows = await keyedRead(db, 'profileDocs', [...new Set(hashes.map((h) => h.toLowerCase()))]);
+  return new Map(rows.map((r) => [String(r.hash), String(r.body)]));
 }
 
 /** An unresolved group row of the signing table as the group page and the DRep profile show it. */
@@ -483,10 +571,14 @@ export interface GroupActionRow {
   controlSlot: boolean;
   createdBy: string;
   requiredSigners: string[];
+  /** The intent the row was opened with, as stored. */
+  params: string;
+  /** The resolver saw a fee input spent by another transaction while the row was not submitted. */
+  feeInputSpent: boolean;
 }
 
 const ROW_COLS = `id, action, status, subject_kind, drep_id, control_slot, created_by, required_signers, created_at,
-  json_extract(action_params, '$.group') AS grp`;
+  action_params, json_extract(action_params, '$.group') AS grp, spent_seen_h`;
 
 // Binds the group id and the limit. Unresolved rows whose subject is the group, a create included.
 const GROUP_ROWS_SQL = `SELECT ${ROW_COLS} FROM pending_multisig_tx
@@ -524,6 +616,8 @@ function actionRowFrom(r: Row): GroupActionRow {
     controlSlot: Number(r.control_slot) === 1,
     createdBy: String(r.created_by),
     requiredSigners: r.required_signers === null ? [] : (JSON.parse(String(r.required_signers)) as string[]),
+    params: String(r.action_params ?? '{}'),
+    feeInputSpent: r.spent_seen_h !== null && r.spent_seen_h !== undefined,
   };
 }
 

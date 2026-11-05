@@ -18,9 +18,9 @@ test('a member leaves a group alone', async ({ page }) => {
     await waitForHydration(page);
     await expect(page.getByRole('heading', { name: 'Members (4)' })).toBeVisible();
     // The admission updated the management policy to the four members.
-    await expect(page.locator('dt', { hasText: 'Control' }).locator('xpath=following-sibling::dd[1]')).toHaveText(/^3 of 4: /);
+    await expect(page.locator('dt', { hasText: 'Management' }).locator('xpath=following-sibling::dd[1]')).toHaveText(/^3 of 4: /);
     const membership = page.getByRole('region', { name: 'Your membership' });
-    await expect(membership.getByText('You are a member of this group.')).toBeVisible();
+    await expect(membership.getByRole('heading', { name: 'You are a member of this group' })).toBeVisible();
     await membership.getByRole('button', { name: 'Leave' }).click();
     return (await buildAlone(page, 'Leave the group')).actionId;
   });

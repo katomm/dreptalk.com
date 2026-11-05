@@ -12,7 +12,6 @@ import {
   JOINT_GROUP,
   nextActionId,
   resumeOr,
-  shortKey,
   signedInAccount,
   signOnSigningPage,
   submitOnSigningPage,
@@ -52,16 +51,19 @@ test('admins approve a request together with the proposed policy update', async 
     await waitForHydration(page);
     const signatures = page.getByRole('region', { name: 'Signatures' });
     await expect(signatures).toBeVisible();
-    const lines = await signatures.locator('li').allTextContents();
-    console.log(`[e2e] signers: ${lines.join(' | ')}`);
-    const waiting = (key: string) => lines.some((l) => l.includes(`${shortKey(key)} (waiting)`));
+    console.log(`[e2e] signers: ${(await signatures.locator('li').allTextContents()).join(' | ')}`);
+    // Each signer row carries its key hash, the text names the DRep.
+    const waitingKeys = await signatures.locator('li[data-key]').evaluateAll((els) =>
+      els.filter((e) => e.textContent?.includes('Waiting')).map((e) => e.getAttribute('data-key')),
+    );
+    const waiting = (key: string) => waitingKeys.includes(key);
     const signers = [...others.filter((o) => waiting(o.wallet.drepKeyHashHex)), ...(waiting(wallet.drepKeyHashHex) ? [{ page, wallet }] : [])];
     expect(signers.map((s) => s.wallet.drepKeyHashHex), 'the new admin consents').toContain(others[2].wallet.drepKeyHashHex);
     for (const s of signers) {
       if (s.page !== page) {
         await s.page.goto('/notifications/');
         await waitForHydration(s.page);
-        await expect(s.page.getByRole('link', { name: /^Someone asked you to sign:/ }).first()).toHaveAttribute('href', `/groups/sign/${id}/`);
+        await expect(s.page.getByRole('link', { name: / asked you to sign/ }).first()).toHaveAttribute('href', `/groups/sign/${id}/`);
       }
       await signOnSigningPage(s.page, id, s.wallet.drepKeyHashHex);
     }
@@ -80,5 +82,5 @@ test('admins approve a request together with the proposed policy update', async 
   const newcomer = others[2].page;
   await newcomer.goto(groupPage);
   await waitForHydration(newcomer);
-  await expect(newcomer.getByRole('region', { name: 'Your membership' }).getByText('You are a member of this group.')).toBeVisible();
+  await expect(newcomer.getByRole('region', { name: 'Your membership' }).getByRole('heading', { name: 'You are a member of this group' })).toBeVisible();
 });

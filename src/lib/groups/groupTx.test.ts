@@ -21,7 +21,16 @@ import type { PendingWitness } from '../db/pendingMultisigTx.js';
 import type { DrepTxBuilder, WalletApi } from '../governance/drepTx.js';
 import { assembleTx, decodeGroupTx, unsignedShapeError } from './actionTx.js';
 import { ACTION_TTL_SECONDS, WITNESS_FEE_BYTES } from './constants.js';
-import { buildGroupTxFrom, buildSendToSelfFrom, feeHeadroomKeys, keyPaymentUtxos, queueGroupOps, withWitnessHeadroom } from './groupTx.js';
+import {
+  buildGroupTxFrom,
+  buildSendToSelfFrom,
+  feeHeadroomKeys,
+  keyPaymentUtxos,
+  queueGroupOps,
+  withoutInputs,
+  withWitnessHeadroom,
+} from './groupTx.js';
+import { FUNDS_HELD } from './view.js';
 
 const PARAMS = {
   minFeeA: 44,
@@ -101,7 +110,7 @@ const PAYLOAD = encodePayload({
 });
 const TIP = 90_000_000;
 
-const build = (over: { optionalKeys?: string[]; invalidBeforeSlot?: number; utxos?: UTxO.UTxO[] } = {}) =>
+const build = (over: { optionalKeys?: string[]; invalidBeforeSlot?: number; utxos?: UTxO.UTxO[]; excludeInputs?: Array<{ txHash: string; index: number }> } = {}) =>
   buildGroupTxFrom(offlineTx(), {
     utxos: over.utxos ?? [KEY_UTXO],
     params: PARAMS,
@@ -112,6 +121,7 @@ const build = (over: { optionalKeys?: string[]; invalidBeforeSlot?: number; utxo
     tipSlot: TIP,
     invalidBeforeSlot: over.invalidBeforeSlot,
     slotConfig: preprod.slotConfig,
+    excludeInputs: over.excludeInputs,
   });
 
 const feeOf = (hex: string): bigint => Transaction.fromCBORHex(hex).body.fee;
@@ -143,6 +153,14 @@ describe('withWitnessHeadroom', () => {
 describe('keyPaymentUtxos', () => {
   it('keeps only UTxOs at a key payment address', () => {
     expect(keyPaymentUtxos([SCRIPT_UTXO, KEY_UTXO])).toEqual([KEY_UTXO]);
+  });
+});
+
+describe('withoutInputs', () => {
+  it('drops the named outputs by hash and index, any case', () => {
+    const second = new UTxO.UTxO({ transactionId: TransactionHash.fromHex('f1'.repeat(32)), index: 1n, address: keyAddress, assets: Assets.fromLovelace(1n) });
+    expect(withoutInputs([KEY_UTXO, second], [{ txHash: 'F1'.repeat(32), index: 0 }])).toEqual([second]);
+    expect(withoutInputs([KEY_UTXO], [])).toEqual([KEY_UTXO]);
   });
 });
 
@@ -226,6 +244,16 @@ describe('buildGroupTxFrom', () => {
 
   it('refuses a wallet without funds at a key payment address', async () => {
     await expect(build({ utxos: [SCRIPT_UTXO] })).rejects.toThrow(/key payment address/);
+  });
+
+  it('leaves out the outputs an open action already spends', async () => {
+    const other = utxo(keyAddress, 'f3', 20_000_000n);
+    const decoded = decodeGroupTx((await build({ utxos: [KEY_UTXO, other], excludeInputs: [{ txHash: 'F1'.repeat(32), index: 0 }] })).unsignedTxHex);
+    expect(decoded.inputs).toEqual([{ txHash: 'f3'.repeat(32), index: 0 }]);
+  });
+
+  it('says the funds are held when every key payment output is spent by an open action', async () => {
+    await expect(build({ excludeInputs: [{ txHash: 'f1'.repeat(32), index: 0 }] })).rejects.toThrow(FUNDS_HELD);
   });
 
   it('pays a fee that covers every witness the server folds in, optional keys included', async () => {

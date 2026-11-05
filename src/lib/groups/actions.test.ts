@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest';
 import {
   bindContent,
   carryThreshold,
+  changesOfIntent,
   describeEvents,
   expectedPayload,
   type GroupIntent,
@@ -29,6 +30,7 @@ import {
   proposeUpdate,
   signerSetSatisfies,
 } from './actions.js';
+import { describeAction } from './describe.js';
 import { drepIdForCredential, groupIdString } from './ids.js';
 
 const K = (n: number): string => n.toString(16).padStart(56, '0');
@@ -302,9 +304,20 @@ describe('describeEvents', () => {
       [K(CAROL), 'Carol'],
       [K(DAVE), 'Dave'],
       [K(ERIN), 'Erin'],
-      [refKey({ txHash: T(50), index: 0 }), 'Carol'],
     ]);
-    expect(describeEvents(events, names, s, decoded.scripts)).toEqual(['Approve Carol', 'Change management to 4 of 5: Alice, Bob, Carol, Dave, Erin']);
+    const joinMembers = new Map([[refKey({ txHash: T(50), index: 0 }), { kind: 'key' as const, hash: K(CAROL) }]]);
+    expect(describeEvents(events, names, s, decoded.scripts, { joinMembers })).toEqual([
+      'Approve Carol as a member.',
+      'Management policy changes from 3 of 4 to 4 of 5. Added: Carol.',
+    ]);
+  });
+
+  it('names an approved member without a DRep name by the DRep id', () => {
+    const s = state({ admission: policy([ALICE, BOB], 1) });
+    const events: GroupEvent[] = [{ tag: 'approve', join: { txHash: T(50), index: 0 } }];
+    const joinMembers = new Map([[refKey({ txHash: T(50), index: 0 }), { kind: 'key' as const, hash: K(CAROL) }]]);
+    const [line] = describeEvents(events, new Map(), s, [], { joinMembers });
+    expect(line).toBe(`Approve ${keyId(CAROL).slice(0, 8)}...${keyId(CAROL).slice(-4)} as a member.`);
   });
 
   it('describes a joint create with its founders', () => {
@@ -316,13 +329,51 @@ describe('describeEvents', () => {
     ]);
     const scripts = (p.scripts ?? []).map((script) => ({ hash: (p.events[0] as Extract<GroupEvent, { tag: 'create' }>).control, script }));
     expect(describeEvents(p.events, names, null, scripts)).toEqual([
-      'Found a permissioned group managed by 2 of 3: Alice, Bob, Carol',
-      'Alice joins',
-      'Bob joins',
-      'Carol joins',
-      'Approve Alice',
-      'Approve Bob',
-      'Approve Carol',
+      'Found a permissioned group with Alice, Bob and Carol as founders, managed by 2 of 3: Alice, Bob and Carol.',
+    ]);
+  });
+});
+
+describe('changesOfIntent', () => {
+  const names = new Map([
+    [K(ALICE), 'Alice'],
+    [K(BOB), 'Bob'],
+    [K(CAROL), 'Carol'],
+    [K(DAVE), 'Dave'],
+    [K(ERIN), 'Erin'],
+  ]);
+  const joinMembers = new Map([[CAROL_JOIN, { kind: 'key' as const, hash: K(CAROL) }]]);
+
+  it('words a combined approval of a draft like the signing page', () => {
+    const s = state();
+    const intent: GroupIntent = {
+      kind: 'group_update',
+      group: GID,
+      approvals: [CAROL_JOIN],
+      control: { keys: [K(ALICE), K(BOB), K(CAROL), K(DAVE), K(ERIN)], n: 4 },
+      admission: 'same',
+    };
+    expect(describeAction(changesOfIntent(intent, s, { joinMembers }), names)).toEqual([
+      'Approve Carol as a member.',
+      'Management and admission policy changes from 3 of 4 to 4 of 5. Added: Carol.',
+    ]);
+  });
+
+  it('words removals, profile changes and a dissolution of a draft', () => {
+    const s = state();
+    expect(describeAction(changesOfIntent({ kind: 'group_remove', group: GID, joins: [CAROL_JOIN] }, s, { joinMembers }), names)).toEqual([
+      'Remove Carol from the group.',
+    ]);
+    const profile = { before: { name: 'Old' }, after: { name: 'New' } };
+    expect(describeAction(changesOfIntent({ kind: 'group_update', group: GID, approvals: [], profile: ANCHOR }, s, { profile }), names)).toEqual([
+      'Profile changes: name to "New".',
+    ]);
+    expect(describeAction(changesOfIntent({ kind: 'group_dissolve', group: GID }, s), names)).toEqual(['Dissolve the group. Every membership ends.']);
+  });
+
+  it('words a founding with its founders', () => {
+    expect(describeAction(changesOfIntent(jointCreate, null), names)).toEqual([
+      'Found a permissioned group with Alice, Bob and Carol as founders, managed by 2 of 3: Alice, Bob and Carol.',
     ]);
   });
 });

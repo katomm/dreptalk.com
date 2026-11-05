@@ -3,7 +3,7 @@
 // row with its intent, decoded transaction and the current group state, the staleness checks
 // before every witness and submit, display names and signature request notifications. The
 // transaction codec lives in actionTx.ts.
-import { type Credential, EncodeError, type EventRef, type GroupEvent, type NativeScript, refKey } from 'drep-groups';
+import { type Credential, collectKeyHashes, EncodeError, type EventRef, type GroupEvent, type NativeScript, refKey } from 'drep-groups';
 import { z } from 'zod';
 import { currentNetwork, jsonResponse, runtimeEnv } from '../api/response.js';
 import { sessionKeyHash } from '../auth/groupSigner.js';
@@ -18,6 +18,8 @@ import { ACTION_RATE } from './constants.js';
 import { drepGroupsAvailable } from './gate.js';
 import { describeEvents, type GroupIntent, type GroupState, IntentError, maySign, parseJoinRef, signerSetSatisfies } from './actions.js';
 import { hashBytes, scriptDisplayJson, scriptFromDisplayJson } from './codec.js';
+import { type GroupChanges, type ProfileFields, profileFieldsOfDoc } from './describe.js';
+import { getProfileDocBody } from './profileDocs.js';
 import { credentialForDrepId, drepIdForCredential, groupIdParam } from './ids.js';
 import { noKeys, PreviewUnavailable, readGroupState } from './preview.js';
 import { txProgress } from './resolve.js';
@@ -234,13 +236,25 @@ export async function checkFresh(
   return { ok: true, payKeys };
 }
 
-/** DRep names by credential hash, and member names by join reference, for the plain words of the events. */
-export async function namesFor(db: D1Database, keyHashes: string[], events: GroupEvent[]): Promise<Map<string, string>> {
+/**
+ * DRep names by credential hash, and the member of every join reference the events name, for the
+ * plain words of the events. A member without a DRep name is worded by its DRep id.
+ */
+export async function namesFor(
+  db: D1Database,
+  keyHashes: string[],
+  events: GroupEvent[],
+): Promise<{ names: Map<string, string>; joinMembers: Map<string, Credential> }> {
   const creds = new Map<string, Credential>(keyHashes.map((h) => [h.toLowerCase(), { kind: 'key', hash: h.toLowerCase() }]));
   for (const e of events) if (e.tag === 'join') creds.set(e.member.hash.toLowerCase(), e.member);
   const joinRefs = events.flatMap((e) => ('join' in e && !('local' in e.join) ? [e.join] : []));
   const insts = joinRefs.length > 0 ? await instancesOf(db, joinRefs) : new Map();
-  for (const i of insts.values()) if (i) creds.set(i.member.hash.toLowerCase(), i.member);
+  const joinMembers = new Map<string, Credential>();
+  for (const [ref, i] of insts) {
+    if (!i) continue;
+    creds.set(i.member.hash.toLowerCase(), i.member);
+    joinMembers.set(ref, i.member);
+  }
 
   const byId = new Map([...creds.values()].map((c) => [drepIdForCredential(c), c.hash.toLowerCase()]));
   const names = new Map<string, string>();
@@ -253,18 +267,70 @@ export async function namesFor(db: D1Database, keyHashes: string[], events: Grou
       }
     }
   }
-  for (const [ref, i] of insts) {
-    const n = i ? names.get(i.member.hash.toLowerCase()) : undefined;
-    if (n) names.set(ref, n);
-  }
-  return names;
+  return { names, joinMembers };
+}
+
+/**
+ * The profile before and after an update that sets a new anchor. Before is the stored profile of
+ * the group while it still has another anchor, else (the update is already in effect) the hosted
+ * document of the latest earlier anchor. After is the hosted document of the new anchor. A side
+ * that cannot be read stays null, the words then only say that the profile changes.
+ */
+async function profileChangeOf(db: D1Database, group: EventRef | null, events: GroupEvent[]): Promise<GroupChanges['profile'] | undefined> {
+  const anchor = events.flatMap((e) => (e.tag === 'update' && e.changes.profile ? [e.changes.profile] : []))[0];
+  if (!anchor) return undefined;
+  const hash = anchor.dataHash.toLowerCase();
+  const after = profileFieldsOfDoc(await getProfileDocBody(db, hash));
+  if (!group) return { before: null, after };
+  const [current, earlier] = await db.batch<Record<string, unknown>>([
+    db
+      .prepare("SELECT lower(hex(data_hash)) AS hash, name, description, website, charter, image FROM drep_group_profiles WHERE group_tx = ? AND group_ix = ? AND status = 'ok'")
+      .bind(hashBytes(group.txHash), group.index),
+    db
+      .prepare(
+        `SELECT lower(hex(profile_hash)) AS hash FROM drep_group_versions WHERE group_tx = ? AND group_ix = ? AND profile_hash IS NOT NULL AND profile_hash != ?
+         ORDER BY at_h DESC, at_ti DESC, at_ph DESC, at_ix DESC LIMIT 1`,
+      )
+      .bind(hashBytes(group.txHash), group.index, hashBytes(hash)),
+  ]);
+  const stored = current.results?.[0];
+  if (stored && stored.hash !== hash) return { before: stored as ProfileFields, after };
+  const prev = earlier.results?.[0]?.hash;
+  return { before: typeof prev === 'string' ? profileFieldsOfDoc(await getProfileDocBody(db, prev)) : null, after };
+}
+
+/**
+ * The plain words of a transaction's events for the signing page and the signature request:
+ * members and policy keys by DRep name, policy changes from the current policy, profile changes
+ * by field.
+ */
+export async function describeTx(
+  db: D1Database,
+  o: { events: GroupEvent[]; state: GroupState | null; scripts: ReadonlyArray<{ hash: string; script: NativeScript }>; signers: string[] },
+): Promise<string[]> {
+  return (await describeTxNamed(db, o)).lines;
+}
+
+/** describeTx with the DRep names it read, by key or credential hash. */
+export async function describeTxNamed(
+  db: D1Database,
+  o: { events: GroupEvent[]; state: GroupState | null; scripts: ReadonlyArray<{ hash: string; script: NativeScript }>; signers: string[] },
+): Promise<{ lines: string[]; names: Map<string, string> }> {
+  const keys = [
+    ...o.signers,
+    ...o.scripts.flatMap((s) => collectKeyHashes(s.script)),
+    ...(o.state ? [...collectKeyHashes(o.state.control), ...(o.state.admission ? collectKeyHashes(o.state.admission) : [])] : []),
+  ];
+  const [{ names, joinMembers }, profile] = await Promise.all([
+    namesFor(db, keys, o.events),
+    profileChangeOf(db, o.state?.ref ?? null, o.events),
+  ]);
+  return { lines: describeEvents(o.events, names, o.state, o.scripts, { joinMembers, ...(profile ? { profile } : {}) }), names };
 }
 
 /** Plain words of the row's events. */
 export async function linesOf(db: D1Database, ctx: GroupRowContext): Promise<string[]> {
-  const events = eventsOf(ctx.tx.decoded);
-  const names = await namesFor(db, ctx.requiredSigners, events);
-  return describeEvents(events, names, ctx.state, ctx.tx.decoded?.scripts ?? []);
+  return describeTx(db, { events: eventsOf(ctx.tx.decoded), state: ctx.state, scripts: ctx.tx.decoded?.scripts ?? [], signers: ctx.requiredSigners });
 }
 
 /**
@@ -273,7 +339,7 @@ export async function linesOf(db: D1Database, ctx: GroupRowContext): Promise<str
  */
 export async function notifySigners(
   db: D1Database,
-  o: { rowId: string; groupId: string; group: EventRef | null; signers: string[]; initiator: string; summary: string },
+  o: { rowId: string; groupId: string; group: EventRef | null; signers: string[]; initiator: string; initiatorName: string | null; summary: string },
 ): Promise<void> {
   try {
     const dreps = o.signers.map((hash) => drepIdForCredential({ kind: 'key', hash }));
@@ -290,7 +356,7 @@ export async function notifySigners(
         recipientId,
         type: 'group_signature_request' as const,
         eventKey: `group-sign:${o.rowId}`,
-        payload: { groupId: o.groupId, groupName, actionId: o.rowId, summary: o.summary },
+        payload: { groupId: o.groupId, groupName, actionId: o.rowId, summary: o.summary, ...(o.initiatorName ? { memberName: o.initiatorName } : {}) },
       })),
     );
   } catch (err) {
