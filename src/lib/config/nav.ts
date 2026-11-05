@@ -1,7 +1,7 @@
 // Primary navigation, shared by the site header (Layout.astro) and the
 // search palette so the two can never drift.
 import { DREP_GROUPS_NETWORKS } from '../groups/gate.js';
-import type { CardanoNetwork } from './network.js';
+import { availableOn, type CardanoNetwork } from './network.js';
 
 export interface NavLink {
   label: string;
@@ -62,7 +62,7 @@ export const NAV: readonly NavEntry[] = [
 /** Every link in the header, dropdown items included, in display order. */
 export const NAV_LINKS: readonly NavLink[] = NAV.flatMap((entry) => (isNavGroup(entry) ? entry.items : [entry]));
 
-const onNetwork = (l: NavLink, network: CardanoNetwork | undefined): boolean => !l.networks || (network !== undefined && l.networks.includes(network));
+const onNetwork = (l: NavLink, network: CardanoNetwork | undefined): boolean => availableOn(l.networks, network);
 
 /** The navigation of a network: links of pages that exist there, and groups that keep a link. */
 export function navFor(network: CardanoNetwork | undefined): readonly NavEntry[] {

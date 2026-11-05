@@ -1,13 +1,14 @@
 // Static palette entries: top-level pages. Help guides, glossary terms and
 // Governance Review editions come from the search API (lib/search/content.ts).
 import { NAV_LINKS } from '../config/nav.js';
+import { availableOn, type CardanoNetwork } from '../config/network.js';
 
 export interface StaticEntry {
   label: string;
   href: string;
   keywords: string;
   /** The networks the page exists on, every network when absent. */
-  networks?: readonly string[];
+  networks?: readonly CardanoNetwork[];
 }
 
 const PAGE_KEYWORDS: Record<string, string> = {
@@ -54,9 +55,7 @@ export const PERSONAL_ENTRIES: readonly StaticEntry[] = [
  *  signed-in visitor, for whom they are not a redirect to /login/, and pages of
  *  one network only there. */
 export function matchStaticEntries(q: string, signedIn = false, network?: string): StaticEntry[] {
-  const entries = (signedIn ? [...STATIC_ENTRIES, ...PERSONAL_ENTRIES] : [...STATIC_ENTRIES]).filter(
-    (e) => !e.networks || (network !== undefined && e.networks.includes(network)),
-  );
+  const entries = (signedIn ? [...STATIC_ENTRIES, ...PERSONAL_ENTRIES] : [...STATIC_ENTRIES]).filter((e) => availableOn(e.networks, network));
   const needle = q.trim().toLowerCase();
   if (!needle) return entries;
   return entries.filter((e) => e.label.toLowerCase().includes(needle) || e.keywords.toLowerCase().includes(needle));

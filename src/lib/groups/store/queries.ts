@@ -1080,10 +1080,11 @@ const WEBSITE_DUE_PAGE = `SELECT d.rowid AS id, d.group_tx, d.group_ix, p.websit
 const SAME_ANCHOR = `EXISTS (SELECT 1 FROM drep_groups g WHERE g.group_tx = drep_group_due.group_tx
     AND g.group_ix = drep_group_due.group_ix AND g.profile_url = ? AND g.profile_hash = ?)`;
 
-// Page readers. A listed group has at least LISTED_MIN_MEMBERS members, the predicate of the partial index
-// drep_groups_listed, which orders by member power and then the group key. member_power can exceed 2^53, so it
-// is read as TEXT and bound as CAST(? AS INTEGER).
-const LISTED = `g.members >= ${LISTED_MIN_MEMBERS}`;
+// Page readers. A listed group has at least LISTED_MIN_MEMBERS members. The partial index drep_groups_listed
+// covers members >= 1 and orders by member power and then the group key. SQLite uses a partial index only when
+// the query names its predicate term as written, so that term stays literal and a higher threshold is a second
+// filter. member_power can exceed 2^53, so it is read as TEXT and bound as CAST(? AS INTEGER).
+const LISTED = `g.members >= 1${LISTED_MIN_MEMBERS > 1 ? ` AND g.members >= ${LISTED_MIN_MEMBERS}` : ''}`;
 const LISTED_ORDER = 'g.member_power DESC, g.group_tx, g.group_ix';
 const GROUP_READ = `g.group_tx, g.group_ix, g.mode, g.status, g.seq, g.control, g.admission, g.profile_url, g.profile_hash,
     g.created_h, g.profile_set_h, g.members, g.pending, g.former, g.applied_events, g.not_applied_events,

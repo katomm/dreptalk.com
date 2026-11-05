@@ -40,7 +40,7 @@ const sort = Astro.url.searchParams.get('sort') === 'delegators' ? 'delegators' 
 // Offset into the power-sorted listing; also the base for each row's rank number
 // (rank = offset + row index + 1), so ranks stay continuous across pages.
 const listOffset = pageToOffset(page, PAGE_SIZE);
-// Group filter, preprod only. A malformed value, or groups tables that are not there yet, show the normal list.
+// Group filter, where DRep groups run. A malformed value, or groups tables that are not there yet, show the normal list.
 const groupParam = drepGroupsAvailable(currentNetwork().network) ? groupIdParam(Astro.url.searchParams.get('group') ?? undefined) : null;
 const groupRead =
   groupParam && db ? await (await import('@/lib/db/drepGroups.js')).getGroup(db, groupIdString(groupParam)) : undefined;

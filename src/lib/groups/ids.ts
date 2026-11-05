@@ -1,7 +1,13 @@
-import { type Credential, type EventRef, groupIdFromBech32, groupIdToBech32 } from 'drep-groups';
+import { type Credential, type EventRef, groupIdFromBech32, groupIdToBech32, type Network } from 'drep-groups';
+import type { CardanoNetwork } from '../config/network.js';
 import { encodeBech32 } from '../crypto/bech32.js';
 import { hexToBytes } from '../crypto/hex.js';
 import { DREP_KEY_HEADER, DREP_SCRIPT_HEADER, parseDrepId } from '../cardano/identity.js';
+
+/** The address network the library checks payment addresses against: mainnet, or testnet for preprod. */
+export function addressNetwork(network: CardanoNetwork): Network {
+  return network === 'mainnet' ? 'mainnet' : 'testnet';
+}
 
 /** CIP-129 drep1... id of a key or script credential. */
 export function drepIdForCredential(c: Credential): string {

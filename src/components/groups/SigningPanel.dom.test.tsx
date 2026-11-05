@@ -168,8 +168,12 @@ describe('SigningPanel', () => {
     );
     render(<SigningPanel actionId="x" network="preprod" />);
     fireEvent.click(await screen.findByRole('button', { name: 'Sign with wallet' }));
-    expect(await screen.findByText('Signature added')).toBeTruthy();
-    expect(screen.getByText(/Alice signed this transaction\. 1 signature is still missing: Carol\./)).toBeTruthy();
+    expect(await screen.findByText('Not finished: waiting for 1 more signature')).toBeTruthy();
+    expect(screen.getByText(/Your signature was added\. Carol has to sign before anyone can submit the transaction\./)).toBeTruthy();
+    expect(screen.getByText(/Share this signing link with them: .*\/groups\/sign\/x\//)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Copy link' })).toBeTruthy();
+    expect(screen.queryByText('Signature added')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Submit transaction' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Sign with wallet' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Add signature' })).toBeNull();
   });

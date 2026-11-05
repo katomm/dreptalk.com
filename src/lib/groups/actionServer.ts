@@ -356,7 +356,7 @@ export interface RowRequest {
 }
 
 /**
- * The common start of every row route: preprod only, a signed in session, a group row (404 for
+ * The common start of every row route: a network where DRep groups run, a signed in session, a group row (404 for
  * any other row) and the signing gate. Returns the refusal as a response.
  */
 export async function openRowRequest(locals: App.Locals, id: string | undefined): Promise<RowRequest | Response> {

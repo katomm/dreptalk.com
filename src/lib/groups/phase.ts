@@ -16,6 +16,7 @@ import {
   ENGINE_BUDGET,
   GOVERNANCE_QUERY_BUDGET,
   GROUPS_QUERY_SHARE,
+  GROUPS_SCAN_AFTER_SLOT,
   INGEST_QUERY_SHARE,
   MAX_ENGINE_RUNS_PER_TICK,
   MAX_JOB_ROWS_PER_RUN,
@@ -162,7 +163,7 @@ async function work(ctx: PhaseContext, lease: string, phase: Allowance, report: 
 
   // While a recovery slot is open the ingest returns at once and the engine steps the recovery.
   const budget = capAllowance(phase, INGEST_QUERY_SHARE, RELEASE_RESERVE_QUERIES);
-  const ingest = await ingestDrepGroups({ db, koios: ctx.koios, lease, budget, now, meta });
+  const ingest = await ingestDrepGroups({ db, koios: ctx.koios, lease, budget, now, meta, scanAfterSlot: GROUPS_SCAN_AFTER_SLOT[ctx.network] });
   report.ingest = ingest;
   for (const s of ingest.starved) starve(report.starved, s);
 

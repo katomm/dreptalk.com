@@ -233,7 +233,7 @@ describe('group action state route', () => {
   it('gives the server clock slot so a client with a wrong clock still builds a valid end', async () => {
     await seedPermissioned();
     const res = await call<StateBody & { serverSlot: number }>(stateRoute, null, { id: PERM_ID });
-    expect(Math.abs(res.json.serverSlot - wallClockSlot())).toBeLessThanOrEqual(2);
+    expect(Math.abs(res.json.serverSlot - wallClockSlot('preprod'))).toBeLessThanOrEqual(2);
   });
 
   it('answers 404 for an unknown group', async () => {

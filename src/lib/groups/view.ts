@@ -3,6 +3,7 @@
 // over a script stays bounded.
 import type { StatusNote } from '../db/drepGroups.js';
 import { truncateIdMiddle } from '../forum/view.js';
+import { LISTED_MIN_MEMBERS } from './constants.js';
 
 export type ScriptView =
   | { kind: 'sig'; keyHash: string }
@@ -58,6 +59,19 @@ export function policyKeyHashes(s: ScriptView | null): string[] {
 
 /** The first 8 and last 4 characters of a long hash or id. */
 export const shortHash = (h: string): string => truncateIdMiddle(h, 8, 4);
+
+const NUMBER_WORDS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
+
+/** A member count in words for copy: "one member", "two members", "12 members". */
+export function memberCountWords(n: number): string {
+  return `${NUMBER_WORDS[n] ?? String(n)} ${n === 1 ? 'member' : 'members'}`;
+}
+
+/** A member count in figures for a list row: "1 member", "3 members". */
+export const memberCount = (n: number): string => `${n} ${n === 1 ? 'member' : 'members'}`;
+
+/** The listing threshold in words, from LISTED_MIN_MEMBERS: "at least one member". */
+export const LISTED_RULE = `at least ${memberCountWords(LISTED_MIN_MEMBERS)}`;
 
 /** A policy in words, keys by DRep name where known. Keys in `admins` are marked as group admins. */
 export function describePolicy(s: ScriptView | null, names: Map<string, string>, admins?: ReadonlySet<string>): string {

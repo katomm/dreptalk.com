@@ -36,6 +36,7 @@ import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import type { VitalCard } from '@/lib/analytics/hubView.js';
 import { GROUP_PAGE_SIZE, RETENTION_KEEP_APPLIED, RETENTION_KEEP_NOT_APPLIED } from '@/lib/groups/constants.js';
 import { drepGroupsAvailable } from '@/lib/groups/gate.js';
+import { addressNetwork } from '@/lib/groups/ids.js';
 import { type HistoryKind, type ProfileFields, policyShape, policyWords, profileFieldsOfDoc } from '@/lib/groups/describe.js';
 import { historyEntries } from '@/lib/groups/history.js';
 import { CIRCLE_X_PATH, CLOCK_PATH, PENCIL_PATH, SHIELD_PATH, USER_CHECK_PATH, USER_MINUS_PATH, USER_PLUS_PATH, USER_X_PATH, USERS_PATH } from '@/lib/forum/icons.js';
@@ -154,9 +155,9 @@ const blockDate = (h: number): { iso: string; text: string } | null => {
   if (t === undefined) return null;
   return { iso: new Date(t * 1000).toISOString(), text: formatSubmittedDateTime(t * 1000) };
 };
-// These pages exist on preprod only, so every address is checked as a testnet address.
+// Every address is checked against the network the page runs on.
 const addressChecks = addresses
-  .map((entry) => ({ entry, check: checkPaymentAddress(entry, 'testnet', treasury.scripts) }))
+  .map((entry) => ({ entry, check: checkPaymentAddress(entry, addressNetwork(net.network), treasury.scripts) }))
   .filter((a) => a.check.status !== 'invalid');
 
 // The public profile the admins' editor starts from.

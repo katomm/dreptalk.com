@@ -1,6 +1,19 @@
 import type { Budget } from 'drep-groups';
+import type { CardanoNetwork } from '../config/network.js';
 
 export const DEPTH = 10;
+/**
+ * The slot after which a fresh store starts reading label 8416 txs, null to read from the first
+ * block. Group events name registered DReps, and DRep registrations exist only since the Conway
+ * hard fork, so no earlier tx can carry a valid event. Mainnet: Conway began with epoch 507 at slot
+ * 133660800 (2024-09-01 21:44:51 UTC), Shelley epoch 208 at slot 4492800 plus 299 epochs of 432000
+ * slots. Preprod keeps reading from the first block, its store is past that point already and the
+ * label scan there is small.
+ */
+export const GROUPS_SCAN_AFTER_SLOT: Record<CardanoNetwork, number | null> = {
+  mainnet: 133_660_799,
+  preprod: null,
+};
 export const REG_OVERLAP_SECONDS = 3600;
 export const DISCOVERY_PAGES_PER_RUN = 2;
 export const MAX_NEW_TXS_PER_RUN = 500;
@@ -70,7 +83,12 @@ export const GOVERNANCE_QUERY_BUDGET = 900;
 export const LEASE_MS = 900_000;
 export const RETENTION_KEEP_APPLIED = 200;
 export const RETENTION_KEEP_NOT_APPLIED = 50;
-export const LISTED_MIN_MEMBERS = 2;
+/**
+ * Members a group needs to be listed on /groups/, in the sitemap and for website checks and power
+ * jobs. 1 lets groups form quickly, raise it if the list draws abuse. The listing index covers
+ * members >= 1 (migration 0128), a higher value is filtered on top of it.
+ */
+export const LISTED_MIN_MEMBERS = 1;
 export const PROFILE_MIN_MEMBERS = 1;
 export const ACTION_TTL_SECONDS = 172_800;
 export const RESOLVE_ROWS_PER_TICK = 50;

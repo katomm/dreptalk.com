@@ -84,7 +84,7 @@ export const GET: APIRoute = async ({ params, locals }) => {
       status: group.closing ? 'dissolved' : group.status,
       seq: group.seq,
       // The client builds its validity end from this clock, the one the server bounds it by.
-      serverSlot: wallClockSlot(),
+      serverSlot: wallClockSlot(currentNetwork().network),
       control: s.control,
       admission: s.admission,
       names: Object.fromEntries(s.names),

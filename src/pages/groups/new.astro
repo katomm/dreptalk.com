@@ -37,7 +37,7 @@ const drepId = keyHash ? (user.drepId ?? null) : null;
   </p>
 
   {keyHash && drepId ? (
-    <GroupWizard client:load network={network} viewer={{ drepId, keyHash }} serverSlot={wallClockSlot()} />
+    <GroupWizard client:load network={network} viewer={{ drepId, keyHash }} serverSlot={wallClockSlot(network)} />
   ) : (
     <div class="callout callout--info" role="status">
       <div class="callout__body">Sign in as a registered DRep with a DRep key to found a group. Script DReps can join groups but cannot found them.</div>

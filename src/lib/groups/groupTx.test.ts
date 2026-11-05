@@ -27,6 +27,8 @@ import {
   feeHeadroomKeys,
   keyPaymentUtxos,
   queueGroupOps,
+  slotConfigFor,
+  wallClockSlot,
   withoutInputs,
   withWitnessHeadroom,
 } from './groupTx.js';
@@ -176,7 +178,7 @@ describe('queueGroupOps', () => {
         },
       },
     ) as DrepTxBuilder;
-    queueGroupOps(stub, { payload: PAYLOAD, requiredSigners: [ALICE.hash, BOB.hash], invalidHereafterSlot: 1000n });
+    queueGroupOps(stub, { payload: PAYLOAD, requiredSigners: [ALICE.hash, BOB.hash], invalidHereafterSlot: 1000n, slotConfig: preprod.slotConfig });
     expect(calls.map(([n]) => n)).toEqual(['attachMetadata', 'addSigner', 'addSigner', 'setValidity', 'attachMetadata']);
     expect((calls[0][1] as { label: bigint }).label).toBe(8416n);
     expect((calls[4][1] as { label: bigint }).label).toBe(674n);
@@ -304,5 +306,31 @@ describe('buildSendToSelfFrom', () => {
 
   it('fails when a fee input is no longer in the wallet', async () => {
     await expect(send([{ txHash: 'f9'.repeat(32), index: 0 }])).rejects.toThrow(/no longer in the wallet/);
+  });
+});
+
+describe('slot timing per network', () => {
+  it('turns the wall clock into the slot of each network', () => {
+    // Shelley starts: mainnet epoch 208 at slot 4492800, preprod epoch 4 at slot 86400.
+    expect(wallClockSlot('mainnet', 1_596_059_091_000)).toBe(4_492_800);
+    expect(wallClockSlot('preprod', 1_655_769_600_000)).toBe(86_400);
+    expect(wallClockSlot('mainnet', 1_800_000_000_000) - wallClockSlot('preprod', 1_800_000_000_000)).toBe(4_492_800 - 1_596_059_091 - (86_400 - 1_655_769_600));
+  });
+
+  it('writes the validity end of a mainnet action in mainnet slots', () => {
+    const calls: Array<[string, unknown]> = [];
+    const stub = new Proxy(
+      {},
+      {
+        get: (_t, name: string) => (arg: unknown) => {
+          calls.push([name, arg]);
+          return stub;
+        },
+      },
+    ) as DrepTxBuilder;
+    const slot = BigInt(wallClockSlot('mainnet', 1_800_000_000_000) + ACTION_TTL_SECONDS);
+    queueGroupOps(stub, { payload: PAYLOAD, requiredSigners: [ALICE.hash], invalidHereafterSlot: slot, slotConfig: slotConfigFor('mainnet') });
+    const validity = calls.find(([n]) => n === 'setValidity')?.[1] as { to: bigint };
+    expect(Number(validity.to)).toBe(1_800_000_000_000 + ACTION_TTL_SECONDS * 1000);
   });
 });

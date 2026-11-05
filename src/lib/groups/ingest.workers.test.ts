@@ -78,6 +78,7 @@ interface TickOptions {
   limits?: Partial<{ page: number; regPagesPerRun: number }>;
   now?: number;
   koios?: FakeKoios;
+  scanAfterSlot?: number | null;
 }
 
 /** One ingest run under its own lease, then the engine. */
@@ -86,7 +87,7 @@ async function tick(chain: Chain, o: TickOptions = {}): Promise<IngestResult & {
   const t = await lease();
   let r: IngestResult;
   try {
-    r = await ingestDrepGroups({ db, koios, lease: t, budget: UNLIMITED, now: o.now ?? 0, limits: o.limits });
+    r = await ingestDrepGroups({ db, koios, lease: t, budget: UNLIMITED, now: o.now ?? 0, limits: o.limits, scanAfterSlot: o.scanAfterSlot });
   } finally {
     await releaseLease(db, t);
   }
@@ -206,6 +207,26 @@ describe('ingestDrepGroups: events and registrations', () => {
     expect(r).toMatchObject({ newTxs: 1, markers: 0, tracked: 1, probing: false, recovery: null });
     expect(await groupRow()).toMatchObject({ status: 'active', members: 1 });
     expect((await instanceOf(credM)).map((i) => i.counted_as)).toEqual(['open']);
+  });
+
+  it('starts a fresh store at the scan slot of the network and reads on from its frontier', async () => {
+    // The fake chain has one block per 20 slots, the first block after slot 1999 is at height 100.
+    const early = marker(T(0x21), 60);
+    const chain: Chain = { tip: 200, txs: [early, create], regs: [regM] };
+    const first = await tick(chain, { scanAfterSlot: 1999 });
+    expect(first.calls).toContain('after:1999');
+    expect(first.calls).toContain('label:99:0');
+    expect(first.newTxs).toBe(1);
+    expect(await count('SELECT COUNT(*) AS n FROM drep_group_txs WHERE tx_hash = ?', hashBytes(early.hash))).toBe(0);
+    expect(await groupRow()).toMatchObject({ status: 'active', members: 1 });
+    const next = await tick({ ...chain, tip: 201 }, { scanAfterSlot: 1999 });
+    expect(next.calls.some((c) => c.startsWith('after:'))).toBe(false);
+  });
+
+  it('reads a fresh store from the first block without a scan slot', async () => {
+    const r = await tick({ tip: 200, txs: [create], regs: [regM] });
+    expect(r.calls).toContain('label:0:0');
+    expect(r.calls.some((c) => c.startsWith('after:'))).toBe(false);
   });
 
   it('stores the block time of a label tx and backfills a tx stored without one', async () => {

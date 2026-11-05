@@ -6,10 +6,10 @@ import NotFoundPage from '../404.astro';
 import { currentNetwork } from '@/lib/api/response';
 import { listListedGroups } from '@/lib/db/drepGroups.js';
 import { cacheControlForSynced, formatAda } from '@/lib/forum/view.js';
-import { DREP_GROUPS_STANDARD_URL, GROUP_PAGE_SIZE } from '@/lib/groups/constants.js';
+import { DREP_GROUPS_STANDARD_URL, GROUP_PAGE_SIZE, LISTED_MIN_MEMBERS } from '@/lib/groups/constants.js';
 import { drepGroupsAvailable } from '@/lib/groups/gate.js';
 import { sessionKeyHash } from '@/lib/auth/groupSigner.js';
-import { modeLabel, shortHash } from '@/lib/groups/view.js';
+import { LISTED_RULE, memberCount, memberCountWords, modeLabel, shortHash } from '@/lib/groups/view.js';
 
 const available = drepGroupsAvailable(currentNetwork().network);
 const db = env.DB as D1Database | undefined;
@@ -37,7 +37,7 @@ if (available) {
   <Layout title="DRep groups - DRepTalk" description="Groups, parties and councils of Cardano DReps, recorded on chain." wide>
     <nav class="gr-crumbs"><a href="/">DRepTalk</a><span>/</span><span>Groups</span></nav>
     <h1>DRep groups</h1>
-    <p class="gr-intro">Groups record which DReps belong together, on chain under metadata label 8416. Open groups are self-declared, permissioned groups confirm every member. A group never votes, its members vote on their own. Groups with at least two members are listed, sorted by the voting power of their members. <a href="/help/drep-groups/">How DRep groups work</a></p>
+    <p class="gr-intro">Groups record which DReps belong together, on chain under metadata label 8416. Open groups are self-declared, permissioned groups confirm every member. A group never votes, its members vote on their own. Groups with {LISTED_RULE} are listed, sorted by the voting power of their members. <a href="/help/drep-groups/">How DRep groups work</a></p>
     {mayFound && <p class="gr-found"><a class="btn" href="/groups/new/">Found a new group or DRep party</a></p>}
     {groups.length === 0 && !after ? (
       <section class="gr-empty" aria-label="No groups yet">
@@ -45,7 +45,7 @@ if (available) {
         <p>DRep groups are new. Be among the first to show voters which DReps work together.</p>
         <ul>
           <li><a href="/help/drep-groups/">How DRep groups work</a>: founding, admitting members, managing a group together and leaving it.</li>
-          <li>{mayFound ? <a href="/groups/new/">Found a new group or DRep party</a> : <><a href="/login/">Sign in as a DRep</a> to found a group</>}. A group shows up here once it has two members.</li>
+          <li>{mayFound ? <a href="/groups/new/">Found a new group or DRep party</a> : <><a href="/login/">Sign in as a DRep</a> to found a group</>}. A group shows up here once it has {memberCountWords(LISTED_MIN_MEMBERS)}.</li>
           <li><a href={DREP_GROUPS_STANDARD_URL} rel="noopener">The open standard</a> behind the groups, which any wallet or explorer can read.</li>
         </ul>
       </section>
@@ -56,7 +56,7 @@ if (available) {
         {groups.map((g) => (
           <li class="gr-item">
             <a href={`/groups/${g.groupId}/`}>{g.name ?? shortHash(g.groupId)}</a>
-            <span class="gr-meta"><code title={g.groupId}>{shortHash(g.groupId)}</code> · {modeLabel(g.mode)} · {g.members} members · voting power of affiliated DReps {formatAda(g.memberPower)}{g.status === 'dissolved' ? ' · Dissolved' : ''}{g.websiteVerified ? ' · Website verified' : ''}</span>
+            <span class="gr-meta"><code title={g.groupId}>{shortHash(g.groupId)}</code> · {modeLabel(g.mode)} · {memberCount(g.members)} · voting power of affiliated DReps {formatAda(g.memberPower)}{g.status === 'dissolved' ? ' · Dissolved' : ''}{g.websiteVerified ? ' · Website verified' : ''}</span>
           </li>
         ))}
       </ul>

@@ -41,10 +41,10 @@ their own DRep and their own rationale, delegators keep delegating to individual
 DReps, and joining or leaving a group changes no delegation. Where DRepTalk adds
 numbers up for a group, it labels them as the voting power of affiliated DReps.
 
-The [group directory](https://preprod.dreptalk.com/groups/) lists groups with at
-least two active members, sorted by the voting power of affiliated DReps. A group
-with a single member already has its own page, so a founder can share the link
-before the second member joins.
+The [group directory](https://preprod.dreptalk.com/groups/) lists groups once they
+have enough active members, sorted by the voting power of affiliated DReps. Every
+group has its own page from its first member, so a founder can share the link
+right away.
 
 ## Open and permissioned groups
 

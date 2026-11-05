@@ -107,6 +107,8 @@ interface Ctx {
   result: IngestResult;
   /** False, and the step named starved, when the allowance does not cover `cost` more queries. */
   fits: (step: string, cost: number) => boolean;
+  /** GROUPS_SCAN_AFTER_SLOT of the network, where a fresh store starts its label scan. */
+  scanAfterSlot: number | null;
 }
 
 /** Statements needed for `n` keyed rows of an ingest statement. */
@@ -325,14 +327,26 @@ async function fetchLabelTxs(koios: GroupsKoios, rows: MetalabelTxRow[]): Promis
   });
 }
 
+/**
+ * The block height the label scan reads after: L - 1, or for a fresh store (L below 0) the block
+ * before the first one after the network's scan slot. A chain that has not reached that slot yet
+ * has nothing to read below the safe height.
+ */
+async function scanAfterHeight(ctx: Ctx, L: number): Promise<number> {
+  if (L >= 0 || ctx.scanAfterSlot === null) return Math.max(0, L - 1);
+  const first = await ctx.koios.firstBlockAfterSlot(ctx.scanAfterSlot);
+  return first === null ? ctx.safe : Math.max(0, first.height - 1);
+}
+
 /** Label txs from L - 1 at safe depth, capped per run, the last block taken always in full. */
 async function discover(ctx: Ctx, meta: Row): Promise<void> {
   const { db, koios, limits, safe, safeBlock, result } = ctx;
   const L = Number(meta.L);
+  const after = await scanAfterHeight(ctx, L);
   const read: MetalabelTxRow[] = [];
   let complete = false;
   for (let p = 0; p < DISCOVERY_PAGES_PER_RUN && !complete; p++) {
-    const page = await koios.txByMetalabel(GROUPS_LABEL, Math.max(0, L - 1), limits.page, p * limits.page);
+    const page = await koios.txByMetalabel(GROUPS_LABEL, after, limits.page, p * limits.page);
     read.push(...page);
     complete = page.length < limits.page || page.some((r) => r.block_height > safe);
   }
@@ -588,6 +602,8 @@ export async function ingestDrepGroups(deps: {
   limits?: Partial<{ page: number; regPagesPerRun: number }>;
   /** The meta row when the caller just read it. */
   meta?: Row;
+  /** GROUPS_SCAN_AFTER_SLOT of the network, none reads from the first block. */
+  scanAfterSlot?: number | null;
 }): Promise<IngestResult> {
   const { db, koios, lease, budget, now } = deps;
   const result: IngestResult = {
@@ -627,6 +643,7 @@ export async function ingestDrepGroups(deps: {
     safeBlock,
     result,
     fits,
+    scanAfterSlot: deps.scanAfterSlot ?? null,
   };
 
   // Nothing is stored on a chain whose stored top is not confirmed.

@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { type GroupSeed, seedGroup as seedGroupRow } from '../groups/__tests__/engineFixtures.js';
 import { keyHex as keyOf, txHex as txOf } from '../groups/__tests__/loadFixtures.js';
 import { credBytes, hashBytes } from '../groups/codec.js';
+import { LISTED_MIN_MEMBERS } from '../groups/constants.js';
 import { drepIdForCredential, groupIdString } from '../groups/ids.js';
 import { runJobs } from '../groups/jobs.js';
 import { acquireLease, invocationOwner } from '../groups/store/lease.js';
@@ -141,13 +142,14 @@ describe('drepGroups readers: groups', () => {
     expect(await getGroup(db, 'group1nope')).toBeNull();
   });
 
-  it('lists groups with two active members by member voting power', async () => {
-    await seedGroup(1, { members: 2, power: '300' });
-    await seedGroup(2, { members: 2, power: '5001' });
-    await seedGroup(3, { members: 1, power: '9999' });
+  it('lists groups with LISTED_MIN_MEMBERS active members by member voting power', async () => {
+    const min = LISTED_MIN_MEMBERS;
+    await seedGroup(1, { members: min, power: '300' });
+    await seedGroup(2, { members: min + 1, power: '5001' });
+    await seedGroup(3, { members: min - 1, power: '9999' });
     // A dissolved group whose members are closed is not listed, one still closing is, but not in the sitemap.
     await seedGroup(4, { members: 0, power: '0', status: 'dissolved' });
-    await seedGroup(5, { members: 2, power: '101', status: 'dissolved', closing: 1 });
+    await seedGroup(5, { members: min, power: '101', status: 'dissolved', closing: 1 });
     await db
       .prepare("INSERT INTO drep_group_profiles (group_tx, group_ix, status, name, website_verified_at) VALUES (?, 0, 'ok', 'Council', 5)")
       .bind(hashBytes(txOf(2)))
@@ -158,7 +160,7 @@ describe('drepGroups readers: groups', () => {
       [idOf(1), '300'],
       [idOf(5), '101'],
     ]);
-    expect(all[0]).toMatchObject({ name: 'Council', websiteVerified: true, members: 2 });
+    expect(all[0]).toMatchObject({ name: 'Council', websiteVerified: true, members: min + 1 });
     expect(all[1]).toMatchObject({ name: null, websiteVerified: false });
     const first = await listListedGroups(db, null, 1);
     const second = await listListedGroups(db, { power: first[0].memberPower, groupId: first[0].groupId }, 1);

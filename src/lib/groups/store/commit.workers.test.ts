@@ -24,7 +24,7 @@ import {
 } from '../__tests__/engineFixtures.js';
 import { sigScript } from '../__tests__/fixtures.js';
 import { profilesToFetch } from '../../db/drepGroups.js';
-import { ENGINE_BUDGET } from '../constants.js';
+import { ENGINE_BUDGET, LISTED_MIN_MEMBERS, PROFILE_MIN_MEMBERS } from '../constants.js';
 import { groupIdString } from '../ids.js';
 import { credBytes, hashBytes, posOrNull, type Row } from '../codec.js';
 import { acquireLease, invocationOwner } from './lease.js';
@@ -263,17 +263,14 @@ describe('drep groups commit', () => {
     expect(await count("SELECT COUNT(*) AS n FROM drep_group_jobs WHERE kind = 'retire' AND job_key = ?", credKey(a))).toBe(1);
   });
 
-  it('writes the profile due row at one member and the website due row at two', async () => {
+  it('writes the profile due row at PROFILE_MIN_MEMBERS and the website due row at LISTED_MIN_MEMBERS', async () => {
     const t = await lease();
-    const [a, b] = [keyCred(1), keyCred(2)];
     const anchor = { url: 'https://example.org/g.json', dataHash: 'aa'.repeat(32) };
     const due = (kind: string) => count('SELECT COUNT(*) AS n FROM drep_group_due WHERE kind = ? AND group_tx = ?', kind, GTX);
+    const powerJobs = () => count("SELECT COUNT(*) AS n FROM drep_group_jobs WHERE kind = 'power' AND job_key = ?", refKey(G));
     await commit(db, [create({ profile: anchor, profileSetAt: CREATED })], t);
     expect(await due('profile')).toBe(0);
-    await commit(db, [credUnit(a, pos(20), { instances: [joined(20, a)] })], t);
-    expect(await due('profile')).toBe(1);
-    expect(await due('website')).toBe(0);
-    // The profile was fetched before the second member and names a website.
+    // The profile was fetched before the members joined and names a website.
     await db
       .prepare(
         `INSERT INTO drep_group_profiles (group_tx, group_ix, profile_url, data_hash, status, website, fetched_at)
@@ -281,17 +278,22 @@ describe('drep groups commit', () => {
       )
       .bind(GTX, G.index, anchor.url, hashBytes(anchor.dataHash))
       .run();
-    await commit(db, [credUnit(b, pos(21), { instances: [joined(21, b)] })], t);
-    expect(await group()).toMatchObject({ members: 2 });
-    expect(await due('website')).toBe(1);
-    expect(await count("SELECT COUNT(*) AS n FROM drep_group_jobs WHERE kind = 'power' AND job_key = ?", refKey(G))).toBe(1);
-    await commit(db, [credUnit(b, pos(22), { instances: [joined(21, b, { closedAt: pos(22), closeReason: 'left' })] })], t);
-    expect(await group()).toMatchObject({ members: 1 });
-    expect(await due('website')).toBe(0);
-    expect(await due('profile')).toBe(1);
-    await commit(db, [credUnit(a, pos(23), { instances: [joined(20, a, { closedAt: pos(23), closeReason: 'left' })] })], t);
-    expect(await group()).toMatchObject({ members: 0 });
-    expect(await due('profile')).toBe(0);
+    const top = Math.max(PROFILE_MIN_MEMBERS, LISTED_MIN_MEMBERS) + 1;
+    const creds = Array.from({ length: top }, (_, i) => keyCred(i + 1));
+    for (const [i, c] of creds.entries()) {
+      await commit(db, [credUnit(c, pos(20 + i), { instances: [joined(20 + i, c)] })], t);
+      const n = i + 1;
+      expect(await group()).toMatchObject({ members: n });
+      expect(await due('profile')).toBe(n >= PROFILE_MIN_MEMBERS ? 1 : 0);
+      expect(await due('website')).toBe(n >= LISTED_MIN_MEMBERS ? 1 : 0);
+      expect(await powerJobs()).toBe(n >= LISTED_MIN_MEMBERS ? 1 : 0);
+    }
+    for (const [i, c] of [...creds.entries()].reverse()) {
+      await commit(db, [credUnit(c, pos(40 + top - i), { instances: [joined(20 + i, c, { closedAt: pos(40 + top - i), closeReason: 'left' })] })], t);
+      expect(await group()).toMatchObject({ members: i });
+      expect(await due('website')).toBe(i >= LISTED_MIN_MEMBERS ? 1 : 0);
+      expect(await due('profile')).toBe(i >= PROFILE_MIN_MEMBERS ? 1 : 0);
+    }
   });
 
   it('keeps a profile due row fresh at one member through the stale check', async () => {

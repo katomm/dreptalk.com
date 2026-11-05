@@ -10,6 +10,7 @@ import {
   TransactionHash,
   TransactionMetadatum,
   type UTxO,
+  mainnet,
   preprod,
 } from '@evolution-sdk/evolution';
 import { GROUPS_LABEL } from 'drep-groups';
@@ -25,6 +26,11 @@ import { FUNDS_HELD } from './view.js';
 type ProtocolParameters = NonNullable<NonNullable<Parameters<DrepTxBuilder['build']>[0]>['fullProtocolParameters']>;
 type SlotConfig = typeof preprod.slotConfig;
 
+/** The slot timing of a network, the same chain parameters the SDK client of that network uses. */
+export function slotConfigFor(network: CardanoNetwork): SlotConfig {
+  return (network === 'mainnet' ? mainnet : preprod).slotConfig;
+}
+
 /**
  * Queues the group payload under the group label, every required signer, the validity interval
  * and the attribution tag. The payload bytes are the library's encoding, read back into a
@@ -38,11 +44,10 @@ export function queueGroupOps(
     requiredSigners: readonly string[];
     invalidHereafterSlot: bigint;
     invalidBeforeSlot?: bigint;
-    slotConfig?: SlotConfig;
+    slotConfig: SlotConfig;
   },
 ): DrepTxBuilder {
-  // Groups run on preprod only, its slot timing is the default.
-  const slotConfig = parts.slotConfig ?? preprod.slotConfig;
+  const { slotConfig } = parts;
   let tx = txb.attachMetadata({ label: BigInt(GROUPS_LABEL), metadata: TransactionMetadatum.fromCBORBytes(parts.payload) });
   for (const key of parts.requiredSigners) tx = tx.addSigner({ keyHash: KeyHash.fromHex(key) });
   tx = tx.setValidity({
@@ -130,11 +135,11 @@ export async function buildGroupTxFrom(txb: DrepTxBuilder, i: GroupTxInputs): Pr
 }
 
 /**
- * The preprod slot of the wall clock, which is the tip slot within seconds. The server accepts a
+ * The network's slot of the wall clock, which is the tip slot within seconds. The server accepts a
  * validity end that far off.
  */
-export function wallClockSlot(now = Date.now()): number {
-  return Number(Time.unixTimeToSlot(BigInt(now), preprod.slotConfig));
+export function wallClockSlot(network: CardanoNetwork, now = Date.now()): number {
+  return Number(Time.unixTimeToSlot(BigInt(now), slotConfigFor(network)));
 }
 
 function assertGroupsNetwork(network: CardanoNetwork): void {

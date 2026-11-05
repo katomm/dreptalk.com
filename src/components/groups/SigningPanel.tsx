@@ -75,6 +75,19 @@ function KeyList({ keys, signed, nameOf }: { keys: string[]; signed: Set<string>
   );
 }
 
+/** The main line after the viewer signed while required signatures are still missing. */
+function waitingTitle(count: number): string {
+  return `Not finished: waiting for ${count} more ${count === 1 ? 'signature' : 'signatures'}`;
+}
+
+const listFormat = new Intl.ListFormat('en', { type: 'conjunction' });
+
+/** Who still has to sign before the transaction can be submitted. */
+function waitingText(missing: string[], nameOf: (k: string) => string): string {
+  const names = listFormat.format(missing.map(nameOf));
+  return `${names} ${missing.length === 1 ? 'has' : 'have'} to sign before anyone can submit the transaction.`;
+}
+
 /** Where the signatures stand after the viewer signed: who is still missing, or what comes next. */
 function progressText(view: ActionView, missing: string[], nameOf: (k: string) => string): string {
   if (view.status === 'submitted') return 'The transaction is being submitted and waits for the chain to confirm it.';
@@ -246,6 +259,7 @@ export default function SigningPanel({ actionId, network }: SigningPanelProps) {
   const feeWanted = view.isInitiator === true && view.fundingSigned === false;
   const maySign = collecting && ((viewerRequired && !viewerSigned) || feeWanted);
   const missing = view.requiredSigners.filter((k) => !signedSet.has(k));
+  const signingUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/groups/sign/${actionId}/`;
   const walletPicker =
     wallets.length === 0 ? (
       <p style={muted}>No Cardano wallet extension detected.</p>
@@ -286,9 +300,21 @@ export default function SigningPanel({ actionId, network }: SigningPanelProps) {
         </Callout>
       )}
       {viewerSigned && !dead && view.resolution === null && view.status !== 'cancelled' && (
-        <Callout kind="success" title={justSigned ? 'Signature added' : 'You have signed'}>
-          {nameOf(viewerKey as string)} signed this transaction. {progressText(view, missing, nameOf)}
-        </Callout>
+        collecting && missing.length > 0 ? (
+          <Callout kind="success" title={waitingTitle(missing.length)}>
+            <p style={{ margin: 0 }}>
+              {justSigned ? 'Your signature was added.' : 'Your signature is in.'} {waitingText(missing, nameOf)}
+              {view.fundingSigned === false ? ' The initiator also still has to sign for the fee with the wallet that pays it.' : ''}
+            </p>
+            <p style={{ margin: '0.5rem 0 0' }}>
+              Share this signing link with them: {signingUrl} <CopyButton value={signingUrl} label="Copy link" />
+            </p>
+          </Callout>
+        ) : (
+          <Callout kind="success" title={justSigned ? 'Signature added' : 'You have signed'}>
+            {nameOf(viewerKey as string)} signed this transaction. {progressText(view, missing, nameOf)}
+          </Callout>
+        )
       )}
       {view.resolution && !dead && <Callout kind={view.resolution === 'applied' ? 'success' : 'info'}>{RESOLUTION_TEXT[view.resolution]}</Callout>}
       {confirming && (

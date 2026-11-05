@@ -15,7 +15,7 @@ import { credUnit, groupUnit, hex, instance, keyCred, pos, ref, txHashOf, versio
 import { type Chain, ev, type FakeReg, type FakeTx, fakeKoios, K, payloadValue, sigScript, T, txCbor } from './__tests__/fixtures.js';
 import { settle } from './__tests__/loadFixtures.js';
 import { credBytes, hashBytes, posOrNull, refFromCols, type Row } from './codec.js';
-import { ENGINE_BUDGET, JOB_MAX_QUERIES, MAX_JOB_ROWS_PER_RUN } from './constants.js';
+import { ENGINE_BUDGET, JOB_MAX_QUERIES, LISTED_MIN_MEMBERS, MAX_JOB_ROWS_PER_RUN } from './constants.js';
 import { drepIdForCredential } from './ids.js';
 import { ingestDrepGroups } from './ingest.js';
 import { enqueuePowerScan, type JobReport, jobsPending, runJobs } from './jobs.js';
@@ -259,15 +259,16 @@ describe('retire and repair jobs', () => {
     await join(t, range(300).map((g) => joinOf(m, g, pos(20 + g))));
     await retire(t, m, 500);
     expect(await trackedRow(m)).toMatchObject({ retiring: 1, retired_at_h: 500 });
-    await onePage(t, 100);
+    // 40 rows fit one page even when every group leaves the list as its only member retires.
+    await onePage(t, 40);
     const first = (await jobRow('retire'))?.cursor_json;
-    expect(JSON.parse(String(first)).after[0]).toBe(119);
+    expect(JSON.parse(String(first)).after[0]).toBe(59);
     // A new join and a newer retirement of the same credential.
     const late = joinOf(m, 300, pos(515));
     await join(t, [late]);
     await retire(t, m, 520);
     expect(await jobs('retire')).toBe(1);
-    await onePage(t, 100);
+    await onePage(t, 40);
     expect((await jobRow('retire'))?.cursor_json).toBe(first);
     // The rest at the production page size, every page within its query limit.
     while ((await jobs('retire')) > 0) {
@@ -705,13 +706,13 @@ describe('member power', () => {
     expect(await groupRow(0)).toMatchObject({ power: '9007199254740995' });
   });
 
-  it('power scan picks only listed groups of DReps whose power changed', async () => {
+  it('power scan picks the listed groups of DReps whose power changed', async () => {
     const t = await lease();
     const members = range(6).map(M);
     await powers(members.map((c) => [c, '1']));
     await track(members);
     await createGroups(t, [0, 1, 2, 3]);
-    // Member 4 is also the only member of group 3, which is not listed.
+    // Member 4 is also the only member of group 3, listed only when LISTED_MIN_MEMBERS is 1.
     await join(t, [...members.map((c, i) => joinOf(c, i % 3, pos(20 + i))), joinOf(members[4], 3, pos(40))]);
     await run(t);
     expect(await groupRow(3)).toMatchObject({ members: 1 });
@@ -720,7 +721,8 @@ describe('member power', () => {
     await enqueuePowerScan(db, t);
     expect(await jobs('power-scan')).toBe(1);
     await onePage(t);
-    expect(await all('SELECT job_key FROM drep_group_jobs')).toEqual([{ job_key: refKey(G(1)) }]);
+    const listed = [G(1), ...(1 >= LISTED_MIN_MEMBERS ? [G(3)] : [])].map(refKey).sort();
+    expect((await all('SELECT job_key FROM drep_group_jobs')).map((r) => String(r.job_key)).sort()).toEqual(listed);
     expect(await count('SELECT COUNT(*) AS n FROM drep_group_power_changes')).toBe(0);
     await run(t);
     expect((await Promise.all([0, 1, 2].map(groupRow))).map((g) => g.power)).toEqual(['2', '51', '2']);

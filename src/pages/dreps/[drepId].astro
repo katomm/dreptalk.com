@@ -119,7 +119,7 @@ const [posts, activeStake, votingHistory, votesCast, voteBreakdown, rationaleSta
     drep && db ? getReportCard(db, drep.drepId) : Promise.resolve(null),
     drep && db ? listDrepVoteTimings(db, drep.drepId) : Promise.resolve([]),
     drep && db ? getPrimaryHandle(db, drep.drepId, Math.floor(Date.now() / 1000)) : Promise.resolve(null),
-    // Group chips exist on preprod only, elsewhere the groups store is not even loaded.
+    // Group chips exist where DRep groups run, elsewhere the groups store is not even loaded.
     groupStore && drep && db ? groupStore.then((m) => m.groupsForDrep(db, drep.drepId, 20)) : Promise.resolve([]),
     // Group actions of the DRep still waiting for signatures or for the chain, a joint founding included.
     groupStore && drep && db

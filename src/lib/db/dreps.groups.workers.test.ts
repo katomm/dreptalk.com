@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { type GroupSeed, seedGroup as seedGroupRow } from '../groups/__tests__/engineFixtures.js';
 import { keyHex as keyOf, txHex as txOf } from '../groups/__tests__/loadFixtures.js';
 import { credBytes, hashBytes } from '../groups/codec.js';
+import { LISTED_MIN_MEMBERS } from '../groups/constants.js';
 import { drepIdForCredential } from '../groups/ids.js';
 import { listGroupIdsForSitemap } from './drepGroups.js';
 import { listDreps } from './dreps.js';
@@ -72,8 +73,10 @@ describe('listDreps group filter', () => {
     expect(await page({ activeOnly: true, sort: 'delegators', offset: 1 })).toEqual([drepOf(1)]);
   });
 
-  it('leaves a group below two members out of the sitemap', async () => {
-    await seedGroup(1, { members: 1 });
+  it('lists a group in the sitemap from LISTED_MIN_MEMBERS members', async () => {
+    await seedGroup(1, { members: LISTED_MIN_MEMBERS - 1 });
     expect(await listGroupIdsForSitemap(db, 500)).toEqual([]);
+    await seedGroup(2, { members: LISTED_MIN_MEMBERS });
+    expect(await listGroupIdsForSitemap(db, 500)).toHaveLength(1);
   });
 });
