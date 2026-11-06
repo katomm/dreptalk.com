@@ -35,13 +35,13 @@ function reply(topicId: string, authorId: string, parentPostId: string | null, a
   });
 }
 
-describe('createPost: one-level threading', () => {
+describe('createPost: flat reply storage', () => {
   it('stores the parent for a reply to a top-level post', async () => {
     const { topicId } = await newTopic();
     const top = await reply(topicId, 'a', null, NOW + 1000);
     const child = await reply(topicId, 'b', top.id, NOW + 2000);
     expect(child.parent_post_id).toBe(top.id);
-    expect(child.reply_to_post_id).toBeNull();
+    expect(child.reply_to_post_id).toBe(top.id);
   });
 
   it('lifts a reply to a reply onto the top-level parent', async () => {
@@ -56,7 +56,7 @@ describe('createPost: one-level threading', () => {
     const page = await getThreadPage(db(), topicId);
     const stored = page.childrenByParent.get(top.id)?.find((p) => p.id === grandchild.id);
     expect(stored?.reply_to_post_id).toBe(child.id);
-    expect(page.childrenByParent.get(top.id)?.find((p) => p.id === child.id)?.reply_to_post_id).toBeNull();
+    expect(page.childrenByParent.get(top.id)?.find((p) => p.id === child.id)?.reply_to_post_id).toBe(top.id);
   });
 
   it('rejects a parent from another topic', async () => {

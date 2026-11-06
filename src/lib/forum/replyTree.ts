@@ -2,8 +2,8 @@
 //
 // Storage stays flat: every reply's parent_post_id is the top-level post, so
 // one query loads a whole branch. The tree comes from reply_to_post_id, the
-// reply a post actually answered (null for a direct reply to the top-level
-// post, and for replies written before that column existed).
+// post a reply actually answered (the top-level post itself for a direct
+// reply, null for replies written before that column existed).
 
 export interface ReplyNode<P> {
   post: P;
@@ -16,7 +16,7 @@ export interface ReplyNode<P> {
 /**
  * Depth-first order (each reply followed by its own replies), siblings keep
  * their input order, which is oldest first. A reply whose target is missing
- * (deleted, so not loaded) moves up to depth 1 rather than disappearing.
+ * (the top-level post, a deleted reply, or null) sits at depth 1.
  */
 export function buildReplyTree<P extends { id: string; reply_to_post_id: string | null }>(
   replies: P[],
