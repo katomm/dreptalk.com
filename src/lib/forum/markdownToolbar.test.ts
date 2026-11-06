@@ -137,10 +137,42 @@ describe('shortcutAction', () => {
     expect(shortcutAction(key('I', { ctrlKey: true }))).toBe('italic');
   });
 
+  it('maps Cmd+K and Ctrl+K to link', () => {
+    expect(shortcutAction(key('k', { metaKey: true }))).toBe('link');
+    expect(shortcutAction(key('k', { ctrlKey: true }))).toBe('link');
+  });
+
   it('ignores plain keys, Shift/Alt combos and other letters', () => {
     expect(shortcutAction(key('b'))).toBeNull();
     expect(shortcutAction(key('b', { metaKey: true, shiftKey: true }))).toBeNull();
     expect(shortcutAction(key('i', { ctrlKey: true, altKey: true }))).toBeNull();
-    expect(shortcutAction(key('k', { metaKey: true }))).toBeNull();
+    expect(shortcutAction(key('u', { metaKey: true }))).toBeNull();
+  });
+});
+
+describe('applyMarkdown: bold and italic together', () => {
+  it('italic on bold text adds italic instead of stripping a bold star', () => {
+    const out = applyMarkdown({ text: 'hello **world**', start: 8, end: 13 }, 'italic');
+    expect(show(out)).toBe('hello ***[world]***');
+  });
+
+  it('bold on italic text adds bold', () => {
+    const out = applyMarkdown({ text: 'hello *world*', start: 7, end: 12 }, 'bold');
+    expect(show(out)).toBe('hello ***[world]***');
+  });
+
+  it('removes only italic from bold italic text', () => {
+    const out = applyMarkdown({ text: 'hello ***world***', start: 9, end: 14 }, 'italic');
+    expect(show(out)).toBe('hello **[world]**');
+  });
+
+  it('removes only bold from bold italic text', () => {
+    const out = applyMarkdown({ text: 'hello ***world***', start: 9, end: 14 }, 'bold');
+    expect(show(out)).toBe('hello *[world]*');
+  });
+
+  it('still toggles plain italic off', () => {
+    const out = applyMarkdown({ text: 'hello *world*', start: 7, end: 12 }, 'italic');
+    expect(show(out)).toBe('hello [world]');
   });
 });

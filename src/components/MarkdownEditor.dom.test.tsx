@@ -42,10 +42,11 @@ describe('MarkdownEditor keyboard shortcuts', () => {
     expect(ta.value).toBe('hello world');
   });
 
-  it('leaves Cmd+K alone for the site search', () => {
+  it('Cmd+K turns the selection into a link and cancels the key for the site search', () => {
     const ta = setup('hello world', 6, 11);
     const notCancelled = fireEvent.keyDown(ta, { key: 'k', metaKey: true });
-    expect(notCancelled).toBe(true);
-    expect(ta.value).toBe('hello world');
+    expect(notCancelled).toBe(false);
+    expect(ta.value).toBe('hello [world](url)');
+    expect(ta.value.slice(ta.selectionStart, ta.selectionEnd)).toBe('url');
   });
 });

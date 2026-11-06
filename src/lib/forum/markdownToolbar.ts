@@ -72,7 +72,7 @@ function wrapInline(state: SelectionState, marker: string): SelectionState {
   // Already wrapped just inside the selection -> toggle off.
   const before = text.slice(start - len, start);
   const after = text.slice(end, end + len);
-  if (before === marker && after === marker) {
+  if (marker.startsWith('*') ? starActive(text, start, end, len) : before === marker && after === marker) {
     return {
       text: text.slice(0, start - len) + selected + text.slice(end + len),
       start: start - len,
@@ -88,6 +88,19 @@ function wrapInline(state: SelectionState, marker: string): SelectionState {
   }
   // Keep the original text selected, now sitting inside the markers.
   return { text: next, start: start + len, end: end + len };
+}
+
+// Bold (**) and italic (*) share the asterisk, so a plain marker match would
+// read the inner star of **bold** as italic and strip it. Count the asterisk
+// run hugging both sides instead: 2 or more means bold is on, an odd run (1 or
+// 3) means italic is on, so ***both*** toggles either one independently.
+function starActive(text: string, start: number, end: number, len: number): boolean {
+  let left = 0;
+  while (left < 3 && text[start - 1 - left] === '*') left++;
+  let right = 0;
+  while (right < 3 && text[end + right] === '*') right++;
+  const run = Math.min(left, right);
+  return len === 2 ? run >= 2 : run % 2 === 1;
 }
 
 // Insert a [text](url) link. With a selection, the selection becomes the link
@@ -150,11 +163,11 @@ function orderedList(state: SelectionState): SelectionState {
   );
 }
 
-// Keyboard shortcuts for the inline toolbar actions: Cmd+B / Cmd+I on macOS,
-// Ctrl+B / Ctrl+I elsewhere. Shift and Alt combos are left alone so browser and
-// OS shortcuts on those keys keep working. Cmd/Ctrl+K stays with the site
-// search, so links have no shortcut.
-const SHORTCUT: Record<string, MarkdownAction> = { b: 'bold', i: 'italic' };
+// Keyboard shortcuts for toolbar actions: Cmd+B / Cmd+I / Cmd+K on macOS,
+// Ctrl elsewhere. Shift and Alt combos are left alone so browser and OS
+// shortcuts on those keys keep working. Cmd/Ctrl+K opens the site search
+// everywhere else, the search skips it once the editor has handled it.
+const SHORTCUT: Record<string, MarkdownAction> = { b: 'bold', i: 'italic', k: 'link' };
 
 export function shortcutAction(e: {
   key: string;

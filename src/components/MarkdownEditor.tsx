@@ -33,7 +33,7 @@ const TOOLBAR: { action: MarkdownAction; title: string }[] = [
   { action: 'italic', title: 'Italic (Cmd/Ctrl+I)' },
   { action: 'strike', title: 'Strikethrough' },
   { action: 'heading', title: 'Heading' },
-  { action: 'link', title: 'Link' },
+  { action: 'link', title: 'Link (Cmd/Ctrl+K)' },
   { action: 'quote', title: 'Quote' },
   { action: 'list', title: 'Bullet list' },
   { action: 'orderedList', title: 'Numbered list' },
@@ -332,7 +332,8 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
               syncActive(e.target);
             }}
             onKeyDown={(e) => {
-              // Cmd/Ctrl+B and Cmd/Ctrl+I wrap the selection like the toolbar buttons.
+              // Cmd/Ctrl+B, +I and +K format the selection like the toolbar buttons. The
+              // cancelled event tells the site search to leave Cmd/Ctrl+K alone here.
               const shortcut = e.nativeEvent.isComposing ? null : shortcutAction(e);
               if (shortcut) {
                 e.preventDefault();
