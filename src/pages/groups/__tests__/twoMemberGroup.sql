@@ -45,3 +45,8 @@ INSERT OR REPLACE INTO drep_group_verdicts (tx_hash, idx, group_tx, group_ix, at
 INSERT OR REPLACE INTO drep_group_verdicts (tx_hash, idx, group_tx, group_ix, at_h, at_ti, at_ph, at_ix, at_tx, tag, valid)
   VALUES (X'e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2', 0, X'f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0', 0,
     102, 0, 2, 0, X'e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2', 'join', 1);
+-- INSERT OR REPLACE of the group row above resets its listing count on a second run, the triggers
+-- of the instances only move it, so the count is taken again from the stored leads.
+UPDATE drep_groups SET counted_members = (SELECT COUNT(*) FROM drep_group_leads l
+    WHERE l.group_tx = drep_groups.group_tx AND l.group_ix = drep_groups.group_ix)
+  WHERE group_tx = X'f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0' AND group_ix = 0;

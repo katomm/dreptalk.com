@@ -393,6 +393,8 @@ export async function changesPerCall<T>(db: D1Database, call: (db: D1Database) =
 
 export interface GroupSeed {
   members?: number;
+  /** The listing count, members by default. Seeded rows carry no instances, so no trigger sets it. */
+  counted?: number;
   /** A SQL integer literal, exact above 2^53. */
   power?: string;
   status?: 'active' | 'dissolved';
@@ -417,11 +419,11 @@ export async function seedGroup(db: D1Database, n: number, o: GroupSeed = {}): P
     .prepare(
       `INSERT INTO drep_groups (group_tx, group_ix, cur_h, cur_ti, cur_ph, cur_ix, cur_tx, mode, control, profile_url, profile_hash,
         seq, status, created_h, created_ti, created_ph, created_ix, created_tx,
-        dissolved_h, dissolved_ti, dissolved_ph, dissolved_ix, dissolved_tx, members, member_power, closing)
+        dissolved_h, dissolved_ti, dissolved_ph, dissolved_ix, dissolved_tx, members, member_power, closing, counted_members)
        VALUES (?1, 0, ${at(1)}, ?2, X'aa', ?3, ?4, '7', ?5, ${at(1)},
-        ${d === null ? 'NULL, NULL, NULL, NULL, NULL' : at(d)}, ?6, CAST(?7 AS INTEGER), ?8)`,
+        ${d === null ? 'NULL, NULL, NULL, NULL, NULL' : at(d)}, ?6, CAST(?7 AS INTEGER), ?8, ?9)`,
     )
-    .bind(tx, o.mode ?? 'open', url, hash === null ? null : hashBytes(hash), o.status ?? 'active', o.members ?? 2, o.power ?? '0', o.closing ?? 0)
+    .bind(tx, o.mode ?? 'open', url, hash === null ? null : hashBytes(hash), o.status ?? 'active', o.members ?? 2, o.power ?? '0', o.closing ?? 0, o.counted ?? o.members ?? 2)
     .run();
   if (o.due) {
     await db.prepare('INSERT INTO drep_group_due (kind, group_tx, group_ix, due_at) VALUES (?, ?, 0, ?)').bind(o.due, tx, o.dueAt ?? 0).run();

@@ -110,6 +110,11 @@ INSERT OR REPLACE INTO drep_group_profiles (group_tx, group_ix, profile_url, dat
   (X'0000000000000000000000000000000000000000000000000000000000e2e00a', 0, 'https://example.test/e2e-group.json', X'e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2', 'ok', 'E2E Permissioned Council', 'Three DReps who confirm every member.', 'https://example.test', NULL, '[]', strftime('%s','now')*1000);
 -- The voting power of the three active members, which the power job would add up.
 UPDATE drep_groups SET member_power = 6000000000000 WHERE group_tx = X'0000000000000000000000000000000000000000000000000000000000e2e00a' AND group_ix = 0;
+-- The instances above come before their group row, so their triggers found no group to count in.
+-- The listing count is taken from the stored leads once the group row exists.
+UPDATE drep_groups SET counted_members = (SELECT COUNT(*) FROM drep_group_leads l
+    WHERE l.group_tx = drep_groups.group_tx AND l.group_ix = drep_groups.group_ix)
+  WHERE group_tx = X'0000000000000000000000000000000000000000000000000000000000e2e00a' AND group_ix = 0;
 -- A dreps write while an instance is open queues the DRep for the power job, which this fixture does not run.
 DELETE FROM drep_group_power_changes WHERE drep_id IN ('drep1y2jmg4g450lced7q9n34rq6d5vjwkm0ugx6h0894u6ur92s9txn3a', 'drep1ygxk54m7j3q6mrkevcunryrwf4p7e68c93cjk8gzxkhlkps6qcwph', 'drep1yt74jw0m2cq7tdq7aenxmws5cznaz5w5ekdsu9nfrn36nfqv4qv3r', 'drep1ygqgk3uyfkfgzt7rp50s4jdkl0ecw7xvh2wmsvf2myreq7g9t76dg');
 INSERT INTO notifications (id, recipient_id, type, event_key, payload, created_at) VALUES

@@ -198,7 +198,6 @@ export function memberPublishBatch(db: D1Database, changes: MemberChange[], now:
     ...rows(db, 'deleteProfileDue', down(PROFILE_MIN_MEMBERS), key, guard),
     ...rows(db, 'dueProfileIfAnchored', up(PROFILE_MIN_MEMBERS), key, [now, ...guard]),
     ...rows(db, 'deleteWebsiteDue', down(LISTED_MIN_MEMBERS), key, guard),
-    ...rows(db, 'dueWebsiteIfProfiled', up(LISTED_MIN_MEMBERS), key, [now, ...guard]),
     ...rows(db, 'enqueueGroupJobs', power, (x) => ['power', refKey(x.group), ...key(x), ...NULL_POS], guard),
     ...rows(db, 'publishMembers', changes, (x) => [...key(x), x.after.members - x.before.members], guard),
   ];

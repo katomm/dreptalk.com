@@ -319,12 +319,12 @@ const SELECTIONS: Array<{ name: string; seed: (n: number) => string[]; run: (db:
 // page, open and closing), the groups of a DRep in n more groups than its chips show, with n former
 // memberships of its own and n of other DReps, and the sitemap among the same groups as the listing.
 const GROUP_COLS = `group_tx, group_ix, cur_h, cur_ti, cur_ph, cur_ix, cur_tx, mode, control, seq, status, created_h, created_ti,
-  created_ph, created_ix, created_tx, members, member_power, closing, dissolved_h, dissolved_ti, dissolved_ph, dissolved_ix, dissolved_tx`;
+  created_ph, created_ix, created_tx, members, counted_members, member_power, closing, dissolved_h, dissolved_ti, dissolved_ph, dissolved_ix, dissolved_tx`;
 const NOT_DISSOLVED = '0, NULL, NULL, NULL, NULL, NULL';
 const groupsSql = (base: number, count: number, members: number, power: string, closing = NOT_DISSOLVED): string =>
   `${series(count)} INSERT INTO drep_groups (${GROUP_COLS})
     SELECT ${hashSql(base)}, 0, 1, 0, 2, 0, ${hashSql(base)}, 'open', X'aa', '0', ${closing === NOT_DISSOLVED ? "'active'" : "'dissolved'"},
-      1, 0, 2, 0, ${hashSql(base)}, ${members}, ${power}, ${closing} FROM s`;
+      1, 0, 2, 0, ${hashSql(base)}, ${members}, ${members}, ${power}, ${closing} FROM s`;
 const instancesSql = (count: number, join: number, group: string, cred: string, drep: string, counted: string): string =>
   `${series(count)} INSERT INTO drep_group_instances (join_tx, join_ix, group_tx, group_ix, cred, drep_id, mode, joined_h, joined_ti,
       joined_ph, joined_ix, joined_tx, counted_as)
@@ -428,7 +428,9 @@ describe('the worst case of one engine run', () => {
 });
 
 // Growth is measured in whole 4,096 byte pages, so the bound keeps a margin of a few pages per thousand creates.
-const COMPACT_BOUND = 4_000;
+// The listing count (migration 0128) adds about 165 bytes per founder: its lead row and its entry in the
+// oldest open membership index, so the compact bound moved from 4,000 to 4,200.
+const COMPACT_BOUND = 4_200;
 const BATCHED_BOUND = 3_000;
 
 const sizeAfter = async (): Promise<number> => (await env.DB.prepare('SELECT 1').all()).meta.size_after as number;

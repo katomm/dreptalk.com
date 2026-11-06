@@ -2,7 +2,7 @@
 // DRep groups for the pages: bounded readers of groups, members and history, and the profile and
 // website due queue with the writes that move its rows. A group id is the bech32 id of the page,
 // decoded to the key of the stored group.
-import type { Credential, EventRef, NativeScript } from 'drep-groups';
+import type { Credential, EventRef, NativeScript, Pos } from 'drep-groups';
 import { comparePos, effectiveClose, parseNativeScript, refKey } from 'drep-groups';
 import {
   GROUP_PAGE_SIZE,
@@ -303,15 +303,18 @@ export async function statusNote(db: D1Database): Promise<StatusNote> {
   return pick !== undefined && (picked(pick, 'recompute') || picked(pick, 'repair')) ? 'correcting' : null;
 }
 
+export type ListedGroupRow = GroupRow & { name: string | null; image: string | null; websiteVerified: boolean };
+
 /**
- * One page of the groups with at least LISTED_MIN_MEMBERS members, by member power and then group key.
+ * One page of the listed groups, by member power and then group key. A group is listed once it counts
+ * LISTED_MIN_MEMBERS DReps, each DRep counting toward its oldest active membership only.
  * `after` is the power and group id of the last row of the previous page.
  */
 export async function listListedGroups(
   db: D1Database,
   after: { power: string; groupId: string } | null,
   limit: number,
-): Promise<Array<GroupRow & { name: string | null; websiteVerified: boolean }>> {
+): Promise<ListedGroupRow[]> {
   return pageRead('listed groups', [], async () => {
     // A cursor that does not parse gives the first page, as a member cursor does.
     const ref = after !== null && /^\d+$/.test(after.power) ? groupIdParam(after.groupId) : null;
@@ -322,7 +325,35 @@ export async function listListedGroups(
       const res = (await db.prepare(Q.listedAfter.sql).bind(after.power, ...refBinds(ref), limit).all<Row>()).results ?? [];
       rows = res.sort(listedOrder).slice(0, limit);
     }
-    return rows.map((r) => ({ ...groupFromRow(r), name: optStr(r.p_name), websiteVerified: r.p_verified !== null }));
+    return rows.map((r) => ({ ...groupFromRow(r), name: optStr(r.p_name), image: optStr(r.p_image), websiteVerified: r.p_verified !== null }));
+  });
+}
+
+/** The member power of the first listed group, the scale of the list's power bars, null when none is listed. */
+export async function topListedPower(db: D1Database): Promise<string | null> {
+  return pageRead('top listed group', null, async () => {
+    const r = await db.prepare(Q.listedFirst.sql).bind(1).first<Row>();
+    return r ? String(r.member_power) : null;
+  });
+}
+
+export type GroupFace = { drepId: string; name: string | null; hex: string | null; imageHash: string | null };
+
+/** The first LISTED_FACES active members of each group by join position, by group id, in one batch. */
+export async function listedGroupFaces(db: D1Database, groups: EventRef[]): Promise<Map<string, GroupFace[]>> {
+  return pageRead('group faces', new Map<string, GroupFace[]>(), async () => {
+    const stmts = keyedStatements(db, KEYED.listedFaces, KEYED_WIDTH.listedFaces, groups, refBinds);
+    if (stmts.length === 0) return new Map<string, GroupFace[]>();
+    const rows = (await db.batch<Row>(stmts)).flatMap((r) => r.results ?? []);
+    const at = (r: Row): Pos => ({ blockHeight: Number(r.joined_h), txIndex: Number(r.joined_ti), phase: Number(r.joined_ph) as Pos['phase'], index: Number(r.joined_ix), txHash: '' });
+    rows.sort((a, b) => comparePos(at(a), at(b)));
+    const out = new Map<string, GroupFace[]>();
+    for (const r of rows) {
+      const id = groupIdString(refFromCols(r.k_gtx, r.k_gix));
+      const face = { drepId: String(r.drep_id), name: optStr(r.drep_name), hex: optStr(r.drep_hex), imageHash: optStr(r.drep_image) };
+      out.set(id, [...(out.get(id) ?? []), face]);
+    }
+    return out;
   });
 }
 

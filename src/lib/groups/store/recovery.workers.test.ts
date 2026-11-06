@@ -379,6 +379,7 @@ const STORED_TABLES = [
   'drep_group_versions',
   'drep_groups',
   'drep_group_instances',
+  'drep_group_leads',
   'drep_group_verdicts',
   'drep_group_jobs',
   'drep_group_trim_due',
@@ -511,6 +512,50 @@ describe('drep groups ingest and recovery', () => {
           expect(await count("SELECT COUNT(*) AS n FROM drep_group_tracked WHERE retiring = 1 AND retired_at_h = 30")).toBe(80);
           expect(await count("SELECT COUNT(*) AS n FROM drep_group_jobs WHERE kind = 'repair'")).toBe(80);
         }
+      }
+    },
+    HEAVY,
+  );
+
+  it(
+    'keeps a state call within the row budget when every deleted instance moves its DRep listing count',
+    async () => {
+      for (const budget of [400, 50]) {
+        await finishTest();
+        // DRep c holds open memberships in groups 2c and 2c + 1, both joined above the cut. Deleting the older
+        // one moves the count to the other group, which becomes listed and gets its website due row from a stored
+        // profile, deleting that one ends it: the worst case of the lead and website due triggers.
+        const sql: string[] = [];
+        const id = (g: number): string => `X'${hex(500_000 + g, 64)}', 0`;
+        const icols = 'join_tx, join_ix, group_tx, group_ix, cred, drep_id, mode, joined_h, joined_ti, joined_ph, joined_ix, joined_tx, counted_as';
+        for (let c = 0; c < 120; c++) {
+          for (const g of [2 * c, 2 * c + 1]) {
+            sql.push(`INSERT INTO drep_groups (group_tx, group_ix, cur_h, cur_ti, cur_ph, cur_ix, cur_tx, mode, control, admission,
+                profile_url, profile_hash, seq, status, created_h, created_ti, created_ph, created_ix, created_tx, members)
+              VALUES (${id(g)}, ${P(pos(10, 1))}, 'open', X'aa', NULL, 'https://example.org/g.json', X'${'aa'.repeat(32)}', '0', 'active',
+                ${P(pos(10, 1))}, 1)`);
+            sql.push(`INSERT OR REPLACE INTO drep_group_profiles (group_tx, group_ix, profile_url, data_hash, status, website, fetched_at)
+              VALUES (${id(g)}, 'https://example.org/g.json', X'${'aa'.repeat(32)}', 'ok', 'https://example.org', 1)`);
+          }
+          const k = C(`key:${hex(10_000 + c)}`);
+          sql.push(`INSERT INTO drep_group_instances (${icols}) VALUES
+            (X'${hex(600_000 + c, 64)}', 0, ${id(2 * c)}, ${k}, 'd', 'open', ${P(pos(60, 2))}, 'open'),
+            (X'${hex(700_000 + c, 64)}', 0, ${id(2 * c + 1)}, ${k}, 'd', 'open', ${P(pos(70, 2))}, 'open')`);
+        }
+        await exec(...sql);
+        expect(await count('SELECT COUNT(*) AS n FROM drep_groups WHERE counted_members = 1')).toBe(120);
+        expect(await count("SELECT COUNT(*) AS n FROM drep_group_due WHERE kind = 'website'")).toBe(120);
+        const t = await lease();
+        await openRecovery(db, { kind: 'truncate', above: 50 }, t, 1000);
+        await setMeta({ rec_phase: 'state' });
+        const c = await changesPerCall(db, (d) => truncateStep(d, 50, budget, t));
+        expect(c.result).toBe('more');
+        expect(c.changes).toBeGreaterThan(budget - 20);
+        expect(c.changes).toBeLessThanOrEqual(budget + RECOVERY_STEP_OVERHEAD);
+        await stepToDone(() => truncateStep(db, 50, budget, t));
+        expect(await count('SELECT COUNT(*) AS n FROM drep_group_instances')).toBe(0);
+        expect(await count('SELECT COUNT(*) AS n FROM drep_group_leads')).toBe(0);
+        expect(await count('SELECT COUNT(*) AS n FROM drep_groups WHERE counted_members <> 0')).toBe(0);
       }
     },
     HEAVY,

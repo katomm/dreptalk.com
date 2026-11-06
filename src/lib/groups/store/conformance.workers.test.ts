@@ -21,9 +21,11 @@ import {
 import { describe, expect, it } from 'vitest';
 import { bindCountingDb } from '../../db/__tests__/bindCountingDb.js';
 import { D1_MAX_BINDS } from '../../db/sql.js';
+import { refFromCols, type Row } from '../codec.js';
 import { getGroup, listMembers, listVerdicts } from '../../db/drepGroups.js';
 import { UNLIMITED } from '../../sync/queryBudget.js';
 import { D1DriverStore } from '../__tests__/d1DriverStore.js';
+import { expectedCounted, expectLeadsConsistent } from '../__tests__/listingCount.js';
 import { GROUP_PAGE_SIZE, MAX_JOB_ROWS_PER_RUN, RETENTION_KEEP_APPLIED, RETENTION_KEEP_NOT_APPLIED } from '../constants.js';
 import { drepIdForCredential, groupIdString } from '../ids.js';
 import { runJobs } from '../jobs.js';
@@ -51,6 +53,8 @@ describe('drep-groups conformance on D1', () => {
         generateSchedule(seed, chain, { chunks: 4, rollback: 0.6, rebuild: 0.5, fork: 0.25 }),
       );
       expect(maxBinds()).toBeLessThanOrEqual(D1_MAX_BINDS);
+      // The listing count follows the stored caches through every rollback, rebuild and fork.
+      await expectLeadsConsistent(env.DB);
       // A finished rebuild leaves no rebuilding note behind.
       expect(await env.DB.prepare('SELECT rebuilding FROM drep_group_meta WHERE id = 1').first()).toEqual({ rebuilding: 0 });
       seen.push(result.coverage);
@@ -191,6 +195,13 @@ async function expectPagesShow(proj: DisplayProjection): Promise<void> {
   }
   expect(actual).toEqual(expected);
   expect(await env.DB.prepare('SELECT COUNT(*) AS n FROM drep_groups').first()).toEqual({ n: proj.groups.length });
+  // The listing counts each DRep once, toward its oldest active membership.
+  await expectLeadsConsistent(env.DB);
+  const listing = expectedCounted(proj);
+  const counted = (await env.DB.prepare('SELECT group_tx, group_ix, counted_members FROM drep_groups').all<Row>()).results ?? [];
+  expect(Object.fromEntries(counted.map((r) => [refKey(refFromCols(r.group_tx, r.group_ix)), Number(r.counted_members)]))).toEqual(
+    Object.fromEntries(proj.groups.map((g) => [refKey(g.id), listing.get(refKey(g.id)) ?? 0])),
+  );
 }
 
 const BIG: Budget = {

@@ -6,6 +6,7 @@ import Layout from '@/layouts/Layout.astro';
 import GroupWizard from '@/components/groups/GroupWizard.js';
 import { currentNetwork } from '@/lib/api/response.js';
 import { sessionKeyHash } from '@/lib/auth/groupSigner.js';
+import { loginHref } from '@/lib/auth/postLoginDest.js';
 import { drepGroupsAvailable } from '@/lib/groups/gate.js';
 import { wallClockSlot } from '@/lib/groups/groupTx.js';
 
@@ -16,7 +17,7 @@ if (!drepGroupsAvailable(network)) {
 }
 const user = Astro.locals.user;
 if (!user) {
-  return Astro.redirect('/login/');
+  return Astro.redirect(loginHref('/groups/new/'));
 }
 
 Astro.response.headers.set('Cache-Control', 'no-store');

@@ -45,7 +45,11 @@ test('anonymous visitors see the group list and page without action buttons', as
   await waitForHydration(page);
   await expect(page.getByRole('heading', { level: 1, name: 'DRep groups' })).toBeVisible();
   await expect(page.getByRole('link', { name: GROUP_NAME })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Found a new group or DRep party' })).toHaveCount(0);
+  // The create button reads the same for everyone, an anonymous visitor signs in first and returns to the wizard.
+  const create = page.getByRole('link', { name: 'Create group', exact: true }).first();
+  await expect(create).toBeVisible();
+  await expect(create).toHaveAttribute('href', '/login/?next=%2Fgroups%2Fnew%2F');
+  await expect(page.locator('.gr-row .drep-table__rank').first()).toHaveText('#1');
   await shot(page, '1a-anonymous-group-list');
 
   await page.getByRole('link', { name: GROUP_NAME }).click();

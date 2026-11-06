@@ -32,6 +32,10 @@ const LIVE_LEASE = `id = 1 AND token = ? AND expires_at > ${DB_NOW_MS}`;
 export const values = (width: number, rows: number): string =>
   Array.from({ length: rows }, () => `(${Array.from({ length: width }, () => '?').join(', ')})`).join(', ');
 
+/** Member avatars a row of the group list shows. */
+export const LISTED_FACES = 3;
+const JOINED_I = 'i.joined_h, i.joined_ti, i.joined_ph, i.joined_ix';
+
 // Statements over a VALUES list of keys, built per chunk length. The registry holds the one row text.
 export const KEYED = Object.freeze({
   loadInstances: (n: number) => `WITH k(tx, ix) AS (VALUES ${values(2, n)})
@@ -89,6 +93,16 @@ export const KEYED = Object.freeze({
     SELECT d.drep_id, d.name FROM k JOIN dreps d ON d.drep_id = k.id WHERE d.name IS NOT NULL`,
   profileDocs: (n: number) => `WITH k(hash) AS (VALUES ${values(1, n)})
     SELECT d.hash, d.body FROM k JOIN drep_group_profile_docs d ON d.hash = k.hash`,
+  // The first LISTED_FACES active members of each group by join position, with their name and avatar.
+  listedFaces: (n: number) => `WITH k(gtx, gix) AS (VALUES ${values(2, n)})
+    SELECT k.gtx AS k_gtx, k.gix AS k_gix, i.drep_id, ${JOINED_I}, d.name AS drep_name, d.hex AS drep_hex,
+      d.image_content_hash AS drep_image
+    FROM k
+    JOIN drep_group_instances i ON i.rowid IN (
+      SELECT x.rowid FROM drep_group_instances x
+      WHERE x.group_tx = k.gtx AND x.group_ix = k.gix AND x.counted_as = 'open'
+      ORDER BY x.joined_h, x.joined_ti, x.joined_ph, x.joined_ix LIMIT ${LISTED_FACES})
+    LEFT JOIN dreps d ON d.drep_id = i.drep_id`,
 });
 
 /** Bound parameters per key of each keyed statement. */
@@ -104,6 +118,7 @@ export const KEYED_WIDTH: Readonly<Record<keyof typeof KEYED, number>> = Object.
   treasuryScripts: 1,
   drepNames: 1,
   profileDocs: 1,
+  listedFaces: 2,
 });
 
 const POS = (p: string): string => `${p}_h, ${p}_ti, ${p}_ph, ${p}_ix, ${p}_tx`;
@@ -188,14 +203,6 @@ export const COMMIT = Object.freeze({
     SELECT 'profile', g.group_tx, g.group_ix, ? FROM k JOIN drep_groups g ON ${GROUP_KEY}
     WHERE g.profile_url IS NOT NULL AND ${GEN_OK('g')}
     ON CONFLICT (kind, group_tx, group_ix) DO UPDATE SET due_at = excluded.due_at`,
-  // Binds the rows, then now and the gen guard. A group that becomes listed with a stored profile of its
-  // current anchor that names a website.
-  dueWebsiteIfProfiled: (n: number) => `WITH k(gtx, gix) AS (VALUES ${values(2, n)})
-    INSERT INTO drep_group_due (kind, group_tx, group_ix, due_at)
-    SELECT 'website', g.group_tx, g.group_ix, ? FROM k JOIN drep_groups g ON ${GROUP_KEY}
-    JOIN drep_group_profiles p ON p.group_tx = g.group_tx AND p.group_ix = g.group_ix
-    WHERE p.website IS NOT NULL AND p.profile_url = g.profile_url AND p.data_hash = g.profile_hash AND ${GEN_OK('g')}
-    ON CONFLICT (kind, group_tx, group_ix) DO UPDATE SET due_at = excluded.due_at`,
   // Binds the rows, then the gen guard.
   deleteProfileDue: deleteDue("'profile'"),
   deleteWebsiteDue: deleteDue("'website'"),
@@ -270,7 +277,6 @@ export const COMMIT_WIDTH: Readonly<Record<keyof typeof COMMIT, number>> = Objec
   upsertGroups: 6,
   dueProfileIfListed: 2,
   dueProfileIfAnchored: 2,
-  dueWebsiteIfProfiled: 2,
   deleteProfileDue: 2,
   deleteWebsiteDue: 2,
   enqueueGroupJobs: 9,
@@ -295,7 +301,6 @@ export const COMMIT_WIDTH: Readonly<Record<keyof typeof COMMIT, number>> = Objec
 export const COMMIT_TRAILING: Readonly<Partial<Record<keyof typeof COMMIT, number>>> = Object.freeze({
   dueProfileIfListed: 1,
   dueProfileIfAnchored: 2,
-  dueWebsiteIfProfiled: 2,
   deleteProfileDue: 1,
   deleteWebsiteDue: 1,
   enqueueGroupJobs: 1,
@@ -1063,15 +1068,22 @@ const READY_TRACKED = `SELECT cred, applied_h, applied_ti, applied_ph, applied_i
   WHERE complete = 1 AND known = ? AND next_h IS NOT NULL AND (next_h, next_ti, next_ph, next_ix) <= (?, ?, ?, ?)
   ORDER BY next_h, next_ti, next_ph, next_ix LIMIT ?`;
 
+// The listing, for the page readers and the website checks. A listed group counts at least LISTED_MIN_MEMBERS
+// DReps, each DRep counting only toward its oldest open membership (counted_members, migration 0128). The partial index drep_groups_listed covers
+// counted_members >= 1 and orders by member power and then the group key. SQLite uses a partial index only when
+// the query names its predicate term as written, so that term stays literal and a higher threshold is a second
+// filter. member_power can exceed 2^53, so it is read as TEXT and bound as CAST(? AS INTEGER).
+const LISTED = `g.counted_members >= 1${LISTED_MIN_MEMBERS > 1 ? ` AND g.counted_members >= ${LISTED_MIN_MEMBERS}` : ''}`;
+
 // One page of the due queue, stale rows included so that the LIMIT bounds what is read. A profile due row is
 // stale when its group is gone, has no member or has no anchor, a website due row when the group is gone or
-// unlisted or its profile names no website.
+// not listed (the LISTED term on counted_members) or its profile names no website.
 const PROFILE_DUE_PAGE = `SELECT d.rowid AS id, d.group_tx, d.group_ix, g.profile_url, g.profile_hash,
     (g.group_tx IS NULL OR g.profile_url IS NULL OR g.profile_hash IS NULL OR g.members < ${PROFILE_MIN_MEMBERS}) AS stale
   FROM drep_group_due d LEFT JOIN drep_groups g ON g.group_tx = d.group_tx AND g.group_ix = d.group_ix
   WHERE d.kind = 'profile' AND d.due_at <= ? ORDER BY d.due_at, d.rowid LIMIT ?`;
 const WEBSITE_DUE_PAGE = `SELECT d.rowid AS id, d.group_tx, d.group_ix, p.website,
-    (g.group_tx IS NULL OR g.members < ${LISTED_MIN_MEMBERS} OR p.website IS NULL) AS stale
+    (g.group_tx IS NULL OR NOT (${LISTED}) OR p.website IS NULL) AS stale
   FROM drep_group_due d
   LEFT JOIN drep_groups g ON g.group_tx = d.group_tx AND g.group_ix = d.group_ix
   LEFT JOIN drep_group_profiles p ON p.group_tx = d.group_tx AND p.group_ix = d.group_ix
@@ -1080,16 +1092,12 @@ const WEBSITE_DUE_PAGE = `SELECT d.rowid AS id, d.group_tx, d.group_ix, p.websit
 const SAME_ANCHOR = `EXISTS (SELECT 1 FROM drep_groups g WHERE g.group_tx = drep_group_due.group_tx
     AND g.group_ix = drep_group_due.group_ix AND g.profile_url = ? AND g.profile_hash = ?)`;
 
-// Page readers. A listed group has at least LISTED_MIN_MEMBERS members. The partial index drep_groups_listed
-// covers members >= 1 and orders by member power and then the group key. SQLite uses a partial index only when
-// the query names its predicate term as written, so that term stays literal and a higher threshold is a second
-// filter. member_power can exceed 2^53, so it is read as TEXT and bound as CAST(? AS INTEGER).
-const LISTED = `g.members >= 1${LISTED_MIN_MEMBERS > 1 ? ` AND g.members >= ${LISTED_MIN_MEMBERS}` : ''}`;
+// Page readers.
 const LISTED_ORDER = 'g.member_power DESC, g.group_tx, g.group_ix';
 const GROUP_READ = `g.group_tx, g.group_ix, g.mode, g.status, g.seq, g.control, g.admission, g.profile_url, g.profile_hash,
     g.created_h, g.profile_set_h, g.members, g.pending, g.former, g.applied_events, g.not_applied_events,
     CAST(g.member_power AS TEXT) AS member_power, g.closing`;
-const LISTED_READ = `${GROUP_READ}, p.name AS p_name, p.website_verified_at AS p_verified`;
+const LISTED_READ = `${GROUP_READ}, p.name AS p_name, p.image AS p_image, p.website_verified_at AS p_verified`;
 const PROFILE_JOIN = 'LEFT JOIN drep_group_profiles p ON p.group_tx = g.group_tx AND p.group_ix = g.group_ix';
 // A later listed page: the rest of the cursor's power after its group key, then the lower powers. Each part
 // reads at most the limit, the reader keeps the first `limit` rows of both in this order.
@@ -1130,6 +1138,7 @@ export const Q = Object.freeze({
   scriptDisplays: { sql: KEYED.scriptDisplays(1) },
   treasuryScripts: { sql: KEYED.treasuryScripts(1) },
   drepNames: { sql: KEYED.drepNames(1) },
+  listedFaces: { sql: KEYED.listedFaces(1) },
   // Binds the key hash. The active groups with the key in their control or admission policy.
   groupsForPolicyKey: {
     sql: `SELECT g.group_tx, g.group_ix FROM drep_group_policy_keys p
@@ -1377,7 +1386,7 @@ export const Q = Object.freeze({
     sql: `INSERT INTO drep_group_due (kind, group_tx, group_ix, due_at)
           SELECT 'website', g.group_tx, g.group_ix, CAST(? AS INTEGER) FROM drep_groups g
           WHERE g.group_tx = ? AND g.group_ix = ? AND g.profile_url = ? AND g.profile_hash = ?
-            AND g.members >= ${LISTED_MIN_MEMBERS}
+            AND ${LISTED}
           ON CONFLICT (kind, group_tx, group_ix) DO UPDATE SET due_at = excluded.due_at`,
   },
   // Binds the check time, whether it verified (0 or 1), the check time, then the group.

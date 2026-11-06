@@ -34,14 +34,16 @@ interface Props {
    * revoked.
    */
   mandate?: MandateBadge | null;
+  /** Link target of the name and avatar, in place of the author's profile. For identities that are not people, such as a DRep group. */
+  href?: string | null;
 }
 
-const { author, size = 28, truncate = false, kind, mandate } = Astro.props;
+const { author, size = 28, truncate = false, kind, mandate, href } = Astro.props;
 const { displayName, imageHash, imageSrc, badges = [], isSystem = false } = author;
 
 // Same seed everywhere for a given author (DRep hex when known, else the id).
 const seed = author.identiconSeed ?? author.authorId;
-const profileHref = authorProfileHref(author);
+const profileHref = href !== undefined ? href : authorProfileHref(author);
 // Optional stacked sub-line under the name (e.g. a mobile rank in the DRep list).
 // Only callers that pass a `sub` slot get the column layout; everyone else keeps
 // the original inline name, so this stays transparent to existing uses.

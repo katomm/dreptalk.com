@@ -98,6 +98,9 @@ export function describePolicy(s: ScriptView | null, names: Map<string, string>,
   return part(s);
 }
 
+/** The mode as a one word pill: "Open" or "Permissioned". */
+export const modeShort = (mode: string): string => (mode === 'permissioned' ? 'Permissioned' : 'Open');
+
 export function modeLabel(mode: string): string {
   return mode === 'permissioned' ? 'Permissioned, confirmed by the group' : 'Open, self-declared';
 }

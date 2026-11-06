@@ -5,6 +5,7 @@ import { env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 import { declaredCtes, planOf, unboundedScans } from '../__tests__/queryPlan.js';
 import { Q_SAMPLE_BINDS } from '../__tests__/sampleBinds.js';
+import { LISTED_MIN_MEMBERS } from '../constants.js';
 import { Q } from './queries.js';
 
 describe('query plans of the DRep groups store', () => {
@@ -18,7 +19,7 @@ describe('query plans of the DRep groups store', () => {
 
   it('accepts the first listed groups page as a bounded keyset scan', async () => {
     const q = {
-      sql: 'SELECT group_tx, group_ix FROM drep_groups WHERE members >= 1 ORDER BY member_power DESC, group_tx, group_ix LIMIT ?',
+      sql: 'SELECT group_tx, group_ix FROM drep_groups WHERE counted_members >= 1 ORDER BY member_power DESC, group_tx, group_ix LIMIT ?',
       boundedScan: 'drep_groups_listed',
     };
     const plan = await planOf(env.DB, q.sql, [50]);
@@ -26,6 +27,46 @@ describe('query plans of the DRep groups store', () => {
     expect(unboundedScans(q, plan)).toEqual([]);
     // The same walk without the declaration fails.
     expect(unboundedScans({ sql: q.sql }, plan)).toHaveLength(1);
+  });
+
+  it('moves a DRep listing count with seeks only, the statements as the triggers of migration 0128 hold them', async () => {
+    const triggers = (
+      (await env.DB.prepare("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'drep_group_instances_lead_%'").all<{ sql: string }>())
+        .results ?? []
+    ).map((r) => r.sql);
+    expect(triggers).toHaveLength(3);
+    const body = (t: string): string[] =>
+      t
+        .slice(t.indexOf('BEGIN') + 5, t.lastIndexOf('END'))
+        .split(';')
+        .map((x) => x.trim())
+        .filter((x) => x !== '');
+    for (const t of triggers) {
+      const stmts = body(t);
+      expect(stmts).toHaveLength(4);
+      for (const stmt of stmts) {
+        const sql = stmt.replace(/\b(NEW|OLD)\.cred\b/g, '?');
+        const plan = await planOf(env.DB, sql, [new Uint8Array(29)]);
+        expect(unboundedScans({ sql }, plan), sql).toEqual([]);
+        if (sql.startsWith('INSERT')) expect(plan.join(' | ')).toContain('drep_group_instances_lead');
+      }
+    }
+  });
+
+  it('makes a website due with one seek when a group becomes listed, at the LISTED_MIN_MEMBERS threshold', async () => {
+    const row = await env.DB.prepare("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'drep_groups_website_due'").first<{
+      sql: string;
+    }>();
+    const t = row?.sql ?? '';
+    // The trigger crosses at a literal, a raised constant needs a migration that recreates it.
+    expect(t).toContain(`OLD.counted_members < ${LISTED_MIN_MEMBERS} AND NEW.counted_members >= ${LISTED_MIN_MEMBERS}`);
+    const sql = t
+      .slice(t.indexOf('BEGIN') + 5, t.lastIndexOf('END'))
+      .trim()
+      .replace(/;$/, '')
+      .replace(/\bNEW\.\w+\b/g, '?');
+    const plan = await planOf(env.DB, sql, [new Uint8Array(32), 0, 'https://example.org/g.json', new Uint8Array(32)]);
+    expect(unboundedScans({ sql }, plan), sql).toEqual([]);
   });
 
   it('accepts a scan over a declared key list', async () => {

@@ -5,6 +5,8 @@ import {
   getGroup,
   groupActionState,
   listListedGroups,
+  listedGroupFaces,
+  topListedPower,
   listMembers,
   listVerdicts,
   scriptDisplays,
@@ -61,6 +63,14 @@ describe('group detail lookup', () => {
     const listed = await listListedGroups(db, null, 50);
     expect(listed.map((g) => g.groupId)).toEqual([SEEDED]);
     const ref = group?.ref ?? { txHash: '', index: 0 };
+    // The list rows show the first members by join position, read in one batch.
+    const faces = await listedGroupFaces(db, [ref, { txHash: 'ab'.repeat(32), index: 0 }]);
+    expect([...faces.keys()]).toEqual([SEEDED]);
+    expect(faces.get(SEEDED)?.map((f) => f.name)).toEqual(['Alice Example', 'Bob Example']);
+    expect(await topListedPower(db)).toBe(listed[0].memberPower);
+    // Seeding again keeps the listing count, the seed takes it again from the stored leads.
+    await seedTwoMemberGroup();
+    expect((await listListedGroups(db, null, 50)).map((g) => g.groupId)).toEqual([SEEDED]);
     const members = await listMembers(db, ref, 'active', null, 50);
     expect(members.map((m) => m.drepName)).toEqual(['Alice Example', 'Bob Example']);
     expect((await listVerdicts(db, ref, true, 200)).map((v) => v.tag)).toEqual(['join', 'join', 'create']);

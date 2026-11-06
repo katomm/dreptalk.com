@@ -7,16 +7,18 @@ import type { Credential, EventRef, EventVerdict, Pos, StoredInstance } from 'dr
 import { RETENTION_FLOOR, refKey } from 'drep-groups';
 import { engineProjection } from 'drep-groups/conformance';
 import { describe, expect, it } from 'vitest';
+import { listListedGroups, websitesToCheck } from '../db/drepGroups.js';
 import { deactivateDreps, upsertDrep } from '../db/dreps.js';
 import { drepArgs } from '../drepLink/__fixtures__/drepHandles.js';
 import { type Allowance, allowance, countingDb, UNLIMITED } from '../sync/queryBudget.js';
 import { D1DriverStore } from './__tests__/d1DriverStore.js';
+import { expectedCounted, expectLeadsConsistent } from './__tests__/listingCount.js';
 import { credUnit, groupUnit, hex, instance, keyCred, pos, ref, txHashOf, version } from './__tests__/engineFixtures.js';
 import { type Chain, ev, type FakeReg, type FakeTx, fakeKoios, K, payloadValue, sigScript, T, txCbor } from './__tests__/fixtures.js';
 import { settle } from './__tests__/loadFixtures.js';
 import { credBytes, hashBytes, posOrNull, refFromCols, type Row } from './codec.js';
 import { ENGINE_BUDGET, JOB_MAX_QUERIES, LISTED_MIN_MEMBERS, MAX_JOB_ROWS_PER_RUN } from './constants.js';
-import { drepIdForCredential } from './ids.js';
+import { drepIdForCredential, groupIdString } from './ids.js';
 import { ingestDrepGroups } from './ingest.js';
 import { enqueuePowerScan, type JobReport, jobsPending, runJobs } from './jobs.js';
 import { commit } from './store/commit.js';
@@ -168,6 +170,8 @@ async function expectFresh(o: { power?: boolean } = {}): Promise<void> {
   const power = new Map((await all('SELECT drep_id, voting_power FROM dreps')).map((r) => [String(r.drep_id), BigInt(String(r.voting_power ?? 0))]));
   const verdicts = new Map<string, EventVerdict[]>();
   for (const v of proj.verdicts) if (v.group) verdicts.set(refKey(v.group), [...(verdicts.get(refKey(v.group)) ?? []), v]);
+  const listing = expectedCounted(proj);
+  await expectLeadsConsistent(db);
   for (const g of await all('SELECT *, CAST(member_power AS TEXT) AS power FROM drep_groups')) {
     const id = refFromCols(g.group_tx, g.group_ix);
     const own = proj.instances.filter((i) => refKey(i.group) === refKey(id));
@@ -178,6 +182,7 @@ async function expectFresh(o: { power?: boolean } = {}): Promise<void> {
       former: own.filter((i) => i.state === 'closed').length,
       applied_events: vs.filter((v) => v.valid).length + Number(g.trimmed_applied),
       not_applied_events: vs.filter((v) => !v.valid).length + Number(g.trimmed_not_applied),
+      counted_members: listing.get(refKey(id)) ?? 0,
     };
     if (o.power) {
       want.power = own
@@ -564,6 +569,114 @@ describe('recompute jobs', () => {
     await onePage(t);
     expect(await groupRow(0)).toMatchObject({ members: 0 });
     expect(await count('SELECT COUNT(*) AS n FROM drep_group_due')).toBe(0);
+  });
+});
+
+describe('listing count', () => {
+  const countedOf = async (ids: number[]): Promise<number[]> => Promise.all(ids.map(async (g) => Number((await groupRow(g)).counted_members)));
+  const listed = async (): Promise<string[]> => (await listListedGroups(db, null, 200)).map((r) => r.groupId);
+  const gid = (g: number): string => groupIdString(G(g));
+
+  it('one DRep founding 100 groups lists only its oldest, a leave moves the count to the next oldest and a rollback moves it back', { timeout: HEAVY }, async () => {
+    const t = await lease();
+    const a = M(0);
+    await track([a]);
+    const ids = range(100);
+    await createGroups(t, ids);
+    // Joined in reverse group order, so the oldest membership is group 99.
+    await join(t, ids.map((g) => joinOf(a, g, pos(20 + (99 - g)))));
+    expect(await countedOf([99, 98, 0])).toEqual([1, 0, 0]);
+    expect((await groupRow(0)).members).toBe(1);
+    expect(await listed()).toEqual([gid(99)]);
+    await expectFresh();
+
+    const oldest = joinOf(a, 99, pos(20));
+    await commit(db, [credUnit(a, pos(200), { instances: [{ ...oldest, closedAt: pos(200), closeReason: 'left' }] })], t);
+    expect(await countedOf([99, 98])).toEqual([0, 1]);
+    expect(await listed()).toEqual([gid(98)]);
+    await expectFresh();
+
+    await truncate(t, 150);
+    await run(t);
+    expect(await countedOf([99, 98])).toEqual([1, 0]);
+    expect(await listed()).toEqual([gid(99)]);
+    await expectFresh();
+  });
+
+  it('two DReps in the same two groups list both groups only when each counts toward a different one', async () => {
+    const t = await lease();
+    const [a, b] = [M(0), M(1)];
+    await track([a, b]);
+    await createGroups(t, [0, 1]);
+    await join(t, [joinOf(a, 0, pos(20)), joinOf(b, 0, pos(21)), joinOf(a, 1, pos(22)), joinOf(b, 1, pos(23))]);
+    expect(await countedOf([0, 1])).toEqual([2, 0]);
+    expect(await listed()).toEqual([gid(0)]);
+    // B leaves group 0, its next oldest active membership is group 1.
+    await commit(db, [credUnit(b, pos(30), { instances: [{ ...joinOf(b, 0, pos(21)), closedAt: pos(30), closeReason: 'left' }] })], t);
+    expect(await countedOf([0, 1])).toEqual([1, 1]);
+    expect(new Set(await listed())).toEqual(new Set([gid(0), gid(1)]));
+    expect((await groupRow(1)).members).toBe(2);
+    await expectFresh();
+  });
+
+  it('a dissolve moves the count once its job closed the memberships, a retirement takes it away', async () => {
+    const t = await lease();
+    const [a, b] = [M(0), M(1)];
+    await track([a, b]);
+    await createGroups(t, [0, 1, 2]);
+    await join(t, [joinOf(a, 0, pos(20)), joinOf(a, 1, pos(21)), joinOf(b, 2, pos(22))]);
+    expect(await countedOf([0, 1, 2])).toEqual([1, 0, 1]);
+    await dissolve(t, 0, 40);
+    await run(t);
+    expect(await countedOf([0, 1, 2])).toEqual([0, 1, 1]);
+    expect(new Set(await listed())).toEqual(new Set([gid(1), gid(2)]));
+    await expectFresh();
+    await retire(t, a, 50);
+    await run(t);
+    expect(await countedOf([0, 1, 2])).toEqual([0, 0, 1]);
+    expect(await listed()).toEqual([gid(2)]);
+    await expectFresh();
+  });
+
+  it('checks the website of the listed group only, and of the next oldest once the count moves there', async () => {
+    const t = await lease();
+    const a = M(0);
+    await track([a]);
+    const ids = range(5);
+    await createGroups(t, ids, { profile: { url: 'https://example.org/g.json', dataHash: 'aa'.repeat(32) }, profileSetAt: created(0) });
+    // Every group has a fetched profile of its anchor that names a website.
+    await db
+      .prepare(
+        `INSERT INTO drep_group_profiles (group_tx, group_ix, profile_url, data_hash, status, website, fetched_at)
+         SELECT group_tx, group_ix, profile_url, profile_hash, 'ok', 'https://example.org', 1 FROM drep_groups`,
+      )
+      .run();
+    await join(t, ids.map((g) => joinOf(a, g, pos(20 + g))));
+    expect(await countedOf(ids)).toEqual([1, 0, 0, 0, 0]);
+    expect((await groupRow(4)).members).toBe(1);
+    const due = async (): Promise<string[]> => (await websitesToCheck(db, 1_000, 50, t)).map((r) => r.groupId);
+    expect(await due()).toEqual([gid(0)]);
+    expect(await count("SELECT COUNT(*) AS n FROM drep_group_due WHERE kind = 'website'")).toBe(1);
+
+    await commit(db, [credUnit(a, pos(200), { instances: [{ ...joinOf(a, 0, pos(20)), closedAt: pos(200), closeReason: 'left' }] })], t);
+    expect(await countedOf([0, 1])).toEqual([0, 1]);
+    // Group 1 is listed now and due on the next run, the unlisted group 0 drops out of the queue.
+    expect(await due()).toEqual([gid(1)]);
+    expect(await count("SELECT COUNT(*) AS n FROM drep_group_due WHERE kind = 'website'")).toBe(1);
+  });
+
+  it('a pending request counts only once it is approved', async () => {
+    const t = await lease();
+    const a = M(0);
+    await track([a]);
+    await createGroups(t, [0, 1], { mode: 'permissioned' });
+    const request = joinOf(a, 0, pos(20), { mode: 'permissioned' });
+    await join(t, [request, joinOf(a, 1, pos(21), { mode: 'permissioned', approvedAt: pos(21) })]);
+    expect(await countedOf([0, 1])).toEqual([0, 1]);
+    await commit(db, [credUnit(a, pos(30), { instances: [{ ...request, approvedAt: pos(30) }] })], t);
+    // The approved request is the older join, so the count moves to group 0.
+    expect(await countedOf([0, 1])).toEqual([1, 0]);
+    await expectFresh();
   });
 });
 

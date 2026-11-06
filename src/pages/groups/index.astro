@@ -2,14 +2,19 @@
 export const prerender = false;
 import { env } from 'cloudflare:workers';
 import Layout from '@/layouts/Layout.astro';
+import AuthorIdentity from '@/components/AuthorIdentity.astro';
+import Avatar from '@/components/Avatar.astro';
+import Pager from '@/components/Pager.astro';
 import NotFoundPage from '../404.astro';
 import { currentNetwork } from '@/lib/api/response';
-import { listListedGroups } from '@/lib/db/drepGroups.js';
-import { cacheControlForSynced, formatAda } from '@/lib/forum/view.js';
+import { type GroupFace, listedGroupFaces, listListedGroups, topListedPower } from '@/lib/db/drepGroups.js';
+import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
+import { cacheControlForSynced, formatAda, formatAdaCompact } from '@/lib/forum/view.js';
 import { DREP_GROUPS_STANDARD_URL, GROUP_PAGE_SIZE, LISTED_MIN_MEMBERS } from '@/lib/groups/constants.js';
 import { drepGroupsAvailable } from '@/lib/groups/gate.js';
 import { sessionKeyHash } from '@/lib/auth/groupSigner.js';
-import { LISTED_RULE, memberCount, memberCountWords, modeLabel, shortHash } from '@/lib/groups/view.js';
+import { loginHref } from '@/lib/auth/postLoginDest.js';
+import { hostedAvatarHash, LISTED_RULE, memberCount, memberCountWords, modeLabel, modeShort, shortHash } from '@/lib/groups/view.js';
 
 const available = drepGroupsAvailable(currentNetwork().network);
 const db = env.DB as D1Database | undefined;
@@ -18,12 +23,24 @@ const afterParam = Astro.url.searchParams.get('after');
 const dot = afterParam?.indexOf('.') ?? -1;
 // The reader shows the first page for a cursor that does not parse.
 const after = afterParam && dot > 0 ? { power: afterParam.slice(0, dot), groupId: afterParam.slice(dot + 1) } : null;
-const groups = available && db ? await listListedGroups(db, after, GROUP_PAGE_SIZE) : [];
+// The rank of the first row, carried by the Next link because the list pages by cursor. It only numbers
+// the rows, so a hand edited value changes nothing but the numbers.
+const fromParam = Number(Astro.url.searchParams.get('from'));
+const from = after && Number.isSafeInteger(fromParam) && fromParam > 1 ? fromParam : 1;
+const page = Math.floor((from - 1) / GROUP_PAGE_SIZE) + 1;
+const [groups, top] = available && db ? await Promise.all([listListedGroups(db, after, GROUP_PAGE_SIZE), topListedPower(db)]) : [[], null];
+const faces = available && db && groups.length > 0 ? await listedGroupFaces(db, groups.map((g) => g.ref)) : new Map<string, GroupFace[]>();
 const last = groups.length === GROUP_PAGE_SIZE ? groups[groups.length - 1] : null;
-// Signed-in pages are not cached, so the link can follow the session.
+// Signed-in pages are not cached, so the button can follow the session.
 const user = Astro.locals.user;
 const mayFound = !!user && user.roles.includes('drep') && sessionKeyHash(user) !== null;
-const nextHref = last ? `/groups/?after=${encodeURIComponent(`${last.memberPower}.${last.groupId}`)}` : null;
+// Everyone else signs in as a DRep first and comes back to the founding wizard.
+const createHref = mayFound ? '/groups/new/' : loginHref('/groups/new/');
+const createTitle = mayFound ? undefined : 'Sign in as a DRep to create a group';
+const nextHref = last ? `/groups/?after=${encodeURIComponent(`${last.memberPower}.${last.groupId}`)}&from=${from + groups.length}` : null;
+// Bars are drawn relative to the first group, as the DRep list draws them relative to the leader.
+const topPower = top === null ? 0 : Number(top);
+const barWidth = (power: string): string => `${(topPower > 0 ? Math.min((Number(power) / topPower) * 100, 100) : 0).toFixed(2)}%`;
 if (available) {
   Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
 } else {
@@ -36,48 +53,155 @@ if (available) {
 ) : (
   <Layout title="DRep groups - DRepTalk" description="Groups, parties and councils of Cardano DReps, recorded on chain." wide>
     <nav class="gr-crumbs"><a href="/">DRepTalk</a><span>/</span><span>Groups</span></nav>
-    <h1>DRep groups</h1>
-    <p class="gr-intro">Groups record which DReps belong together, on chain under metadata label 8416. Open groups are self-declared, permissioned groups confirm every member. A group never votes, its members vote on their own. Groups with {LISTED_RULE} are listed, sorted by the voting power of their members. <a href="/help/drep-groups/">How DRep groups work</a></p>
-    {mayFound && <p class="gr-found"><a class="btn" href="/groups/new/">Found a new group or DRep party</a></p>}
+    <div class="gr-head">
+      <h1>DRep groups</h1>
+      <a class="btn btn-primary gr-head__cta" href={createHref} title={createTitle}>Create group</a>
+    </div>
+    <p class="gr-intro">
+      Groups, parties and councils of DReps, recorded on chain. A group never votes, its members vote on their own.
+      Groups are ranked by the voting power of their affiliated DReps and listed once they have {LISTED_RULE}.
+      <a href="/help/drep-groups/">How DRep groups work</a>
+    </p>
     {groups.length === 0 && !after ? (
       <section class="gr-empty" aria-label="No groups yet">
         <h2>No groups yet</h2>
         <p>DRep groups are new. Be among the first to show voters which DReps work together.</p>
         <ul>
           <li><a href="/help/drep-groups/">How DRep groups work</a>: founding, admitting members, managing a group together and leaving it.</li>
-          <li>{mayFound ? <a href="/groups/new/">Found a new group or DRep party</a> : <><a href="/login/">Sign in as a DRep</a> to found a group</>}. A group shows up here once it has {memberCountWords(LISTED_MIN_MEMBERS)}.</li>
+          <li><a href={createHref} title={createTitle}>Create group</a>. A group shows up here once it has {memberCountWords(LISTED_MIN_MEMBERS)}.</li>
           <li><a href={DREP_GROUPS_STANDARD_URL} rel="noopener">The open standard</a> behind the groups, which any wallet or explorer can read.</li>
         </ul>
       </section>
     ) : groups.length === 0 ? (
       <p class="gr-meta">No more groups.</p>
     ) : (
-      <ul class="gr-list">
-        {groups.map((g) => (
-          <li class="gr-item">
-            <a href={`/groups/${g.groupId}/`}>{g.name ?? shortHash(g.groupId)}</a>
-            <span class="gr-meta"><code title={g.groupId}>{shortHash(g.groupId)}</code> · {modeLabel(g.mode)} · {memberCount(g.members)} · voting power of affiliated DReps {formatAda(g.memberPower)}{g.status === 'dissolved' ? ' · Dissolved' : ''}{g.websiteVerified ? ' · Website verified' : ''}</span>
-          </li>
-        ))}
-      </ul>
+      <table class="drep-table gr-table">
+        <thead>
+          <tr>
+            <th scope="col" class="drep-table__rank-h"><span class="sr-only">Rank</span></th>
+            <th scope="col">Group</th>
+            <th scope="col" class="drep-table__power-h">Voting power <span class="drep-table__trend-sub">(affiliated DReps)</span></th>
+            <th scope="col" class="gr-table__members-h">Members</th>
+          </tr>
+        </thead>
+        <tbody>
+          {groups.map((g, i) => {
+            const rank = from + i;
+            const own = faces.get(g.groupId) ?? [];
+            const author = {
+              authorId: g.groupId,
+              displayName: g.name ?? shortHash(g.groupId),
+              identiconSeed: g.groupId,
+              imageHash: hostedAvatarHash(g.image),
+            };
+            return (
+              <tr class="gr-row">
+                <td class="drep-table__rank">#{rank}</td>
+                <td>
+                  <AuthorIdentity author={author} href={`/groups/${g.groupId}/`} size={AVATAR_SIZE.rowLead} truncate>
+                    <span slot="sub" class="gr-sub">
+                      <span class="gr-sub__rank">#{rank}</span>
+                      <span class={`gr-pill${g.mode === 'permissioned' ? ' gr-pill--permissioned' : ''}`} title={modeLabel(g.mode)}>{modeShort(g.mode)}</span>
+                      {g.status === 'dissolved' && <span class="gr-pill gr-pill--dissolved">Dissolved</span>}
+                      <code class="gr-sub__id" title={g.groupId}>{shortHash(g.groupId)}</code>
+                      <span class="gr-sub__members">{memberCount(g.members)}</span>
+                      {g.websiteVerified && <span class="gr-sub__verified">Website verified</span>}
+                    </span>
+                  </AuthorIdentity>
+                </td>
+                <td class="drep-table__power">
+                  <div class="drep-power">
+                    <span class="drep-power__ada">
+                      <span class="drep-power__ada-full">{formatAda(g.memberPower)}</span>
+                      <span class="drep-power__ada-compact">{formatAdaCompact(g.memberPower)}</span>
+                    </span>
+                    <span class="drep-power__meter">
+                      <span class="drep-power__bar" aria-hidden="true">
+                        <span class="drep-power__fill" style={`width:${barWidth(g.memberPower)}`}></span>
+                      </span>
+                    </span>
+                  </div>
+                </td>
+                <td class="gr-table__members">
+                  <span class="gr-members">
+                    {own.length > 0 && (
+                      <span class="gr-faces" aria-hidden="true">
+                        {own.map((f) => (
+                          <span class="gr-faces__item" title={f.name ?? shortHash(f.drepId)}>
+                            <Avatar seed={f.hex ?? f.drepId} imageHash={f.imageHash} size={24} />
+                          </span>
+                        ))}
+                      </span>
+                    )}
+                    <span class="gr-members__count">{memberCount(g.members)}</span>
+                  </span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     )}
-    {nextHref && (
-      <nav class="gr-pager" aria-label="Pagination">
-        <a href={nextHref} rel="next">Next</a>
-      </nav>
-    )}
+    <Pager prevHref={null} nextHref={nextHref} firstHref={page > 1 ? '/groups/' : null} page={page} label="Groups pagination" />
   </Layout>
 )}
 <style>
   .gr-crumbs { font-size: 0.875rem; color: var(--muted); margin-bottom: 1rem; display: flex; gap: 0.375rem; }
-  .gr-intro { color: var(--muted); max-width: 46rem; }
-  .gr-pager { display: flex; gap: 1rem; margin-top: 1.5rem; font-size: 0.875rem; font-weight: 600; }
+  .gr-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem 1.25rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
+  .gr-head h1 { margin: 0; }
+  .gr-intro { color: var(--muted); max-width: 46rem; margin: 0 0 1.5rem; }
   .gr-empty { border: 1px solid var(--border); border-radius: 0.75rem; padding: 1.25rem 1.5rem; max-width: 46rem; }
   .gr-empty h2 { margin: 0 0 0.5rem; font-size: 1.125rem; }
   .gr-empty p { margin: 0 0 0.75rem; color: var(--muted); }
   .gr-empty ul { margin: 0; padding-left: 1.25rem; display: grid; gap: 0.5rem; }
-  .gr-found { margin: 0 0 1.5rem; }
-  .gr-list { list-style: none; padding: 0; display: grid; gap: 0.75rem; }
-  .gr-item { display: flex; flex-direction: column; gap: 0.125rem; }
   .gr-meta { font-size: 0.875rem; color: var(--muted); }
+
+  /* The whole row opens the group: the name link stretches over the row. */
+  .gr-row { position: relative; }
+  .gr-row :global(.author-identity__name--link)::after { content: ''; position: absolute; inset: 0; }
+  .gr-row:hover td { background: color-mix(in srgb, var(--accent) 5%, transparent); }
+  .gr-row:focus-within td { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+
+  .gr-table thead th.gr-table__members-h { width: 11rem; text-align: left; }
+  .gr-table td.gr-table__members { color: var(--muted); font-size: 0.875rem; }
+
+  .gr-sub { display: flex; align-items: center; flex-wrap: wrap; gap: 0.2rem 0.45rem; margin-top: 0.15rem; font-size: 0.75rem; color: var(--muted); line-height: 1.3; }
+  .gr-sub__rank, .gr-sub__members { display: none; font-variant-numeric: tabular-nums; }
+  .gr-sub__id { font-size: 0.75rem; background: none; padding: 0; color: var(--muted); }
+  .gr-sub__verified { color: var(--c-pos); font-weight: 600; }
+  .gr-pill {
+    display: inline-block;
+    padding: 0.05rem 0.45rem;
+    border-radius: 999px;
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border: 1px solid var(--border);
+  }
+  .gr-pill--permissioned { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 30%, transparent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+  .gr-pill--dissolved { color: var(--c-neg); border-color: color-mix(in srgb, var(--c-neg) 30%, transparent); }
+
+  .gr-members { display: inline-flex; align-items: center; gap: 0.5rem; }
+  .gr-faces { display: inline-flex; align-items: center; }
+  .gr-faces__item { display: inline-flex; border-radius: 50%; box-shadow: 0 0 0 2px var(--bg); }
+  .gr-faces__item + .gr-faces__item { margin-left: -0.45rem; }
+  /* The meter has no percentage here, so the bar takes its full width instead of shrinking to nothing. */
+  .gr-table :global(.drep-power__bar) { flex: none; width: 90px; }
+  .gr-members__count { white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+  /* The DRep list moves the rank under the name from 960px down, the group list does the same. */
+  @media (max-width: 960px) {
+    .gr-sub__rank { display: inline; font-weight: 500; }
+  }
+  /* Phones: the members column folds into the sub line, the short id gives it the room. */
+  @media (max-width: 640px) {
+    .gr-head__cta { width: 100%; }
+    .gr-table thead th.gr-table__members-h,
+    .gr-table td.gr-table__members { display: none; }
+    .gr-table thead th.drep-table__power-h { width: 6.5rem; }
+    .gr-sub__id { display: none; }
+    .gr-sub__members { display: inline; }
+  }
 </style>

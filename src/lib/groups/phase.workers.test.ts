@@ -124,8 +124,8 @@ async function seedListed(n: number): Promise<void> {
   await real
     .prepare(
       `INSERT INTO drep_groups (group_tx, group_ix, cur_h, cur_ti, cur_ph, cur_ix, cur_tx, mode, control, profile_url, profile_hash, seq,
-        status, created_h, created_ti, created_ph, created_ix, created_tx, members)
-       VALUES (?1, 0, 1, 0, 2, 0, ?1, 'open', X'aa', ?2, ?3, '0', 'active', 1, 0, 2, 0, ?1, 2)`,
+        status, created_h, created_ti, created_ph, created_ix, created_tx, members, counted_members)
+       VALUES (?1, 0, 1, 0, 2, 0, ?1, 'open', X'aa', ?2, ?3, '0', 'active', 1, 0, 2, 0, ?1, 2, 2)`,
     )
     .bind(tx, PROFILE_URL, hashBytes(docHash))
     .run();

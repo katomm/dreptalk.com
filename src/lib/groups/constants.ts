@@ -41,21 +41,22 @@ export const ENGINE_BUDGET: Budget = {
   truncateRows: 400,
   resetRows: 400,
 };
-// Rows written by one recovery call beyond its budget: guard 2 + meta row 1 + (max CHANGES_PER_ROW 11 - 1), the first
+// Rows written by one recovery call beyond its budget: guard 2 + meta row 1 + (max CHANGES_PER_ROW 14 - 1), the first
 // page of a call takes one row even when the budget is smaller than its cost.
-export const RECOVERY_STEP_OVERHEAD = 13;
+export const RECOVERY_STEP_OVERHEAD = 16;
 // Worst case D1 rows_written per source row of each phase, trigger rows included. An insert counts its row and
 // every index entry, a delete 1, an update its row and the index entries it inserts, an ignored insert 1.
-// raw: the row and the pending_witness trigger. state: the row, a new recompute job (5) and the group's gen, more
-// than an outcome or join request delete (1) or a reopened resolution (the row and its open control and unresolved
-// entries, 3).
+// raw: the row and the pending_witness trigger. state: the row, a new recompute job (5), the group's gen and the
+// listing count triggers of an open instance that moves its DRep's count to another group (4, migration 0128), which
+// then becomes listed and gets a website due row with its two index entries (3), more than an outcome or join request
+// delete (1) or a reopened resolution (the row and its open control and unresolved entries, 3).
 // undo: the instance, a new recompute job and gen. versions: the group row with its cur_h entry (2), a new
 // recompute job (5), a new profile due row (3) and the website due delete, or for a deleted group its row, two due
 // rows and the trim due row. credentials: the tracked row with its retired_at_h entry (2) and a new repair job (5).
 // jobs: the job row. flags: closing or a new power job. markers: the flagged row and its refetch entry.
 export const CHANGES_PER_ROW = {
   raw: 3,
-  state: 7,
+  state: 14,
   undo: 7,
   versions: 11,
   credentials: 7,
@@ -84,9 +85,13 @@ export const LEASE_MS = 900_000;
 export const RETENTION_KEEP_APPLIED = 200;
 export const RETENTION_KEEP_NOT_APPLIED = 50;
 /**
- * Members a group needs to be listed on /groups/, in the sitemap and for website checks and power
- * jobs. 1 lets groups form quickly, raise it if the list draws abuse. The listing index covers
- * members >= 1 (migration 0128), a higher value is filtered on top of it.
+ * Members a group needs to be listed on /groups/ and in the sitemap, and for website checks. Both
+ * compare it with counted_members, where each DRep counts only toward its oldest open membership,
+ * so one DRep founding many groups lists one of them and causes at most one website check. Power
+ * jobs compare it with members, every open membership, which covers every listed group. 1 lets
+ * groups form quickly, raise it if the list draws abuse. The listing index covers
+ * counted_members >= 1 (migration 0128), a higher value is filtered on top of it. The website due
+ * trigger of migration 0128 crosses at 1, so raising this needs a migration that recreates it.
  */
 export const LISTED_MIN_MEMBERS = 1;
 export const PROFILE_MIN_MEMBERS = 1;
