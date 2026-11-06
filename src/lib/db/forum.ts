@@ -34,6 +34,12 @@ export interface Post {
   author_id: string;
   /** Top-level posts have null; replies carry their top-level parent's id. */
   parent_post_id: string | null;
+  /**
+   * The post this reply answered, which may itself be a reply (the thread view
+   * nests on it). Null for top-level posts and for replies written before the
+   * column existed.
+   */
+  reply_to_post_id: string | null;
   /** Populated by createTopic/createPost; omitted by the thread readers (use body_html for display). */
   body_md?: string;
   body_html: string;
@@ -77,6 +83,7 @@ interface PostRow {
   topic_id: string;
   author_id: string;
   parent_post_id: string | null;
+  reply_to_post_id: string | null;
   body_md: string;
   body_html: string;
   up_count: number;
@@ -99,7 +106,7 @@ interface PostRowNoBody extends Omit<PostRow, 'body_md'> {
 
 // The display column list shared by every post reader (body_md excluded).
 const POST_COLUMNS =
-  'id, topic_id, author_id, parent_post_id, body_html, up_count, down_count, flag_count, hidden, edited_at, deleted, created_at, source, vote, proposer_grant_id';
+  'id, topic_id, author_id, parent_post_id, reply_to_post_id, body_html, up_count, down_count, flag_count, hidden, edited_at, deleted, created_at, source, vote, proposer_grant_id';
 
 /** Maps a raw D1 row to the Topic type (0/1 integers to JS booleans). */
 export function rowToTopic(row: TopicRow): Topic {
@@ -129,6 +136,7 @@ function rowToPost(row: PostRow | PostRowNoBody): Post {
     topic_id: row.topic_id,
     author_id: row.author_id,
     parent_post_id: row.parent_post_id,
+    reply_to_post_id: row.reply_to_post_id,
     body_html: row.body_html,
     up_count: row.up_count,
     down_count: row.down_count,
@@ -294,6 +302,7 @@ export async function createTopic(
     topic_id: topicId,
     author_id: authorId,
     parent_post_id: null,
+    reply_to_post_id: null,
     body_md: bodyMd,
     body_html: bodyHtml,
     up_count: 0,
@@ -596,8 +605,9 @@ export async function getPostsByAuthor(
  * Throws 'topic_not_found' if the topic does not exist or is deleted.
  * Throws 'topic_locked' if the topic is locked.
  * Throws 'parent_not_found' if parentPostId names no live post of this topic.
- * Threads are exactly one level deep: replying to a reply attaches the new
- * post to that reply's own top-level parent.
+ * Storage stays one level deep: replying to a reply stores the new post
+ * under that reply's own top-level parent, and keeps the reply it answered in
+ * reply_to_post_id for the nested view.
  * On success, increments post_count and updates last_post_at on the topic.
  * Returns the created post.
  */
@@ -651,19 +661,20 @@ export async function createPost(
     if (!parent || parent.deleted === 1 || parent.topic_id !== topicId) {
       throw new Error('parent_not_found');
     }
-    // Lift a reply-to-a-reply onto the top-level parent (one level, enforced).
+    // Store a reply-to-a-reply under the top-level parent (flat storage).
     parentId = parent.parent_post_id ?? parent.id;
   }
+  const replyToId = args.parentPostId || null;
 
   const postId = crypto.randomUUID();
 
   const insertPost = db
     .prepare(
       `INSERT INTO posts
-         (id, topic_id, author_id, parent_post_id, body_md, body_html, created_at, proposer_grant_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, topic_id, author_id, parent_post_id, reply_to_post_id, body_md, body_html, created_at, proposer_grant_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .bind(postId, topicId, authorId, parentId, bodyMd, bodyHtml, now, proposerGrantId);
+    .bind(postId, topicId, authorId, parentId, replyToId, bodyMd, bodyHtml, now, proposerGrantId);
 
   const updateTopic = db
     .prepare(
@@ -684,6 +695,7 @@ export async function createPost(
     topic_id: topicId,
     author_id: authorId,
     parent_post_id: parentId,
+    reply_to_post_id: replyToId,
     body_md: bodyMd,
     body_html: bodyHtml,
     up_count: 0,
@@ -958,7 +970,7 @@ export async function getPostHistory(db: D1Database, postId: string): Promise<Po
 }
 
 // ---------------------------------------------------------------------------
-// Thread page (one-level threading) and thread stats
+// Thread page (flat reply storage, nested in the view) and thread stats
 // ---------------------------------------------------------------------------
 
 export interface ThreadPage {
@@ -988,14 +1000,14 @@ const TOP_LEVEL_PAGE_SQL = `FROM posts
 
 /**
  * Loads everything the thread view needs in ONE batched round-trip:
- * the page's top-level posts, ALL replies to them (one level; the subselect
+ * the page's top-level posts, ALL replies to them at any depth (the subselect
  * recomputes the page's parent ids so the statements stay independent), and
  * the topic-wide stats strip. Pagination counts top-level posts only, so a
  * reply always renders under its parent regardless of when it was written.
  * Hidden posts are included (rendered as placeholders); deleted ones are not.
  *
- * Assumes the one-level invariant that createPost enforces: every
- * parent_post_id names a top-level post of the same topic.
+ * Assumes the flat storage that createPost enforces: every parent_post_id
+ * names a top-level post of the same topic. The view nests on reply_to_post_id.
  */
 export async function getThreadPage(
   db: D1Database,
