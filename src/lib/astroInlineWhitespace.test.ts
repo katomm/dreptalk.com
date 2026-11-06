@@ -68,7 +68,7 @@ const openInline = new RegExp(`^<(?:${INLINE})[ >]`);
 function isProseBoundary({ left, right }: Boundary): boolean {
   const leftText = /[\p{L}\p{N}.,;:!?)'"%]$/u.test(left) && !/[=;{(]\s*$/.test(left.slice(-2));
   const leftTag = closeInline.test(left);
-  const leftExpr = /\$\{[^]*\}$/.test(left) && left.endsWith('}');
+  const leftExpr = /\$\{[\s\S]*\}$/.test(left) && left.endsWith('}');
   const rightText =
     /^[\p{L}\p{N}('"]/u.test(right) && !/^(import|export|const|let|return|var|function|if|else|\$\$)/.test(right);
   const rightTag = openInline.test(right);
