@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyMarkdown } from './markdownToolbar.js';
+import { applyMarkdown, shortcutAction } from './markdownToolbar.js';
 
 // Helper: render the resulting selection as a string with | markers so the
 // expected cursor/selection is easy to read in assertions.
@@ -114,5 +114,65 @@ describe('applyMarkdown: line prefixes (quote, list, heading)', () => {
   it('expands a collapsed cursor to cover the whole line it sits on', () => {
     const out = applyMarkdown({ text: 'hello world', start: 3, end: 3 }, 'quote');
     expect(out.text).toBe('> hello world');
+  });
+});
+
+describe('shortcutAction', () => {
+  const key = (k: string, mods: Partial<{ metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean }> = {}) => ({
+    key: k,
+    metaKey: false,
+    ctrlKey: false,
+    shiftKey: false,
+    altKey: false,
+    ...mods,
+  });
+
+  it('maps Cmd+B and Ctrl+B to bold', () => {
+    expect(shortcutAction(key('b', { metaKey: true }))).toBe('bold');
+    expect(shortcutAction(key('b', { ctrlKey: true }))).toBe('bold');
+  });
+
+  it('maps Cmd+I and Ctrl+I to italic', () => {
+    expect(shortcutAction(key('i', { metaKey: true }))).toBe('italic');
+    expect(shortcutAction(key('I', { ctrlKey: true }))).toBe('italic');
+  });
+
+  it('maps Cmd+K and Ctrl+K to link', () => {
+    expect(shortcutAction(key('k', { metaKey: true }))).toBe('link');
+    expect(shortcutAction(key('k', { ctrlKey: true }))).toBe('link');
+  });
+
+  it('ignores plain keys, Shift/Alt combos and other letters', () => {
+    expect(shortcutAction(key('b'))).toBeNull();
+    expect(shortcutAction(key('b', { metaKey: true, shiftKey: true }))).toBeNull();
+    expect(shortcutAction(key('i', { ctrlKey: true, altKey: true }))).toBeNull();
+    expect(shortcutAction(key('u', { metaKey: true }))).toBeNull();
+  });
+});
+
+describe('applyMarkdown: bold and italic together', () => {
+  it('italic on bold text adds italic instead of stripping a bold star', () => {
+    const out = applyMarkdown({ text: 'hello **world**', start: 8, end: 13 }, 'italic');
+    expect(show(out)).toBe('hello ***[world]***');
+  });
+
+  it('bold on italic text adds bold', () => {
+    const out = applyMarkdown({ text: 'hello *world*', start: 7, end: 12 }, 'bold');
+    expect(show(out)).toBe('hello ***[world]***');
+  });
+
+  it('removes only italic from bold italic text', () => {
+    const out = applyMarkdown({ text: 'hello ***world***', start: 9, end: 14 }, 'italic');
+    expect(show(out)).toBe('hello **[world]**');
+  });
+
+  it('removes only bold from bold italic text', () => {
+    const out = applyMarkdown({ text: 'hello ***world***', start: 9, end: 14 }, 'bold');
+    expect(show(out)).toBe('hello *[world]*');
+  });
+
+  it('still toggles plain italic off', () => {
+    const out = applyMarkdown({ text: 'hello *world*', start: 7, end: 12 }, 'italic');
+    expect(show(out)).toBe('hello [world]');
   });
 });
