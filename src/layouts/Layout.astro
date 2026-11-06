@@ -723,12 +723,12 @@ const groupActive = (group: NavGroup) => group.items.some((item) => isActive(ite
         white-space: nowrap;
         transition: color 0.15s ease, background-color 0.15s ease;
       }
-      /* Compact-label swap: the full label yields to the short one in the zone
-         between the mobile menu cutoff (1024px) and a comfortably wide header. */
+      /* Compact-label swap: the full label yields to the short one wherever
+         the signed-in header would not fit with it (see Responsive below). */
       .site-nav__label--short {
         display: none;
       }
-      @media (max-width: 1080px) {
+      @media (max-width: 1220px) {
         .site-nav__label--full {
           display: none;
         }
@@ -988,11 +988,38 @@ const groupActive = (group: NavGroup) => group.items.some((item) => isActive(ite
       }
 
       /* ---- Responsive --------------------------------------------------- */
-      /* The five nav entries plus the signed-out action cluster need about
-         980px with the compact labels and about 1070px with the full ones
-         (measured against the rendered header). The burger menu takes over
-         below 1024px, which leaves room for the wider signed-in cluster. */
-      @media (max-width: 1024px) {
+      /* The header shrinks in steps before the burger menu takes over, so
+         unfolded foldables and small laptops keep the full nav. Budgeted for
+         the widest signed-in cluster (bell, an 11ch name with the longest
+         role, the share button of the installed app), measured against the
+         rendered header: full labels need about 1215px, compact labels about
+         1125px, plus an icon-only search about 1075px, plus an avatar-only
+         pill and tighter spacing about 910px. The signed-out header is
+         narrower at every step. */
+      @media (max-width: 1130px) {
+        .header-actions :global(.search-trigger__label) {
+          display: none;
+        }
+      }
+      @media (max-width: 1080px) {
+        .site-header__inner {
+          gap: 1rem;
+        }
+        .site-nav {
+          gap: 0.15rem;
+        }
+        .site-nav__link {
+          padding-left: 0.55rem;
+          padding-right: 0.55rem;
+        }
+        .header-actions :global(.role-entry__pill-text) {
+          display: none;
+        }
+      }
+
+      /* Below this width even the tight header does not fit and the burger
+         menu takes over. */
+      @media (max-width: 939px) {
         .site-nav,
         .header-actions__cta {
           display: none;
