@@ -3,7 +3,7 @@
 // on the group page and the admins find it in their inbox. The admission spec approves it.
 import { expect, test } from 'cip30-test-wallet/playwright';
 import { signIn, waitForHydration } from '../helpers.js';
-import { APPLIED, buildAlone, CHAIN_TIMEOUT, chainWallet, groupIdByName, JOINT_GROUP, resumeOr, signedInAccount, untilVisible } from './groups.js';
+import { APPLIED, buildAlone, CHAIN_TIMEOUT, chainGroup, chainWallet, resumeOr, signedInAccount, untilVisible } from './groups.js';
 
 test.use({ walletOptions: chainWallet(3) });
 
@@ -11,8 +11,7 @@ test('a DRep asks to join a permissioned group and the admins are told', async (
   test.setTimeout(CHAIN_TIMEOUT);
   await signIn(page, 'drep');
   await page.waitForURL('**/home/');
-  const groupId = await groupIdByName(page, JOINT_GROUP);
-  const groupPage = `/groups/${groupId}/`;
+  const groupPage = `/groups/${chainGroup('joint').id}/`;
 
   const actionId = await resumeOr(async () => {
     await page.goto(groupPage);
@@ -29,6 +28,11 @@ test('a DRep asks to join a permissioned group and the admins are told', async (
 
   // The join notifications are written by the tick after the request, so the admins may need one more.
   const admin = await signedInAccount(browser, testInfo, 0);
-  await untilVisible(admin.page, '/notifications/', (p) => p.getByRole('link', { name: new RegExp(`asked to join ${JOINT_GROUP.replace(/[()]/g, '\\$&')}`) }), 'join request in the admin inbox');
-  await expect(admin.page.getByRole('link', { name: /asked to join/ }).first()).toHaveAttribute('href', `${groupPage}#requests`);
+  // Earlier runs left older join requests in the inbox, so the link is found by its target.
+  await untilVisible(
+    admin.page,
+    '/notifications/',
+    (p) => p.locator(`a[href="${groupPage}#requests"]`).filter({ hasText: /asked to join / }),
+    'join request in the admin inbox',
+  );
 });

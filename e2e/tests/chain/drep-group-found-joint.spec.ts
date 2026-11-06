@@ -9,12 +9,16 @@ import {
   APPLIED,
   CHAIN_TIMEOUT,
   chainWallet,
-  JOINT_GROUP,
+  expectUnlistedButLinked,
+  foundingName,
+  groupIdOfAction,
   nextActionId,
   PNG,
   resumeOr,
+  saveGroup,
   signedInAccount,
   signOnSigningPage,
+  submitIfCollected,
   submitOnSigningPage,
   untilVisible,
 } from './groups.js';
@@ -30,6 +34,7 @@ test('three DReps found a 2 of 3 group through the signing link', async ({ page,
   const two = await signedInAccount(browser, testInfo, 2);
   await signIn(page, 'drep');
   await page.waitForURL('**/home/');
+  const name = foundingName('joint');
 
   const actionId = await resumeOr(async () => {
     await page.goto('/groups/new/');
@@ -45,7 +50,7 @@ test('three DReps found a 2 of 3 group through the signing link', async ({ page,
     // Three founders default to a majority.
     await expect(page.getByText('2 of 3 must sign (67%)')).toBeVisible();
     await page.getByRole('button', { name: 'Next' }).click();
-    await page.getByLabel('Name').fill(JOINT_GROUP);
+    await page.getByLabel('Name').fill(name);
     await page.getByLabel('Description').fill(DESCRIPTION);
     await page.locator('input[type="file"]').setInputFiles({ name: 'group.png', mimeType: 'image/png', buffer: PNG });
     await expect(page.getByRole('button', { name: 'Change image' })).toBeVisible();
@@ -59,14 +64,16 @@ test('three DReps found a 2 of 3 group through the signing link', async ({ page,
     const opened = nextActionId(page);
     await review.getByRole('button', { name: 'Build and sign' }).click();
     const id = await opened;
+    saveGroup('joint', { actionId: id });
     await expect(page.getByText('Share this signing link with the other signers')).toBeVisible();
 
     // Each co-founder finds the request in the inbox and signs through its link.
     for (const other of [one, two]) {
       await other.page.goto('/notifications/');
       await waitForHydration(other.page);
-      const request = other.page.getByRole('link', { name: / asked you to sign/ }).first();
-      await expect(request).toHaveAttribute('href', `/groups/sign/${id}/`);
+      // Earlier runs left older requests in the inbox, so the link is found by its target.
+      const request = other.page.locator(`a[href="/groups/sign/${id}/"]`).filter({ hasText: / asked you to sign/ });
+      await expect(request).toBeVisible();
       await request.click();
       await other.page.waitForURL(`**/groups/sign/${id}/`);
       await signOnSigningPage(other.page, id, other.wallet.drepKeyHashHex);
@@ -77,18 +84,21 @@ test('three DReps found a 2 of 3 group through the signing link', async ({ page,
     console.log(`[e2e] joint founding ${txHash}`);
     return id;
   });
+  await submitIfCollected(page, actionId);
 
   await untilVisible(page, `/groups/sign/${actionId}/`, (p) => p.getByText(APPLIED), 'founding applied');
   // Co-founders see the same verdict.
   await one.page.goto(`/groups/sign/${actionId}/`);
   await expect(one.page.getByText(APPLIED)).toBeVisible({ timeout: 30_000 });
 
-  await untilVisible(page, '/groups/', (p) => p.getByRole('link', { name: JOINT_GROUP, exact: true }), 'profile on the group list');
-  await page.getByRole('link', { name: JOINT_GROUP, exact: true }).first().click();
-  await waitForHydration(page);
-  await expect(page.getByRole('heading', { level: 1, name: JOINT_GROUP })).toBeVisible();
+  const groupId = await groupIdOfAction(page, actionId);
+  console.log(`[e2e] group ${groupId}`);
+  saveGroup('joint', { id: groupId });
+  // The group page names the group by its profile, so the profile was fetched and verified.
+  await untilVisible(page, `/groups/${groupId}/`, (p) => p.getByRole('heading', { level: 1, name }), 'profile on the group page');
   await expect(page.getByText(DESCRIPTION)).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Members (3)' })).toBeVisible();
   await expect(page.getByText('Permissioned, confirmed by the group').first()).toBeVisible();
-  console.log(`[e2e] group page ${page.url()}`);
+  // The founders count toward their older group, so the group list leaves this one out.
+  await expectUnlistedButLinked(page, groupId, wallet.drepId);
 });

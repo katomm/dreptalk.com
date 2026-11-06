@@ -37,3 +37,12 @@ export function assertDevVars(tier: Tier, koiosPort: number): void {
     throw new Error(`${file} sets KOIOS_BASE_URL, remove it for a chain run, the dev server would read fixtures instead of preprod.`);
   }
 }
+
+/**
+ * The Koios key of the local .dev.vars, which the dev server uses too. The chain-mode wallets send
+ * it, since anonymous preprod Koios calls share one per-IP limit with everything else on the host.
+ */
+export function koiosToken(): string | undefined {
+  const file = resolve(import.meta.dirname, '..', '.dev.vars');
+  return existsSync(file) ? parseEnv(readFileSync(file, 'utf8')).KOIOS_API_KEY || undefined : undefined;
+}

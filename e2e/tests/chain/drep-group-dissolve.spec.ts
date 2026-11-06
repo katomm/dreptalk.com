@@ -3,16 +3,15 @@
 // dissolved and offers no management any more.
 import { expect, test } from 'cip30-test-wallet/playwright';
 import { signIn, waitForHydration } from '../helpers.js';
-import { APPLIED, buildAlone, CHAIN_TIMEOUT, chainWallet, groupIdByName, resumeOr, SOLO_GROUP, untilVisible } from './groups.js';
+import { APPLIED, buildAlone, CHAIN_TIMEOUT, chainGroup, chainWallet, resumeOr, untilVisible } from './groups.js';
 
 test.use({ walletOptions: chainWallet(0) });
 
-test('the only admin dissolves a throwaway group', async ({ page, wallet }) => {
+test('the only admin dissolves a throwaway group', async ({ page }) => {
   test.setTimeout(CHAIN_TIMEOUT);
   await signIn(page, 'drep');
   await page.waitForURL('**/home/');
-  const groupId = await groupIdByName(page, SOLO_GROUP, wallet.drepId);
-  const groupPage = `/groups/${groupId}/`;
+  const groupPage = `/groups/${chainGroup('solo').id}/`;
 
   const actionId = await resumeOr(async () => {
     await page.goto(groupPage);

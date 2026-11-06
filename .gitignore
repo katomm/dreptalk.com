@@ -26,3 +26,5 @@ node_modules
 # Playwright output of the end-to-end tests
 test-results/
 playwright-report/
+# Group ids the chain specs hand from one run to the next
+e2e/.chain-state.json

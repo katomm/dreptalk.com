@@ -14,8 +14,15 @@
 //
 // The specs build on each other, in this order: found-solo, found-joint, join-request, admit,
 // leave, dissolve. Each takes one write run of its own (DREPTALK_E2E_CHAIN=write and the spec file).
+// The founding specs give their group a name unique to the run and keep its id in
+// e2e/.chain-state.json (gitignored), where the later specs read it. E2E_SOLO_GROUP_ID and
+// E2E_JOINT_GROUP_ID override the file, for example to point the later specs at an older group.
+// The founders of a new group are mostly members of older groups already, and the group list counts
+// a DRep only toward its oldest group, so a group of a rerun is on its group page but not listed.
+import fs from 'node:fs';
 import type { Browser, Page, TestInfo } from '@playwright/test';
 import { attachWallet, expect, type WalletHandle } from 'cip30-test-wallet/playwright';
+import { koiosToken } from '../../dev-vars.js';
 import { signIn, waitForHydration } from '../helpers.js';
 
 const MNEMONIC = process.env.PREPROD_TEST_WALLET_MNEMONIC;
@@ -24,7 +31,7 @@ const MNEMONIC = process.env.PREPROD_TEST_WALLET_MNEMONIC;
 export const chainWallet = (accountIndex: number) => ({
   mnemonic: MNEMONIC,
   accountIndex,
-  ledger: { chain: { provider: 'koios' as const, network: 'preprod' as const } },
+  ledger: { chain: { provider: 'koios' as const, network: 'preprod' as const, token: koiosToken() } },
 });
 
 const SYNC_URL = process.env.E2E_SYNC_URL ?? 'http://127.0.0.1:8789';
@@ -38,10 +45,67 @@ export const CHAIN_TIMEOUT = 30 * 60_000;
 export const APPLIED = 'The transaction is confirmed and the group change is in effect.';
 export const CONFIRMING = 'The transaction is submitted and waiting for the chain to confirm it.';
 
-/** The throwaway group the solo founding creates and the dissolve ends. */
-export const SOLO_GROUP = 'E2E test throwaway group (solo)';
-/** The 2 of 3 group of accounts 0, 1 and 2, kept for the admission and the leave. */
-export const JOINT_GROUP = 'E2E test joint group (2 of 3)';
+/**
+ * The groups of a run: `solo` is the throwaway group the solo founding creates and the dissolve
+ * ends, `joint` the 2 of 3 group of accounts 0, 1 and 2 for the join request, admission and leave.
+ */
+export type ChainGroupKind = 'solo' | 'joint';
+const GROUP_NAMES: Record<ChainGroupKind, string> = { solo: 'E2E test throwaway group (solo)', joint: 'E2E test joint group (2 of 3)' };
+const GROUP_ID_ENV: Record<ChainGroupKind, string> = { solo: 'E2E_SOLO_GROUP_ID', joint: 'E2E_JOINT_GROUP_ID' };
+
+/** The state the founding specs hand to the later ones, a file because each spec is its own run. */
+const STATE_FILE = new URL('../../.chain-state.json', import.meta.url);
+type ChainGroup = { name: string; actionId?: string; id?: string };
+type ChainState = Partial<Record<ChainGroupKind, ChainGroup>>;
+
+const readState = (): ChainState => (fs.existsSync(STATE_FILE) ? (JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')) as ChainState) : {});
+
+/** Merges `group` into the stored group of `kind`. */
+export function saveGroup(kind: ChainGroupKind, group: Partial<ChainGroup>): void {
+  const state = readState();
+  state[kind] = { ...state[kind], ...group } as ChainGroup;
+  fs.writeFileSync(STATE_FILE, `${JSON.stringify(state, null, 2)}\n`);
+}
+
+/**
+ * The name a founding spec gives its group: the base name plus the time of the run, so a rerun
+ * never meets a group of the same name. A resumed founding keeps the name stored by its first run.
+ */
+export function foundingName(kind: ChainGroupKind): string {
+  const stored = readState()[kind];
+  if (RESUMED) {
+    if (!stored?.name) throw new Error(`E2E_RESUME_ACTION is set but ${STATE_FILE.pathname} has no ${kind} group name`);
+    return stored.name;
+  }
+  const tag = new Date().toISOString().slice(0, 16).replace('T', ' ');
+  const name = `${GROUP_NAMES[kind]} ${tag}`;
+  // Stored before the submit, so a resumed run finds the name again. The id follows once applied.
+  fs.writeFileSync(STATE_FILE, `${JSON.stringify({ ...readState(), [kind]: { name } }, null, 2)}\n`);
+  return name;
+}
+
+/** The group of `kind` the founding spec of this run created, from the env override or the state file. */
+export function chainGroup(kind: ChainGroupKind): { id: string; name?: string } {
+  const override = process.env[GROUP_ID_ENV[kind]];
+  if (override) return { id: override };
+  const stored = readState()[kind];
+  if (!stored?.id) {
+    throw new Error(`no ${kind} group id: run the found-${kind} spec first (it writes ${STATE_FILE.pathname}) or set ${GROUP_ID_ENV[kind]}`);
+  }
+  return { id: stored.id, name: stored.name };
+}
+
+/**
+ * Checks the listing rule for a group of a rerun: the group list renders groups but not this one,
+ * whose founders count toward their older group, and the founder's DRep page links it.
+ */
+export async function expectUnlistedButLinked(page: Page, groupId: string, founderDrepId: string): Promise<void> {
+  await page.goto('/groups/');
+  await expect(page.locator('a[href^="/groups/group1"]').first()).toBeVisible();
+  await expect(page.locator(`a[href="/groups/${groupId}/"]`)).toHaveCount(0);
+  await page.goto(`/dreps/${founderDrepId}/`);
+  await expect(page.locator(`a.drep-hd__group[href="/groups/${groupId}/"]`)).toBeVisible();
+}
 
 /** A 1 by 1 PNG for the required profile image. */
 export const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
@@ -127,6 +191,23 @@ export async function submitOnSigningPage(page: Page, actionId: string): Promise
   return txHash;
 }
 
+/**
+ * On a resumed run, submits the action when every signature is collected but the submit never
+ * went through, for a run that failed between the last signature and the submit.
+ */
+export async function submitIfCollected(page: Page, actionId: string): Promise<void> {
+  if (!RESUMED) return;
+  await page.goto(`/groups/sign/${actionId}/`);
+  await waitForHydration(page);
+  // The panel loads the action after hydration, so give it time before deciding.
+  const submit = page.getByRole('region', { name: 'Submit' }).getByRole('button', { name: 'Submit transaction' });
+  const ready = await submit.waitFor({ timeout: 30_000 }).then(
+    () => true,
+    () => false,
+  );
+  if (ready) await submitOnSigningPage(page, actionId);
+}
+
 /** The id of the action the next POST /api/groups/actions opens. */
 export function nextActionId(page: Page): Promise<string> {
   return page
@@ -137,19 +218,6 @@ export function nextActionId(page: Page): Promise<string> {
       console.log(`[e2e] action opened: ${id}`);
       return id;
     });
-}
-
-/**
- * The id of a group found by its name: on the group list, which shows groups of two members or
- * more, or with `drepId` on the profile of a member DRep, which shows every group of that DRep.
- */
-export async function groupIdByName(page: Page, name: string, drepId?: string): Promise<string> {
-  await page.goto(drepId ? `/dreps/${drepId}/` : '/groups/');
-  const link = drepId ? page.locator('a.drep-hd__group', { hasText: name }) : page.getByRole('link', { name, exact: true });
-  const href = await link.first().getAttribute('href');
-  const id = href?.match(/\/groups\/(group1[0-9a-z]+)\//)?.[1];
-  if (!id) throw new Error(`no group named ${name}`);
-  return id;
 }
 
 /**
@@ -183,7 +251,8 @@ export const RESUMED = Boolean(process.env.E2E_RESUME_ACTION);
 
 /**
  * E2E_RESUME_ACTION names the action of an earlier run whose submit already went through, so a
- * rerun after a later failure waits for that action instead of spending on a second one.
+ * rerun after a later failure waits for that action instead of spending on a second one. A
+ * multi-signer spec also submits a resumed action that has all its signatures, see submitIfCollected.
  */
 export async function resumeOr(open: () => Promise<string>): Promise<string> {
   const resumed = process.env.E2E_RESUME_ACTION;

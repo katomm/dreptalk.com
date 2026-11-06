@@ -7,13 +7,13 @@ import { signIn, waitForHydration } from '../helpers.js';
 import {
   APPLIED,
   CHAIN_TIMEOUT,
+  chainGroup,
   chainWallet,
-  groupIdByName,
-  JOINT_GROUP,
   nextActionId,
   resumeOr,
   signedInAccount,
   signOnSigningPage,
+  submitIfCollected,
   submitOnSigningPage,
   untilVisible,
 } from './groups.js';
@@ -25,8 +25,7 @@ test('admins approve a request together with the proposed policy update', async 
   const others = await Promise.all([1, 2, 3].map((n) => signedInAccount(browser, testInfo, n)));
   await signIn(page, 'drep');
   await page.waitForURL('**/home/');
-  const groupId = await groupIdByName(page, JOINT_GROUP);
-  const groupPage = `/groups/${groupId}/`;
+  const groupPage = `/groups/${chainGroup('joint').id}/`;
 
   const actionId = await resumeOr(async () => {
     await page.goto(groupPage);
@@ -63,15 +62,16 @@ test('admins approve a request together with the proposed policy update', async 
       if (s.page !== page) {
         await s.page.goto('/notifications/');
         await waitForHydration(s.page);
-        await expect(s.page.getByRole('link', { name: / asked you to sign/ }).first()).toHaveAttribute('href', `/groups/sign/${id}/`);
+        await expect(s.page.locator(`a[href="/groups/sign/${id}/"]`).filter({ hasText: / asked you to sign/ })).toBeVisible();
       }
       await signOnSigningPage(s.page, id, s.wallet.drepKeyHashHex);
     }
     await page.goto(`/groups/sign/${id}/`);
-    await expect(page.getByText('Every required signature is collected.')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByRole('region', { name: 'Submit' }).getByText('Every required signature is collected.')).toBeVisible({ timeout: 30_000 });
     await submitOnSigningPage(page, id);
     return id;
   });
+  await submitIfCollected(page, actionId);
 
   await untilVisible(page, `/groups/sign/${actionId}/`, (p) => p.getByText(APPLIED), 'admission applied');
   await page.goto(groupPage);
