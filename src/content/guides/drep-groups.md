@@ -36,8 +36,9 @@ run on the preprod test network, at
 
 A group expresses affiliation. It has a profile (name, description, website,
 charter, image), a list of members and one or two policies that say who manages
-it. A group never votes and holds no voting power. Each member keeps voting with
-their own DRep and their own rationale, delegators keep delegating to individual
+it. A group holds no voting power and casts no votes on chain. Members may agree
+to vote together, as a party or council would, yet each member still casts
+its own vote with its own DRep and its own rationale, delegators keep delegating to individual
 DReps, and joining or leaving a group changes no delegation. Where DRepTalk adds
 numbers up for a group, it labels them as the voting power of affiliated DReps.
 
