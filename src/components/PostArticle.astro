@@ -31,6 +31,8 @@ interface Props {
   now: number;
   /** Reply rendering: smaller avatar. */
   compact?: boolean;
+  /** The reply this one answered, passed when the row is too deep to sit indented under it. */
+  replyTo?: { postId: string; authorName: string };
   /** The thread is locked: disables the Edit affordance. */
   topicLocked?: boolean;
   /** 1-based position in the thread; renders "Post #N" on the right of the header row when set (top-level posts on user topics only). */
@@ -48,7 +50,7 @@ interface Props {
   foldable?: boolean;
 }
 
-const { post, author, authorVote, authorHasNotVoted = false, user, flagged, viewerReaction, canReply, now, compact = false, topicLocked = false, postNumber, mandate, stampedGrantActive = false, citable = false, foldable = false } = Astro.props;
+const { post, author, authorVote, authorHasNotVoted = false, user, flagged, viewerReaction, canReply, now, compact = false, replyTo, topicLocked = false, postNumber, mandate, stampedGrantActive = false, citable = false, foldable = false } = Astro.props;
 
 const { canSeeContent, canFlag, reactions, isOwnPost, canEdit } = postViewerContext(post, user, !!author.isSystem, stampedGrantActive);
 
@@ -106,6 +108,9 @@ const changedVoteHref = author.drepId ? positionsVoterAnchor(author.drepId) : '?
     )}
     {post.hidden && canSeeContent && (
       <span style="background:var(--muted);color:var(--on-badge);border-radius:0.25rem;padding:0.125rem 0.375rem;font-size:0.75rem;">hidden by the community</span>
+    )}
+    {replyTo && (
+      <a href={`#post-${replyTo.postId}`} class="post-reply-to">Replying to {replyTo.authorName}</a>
     )}
     {postNumber !== undefined && !compact && (
       <span style="margin-left:auto;">Post #{postNumber}</span>
@@ -175,6 +180,10 @@ const changedVoteHref = author.drepId ? positionsVoterAnchor(author.drepId) : '?
 
   /* The post named in the URL hash (a fresh reply, a shared permalink) flashes
      briefly so the eye lands on it after the scroll. */
+  /* In-page jumps (the "Replying to" link) stop below the sticky header. */
+  article {
+    scroll-margin-top: 5rem;
+  }
   article:target {
     animation: post-target-flash 2s ease-out 1;
     border-radius: 0.375rem;
@@ -196,6 +205,14 @@ const changedVoteHref = author.drepId ? positionsVoterAnchor(author.drepId) : '?
   }
   .post-edited:hover {
     color: var(--fg);
+  }
+  .post-reply-to {
+    color: var(--muted);
+    text-decoration: none;
+  }
+  .post-reply-to:hover {
+    color: var(--fg);
+    text-decoration: underline;
   }
 
   /* Vote rationale post badges, matching the positions tab style. */

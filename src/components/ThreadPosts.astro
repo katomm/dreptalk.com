@@ -4,6 +4,7 @@
 // composer (writers) or join banner (anonymous). Replaces the previously
 // duplicated markup in t/[slug].astro and GaDiscussion.astro.
 import PostArticle from '@/components/PostArticle.astro';
+import { buildReplyTree } from '@/lib/forum/replyTree.js';
 import TopicStatsBar from '@/components/TopicStatsBar.astro';
 import Composer from '@/components/Composer.tsx';
 import QuoteSelection from '@/components/QuoteSelection.tsx';
@@ -82,6 +83,10 @@ const canParticipate = !!user && (isWriter(user.roles) || !!composerMandate?.has
 // Governance threads live behind the discussion tab; plain threads paginate at the root.
 const pageQueryPrefix = isGovernanceTopic ? '?tab=discussion&page=' : '?page=';
 
+// How many reply levels get their own indent. Deeper replies stay at the cap.
+// Mirrored by the --depth-cap values in the style block below.
+const REPLY_INDENT_CAP = { phone: 3, desktop: 6 } as const;
+
 const voteFor = (author: AuthorDescriptor) =>
   author.drepId ? govVotes.get(author.drepId) : undefined;
 
@@ -132,25 +137,36 @@ const notVoted = (author: AuthorDescriptor) =>
         />
         {children.length > 0 && (
           <div class="thread-replies">
-            {children.map((child) => {
+            {buildReplyTree(children).map(({ post: child, depth, replyTo }) => {
               const childAuthor = describe(child.author_id);
+              // Replies nest without limit, the indent stops at a per-breakpoint
+              // cap (REPLY_INDENT_CAP). Past the cap a reply sits flush with its
+              // target, so it names the reply it answered instead.
+              const flatOnPhone = depth > REPLY_INDENT_CAP.phone;
+              const flatOnDesktop = depth > REPLY_INDENT_CAP.desktop;
               return (
-                <PostArticle
-                  post={child}
-                  author={childAuthor}
-                  authorVote={voteFor(childAuthor)}
-                  authorHasNotVoted={notVoted(childAuthor)}
-                  user={user}
-                  flagged={flaggedPostIds.has(child.id)}
-                  viewerReaction={viewerReactions.get(child.id) ?? null}
-                  canReply={canParticipate}
-                  topicLocked={topic.locked}
-                  now={now}
-                  compact
-                  mandate={mandateFor(child)}
-                  stampedGrantActive={grantActiveFor(child)}
-                  citable={citablePostIds.has(child.id)}
-                />
+                <div
+                  class:list={['reply-row', { 'reply-row--flat-phone': flatOnPhone, 'reply-row--flat-desktop': flatOnDesktop }]}
+                  style={`--depth:${depth};`}
+                >
+                  <PostArticle
+                    post={child}
+                    author={childAuthor}
+                    authorVote={voteFor(childAuthor)}
+                    authorHasNotVoted={notVoted(childAuthor)}
+                    user={user}
+                    flagged={flaggedPostIds.has(child.id)}
+                    viewerReaction={viewerReactions.get(child.id) ?? null}
+                    canReply={canParticipate}
+                    topicLocked={topic.locked}
+                    now={now}
+                    compact
+                    replyTo={flatOnPhone && replyTo ? { postId: replyTo.id, authorName: describe(replyTo.author_id).displayName } : undefined}
+                    mandate={mandateFor(child)}
+                    stampedGrantActive={grantActiveFor(child)}
+                    citable={citablePostIds.has(child.id)}
+                  />
+                </div>
               );
             })}
           </div>
@@ -311,6 +327,36 @@ const notVoted = (author: AuthorDescriptor) =>
     margin: 0 0 1.25rem 1.375rem;
     padding-left: 1rem;
     border-left: 2px solid var(--border);
+  }
+  /* Rows stay flat in the DOM. Each level below the first adds one indent step
+     and one guide line, drawn as a repeating gradient so the lines of
+     consecutive rows join into one line per open branch. */
+  .reply-row {
+    --depth-cap: 6;
+    --indent: 1.5rem;
+    --levels: calc(min(var(--depth), var(--depth-cap)) - 1);
+    padding-left: calc(var(--levels) * var(--indent));
+    background-image: repeating-linear-gradient(
+      to right,
+      var(--border) 0 2px,
+      transparent 2px var(--indent)
+    );
+    background-size: calc(var(--levels) * var(--indent)) 100%;
+    background-repeat: no-repeat;
+  }
+  /* The "Replying to" link only matters where the row no longer sits under
+     its target, which depends on the breakpoint's cap. */
+  .reply-row:not(.reply-row--flat-desktop) :global(.post-reply-to) {
+    display: none;
+  }
+  @media (max-width: 640px) {
+    .reply-row {
+      --depth-cap: 3;
+      --indent: 0.875rem;
+    }
+    .reply-row.reply-row--flat-phone :global(.post-reply-to) {
+      display: inline;
+    }
   }
   .join-banner {
     margin-top: 2.5rem;

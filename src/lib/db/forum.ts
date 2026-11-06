@@ -34,6 +34,11 @@ export interface Post {
   author_id: string;
   /** Top-level posts have null; replies carry their top-level parent's id. */
   parent_post_id: string | null;
+  /**
+   * The reply the post actually answered, set only when that differs from
+   * parent_post_id (a reply to a reply, lifted onto the top-level parent).
+   */
+  reply_to_post_id: string | null;
   /** Populated by createTopic/createPost; omitted by the thread readers (use body_html for display). */
   body_md?: string;
   body_html: string;
@@ -77,6 +82,7 @@ interface PostRow {
   topic_id: string;
   author_id: string;
   parent_post_id: string | null;
+  reply_to_post_id: string | null;
   body_md: string;
   body_html: string;
   up_count: number;
@@ -99,7 +105,7 @@ interface PostRowNoBody extends Omit<PostRow, 'body_md'> {
 
 // The display column list shared by every post reader (body_md excluded).
 const POST_COLUMNS =
-  'id, topic_id, author_id, parent_post_id, body_html, up_count, down_count, flag_count, hidden, edited_at, deleted, created_at, source, vote, proposer_grant_id';
+  'id, topic_id, author_id, parent_post_id, reply_to_post_id, body_html, up_count, down_count, flag_count, hidden, edited_at, deleted, created_at, source, vote, proposer_grant_id';
 
 /** Maps a raw D1 row to the Topic type (0/1 integers to JS booleans). */
 export function rowToTopic(row: TopicRow): Topic {
@@ -129,6 +135,7 @@ function rowToPost(row: PostRow | PostRowNoBody): Post {
     topic_id: row.topic_id,
     author_id: row.author_id,
     parent_post_id: row.parent_post_id,
+    reply_to_post_id: row.reply_to_post_id ?? null,
     body_html: row.body_html,
     up_count: row.up_count,
     down_count: row.down_count,
@@ -294,6 +301,7 @@ export async function createTopic(
     topic_id: topicId,
     author_id: authorId,
     parent_post_id: null,
+    reply_to_post_id: null,
     body_md: bodyMd,
     body_html: bodyHtml,
     up_count: 0,
@@ -644,6 +652,7 @@ export async function createPost(
   }
 
   let parentId: string | null = null;
+  let replyToId: string | null = null;
   if (args.parentPostId) {
     const parent = lookupResults[1]?.results?.[0] as
       | { id: string; topic_id: string; parent_post_id: string | null; deleted: number }
@@ -651,8 +660,10 @@ export async function createPost(
     if (!parent || parent.deleted === 1 || parent.topic_id !== topicId) {
       throw new Error('parent_not_found');
     }
-    // Lift a reply-to-a-reply onto the top-level parent (one level, enforced).
+    // Lift a reply-to-a-reply onto the top-level parent (one level, enforced),
+    // and keep the reply it answered so the thread can still say so.
     parentId = parent.parent_post_id ?? parent.id;
+    replyToId = parent.parent_post_id ? parent.id : null;
   }
 
   const postId = crypto.randomUUID();
@@ -660,10 +671,10 @@ export async function createPost(
   const insertPost = db
     .prepare(
       `INSERT INTO posts
-         (id, topic_id, author_id, parent_post_id, body_md, body_html, created_at, proposer_grant_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, topic_id, author_id, parent_post_id, reply_to_post_id, body_md, body_html, created_at, proposer_grant_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .bind(postId, topicId, authorId, parentId, bodyMd, bodyHtml, now, proposerGrantId);
+    .bind(postId, topicId, authorId, parentId, replyToId, bodyMd, bodyHtml, now, proposerGrantId);
 
   const updateTopic = db
     .prepare(
@@ -684,6 +695,7 @@ export async function createPost(
     topic_id: topicId,
     author_id: authorId,
     parent_post_id: parentId,
+    reply_to_post_id: replyToId,
     body_md: bodyMd,
     body_html: bodyHtml,
     up_count: 0,
