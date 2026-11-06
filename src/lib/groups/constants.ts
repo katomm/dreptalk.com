@@ -41,9 +41,6 @@ export const ENGINE_BUDGET: Budget = {
   truncateRows: 400,
   resetRows: 400,
 };
-// Rows written by one recovery call beyond its budget: guard 2 + meta row 1 + (max CHANGES_PER_ROW 14 - 1), the first
-// page of a call takes one row even when the budget is smaller than its cost.
-export const RECOVERY_STEP_OVERHEAD = 16;
 // Worst case D1 rows_written per source row of each phase, trigger rows included. An insert counts its row and
 // every index entry, a delete 1, an update its row and the index entries it inserts, an ignored insert 1.
 // raw: the row and the pending_witness trigger. state: the row, a new recompute job (5), the group's gen and the
@@ -64,6 +61,9 @@ export const CHANGES_PER_ROW = {
   flags: 5,
   markers: 2,
 } as const;
+// Rows written by one recovery call beyond its budget: guard 2 + meta row 1 + the largest CHANGES_PER_ROW minus 1,
+// the first page of a call takes one row even when the budget is smaller than its cost.
+export const RECOVERY_STEP_OVERHEAD = 3 + Math.max(...Object.values(CHANGES_PER_ROW)) - 1;
 export const RUN_MAX_QUERIES = 400; // worst case of one runEngine call
 export const MAX_ENGINE_RUNS_PER_TICK = 10;
 export const MAX_JOB_ROWS_PER_RUN = 200;
@@ -90,8 +90,8 @@ export const RETENTION_KEEP_NOT_APPLIED = 50;
  * so one DRep founding many groups lists one of them and causes at most one website check. Power
  * jobs compare it with members, every open membership, which covers every listed group. 1 lets
  * groups form quickly, raise it if the list draws abuse. The listing index covers
- * counted_members >= 1 (migration 0128), a higher value is filtered on top of it. The website due
- * trigger of migration 0128 crosses at 1, so raising this needs a migration that recreates it.
+ * counted_members >= 1 (migration 0128), a higher value is filtered on top of it. Website due rows
+ * of groups below it are dropped unchecked as stale, so raising it needs no migration.
  */
 export const LISTED_MIN_MEMBERS = 1;
 export const PROFILE_MIN_MEMBERS = 1;

@@ -119,6 +119,7 @@ export const Q_SAMPLE_BINDS: Readonly<Record<keyof typeof Q, unknown[]>> = Objec
   websiteCheck: [1, 1, 1, TX, 0],
   websiteDueMove: [1, TX, 0],
   listedFirst: [10],
+  listedTopPower: [],
   listedAfter: ['100', TX, 0, 10],
   sitemapGroups: [10],
   groupRow: [TX, 0],

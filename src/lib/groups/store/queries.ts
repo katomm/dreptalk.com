@@ -33,8 +33,7 @@ export const values = (width: number, rows: number): string =>
   Array.from({ length: rows }, () => `(${Array.from({ length: width }, () => '?').join(', ')})`).join(', ');
 
 /** Member avatars a row of the group list shows. */
-export const LISTED_FACES = 3;
-const JOINED_I = 'i.joined_h, i.joined_ti, i.joined_ph, i.joined_ix';
+const LISTED_FACES = 3;
 
 // Statements over a VALUES list of keys, built per chunk length. The registry holds the one row text.
 export const KEYED = Object.freeze({
@@ -93,9 +92,11 @@ export const KEYED = Object.freeze({
     SELECT d.drep_id, d.name FROM k JOIN dreps d ON d.drep_id = k.id WHERE d.name IS NOT NULL`,
   profileDocs: (n: number) => `WITH k(hash) AS (VALUES ${values(1, n)})
     SELECT d.hash, d.body FROM k JOIN drep_group_profile_docs d ON d.hash = k.hash`,
-  // The first LISTED_FACES active members of each group by join position, with their name and avatar.
+  // The first LISTED_FACES active members of each group by join position, with their name and avatar. The
+  // rows come in rowid order, an outer ORDER BY would sort in a temp b-tree, so the reader orders them.
   listedFaces: (n: number) => `WITH k(gtx, gix) AS (VALUES ${values(2, n)})
-    SELECT k.gtx AS k_gtx, k.gix AS k_gix, i.drep_id, ${JOINED_I}, d.name AS drep_name, d.hex AS drep_hex,
+    SELECT k.gtx AS k_gtx, k.gix AS k_gix, i.drep_id, i.joined_h, i.joined_ti, i.joined_ph, i.joined_ix,
+      d.name AS drep_name, d.hex AS drep_hex,
       d.image_content_hash AS drep_image
     FROM k
     JOIN drep_group_instances i ON i.rowid IN (
@@ -1406,6 +1407,11 @@ export const Q = Object.freeze({
   },
   // Binds the cursor's power, its group key and the limit.
   listedAfter: { sql: LISTED_AFTER },
+  // The member power of the first listed group.
+  listedTopPower: {
+    sql: `SELECT CAST(g.member_power AS TEXT) AS member_power FROM drep_groups g WHERE ${LISTED} ORDER BY ${LISTED_ORDER} LIMIT 1`,
+    boundedScan: 'drep_groups_listed',
+  },
   // Binds the limit. Listed active groups by member power.
   sitemapGroups: {
     sql: `SELECT g.group_tx, g.group_ix FROM drep_groups g WHERE ${LISTED} AND g.status = 'active' ORDER BY ${LISTED_ORDER} LIMIT ?`,

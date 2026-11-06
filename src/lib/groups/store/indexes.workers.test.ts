@@ -5,7 +5,6 @@ import { env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 import { declaredCtes, planOf, unboundedScans } from '../__tests__/queryPlan.js';
 import { Q_SAMPLE_BINDS } from '../__tests__/sampleBinds.js';
-import { LISTED_MIN_MEMBERS } from '../constants.js';
 import { Q } from './queries.js';
 
 describe('query plans of the DRep groups store', () => {
@@ -42,6 +41,11 @@ describe('query plans of the DRep groups store', () => {
         .map((x) => x.trim())
         .filter((x) => x !== '');
     for (const t of triggers) {
+      // The guard that skips an unchanged lead seeks too, on the lead index and the leads key.
+      const when = `SELECT ${t.slice(t.indexOf('WHEN') + 4, t.indexOf('BEGIN'))}`.replace(/\b(NEW|OLD)\.\w+\b/g, '?');
+      const whenPlan = await planOf(env.DB, when, Array.from(when.matchAll(/\?/g), () => new Uint8Array(29)));
+      expect(unboundedScans({ sql: when }, whenPlan), when).toEqual([]);
+      expect(whenPlan.join(' | ')).toContain('drep_group_instances_lead');
       const stmts = body(t);
       expect(stmts).toHaveLength(4);
       for (const stmt of stmts) {
@@ -53,13 +57,14 @@ describe('query plans of the DRep groups store', () => {
     }
   });
 
-  it('makes a website due with one seek when a group becomes listed, at the LISTED_MIN_MEMBERS threshold', async () => {
+  it('makes a website due with one seek when a group counts another member, with no threshold in the trigger', async () => {
     const row = await env.DB.prepare("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'drep_groups_website_due'").first<{
       sql: string;
     }>();
     const t = row?.sql ?? '';
-    // The trigger crosses at a literal, a raised constant needs a migration that recreates it.
-    expect(t).toContain(`OLD.counted_members < ${LISTED_MIN_MEMBERS} AND NEW.counted_members >= ${LISTED_MIN_MEMBERS}`);
+    // The threshold lives in the LISTED term of the due page only, so raising LISTED_MIN_MEMBERS needs no migration.
+    expect(t).toContain('WHEN NEW.counted_members > OLD.counted_members BEGIN');
+    expect(t).not.toMatch(/counted_members\s*[<>]=?\s*\d/);
     const sql = t
       .slice(t.indexOf('BEGIN') + 5, t.lastIndexOf('END'))
       .trim()

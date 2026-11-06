@@ -24,7 +24,7 @@ import {
   type Row,
 } from '../codec.js';
 import { drepIdForCredential } from '../ids.js';
-import { LISTED_MIN_MEMBERS, PROFILE_MIN_MEMBERS } from '../constants.js';
+import { PROFILE_MIN_MEMBERS } from '../constants.js';
 import { COMMIT, COMMIT_WIDTH, KEYED, KEYED_WIDTH, Q } from './queries.js';
 import { writeBatch } from './lease.js';
 
@@ -184,9 +184,9 @@ export type MemberChange = { group: EventRef; before: { members: number; open: b
  * The only writer of `members`, for any number of groups. `members` is the counter before and
  * after, `before.members` the stored value read in the same pre-read. `open` is true on a side
  * that holds an open instance the other side lacks, so a member swap at an unchanged count still
- * enqueues a `power` job. Applies the profile rule at PROFILE_MIN_MEMBERS and the listing rule at
- * LISTED_MIN_MEMBERS, increments each group's `gen` (the members update runs last, so `atGen`
- * guards every statement against the same gen).
+ * enqueues a `power` job. Applies the profile rule at PROFILE_MIN_MEMBERS, increments each
+ * group's `gen` (the members update runs last, so `atGen` guards every statement against the same
+ * gen). Website due rows follow counted_members through the trigger of migration 0128.
  */
 export function memberPublishBatch(db: D1Database, changes: MemberChange[], now: number, atGen?: number): D1PreparedStatement[] {
   const guard = [atGen ?? null];
@@ -197,7 +197,6 @@ export function memberPublishBatch(db: D1Database, changes: MemberChange[], now:
   return [
     ...rows(db, 'deleteProfileDue', down(PROFILE_MIN_MEMBERS), key, guard),
     ...rows(db, 'dueProfileIfAnchored', up(PROFILE_MIN_MEMBERS), key, [now, ...guard]),
-    ...rows(db, 'deleteWebsiteDue', down(LISTED_MIN_MEMBERS), key, guard),
     ...rows(db, 'enqueueGroupJobs', power, (x) => ['power', refKey(x.group), ...key(x), ...NULL_POS], guard),
     ...rows(db, 'publishMembers', changes, (x) => [...key(x), x.after.members - x.before.members], guard),
   ];

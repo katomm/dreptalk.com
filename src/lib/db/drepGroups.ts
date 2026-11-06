@@ -2,7 +2,7 @@
 // DRep groups for the pages: bounded readers of groups, members and history, and the profile and
 // website due queue with the writes that move its rows. A group id is the bech32 id of the page,
 // decoded to the key of the stored group.
-import type { Credential, EventRef, NativeScript, Pos } from 'drep-groups';
+import type { Credential, EventRef, NativeScript } from 'drep-groups';
 import { comparePos, effectiveClose, parseNativeScript, refKey } from 'drep-groups';
 import {
   GROUP_PAGE_SIZE,
@@ -332,26 +332,30 @@ export async function listListedGroups(
 /** The member power of the first listed group, the scale of the list's power bars, null when none is listed. */
 export async function topListedPower(db: D1Database): Promise<string | null> {
   return pageRead('top listed group', null, async () => {
-    const r = await db.prepare(Q.listedFirst.sql).bind(1).first<Row>();
+    const r = await db.prepare(Q.listedTopPower.sql).first<Row>();
     return r ? String(r.member_power) : null;
   });
 }
 
 export type GroupFace = { drepId: string; name: string | null; hex: string | null; imageHash: string | null };
 
-/** The first LISTED_FACES active members of each group by join position, by group id, in one batch. */
+/** The first few active members of each group by join position, by group id, in one batch. */
 export async function listedGroupFaces(db: D1Database, groups: EventRef[]): Promise<Map<string, GroupFace[]>> {
   return pageRead('group faces', new Map<string, GroupFace[]>(), async () => {
     const stmts = keyedStatements(db, KEYED.listedFaces, KEYED_WIDTH.listedFaces, groups, refBinds);
     if (stmts.length === 0) return new Map<string, GroupFace[]>();
-    const rows = (await db.batch<Row>(stmts)).flatMap((r) => r.results ?? []);
-    const at = (r: Row): Pos => ({ blockHeight: Number(r.joined_h), txIndex: Number(r.joined_ti), phase: Number(r.joined_ph) as Pos['phase'], index: Number(r.joined_ix), txHash: '' });
-    rows.sort((a, b) => comparePos(at(a), at(b)));
+    const rows = (await db.batch<Row>(stmts)).flatMap((x) => x.results ?? []);
+    const cols = ['joined_h', 'joined_ti', 'joined_ph', 'joined_ix'] as const;
+    rows.sort((a, b) => cols.reduce((d, c) => d || Number(a[c]) - Number(b[c]), 0));
     const out = new Map<string, GroupFace[]>();
     for (const r of rows) {
       const id = groupIdString(refFromCols(r.k_gtx, r.k_gix));
-      const face = { drepId: String(r.drep_id), name: optStr(r.drep_name), hex: optStr(r.drep_hex), imageHash: optStr(r.drep_image) };
-      out.set(id, [...(out.get(id) ?? []), face]);
+      let faces = out.get(id);
+      if (faces === undefined) {
+        faces = [];
+        out.set(id, faces);
+      }
+      faces.push({ drepId: String(r.drep_id), name: optStr(r.drep_name), hex: optStr(r.drep_hex), imageHash: optStr(r.drep_image) });
     }
     return out;
   });

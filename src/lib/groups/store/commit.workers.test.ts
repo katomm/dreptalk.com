@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { D1_MAX_BINDS } from '../../db/sql.js';
 import {
   bindCountingDb,
+  changesPerCall,
   credUnit,
   deepScript,
   emptyChange,
@@ -141,6 +142,35 @@ describe('drep groups commit', () => {
     expect(await inst(20)).toMatchObject({ counted_as: 'former', eff_reason: 'left', eff_h: 25 });
   });
 
+  it('rewrites an unchanged open instance without moving its listing count', async () => {
+    const t = await lease();
+    const a = keyCred(1);
+    const anchor = { url: 'https://example.org/g.json', dataHash: 'aa'.repeat(32) };
+    await commit(db, [create({ profile: anchor, profileSetAt: CREATED })], t);
+    await db
+      .prepare(
+        `INSERT INTO drep_group_profiles (group_tx, group_ix, profile_url, data_hash, status, website, fetched_at)
+         VALUES (?, ?, ?, ?, 'ok', 'https://example.org', 1)`,
+      )
+      .bind(GTX, G.index, anchor.url, hashBytes(anchor.dataHash))
+      .run();
+    const unit = credUnit(a, pos(20), { instances: [joined(20, a)] });
+    await commit(db, [unit], t);
+    expect(await group()).toMatchObject({ members: 1, counted_members: 1 });
+    const again = await changesPerCall(db, (d) => commit(d, [unit], t));
+    const raw = await changesPerCall(db, (d) =>
+      d
+        .prepare('INSERT OR REPLACE INTO drep_group_instances SELECT * FROM drep_group_instances WHERE join_tx = ? AND join_ix = 0')
+        .bind(hashBytes(txHashOf(20)))
+        .run(),
+    );
+    // Measured: the commit writes 12 rows and the bare rewrite 9, the instance row and its index entries only.
+    // Before the lead triggers skipped an unchanged lead it was 17 and 14, the lead rebuild flapping the count
+    // through 0 and back with its website due insert.
+    expect({ again: again.changes, raw: raw.changes }).toEqual({ again: 12, raw: 9 });
+    expect(await group()).toMatchObject({ members: 1, counted_members: 1 });
+  });
+
   it('keeps the counters through a later update of the group', async () => {
     const t = await lease();
     const [a, b] = [keyCred(1), keyCred(2)];
@@ -263,10 +293,18 @@ describe('drep groups commit', () => {
     expect(await count("SELECT COUNT(*) AS n FROM drep_group_jobs WHERE kind = 'retire' AND job_key = ?", credKey(a))).toBe(1);
   });
 
-  it('writes the profile due row at PROFILE_MIN_MEMBERS and the website due row at LISTED_MIN_MEMBERS', async () => {
+  it('writes the profile due row at PROFILE_MIN_MEMBERS and keeps a live website due row at LISTED_MIN_MEMBERS', async () => {
     const t = await lease();
     const anchor = { url: 'https://example.org/g.json', dataHash: 'aa'.repeat(32) };
     const due = (kind: string) => count('SELECT COUNT(*) AS n FROM drep_group_due WHERE kind = ? AND group_tx = ?', kind, GTX);
+    // A website due row of a group below the listing threshold is stale, the due page drops it unchecked.
+    const liveWebsiteDue = () =>
+      count(
+        `SELECT COUNT(*) AS n FROM drep_group_due d JOIN drep_groups g ON g.group_tx = d.group_tx AND g.group_ix = d.group_ix
+          WHERE d.kind = 'website' AND d.group_tx = ? AND g.counted_members >= ?`,
+        GTX,
+        LISTED_MIN_MEMBERS,
+      );
     const powerJobs = () => count("SELECT COUNT(*) AS n FROM drep_group_jobs WHERE kind = 'power' AND job_key = ?", refKey(G));
     await commit(db, [create({ profile: anchor, profileSetAt: CREATED })], t);
     expect(await due('profile')).toBe(0);
@@ -285,13 +323,13 @@ describe('drep groups commit', () => {
       const n = i + 1;
       expect(await group()).toMatchObject({ members: n });
       expect(await due('profile')).toBe(n >= PROFILE_MIN_MEMBERS ? 1 : 0);
-      expect(await due('website')).toBe(n >= LISTED_MIN_MEMBERS ? 1 : 0);
+      expect(await liveWebsiteDue()).toBe(n >= LISTED_MIN_MEMBERS ? 1 : 0);
       expect(await powerJobs()).toBe(n >= LISTED_MIN_MEMBERS ? 1 : 0);
     }
     for (const [i, c] of [...creds.entries()].reverse()) {
       await commit(db, [credUnit(c, pos(40 + top - i), { instances: [joined(20 + i, c, { closedAt: pos(40 + top - i), closeReason: 'left' })] })], t);
       expect(await group()).toMatchObject({ members: i });
-      expect(await due('website')).toBe(i >= LISTED_MIN_MEMBERS ? 1 : 0);
+      expect(await liveWebsiteDue()).toBe(i >= LISTED_MIN_MEMBERS ? 1 : 0);
       expect(await due('profile')).toBe(i >= PROFILE_MIN_MEMBERS ? 1 : 0);
     }
   });
