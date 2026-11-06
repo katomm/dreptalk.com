@@ -222,11 +222,13 @@ const notVoted = (author: AuthorDescriptor) =>
   // asynchronously restores the pre-reload scroll position (the composer at
   // the bottom) over the anchor, so when the composer left its landing flag,
   // restoration is disabled before it can run and re-enabled once landed.
+  // The post's top is aligned below the sticky header (its scroll-margin-top),
+  // because centering a post taller than the viewport lands mid-text on phones.
   if (window.location.hash.startsWith('#post-')) {
     const pendingLanding = sessionStorage.getItem('dreptalk:land-on-post') !== null;
     sessionStorage.removeItem('dreptalk:land-on-post');
     const landOnHashPost = () => {
-      document.getElementById(window.location.hash.slice(1))?.scrollIntoView({ block: 'center' });
+      document.getElementById(window.location.hash.slice(1))?.scrollIntoView({ block: 'start' });
     };
     if (pendingLanding) history.scrollRestoration = 'manual';
     landOnHashPost();
