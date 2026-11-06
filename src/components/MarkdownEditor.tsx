@@ -1,5 +1,5 @@
 import { forwardRef, useImperativeHandle, useState, useEffect, useLayoutEffect, useRef, useCallback, type CSSProperties } from 'react';
-import { applyMarkdown, type MarkdownAction } from '@/lib/forum/markdownToolbar.js';
+import { applyMarkdown, shortcutAction, type MarkdownAction } from '@/lib/forum/markdownToolbar.js';
 import { TOOLBAR_ICON } from '@/lib/forum/markdownToolbarIcons.js';
 import { continueList } from '@/lib/forum/markdownEnter.js';
 import { linkFromPaste } from '@/lib/forum/markdownPaste.js';
@@ -29,8 +29,8 @@ function loadCandidates(): Promise<MentionCandidate[]> {
 // Toolbar buttons: the icon comes from TOOLBAR_ICON[action], title is the
 // tooltip and accessible name.
 const TOOLBAR: { action: MarkdownAction; title: string }[] = [
-  { action: 'bold', title: 'Bold' },
-  { action: 'italic', title: 'Italic' },
+  { action: 'bold', title: 'Bold (Cmd/Ctrl+B)' },
+  { action: 'italic', title: 'Italic (Cmd/Ctrl+I)' },
   { action: 'strike', title: 'Strikethrough' },
   { action: 'heading', title: 'Heading' },
   { action: 'link', title: 'Link' },
@@ -332,6 +332,14 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
               syncActive(e.target);
             }}
             onKeyDown={(e) => {
+              // Cmd/Ctrl+B and Cmd/Ctrl+I wrap the selection like the toolbar buttons.
+              const shortcut = e.nativeEvent.isComposing ? null : shortcutAction(e);
+              if (shortcut) {
+                e.preventDefault();
+                setActive(null);
+                runAction(shortcut);
+                return;
+              }
               if (panelOpen) {
                 // An Enter that confirms an IME composition (e.g. picking a Japanese/Chinese
                 // candidate) must not also accept a mention suggestion.

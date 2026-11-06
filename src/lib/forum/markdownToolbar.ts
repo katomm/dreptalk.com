@@ -149,3 +149,20 @@ function orderedList(state: SelectionState): SelectionState {
     (l) => l.replace(NUMBERED, ''),
   );
 }
+
+// Keyboard shortcuts for the inline toolbar actions: Cmd+B / Cmd+I on macOS,
+// Ctrl+B / Ctrl+I elsewhere. Shift and Alt combos are left alone so browser and
+// OS shortcuts on those keys keep working. Cmd/Ctrl+K stays with the site
+// search, so links have no shortcut.
+const SHORTCUT: Record<string, MarkdownAction> = { b: 'bold', i: 'italic' };
+
+export function shortcutAction(e: {
+  key: string;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  shiftKey: boolean;
+  altKey: boolean;
+}): MarkdownAction | null {
+  if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return null;
+  return SHORTCUT[e.key.toLowerCase()] ?? null;
+}

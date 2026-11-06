@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyMarkdown } from './markdownToolbar.js';
+import { applyMarkdown, shortcutAction } from './markdownToolbar.js';
 
 // Helper: render the resulting selection as a string with | markers so the
 // expected cursor/selection is easy to read in assertions.
@@ -114,5 +114,33 @@ describe('applyMarkdown: line prefixes (quote, list, heading)', () => {
   it('expands a collapsed cursor to cover the whole line it sits on', () => {
     const out = applyMarkdown({ text: 'hello world', start: 3, end: 3 }, 'quote');
     expect(out.text).toBe('> hello world');
+  });
+});
+
+describe('shortcutAction', () => {
+  const key = (k: string, mods: Partial<{ metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean }> = {}) => ({
+    key: k,
+    metaKey: false,
+    ctrlKey: false,
+    shiftKey: false,
+    altKey: false,
+    ...mods,
+  });
+
+  it('maps Cmd+B and Ctrl+B to bold', () => {
+    expect(shortcutAction(key('b', { metaKey: true }))).toBe('bold');
+    expect(shortcutAction(key('b', { ctrlKey: true }))).toBe('bold');
+  });
+
+  it('maps Cmd+I and Ctrl+I to italic', () => {
+    expect(shortcutAction(key('i', { metaKey: true }))).toBe('italic');
+    expect(shortcutAction(key('I', { ctrlKey: true }))).toBe('italic');
+  });
+
+  it('ignores plain keys, Shift/Alt combos and other letters', () => {
+    expect(shortcutAction(key('b'))).toBeNull();
+    expect(shortcutAction(key('b', { metaKey: true, shiftKey: true }))).toBeNull();
+    expect(shortcutAction(key('i', { ctrlKey: true, altKey: true }))).toBeNull();
+    expect(shortcutAction(key('k', { metaKey: true }))).toBeNull();
   });
 });
