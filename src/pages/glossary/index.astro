@@ -19,7 +19,7 @@ const groups = GROUP_ORDER.map((grp) => ({
 })).filter((grp) => grp.items.length > 0);
 ---
 
-<Layout title="Glossary - DRepTalk" description="Definitions of the core Cardano governance terms: DReps, SPOs, the Constitutional Committee, delegation, voting power, and every governance action type.">
+<Layout wide title="Glossary - DRepTalk" description="Definitions of the core Cardano governance terms: DReps, SPOs, the Constitutional Committee, delegation, voting power, and every governance action type.">
   <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
     <a href="/">DRepTalk</a>
     <span style="margin:0 0.375rem;">/</span>
@@ -83,6 +83,21 @@ const groups = GROUP_ORDER.map((grp) => ({
   }
   .glossary-list li + li {
     border-top: 1px solid var(--border);
+  }
+  /* Two columns on the wide shell, so definitions do not span the page. The
+     first row has no top divider, the right column gets a left one (li + li
+     so it outranks the scoped divider rule above). */
+  @media (min-width: 800px) {
+    .glossary-list {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+    .glossary-list li + li:nth-child(2) {
+      border-top: 0;
+    }
+    .glossary-list li:nth-child(even) {
+      border-left: 1px solid var(--border);
+    }
   }
 
   .glossary-item {
