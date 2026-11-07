@@ -55,7 +55,7 @@ const user = Astro.locals.user;
 // concurrently with the D1 queries below (no serial latency); the result is
 // collected at the end. Edge-cached and null-on-failure, so it never blocks or
 // breaks the page. Independent of the database.
-const latestReleasePromise = fetchLatestRelease(now);
+const latestReleasePromise = fetchLatestRelease(now, env.GITHUB_TOKEN);
 
 // The hero "live voting" scene shows the strongest DRep voters actively (avatar
 // plus a vote badge) ringed by fainter "ghost" voters, so it reads as a vote in

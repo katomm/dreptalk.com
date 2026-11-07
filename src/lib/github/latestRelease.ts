@@ -42,16 +42,22 @@ export interface GitHubReleasePayload {
  * only, so the next renders ask again soon instead of serving the failure for an
  * hour, without hammering GitHub while it is down.
  */
-export function githubReleaseFetchInit(): FetchWithTimeoutInit & {
+export function githubReleaseFetchInit(token?: string): FetchWithTimeoutInit & {
+  headers: Record<string, string>;
   cf: { cacheEverything: boolean; cacheTtlByStatus: Record<string, number> };
 } {
+  const headers: Record<string, string> = {
+    // GitHub rejects requests without a User-Agent.
+    'User-Agent': 'dreptalk.com',
+    Accept: 'application/vnd.github+json',
+  };
+  // Without a token GitHub allows 60 calls an hour per IP, and the egress IPs
+  // Workers share with other customers are often used up already. A token gets
+  // its own budget no matter which IP the call leaves from.
+  if (token) headers.Authorization = `Bearer ${token}`;
   return {
     timeoutMs: 3000,
-    headers: {
-      // GitHub rejects requests without a User-Agent.
-      'User-Agent': 'dreptalk.com',
-      Accept: 'application/vnd.github+json',
-    },
+    headers,
     cf: { cacheEverything: true, cacheTtlByStatus: { '200-299': 3600, '300-599': 60 } },
   };
 }
@@ -119,8 +125,8 @@ export function parseRelease(raw: GitHubReleasePayload, nowMs: number): LatestRe
  * API at most about once per hour per colo. Never throws: any failure (non-2xx,
  * timeout, parse error, stale release) resolves to null.
  */
-export async function fetchLatestRelease(nowMs: number): Promise<LatestRelease | null> {
-  const raw = await fetchGithubJson<GitHubReleasePayload>(LATEST_RELEASE_URL, 'latest release');
+export async function fetchLatestRelease(nowMs: number, token?: string): Promise<LatestRelease | null> {
+  const raw = await fetchGithubJson<GitHubReleasePayload>(LATEST_RELEASE_URL, 'latest release', token);
   return raw ? parseRelease(raw, nowMs) : null;
 }
 
@@ -128,9 +134,9 @@ export async function fetchLatestRelease(nowMs: number): Promise<LatestRelease |
  * GET a GitHub API URL with the shared release request setup. Never throws: a
  * non-2xx answer, a timeout or a parse error is logged and resolves to null.
  */
-export async function fetchGithubJson<T>(url: string, label: string): Promise<T | null> {
+export async function fetchGithubJson<T>(url: string, label: string, token?: string): Promise<T | null> {
   try {
-    const res = await fetchWithTimeout(url, githubReleaseFetchInit());
+    const res = await fetchWithTimeout(url, githubReleaseFetchInit(token));
     if (!res.ok) {
       console.warn(`[github] ${label} fetch answered ${res.status}`);
       return null;
