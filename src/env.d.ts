@@ -120,6 +120,12 @@ declare namespace Cloudflare {
     PINATA_GATEWAY_URL?: string;
     /** gov-sync only, secret: access token for PINATA_GATEWAY_URL, sent as x-pinata-gateway-token to that host only. */
     PINATA_GATEWAY_KEY?: string;
+    /**
+     * Secret: fine-grained GitHub token without permissions, read only on public
+     * repositories. Lifts the release fetches out of the shared per-IP limit for
+     * anonymous calls. Unset falls back to anonymous calls.
+     */
+    GITHUB_TOKEN?: string;
   }
 }
 

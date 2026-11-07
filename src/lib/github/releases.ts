@@ -59,10 +59,11 @@ export function parseReleaseItem(raw: ReleaseListPayload): ReleaseItem | null {
  * parse error) resolves to null, so the caller can tell a failed fetch from an
  * empty history. Results are newest first.
  */
-export async function fetchReleases(): Promise<ReleaseItem[] | null> {
+export async function fetchReleases(token?: string): Promise<ReleaseItem[] | null> {
   const raw = await fetchGithubJson<ReleaseListPayload[]>(
     `${GITHUB_RELEASES_URL}?per_page=${PER_PAGE}`,
     'release list',
+    token,
   );
   if (!Array.isArray(raw)) return null;
   return raw

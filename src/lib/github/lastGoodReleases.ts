@@ -2,7 +2,7 @@
 // failed fetch (rate limit, timeout, outage) shows that list instead of none.
 // Lives apart from releases.ts because it needs the Workers runtime, which the
 // node unit tests of the parsing code do not have.
-import { waitUntil } from 'cloudflare:workers';
+import { env, waitUntil } from 'cloudflare:workers';
 import { fetchReleases, type ReleaseItem } from './releases.js';
 
 // Thirty days: long enough to ride out any GitHub outage, and every successful
@@ -17,7 +17,7 @@ const KEY_PATH = '/__cache/github-releases.json';
 export async function releasesWithFallback(origin: string): Promise<ReleaseItem[]> {
   const cache = (caches as CacheStorage & { default: Cache }).default;
   const key = new URL(KEY_PATH, origin).toString();
-  const fresh = await fetchReleases();
+  const fresh = await fetchReleases(env.GITHUB_TOKEN);
 
   if (fresh) {
     // The page cache in front of this render keeps writes rare. The write runs
