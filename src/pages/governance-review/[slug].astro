@@ -86,7 +86,7 @@ const ogImage = `/og/governance-review/${slug}.png?v=${ogCardVersion([d.title, d
 Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
 ---
 
-<Layout title={meta.title} description={meta.description} ogImage={ogImage}>
+<Layout wide title={meta.title} description={meta.description} ogImage={ogImage}>
   <JsonLd data={articleLd} />
   <JsonLd data={crumbs} />
   <div class="rv-layout">
@@ -251,15 +251,14 @@ Astro.response.headers.set('Cache-Control', cacheControlFor(Astro.locals.user));
 </style>
 
 <style>
-  /* Two columns inside the normal wrap: the article keeps its reading width,
-     the sidebar takes the rest. Below the breakpoint the whole thing is the
-     single reading column the page had before, with the sidebar's remaining
-     parts following the article. Same shape as the /ga/ action pages. */
-  .rv-layout { max-width: 46rem; margin: 0 auto; }
+  /* The article keeps its reading width under the logo, the sidebar ends at
+     the header's right edge, space-between takes the leftover width. Below
+     the breakpoint: one left-aligned column, the sidebar's parts follow. */
+  .rv-layout { max-width: 46rem; }
   .rv, .rv-side { min-width: 0; }
   .rv-toc { display: none; }
-  @media (min-width: 1080px) {
-    .rv-layout { max-width: none; display: grid; grid-template-columns: minmax(0, 46rem) minmax(0, 1fr); gap: 2.5rem; align-items: start; }
+  @media (min-width: 1120px) {
+    .rv-layout { max-width: none; display: grid; grid-template-columns: minmax(0, 46rem) 18rem; justify-content: space-between; align-items: start; }
     .rv-side { position: sticky; top: 1.5rem; max-height: calc(100vh - 3rem); overflow-y: auto; padding-top: 1rem; }
     .rv-toc { display: block; }
     .rv-side .rv-data { margin-top: 1.75rem; font-size: 0.78rem; }
