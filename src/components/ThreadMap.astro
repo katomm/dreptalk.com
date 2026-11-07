@@ -67,7 +67,9 @@ const { variant } = Astro.props;
   // and narrow windows do no work beyond this check.
   function watch(shell: HTMLElement, container: HTMLElement) {
     const rail = shell.classList.contains('thread-map--rail');
-    const media = window.matchMedia(rail ? '(min-width: 80rem)' : '(min-width: 901px)');
+    // The rail needs a text column of at least 36rem, its own 14.5rem with the
+    // gap and the page padding (see the main rule below), so from 53.5rem (856px).
+    const media = window.matchMedia(rail ? '(min-width: 53.5rem)' : '(min-width: 901px)');
     let map: ReturnType<typeof build> | undefined;
     const apply = () => {
       if (media.matches && map === undefined) map = build(shell, container);
@@ -261,8 +263,32 @@ const { variant } = Astro.props;
     top: 0;
     bottom: 0;
     left: 100%;
-    width: 15rem;
-    margin-left: 1.5rem;
+    width: var(--tm-rail-w);
+    margin-left: var(--tm-rail-gap);
+  }
+  /* With the rail showing, a plain topic takes the shape of the governance
+     pages: the full wide page width like the header, a 300px column for the
+     rail and the text column filling the rest. main reserves the rail's space
+     as right padding, so the text keeps flowing in main itself. Below 1000px
+     the rail narrows to 13rem with a smaller gap, and the text column gives up
+     width down to 36rem at the breakpoint (foldables, small tablets). */
+  main.container--reading:has(.thread-map--rail:not([hidden])) {
+    --tm-rail-w: 300px;
+    --tm-rail-gap: 2rem;
+    max-width: 80rem;
+    padding-right: calc(1.5rem + var(--tm-rail-gap) + var(--tm-rail-w));
+  }
+  @media (max-width: 62.49rem) {
+    main.container--reading:has(.thread-map--rail:not([hidden])) {
+      --tm-rail-w: 13rem;
+      --tm-rail-gap: 1.5rem;
+    }
+    /* The narrow rail keeps position and post list and drops the participant
+       filter, which would take half its height. */
+    .thread-map--rail [data-tm-people-label],
+    .thread-map--rail .thread-map__people {
+      display: none;
+    }
   }
   /* Sticky sits on the element whose parent gives it room to move: the tall
      rail column holds a sticky card, while in a sidebar the aside itself is

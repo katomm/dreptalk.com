@@ -33,7 +33,7 @@ const inViewport = async (page: Page, selector: string) => {
   return r.top >= 0 && r.bottom <= height + 1;
 };
 
-test('a long plain thread gets the rail beside an unchanged reading column', async ({ page }) => {
+test('a long plain thread gets the rail and the wide page shape', async ({ page }) => {
   await open(page, SHORT);
   const shortColumn = await rect(page, '.thread-single');
   await expect(map(page)).toBeHidden();
@@ -43,7 +43,18 @@ test('a long plain thread gets the rail beside an unchanged reading column', asy
   await expect(rows(page)).toHaveCount(30);
   await expect(page.locator('.thread-map__person')).toHaveCount(5);
   await expect(page.locator('[data-tm-pos]')).toHaveText('1 / 30');
-  expect((await rect(page, '.thread-single')).width).toBe(shortColumn.width);
+  // With the rail the page takes the wide shape of the governance pages: the
+  // text column grows, and column and rail line up with the header's content.
+  const column = await rect(page, '.thread-single');
+  const rail = await rect(page, '.thread-map');
+  expect(column.width).toBeGreaterThan(shortColumn.width);
+  const header = await page.locator('.site-header__inner').evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const style = getComputedStyle(el);
+    return { left: r.left + Number.parseFloat(style.paddingLeft), right: r.right - Number.parseFloat(style.paddingRight) };
+  });
+  expect(Math.abs(column.left - header.left)).toBeLessThanOrEqual(1);
+  expect(Math.abs(rail.right - header.right)).toBeLessThanOrEqual(1);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
@@ -140,7 +151,17 @@ test('a depth-2 reply is indented deeper than a direct reply', async ({ page }) 
 });
 
 test('each layout shows the map only where there is room', async ({ page }) => {
-  await open(page, LONG, 1100);
+  await open(page, LONG, 1000);
+  await expect(map(page)).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  // Between 856 and 1000px the text column narrows to make room.
+  await open(page, LONG, 890);
+  await expect(map(page)).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect((await rect(page, '.thread-single')).width).toBeGreaterThanOrEqual(576);
+  // The narrow rail drops the participant filter.
+  await expect(page.locator('.thread-map__people')).toBeHidden();
+  await open(page, LONG, 850);
   await expect(map(page)).toBeHidden();
 
   await open(page, `${GA}?tab=discussion`, 1100);
