@@ -6,6 +6,7 @@ import JsonLd from '@/components/JsonLd.astro';
 import NotFound from '@/components/NotFound.astro';
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
 import ThreadPosts from '@/components/ThreadPosts.astro';
+import ThreadMap from '@/components/ThreadMap.astro';
 import TitleEditor from '@/components/TitleEditor.astro';
 import GaTabs from '@/components/ga/GaTabs.astro';
 import GaOverview from '@/components/ga/GaOverview.astro';
@@ -1033,6 +1034,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
                 <NclMiniCard slot="after-status" {...nclMiniCardProps} />
               )}
             </GaSidebar>
+            {tab === 'discussion' && <ThreadMap variant="card" />}
           </div>
         </div>
       </>
@@ -1080,6 +1082,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
           citablePostIds={citablePostIds}
           composerMandate={viewerComposerMandate}
         />
+        {!surveyRow && !isDraftTopic && <ThreadMap variant="rail" />}
         {relatedTopics.length > 0 && !isDraftTopic && (
           <section class="thread-related">
             <h2 class="thread-related__title">Related topics</h2>
@@ -1106,6 +1109,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
             categorySlug={topic.category_slug}
             now={now}
           />
+          <ThreadMap variant="card" />
         </div>
       )}
       {surveyRow && (
@@ -1120,6 +1124,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
             asOf={surveySync?.tesseraFetchedAt ?? null}
             asOfIncomplete={surveySync?.incomplete ?? false}
           />
+          <ThreadMap variant="card" />
         </div>
       )}
       </div>
@@ -1136,8 +1141,11 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
 <style>
   /* User-topic thread body wrapper. The reading width is set on <main> via the
      Layout `readingWidth` prop, so breadcrumb, title, and posts all align. */
+  /* Plain topics: the thread map rail hangs off the right edge of the reading
+     column (see ThreadMap.astro), so the column is its positioning reference. */
   .thread-single {
     min-width: 0;
+    position: relative;
   }
   /* A survey thread is two columns: its content and the facts about it. Mirrors
      .ga-detail-layout above, since both are the same shape of page. Without the
@@ -1254,6 +1262,15 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
   .ga-detail-layout__sidebar {
     position: sticky;
     top: 1.5rem;
+  }
+  /* With a visible thread map (ThreadMap.astro, the last sidebar card) the
+     sidebar stops being sticky as a whole and stretches to the thread's height,
+     so the cards above scroll away and the map has the whole thread to stick
+     in. Without :has() support the sticky sidebar stays, map included. */
+  .thread-layout--sidebar:has(:global(.thread-map:not([hidden]))) .thread-layout__sidebar,
+  .ga-detail-layout:has(:global(.thread-map:not([hidden]))) .ga-detail-layout__sidebar {
+    position: static;
+    align-self: stretch;
   }
   .vote-panel-wrapper {
     margin-bottom: 1.5rem;

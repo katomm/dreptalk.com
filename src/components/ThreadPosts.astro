@@ -158,6 +158,7 @@ const notVoted = (author: AuthorDescriptor) =>
                     topicLocked={topic.locked}
                     now={now}
                     compact
+                    depth={depth}
                     replyTo={flatOnPhone && replyTo ? { postId: replyTo.id, authorName: describe(replyTo.author_id).displayName } : undefined}
                     mandate={mandateFor(child)}
                     stampedGrantActive={grantActiveFor(child)}
@@ -175,8 +176,8 @@ const notVoted = (author: AuthorDescriptor) =>
 
 {(prevPage || nextPage) && (
   <nav style="display:flex;gap:1rem;margin-top:1.5rem;font-size:0.875rem;">
-    {prevPage && <a href={`/t/${topic.slug}/${pageQueryPrefix}${prevPage}`}>Previous page</a>}
-    {nextPage && <a href={`/t/${topic.slug}/${pageQueryPrefix}${nextPage}`}>Next page</a>}
+    {prevPage && <a href={`/t/${topic.slug}/${pageQueryPrefix}${prevPage}`} data-pager="prev">Previous page</a>}
+    {nextPage && <a href={`/t/${topic.slug}/${pageQueryPrefix}${nextPage}`} data-pager="next">Next page</a>}
   </nav>
 )}
 

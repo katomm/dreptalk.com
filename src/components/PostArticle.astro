@@ -48,9 +48,11 @@ interface Props {
   citable?: boolean;
   /** Long Proposal Drafts opening post: folds behind "Show full draft". */
   foldable?: boolean;
+  /** Reply depth for the thread map: 0 top-level, the buildReplyTree depth for replies (1 = direct reply). */
+  depth?: number;
 }
 
-const { post, author, authorVote, authorHasNotVoted = false, user, flagged, viewerReaction, canReply, now, compact = false, replyTo, topicLocked = false, postNumber, mandate, stampedGrantActive = false, citable = false, foldable = false } = Astro.props;
+const { post, author, authorVote, authorHasNotVoted = false, user, flagged, viewerReaction, canReply, now, compact = false, replyTo, topicLocked = false, postNumber, mandate, stampedGrantActive = false, citable = false, foldable = false, depth = 0 } = Astro.props;
 
 const { canSeeContent, canFlag, reactions, isOwnPost, canEdit } = postViewerContext(post, user, !!author.isSystem, stampedGrantActive);
 
@@ -87,6 +89,9 @@ const changedVoteHref = author.drepId ? positionsVoterAnchor(author.drepId) : '?
   id={`post-${post.id}`}
   data-post-id={post.id}
   data-post-author={author.displayName}
+  data-post-author-id={post.author_id}
+  data-post-depth={depth}
+  data-post-system={author.isSystem ? '' : undefined}
 >
   <div style="font-size:0.8125rem;color:var(--muted);margin-bottom:0.75rem;display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
     <AuthorIdentity author={author} size={compact ? AVATAR_SIZE.compact : AVATAR_SIZE.card} mandate={mandate} />
