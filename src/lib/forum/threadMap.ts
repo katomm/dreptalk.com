@@ -8,11 +8,13 @@ export const MAP_MIN_POSTS = 8;
 export const MAP_MIN_WORDS = 3000;
 /** Reply levels the narrow rail indents, deeper replies sit flush at the cap. */
 export const MAP_MAX_INDENT = 3;
+/** Length bar of the longest post, and the floor that keeps short posts visible. */
+export const BAR_MAX_PX = 36;
+export const BAR_MIN_PX = 3;
 
 /** Words in a post's prose text. Whitespace runs split, empty input is 0. */
 export function countWords(text: string): number {
-  const trimmed = text.trim();
-  return trimmed ? trimmed.split(/\s+/u).length : 0;
+  return (text.match(/\S+/gu) ?? []).length;
 }
 
 /** The map shows when the page has enough posts or enough text. */
@@ -22,24 +24,17 @@ export function shouldShowMap(postCount: number, totalWords: number): boolean {
 
 /**
  * Length bar width in px on a square-root scale, so one very long post does not
- * flatten every other bar. No words gives 0, the longest post gives maxPx and
- * any other post at least minPx.
+ * flatten every other bar. No words gives 0, the longest post gives BAR_MAX_PX
+ * and any other post at least BAR_MIN_PX.
  */
-export function lengthBarPx(words: number, maxWords: number, maxPx = 36, minPx = 3): number {
+export function lengthBarPx(words: number, maxWords: number): number {
   if (words <= 0 || maxWords <= 0) return 0;
-  return Math.max(minPx, Math.round(Math.sqrt(Math.min(words, maxWords) / maxWords) * maxPx));
+  return Math.max(BAR_MIN_PX, Math.round(Math.sqrt(Math.min(words, maxWords) / maxWords) * BAR_MAX_PX));
 }
 
 /** Rail indent level: top-level 0, replies their tree depth capped at MAP_MAX_INDENT. */
 export function indentLevel(depth: number): number {
   return Math.min(Math.max(depth, 0), MAP_MAX_INDENT);
-}
-
-export interface MapPost {
-  id: string;
-  authorId: string;
-  authorName: string;
-  words: number;
 }
 
 export interface Participant {
@@ -51,7 +46,7 @@ export interface Participant {
 }
 
 /** Participants by post count descending, ties by first appearance. */
-export function groupParticipants(posts: MapPost[]): Participant[] {
+export function groupParticipants(posts: { authorId: string; authorName: string }[]): Participant[] {
   const byId = new Map<string, Participant>();
   posts.forEach((post, index) => {
     const known = byId.get(post.authorId);

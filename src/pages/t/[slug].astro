@@ -1263,6 +1263,15 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
     position: sticky;
     top: 1.5rem;
   }
+  /* With a visible thread map (ThreadMap.astro, the last sidebar card) the
+     sidebar stops being sticky as a whole and stretches to the thread's height,
+     so the cards above scroll away and the map has the whole thread to stick
+     in. Without :has() support the sticky sidebar stays, map included. */
+  .thread-layout--sidebar:has(:global(.thread-map:not([hidden]))) .thread-layout__sidebar,
+  .ga-detail-layout:has(:global(.thread-map:not([hidden]))) .ga-detail-layout__sidebar {
+    position: static;
+    align-self: stretch;
+  }
   .vote-panel-wrapper {
     margin-bottom: 1.5rem;
   }

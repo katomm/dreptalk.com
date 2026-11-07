@@ -14,7 +14,7 @@ interface Props {
 const { variant } = Astro.props;
 ---
 
-<aside class:list={['thread-map', `thread-map--${variant}`]} data-variant={variant} hidden aria-label="Thread map">
+<aside class:list={['thread-map', `thread-map--${variant}`]} hidden aria-label="Thread map">
   <div class="thread-map__card">
     <div class="thread-map__pos">
       <div class="thread-map__count">
@@ -60,9 +60,25 @@ const { variant } = Astro.props;
   // posts are found by a document search, not by walking up from the map. A
   // page renders only one of these two containers.
   const container = document.querySelector<HTMLElement>('.thread-single, .ga-detail-layout__main');
-  if (shell && container) init(shell, container);
+  if (shell && container) watch(shell, container);
 
-  function init(shell: HTMLElement, container: HTMLElement) {
+  // Shown only where there is room, re-checked when the window changes size.
+  // Nothing is read or built until the first time the map has room, so phones
+  // and narrow windows do no work beyond this check.
+  function watch(shell: HTMLElement, container: HTMLElement) {
+    const rail = shell.classList.contains('thread-map--rail');
+    const media = window.matchMedia(rail ? '(min-width: 80rem)' : '(min-width: 901px)');
+    let map: ReturnType<typeof build> | undefined;
+    const apply = () => {
+      if (media.matches && map === undefined) map = build(shell, container);
+      map?.show(media.matches);
+    };
+    media.addEventListener('change', apply);
+    apply();
+  }
+
+  /** Builds the map once. Returns null when the thread is too short for one. */
+  function build(shell: HTMLElement, container: HTMLElement) {
     const articles = [...container.querySelectorAll<HTMLElement>('article[data-post-id]')];
     const posts = articles.map((article) => {
       // Only the post body counts, never the header, badges or actions. Posts
@@ -75,11 +91,11 @@ const { variant } = Astro.props;
         isSystem: article.dataset.postSystem !== undefined,
         depth: Number(article.dataset.postDepth ?? 0),
         words: countWords(text),
-        snippet: text.replace(/\s+/gu, ' ').trim().slice(0, 80),
+        snippet: text.trimStart().slice(0, 240).replace(/\s+/gu, ' ').trim().slice(0, 80),
       };
     });
     const totalWords = posts.reduce((sum, post) => sum + post.words, 0);
-    if (!shouldShowMap(posts.length, totalWords)) return;
+    if (!shouldShowMap(posts.length, totalWords)) return null;
 
     const q = <T extends Element>(selector: string) => shell.querySelector<T>(selector)!;
     const listWrap = q<HTMLElement>('[data-tm-list-wrap]');
@@ -94,7 +110,7 @@ const { variant } = Astro.props;
       link.href = `#post-${post.id}`;
       if (post.snippet) link.title = post.snippet;
       link.style.setProperty('--tm-indent', String(indentLevel(post.depth)));
-      link.appendChild(avatarFor(articles[index], post.authorName, ROW_AVATAR_PX));
+      link.appendChild(avatarFor(articles[index], ROW_AVATAR_PX));
       const name = document.createElement('span');
       name.className = 'thread-map__name';
       name.textContent = post.authorName;
@@ -112,7 +128,7 @@ const { variant } = Astro.props;
       return link;
     });
 
-    q<HTMLElement>('[data-tm-words]').textContent = `${new Intl.NumberFormat('en', { notation: 'compact' }).format(totalWords)} words`;
+    q<HTMLElement>('[data-tm-words]').textContent = `${new Intl.NumberFormat('en-US', { notation: 'compact' }).format(totalWords)} words`;
     q<HTMLAnchorElement>('[data-tm-top]').href = `#post-${posts[0].id}`;
     q<HTMLAnchorElement>('[data-tm-latest]').href = `#post-${posts[posts.length - 1].id}`;
     // Neighbor pages: reuse the rendered pager links, which already carry the
@@ -137,18 +153,19 @@ const { variant } = Astro.props;
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'thread-map__person';
+      button.dataset.authorId = participant.authorId;
       button.setAttribute('aria-pressed', 'false');
-      const noun = participant.count === 1 ? 'post' : 'posts';
-      button.title = `${participant.authorName}: ${participant.count} ${noun}`;
-      button.setAttribute('aria-label', `${participant.authorName}, ${participant.count} ${noun}`);
-      button.appendChild(avatarFor(articles[participant.firstIndex], participant.authorName, PERSON_AVATAR_PX));
+      const label = `${participant.authorName}: ${participant.count} ${participant.count === 1 ? 'post' : 'posts'}`;
+      button.title = label;
+      button.setAttribute('aria-label', label);
+      button.appendChild(avatarFor(articles[participant.firstIndex], PERSON_AVATAR_PX));
       button.addEventListener('click', () => setFilter(selected === participant.authorId ? null : participant.authorId));
       people.appendChild(button);
-      return { button, authorId: participant.authorId };
+      return button;
     });
     function setFilter(authorId: string | null) {
       selected = authorId;
-      for (const { button, authorId: id } of buttons) button.setAttribute('aria-pressed', String(id === authorId));
+      for (const button of buttons) button.setAttribute('aria-pressed', String(button.dataset.authorId === authorId));
       posts.forEach((post, index) => {
         rows[index].classList.toggle('is-dim', authorId !== null && post.authorId !== authorId);
         articles[index].classList.toggle('thread-map-hl', authorId !== null && post.authorId === authorId);
@@ -156,16 +173,17 @@ const { variant } = Astro.props;
     }
 
     // Reading position. The header changes height at several widths, so it is
-    // measured, and the measurement also drives the sticky offset in CSS.
+    // measured, and the measurement also drives the sticky offset in CSS. The
+    // observer's first callback, right after observe(), does the first update.
     const header = document.querySelector<HTMLElement>('.site-header');
-    let headerHeight = 0;
-    function measureHeader() {
-      headerHeight = header?.offsetHeight ?? 0;
-      document.documentElement.style.setProperty('--site-header-h', `${headerHeight}px`);
-    }
+    let headerHeight = -1;
     const headerObserver = new ResizeObserver(() => {
-      measureHeader();
-      schedule();
+      const height = header?.offsetHeight ?? 0;
+      if (height !== headerHeight) {
+        headerHeight = height;
+        document.documentElement.style.setProperty('--site-header-h', `${height}px`);
+      }
+      update();
     });
 
     let current = -1;
@@ -196,29 +214,22 @@ const { variant } = Astro.props;
       if (above || below) listWrap.scrollTop = row.offsetTop - listWrap.clientHeight / 2;
     }
 
-    // Shown only where there is room, re-checked when the window changes size.
-    const media = window.matchMedia(shell.dataset.variant === 'rail' ? '(min-width: 80rem)' : '(min-width: 901px)');
-    function applyMedia() {
-      const show = media.matches;
-      shell.hidden = !show;
-      if (show) {
-        if (header) headerObserver.observe(header);
-        window.addEventListener('scroll', schedule, { passive: true });
-        window.addEventListener('resize', schedule);
-        // First paint without waiting for a frame, so the position is filled in
-        // as soon as the map appears.
-        measureHeader();
-        update();
-      } else {
-        headerObserver.disconnect();
-        window.removeEventListener('scroll', schedule);
-        window.removeEventListener('resize', schedule);
-        // No outline may stay on the posts once its control is gone.
-        setFilter(null);
-      }
-    }
-    media.addEventListener('change', applyMedia);
-    applyMedia();
+    return {
+      show(visible: boolean) {
+        shell.hidden = !visible;
+        if (visible) {
+          if (header) headerObserver.observe(header);
+          window.addEventListener('scroll', schedule, { passive: true });
+          window.addEventListener('resize', schedule);
+        } else {
+          headerObserver.disconnect();
+          window.removeEventListener('scroll', schedule);
+          window.removeEventListener('resize', schedule);
+          // No outline may stay on the posts once its control is gone.
+          setFilter(null);
+        }
+      },
+    };
   }
 
   // A small copy of the avatar the post header already shows (identicon plus
@@ -226,17 +237,14 @@ const { variant } = Astro.props;
   // of its own. The copy keeps the original's scope attributes and with them
   // its styles. Linked avatars become plain spans, since the copy sits inside a
   // link or button.
-  function avatarFor(article: HTMLElement, name: string, size: number): HTMLElement {
-    const source = article.querySelector<HTMLElement>('.author-identity .avatar, .author-identity__avatar');
+  function avatarFor(article: HTMLElement, size: number): HTMLElement {
     const copy = document.createElement('span');
+    const source = article.querySelector<HTMLElement>('.author-identity .avatar, .author-identity__avatar');
     if (source) {
       for (const attr of source.attributes) {
         if (attr.name !== 'href' && attr.name !== 'tabindex') copy.setAttribute(attr.name, attr.value);
       }
-      copy.innerHTML = source.innerHTML;
-    } else {
-      copy.className = 'thread-map__initial';
-      copy.textContent = name.trim().charAt(0).toUpperCase();
+      for (const child of source.childNodes) copy.appendChild(child.cloneNode(true));
     }
     copy.classList.add('thread-map__avatar');
     copy.setAttribute('aria-hidden', 'true');
@@ -266,15 +274,6 @@ const { variant } = Astro.props;
   }
   .thread-map--card {
     margin-top: 1.5rem;
-  }
-  /* With a visible map the sidebar stops being sticky as a whole and stretches
-     to the thread's height, so the cards above scroll away and the map has the
-     whole thread to stick in. Without :has() support the old sticky sidebar
-     stays, with the map as its last card. */
-  .thread-layout--sidebar:has(.thread-map:not([hidden])) .thread-layout__sidebar,
-  .ga-detail-layout:has(.thread-map:not([hidden])) .ga-detail-layout__sidebar {
-    position: static;
-    align-self: stretch;
   }
   .thread-map__card {
     display: flex;
@@ -408,15 +407,6 @@ const { variant } = Astro.props;
     width: 60% !important;
     height: 60% !important;
   }
-  .thread-map__initial {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 999px;
-    background: var(--avatar-ground);
-    font-size: 0.625rem;
-    font-weight: 600;
-  }
   /* The filtered participant's posts in the thread itself. */
   article.thread-map-hl {
     outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
@@ -424,9 +414,11 @@ const { variant } = Astro.props;
     border-radius: 0.375rem;
   }
   @media (prefers-reduced-motion: no-preference) {
-    .thread-map__row,
+    .thread-map__row {
+      transition: background-color 0.15s ease;
+    }
     .thread-map__bar span {
-      transition: background-color 0.15s ease, width 0.2s ease;
+      transition: width 0.2s ease;
     }
   }
 </style>

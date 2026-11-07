@@ -7,7 +7,6 @@ import {
   lengthBarPx,
   MAP_MIN_POSTS,
   MAP_MIN_WORDS,
-  type MapPost,
   shouldShowMap,
 } from './threadMap.js';
 
@@ -55,19 +54,19 @@ describe('indentLevel', () => {
 });
 
 describe('groupParticipants', () => {
-  const post = (id: string, authorId: string, authorName: string): MapPost => ({ id, authorId, authorName, words: 10 });
+  const post = (authorId: string, authorName: string) => ({ authorId, authorName });
 
   it('keeps authors with the same display name apart', () => {
-    const result = groupParticipants([post('1', 'a', 'Sam'), post('2', 'b', 'Sam')]);
+    const result = groupParticipants([post('a', 'Sam'), post('b', 'Sam')]);
     expect(result.map((p) => p.authorId)).toEqual(['a', 'b']);
   });
   it('sorts by post count, ties by first appearance', () => {
     const result = groupParticipants([
-      post('1', 'a', 'A'),
-      post('2', 'b', 'B'),
-      post('3', 'c', 'C'),
-      post('4', 'c', 'C'),
-      post('5', 'b', 'B'),
+      post('a', 'A'),
+      post('b', 'B'),
+      post('c', 'C'),
+      post('c', 'C'),
+      post('b', 'B'),
     ]);
     expect(result.map((p) => [p.authorId, p.count])).toEqual([
       ['b', 2],
