@@ -134,7 +134,7 @@ export interface DrepCardInput {
   registeredEpoch: number | null;
 }
 
-export type DrepStatIcon = 'power' | 'votes' | 'participation' | 'epoch';
+export type DrepStatIcon = 'power' | 'votes' | 'participation' | 'epoch' | 'members' | 'mode';
 
 export interface DrepStat {
   value: string;
