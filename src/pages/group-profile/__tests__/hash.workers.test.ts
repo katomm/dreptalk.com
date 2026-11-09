@@ -4,6 +4,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { buildProfileDoc, putProfileDoc } from '../../../lib/groups/profileDocs';
 import { GET } from '../[hash].json';
 
+// Groups run on mainnet now, so the off path is tested with mainnet left out of the list.
+vi.mock('@/lib/groups/gate', async (orig) => {
+  const real = await orig<typeof import('@/lib/groups/gate')>();
+  const on = ['preprod'] as const;
+  return { DREP_GROUPS_NETWORKS: on, drepGroupsAvailable: (n: Parameters<typeof real.drepGroupsAvailable>[0]) => real.drepGroupsAvailable(n, on) };
+});
+
 const net = vi.hoisted(() => ({ network: 'preprod' }));
 vi.mock('@/lib/api/response', async (orig) => ({
   ...(await orig<typeof import('@/lib/api/response')>()),

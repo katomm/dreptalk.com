@@ -1,8 +1,8 @@
 /// <reference types="@cloudflare/workers-types" />
-// DRep groups with mainnet switched on in the network list, injected for this file only. The
-// workers tests run without a CARDANO_NETWORK binding, so currentNetwork() is mainnet here. Every
-// groups surface reads the one list, so the switch turns them all on together.
-import { describe, expect, it, vi } from 'vitest';
+// DRep groups with the real network list, which includes mainnet. The workers tests run without a
+// CARDANO_NETWORK binding, so currentNetwork() is mainnet here. Every groups surface reads the one
+// list, so the switch turns them all on together.
+import { describe, expect, it } from 'vitest';
 import { currentNetwork } from '@/lib/api/response';
 import { navFor, navLinksFor } from '@/lib/config/nav';
 import { matchStaticEntries } from '@/lib/search/staticEntries';
@@ -17,11 +17,6 @@ import { addressNetwork, groupIdString } from './ids.js';
 import { myGroupsLink } from './myGroups.js';
 import { ALICE, CAROL, call, PERM, seedPermissioned, sessionOf } from '@/pages/api/groups/actions/__tests__/fixtures';
 
-vi.mock('./gate.js', async (orig) => {
-  const real = await orig<typeof import('./gate.js')>();
-  const on = ['preprod', 'mainnet'] as const;
-  return { DREP_GROUPS_NETWORKS: on, drepGroupsAvailable: (n: Parameters<typeof real.drepGroupsAvailable>[0]) => real.drepGroupsAvailable(n, on) };
-});
 
 describe('DRep groups switched on for mainnet', () => {
   it('runs on mainnet', () => {

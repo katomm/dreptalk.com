@@ -3,9 +3,10 @@ import { drepGroupsAvailable } from './gate.js';
 import { credentialForDrepId, drepIdForCredential, groupIdParam, groupIdString } from './ids.js';
 
 describe('drepGroupsAvailable', () => {
-  it('is true on preprod only', () => {
+  it('is true on preprod and mainnet', () => {
     expect(drepGroupsAvailable('preprod')).toBe(true);
-    expect(drepGroupsAvailable('mainnet')).toBe(false);
+    expect(drepGroupsAvailable('mainnet')).toBe(true);
+    expect(drepGroupsAvailable('mainnet', ['preprod'])).toBe(false);
     expect(drepGroupsAvailable(undefined)).toBe(false);
   });
 });

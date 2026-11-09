@@ -8,7 +8,7 @@ describe('matchStaticEntries', () => {
 
   it('offers the DRep groups only where groups run', () => {
     expect(matchStaticEntries('groups', false, 'preprod').map((e) => e.href)).toContain('/groups/');
-    expect(matchStaticEntries('groups', false, 'mainnet').map((e) => e.href)).not.toContain('/groups/');
+    expect(matchStaticEntries('groups', false, 'mainnet').map((e) => e.href)).toContain('/groups/');
     expect(matchStaticEntries('groups').map((e) => e.href)).not.toContain('/groups/');
   });
 

@@ -1,8 +1,9 @@
 /// <reference types="@cloudflare/workers-types" />
-// DRep groups with the real network list: off on mainnet. The workers tests run without a
-// CARDANO_NETWORK binding, so currentNetwork() is mainnet here. Every groups surface is hidden or
-// answers 404 there, and none of them reads a group table, which mainnet D1 does not have yet.
-import { describe, expect, it } from 'vitest';
+// DRep groups with mainnet left out of the network list, injected for this file only, the state of
+// any network groups do not run on. The workers tests run without a CARDANO_NETWORK binding, so
+// currentNetwork() is mainnet here. Every groups surface is hidden or answers 404 there, and none
+// of them reads a group table.
+import { describe, expect, it, vi } from 'vitest';
 import { currentNetwork } from '@/lib/api/response';
 import { isGroupSigner } from '@/lib/auth/groupSigner';
 import { navLinksFor } from '@/lib/config/nav';
@@ -23,6 +24,12 @@ import { GET as hostedProfile } from '@/pages/group-profile/[hash].json';
 import { DREP_GROUPS_NETWORKS, drepGroupsAvailable } from './gate.js';
 import { myGroupsLink } from './myGroups.js';
 
+vi.mock('./gate.js', async (orig) => {
+  const real = await orig<typeof import('./gate.js')>();
+  const on = ['preprod'] as const;
+  return { DREP_GROUPS_NETWORKS: on, drepGroupsAvailable: (n: Parameters<typeof real.drepGroupsAvailable>[0]) => real.drepGroupsAvailable(n, on) };
+});
+
 const DREP = 'drep1ygqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqcwrwe';
 
 /** A database that fails every statement, for paths that must not reach a group table. */
@@ -39,7 +46,7 @@ function route(path: string, method: 'GET' | 'POST', params: Record<string, stri
   return { request, url, params, locals } as never;
 }
 
-describe('DRep groups switched off on mainnet', () => {
+describe('DRep groups on a network they do not run on', () => {
   it('keeps mainnet out of the network list', () => {
     expect(currentNetwork().network).toBe('mainnet');
     expect(DREP_GROUPS_NETWORKS).not.toContain('mainnet');

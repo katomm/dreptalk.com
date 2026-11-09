@@ -13,8 +13,8 @@ describe('navFor', () => {
     expect(navLinksFor('preprod').some((l) => l.href === '/groups/')).toBe(true);
   });
 
-  it('leaves DRep groups out on mainnet', () => {
-    expect(dreps('mainnet')).not.toContain('DRep groups');
-    expect(navLinksFor('mainnet').some((l) => l.href === '/groups/')).toBe(false);
+  it('lists DRep groups on mainnet too', () => {
+    expect(dreps('mainnet').slice(-2)).toEqual(['DRep groups', 'Register as a DRep']);
+    expect(navLinksFor('mainnet').some((l) => l.href === '/groups/')).toBe(true);
   });
 });
