@@ -1,6 +1,6 @@
 // src/lib/db/delegationDigest.workers.test.ts
 /// <reference types="@cloudflare/workers-types" />
-// Delegator epoch digest, run in real workerd via vitest-pool-workers.
+// Delegator epoch digest, run in real workerd via @cloudflare/vitest-plugin.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { resolveNetwork, epochStartUnix, epochStartMs } from '../config/network.js';

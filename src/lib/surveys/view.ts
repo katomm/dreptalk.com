@@ -7,6 +7,7 @@
 
 import { Role, type SurveyDefinition } from 'cip-179';
 import { formatRelativeTime } from '../forum/view.js';
+import { resolveAnchorUrl } from '../governance/anchorUrl.js';
 import type { SurveyRecord } from 'cip-179/domain';
 import { decodeSurveyRecord } from 'cip-179/tally';
 import {
@@ -86,6 +87,29 @@ export function surveyDescription(def: SurveyDefinition): string {
 export function tesseraSurveyUrl(appUrl: string | undefined, ref: string): string | null {
   if (!appUrl) return null;
   return `${appUrl.replace(/\/+$/, '')}/survey/${ref}`;
+}
+
+/** Who may answer, as a sentence. A survey open to keyholders is open to
+ * anyone, since any Cardano key qualifies and no stake or role is needed, so
+ * the other roles it lists add nothing a reader has to know. */
+export function whoMayAnswer(roles: readonly number[]): string {
+  if (roles.includes(Role.Keyholder)) return 'Anyone can answer';
+  return `Open to ${roleLabels(roles)}`;
+}
+
+/** The survey's own site, when the linking action names one: a reference
+ * whose label is the survey's title. CIP-179 gives a definition no URL of its
+ * own, and the reference comes from the same anchor that links the survey, so
+ * it is the creator's link, not a guess. Resolved like every other anchor
+ * reference, so the same scheme allowlist applies. */
+export function surveySiteUrl(
+  references: readonly { label: string; uri: string }[] | null,
+  title: string,
+): string | null {
+  const wanted = title.trim().toLowerCase();
+  if (!references || !wanted) return null;
+  const hit = references.find(r => r.label.trim().toLowerCase() === wanted);
+  return hit ? resolveAnchorUrl(hit.uri) : null;
 }
 
 /** One question, flattened for rendering: what it asks, how it answers, and

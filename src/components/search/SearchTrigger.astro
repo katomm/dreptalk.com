@@ -148,6 +148,8 @@ const { signedIn = false, initialScope = 'all', network } = Astro.props;
         return;
       }
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k') {
+        // A Markdown editor already used the key to insert a link.
+        if (e.defaultPrevented) return;
         e.preventDefault();
         show(true);
         return;

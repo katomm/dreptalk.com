@@ -8,7 +8,7 @@ faqs:
   - q: "What is a CIP-179 survey?"
     a: "A poll published on the Cardano chain. Its rules and every answer are on chain, so anyone can read and count them."
   - q: "Why do only some surveys appear on DRepTalk?"
-    a: "Only surveys that DReps may answer and that a governance action discussed here links to get a thread."
+    a: "Every survey a governance action discussed here links shows up on that action's page. Only surveys that DReps may answer also get a thread of their own."
   - q: "Does DRepTalk show the result of a survey?"
     a: "No. The survey card shows an informational tally under the generic CIP-179 rules, which is a reading and not a result."
   - q: "What does answering put on chain?"
@@ -17,7 +17,7 @@ faqs:
     a: "Yes, while the survey is open. The new answer replaces the old one and costs another network fee."
   - q: "Can I answer after the closing epoch?"
     a: "No. A late response is not counted, although the network fee is still spent."
-updated: 2026-09-18
+updated: 2026-10-28
 ---
 
 [CIP-179](https://github.com/cardano-foundation/CIPs/tree/master/CIP-0179) puts
@@ -46,6 +46,12 @@ governance action DRepTalk has already imported carries a valid link to it.
 That last condition is what keeps the category useful. The Surveys category
 lists the surveys attached to proposals under discussion here, not every survey
 that exists on the chain.
+
+Whatever its roles, a linked survey also shows as a banner at the top of the
+governance action that links it, on every tab. For a survey DReps may answer the
+banner leads to its thread. A survey meant for others, SPOs or anyone with a
+Cardano key, gets no thread here, so its banner leads to the survey's own site
+when the action names one, and to Tessera otherwise.
 
 The thread is opened automatically and its first post is written by the system.
 The survey card at the top carries the questions and the tally of the responses.

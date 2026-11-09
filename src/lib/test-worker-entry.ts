@@ -1,4 +1,4 @@
-// Minimal Worker entrypoint used ONLY by the vitest-pool-workers project.
+// Minimal Worker entrypoint used ONLY by the workers vitest project (@cloudflare/vitest-plugin).
 //
 // The production `main` in wrangler.toml is the adapter's bare-specifier
 // entrypoint (`@astrojs/cloudflare/entrypoints/server`), which the test pool

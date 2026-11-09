@@ -1,6 +1,6 @@
 /// <reference types="@cloudflare/workers-types" />
 // checkRate is backed by the RateLimiter Durable Object. These run in real
-// workerd via @cloudflare/vitest-pool-workers so the DO's atomic single-threaded
+// workerd via @cloudflare/vitest-plugin so the DO's atomic single-threaded
 // counting, the window reset, and per-key isolation are exercised end to end.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';

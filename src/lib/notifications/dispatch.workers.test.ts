@@ -1,5 +1,5 @@
 /// <reference types="@cloudflare/workers-types" />
-// Cron dispatcher tests, run in real workerd via vitest-pool-workers. `send`
+// Cron dispatcher tests, run in real workerd via @cloudflare/vitest-plugin. `send`
 // is injected as a fake so no real network call happens; the crypto and HTTP
 // transport are covered separately by webPush.workers.test.ts.
 //

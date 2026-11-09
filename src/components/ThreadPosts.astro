@@ -1,9 +1,10 @@
 ---
 // The full thread body shared by governance and non-governance topic views:
-// stats strip, one-level-threaded post list, pagination, locked notice,
+// stats strip, nested reply tree, pagination, locked notice,
 // composer (writers) or join banner (anonymous). Replaces the previously
 // duplicated markup in t/[slug].astro and GaDiscussion.astro.
 import PostArticle from '@/components/PostArticle.astro';
+import { buildReplyTree } from '@/lib/forum/replyTree.js';
 import TopicStatsBar from '@/components/TopicStatsBar.astro';
 import Composer from '@/components/Composer.tsx';
 import QuoteSelection from '@/components/QuoteSelection.tsx';
@@ -82,6 +83,10 @@ const canParticipate = !!user && (isWriter(user.roles) || !!composerMandate?.has
 // Governance threads live behind the discussion tab; plain threads paginate at the root.
 const pageQueryPrefix = isGovernanceTopic ? '?tab=discussion&page=' : '?page=';
 
+// How many reply levels get their own indent. Replies nest without limit,
+// deeper ones sit flush at the cap and name the reply they answered instead.
+const REPLY_INDENT_CAP = { phone: 3, desktop: 6 } as const;
+
 const voteFor = (author: AuthorDescriptor) =>
   author.drepId ? govVotes.get(author.drepId) : undefined;
 
@@ -132,25 +137,34 @@ const notVoted = (author: AuthorDescriptor) =>
         />
         {children.length > 0 && (
           <div class="thread-replies">
-            {children.map((child) => {
+            {buildReplyTree(children).map(({ post: child, depth, replyTo }) => {
               const childAuthor = describe(child.author_id);
+              const flatOnPhone = depth > REPLY_INDENT_CAP.phone;
+              const flatOnDesktop = depth > REPLY_INDENT_CAP.desktop;
               return (
-                <PostArticle
-                  post={child}
-                  author={childAuthor}
-                  authorVote={voteFor(childAuthor)}
-                  authorHasNotVoted={notVoted(childAuthor)}
-                  user={user}
-                  flagged={flaggedPostIds.has(child.id)}
-                  viewerReaction={viewerReactions.get(child.id) ?? null}
-                  canReply={canParticipate}
-                  topicLocked={topic.locked}
-                  now={now}
-                  compact
-                  mandate={mandateFor(child)}
-                  stampedGrantActive={grantActiveFor(child)}
-                  citable={citablePostIds.has(child.id)}
-                />
+                <div
+                  class:list={['reply-row', { 'reply-row--flat-phone': flatOnPhone, 'reply-row--flat-desktop': flatOnDesktop }]}
+                  style={`--levels-phone:${Math.min(depth, REPLY_INDENT_CAP.phone) - 1};--levels-desktop:${Math.min(depth, REPLY_INDENT_CAP.desktop) - 1};`}
+                >
+                  <PostArticle
+                    post={child}
+                    author={childAuthor}
+                    authorVote={voteFor(childAuthor)}
+                    authorHasNotVoted={notVoted(childAuthor)}
+                    user={user}
+                    flagged={flaggedPostIds.has(child.id)}
+                    viewerReaction={viewerReactions.get(child.id) ?? null}
+                    canReply={canParticipate}
+                    topicLocked={topic.locked}
+                    now={now}
+                    compact
+                    depth={depth}
+                    replyTo={flatOnPhone && replyTo ? { postId: replyTo.id, authorName: describe(replyTo.author_id).displayName } : undefined}
+                    mandate={mandateFor(child)}
+                    stampedGrantActive={grantActiveFor(child)}
+                    citable={citablePostIds.has(child.id)}
+                  />
+                </div>
               );
             })}
           </div>
@@ -162,8 +176,8 @@ const notVoted = (author: AuthorDescriptor) =>
 
 {(prevPage || nextPage) && (
   <nav style="display:flex;gap:1rem;margin-top:1.5rem;font-size:0.875rem;">
-    {prevPage && <a href={`/t/${topic.slug}/${pageQueryPrefix}${prevPage}`}>Previous page</a>}
-    {nextPage && <a href={`/t/${topic.slug}/${pageQueryPrefix}${nextPage}`}>Next page</a>}
+    {prevPage && <a href={`/t/${topic.slug}/${pageQueryPrefix}${prevPage}`} data-pager="prev">Previous page</a>}
+    {nextPage && <a href={`/t/${topic.slug}/${pageQueryPrefix}${nextPage}`} data-pager="next">Next page</a>}
   </nav>
 )}
 
@@ -209,11 +223,13 @@ const notVoted = (author: AuthorDescriptor) =>
   // asynchronously restores the pre-reload scroll position (the composer at
   // the bottom) over the anchor, so when the composer left its landing flag,
   // restoration is disabled before it can run and re-enabled once landed.
+  // The post's top is aligned below the sticky header (its scroll-margin-top),
+  // because centering a post taller than the viewport lands mid-text on phones.
   if (window.location.hash.startsWith('#post-')) {
     const pendingLanding = sessionStorage.getItem('dreptalk:land-on-post') !== null;
     sessionStorage.removeItem('dreptalk:land-on-post');
     const landOnHashPost = () => {
-      document.getElementById(window.location.hash.slice(1))?.scrollIntoView({ block: 'center' });
+      document.getElementById(window.location.hash.slice(1))?.scrollIntoView({ block: 'start' });
     };
     if (pendingLanding) history.scrollRestoration = 'manual';
     landOnHashPost();
@@ -311,6 +327,38 @@ const notVoted = (author: AuthorDescriptor) =>
     margin: 0 0 1.25rem 1.375rem;
     padding-left: 1rem;
     border-left: 2px solid var(--border);
+  }
+  /* Rows stay flat in the DOM. Each level below the first adds one indent step
+     and one guide line, drawn as a repeating gradient so the lines of
+     consecutive rows join into one line per open branch. */
+  .reply-row {
+    --levels: var(--levels-desktop);
+    --indent: 1.5rem;
+    padding-left: calc(var(--levels) * var(--indent));
+    background-image: repeating-linear-gradient(
+      to right,
+      var(--border) 0 2px,
+      transparent 2px var(--indent)
+    );
+    background-size: calc(var(--levels) * var(--indent)) 100%;
+    background-repeat: no-repeat;
+  }
+  /* The "Replying to" link shows only where the row is past the
+     breakpoint's indent cap and no longer sits under its target. */
+  .reply-row :global(.post-reply-to) {
+    display: none;
+  }
+  .reply-row--flat-desktop :global(.post-reply-to) {
+    display: inline;
+  }
+  @media (max-width: 640px) {
+    .reply-row {
+      --levels: var(--levels-phone);
+      --indent: 0.875rem;
+    }
+    .reply-row--flat-phone :global(.post-reply-to) {
+      display: inline;
+    }
   }
   .join-banner {
     margin-top: 2.5rem;

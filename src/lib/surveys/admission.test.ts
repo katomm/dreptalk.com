@@ -7,7 +7,7 @@ import {
   type SurveyRecord,
 } from 'cip-179/domain';
 import { describe, expect, it } from 'vitest';
-import { eligibleSurvey } from './admission.js';
+import { drepAnswerable, eligibleSurvey } from './admission.js';
 
 const TX = 'a'.repeat(64);
 const KEY = `${TX}:0`;
@@ -63,8 +63,10 @@ describe('eligibleSurvey', () => {
     expect(eligibleSurvey(aggregateOf(definition()))).toBe(true);
   });
 
-  it('refuses a survey DReps cannot answer', () => {
-    expect(eligibleSurvey(aggregateOf(definition({ eligibleRoles: [Role.SPO] })))).toBe(false);
+  it('stores a survey DReps cannot answer, which drepAnswerable keeps from a thread', () => {
+    expect(eligibleSurvey(aggregateOf(definition({ eligibleRoles: [Role.Keyholder] })))).toBe(true);
+    expect(drepAnswerable([Role.Keyholder])).toBe(false);
+    expect(drepAnswerable([Role.SPO, Role.DRep])).toBe(true);
   });
 
   it('refuses an untalliable definition, as aggregate() judges it', () => {

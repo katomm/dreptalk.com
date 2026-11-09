@@ -4,7 +4,7 @@
 // the answer gate on the page) renders from this, so no two of them can
 // disagree about a survey's state.
 
-import { Role } from 'cip-179';
+import { drepAnswerable } from './admission.js';
 import { epochFromUnix, epochStartUnix, type NetworkConfig } from '../config/network.js';
 import { formatEpochDate } from '../governance/view.js';
 
@@ -170,7 +170,7 @@ export function surveyState(row: SurveyStateInput, nowMs: number, cfg: NetworkCo
       lifecycle === 'open' &&
       !row.unavailable &&
       !row.externalContent &&
-      row.eligibleRoles.includes(Role.DRep),
+      drepAnswerable(row.eligibleRoles),
     participation: participation(row),
   };
 }

@@ -21,6 +21,7 @@ import { buildInsertGovernanceAction } from '../db/governance.js';
 import {
   deleteSurveyTallies,
   enqueueSurveyTallies,
+  getRefsWithoutTally,
   getSurveyTally,
   markSurveyTallyAttempt,
   takeSurveyTallyWork,
@@ -71,10 +72,9 @@ const FINALIZED: SurveyListPayload['finalState'] = {
   [KEY_LINKED]: { state: 'finalized', artifactHash: ARTIFACT_HASH },
 };
 /** The backend's audited in-window counts for the default page: two DReps
- * on the linked survey, one SPO on the non-DRep one. */
+ * on the linked survey. */
 const COUNTED: SurveyListPayload['countedByRole'] = {
   [KEY_LINKED]: { [Role.DRep]: 2 },
-  [KEY_NON_DREP]: { [Role.SPO]: 1 },
 };
 
 const tip: ChainTip = {
@@ -381,24 +381,16 @@ async function orderQueue(refs: readonly string[]): Promise<void> {
 
 function fakeTessera(overrides: Partial<SurveysTessera> = {}): SurveysTessera {
   // The whole corpus, as the bootstrap delivers it: the delta carries no
-  // filter, so a linked non-DRep survey and a DRep-eligible survey nothing
-  // links ride beside the one the mirror wants.
+  // filter, so a DRep-eligible survey nothing links rides beside the one the
+  // mirror wants. A linked survey DReps cannot answer is stored too, without
+  // a thread, which its own test covers with its own corpus.
   const corpus = setOf(
     [
       surveyRecord(TX_LINKED, definition()),
-      surveyRecord(TX_NON_DREP, definition({ eligibleRoles: [Role.SPO], title: 'SPO poll' })),
       surveyRecord(TX_UNLINKED, definition({ title: 'Standalone poll' })),
     ],
-    [
-      { surveyKey: KEY_LINKED, actionId: ACTION_ID, endEpoch: 300, title: 'The linking action' },
-      {
-        surveyKey: KEY_NON_DREP,
-        actionId: ACTION_ID,
-        endEpoch: 300,
-        title: 'The linking action',
-      },
-    ],
-    { [KEY_LINKED]: 3, [KEY_NON_DREP]: 1, [KEY_UNLINKED]: 2 },
+    [{ surveyKey: KEY_LINKED, actionId: ACTION_ID, endEpoch: 300, title: 'The linking action' }],
+    { [KEY_LINKED]: 3, [KEY_UNLINKED]: 2 },
     { ...COUNTED, [KEY_UNLINKED]: { [Role.DRep]: 2 } },
   );
   return {
@@ -488,9 +480,8 @@ describe('syncSurveys', () => {
     const r = await syncSurveys(deps(fakeTessera()));
     expect(r).toMatchObject({ notReady: false, written: 1, published: 1, failed: 0 });
 
-    // Exactly one row: neither the linked non-DRep survey nor the DRep survey
-    // nothing links is eligible, a link is Tessera's fact, and the survey
-    // is delivered again when one arrives.
+    // Exactly one row: the DRep survey nothing links is not eligible, a link
+    // is Tessera's fact, and the survey is delivered again when one arrives.
     const rows = await surveyRows();
     expect(rows.map(s => s.ref)).toEqual([KEY_LINKED]);
     // The card number is the backend's audited DRep count, not the list's
@@ -522,6 +513,46 @@ describe('syncSurveys', () => {
       "SELECT COUNT(*) AS n FROM topics WHERE source = 'survey'",
     ).first<{ n: number }>();
     expect(topics?.n).toBe(1);
+  });
+
+  it('stores a linked survey DReps cannot answer for its action, with no thread and no tally', async () => {
+    await importLinkingAction();
+    const corpus = setOf(
+      [
+        surveyRecord(
+          TX_NON_DREP,
+          definition({ eligibleRoles: [Role.Keyholder], title: 'Developer survey' }),
+        ),
+      ],
+      [{ surveyKey: KEY_NON_DREP, actionId: ACTION_ID, endEpoch: 300, title: 'The linking action' }],
+      { [KEY_NON_DREP]: 5 },
+      { [KEY_NON_DREP]: {} },
+    );
+    const tessera = fakeTessera({
+      changesSince: async () => ({ ready: true, body: deltaOf(corpus, [], BOOT_CURSOR) }),
+      bundle: async () => {
+        throw new Error('no bundle for a survey DReps cannot answer');
+      },
+    });
+    expect(await syncSurveys(deps(tessera))).toMatchObject({
+      written: 1,
+      published: 0,
+      tallies: 0,
+      failed: 0,
+    });
+    const [row] = await surveyRows();
+    expect(row).toMatchObject({ ref: KEY_NON_DREP, topic_id: null });
+    expect(await takeSurveyTallyWork(env.DB, 10)).toEqual([]);
+    expect(await getRefsWithoutTally(env.DB, 10)).toEqual([]);
+    // The action page still finds it, with no thread to lead to.
+    expect(await getLinkedSurveyForAction(env.DB, ACTION_ID)).toMatchObject({
+      survey: { ref: KEY_NON_DREP, eligibleRoles: [Role.Keyholder] },
+      topicSlug: null,
+    });
+
+    // A later tick opens no thread for it either.
+    expect(await syncSurveys(deps(tessera))).toMatchObject({ published: 0 });
+    expect((await surveyRows())[0].topic_id).toBeNull();
   });
 
   it("stores the titles and opening post sanitized and capped, the definition in cip-179's wire form", async () => {
@@ -570,10 +601,10 @@ describe('syncSurveys', () => {
     const [row] = await surveyRows();
     expect(row).toMatchObject({ ref: KEY_LINKED, topic_id: null });
     expect((await linksOf(KEY_LINKED)).map(l => l.action_id)).toEqual([ACTION_ID]);
-    // No page can reach it.
+    // No thread can reach it, and its action has no page yet.
     expect(await listSurveysWithTopics(env.DB, { limit: 10, offset: 0 })).toEqual([]);
     expect(await getTopicSlugBySurveyRef(env.DB, KEY_LINKED)).toBeNull();
-    expect(await getLinkedSurveyForAction(env.DB, ACTION_ID)).toBeNull();
+    expect((await getLinkedSurveyForAction(env.DB, ACTION_ID))?.topicSlug).toBeNull();
 
     // A quiet tick: still waiting, and nothing asked of Tessera about it.
     expect(await syncSurveys(deps(fakeTessera()))).toMatchObject({ written: 0, published: 0 });
@@ -1334,7 +1365,6 @@ describe('syncSurveys', () => {
     const linked = await getLinkedSurveyForAction(env.DB, ACTION_ID);
     expect(linked?.survey.ref).toBe(KEY_LINKED);
     expect(linked?.topicSlug).toBe(list[0].topicSlug);
-    expect(linked?.topicTitle).toBe('Treasury priorities');
     expect(await getLinkedSurveyForAction(env.DB, 'gov_action1unknown')).toBeNull();
   });
 

@@ -11,7 +11,7 @@ faqs:
   - q: "How much is the deposit for a Cardano governance action?"
     a: "100,000 ada on mainnet and 1,000 tADA on preprod. DRepTalk reads the current amount from the chain and shows it before you sign."
   - q: "Do I get the deposit back?"
-    a: "Yes. The deposit goes back to the reward address of the wallet that submitted the action once the action is enacted, expires or is dropped."
+    a: "Yes. The deposit goes back to the action's deposit return address once the action is enacted, expires or is dropped. When you submit through DRepTalk, that is the reward address of the wallet that signs."
   - q: "Do I need a wallet to write a governance action?"
     a: "No. You can fill in the form, save it as a draft and review it without a wallet. You only connect a wallet in the last step, to pay the deposit and sign."
   - q: "Which governance actions can I submit?"

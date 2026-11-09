@@ -1,5 +1,5 @@
 /// <reference types="@cloudflare/workers-types" />
-// Subscribe block state tests, run in real workerd via vitest-pool-workers.
+// Subscribe block state tests, run in real workerd via @cloudflare/vitest-plugin.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { loadSubscribeState } from './subscribeState.js';

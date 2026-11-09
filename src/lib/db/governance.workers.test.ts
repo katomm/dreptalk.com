@@ -1,5 +1,5 @@
 /// <reference types="@cloudflare/workers-types" />
-// Governance-action data access tests, run in real workerd via vitest-pool-workers.
+// Governance-action data access tests, run in real workerd via @cloudflare/vitest-plugin.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import {
@@ -1310,6 +1310,8 @@ describe('getCompareCandidates', () => {
     expect(rows.map((r) => r.id)).toEqual(['cconly#0', 'same#0', 'other#0']);
     // The slug the picker links to.
     expect(rows.find((r) => r.id === 'same#0')?.topic_slug).toBe('slug-same');
+    // The outcome the picker shows next to each entry.
+    expect(rows.map((r) => r.status)).toEqual(['expired', 'enacted', 'closed']);
   });
 
   it('honours the limit', async () => {

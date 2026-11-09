@@ -1,5 +1,5 @@
 /// <reference types="@cloudflare/workers-types" />
-// Notification channel + prefs table access tests, run in real workerd via vitest-pool-workers.
+// Notification channel + prefs table access tests, run in real workerd via @cloudflare/vitest-plugin.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import {

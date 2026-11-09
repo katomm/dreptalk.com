@@ -8,26 +8,32 @@
 // turn true with no move upstream, which is why it is never asked of a
 // passing answer. Widening admission (the authored and imported gates agreed
 // in the upstream issue) is a change to the two together.
+//
+// A row is not a thread. Every linked survey gets a row so its linking
+// action can point at it, whoever may answer it. Only one DReps may answer
+// (drepAnswerable) gets a thread, a respond panel and a tally, since all three
+// are built around DRep credentials and DRep voting power.
 
 import { Role } from 'cip-179';
 import type { SurveyAggregate } from 'cip-179/domain';
 
 /**
- * Tessera's half of admission: DReps may respond, the survey is linked by at
- * least one governance action, and neither of `aggregate()`'s two
- * definition-derived verdicts is against it, an untalliable definition (no
- * conformant reader counts its answers), or a sealed survey on a drand chain
- * the published tlock cannot decrypt (its answers stay encrypted forever and
- * Tessera decides it untalliable at close). Tessera's own app blocks
- * responding to either. A thread inviting answers would spend fees on them.
+ * Tessera's half of admission: the survey is linked by at least one
+ * governance action, and neither of `aggregate()`'s two definition-derived
+ * verdicts is against it, an untalliable definition (no conformant reader
+ * counts its answers), or a sealed survey on a drand chain the published
+ * tlock cannot decrypt (its answers stay encrypted forever and Tessera
+ * decides it untalliable at close). Tessera's own app blocks responding to
+ * either. An action pointing readers at one would spend their fees on it.
  * The sync stores a survey on this predicate and withdraws a held one on its
  * negation, so the two cannot disagree about what a mirrored survey is.
  */
 export function eligibleSurvey(a: SurveyAggregate): boolean {
-  return (
-    a.record.definition.eligibleRoles.includes(Role.DRep) &&
-    a.govLinks.length > 0 &&
-    a.talliable &&
-    !a.sealedUnsupported
-  );
+  return a.govLinks.length > 0 && a.talliable && !a.sealedUnsupported;
+}
+
+/** Whether DReps may answer a survey: the condition for its thread, its
+ * respond panel and its tally. */
+export function drepAnswerable(eligibleRoles: readonly number[]): boolean {
+  return eligibleRoles.includes(Role.DRep);
 }

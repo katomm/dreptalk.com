@@ -120,3 +120,81 @@ DELETE FROM drep_group_power_changes WHERE drep_id IN ('drep1y2jmg4g450lced7q9n3
 INSERT INTO notifications (id, recipient_id, type, event_key, payload, created_at) VALUES
   ('e2e-group-notif-join', 'drep1y2jmg4g450lced7q9n34rq6d5vjwkm0ugx6h0894u6ur92s9txn3a', 'group_join_request', 'e2e-group-join:group1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq8zuq9qqqqwesjwz', '{"groupId":"group1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq8zuq9qqqqwesjwz","groupName":"E2E Permissioned Council","memberName":"E2E Applicant Bob"}', strftime('%s','now')*1000 - 60000),
   ('e2e-group-notif-sign', 'drep1y2jmg4g450lced7q9n34rq6d5vjwkm0ugx6h0894u6ur92s9txn3a', 'group_signature_request', 'group-sign:e2e00000000000000000000000000a01', '{"groupId":"group1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq8zuq9qqqqwesjwz","groupName":"E2E Permissioned Council","actionId":"e2e00000000000000000000000000a01","summary":"Approve E2E Applicant Bob"}', strftime('%s','now')*1000);
+
+-- Thread map (tests/thread-map.spec.ts). Three plain budget topics and one
+-- governance action with a long discussion. The posts are generated with a
+-- counter so the fixture stays short. Bodies are a word repeated n times
+-- (hex(zeroblob(n)) gives n "00" pairs). Reply schema: a direct reply has
+-- parent_post_id and reply_to_post_id on the top-level post, a depth-2 reply
+-- keeps parent_post_id on the top-level post and points reply_to_post_id at
+-- the reply it answers.
+DELETE FROM post_reactions WHERE post_id LIKE 'e2e-tmap-%';
+DELETE FROM notifications WHERE topic_id LIKE 'e2e-tmap-%';
+DELETE FROM activity WHERE topic_id LIKE 'e2e-tmap-%';
+DELETE FROM posts WHERE topic_id LIKE 'e2e-tmap-%';
+DELETE FROM topics WHERE id LIKE 'e2e-tmap-%';
+DELETE FROM governance_actions WHERE id = 'e2e7a0000000000000000000000000000000000000000000000000000000e7a1#0';
+
+INSERT INTO topics (id, category_slug, author_id, source, title, slug, pinned, locked, deleted, post_count, last_post_at, created_at) VALUES
+  ('e2e-tmap-long', 'budget', 'drep1seedadahernandezxq8f7w2lk9p3m5r6t0v4y7c2e5h8j1n4q7s0u3w6', 'user', 'E2E Thread Map Long Thread', 'e2e-thread-map-long-thread-e2e7a1', 0, 0, 0, 30, strftime('%s','now')*1000 - 1*86400000, strftime('%s','now')*1000 - 10*86400000),
+  ('e2e-tmap-words', 'budget', 'drep1seedliamparkq2w4e6r8t0y1u3i5o7p9a1s3d5f7g9h1j3k5l7z9x1c3', 'user', 'E2E Thread Map Few Long Posts', 'e2e-thread-map-few-long-posts-e2e7a2', 0, 0, 0, 4, strftime('%s','now')*1000 - 1*86400000, strftime('%s','now')*1000 - 10*86400000),
+  ('e2e-tmap-short', 'budget', 'drep1seedmayaokaforv5b7n9m1q3w5e7r9t1y3u5i7o9p1a3s5d7f9g1h3j5', 'user', 'E2E Thread Map Short Thread', 'e2e-thread-map-short-thread-e2e7a3', 0, 0, 0, 3, strftime('%s','now')*1000 - 1*86400000, strftime('%s','now')*1000 - 10*86400000),
+  ('e2e-tmap-ga', 'governance-actions', 'gov-sync', 'governance', 'E2E Thread Map Governance Action', 'e2e-thread-map-governance-action-e2e7a4', 0, 0, 0, 26, strftime('%s','now')*1000 - 1*86400000, strftime('%s','now')*1000 - 10*86400000);
+
+INSERT INTO governance_actions (id, proposal_id, type, title, abstract, anchor_status, return_address, deposit, submitted_epoch, expiry_epoch, status, authors, submitted_at, topic_id, created_at, last_synced_at) VALUES
+  ('e2e7a0000000000000000000000000000000000000000000000000000000e7a1#0', 'gov_action1e2ethreadmapgovernanceqqqqqqqqqqqqqqqqqqqqqqqqqq1', 'InfoAction', 'E2E Thread Map Governance Action', 'Fixture action with a long discussion for the thread map test.', 'ok', NULL, '100000000000', 288, 294, 'active', '["E2E"]', strftime('%s','now')*1000 - 10*86400000, 'e2e-tmap-ga', strftime('%s','now')*1000 - 10*86400000, strftime('%s','now')*1000);
+
+-- Five seeded DReps take turns as authors, the first one opens the long topic.
+WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 30),
+authors(k, id) AS (VALUES
+  (0, 'drep1seedadahernandezxq8f7w2lk9p3m5r6t0v4y7c2e5h8j1n4q7s0u3w6'),
+  (1, 'drep1seedliamparkq2w4e6r8t0y1u3i5o7p9a1s3d5f7g9h1j3k5l7z9x1c3'),
+  (2, 'drep1seedmayaokaforv5b7n9m1q3w5e7r9t1y3u5i7o9p1a3s5d7f9g1h3j5'),
+  (3, 'drep1seedstefanvolkovk7l9z1x3c5v7b9n1m3q5w7e9r1t3y5u7i9o1p3a5'),
+  (4, 'drep1seedanonskepticd3f5g7h9j1k3l5z7x9c1v3b5n7m9q1w3e5r7t9y1u3')),
+rows AS (
+  SELECT i,
+    'e2e-tmap-long-' || printf('%02d', i) AS id,
+    CASE WHEN i IN (4, 5, 6) THEN 'e2e-tmap-long-03' WHEN i IN (10, 11, 12) THEN 'e2e-tmap-long-09' END AS parent,
+    CASE WHEN i IN (4, 5) THEN 'e2e-tmap-long-03' WHEN i = 6 THEN 'e2e-tmap-long-05' WHEN i IN (10, 11, 12) THEN 'e2e-tmap-long-09' END AS reply_to,
+    CASE WHEN i = 7 THEN 900 ELSE 40 + (i * 37) % 160 END AS words
+  FROM n)
+INSERT INTO posts (id, topic_id, author_id, body_md, body_html, parent_post_id, reply_to_post_id, created_at)
+SELECT rows.id, 'e2e-tmap-long', authors.id,
+  trim(replace(hex(zeroblob(words)), '00', 'budget ')),
+  '<p>Post ' || i || ' ' || trim(replace(hex(zeroblob(words)), '00', 'budget ')) || '</p>',
+  parent, reply_to, strftime('%s','now')*1000 - 10*86400000 + i * 3600000
+FROM rows JOIN authors ON authors.k = (i - 1) % 5;
+
+WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 4)
+INSERT INTO posts (id, topic_id, author_id, body_md, body_html, created_at)
+SELECT 'e2e-tmap-words-' || i, 'e2e-tmap-words',
+  CASE WHEN i = 1 THEN 'drep1seedliamparkq2w4e6r8t0y1u3i5o7p9a1s3d5f7g9h1j3k5l7z9x1c3' ELSE 'drep1seedstefanvolkovk7l9z1x3c5v7b9n1m3q5w7e9r1t3y5u7i9o1p3a5' END,
+  trim(replace(hex(zeroblob(900)), '00', 'treasury ')),
+  '<p>' || trim(replace(hex(zeroblob(900)), '00', 'treasury ')) || '</p>',
+  strftime('%s','now')*1000 - 10*86400000 + i * 3600000
+FROM n;
+
+WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 3)
+INSERT INTO posts (id, topic_id, author_id, body_md, body_html, created_at)
+SELECT 'e2e-tmap-short-' || i, 'e2e-tmap-short', 'drep1seedmayaokaforv5b7n9m1q3w5e7r9t1y3u5i7o9p1a3s5d7f9g1h3j5',
+  'A short post.', '<p>A short post.</p>', strftime('%s','now')*1000 - 10*86400000 + i * 3600000
+FROM n;
+
+-- Governance discussion: the system opener plus 25 posts of a few hundred
+-- words, so the post column is clearly taller than the action's sidebar.
+INSERT INTO posts (id, topic_id, author_id, body_md, body_html, created_at) VALUES
+  ('e2e-tmap-ga-00', 'e2e-tmap-ga', 'gov-sync', 'Fixture action with a long discussion for the thread map test.', '<p>Fixture action with a long discussion for the thread map test.</p>', strftime('%s','now')*1000 - 10*86400000);
+WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 25),
+authors(k, id) AS (VALUES
+  (0, 'drep1seedadahernandezxq8f7w2lk9p3m5r6t0v4y7c2e5h8j1n4q7s0u3w6'),
+  (1, 'drep1seedliamparkq2w4e6r8t0y1u3i5o7p9a1s3d5f7g9h1j3k5l7z9x1c3'),
+  (2, 'drep1seedmayaokaforv5b7n9m1q3w5e7r9t1y3u5i7o9p1a3s5d7f9g1h3j5'),
+  (3, 'drep1seedstefanvolkovk7l9z1x3c5v7b9n1m3q5w7e9r1t3y5u7i9o1p3a5'),
+  (4, 'drep1seedanonskepticd3f5g7h9j1k3l5z7x9c1v3b5n7m9q1w3e5r7t9y1u3'))
+INSERT INTO posts (id, topic_id, author_id, body_md, body_html, created_at)
+SELECT 'e2e-tmap-ga-' || printf('%02d', i), 'e2e-tmap-ga', authors.id,
+  trim(replace(hex(zeroblob(300)), '00', 'governance ')),
+  '<p>' || trim(replace(hex(zeroblob(300)), '00', 'governance ')) || '</p>',
+  strftime('%s','now')*1000 - 10*86400000 + i * 3600000
+FROM n JOIN authors ON authors.k = (i - 1) % 5;

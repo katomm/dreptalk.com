@@ -1,4 +1,4 @@
-// Auth handler tests -- runs in real workerd via @cloudflare/vitest-pool-workers.
+// Auth handler tests -- runs in real workerd via @cloudflare/vitest-plugin.
 // Uses real KV/DB bindings, injected fake koios, and CIP-8 fixture vectors.
 //
 // Nonce alignment strategy:

@@ -5,7 +5,7 @@
 // shareable URL.
 import type { CompareCandidateRow } from '@/lib/db/governance.js';
 import { votingEndEpoch } from '@/lib/governance/voteTrendAssembly.js';
-import { formatEpochDate } from '@/lib/governance/view.js';
+import { formatEpochDate, statusBadge, TONE_COLORS } from '@/lib/governance/view.js';
 import { resolveNetwork, epochStartUnix, type CardanoNetwork } from '@/lib/config/network.js';
 
 interface Props {
@@ -57,7 +57,10 @@ const activeEnd = endNote(activeDecidedEpoch, activeExpiryEpoch);
       <details class="vcmp__box">
         <summary class="vcmp__summary">Compare with...</summary>
         <ul class="vcmp__list">
-          {candidates.map((c) => (
+          {candidates.map((c) => {
+            // Outcome of the compared vote, so a reader can line up passed and failed runs.
+            const badge = statusBadge(c.status);
+            return (
             <li>
               <a
                 class:list={['vcmp__item', { 'vcmp__item--active': c.topic_slug === activeSlug }]}
@@ -70,10 +73,14 @@ const activeEnd = endNote(activeDecidedEpoch, activeExpiryEpoch);
                     <span class="vcmp__ended">Voting ended {endNote(c.decided_epoch, c.expiry_epoch)}</span>
                   )}
                 </span>
-                <span class="vcmp__type">{c.type}</span>
+                <span class="vcmp__meta">
+                  <span class="vcmp__type">{c.type}</span>
+                  <span class="vcmp__status" style={`background:${TONE_COLORS[badge.tone]};`}>{badge.label}</span>
+                </span>
               </a>
             </li>
-          ))}
+            );
+          })}
         </ul>
       </details>
     )}
@@ -96,5 +103,13 @@ const activeEnd = endNote(activeDecidedEpoch, activeExpiryEpoch);
   .vcmp__id { min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
   .vcmp__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .vcmp__ended { color: var(--muted); font-size: 0.75rem; font-weight: 400; }
-  .vcmp__type { color: var(--muted); flex-shrink: 0; }
+  .vcmp__meta { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; align-self: flex-start; }
+  .vcmp__type { color: var(--muted); }
+  .vcmp__status { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: var(--on-badge); border-radius: 0.2rem; padding: 0.1rem 0.35rem; }
+  /* On a phone the type and badge would squeeze the title down to a few
+     characters, so they move onto their own line below it. */
+  @media (max-width: 640px) {
+    .vcmp__item { flex-direction: column; gap: 0.2rem; }
+    .vcmp__meta { align-self: stretch; }
+  }
 </style>

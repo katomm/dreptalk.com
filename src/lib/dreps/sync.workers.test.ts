@@ -1,4 +1,4 @@
-// DRep sync tests -- run in real workerd via @cloudflare/vitest-pool-workers.
+// DRep sync tests -- run in real workerd via @cloudflare/vitest-plugin.
 // Exercise syncDreps against the real miniflare D1 binding, a fake Koios client,
 // and an injected anchor fetch. The focus is the cost-saver invariants:
 //   - a DRep whose meta_hash is unchanged since last sync is NOT re-fetched

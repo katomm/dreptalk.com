@@ -1,5 +1,5 @@
 /// <reference types="@cloudflare/workers-types" />
-// Governance Review announcement tests, run in real workerd via vitest-pool-workers.
+// Governance Review announcement tests, run in real workerd via @cloudflare/vitest-plugin.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { announceLatestEdition, parseReviewPayload } from './reviewAnnouncements.js';

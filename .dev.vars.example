@@ -1,0 +1,52 @@
+# Local Worker variables for `npm run dev`. Copy to `.dev.vars` (gitignored)
+# and uncomment what you need. Everything is optional: each feature checks its
+# own variable and stays off when it is unset. The full list with comments is
+# the Cloudflare.Env interface in src/env.d.ts.
+#
+# Public values for production (VAPID_PUBLIC_KEY, TELEGRAM_BOT_USERNAME,
+# TELEGRAM_GROUP_CHAT_ID, TESSERA_*) are committed in wrangler.toml [vars].
+# The secrets below are set per Worker with `wrangler secret put`.
+# For the browser end-to-end tests use e2e/dev.vars.example instead.
+
+# Network the app and gov-sync talk to. Local dev always runs on preprod.
+CARDANO_NETWORK=preprod
+
+# Koios token for higher rate limits (app proxy and gov-sync). A free
+# koios.rest account is enough locally, the same token works on every network.
+# KOIOS_API_KEY=
+
+# Moderator allowlist: comma-separated `<stake_addr>:<role>` pairs.
+# MODERATORS=
+
+# Imprint and privacy page operator details, see src/lib/legal.ts.
+# LEGAL_OPERATOR_NAME=
+# LEGAL_OPERATOR_ADDRESS=
+# LEGAL_CONTACT_EMAIL=
+# LEGAL_RESPONSIBLE_PERSON=
+# LEGAL_PHONE=
+# LEGAL_VAT_ID=
+
+# Pinata: pins InfoAction metadata (app) and collects unreferenced pins (gov-sync).
+# PINATA_JWT=
+# PINATA_GOV_GROUP_ID=
+# gov-sync only: dedicated IPFS gateway, needs both values or neither.
+# PINATA_GATEWAY_URL=
+# PINATA_GATEWAY_KEY=
+
+# Web Push. Empty public key hides push in the settings UI.
+# VAPID_PUBLIC_KEY=
+# VAPID_PRIVATE_KEY=
+
+# Telegram notifications and group guard.
+# TELEGRAM_BOT_TOKEN=
+# TELEGRAM_WEBHOOK_SECRET=
+# TELEGRAM_BOT_USERNAME=
+# TELEGRAM_GROUP_CHAT_ID=
+# TELEGRAM_GROUP_GUARD=
+
+# CIP-179 surveys. Empty TESSERA_BACKEND_URL switches the surveys feature off.
+# TESSERA_BACKEND_URL=
+# TESSERA_APP_URL=
+
+# Local dev only: '1' serves voting-power-origins from a fixture instead of Koios.
+# PROVENANCE_STUB=

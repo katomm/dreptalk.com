@@ -1,5 +1,5 @@
 /// <reference types="@cloudflare/workers-types" />
-// Web Push sender proven in real workerd via @cloudflare/vitest-pool-workers.
+// Web Push sender proven in real workerd via @cloudflare/vitest-plugin.
 // The crypto is never assumed: the RFC 8291 Appendix A vector is asserted
 // byte-for-byte, the VAPID JWT signature is verified with WebCrypto, and the
 // transport is exercised with an injected fetch (no real network).

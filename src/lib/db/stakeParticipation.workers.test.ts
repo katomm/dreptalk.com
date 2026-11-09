@@ -1,4 +1,4 @@
-// Stake participation D1 aggregation tests -- runs in real workerd via @cloudflare/vitest-pool-workers.
+// Stake participation D1 aggregation tests -- runs in real workerd via @cloudflare/vitest-plugin.
 // Exercises getActiveDrepStake against real miniflare D1.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';

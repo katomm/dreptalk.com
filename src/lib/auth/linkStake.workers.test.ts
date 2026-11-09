@@ -1,5 +1,5 @@
 // Workers-runtime tests for handleLinkStake -- runs in real workerd via
-// @cloudflare/vitest-pool-workers. Uses the real D1 binding and the shared
+// @cloudflare/vitest-plugin. Uses the real D1 binding and the shared
 // CIP-8 reward-address fixture (stakeVector) that handlers.workers.test.ts
 // and walletLogin.test.ts already sign against.
 //

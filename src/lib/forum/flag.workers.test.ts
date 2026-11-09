@@ -1,5 +1,5 @@
 /// <reference types="@cloudflare/workers-types" />
-// Flag handler tests -- run in real workerd via @cloudflare/vitest-pool-workers.
+// Flag handler tests -- run in real workerd via @cloudflare/vitest-plugin.
 // Tests handleFlagPost / handleUnflagPost authorization and state transitions
 // against real D1/KV bindings with injected fake user objects.
 import { describe, it, expect } from 'vitest';

@@ -74,16 +74,26 @@ export interface CcVote {
  * is not counted at the boundary that opens `boundaryEpoch`, then keep the
  * latest block time per member. The one dedup used by the tally, the trend
  * chart, and the breakdown, so they agree.
+ *
+ * `cutoff` (unix seconds, the start of the boundary epoch) drops votes cast at
+ * or after it, so a decided action is judged on the votes the ledger saw: a vote
+ * cast during the tally epoch is ignored and the member's earlier vote, if any,
+ * stands. For an open action the boundary is the next transition, still ahead,
+ * so nothing is dropped. A vote
+ * without a block time cannot be placed and is kept. The breakdown and the trend
+ * chart pass no cutoff on purpose, they show each member's actual final vote.
  */
 export function finalCcVoteByMember<T extends { hotKeyHex: string; blockTime: number | null }>(
   votes: T[],
   members: CommitteeMemberTerm[],
   hotToCold: Map<string, string>,
   boundaryEpoch: number,
+  cutoff: number | null = null,
 ): Map<string, T> {
   const active = activeCommitteeMembersAtBoundary(members, boundaryEpoch);
   const finalByMember = new Map<string, T>();
   for (const v of votes) {
+    if (cutoff != null && v.blockTime != null && v.blockTime >= cutoff) continue;
     const cold = hotToCold.get(v.hotKeyHex);
     if (cold == null || !active.has(cold)) continue;
     const prev = finalByMember.get(cold);
@@ -103,6 +113,7 @@ export function finalCcVoteByMember<T extends { hotKeyHex: string; blockTime: nu
  *    counted at that boundary (resigned, term-expired, not yet authorized), so a
  *    stale vote never counts.
  * 2. Keep one final vote per member (latest block time), collapsing rotations/re-votes.
+ *    Only votes cast before `cutoff`, the start of the boundary epoch, count.
  * 3. Conway rule: abstaining members leave the denominator, everyone else active
  *    (No, or did not vote) stays in it. yesPct = yes / (active - abstain).
  *
@@ -117,11 +128,12 @@ export function ccTallyPct(
   members: CommitteeMemberTerm[],
   hotToCold: Map<string, string>,
   boundaryEpoch: number,
+  cutoff: number | null = null,
 ): { yesPct: number | null; noPct: number | null; yes: number; no: number; abstain: number } {
   const active = activeCommitteeMembersAtBoundary(members, boundaryEpoch);
   if (active.size === 0) return { yesPct: null, noPct: null, yes: 0, no: 0, abstain: 0 };
 
-  const finalByMember = finalCcVoteByMember(votes, members, hotToCold, boundaryEpoch);
+  const finalByMember = finalCcVoteByMember(votes, members, hotToCold, boundaryEpoch, cutoff);
 
   let yes = 0;
   let no = 0;

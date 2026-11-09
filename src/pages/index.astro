@@ -55,7 +55,7 @@ const user = Astro.locals.user;
 // concurrently with the D1 queries below (no serial latency); the result is
 // collected at the end. Edge-cached and null-on-failure, so it never blocks or
 // breaks the page. Independent of the database.
-const latestReleasePromise = fetchLatestRelease(now);
+const latestReleasePromise = fetchLatestRelease(now, env.GITHUB_TOKEN);
 
 // The hero "live voting" scene shows the strongest DRep voters actively (avatar
 // plus a vote badge) ringed by fainter "ghost" voters, so it reads as a vote in
@@ -74,12 +74,30 @@ type HeroVoteRow = { descriptor: ReturnType<typeof voterDescriptor>; vote: strin
 // that already has enough DRep voters to drive the live ring. activeDrepStake is
 // the denominator for the hero card's vote-composition bar; it depends only on db,
 // so it rides this Promise.all instead of adding a serial round-trip later.
+//
+// The default hero's follow-up reads (its top voters, then their DRep rows, or
+// the plain newest action when nothing is voted yet) chain onto the voted-hero
+// read inside the same batch, so they overlap the activity feed instead of
+// running after it. A personalized hero replaces them for a signed-in DRep,
+// and that rare case just discards the prefetched ring.
 const cutoff = now - ACTIVE_WINDOW_MS;
-const [stats, feed, votedHero, activeFaces, activeDrepStake, activeCounts, latestEpochStats, circulationLovelace] = db
+const votedHeroP = db ? getLatestActionWithVotes(db, { minVoters: HERO_MIN_ACTIVE }) : Promise.resolve(null);
+const [stats, feed, votedHero, latestHero, defaultHeroRows, activeFaces, activeDrepStake, activeCounts, latestEpochStats, circulationLovelace] = db
   ? await Promise.all([
       getCategoryStats(db),
       loadActivityFeed(db, { limit: 10, withParticipants: true }).then((r) => r.events),
-      getLatestActionWithVotes(db, { minVoters: HERO_MIN_ACTIVE }),
+      votedHeroP,
+      // Fall back to the plain newest action only when none has enough voters
+      // yet, so the common path (a voted action exists) skips this query.
+      votedHeroP.then((vh) => (vh ? null : getLatestGovernanceAction(db))),
+      // Resolve the voted action's top voters into pill data (identicon seed +
+      // stored avatar hash + the vote). dreps are batched in one follow-up query.
+      votedHeroP.then(async (vh): Promise<HeroVoteRow[]> => {
+        if (!vh) return [];
+        const voters = await getActionVoters(db, vh.action.id, { limit: HERO_FETCH });
+        const dreps = await getDrepsByIds(db, voters.map((v) => v.voter_id));
+        return voters.map((v) => ({ descriptor: voterDescriptor(v, dreps), vote: v.vote }));
+      }),
       loadActiveFaces(db, cutoff, CARD_FACE_LIMIT, now),
       getActiveDrepStake(db),
       countActiveByRole(db, cutoff),
@@ -92,6 +110,8 @@ const [stats, feed, votedHero, activeFaces, activeDrepStake, activeCounts, lates
       new Map<string, { topicCount: number; lastPostAt: number | null }>(),
       [],
       null,
+      null,
+      [] as HeroVoteRow[],
       [],
       { total: 0, asOf: null },
       { actors: 0, dreps: 0, spos: 0, delegators: 0 },
@@ -148,24 +168,17 @@ if (db && user?.roles.includes('drep')) {
   }
 }
 
-// Fall back to the plain newest action only when none has enough voters yet, so
-// the common path (a voted action exists) skips this query entirely.
-const latestHero = !votedHero && db ? await getLatestGovernanceAction(db) : null;
 const heroAction = votedHero ?? latestHero;
 
-// Resolve the voted action's top voters into pill data (identicon seed + stored
-// avatar hash + the vote), then split into the strongest as "active" and the
-// remainder as "ghosts". dreps are batched in one follow-up query.
+// Split the prefetched default ring into the strongest as "active" and the
+// remainder as "ghosts".
 const hero: { active: HeroVoteRow[]; ghosts: HeroVoteRow[]; selfIndex: number | null } = personalized
   ? { active: personalized.active, ghosts: personalized.ghosts, selfIndex: personalized.selfIndex }
-  : db && votedHero
-    ? await (async () => {
-        const voters = await getActionVoters(db, votedHero.action.id, { limit: HERO_FETCH });
-        const dreps = await getDrepsByIds(db, voters.map((v) => v.voter_id));
-        const rows = voters.map((v) => ({ descriptor: voterDescriptor(v, dreps), vote: v.vote }));
-        return { active: rows.slice(0, HERO_MAX_ACTIVE), ghosts: rows.slice(HERO_MAX_ACTIVE, HERO_FETCH), selfIndex: null };
-      })()
-    : { active: [] as HeroVoteRow[], ghosts: [] as HeroVoteRow[], selfIndex: null };
+  : {
+      active: defaultHeroRows.slice(0, HERO_MAX_ACTIVE),
+      ghosts: defaultHeroRows.slice(HERO_MAX_ACTIVE, HERO_FETCH),
+      selfIndex: null,
+    };
 
 // Only light the real scene when the inner ring is full enough; a sparse ring
 // would read as broken, so otherwise we keep the decorative placeholder ring.
@@ -311,6 +324,7 @@ const heroFeatures = [
 ---
 
 <Layout
+  wide
   title="DRepTalk - Cardano Governance Forum"
   description="The public deliberation layer for Cardano governance. DReps discuss every on-chain governance action in its own thread."
 >

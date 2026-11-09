@@ -1,4 +1,4 @@
-// DReps D1 access tests -- runs in real workerd via @cloudflare/vitest-pool-workers.
+// DReps D1 access tests -- runs in real workerd via @cloudflare/vitest-plugin.
 // Exercises upsertDrep, getDrepById, getDrepsByIds against the
 // real miniflare D1 binding with all migrations applied.
 import { describe, it, expect } from 'vitest';

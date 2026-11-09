@@ -46,9 +46,10 @@ The `drep-groups` phase of the governance run resolves submitted actions from th
 
 ## Quickstart
 
-Requires Node 20+. Local and preview run against the Cardano preprod testnet, set `CARDANO_NETWORK=preprod` in `.dev.vars`.
+Requires Node 24+. Local and preview run against the Cardano preprod testnet, set `CARDANO_NETWORK=preprod` in `.dev.vars`.
 
 ```sh
+cp .dev.vars.example .dev.vars   # preprod, every optional variable listed and commented out
 npm install
 npm run db:migrate:local   # set up the local database, required once before the first dev run
 npm run db:seed:local      # optional: fake forum data (users, threads, governance actions) to click around

@@ -17,6 +17,7 @@ import { BLOCK_TAGS, DIFF_CLASSES } from '../sanitizedHtmlGrammar.js';
 import { alignNodes } from './alignNodes.js';
 import type { Slot } from './alignNodes.js';
 import { type HtmlNode, nodeText, parseSanitizedHtml, serializeNodes } from './htmlNodes.js';
+import { countWords } from './threadMap.js';
 import { wordDiff } from './wordDiff.js';
 
 export interface RichDiff {
@@ -39,8 +40,6 @@ interface Counts {
   added: number;
   removed: number;
 }
-
-const countWords = (text: string): number => (text.match(/[^\s]+/g) ?? []).length;
 
 const attrString = (attrs: Record<string, string>): string =>
   Object.entries(attrs)

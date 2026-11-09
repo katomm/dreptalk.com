@@ -71,7 +71,7 @@ import {
 import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
 import { renderMarkdown } from '../markdown.js';
 import { MAX_EXTERNAL_TITLE_LEN, sanitizeExternalText } from '../validation/input.js';
-import { eligibleSurvey } from './admission.js';
+import { drepAnswerable, eligibleSurvey } from './admission.js';
 import { type ArtifactInput, computeSurveyTally } from './tallyCompute.js';
 import { parseSurveyDefinition, parseSurveyRecord, surveyDescription, surveyTitle } from './view.js';
 
@@ -304,9 +304,11 @@ async function applyDelta(
   // late is outside that scan. The enqueue here is therefore the path that carries
   // the guarantee, not a belt beside a brace.
   await deleteSurveyTallies(db, [...new Set([...deleted, ...movedArtifact])]);
+  // Only a survey DReps may answer has a tally: it counts DRep credentials and
+  // weights them by DRep voting power.
   await enqueueSurveyTallies(
     db,
-    admitted.map(r => r.ref),
+    admitted.filter(r => drepAnswerable(r.eligibleRoles)).map(r => r.ref),
     now,
   );
   return { written, rolledBack };
@@ -388,7 +390,7 @@ async function tallyOneSurvey(
     row.externalContent ||
     row.cancelled ||
     row.finalState === 'untalliable' ||
-    !row.eligibleRoles.includes(Role.DRep)
+    !drepAnswerable(row.eligibleRoles)
   ) {
     return false;
   }

@@ -183,6 +183,7 @@ const disclosure = survey.sealed
         widget.surveyRef = record.ref;
         widget.tipEpoch = Number(root.dataset.tipEpoch);
         widget.cancelled = false; // gated server-side, explicit beats the attribute fallback
+        widget.showRole = false; // only for DReps
         connectStep.hidden = true;
         statusEl.hidden = true;
         widgetSlot.hidden = false;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { releaseTitle, releaseSummary, parseRelease } from './latestRelease.js';
+import { githubReleaseFetchInit, releaseTitle, releaseSummary, parseRelease } from './latestRelease.js';
 
 // ---------------------------------------------------------------------------
 // releaseTitle: the human title lives in the release name as "vX.Y.Z <title>",
@@ -100,5 +100,16 @@ describe('parseRelease', () => {
 
   it('returns null when the release url is missing', () => {
     expect(parseRelease(raw({ html_url: '' }), NOW)).toBeNull();
+  });
+});
+
+describe('githubReleaseFetchInit', () => {
+  it('sends the token as a bearer header when one is set', () => {
+    expect(githubReleaseFetchInit('t0ken').headers.Authorization).toBe('Bearer t0ken');
+  });
+
+  it('stays anonymous without a token', () => {
+    expect(githubReleaseFetchInit().headers).not.toHaveProperty('Authorization');
+    expect(githubReleaseFetchInit('').headers).not.toHaveProperty('Authorization');
   });
 });

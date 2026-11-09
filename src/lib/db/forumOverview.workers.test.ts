@@ -1,5 +1,5 @@
 /// <reference types="@cloudflare/workers-types" />
-// Overview-query tests, run in real workerd via vitest-pool-workers.
+// Overview-query tests, run in real workerd via @cloudflare/vitest-plugin.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { createTopic, getCategoryStats } from './forum.js';

@@ -105,6 +105,27 @@ export default defineConfig({
     // browser downloads no more than before. The prerender and astro
     // environments do not bundle the SDK and stay untouched.
     plugins: [
+      // Astro 7.4 points the dev dependency scanner at every src/**/*.ts file,
+      // tests included. The devnet test helpers import @evolution-sdk/devnet,
+      // whose dockerode/ssh2 tree ships native .node binaries the scanner
+      // cannot load, so `astro dev` dies before serving. Test-only files never
+      // run in the app, so leave them out of the scan.
+      {
+        name: 'skip-test-files-in-dep-scan',
+        apply: 'serve',
+        configEnvironment() {
+          const src = fileURLToPath(new URL('./src/', import.meta.url));
+          return {
+            optimizeDeps: {
+              entries: [
+                `!${src}**/*.test.{ts,tsx}`,
+                `!${src}**/__devnet__/**`,
+                `!${src}**/__fixtures__/**`,
+              ],
+            },
+          };
+        },
+      },
       {
         name: 'evolution-sdk-single-chunk',
         apply: 'build',

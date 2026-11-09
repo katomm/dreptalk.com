@@ -1259,6 +1259,7 @@ export interface CompareCandidateRow {
   id: string;
   title: string | null;
   type: string;
+  status: string;
   topic_slug: string;
   expiry_epoch: number | null;
   decided_epoch: number | null;
@@ -1306,7 +1307,7 @@ export async function getCompareCandidates(
   return (
     await db
       .prepare(
-        `SELECT g.id AS id, g.title AS title, g.type AS type, t.slug AS topic_slug,
+        `SELECT g.id AS id, g.title AS title, g.type AS type, g.status AS status, t.slug AS topic_slug,
                 g.expiry_epoch AS expiry_epoch, g.decided_epoch AS decided_epoch
          FROM governance_actions g
          JOIN topics t ON t.id = g.topic_id
@@ -1462,10 +1463,13 @@ export type GovernanceTallyUpdate = GovernanceTally & {
 
 /**
  * Advances only the lifecycle status (and the decided epoch) of an action,
- * leaving the frozen tally and the votes_synced_at marker untouched. Used by the
- * ratified -> enacted re-check, which derives the new status from the shared
- * proposal_list: the tally and per-voter votes were already finalised when the
- * action first froze, so re-pulling or wiping them here would be wasteful.
+ * leaving the frozen tally untouched. Used by the ratified -> enacted re-check,
+ * which derives the new status from the shared proposal_list. It also nulls
+ * votes_synced_at, which queues one more per-voter vote pull
+ * (backfillFinalizedVotes): a ratified action stays open to votes until the end
+ * of its tally epoch, so the pull at the first freeze can miss votes cast later
+ * in that epoch. Those votes do not count for the tally (ccTallyPct), but
+ * belong in the action's vote list.
  */
 export async function updateGovernanceActionStatus(
   db: D1Database,
@@ -1474,7 +1478,8 @@ export async function updateGovernanceActionStatus(
   await db
     .prepare(
       `UPDATE governance_actions
-         SET status = ?, decided_epoch = ?, ratified_epoch = COALESCE(?, ratified_epoch), last_synced_at = ?
+         SET status = ?, decided_epoch = ?, ratified_epoch = COALESCE(?, ratified_epoch), last_synced_at = ?,
+             votes_synced_at = NULL
        WHERE id = ?`,
     )
     .bind(u.status, u.decidedEpoch, u.ratifiedEpoch, u.now, u.id)

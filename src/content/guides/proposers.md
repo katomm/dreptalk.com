@@ -73,7 +73,7 @@ badge reading "for" followed by your organisation or address. Everywhere else, i
 their own cannot post.
 
 **Inviting.** Sign in as a proposer and open [your home page](/home/). It lists
-the governance actions you submitted. For an open action with a thread, choose
+the governance actions whose deposit goes back to your wallet. For an open action with a thread, choose
 to invite a co-proposer, optionally pick a team name, and you get a one-time
 link that is valid for 7 days and can be redeemed exactly once. The link is the
 credential: anyone who opens it can claim the invite, so share it only over a

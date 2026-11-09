@@ -1,4 +1,4 @@
-// CIP-8 COSE_Sign1 verifier tests -- runs in real workerd via @cloudflare/vitest-pool-workers.
+// CIP-8 COSE_Sign1 verifier tests -- runs in real workerd via @cloudflare/vitest-plugin.
 // This exercises WebCrypto Ed25519 in the Workers runtime, with @noble/curves as fallback.
 import { describe, it, expect } from 'vitest';
 import { decode, encode } from 'cborg';

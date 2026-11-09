@@ -1,7 +1,8 @@
 # Local development
 
-Requires Node 20+. Local and preview run against the Cardano preprod testnet; set `CARDANO_NETWORK=preprod` in `.dev.vars`.
+Requires Node 24+. Local and preview run against the Cardano preprod testnet; set `CARDANO_NETWORK=preprod` in `.dev.vars`.
 
+- `cp .dev.vars.example .dev.vars`: preprod config with every optional variable listed and commented out
 - `npm install`
 - `npm run db:migrate:local`: set up the local database (apply all migrations). Required before the first `npm run dev`; see [Database setup](#database-setup)
 - `npm run db:seed:local`: optional fake forum data for local UI work; see [Seeding fake data](#seeding-fake-data)

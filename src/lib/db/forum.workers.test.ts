@@ -1,4 +1,4 @@
-// Forum D1 access tests -- runs in real workerd via @cloudflare/vitest-pool-workers.
+// Forum D1 access tests -- runs in real workerd via @cloudflare/vitest-plugin.
 // Exercises all forum.ts functions against the real miniflare D1 binding.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';

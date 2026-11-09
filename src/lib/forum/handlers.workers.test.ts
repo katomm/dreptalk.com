@@ -1,5 +1,5 @@
 /// <reference types="@cloudflare/workers-types" />
-// Handler tests -- runs in real workerd via @cloudflare/vitest-pool-workers.
+// Handler tests -- runs in real workerd via @cloudflare/vitest-plugin.
 // Tests handleCreateTopic and handleCreatePost with real D1/KV bindings
 // and injected fake user objects. No actual HTTP requests are made.
 import { describe, it, expect } from 'vitest';

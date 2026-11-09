@@ -11,7 +11,7 @@ import { buildArticleLd, buildFaqLd } from '@/lib/help/jsonld.js';
 import { splitAtRelated } from '@/lib/help/related.js';
 import { splitInlineCode } from '@/lib/help/inlineCode.js';
 import { ogCardVersion } from '@/lib/og/version.js';
-import { fetchReleases } from '@/lib/github/releases.js';
+import { releasesWithFallback } from '@/lib/github/lastGoodReleases.js';
 
 const { slug } = Astro.params;
 const entry = slug ? await getEntry('guides', slug) : undefined;
@@ -21,7 +21,7 @@ const d = entry.data;
 
 // Guides flagged with `showReleases` append the GitHub release listing below
 // their prose.
-const releases = d.showReleases ? await fetchReleases() : [];
+const releases = d.showReleases ? await releasesWithFallback(Astro.url.origin) : [];
 const now = Date.now();
 const origin = Astro.site?.origin ?? 'https://dreptalk.com';
 

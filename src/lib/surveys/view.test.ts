@@ -9,8 +9,10 @@ import {
   questionViews,
   roleLabels,
   surveyDescription,
+  surveySiteUrl,
   surveyTitle,
   tesseraSurveyUrl,
+  whoMayAnswer,
 } from './view.js';
 
 function definition(overrides: Partial<SurveyDefinition> = {}): SurveyDefinition {
@@ -120,5 +122,40 @@ describe('freshnessLine', () => {
     const line = freshnessLine(asOf, true, now);
     expect(line).toContain('as of 5m ago');
     expect(line).toContain('counts may be low');
+  });
+});
+
+describe('whoMayAnswer', () => {
+  it('calls a keyholder survey open to anyone, whatever else it lists', () => {
+    expect(whoMayAnswer([Role.Keyholder])).toBe('Anyone can answer');
+    expect(whoMayAnswer([Role.DRep, Role.Keyholder])).toBe('Anyone can answer');
+  });
+
+  it('names the roles otherwise', () => {
+    expect(whoMayAnswer([Role.DRep, Role.SPO])).toBe('Open to DReps, SPOs');
+  });
+});
+
+describe('surveySiteUrl', () => {
+  const title = 'State of the Cardano Developer Ecosystem - 2026 Survey';
+  const refs = [
+    { label: 'Cardano Developer Ecosystem Surveys', uri: 'https://example.org/all' },
+    { label: title, uri: 'https://devsurvey.example/' },
+  ];
+
+  it('takes the reference whose label is the survey title', () => {
+    expect(surveySiteUrl(refs, title)).toBe('https://devsurvey.example/');
+    expect(surveySiteUrl(refs, ` ${title.toUpperCase()} `)).toBe('https://devsurvey.example/');
+  });
+
+  it('resolves the reference like every other anchor link', () => {
+    expect(surveySiteUrl([{ label: title, uri: 'ipfs://QmSite' }], title)).toMatch(/^https:\/\/.+\/ipfs\/QmSite$/);
+    expect(surveySiteUrl([{ label: title, uri: 'javascript:alert(1)' }], title)).toBeNull();
+  });
+
+  it('finds nothing without a matching reference', () => {
+    expect(surveySiteUrl(refs, 'Another survey')).toBeNull();
+    expect(surveySiteUrl(null, title)).toBeNull();
+    expect(surveySiteUrl(refs, '')).toBeNull();
   });
 });

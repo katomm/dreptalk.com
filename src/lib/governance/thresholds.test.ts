@@ -124,7 +124,7 @@ describe('threshold snapshot', () => {
     const snap = readThresholdSnapshot(json);
     expect(snap?.ccGate).toEqual(gate);
     expect(snap?.tallyContradictsOutcome).toBe(false);
-    expect(snap?.v).toBe(3);
+    expect(snap?.v).toBe(THRESHOLD_SNAPSHOT_VERSION);
   });
 
   it('carries a true cc quorum gate through the round-trip', () => {

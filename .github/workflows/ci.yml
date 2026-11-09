@@ -82,8 +82,11 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-${{ steps.pw.outputs.version }}
-      # Skips the browser download on a cache hit, installs the system packages either way.
-      - run: npx playwright install --with-deps chromium
+      # Skips the browser download on a cache hit. No --with-deps: the runner
+      # image already carries the libraries Chromium needs (it ships Chrome),
+      # and the extra font packages came from an apt mirror that at times took
+      # over seven minutes. The specs assert on text, not on rendered glyphs.
+      - run: npx playwright install chromium
       - run: cp e2e/dev.vars.example .dev.vars
       - run: npm run db:migrate:local
       - run: npm run db:seed:local

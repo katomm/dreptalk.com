@@ -1,4 +1,4 @@
-// DRep metadata D1 access tests -- runs in real workerd via @cloudflare/vitest-pool-workers.
+// DRep metadata D1 access tests -- runs in real workerd via @cloudflare/vitest-plugin.
 // Exercises the content-addressed putDrepMetadata / getDrepMetadataByHash and GC
 // against the real miniflare D1 binding. Hashes are kept globally unique so the
 // by-hash read is unambiguous.

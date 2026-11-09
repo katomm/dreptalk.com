@@ -1,5 +1,5 @@
 /// <reference types="@cloudflare/workers-types" />
-// Tally/vote sync tests, run in real workerd via vitest-pool-workers.
+// Tally/vote sync tests, run in real workerd via @cloudflare/vitest-plugin.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { buildInsertGovernanceAction, getGovernanceActionByTopicId, getActionsNeedingVotedPower, markBackfillAttempt, markVotesSynced } from '../db/governance.js';
@@ -10,9 +10,9 @@ import { getActionsNeedingVoteBackfill } from '../db/governance.js';
 import { getDrepVotingHistory, getVotesNeedingMetaHash } from '../db/drepVotes.js';
 import { upsertProtocolParams, type ProtocolParams } from '../db/protocolParams.js';
 import { upsertCommitteeMembers, upsertCommitteeHotKeys, recomputeCommitteePct } from '../db/committee.js';
-import { readThresholdSnapshot } from './thresholds.js';
+import { readThresholdSnapshot, THRESHOLD_SNAPSHOT_VERSION } from './thresholds.js';
 import type { ProposalListRow, VotingSummary, ProposalVoteRow, VoteListRow, EpochParamsRow } from '../koios/client.js';
-import { epochStartMs, resolveNetwork } from '../config/network.js';
+import { epochStartMs, epochStartUnix, resolveNetwork } from '../config/network.js';
 import { lifeRow } from './__fixtures__/proposalListRow.js';
 
 const db = () => env.DB;
@@ -144,13 +144,45 @@ describe('syncGovernanceTallies committee override', () => {
     expect(got!.ccNoPct).toBe(50);
   });
 
+  it('freezes a decided action on the committee votes cast before its tally epoch', async () => {
+    await seedCommittee();
+    const a = await insertActive(400);
+    const cutoff = epochStartUnix(290, resolveNetwork('mainnet'));
+    await db().batch(
+      [
+        ['cc_hot_aa_1', 'hot-aa-1', 'Yes', cutoff - 100],
+        ['cc_hot_bb', 'hot-bb', 'Yes', cutoff + 100], // cast during the tally epoch
+      ].map(([voterId, hex, vote, blockTime]) =>
+        db()
+          .prepare(
+            `INSERT INTO drep_votes (ga_id, voter_role, voter_id, voter_hex, vote, block_time, synced_at)
+             VALUES (?, 'ConstitutionalCommittee', ?, ?, ?, ?, 0)`,
+          )
+          .bind(a.id, voterId, hex, vote, blockTime),
+      ),
+    );
+
+    await syncGovernanceTallies({
+      koios: fakeTallyKoios([lifeRow(a.txHash, { ratified_epoch: 290 })], rawCcSummary),
+      db: db(),
+      currentEpoch: 291,
+      now: NOW + 10,
+      network: 'mainnet',
+    });
+
+    const got = await getGovernanceActionByTopicId(db(), a.topicId);
+    expect(got!.status).toBe('ratified');
+    expect(got!.ccYes).toBe(1);
+    expect(got!.ccYesPct).toBe(50); // the late Yes would read 100
+  });
+
   it('never reverts a committee-pct recompute back to raw Koios values', async () => {
     await seedCommittee();
     const a = await insertActive(400);
     await seedCcVotes(a.id);
 
     // The committee-pct phase (vote cron) already fixed the row...
-    await recomputeCommitteePct(db(), 293, 100);
+    await recomputeCommitteePct(db(), 293, resolveNetwork('mainnet'));
     // ...then a later tally pass re-syncs the same action with raw Koios data.
     await syncGovernanceTallies({
       koios: fakeTallyKoios([lifeRow(a.txHash)], rawCcSummary),
@@ -415,7 +447,7 @@ describe('syncGovernanceTallies re-syncs ratified actions until enacted', () => 
     expect((await getGovernanceActionByTopicId(db(), a.topicId))!.status).toBe('enacted');
   });
 
-  it('advances ratified -> enacted without re-pulling the frozen tally or votes', async () => {
+  it('advances ratified -> enacted without re-pulling the frozen tally, queuing one final vote pull', async () => {
     const a = await insertActive(640);
 
     // Freeze to ratified with a real tally, then simulate the one finalised-vote
@@ -443,10 +475,21 @@ describe('syncGovernanceTallies re-syncs ratified actions until enacted', () => 
     expect(got.status).toBe('enacted');
     expect(got.decidedEpoch).toBe(638); // advanced from ratified_epoch to enacted_epoch
     expect(got.drepNo).toBe(5); // frozen tally left intact (no re-fetch)
-    // The status-only re-check must NOT null votes_synced_at: re-queuing an
-    // already-pulled finalised vote list every run would be wasteful.
-    const queued = await getActionsNeedingVoteBackfill(db(), 50, NOW);
-    expect(queued.map((g) => g.id)).not.toContain(a.id);
+    // Enactment re-queues one vote pull: the action took votes until its tally
+    // epoch ended, after the pull at the first freeze.
+    const queued = await getActionsNeedingVoteBackfill(db(), 50, NOW + 30);
+    expect(queued.map((g) => g.id)).toContain(a.id);
+
+    // Once pulled, a later run with the status unchanged does not queue it again.
+    await markVotesSynced(db(), a.id, NOW + 40);
+    await syncGovernanceTallies({
+      koios: fakeTallyKoios([lifeRow(a.txHash, { ratified_epoch: 637, enacted_epoch: 638 })]),
+      db: db(),
+      currentEpoch: 640,
+      now: NOW + 50,
+    });
+    const again = await getActionsNeedingVoteBackfill(db(), 50, NOW + 60);
+    expect(again.map((g) => g.id)).not.toContain(a.id);
   });
 
   it('leaves an action ratified while enacted_epoch is still unset', async () => {
@@ -1391,13 +1434,13 @@ describe('backfillThresholdSnapshots', () => {
     const a2 = await terminal(600, 606); // same boundary -> epoch_params cached
 
     const koios = fakeKoios();
-    const res = await backfillThresholdSnapshots({ koios, db: db(), now: NOW, limit: 10 });
+    const res = await backfillThresholdSnapshots({ network: 'mainnet', koios, db: db(), now: NOW, limit: 10 });
     expect(res.actions).toBe(2);
     expect(res.failed).toBe(0);
 
     const s1 = await snapOf(a1.topicId);
     expect(s1?.ccBelowMinSize).toBe(true);
-    expect(s1?.v).toBe(3);
+    expect(s1?.v).toBe(THRESHOLD_SNAPSHOT_VERSION);
     expect(s1?.cc).toBeCloseTo(66.7, 0); // ccThreshold 0.667 -> ~66.7%
     expect(s1?.ccGate).toEqual({ boundaryEpoch: 600, sizeAtBoundary: 6, minSize: 7, minSizeSource: 'epoch-params' });
     // Enacted with a tally below the bar: reported, not reconciled.
@@ -1408,7 +1451,7 @@ describe('backfillThresholdSnapshots', () => {
     expect(koios.calls.filter((e) => e === 600)).toHaveLength(1);
 
     // Fully drained: a second run finds nothing.
-    const second = await backfillThresholdSnapshots({ koios: fakeKoios(), db: db(), now: NOW, limit: 10 });
+    const second = await backfillThresholdSnapshots({ network: 'mainnet', koios: fakeKoios(), db: db(), now: NOW, limit: 10 });
     expect(second.actions).toBe(0);
   });
 
@@ -1416,12 +1459,12 @@ describe('backfillThresholdSnapshots', () => {
     await upsertProtocolParams(db(), params);
     await seedCommittee(6);
     const a = await terminal(null, null);
-    const res = await backfillThresholdSnapshots({ koios: fakeKoios(), db: db(), now: NOW, limit: 10 });
+    const res = await backfillThresholdSnapshots({ network: 'mainnet', koios: fakeKoios(), db: db(), now: NOW, limit: 10 });
     expect(res.actions).toBe(1);
     const s = await snapOf(a.topicId);
     expect(s?.ccBelowMinSize).toBeNull();
     expect(s?.ccGate).toEqual({ boundaryEpoch: null, sizeAtBoundary: null, minSize: null, minSizeSource: null });
-    expect(s?.v).toBe(3);
+    expect(s?.v).toBe(THRESHOLD_SNAPSHOT_VERSION);
   });
 
   it('defers an action whose boundary epoch has no committee minimum yet, and freezes it once Koios answers', async () => {
@@ -1434,16 +1477,16 @@ describe('backfillThresholdSnapshots', () => {
         return answer ? { epoch_no: epochNo ?? null, committee_min_size: 5 } : null;
       },
     };
-    const first = await backfillThresholdSnapshots({ koios, db: db(), now: NOW, limit: 10 });
+    const first = await backfillThresholdSnapshots({ network: 'mainnet', koios, db: db(), now: NOW, limit: 10 });
     expect(first.actions).toBe(0);
     expect(first.failed).toBe(0);
     expect(await snapOf(a.topicId)).toBeNull(); // left for a later run, not frozen on a gap
 
     answer = true;
     // A deferral rests the action like a failure, so a run inside the window skips it.
-    const inside = await backfillThresholdSnapshots({ koios, db: db(), now: NOW + BACKFILL_RETRY_MS - 1, limit: 10 });
+    const inside = await backfillThresholdSnapshots({ network: 'mainnet', koios, db: db(), now: NOW + BACKFILL_RETRY_MS - 1, limit: 10 });
     expect(inside.actions).toBe(0);
-    const second = await backfillThresholdSnapshots({ koios, db: db(), now: NOW + BACKFILL_RETRY_MS, limit: 10 });
+    const second = await backfillThresholdSnapshots({ network: 'mainnet', koios, db: db(), now: NOW + BACKFILL_RETRY_MS, limit: 10 });
     expect(second.actions).toBe(1);
     const s = await snapOf(a.topicId);
     expect(s?.ccGate).toEqual({ boundaryEpoch: 650, sizeAtBoundary: 6, minSize: 5, minSizeSource: 'epoch-params' });
@@ -1454,7 +1497,7 @@ describe('backfillThresholdSnapshots', () => {
   it('skips the run (drains nothing) when protocol params are not synced', async () => {
     await seedCommittee(6);
     await terminal(600, 605); // no upsertProtocolParams
-    const res = await backfillThresholdSnapshots({ koios: fakeKoios(), db: db(), now: NOW, limit: 10 });
+    const res = await backfillThresholdSnapshots({ network: 'mainnet', koios: fakeKoios(), db: db(), now: NOW, limit: 10 });
     expect(res.actions).toBe(0);
   });
 
@@ -1468,18 +1511,18 @@ describe('backfillThresholdSnapshots', () => {
         return { epoch_no: epochNo ?? null, committee_min_size: 5 };
       },
     };
-    const first = await backfillThresholdSnapshots({ koios: failing, db: db(), now: NOW, limit: 10 });
+    const first = await backfillThresholdSnapshots({ network: 'mainnet', koios: failing, db: db(), now: NOW, limit: 10 });
     expect(first.failed).toBe(1);
 
     const inside = fakeKoios();
-    await backfillThresholdSnapshots({ koios: inside, db: db(), now: NOW + BACKFILL_RETRY_MS - 1, limit: 10 });
+    await backfillThresholdSnapshots({ network: 'mainnet', koios: inside, db: db(), now: NOW + BACKFILL_RETRY_MS - 1, limit: 10 });
     expect(inside.calls).not.toContain(610);
     expect(await snapOf(a.topicId)).toBeNull();
 
     const after = fakeKoios();
-    const res = await backfillThresholdSnapshots({ koios: after, db: db(), now: NOW + BACKFILL_RETRY_MS, limit: 10 });
+    const res = await backfillThresholdSnapshots({ network: 'mainnet', koios: after, db: db(), now: NOW + BACKFILL_RETRY_MS, limit: 10 });
     expect(after.calls).toContain(610);
     expect(res.actions).toBe(1);
-    expect((await snapOf(a.topicId))?.v).toBe(3);
+    expect((await snapOf(a.topicId))?.v).toBe(THRESHOLD_SNAPSHOT_VERSION);
   });
 });

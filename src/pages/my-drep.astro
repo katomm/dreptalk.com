@@ -188,6 +188,7 @@ const staleError = 'staleError' in view && view.staleError;
 const NO_CHANGE = 'Needs a figure for both epochs';
 ---
 <Layout
+  wide
   title="My DRep - DRepTalk"
   description="What the DRep you delegated to has done since your delegation started, and what a default delegation option meant on the decided actions."
   noindex={true}
@@ -435,7 +436,7 @@ const NO_CHANGE = 'Needs a figure for both epochs';
 
         <p class="mdr-sub">
           These figures describe one DRep over one window, they are not a score. A DRep that did not vote on
-          an action may have had reasons you agree with. The public record on the <a href={profileHref ?? '/dreps/'}>DRep profile</a>
+          an action may have had reasons you agree with. The public record on the <a href={profileHref ?? '/dreps/'}>DRep profile</a>{' '}
           covers its whole history, and <a href="/help/my-drep/">how this page is built</a> explains where every
           number comes from.
         </p>
@@ -482,8 +483,8 @@ const NO_CHANGE = 'Needs a figure for both epochs';
 
         <p class="mdr-sub">
           You can move your voting power to a DRep or to the other default option at any time.{' '}
-          <a href="/help/default-delegation-options/">What the default options do</a> covers both in full,
-          <a href="/match/">the match quiz</a> finds a DRep who votes like you, and
+          <a href="/help/default-delegation-options/">What the default options do</a> covers both in full,{' '}
+          <a href="/match/">the match quiz</a> finds a DRep who votes like you, and{' '}
           <a href="/dreps/">the DRep directory</a> lists the representatives you could delegate to instead.
         </p>
       </>

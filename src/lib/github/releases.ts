@@ -1,14 +1,13 @@
 // The "What's new" guide lists every GitHub release, newest first, with more room
 // than the homepage banner: each entry keeps the full "## Summary" paragraph, not
-// just its first sentence. We reuse the banner's title/summary parsing and degrade
-// to an empty list (the guide simply renders no list) on any problem, so a slow or
-// down GitHub never blocks or breaks the page.
+// just its first sentence. We reuse the banner's title/summary parsing. A failed
+// fetch resolves to null, and the page falls back to the last list that worked
+// (lastGoodReleases.ts), so a slow or down GitHub never blocks or empties the page.
 
-import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import {
+  fetchGithubJson,
   GITHUB_RELEASES_URL,
   type GitHubReleasePayload,
-  githubReleaseFetchInit,
   releaseSummaryFull,
   releaseTitle,
 } from './latestRelease.js';
@@ -57,19 +56,18 @@ export function parseReleaseItem(raw: ReleaseListPayload): ReleaseItem | null {
 /**
  * Fetch the newest releases from GitHub, edge-cached so the guide hits the API at
  * most about once per hour per colo. Never throws: any failure (non-2xx, timeout,
- * parse error) resolves to an empty array. Results are newest first.
+ * parse error) resolves to null, so the caller can tell a failed fetch from an
+ * empty history. Results are newest first.
  */
-export async function fetchReleases(): Promise<ReleaseItem[]> {
-  try {
-    const url = `${GITHUB_RELEASES_URL}?per_page=${PER_PAGE}`;
-    const res = await fetchWithTimeout(url, githubReleaseFetchInit());
-    if (!res.ok) return [];
-    const raw = (await res.json()) as ReleaseListPayload[];
-    return raw
-      .map(parseReleaseItem)
-      .filter((r): r is ReleaseItem => r !== null)
-      .sort((a, b) => b.publishedAtMs - a.publishedAtMs);
-  } catch {
-    return [];
-  }
+export async function fetchReleases(token?: string): Promise<ReleaseItem[] | null> {
+  const raw = await fetchGithubJson<ReleaseListPayload[]>(
+    `${GITHUB_RELEASES_URL}?per_page=${PER_PAGE}`,
+    'release list',
+    token,
+  );
+  if (!Array.isArray(raw)) return null;
+  return raw
+    .map(parseReleaseItem)
+    .filter((r): r is ReleaseItem => r !== null)
+    .sort((a, b) => b.publishedAtMs - a.publishedAtMs);
 }

@@ -1,4 +1,4 @@
-// Single-use nonce tests -- runs in real workerd via @cloudflare/vitest-pool-workers.
+// Single-use nonce tests -- runs in real workerd via @cloudflare/vitest-plugin.
 // Nonces live in D1 (env.DB); the auth_nonces migration is applied by the pool.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';

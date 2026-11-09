@@ -92,13 +92,20 @@ if (!drep) {
 const isOwner =
   !!drep && !!db && !!Astro.locals.user && (await getSelfDrepId(db, Astro.locals.user)) === drep.drepId;
 
-// Forum activity + total active power + voting history load together (independent reads).
-const drepUser = drep && db ? await getUserByDrepId(db, drep.drepId) : null;
+// Forum activity, total active power, voting history and the tracking viewer
+// load together. Only the posts and the account badges wait for the linked
+// user row, so they chain onto that one read instead of holding back the
+// whole batch. Most DReps have no forum account, so that chain usually ends
+// at the user lookup.
+const drepUserP = drep && db ? getUserByDrepId(db, drep.drepId) : Promise.resolve(null);
 // The group store is loaded only where groups exist, both group reads share the import.
 const groupStore = drep && db && drepGroupsAvailable(currentNetwork().network) ? import('@/lib/db/drepGroups.js') : null;
-const [posts, activeStake, votingHistory, votesCast, voteBreakdown, rationaleStats, participation, earnedBadges, holderCounts, powerSeries, voteHistoryMap, reportCard, timingRows, drepLinkHandle, groups, groupActions] =
+const [trackingViewer, posts, activeStake, votingHistory, votesCast, voteBreakdown, rationaleStats, participation, earnedBadges, holderCounts, powerSeries, voteHistoryMap, reportCard, timingRows, drepLinkHandle, groups, groupActions] =
   await Promise.all([
-    drepUser && db ? getPostsByAuthor(db, drepUser.id, { limit: 20 }) : Promise.resolve([]),
+    // The dialog offers delegation tracking after a successful delegation,
+    // which needs to know whether this account has a stake wallet linked.
+    loadTrackingViewer(db, Astro.locals.user?.id ?? null),
+    drepUserP.then((u) => (u && db ? getPostsByAuthor(db, u.id, { limit: 20 }) : [])),
     db ? getActiveDrepStake(db) : Promise.resolve({ total: 0, asOf: null }),
     drep && db
       ? getDrepVotingHistory(db, drep.drepId, {
@@ -112,7 +119,9 @@ const [posts, activeStake, votingHistory, votesCast, voteBreakdown, rationaleSta
     drep && db ? getDrepVoteBreakdown(db, drep.drepId) : Promise.resolve({ yes: 0, no: 0, abstain: 0, total: 0 }),
     drep && db ? getDrepRationaleStats(db, drep.drepId) : Promise.resolve({ total: 0, without: 0, withRationale: 0 }),
     drep && db ? getDrepParticipation(db, drep.drepId, drep.registeredEpoch) : Promise.resolve(null),
-    drep && db ? loadEarnedBadges(db, { role: 'drep', id: drep.drepId, userId: drepUser?.id ?? null }) : Promise.resolve([]),
+    drep && db
+      ? loadEarnedBadges(db, { role: 'drep', id: drep.drepId, userId: drepUserP.then((u) => u?.id ?? null) })
+      : Promise.resolve([]),
     drep && db ? getBadgeHolderCounts(db) : Promise.resolve(new Map<string, number>()),
     drep && db ? getDrepVotingPowerSeries(db, drep.drepId) : Promise.resolve([]),
     drep && db ? getVoterVoteHistory(db, drep.drepId) : Promise.resolve(new Map()),
@@ -194,10 +203,6 @@ const renderTab: ProfileTab = profileTabs.some((t) => t.id === activeTab) ? acti
 // render plain. A rough length gate is enough, exact overflow depends on the
 // viewport anyway.
 const CLAMP_THRESHOLD = 320;
-
-// The dialog offers delegation tracking after a successful delegation, which
-// needs to know whether this account has a stake wallet linked at all.
-const trackingViewer = await loadTrackingViewer(db, Astro.locals.user?.id ?? null);
 
 if (drep) {
   Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
