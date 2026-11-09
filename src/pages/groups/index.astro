@@ -12,6 +12,7 @@ import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import { cacheControlForSynced, formatAda, formatAdaCompact } from '@/lib/forum/view.js';
 import { DREP_GROUPS_STANDARD_URL, GROUP_PAGE_SIZE, LISTED_MIN_MEMBERS } from '@/lib/groups/constants.js';
 import { drepGroupsAvailable } from '@/lib/groups/gate.js';
+import { groupsCardVersion } from '@/lib/og/groupsCard.js';
 import { sessionKeyHash } from '@/lib/auth/groupSigner.js';
 import { loginHref } from '@/lib/auth/postLoginDest.js';
 import { hostedAvatarHash, LISTED_RULE, memberCount, memberCountWords, modeLabel, modeShort, shortHash } from '@/lib/groups/view.js';
@@ -53,7 +54,7 @@ if (available) {
 {!available ? (
   <NotFoundPage />
 ) : (
-  <Layout title="DRep groups - DRepTalk" description="Groups, parties and councils of Cardano DReps, recorded on chain." wide>
+  <Layout title="DRep groups - DRepTalk" description="Groups, parties and councils of Cardano DReps, recorded on chain." ogImage={`/og/groups.png?v=${groupsCardVersion()}`} wide>
     <nav class="gr-crumbs"><a href="/">DRepTalk</a><span>/</span><span>Groups</span></nav>
     <div class="gr-head">
       <h1>DRep groups</h1>
