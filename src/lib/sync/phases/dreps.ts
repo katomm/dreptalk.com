@@ -11,6 +11,9 @@ import { runDrepStatsDigest } from '../../db/drepStatsDigest.js';
 import { backfillVoteHistorySweep } from '../../governance/voteHistoryBackfill.js';
 import { syncCurrentEpochStats, backfillEpochStats } from '../../analytics/epochStatsSync.js';
 import { getFollowedDrepIds } from '../../db/delegatorFollows.js';
+import { drepGroupsAvailable } from '../../groups/gate.js';
+import { gcProfileDocs } from '../../groups/profileDocs.js';
+import { pruneResolvedGroupActions } from '../../groups/actionStore.js';
 import { pruneNotifications } from '../../db/notificationRetention.js';
 import {
   listCohortCandidates,
@@ -325,6 +328,29 @@ export const drepPhases: readonly SyncPhaseDef<DrepSyncContext>[] = [
         console.log(`[notification-retention] deleted=${r.deleted} batches=${r.batches} capped=${r.capped}`);
       }
       return { items: r.deleted };
+    },
+  },
+  {
+    // Hosted group profile documents that no chain transaction or open signature collection
+    // references go after a grace period. Runs with the 6-hourly phases, capped per run.
+    name: 'group-profile-docs-gc',
+    when: (ctx) => drepGroupsAvailable(ctx.cfg.network),
+    run: async (ctx) => {
+      const r = await gcProfileDocs(ctx.db, Date.now());
+      if (r.deleted > 0) console.log(`[group-profile-docs-gc] deleted=${r.deleted}`);
+      return { items: r.deleted };
+    },
+  },
+  {
+    // Group and member rows of the signing table go 90 days after they resolved, capped per run.
+    // Open rows stay. A deleted row no longer protects its profile document, which by then is far
+    // past the document grace.
+    name: 'group-action-retention',
+    when: (ctx) => drepGroupsAvailable(ctx.cfg.network),
+    run: async (ctx) => {
+      const deleted = await pruneResolvedGroupActions(ctx.db, Date.now());
+      if (deleted > 0) console.log(`[group-action-retention] deleted=${deleted}`);
+      return { items: deleted };
     },
   },
 ];

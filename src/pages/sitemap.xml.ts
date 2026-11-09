@@ -2,7 +2,9 @@ import type { APIRoute } from 'astro';
 import { getCollection } from 'astro:content';
 import { env } from 'cloudflare:workers';
 import { getCategories } from '../../config/categories.js';
+import { currentNetwork } from '../lib/api/response.js';
 import { listIndexableDrepIds } from '../lib/db/dreps.js';
+import { drepGroupsAvailable } from '../lib/groups/gate.js';
 import { slugFor } from '../lib/review/windows.js';
 import { surveysEnabled } from '../lib/surveys/switch.js';
 
@@ -60,6 +62,13 @@ export const GET: APIRoute = async ({ site }) => {
     }
     for (const id of await listIndexableDrepIds(db)) {
       entries.push({ path: `/dreps/${id}/` });
+    }
+    if (drepGroupsAvailable(currentNetwork().network)) {
+      entries.push({ path: '/groups/' });
+      const { listGroupIdsForSitemap } = await import('../lib/db/drepGroups.js');
+      for (const id of await listGroupIdsForSitemap(db, 500)) {
+        entries.push({ path: `/groups/${id}/` });
+      }
     }
   }
 

@@ -12,7 +12,8 @@ import Layout from '@/layouts/Layout.astro';
 import NotificationSettings from '@/components/NotificationSettings.tsx';
 import TelegramSettings from '@/components/TelegramSettings.tsx';
 import NotificationsInbox from '@/components/NotificationsInbox.tsx';
-import { runtimeEnv } from '@/lib/api/response';
+import { currentNetwork, runtimeEnv } from '@/lib/api/response';
+import { drepGroupsAvailable } from '@/lib/groups/gate.js';
 import { getNotificationsPage, getNotifSeenAt, markAllRead } from '@/lib/db/notifications';
 import { listChannels, getPrefs, prefDefault, NOTIFICATION_EVENT_TYPES } from '@/lib/db/notificationChannels';
 import { getUserById } from '@/lib/db/users.js';
@@ -32,6 +33,7 @@ import { parseDelegationChangePayload } from '@/lib/delegation/payload.js';
 import { parseDrepEventPayload } from '@/lib/delegation/notifyPayload.js';
 import { drepPath, profileTabHref } from '@/lib/dreps/profile.js';
 import { parseDrepStatsPayload, formatDrepStatsSummary } from '@/lib/notifications/drepStats.js';
+import { parseGroupNotificationPayload, formatGroupNotificationTitle, groupNotificationHref } from '@/lib/notifications/groupNotifications.js';
 import { parseDelegationDigestPayload, formatDelegationDigestInboxTitle } from '@/lib/notifications/delegationDigest.js';
 import { parseReviewPayload } from '@/lib/db/reviewAnnouncements.js';
 import { editionPath } from '@/lib/review/windows.js';
@@ -71,6 +73,8 @@ let telegramPrefs = defaultPrefs;
 // toggle. For everyone else the group is hidden (the pref itself stays
 // default-on and harmless).
 let showDrepStats = false;
+// The DRep groups toggle shows only where groups exist.
+const showDrepGroups = drepGroupsAvailable(currentNetwork().network);
 if (db) {
   // Read the cursor (and the personal rows' read state) BEFORE marking, so
   // unread highlighting reflects the state the user is coming from, not the
@@ -259,6 +263,24 @@ if (db) {
         },
       ];
     }
+    if (n.type === 'group_join_request' || n.type === 'group_signature_request') {
+      const p = parseGroupNotificationPayload(n.payload);
+      const title = p ? formatGroupNotificationTitle(n.type, p) : null;
+      if (!p || !title) return [];
+      return [
+        {
+          kind: n.type,
+          createdAt: n.created_at,
+          unread: n.read_at === null,
+          actorName: null,
+          actorHref: null,
+          verb: null,
+          title,
+          href: groupNotificationHref(n.type, p),
+          pill: null,
+        },
+      ];
+    }
     if (n.type === 'drep_stats') {
       const p = parseDrepStatsPayload(n.payload);
       if (!p) return [];
@@ -359,6 +381,7 @@ const now = Date.now();
         prefs={pushPrefs}
         vapidPublicKey={vapidPublicKey}
         showDrepStats={showDrepStats}
+        showDrepGroups={showDrepGroups}
         client:load
       />
       {telegramBotUsername !== '' && (
@@ -367,6 +390,7 @@ const now = Date.now();
           prefs={telegramPrefs}
           botUsername={telegramBotUsername}
           showDrepStats={showDrepStats}
+          showDrepGroups={showDrepGroups}
           client:load
         />
       )}

@@ -41,3 +41,25 @@ export function validateWitness(args: {
   if (!valid) return { ok: false, reason: 'bad signature' };
   return { ok: true, witness: w };
 }
+
+/** True when the witness is a valid ed25519 signature of its vkey over the tx body hash. */
+export function verifyVkeyWitness(w: ParsedWitness, bodyHashHex: string): boolean {
+  try {
+    return ed25519.verify(hexToBytes(w.signatureHex), hexToBytes(bodyHashHex), hexToBytes(w.vkeyHex));
+  } catch {
+    return false;
+  }
+}
+
+/** The SDK vkey witness of a parsed witness. */
+export function vkeyWitnessOf(w: ParsedWitness): TransactionWitnessSet.VKeyWitness {
+  return new TransactionWitnessSet.VKeyWitness({
+    vkey: VKey.fromBytes(hexToBytes(w.vkeyHex)),
+    signature: Ed25519Signature.fromBytes(hexToBytes(w.signatureHex)),
+  });
+}
+
+/** A witness set CBOR hex that carries only this one vkey witness. */
+export function singleWitnessSetHex(w: ParsedWitness): string {
+  return TransactionWitnessSet.toCBORHex(TransactionWitnessSet.fromVKeyWitnesses([vkeyWitnessOf(w)]));
+}

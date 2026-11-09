@@ -143,8 +143,13 @@ export default {
             return runPhases(notificationPhases, ctx, phase);
           }
           default: {
+            // Every governance query is counted so the groups phase can size its
+            // work to what the earlier phases left.
+            const counted = countingDb(core.db);
             const ctx = {
               ...core,
+              db: counted.db,
+              meter: counted.meter,
               heavy: minute % 15 === 0,
               // Non-empty TESSERA_BACKEND_URL switches the surveys phase on
               // (set on both networks). The client itself refuses a backend whose

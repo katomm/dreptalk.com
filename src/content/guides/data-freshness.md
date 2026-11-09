@@ -4,7 +4,7 @@ description: "How often DRepTalk refreshes Cardano on-chain values: governance t
 cardLabel: "Data freshness"
 category: "About DRepTalk"
 order: 7
-updated: 2026-09-18
+updated: 2026-10-27
 ---
 
 DRepTalk reads on-chain data (governance tallies and status, DRep profiles, vote badges)
@@ -21,6 +21,7 @@ are never delayed. Here is how often each thing updates.
 | CIP-179 surveys (definitions and response counts) | About every 5 minutes | Mirrored from the Tessera index on the discovery cron, on both mainnet and preprod. A submitted answer is counted once the index has confirmed its transaction, usually under ten minutes. |
 | Governance tallies and status (DRep, SPO, CC) | About every 15 minutes, active actions only | Frozen once an action is ratified, enacted, expired, dropped, or closed. Shown with an "as of" time. |
 | Per-post vote badges | About every 20 minutes, active actions only | Vote lists are larger than the tallies but still refresh on a short cycle. |
+| DRep groups (preprod) | Every 5 minutes | Events appear about 10 blocks after inclusion. Corrections after a reorganization take a few runs. |
 | DRep profiles (name, bio, avatar) and status | Every 6 hours | The drep-sync cron keeps every DRep profile current. |
 | DRep role re-check (write access) | Every 6 hours (with the DRep sync) | Every post is checked against the synced DRep status, independent of the login session. |
 

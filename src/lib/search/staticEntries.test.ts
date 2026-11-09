@@ -2,8 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { matchStaticEntries, STATIC_ENTRIES, PERSONAL_ENTRIES } from './staticEntries.js';
 
 describe('matchStaticEntries', () => {
-  it('empty query returns all static (Pages) entries', () => {
-    expect(matchStaticEntries('')).toEqual([...STATIC_ENTRIES]);
+  it('empty query returns all static (Pages) entries of the network', () => {
+    expect(matchStaticEntries('', false, 'preprod')).toEqual([...STATIC_ENTRIES]);
+  });
+
+  it('offers the DRep groups only where groups run', () => {
+    expect(matchStaticEntries('groups', false, 'preprod').map((e) => e.href)).toContain('/groups/');
+    expect(matchStaticEntries('groups', false, 'mainnet').map((e) => e.href)).not.toContain('/groups/');
+    expect(matchStaticEntries('groups').map((e) => e.href)).not.toContain('/groups/');
   });
 
   it('matches a page by keyword', () => {

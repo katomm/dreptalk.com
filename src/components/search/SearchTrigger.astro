@@ -2,6 +2,7 @@
 // Header search button plus the global shortcuts (Cmd/Ctrl+K, and "/" outside
 // form fields). Rendered as plain HTML, the palette and React load only once
 // the visitor reaches for the search (see searchHost.tsx).
+import type { CardanoNetwork } from '@/lib/config/network.js';
 import type { Scope } from '@/lib/search/scopes.js';
 
 interface Props {
@@ -9,9 +10,11 @@ interface Props {
   signedIn?: boolean;
   /** Scope pill the palette opens with on this page (defaults to "all"). */
   initialScope?: Scope;
+  /** The network, the palette leaves out pages that exist only on another one. */
+  network?: CardanoNetwork;
 }
 
-const { signedIn = false, initialScope = 'all' } = Astro.props;
+const { signedIn = false, initialScope = 'all', network } = Astro.props;
 ---
 
 <button
@@ -21,6 +24,7 @@ const { signedIn = false, initialScope = 'all' } = Astro.props;
   data-search-trigger
   data-signed-in={signedIn ? '' : undefined}
   data-scope={initialScope}
+  data-network={network}
 >
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
     <circle cx="11" cy="11" r="7" />
@@ -40,6 +44,7 @@ const { signedIn = false, initialScope = 'all' } = Astro.props;
     const rawScope = btn.dataset.scope as Scope | undefined;
     const initialScope: Scope = rawScope && SCOPES.includes(rawScope) ? rawScope : 'all';
     const signedIn = btn.dataset.signedIn !== undefined;
+    const network = btn.dataset.network;
 
     let host: SearchHost | null = null;
     let loading: Promise<SearchHost | null> | null = null;
@@ -59,7 +64,7 @@ const { signedIn = false, initialScope = 'all' } = Astro.props;
     const load = () => {
       if (loading) return loading;
       loading = importHost()
-        .then((m) => (host = m.mountSearch({ trigger: btn, signedIn, initialScope })))
+        .then((m) => (host = m.mountSearch({ trigger: btn, signedIn, initialScope, network })))
         .catch(() => {
           loading = null;
           return null;

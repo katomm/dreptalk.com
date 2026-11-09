@@ -14,6 +14,7 @@ function counts(partial: Partial<PendingCounts>): PendingCounts {
     delegationDigest: 0,
     rationaleReady: 0,
     reviews: 0,
+    drepGroups: 0,
     devices: 0,
   };
   const merged = { ...base, ...partial };
@@ -85,6 +86,8 @@ describe('formatSummary', () => {
   });
   it('summarizes new Governance Review editions', () => {
     expect(formatSummary(counts({ reviews: 1 }))).toBe('1 new Governance Review');
+    expect(formatSummary(counts({ drepGroups: 1 }))).toBe('1 DRep group request');
+    expect(formatSummary(counts({ drepGroups: 2 }))).toBe('2 DRep group requests');
     expect(formatSummary(counts({ reviews: 2, replies: 1 }))).toBe('1 new reply, 2 new Governance Reviews');
   });
 });

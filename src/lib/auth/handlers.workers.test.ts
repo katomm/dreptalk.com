@@ -28,6 +28,7 @@ import { bytesToHex, hexToBytes } from '../crypto/hex.js';
 import { ccHotKeyHashHex, DREP_SCRIPT_HEADER, drepIdFromPubKey } from '../cardano/identity.js';
 import { nativeScriptHash, parseNativeScriptJson } from '../cardano/nativeScript.js';
 import { encodeBech32 } from '../crypto/bech32.js';
+import { seedGroupKey } from './__fixtures__/seedGroupKey.js';
 
 // Raw Ed25519 signing for the Calidus / CC-hot paste login flow. Returns the
 // public key and detached signature as the client would paste them.
@@ -1856,5 +1857,123 @@ describe('handleVerify: script DRep (offline raw-Ed25519 path)', () => {
     }, { consumeNonce: consumeOverride });
 
     expect(result.status).toBe(401);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleVerify -- group signer login (retired or inactive key DRep in an active group policy)
+// ---------------------------------------------------------------------------
+
+describe('handleVerify: group signer login', () => {
+  const koiosWith = (drep_status: string, active: boolean) => ({
+    drepInfo: async (id: string) => ({
+      drep_id: id,
+      hex: 'ee',
+      has_script: false,
+      drep_status,
+      active,
+      deposit: '0',
+      expires_epoch_no: null,
+    }),
+    accountInfo: async () => null,
+    proposalsByReturnAddress: async () => [],
+  });
+
+  async function login(opts: { seedByte: number; status: string; active: boolean; inGroup: boolean; groupStatus?: string; offline?: boolean; network?: 'mainnet' | 'preprod' }) {
+    const payload = `dreptalk:dreptalk.com:group-signer-${opts.seedByte}:1700000000`;
+    const seed = new Uint8Array(32).fill(opts.seedByte);
+    const { publicKeyHex, signatureHex, pubKey } = rawSign(payload, seed);
+    const keyHash = ccHotKeyHashHex(pubKey);
+    if (opts.inGroup) await seedGroupKey(env.DB, { key: keyHash, tag: opts.seedByte, status: opts.groupStatus });
+    const koios = koiosWith(opts.status, opts.active);
+    const nonce = makeSingleUseNonceOverride(payload);
+    const common = { sessionKv: env.SESSIONS, db: env.DB, koios, network: opts.network ?? ('preprod' as const), now: 1_700_000_100, secure: false };
+    let result: Awaited<ReturnType<typeof handleVerify>>;
+    if (opts.offline) {
+      result = await handleVerify({ ...common, body: { payload, signatureHex, publicKeyHex, role: 'drep' } }, { consumeNonce: nonce });
+    } else {
+      const { keyHash: kh } = makeCoseSignature({ seed, payload, addressBytes: new Uint8Array(28) });
+      const cose = makeCoseSignature({ seed, payload, addressBytes: type6Address(kh, 'preprod') });
+      result = await handleVerify({ ...common, body: { payload, signatureHex: cose.signatureHex, keyHex: cose.keyHex, role: 'drep' } }, { consumeNonce: nonce });
+    }
+    return { result, drepId: drepIdFromPubKey(pubKey) };
+  }
+
+  it('grants the group signer role to a retired policy key', async () => {
+    const { result, drepId } = await login({ seedByte: 61, status: 'retired', active: false, inGroup: true });
+    expect(result.status).toBe(200);
+    const json = result.json as { user: { id: string; roles: string[] } };
+    expect(json.user.roles).toEqual(['group-signer']);
+    const token = /dreptalk_session=([^;]+)/.exec(result.setCookie!)![1];
+    const session = await getSession(env.SESSIONS, token, { now: 1_700_000_100 });
+    expect(session?.roles).toEqual(['group-signer']);
+    expect(session?.drepId).toBe(drepId);
+  });
+
+  it('grants it to an inactive policy key, also through the offline door', async () => {
+    const { result } = await login({ seedByte: 62, status: 'registered', active: false, inGroup: true, offline: true });
+    expect(result.status).toBe(200);
+    expect((result.json as { user: { roles: string[] } }).user.roles).toEqual(['group-signer']);
+  });
+
+  it('still rejects a retired DRep in no policy', async () => {
+    const { result } = await login({ seedByte: 63, status: 'retired', active: false, inGroup: false });
+    expect(result.status).toBe(401);
+    expect((result.json as { error: string }).error).toBe('not an active DRep');
+  });
+
+  it('still rejects a retired DRep whose only group is dissolved', async () => {
+    const { result } = await login({ seedByte: 64, status: 'retired', active: false, inGroup: true, groupStatus: 'dissolved' });
+    expect(result.status).toBe(401);
+  });
+
+  it('does not look at group policies off preprod', async () => {
+    const { result } = await login({ seedByte: 67, status: 'retired', active: false, inGroup: true, offline: true, network: 'mainnet' });
+    expect(result.status).toBe(401);
+    expect((result.json as { error: string }).error).toBe('not an active DRep');
+  });
+
+  it('leaves users.drep_id set and no is_drep change', async () => {
+    const { result, drepId } = await login({ seedByte: 65, status: 'retired', active: false, inGroup: true });
+    expect(result.status).toBe(200);
+    const row = await getUserById(env.DB, drepId);
+    expect(row?.drep_id).toBe(drepId);
+    expect(row?.is_drep).toBe(false);
+  });
+
+  it('keeps the group signer role next to an active co-proposer grant and never adds drep', async () => {
+    const payload = 'dreptalk:dreptalk.com:group-signer-66:1700000000';
+    const seed = new Uint8Array(32).fill(66);
+    const { publicKeyHex, signatureHex, pubKey } = rawSign(payload, seed);
+    const drepId = drepIdFromPubKey(pubKey);
+    await seedGroupKey(env.DB, { key: ccHotKeyHashHex(pubKey), tag: 66 });
+    // A former DRep: the row still says is_drep = 1.
+    await env.DB.prepare(
+      `INSERT INTO users (id, drep_id, is_drep, is_proposer, is_spo, is_cc, role, status, created_at, last_verified_at)
+       VALUES (?1, ?1, 1, 0, 0, 0, 'member', 'active', 1700000000, 1700000000)`,
+    ).bind(drepId).run();
+    await env.DB.prepare(
+      `INSERT INTO proposer_grants
+         (id, proposer_user_id, proposer_stake_addr, gov_action_id, co_user_id, co_stake_addr, invite_code_hash, status, created_at, expires_at, redeemed_at, revoked_at)
+       VALUES ('grant-gs', 'p', 'stake_test1p', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa#0', ?1, ?1, 'grant-gs', 'active', 1700000000, 1700604800, 1700000000, NULL)`,
+    ).bind(drepId).run();
+
+    const result = await handleVerify(
+      {
+        body: { payload, signatureHex, publicKeyHex, role: 'drep' },
+        sessionKv: env.SESSIONS,
+        db: env.DB,
+        koios: koiosWith('retired', false),
+        network: 'preprod',
+        now: 1_700_000_100,
+        secure: false,
+      },
+      { consumeNonce: makeSingleUseNonceOverride(payload) },
+    );
+    expect(result.status).toBe(200);
+    const roles = (result.json as { user: { roles: string[] } }).user.roles;
+    expect(roles).toContain('group-signer');
+    expect(roles).toContain('co-proposer');
+    expect(roles).not.toContain('drep');
   });
 });

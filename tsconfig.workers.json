@@ -6,7 +6,8 @@
   "include": [
     "vitest.workers.config.ts",
     "src/**/*.workers.test.ts",
-    "src/lib/test-setup.workers.ts"
+    "src/lib/test-setup.workers.ts",
+    "src/lib/test-d1-reset.workers.ts"
   ],
   "exclude": ["dist"]
 }

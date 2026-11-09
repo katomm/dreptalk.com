@@ -86,7 +86,7 @@ function makeClient(network: CardanoNetwork, origin: string, walletApi: WalletAp
 // same builder, so the chain below is the SINGLE place addSigner (the DRep key
 // as a required signer, which the fee depends on) is declared. Tests pass a
 // recording stub cast to this type to assert the signer is declared.
-type DrepTxBuilder = ReturnType<ReturnType<typeof makeClient>['newTx']>;
+export type DrepTxBuilder = ReturnType<ReturnType<typeof makeClient>['newTx']>;
 
 // The Conway DRep registration deposit (drep_deposit protocol parameter), in
 // lovelace. Stable at 500 ada on mainnet and preprod; changing it requires an

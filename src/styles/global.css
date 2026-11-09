@@ -812,6 +812,122 @@ a.drep-stat:focus-visible { outline: 2px solid var(--accent); outline-offset: 2p
   .drep-stat__value { font-size: 1.15rem; }
 }
 
+/* ==========================================================================
+   Profile header: avatar, kind and status pills, name, id line. Shared by the
+   DRep profile and the DRep group page.
+   ========================================================================== */
+.drep-hd {
+  display: flex;
+  gap: 1.25rem;
+  align-items: flex-start;
+  margin-bottom: 1.5rem;
+}
+.drep-hd__avatar {
+  flex: none;
+  line-height: 0;
+  border-radius: 50%;
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.drep-hd__main { min-width: 0; flex: 1; }
+.drep-hd__tags { display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; margin-bottom: 0.45rem; }
+.drep-hd__kind {
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+/* Name and the Delegate CTA share a row so the button sits beside the name
+   instead of drifting to the far edge of a wide header, where it collided
+   with the top-nav sign-in button. The name takes the width it needs and the
+   button follows it; on narrow screens the button wraps below. */
+.drep-hd__titlerow { display: flex; align-items: center; gap: 0.85rem; flex-wrap: wrap; margin: 0 0 0.2rem; }
+.drep-hd__name { margin: 0; font-size: 2rem; line-height: 1.1; overflow-wrap: anywhere; }
+.drep-hd__id { font-size: 0.8125rem; color: var(--muted); margin-bottom: 0.65rem; }
+.drep-hd__link { font-size: 0.8125rem; color: var(--muted); margin: -0.4rem 0 0.65rem; }
+.drep-hd__link a { color: inherit; font-weight: 600; }
+
+/* Voting power as the header's one prominent figure, delegators and share as
+   a muted secondary line: correct, but not staged as a heroic KPI wall. */
+.drep-hd__power { margin: 0 0 0.1rem; display: flex; align-items: baseline; gap: 0.45rem; flex-wrap: wrap; }
+.drep-hd__powerval { font-weight: 700; font-size: 1.15rem; color: var(--fg); font-variant-numeric: tabular-nums; }
+.drep-hd__powercap { color: var(--muted); font-size: 0.875rem; }
+/* Voting power ships both a full ("39,558,963 ₳") and a compact ("39.6M ₳")
+   value; the compact one only surfaces on narrow screens. */
+.drep-hd__value--compact { display: none; }
+.drep-hd__subline { margin: 0; color: var(--muted); font-size: 0.875rem; display: flex; gap: 0.4rem; flex-wrap: wrap; }
+
+/* One explicit status pill beside the "DRep" tag: red for inactive/retired,
+   positive for active. */
+.drep-hd__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--c-neg);
+  background: color-mix(in srgb, var(--c-neg) 12%, transparent);
+}
+.drep-hd__dot { width: 0.4rem; height: 0.4rem; border-radius: 50%; background: currentColor; flex: none; }
+.drep-hd__group { font-size: 0.75rem; padding: 0.125rem 0.5rem; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); text-decoration: none; }
+.drep-hd__group--pending { border-style: dashed; }
+.drep-hd__status--ok {
+  color: var(--c-pos);
+  background: color-mix(in srgb, var(--c-pos) 12%, transparent);
+}
+
+.drep-hd__cta { flex: none; }
+
+@media (max-width: 560px) {
+  .drep-hd { gap: 0.85rem; }
+  .drep-hd__name { font-size: 1.5rem; }
+  /* Trim the hero avatar (96 -> 72px) so the shortest header (a retired DRep
+     with no Delegate button) stays taller than the avatar. */
+  .drep-hd .drep-hd__avatar .avatar { width: 72px; height: 72px; }
+  .drep-hd__value--full { display: none; }
+  .drep-hd__value--compact { display: inline; }
+  /* Button wraps below the name and spans the column for an easy tap target. */
+  .drep-hd__cta { width: 100%; }
+  .drep-hd__cta .btn { width: 100%; }
+}
+
+/* Details card: the technical footer block of the DRep profile (on-chain
+   profile details) and the policies of a DRep group. */
+.ocd {
+  margin-top: 2rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+  box-shadow: var(--shadow);
+  padding: 1.25rem 1.5rem;
+}
+.ocd__h { font-size: 1.125rem; margin: 0 0 1rem; }
+.ocd__grid {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
+  gap: 1rem 2rem;
+}
+.ocd__item { min-width: 0; }
+.ocd__dt {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin: 0 0 0.25rem;
+}
+.ocd__dd { margin: 0; font-size: 0.9375rem; color: var(--fg); display: flex; align-items: center; gap: 0.25rem; flex-wrap: wrap; }
+.ocd__mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.875rem; }
+
 .drep-table { width: 100%; border-collapse: collapse; font-size: 0.9375rem; table-layout: fixed; }
 .drep-table thead th {
   text-align: left;

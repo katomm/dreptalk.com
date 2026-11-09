@@ -754,3 +754,82 @@ describe('txInfoCertsBatch', () => {
     expect(out[0].certificates?.[0].type).toBe('vote_delegation');
   });
 });
+
+describe('createKoiosClient signing-state readers', () => {
+  const baseUrl = 'https://api.koios.rest/api/v1';
+  const h = (n: number) => n.toString(16).padStart(64, '0');
+
+  it('utxoInfo maps is_spent and omits refs Koios does not return', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse([{ tx_hash: h(1), tx_index: 0, address: 'addr_test1a', is_spent: true }]),
+    );
+    const client = createKoiosClient({ baseUrl, fetchImpl });
+    const out = await client.utxoInfo([
+      { txHash: h(1), index: 0 },
+      { txHash: h(2), index: 3 },
+    ]);
+    expect(out).toEqual([{ txHash: h(1), index: 0, address: 'addr_test1a', isSpent: true }]);
+    expect(fetchImpl.mock.calls[0][0]).toBe(`${baseUrl}/utxo_info`);
+    expect(JSON.parse(fetchImpl.mock.calls[0][1].body)).toEqual({
+      _utxo_refs: [`${h(1)}#0`, `${h(2)}#3`],
+      _extended: false,
+    });
+  });
+
+  it('utxoInfo chunks at 50 refs and rejects a bad shape or 5xx', async () => {
+    const fetchImpl = vi.fn().mockImplementation(async () => jsonResponse([]));
+    const client = createKoiosClient({ baseUrl, fetchImpl });
+    const refs = Array.from({ length: 120 }, (_, i) => ({ txHash: h(i), index: 0 }));
+    expect(await client.utxoInfo(refs)).toEqual([]);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    const sizes = fetchImpl.mock.calls.map((c) => JSON.parse(c[1].body)._utxo_refs.length).sort((a, b) => a - b);
+    expect(sizes).toEqual([20, 50, 50]);
+
+    const bad = createKoiosClient({ baseUrl, fetchImpl: vi.fn().mockResolvedValue(jsonResponse([{ wrong: 1 }])) });
+    await expect(bad.utxoInfo([{ txHash: h(1), index: 0 }])).rejects.toThrow();
+    const down = createKoiosClient({ baseUrl, fetchImpl: vi.fn().mockResolvedValue(jsonResponse({}, 503)) });
+    await expect(down.utxoInfo([{ txHash: h(1), index: 0 }])).rejects.toMatchObject({ name: 'KoiosHttpError', status: 503 });
+  });
+
+  it('txStatus maps null and absent confirmations and unknown hashes to null', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      jsonResponse([
+        { tx_hash: h(1), num_confirmations: 7 },
+        { tx_hash: h(2), num_confirmations: null },
+        { tx_hash: h(3) },
+      ]),
+    );
+    const client = createKoiosClient({ baseUrl, fetchImpl });
+    const out = await client.txStatus([h(1), h(2), h(3), h(4)]);
+    expect(out.get(h(1))).toBe(7);
+    expect(out.get(h(2))).toBeNull();
+    expect(out.get(h(3))).toBeNull();
+    expect(out.get(h(4))).toBeNull();
+    expect(fetchImpl.mock.calls[0][0]).toBe(`${baseUrl}/tx_status`);
+    expect(JSON.parse(fetchImpl.mock.calls[0][1].body)).toEqual({ _tx_hashes: [h(1), h(2), h(3), h(4)] });
+  });
+
+  it('txStatus chunks at 50 hashes and rejects a bad shape or 5xx', async () => {
+    const fetchImpl = vi.fn().mockImplementation(async () => jsonResponse([]));
+    const client = createKoiosClient({ baseUrl, fetchImpl });
+    const out = await client.txStatus(Array.from({ length: 51 }, (_, i) => h(i)));
+    expect(out.size).toBe(51);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+
+    const bad = createKoiosClient({ baseUrl, fetchImpl: vi.fn().mockResolvedValue(jsonResponse([{ tx_hash: 5 }])) });
+    await expect(bad.txStatus([h(1)])).rejects.toThrow();
+    const down = createKoiosClient({ baseUrl, fetchImpl: vi.fn().mockResolvedValue(jsonResponse({}, 502)) });
+    await expect(down.txStatus([h(1)])).rejects.toMatchObject({ name: 'KoiosHttpError', status: 502 });
+  });
+
+  it('firstBlockAfterSlot returns height and slot from the right columns, null when empty', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([{ block_height: 111, abs_slot: 999 }]));
+    const client = createKoiosClient({ baseUrl, fetchImpl });
+    expect(await client.firstBlockAfterSlot(900)).toEqual({ height: 111, slot: 999 });
+    expect(fetchImpl.mock.calls[0][0]).toBe(
+      `${baseUrl}/blocks?abs_slot=gt.900&order=abs_slot.asc&limit=1&select=block_height,abs_slot`,
+    );
+    const empty = createKoiosClient({ baseUrl, fetchImpl: vi.fn().mockResolvedValue(jsonResponse([])) });
+    expect(await empty.firstBlockAfterSlot(900)).toBeNull();
+  });
+});

@@ -3,9 +3,10 @@
 // authenticated DRep member. The DRep id is derived from the session; clients
 // cannot list another DRep's pending votes.
 import type { APIRoute } from 'astro';
-import { jsonResponse, runtimeEnv } from '@/lib/api/response';
+import { currentNetwork, jsonResponse, runtimeEnv } from '@/lib/api/response';
 import { getSelfDrepId } from '@/lib/db/users';
 import { listPendingForDrep } from '@/lib/db/pendingMultisigTx';
+import { drepGroupsAvailable } from '@/lib/groups/gate';
 
 export const prerender = false;
 
@@ -26,7 +27,7 @@ export const GET: APIRoute = async ({ locals }) => {
   }
 
   const now = Math.floor(Date.now() / 1000);
-  const rows = await listPendingForDrep(db, drepId, now);
+  const rows = await listPendingForDrep(db, drepId, now, drepGroupsAvailable(currentNetwork().network));
 
   const items: Array<{
     id: string;

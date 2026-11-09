@@ -479,6 +479,57 @@ const ACCOUNT_UPDATE_HISTORY_MAX = 15;
 const TX_INFO_MAX = 25;
 export const KOIOS_PAGE_CAP = 1000;
 
+// Group event reads. Shapes verified against live Koios responses.
+const metalabelTxRowSchema = z.object({
+  tx_hash: z.string(),
+  block_hash: z.string(),
+  block_height: z.number(),
+});
+export type MetalabelTxRow = z.infer<typeof metalabelTxRowSchema>;
+
+const txCborRowSchema = z.object({ tx_hash: z.string(), cbor: z.string() });
+export type TxCborRow = z.infer<typeof txCborRowSchema>;
+
+const txPositionRowSchema = z.object({
+  tx_hash: z.string(),
+  block_hash: z.string(),
+  block_height: z.number(),
+  tx_block_index: z.number(),
+  // Unix seconds of the block. Optional so an answer without it still gives the position.
+  tx_timestamp: z.number().nullable().optional(),
+});
+export type TxPositionRow = z.infer<typeof txPositionRowSchema>;
+
+const drepRegistrationRowSchema = z.object({
+  drep_id: z.string(),
+  action: z.enum(['registered', 'deregistered']),
+  block_time: z.number(),
+  update_tx_hash: z.string(),
+  cert_index: z.number(),
+});
+export type DrepRegistrationRow = z.infer<typeof drepRegistrationRowSchema>;
+
+const blockAtRowSchema = z.object({ hash: z.string(), block_time: z.number() });
+
+const utxoInfoRowSchema = z.object({
+  tx_hash: z.string(),
+  tx_index: z.number(),
+  address: z.string(),
+  is_spent: z.boolean(),
+});
+const txStatusRowSchema = z.object({
+  tx_hash: z.string(),
+  num_confirmations: z.number().nullish(),
+});
+const firstBlockRowSchema = z.object({ block_height: z.number(), abs_slot: z.number() });
+
+// Refs and hashes per POST for the signing-state readers.
+const SIGNING_READ_CHUNK = 50;
+
+// Filter first, then the fixed action, select and order, so paging is stable.
+const DREP_REGISTRATION_QUERY =
+  'action=in.(registered,deregistered)&select=drep_id,action,block_time,update_tx_hash,cert_index&order=block_time.asc,update_tx_hash.asc,cert_index.asc';
+
 export function createKoiosClient(opts: KoiosClientOptions) {
   const fetchImpl = opts.fetchImpl ?? fetch;
   const timeoutMs = opts.timeoutMs ?? 10_000;
@@ -720,6 +771,59 @@ export function createKoiosClient(opts: KoiosClientOptions) {
     }
   }
 
+  // POSTs a hash list to a Koios endpoint, halving the list on a 413 like the
+  // other chunked reads.
+  async function postHashes<T>(
+    path: string,
+    extra: Record<string, unknown>,
+    schema: z.ZodType<T>,
+    txHashes: string[],
+  ): Promise<T[]> {
+    try {
+      const data = await request(path, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ _tx_hashes: txHashes, ...extra }),
+      });
+      return z.array(schema).parse(data);
+    } catch (err) {
+      if (err instanceof KoiosHttpError && err.status === 413 && txHashes.length > 1) {
+        const mid = Math.floor(txHashes.length / 2);
+        const head = await postHashes(path, extra, schema, txHashes.slice(0, mid));
+        const tail = await postHashes(path, extra, schema, txHashes.slice(mid));
+        return [...head, ...tail];
+      }
+      throw err;
+    }
+  }
+
+  async function postHashChunks<T>(
+    path: string,
+    extra: Record<string, unknown>,
+    schema: z.ZodType<T>,
+    txHashes: string[],
+  ): Promise<T[]> {
+    const chunks: string[][] = [];
+    for (let i = 0; i < txHashes.length; i += TX_INFO_MAX) chunks.push(txHashes.slice(i, i + TX_INFO_MAX));
+    const results = await mapLimit(chunks, KOIOS_BATCH_CONCURRENCY, (c) => postHashes(path, extra, schema, c));
+    return results.flat();
+  }
+
+  async function drepInfoBatch(drepIds: string[]): Promise<DrepInfoRow[]> {
+    if (drepIds.length === 0) return [];
+    const out: DrepInfoRow[] = [];
+    for (let i = 0; i < drepIds.length; i += DREP_INFO_MAX) {
+      out.push(...(await drepInfoChunk(drepIds.slice(i, i + DREP_INFO_MAX))));
+    }
+    return out;
+  }
+
+  function drepRegistrations(filter: string, limit: number, offset: number): Promise<DrepRegistrationRow[]> {
+    return request(`/drep_updates?${filter}&${DREP_REGISTRATION_QUERY}&limit=${limit}&offset=${offset}`, {
+      method: 'GET',
+    }).then((data) => z.array(drepRegistrationRowSchema).parse(data));
+  }
+
   // One fetch+parse for /committee_info, shared by the member and summary views
   // below so the two cannot drift on schema or error handling.
   async function committeeRow() {
@@ -747,14 +851,7 @@ export function createKoiosClient(opts: KoiosClientOptions) {
     // voting power) for every id, fetched in sub-batches that respect Koios's
     // /drep_info POST body cap (see DREP_INFO_MAX and drepInfoChunk's 413
     // fallback). Empty input short-circuits the round-trip.
-    async drepInfoBatch(drepIds: string[]): Promise<DrepInfoRow[]> {
-      if (drepIds.length === 0) return [];
-      const out: DrepInfoRow[] = [];
-      for (let i = 0; i < drepIds.length; i += DREP_INFO_MAX) {
-        out.push(...(await drepInfoChunk(drepIds.slice(i, i + DREP_INFO_MAX))));
-      }
-      return out;
-    },
+    drepInfoBatch,
 
     // Batch lookup for pool metadata: ticker, name, homepage, meta_url/hash.
     // Sub-batched by POOL_INFO_MAX with 413-halving fallback. Empty input
@@ -1062,6 +1159,119 @@ export function createKoiosClient(opts: KoiosClientOptions) {
       }
       const results = await mapLimit(chunks, KOIOS_BATCH_CONCURRENCY, txInfoCertsChunk);
       return results.flat();
+    },
+
+    // Transactions carrying a metadata label above a block height, oldest
+    // first by Koios order. Callers page by increasing offset.
+    async txByMetalabel(label: number, afterBlockHeight: number, limit = 1000, offset = 0): Promise<MetalabelTxRow[]> {
+      const path = `/tx_by_metalabel?_label=${label}&_after_block_height=${afterBlockHeight}&limit=${limit}&offset=${offset}`;
+      const data = await request(path, { method: 'GET' });
+      return z.array(metalabelTxRowSchema).parse(data);
+    },
+
+    // Raw tx CBOR per hash, TX_INFO_MAX per POST with 413 halving. Empty input short-circuits.
+    async txCborBatch(txHashes: string[]): Promise<TxCborRow[]> {
+      return postHashChunks('/tx_cbor', {}, txCborRowSchema, txHashes);
+    },
+
+    // Block hash, height, index within the block and block time per tx: tx_info with every
+    // heavy section switched off. Empty input short-circuits.
+    async txPositionBatch(txHashes: string[]): Promise<TxPositionRow[]> {
+      return postHashChunks(
+        '/tx_info',
+        {
+          _inputs: false,
+          _metadata: false,
+          _assets: false,
+          _withdrawals: false,
+          _certs: false,
+          _scripts: false,
+          _bytecode: false,
+        },
+        txPositionRowSchema,
+        txHashes,
+      );
+    },
+
+    // Registration and deregistration events (updates are left out) from a
+    // block time on, in a stable total order.
+    async drepRegistrationsSince(blockTimeUnix: number, limit = 1000, offset = 0): Promise<DrepRegistrationRow[]> {
+      return drepRegistrations(`block_time=gte.${blockTimeUnix}`, limit, offset);
+    },
+
+    async drepRegistrationsFor(drepId: string, limit = 1000, offset = 0): Promise<DrepRegistrationRow[]> {
+      return drepRegistrations(`drep_id=eq.${encodeURIComponent(drepId)}`, limit, offset);
+    },
+
+    // Up to 50 ids per call.
+    async drepRegistrationsForMany(drepIds: string[], limit = 1000, offset = 0): Promise<DrepRegistrationRow[]> {
+      if (drepIds.length === 0) return [];
+      return drepRegistrations(`drep_id=in.(${drepIds.map(encodeURIComponent).join(',')})`, limit, offset);
+    },
+
+    // The block at a height, or null when the chain has none there yet.
+    async blockAt(height: number): Promise<{ hash: string; block_time: number } | null> {
+      const data = await request(`/blocks?block_height=eq.${height}&select=hash,block_time`, { method: 'GET' });
+      return z.array(blockAtRowSchema).parse(data)[0] ?? null;
+    },
+
+    // Spend state per UTxO ref. Refs Koios does not return are omitted.
+    // 50 refs per POST.
+    async utxoInfo(
+      refs: Array<{ txHash: string; index: number }>,
+    ): Promise<Array<{ txHash: string; index: number; address: string; isSpent: boolean }>> {
+      const chunks: Array<typeof refs> = [];
+      for (let i = 0; i < refs.length; i += SIGNING_READ_CHUNK) chunks.push(refs.slice(i, i + SIGNING_READ_CHUNK));
+      const results = await mapLimit(chunks, KOIOS_BATCH_CONCURRENCY, async (chunk) => {
+        const data = await request('/utxo_info', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ _utxo_refs: chunk.map((r) => `${r.txHash}#${r.index}`), _extended: false }),
+        });
+        return z.array(utxoInfoRowSchema).parse(data);
+      });
+      return results.flat().map((r) => ({
+        txHash: r.tx_hash,
+        index: r.tx_index,
+        address: r.address,
+        isSpent: r.is_spent,
+      }));
+    },
+
+    // Confirmations per tx hash, null when Koios does not know the tx.
+    // Every requested hash is present in the map. 50 hashes per POST.
+    async txStatus(txHashes: string[]): Promise<Map<string, number | null>> {
+      const out = new Map<string, number | null>(txHashes.map((h) => [h, null]));
+      const chunks: string[][] = [];
+      for (let i = 0; i < txHashes.length; i += SIGNING_READ_CHUNK) chunks.push(txHashes.slice(i, i + SIGNING_READ_CHUNK));
+      const results = await mapLimit(chunks, KOIOS_BATCH_CONCURRENCY, async (chunk) => {
+        const data = await request('/tx_status', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ _tx_hashes: chunk }),
+        });
+        return z.array(txStatusRowSchema).parse(data);
+      });
+      for (const row of results.flat()) out.set(row.tx_hash, row.num_confirmations ?? null);
+      return out;
+    },
+
+    // The first block with a slot above the given one, or null when the chain
+    // has none yet.
+    async firstBlockAfterSlot(slot: number): Promise<{ height: number; slot: number } | null> {
+      const data = await request(
+        `/blocks?abs_slot=gt.${slot}&order=abs_slot.asc&limit=1&select=block_height,abs_slot`,
+        { method: 'GET' },
+      );
+      const row = z.array(firstBlockRowSchema).parse(data)[0];
+      return row ? { height: row.block_height, slot: row.abs_slot } : null;
+    },
+
+    // drep_info lists every id ever registered, a retired DRep comes back with
+    // registered false or null. So presence here means "known", not "active".
+    async knownDrepIds(drepIds: string[]): Promise<Set<string>> {
+      const rows = await drepInfoBatch(drepIds);
+      return new Set(rows.map((r) => r.drep_id));
     },
   };
 }

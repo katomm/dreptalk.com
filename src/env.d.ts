@@ -23,6 +23,8 @@ declare namespace App {
      * count); set and read via loadSessionHeader, never directly.
      */
     sessionHeader?: Promise<[import('./lib/forum/author.js').AuthorDescriptor, number]>;
+    /** Request-scoped memo of the account menu's DRep groups link, read via myGroupsLink. */
+    myGroups?: Promise<{ href: string; label: string } | null>;
   }
 }
 

@@ -39,6 +39,8 @@ import { formatEpochDate } from '@/lib/governance/view.js';
 import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
 import { ogCardVersion } from '@/lib/og/version.js';
 import { currentNetwork } from '@/lib/api/response';
+import { drepGroupsAvailable } from '@/lib/groups/gate.js';
+import { ACTION_KIND_LABEL, ACTION_STATUS_LABEL, shortHash } from '@/lib/groups/view.js';
 import Avatar from '@/components/Avatar.astro';
 import CopyButton from '@/components/CopyButton.astro';
 import ShareButton from '@/components/ShareButton.astro';
@@ -96,7 +98,9 @@ const isOwner =
 // whole batch. Most DReps have no forum account, so that chain usually ends
 // at the user lookup.
 const drepUserP = drep && db ? getUserByDrepId(db, drep.drepId) : Promise.resolve(null);
-const [trackingViewer, posts, activeStake, votingHistory, votesCast, voteBreakdown, rationaleStats, participation, earnedBadges, holderCounts, powerSeries, voteHistoryMap, reportCard, timingRows, drepLinkHandle] =
+// The group store is loaded only where groups exist, both group reads share the import.
+const groupStore = drep && db && drepGroupsAvailable(currentNetwork().network) ? import('@/lib/db/drepGroups.js') : null;
+const [trackingViewer, posts, activeStake, votingHistory, votesCast, voteBreakdown, rationaleStats, participation, earnedBadges, holderCounts, powerSeries, voteHistoryMap, reportCard, timingRows, drepLinkHandle, groups, groupActions] =
   await Promise.all([
     // The dialog offers delegation tracking after a successful delegation,
     // which needs to know whether this account has a stake wallet linked.
@@ -124,6 +128,18 @@ const [trackingViewer, posts, activeStake, votingHistory, votesCast, voteBreakdo
     drep && db ? getReportCard(db, drep.drepId) : Promise.resolve(null),
     drep && db ? listDrepVoteTimings(db, drep.drepId) : Promise.resolve([]),
     drep && db ? getPrimaryHandle(db, drep.drepId, Math.floor(Date.now() / 1000)) : Promise.resolve(null),
+    // Group chips exist where DRep groups run, elsewhere the groups store is not even loaded.
+    groupStore && drep && db ? groupStore.then((m) => m.groupsForDrep(db, drep.drepId, 20)) : Promise.resolve([]),
+    // Group actions of the DRep still waiting for signatures or for the chain, a joint founding included.
+    groupStore && drep && db
+      ? groupStore
+          .then((m) => m.unresolvedGroupActionsForDrep(db, drep.drepId))
+          .catch((err) => {
+            // The chips are secondary, a failed read must not take the profile down.
+            console.error('[drep-groups] group actions of the profile could not be read', err);
+            return [];
+          })
+      : Promise.resolve([]),
   ]);
 // The DRep's short link, shown under its id. Absent until the drep.link seed ran.
 const drepLinkUrl = drepLinkHandle ? `${DREP_LINK_ORIGIN}/${drepLinkHandle}` : null;
@@ -321,6 +337,16 @@ const profileSummary = drep
             <span class="drep-hd__dot" aria-hidden="true"></span>
             {statusLabel}
           </span>
+          {groups.map((g) => (
+            <a class="drep-hd__group" href={`/groups/${g.groupId}/`} title={g.groupId}>{g.name ? `${g.name} · ${shortHash(g.groupId)}` : shortHash(g.groupId)}</a>
+          ))}
+          {groupActions.map((a) => {
+            const label = `${ACTION_KIND_LABEL[a.kind] ?? a.kind} · ${shortHash(a.groupId)} · ${ACTION_STATUS_LABEL[a.status] ?? a.status}`;
+            // A founding group has no page until the chain confirms it.
+            return a.kind === 'group_create'
+              ? <span class="drep-hd__group drep-hd__group--pending" title={a.groupId}>{label}</span>
+              : <a class="drep-hd__group drep-hd__group--pending" href={`/groups/${a.groupId}/`} title={a.groupId}>{label}</a>;
+          })}
         </div>
         <div class="drep-hd__titlerow">
           <h1 class="drep-hd__name">{displayName}</h1>
@@ -583,74 +609,6 @@ const profileSummary = drep
     color: var(--muted);
   }
 
-  .drep-hd {
-    display: flex;
-    gap: 1.25rem;
-    align-items: flex-start;
-    margin-bottom: 1.5rem;
-  }
-  .drep-hd__avatar {
-    flex: none;
-    line-height: 0;
-    border-radius: 50%;
-    box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 8%, transparent);
-  }
-  .drep-hd__main { min-width: 0; flex: 1; }
-  .drep-hd__tags { display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; margin-bottom: 0.45rem; }
-  .drep-hd__kind {
-    display: inline-block;
-    padding: 0.15rem 0.55rem;
-    border-radius: 999px;
-    font-size: 0.6875rem;
-    font-weight: 700;
-    letter-spacing: 0.09em;
-    text-transform: uppercase;
-    color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
-  }
-  /* Name and the Delegate CTA share a row so the button sits beside the name
-     instead of drifting to the far edge of a wide header, where it collided
-     with the top-nav sign-in button. The name takes the width it needs and the
-     button follows it; on narrow screens the button wraps below. */
-  .drep-hd__titlerow { display: flex; align-items: center; gap: 0.85rem; flex-wrap: wrap; margin: 0 0 0.2rem; }
-  .drep-hd__name { margin: 0; font-size: 2rem; line-height: 1.1; overflow-wrap: anywhere; }
-  .drep-hd__id { font-size: 0.8125rem; color: var(--muted); margin-bottom: 0.65rem; }
-  .drep-hd__link { font-size: 0.8125rem; color: var(--muted); margin: -0.4rem 0 0.65rem; }
-  .drep-hd__link a { color: inherit; font-weight: 600; }
-
-  /* Voting power as the header's one prominent figure, delegators and share as
-     a muted secondary line: correct, but not staged as a heroic KPI wall. */
-  .drep-hd__power { margin: 0 0 0.1rem; display: flex; align-items: baseline; gap: 0.45rem; flex-wrap: wrap; }
-  .drep-hd__powerval { font-weight: 700; font-size: 1.15rem; color: var(--fg); font-variant-numeric: tabular-nums; }
-  .drep-hd__powercap { color: var(--muted); font-size: 0.875rem; }
-  /* Voting power ships both a full ("39,558,963 ₳") and a compact ("39.6M ₳")
-     value; the compact one only surfaces on narrow screens. */
-  .drep-hd__value--compact { display: none; }
-  .drep-hd__subline { margin: 0; color: var(--muted); font-size: 0.875rem; display: flex; gap: 0.4rem; flex-wrap: wrap; }
-
-  /* One explicit status pill beside the "DRep" tag: red for inactive/retired,
-     positive for active. */
-  .drep-hd__status {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    padding: 0.15rem 0.55rem;
-    border-radius: 999px;
-    font-size: 0.6875rem;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--c-neg);
-    background: color-mix(in srgb, var(--c-neg) 12%, transparent);
-  }
-  .drep-hd__dot { width: 0.4rem; height: 0.4rem; border-radius: 50%; background: currentColor; flex: none; }
-  .drep-hd__status--ok {
-    color: var(--c-pos);
-    background: color-mix(in srgb, var(--c-pos) 12%, transparent);
-  }
-
-  .drep-hd__cta { flex: none; }
-
   /* Summary row: trend card (~65%) beside the visually lighter badges card
      (~35%), stacking on narrow screens. */
   .drep-summary {
@@ -684,19 +642,6 @@ const profileSummary = drep
      dropped to two columns on narrow cards and stretched the card to three rows. */
   .drep-summary__badges .drep-summary__badgegrid { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 1.1rem; }
   .drep-summary__all { margin-top: auto; align-self: flex-start; }
-
-  @media (max-width: 560px) {
-    .drep-hd { gap: 0.85rem; }
-    .drep-hd__name { font-size: 1.5rem; }
-    /* Trim the hero avatar (96 -> 72px) so the shortest header (a retired DRep
-       with no Delegate button) stays taller than the avatar. */
-    .drep-hd__avatar :global(.avatar) { width: 72px; height: 72px; }
-    .drep-hd__value--full { display: none; }
-    .drep-hd__value--compact { display: inline; }
-    /* Button wraps below the name and spans the column for an easy tap target. */
-    .drep-hd__cta { width: 100%; }
-    .drep-hd__cta :global(.btn) { width: 100%; }
-  }
 
   /* About: the CIP-119 texts side by side under one roof, each block headed by
      its on-chain field name. Blocks render only when filled. */
@@ -779,32 +724,4 @@ const profileSummary = drep
     border-bottom-color: var(--accent);
   }
   .ptabs__count { color: var(--muted); font-weight: 400; }
-
-  /* On-chain profile details: the technical footer block. */
-  .ocd {
-    margin-top: 2rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    background: var(--surface-2);
-    box-shadow: var(--shadow);
-    padding: 1.25rem 1.5rem;
-  }
-  .ocd__h { font-size: 1.125rem; margin: 0 0 1rem; }
-  .ocd__grid {
-    margin: 0;
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
-    gap: 1rem 2rem;
-  }
-  .ocd__item { min-width: 0; }
-  .ocd__dt {
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--muted);
-    margin: 0 0 0.25rem;
-  }
-  .ocd__dd { margin: 0; font-size: 0.9375rem; color: var(--fg); display: flex; align-items: center; gap: 0.25rem; flex-wrap: wrap; }
-  .ocd__mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.875rem; }
 </style>

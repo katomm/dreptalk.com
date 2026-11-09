@@ -57,4 +57,20 @@ describe('NotificationsInbox', () => {
     expect(html).toContain('Your vote');
     expect(html).not.toContain('Governance action is now');
   });
+
+  it('leads both group notification kinds with their own label', () => {
+    const html = renderToStaticMarkup(
+      <NotificationsInbox
+        items={[
+          item({ kind: 'group_join_request', title: 'Carol asked to join Example Council', href: '/groups/g1/#requests' }),
+          item({ kind: 'group_signature_request', title: 'Alice asked you to sign: Approve Carol', href: '/groups/sign/r1/' }),
+        ]}
+        now={1_700_000_100_000}
+      />,
+    );
+    expect(html).toContain('Group join request');
+    expect(html).toContain('Signature request');
+    expect(html).toContain('href="/groups/sign/r1/"');
+    expect(html).not.toContain('Governance action is now');
+  });
 });

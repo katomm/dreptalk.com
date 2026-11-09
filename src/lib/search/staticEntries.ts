@@ -1,11 +1,14 @@
 // Static palette entries: top-level pages. Help guides, glossary terms and
 // Governance Review editions come from the search API (lib/search/content.ts).
 import { NAV_LINKS } from '../config/nav.js';
+import { availableOn, type CardanoNetwork } from '../config/network.js';
 
 export interface StaticEntry {
   label: string;
   href: string;
   keywords: string;
+  /** The networks the page exists on, every network when absent. */
+  networks?: readonly CardanoNetwork[];
 }
 
 const PAGE_KEYWORDS: Record<string, string> = {
@@ -21,11 +24,14 @@ const PAGE_KEYWORDS: Record<string, string> = {
   '/dreps/movers/': 'movers gains losses voting power epoch delegation shifts',
   '/badges/': 'badges achievements tiers gallery',
   '/register-drep/': 'register drep registration metadata wallet',
+  '/groups/': 'drep groups parties affiliation members permissioned open',
 };
 
 export const STATIC_ENTRIES: readonly StaticEntry[] = [
   { label: 'Home', href: '/', keywords: 'home start dreptalk' },
-  ...NAV_LINKS.map((l): StaticEntry => ({ label: l.label, href: l.href, keywords: PAGE_KEYWORDS[l.href.split('?')[0]] ?? '' })),
+  ...NAV_LINKS.map(
+    (l): StaticEntry => ({ label: l.label, href: l.href, keywords: PAGE_KEYWORDS[l.href.split('?')[0]] ?? '', ...(l.networks ? { networks: l.networks } : {}) }),
+  ),
   // The budget discussion category. The Treasury entry in the header points at
   // the Net Change Limit overview, so the discussions get their own row here.
   { label: 'Treasury discussions', href: '/c/budget/', keywords: 'treasury budget withdrawals proposals discussion' },
@@ -46,9 +52,10 @@ export const PERSONAL_ENTRIES: readonly StaticEntry[] = [
 
 /** Page entries whose label or keywords contain the query, case-insensitive.
  *  An empty query returns every page. Personal pages are included only for a
- *  signed-in visitor, for whom they are not a redirect to /login/. */
-export function matchStaticEntries(q: string, signedIn = false): StaticEntry[] {
-  const entries = signedIn ? [...STATIC_ENTRIES, ...PERSONAL_ENTRIES] : [...STATIC_ENTRIES];
+ *  signed-in visitor, for whom they are not a redirect to /login/, and pages of
+ *  one network only there. */
+export function matchStaticEntries(q: string, signedIn = false, network?: string): StaticEntry[] {
+  const entries = (signedIn ? [...STATIC_ENTRIES, ...PERSONAL_ENTRIES] : [...STATIC_ENTRIES]).filter((e) => availableOn(e.networks, network));
   const needle = q.trim().toLowerCase();
   if (!needle) return entries;
   return entries.filter((e) => e.label.toLowerCase().includes(needle) || e.keywords.toLowerCase().includes(needle));

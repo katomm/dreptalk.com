@@ -6,7 +6,8 @@
 // (casts only on opaque runtime handles) so that a new context field breaks
 // this file at compile time instead of silently evaluating undefined gates.
 import { describe, it, expect } from 'vitest';
-import type { NetworkConfig } from '../../config/network.js';
+import type { CardanoNetwork, NetworkConfig } from '../../config/network.js';
+import type { QueryMeter } from '../queryBudget.js';
 import type { CoreSyncContext, GovSyncKoios } from './context.js';
 import { activePhaseNames } from './registry.js';
 import { governancePhases, type GovernanceSyncContext } from './governance.js';
@@ -25,10 +26,12 @@ const core: CoreSyncContext = {
 
 function govCtx(
   heavy: boolean,
-  opts: { tessera?: boolean; pinGc?: boolean; site?: boolean } = {},
+  opts: { tessera?: boolean; pinGc?: boolean; site?: boolean; network?: CardanoNetwork; meter?: QueryMeter } = {},
 ): GovernanceSyncContext {
   return {
     ...core,
+    cfg: { network: opts.network } as NetworkConfig,
+    meter: opts.meter ?? { used: () => 0 },
     heavy,
     tessera: opts.tessera ? ({} as GovernanceSyncContext['tessera']) : null,
     state: { mirrorHealthy: false },
@@ -61,9 +64,10 @@ function voteCtx(opts: { hourly?: boolean; avatars?: boolean } = {}): VoteSyncCo
   };
 }
 
-function drepCtx(opts: { avatars?: boolean } = {}): DrepSyncContext {
+function drepCtx(opts: { avatars?: boolean; network?: CardanoNetwork } = {}): DrepSyncContext {
   return {
     ...core,
+    cfg: { network: opts.network ?? 'preprod' } as NetworkConfig,
     avatars: opts.avatars === false ? null : R2_STUB,
     downscale: undefined,
     state: initialDrepSyncState(),
@@ -86,7 +90,7 @@ function expectBefore(names: string[], first: string, later: string) {
 }
 
 describe('governancePhases', () => {
-  const allGates = govCtx(true, { tessera: true, pinGc: true, site: true });
+  const allGates = govCtx(true, { tessera: true, pinGc: true, site: true, network: 'preprod' });
 
   it('reaches every registered phase when all gates are open', () => {
     expect(activePhaseNames(governancePhases, allGates)).toEqual(governancePhases.map((d) => d.name));
@@ -136,6 +140,15 @@ describe('governancePhases', () => {
     expect(activePhaseNames(governancePhases, govCtx(true))).not.toContain('pin-gc');
     expect(activePhaseNames(governancePhases, govCtx(false, { pinGc: true }))).not.toContain('pin-gc');
     expect(activePhaseNames(governancePhases, govCtx(true, { pinGc: true }))).toContain('pin-gc');
+  });
+
+  it('runs drep-groups last on preprod ticks only', () => {
+    for (const heavy of [true, false]) {
+      const preprod = activePhaseNames(governancePhases, govCtx(heavy, { network: 'preprod' }));
+      expect(preprod.at(-1)).toBe('drep-groups');
+      expect(activePhaseNames(governancePhases, govCtx(heavy, { network: 'mainnet' }))).not.toContain('drep-groups');
+    }
+    expect(activePhaseNames(governancePhases, allGates).at(-1)).toBe('drep-groups');
   });
 
   it('marks exactly discovery as primary and keeps names unique', () => {
@@ -189,6 +202,13 @@ describe('votePhases', () => {
 describe('drepPhases', () => {
   it('reaches every registered phase with the R2 binding', () => {
     expect(activePhaseNames(drepPhases, drepCtx())).toEqual(drepPhases.map((d) => d.name));
+  });
+
+  it('runs the group profile cleanup and the group action retention on preprod only', () => {
+    for (const name of ['group-profile-docs-gc', 'group-action-retention']) {
+      expect(activePhaseNames(drepPhases, drepCtx({ network: 'preprod' }))).toContain(name);
+      expect(activePhaseNames(drepPhases, drepCtx({ network: 'mainnet' }))).not.toContain(name);
+    }
   });
 
   it('skips the R2-backed avatar phase when the binding is missing', () => {

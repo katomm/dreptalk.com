@@ -1,0 +1,499 @@
+---
+export const prerender = false;
+import { env } from 'cloudflare:workers';
+import { checkPaymentAddress } from 'drep-groups';
+import Layout from '@/layouts/Layout.astro';
+import NotFound from '@/components/NotFound.astro';
+import AuthorIdentity, { type AuthorDescriptor } from '@/components/AuthorIdentity.astro';
+import Avatar from '@/components/Avatar.astro';
+import CopyButton from '@/components/CopyButton.astro';
+import DrepStatCard from '@/components/DrepStatCard.astro';
+import JsonLd from '@/components/JsonLd.astro';
+import ShareButton from '@/components/ShareButton.astro';
+import GroupActions from '@/components/groups/GroupActions.js';
+import NotFoundPage from '../404.astro';
+import { currentNetwork } from '@/lib/api/response';
+import { txExplorerUrl } from '@/lib/config/network.js';
+import {
+  drepNamesForCredentials,
+  getGroup,
+  groupHistory,
+  hostedProfileDocs,
+  listClosingMembers,
+  listMembers,
+  listVerdicts,
+  type MemberRow,
+  pendingVerification,
+  scriptDisplays,
+  statusNote,
+  treasuryScripts,
+} from '@/lib/db/drepGroups.js';
+import { isHttpUrl } from '@/lib/governance/metadata.js';
+import { cacheControlForSynced, clipExcerpt, formatAda, formatAdaCompact, SITE_ORIGIN, truncateIdMiddle } from '@/lib/forum/view.js';
+import { formatEpochDate, formatSubmittedDateTime } from '@/lib/governance/view.js';
+import { buildBreadcrumbLd } from '@/lib/jsonld/breadcrumb.js';
+import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
+import type { VitalCard } from '@/lib/analytics/hubView.js';
+import { GROUP_PAGE_SIZE, RETENTION_KEEP_APPLIED, RETENTION_KEEP_NOT_APPLIED } from '@/lib/groups/constants.js';
+import { drepGroupsAvailable } from '@/lib/groups/gate.js';
+import { addressNetwork } from '@/lib/groups/ids.js';
+import { type HistoryKind, type ProfileFields, policyShape, policyWords, profileFieldsOfDoc } from '@/lib/groups/describe.js';
+import { historyEntries } from '@/lib/groups/history.js';
+import { CIRCLE_X_PATH, CLOCK_PATH, PENCIL_PATH, SHIELD_PATH, USER_CHECK_PATH, USER_MINUS_PATH, USER_PLUS_PATH, USER_X_PATH, USERS_PATH } from '@/lib/forum/icons.js';
+import {
+  addressStatusLabel,
+  describePolicy,
+  eventLabel,
+  hostedAvatarHash,
+  type ScriptView,
+  memberSections,
+  modeLabel,
+  policyKeyHashes,
+  reasonLabel,
+  scriptFromJson,
+  sectionParam,
+  shortHash,
+  statusNoteLabel,
+} from '@/lib/groups/view.js';
+
+const net = currentNetwork();
+const available = drepGroupsAvailable(net.network);
+const db = env.DB as D1Database | undefined;
+const id = Astro.params.id ?? '';
+// Group ids are lowercase bech32, an uppercase spelling moves to the canonical URL.
+if (available && id !== id.toLowerCase()) return Astro.redirect(`/groups/${id.toLowerCase()}/${Astro.url.search}`, 301);
+const group = available && db ? await getGroup(db, id) : null;
+if (group) {
+  Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
+} else {
+  Astro.response.status = 404;
+  Astro.response.headers.set('Cache-Control', 'no-store');
+}
+
+const profile = group?.profile?.status === 'ok' ? group.profile : null;
+// Profile links are checked when stored, and again here so only web links render.
+const webLink = (u: string | null | undefined): string | null => (u && isHttpUrl(u) ? u : null);
+const website = webLink(profile?.website);
+const charter = webLink(profile?.charter);
+const addresses = profile?.paymentAddresses ?? [];
+const treasuryHashes = [...new Set(addresses.flatMap((a) => (a.treasuryScript ? [a.treasuryScript] : [])))];
+const policyHashes = group ? [group.controlHash, ...(group.admissionHash ? [group.admissionHash] : [])] : [];
+
+const [note, verification, sections, history, notApplied, displays, treasury] =
+  group && db
+    ? await Promise.all([
+        statusNote(db),
+        // A closing group shows its own indicator, the verification count is not read then.
+        group.closing ? null : pendingVerification(db, group.ref),
+        Promise.all(
+          memberSections(group, Astro.url.searchParams).map(async (s) => ({
+            ...s,
+            rows:
+              s.kind === 'all'
+                ? await listClosingMembers(db, group.ref, s.after)
+                : await listMembers(db, group.ref, s.kind, s.after, GROUP_PAGE_SIZE),
+          })),
+        ),
+        groupHistory(db, group.ref, RETENTION_KEEP_APPLIED),
+        listVerdicts(db, group.ref, false, RETENTION_KEEP_NOT_APPLIED),
+        scriptDisplays(db, policyHashes),
+        treasuryScripts(db, treasuryHashes),
+      ])
+    : [null, null, [], { events: [], versions: [], signers: new Map<string, string[]>() }, [], new Map<string, string>(), { displays: new Map<string, string>(), scripts: new Map() }];
+
+const control = group ? scriptFromJson(displays.get(group.controlHash)) : null;
+const admission = group?.admissionHash ? scriptFromJson(displays.get(group.admissionHash)) : null;
+const admins = new Set([...policyKeyHashes(control), ...policyKeyHashes(admission)]);
+const treasuryViews = new Map(treasuryHashes.map((h) => [h, scriptFromJson(treasury.displays.get(h))]));
+// The history reads the policies and profiles every change set.
+const versionHashes = history.versions.flatMap((v) => (v.admission ? [v.control, v.admission] : [v.control]));
+const profileHashes = history.versions.flatMap((v) => (v.profileHash ? [v.profileHash] : []));
+// Block times are stored with the txs, a row stored before that shows its block number until the backfill reaches it.
+const blockTimes = new Map(
+  [...history.events, ...notApplied].flatMap((e) => (e.blockTime === null ? [] : [[e.blockHeight, e.blockTime] as const])),
+);
+const [historyDisplays, profileDocs] = db
+  ? await Promise.all([scriptDisplays(db, versionHashes), hostedProfileDocs(db, profileHashes)])
+  : [new Map<string, string>(), new Map<string, string>()];
+const historyScripts = new Map<string, ScriptView | null>([...new Set(versionHashes)].map((h) => [h, scriptFromJson(historyDisplays.get(h) ?? displays.get(h))]));
+const historyProfiles = new Map<string, ProfileFields | null>(profileHashes.map((h) => [h, profileFieldsOfDoc(profileDocs.get(h) ?? null)]));
+// The stored profile is the document of the current anchor, also when DRepTalk does not host it.
+if (profile?.dataHash) historyProfiles.set(profile.dataHash, profile);
+const historyKeys = [...historyScripts.values()].flatMap(policyKeyHashes);
+
+const allKeys = [...admins, ...[...treasuryViews.values()].flatMap(policyKeyHashes), ...historyKeys];
+const subjects = history.events.flatMap((e) => (e.subject ? [e.subject] : []));
+const nameCreds = [...allKeys.map((hash) => ({ kind: 'key' as const, hash })), ...subjects];
+const names = db && nameCreds.length > 0 ? await drepNamesForCredentials(db, nameCreds) : new Map<string, string>();
+const timeline = group
+  ? historyEntries(history, { mode: group.mode === 'permissioned' ? 'permissioned' : 'open', scripts: historyScripts, profiles: historyProfiles, policyKeys: new Set(historyKeys), names })
+  : [];
+const HISTORY_ICON: Record<HistoryKind, string> = {
+  founded: USERS_PATH,
+  joined: USER_PLUS_PATH,
+  requested: CLOCK_PATH,
+  approved: USER_CHECK_PATH,
+  left: USER_MINUS_PATH,
+  removed: USER_X_PATH,
+  policy: SHIELD_PATH,
+  profile: PENCIL_PATH,
+  dissolved: CIRCLE_X_PATH,
+};
+const HISTORY_KIND_LABEL: Record<HistoryKind, string> = {
+  founded: 'Founded',
+  joined: 'Joined',
+  requested: 'Request',
+  approved: 'Approved',
+  left: 'Left',
+  removed: 'Removed',
+  policy: 'Policy update',
+  profile: 'Profile update',
+  dissolved: 'Dissolved',
+};
+const blockDate = (h: number): { iso: string; text: string } | null => {
+  const t = blockTimes.get(h);
+  if (t === undefined) return null;
+  return { iso: new Date(t * 1000).toISOString(), text: formatSubmittedDateTime(t * 1000) };
+};
+// Every address is checked against the network the page runs on.
+const addressChecks = addresses
+  .map((entry) => ({ entry, check: checkPaymentAddress(entry, addressNetwork(net.network), treasury.scripts) }))
+  .filter((a) => a.check.status !== 'invalid');
+
+// The public profile the admins' editor starts from.
+const editableProfile = profile
+  ? {
+      name: profile.name ?? '',
+      ...(profile.description ? { description: profile.description } : {}),
+      ...(website ? { website } : {}),
+      ...(charter ? { charter } : {}),
+      ...(profile.image ? { image: profile.image } : {}),
+    }
+  : null;
+const title = profile?.name ?? (group ? shortHash(group.groupId) : '');
+const noteText = statusNoteLabel(note);
+const indicator = !group
+  ? null
+  : group.closing
+    ? 'Memberships are being closed after the dissolution.'
+    : verification && verification.queued > 0
+      ? `Memberships still being verified: ${verification.capped ? '100 or more' : verification.queued}`
+      : null;
+
+const SECTION_TITLE = { all: 'Members', active: 'Members', pending: 'Requests', former: 'Former members' } as const;
+const MARK = { retiring: 'retired, being updated', unapplied: 'registration change being verified' } as const;
+const rowNote = (m: MemberRow, showState: boolean): string =>
+  [
+    showState && m.state === 'pending' ? 'Request' : '',
+    m.state === 'closed' ? reasonLabel(m.reason) : '',
+    m.mark ? MARK[m.mark] : '',
+  ]
+    .filter((s) => s !== '')
+    .join(' · ');
+// The query of a section's next page, the other sections keep their cursors.
+const nextQuery = (kind: keyof typeof SECTION_TITLE, after: string): string => {
+  const params = new URLSearchParams(Astro.url.searchParams);
+  params.set(sectionParam(kind), after);
+  return `?${params.toString()}`;
+};
+
+// Header and tiles. The image shows when DRepTalk hosts it, the page's CSP loads no other origin, so
+// a group without one shows the identicon of its id as a DRep without an image does.
+const avatarHash = hostedAvatarHash(profile?.image);
+const adminKeys = new Set([...admins].map((k) => k.toLowerCase()));
+const founded = group ? (group.createdTime ?? blockTimes.get(group.createdHeight) ?? null) : null;
+const foundedText =
+  founded !== null
+    ? formatEpochDate(founded)
+    : group
+      ? `Block ${group.createdHeight}`
+      : '';
+const threshold = policyShape(control);
+const statCards: VitalCard[] = group
+  ? [
+      {
+        label: 'Members',
+        value: group.closing ? 'Closing' : group.members.toLocaleString('en-US'),
+        icon: 'people',
+        ...(group.pending > 0 ? { sub: `${group.pending} ${group.pending === 1 ? 'request' : 'requests'} to join` } : {}),
+      },
+      {
+        label: 'Voting power of members',
+        value: formatAda(group.memberPower),
+        valueShort: formatAdaCompact(group.memberPower),
+        icon: 'power',
+        sub: 'Each member casts its own vote',
+      },
+      { label: 'Founded', value: foundedText, icon: 'calendar', alt: true },
+      ...(threshold
+        ? [{ label: 'Management threshold', value: `${threshold.n} of ${threshold.keys.length}`, icon: 'shield' as const, sub: 'admins must sign a change', alt: true }]
+        : []),
+    ]
+  : [];
+// A member as the DRep list shows a DRep: avatar, name or short id, a link to the profile while the
+// membership is not closed, and the Admin badge for a key in the management or admission policy.
+// A former member whose key is still in a policy reads "Still admin" until the policy drops it.
+const memberIdentity = (m: MemberRow): AuthorDescriptor => ({
+  authorId: m.drepId,
+  displayName: m.drepName ?? shortHash(m.drepId),
+  ...(m.state === 'closed' ? {} : { drepId: m.drepId, drepSlug: m.drepSlug }),
+  imageHash: m.drepImage,
+  identiconSeed: m.drepHex ?? m.drepId,
+  badges: m.drepHex && adminKeys.has(m.drepHex.toLowerCase()) ? [m.state === 'closed' ? 'Still admin' : 'Admin'] : [],
+});
+
+const siteOrigin = Astro.site?.origin ?? SITE_ORIGIN;
+const canonical = group ? `${siteOrigin}/groups/${group.groupId}/` : siteOrigin;
+const breadcrumbLd = group
+  ? buildBreadcrumbLd(siteOrigin, [
+      { name: 'Groups', path: '/groups/' },
+      { name: title, path: `/groups/${group.groupId}/` },
+    ])
+  : null;
+// The group as an organization of DReps, the members are not listed in it.
+const organizationLd = group
+  ? {
+      '@context': 'https://schema.org',
+      '@type': 'Organization',
+      name: title,
+      identifier: group.groupId,
+      url: canonical,
+      ...(profile?.description ? { description: profile.description } : {}),
+      ...(website ? { sameAs: [website] } : {}),
+      ...(avatarHash ? { logo: `${siteOrigin}/api/avatar/${avatarHash}` } : {}),
+    }
+  : null;
+const metaLead = group ? `${title}, a DRep group with ${group.members} ${group.members === 1 ? 'member' : 'members'}. ${modeLabel(group.mode)}.` : '';
+const metaFull = profile?.description ? `${metaLead} ${profile.description}` : metaLead;
+// Cut at a word near 300 characters, the full description stays on the page.
+const metaDescription = clipExcerpt(metaFull, 300);
+---
+{!available ? (
+  <NotFoundPage />
+) : !group ? (
+  <NotFound noun="Group" />
+) : (
+  <Layout
+    title={`${title} - DRep groups - DRepTalk`}
+    description={metaDescription}
+    wide
+    preloadImage={avatarHash ? `/api/avatar/${avatarHash}` : null}
+  >
+    {breadcrumbLd && <JsonLd data={breadcrumbLd} />}
+    {organizationLd && <JsonLd data={organizationLd} />}
+    <nav class="gr-crumbs"><a href="/">DRepTalk</a><span>/</span><a href="/groups/">Groups</a><span>/</span><span>{title}</span></nav>
+
+    <header class="drep-hd">
+      <span class="drep-hd__avatar">
+        <Avatar seed={group.groupId} imageHash={avatarHash} size={96} />
+      </span>
+      <div class="drep-hd__main">
+        <div class="drep-hd__tags">
+          <span class="drep-hd__kind">DRep group</span>
+          <span class={`drep-hd__status${group.status === 'active' ? ' drep-hd__status--ok' : ''}`}>
+            <span class="drep-hd__dot" aria-hidden="true"></span>
+            {group.status === 'dissolved' ? 'Dissolved' : 'Active'}
+          </span>
+        </div>
+        <div class="drep-hd__titlerow">
+          <h1 class="drep-hd__name">{title}</h1>
+          <ShareButton url={canonical} title={`${title} on DRepTalk`} ariaLabel="Share this group" />
+        </div>
+        <div class="drep-hd__id"><span title={group.groupId}>{truncateIdMiddle(group.groupId)}</span><CopyButton value={group.groupId} label="Copy group id" /></div>
+        <p class="gr-mode">{modeLabel(group.mode)}</p>
+        {(website || charter) && (
+          <ul class="gr-links">
+            {website && (
+              <li>
+                <a href={website} rel="nofollow noopener">Website</a>
+                {profile?.websiteVerifiedAt && <span class="gr-verified">Website verified</span>}
+              </li>
+            )}
+            {charter && <li><a href={charter} rel="nofollow noopener">Charter</a></li>}
+          </ul>
+        )}
+      </div>
+    </header>
+
+    {group.profile && group.profile.status !== 'ok' && <p class="gr-note">Profile unavailable.</p>}
+    {profile?.description && <p class="gr-about">{profile.description}</p>}
+
+    <div class="drep-stats">
+      {statCards.map((card) => <DrepStatCard card={card} />)}
+    </div>
+
+    <section class="gr-section">
+      <div class="gr-section__head">
+        <h2 class="gr-h">{group.closing ? 'Members' : `Members (${group.members})`}</h2>
+        <a class="gr-section__link" href={`/dreps/?all=1&group=${group.groupId}`}>Show members in the DRep list</a>
+      </div>
+      {noteText && <p class="gr-note">{noteText}</p>}
+      {indicator && <p class="gr-note">{indicator}</p>}
+      {sections.map((s) => {
+        const primary = s.kind === 'active' || s.kind === 'all';
+        const count = s.kind === 'pending' ? group.pending : s.kind === 'former' ? group.former : group.members;
+        const show = primary || s.rows.length > 0 || s.after !== null || count > 0;
+        const next = s.rows.length === GROUP_PAGE_SIZE ? s.rows[s.rows.length - 1].key : null;
+        return show && (
+          <>
+            {!primary && <h3 class="gr-h3">{SECTION_TITLE[s.kind]} ({count})</h3>}
+            {s.rows.length === 0 ? (
+              primary ? <p class="gr-empty">No active members.</p> : null
+            ) : (
+              <ul class={`gr-members${primary ? '' : ' gr-members--minor'}`}>
+                {s.rows.map((m) => {
+                  const extra = rowNote(m, s.kind === 'all');
+                  const power = m.votingPower !== null && m.state !== 'closed' ? m.votingPower : null;
+                  return (
+                    <li class="gr-member">
+                      <AuthorIdentity author={memberIdentity(m)} size={primary ? AVATAR_SIZE.rowLead : 28} truncate>
+                        {(power !== null || extra) && (
+                          <span slot="sub" class="gr-member__sub">
+                            {power !== null && <span title={formatAda(power)}>{formatAdaCompact(power)} voting power</span>}
+                            {power !== null && extra && <span aria-hidden="true"> · </span>}
+                            {extra && <span>{extra}</span>}
+                          </span>
+                        )}
+                      </AuthorIdentity>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {next && (
+              <nav class="gr-pager" aria-label={`${SECTION_TITLE[s.kind]} pages`}>
+                <a href={`/groups/${group.groupId}/${nextQuery(s.kind, next)}`} rel="next">Next</a>
+              </nav>
+            )}
+          </>
+        );
+      })}
+    </section>
+
+    {/* The island reads the session's view itself, so this page stays cacheable. It renders the Manage section only when there is something to show. The anchor is server rendered so a link to the requests jumps on load. */}
+    <div id="requests" class="gr-actions">
+      <GroupActions client:load groupId={group.groupId} network={net.network} profile={editableProfile} />
+    </div>
+
+    <section class="ocd gr-ocd">
+      <h2 class="ocd__h">Policies</h2>
+      <dl class="ocd__grid">
+        <div class="ocd__item">
+          <dt class="ocd__dt">Management</dt>
+          <dd class="ocd__dd">{policyWords(control, names)}</dd>
+        </div>
+        {group.mode === 'permissioned' && (
+          <div class="ocd__item">
+            <dt class="ocd__dt">Admission</dt>
+            <dd class="ocd__dd">{policyWords(admission, names)}</dd>
+          </div>
+        )}
+      </dl>
+    </section>
+
+    {addressChecks.length > 0 && (
+      <section class="ocd gr-ocd">
+        <h2 class="ocd__h">Payment addresses</h2>
+        <dl class="ocd__grid">
+          {addressChecks.map((a) => (
+            <div class="ocd__item">
+              <dt class="ocd__dt">{a.entry.purpose ?? 'Address'}</dt>
+              <dd class="ocd__dd"><span class="ocd__mono" title={a.entry.address}>{truncateIdMiddle(a.entry.address)}</span><CopyButton value={a.entry.address} label="Copy payment address" /></dd>
+              <dd class="ocd__dd gr-meta">{addressStatusLabel(a.check.status)}{a.check.status === 'script-controlled' && a.entry.treasuryScript ? `: ${describePolicy(treasuryViews.get(a.entry.treasuryScript) ?? null, names, admins)}` : ''}</dd>
+            </div>
+          ))}
+        </dl>
+        {group.profileSetHeight !== null && <p class="gr-meta gr-ocd__foot">Profile last changed at block {group.profileSetHeight}.</p>}
+      </section>
+    )}
+
+    <section class="gr-section gr-history">
+      <h2 class="gr-h">History</h2>
+      {timeline.length === 0 ? (
+        <p class="gr-empty">No events yet.</p>
+      ) : (
+        <ol class="gr-timeline">
+          {timeline.map((e) => {
+            const date = blockDate(e.blockHeight);
+            return (
+              <li class={`gr-event gr-event--${e.kind}`}>
+                <span class="gr-event__icon" aria-hidden="true">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d={HISTORY_ICON[e.kind]} /></svg>
+                </span>
+                <div class="gr-event__body">
+                  <p class="gr-event__text"><span class="sr-only">{HISTORY_KIND_LABEL[e.kind]}: </span>{e.text}</p>
+                  <p class="gr-event__meta">
+                    {date ? <time datetime={date.iso}>{date.text}</time> : <span>Block {e.blockHeight}</span>}
+                    {' · '}
+                    <a href={txExplorerUrl(net.network, e.txHash)} rel="noopener" title={`Block ${e.blockHeight}`}>View transaction</a>
+                  </p>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+      {group.appliedEvents > history.events.length && <p class="gr-meta">The latest {history.events.length} applied events are listed.</p>}
+      {notApplied.length > 0 && (
+        <details>
+          <summary>{group.notAppliedEvents} events referring to this group were not applied</summary>
+          <ul class="gr-list">
+            {notApplied.map((v) => {
+              const date = blockDate(v.blockHeight);
+              return (
+                <li>
+                  <a href={txExplorerUrl(net.network, v.txHash)} rel="noopener">{eventLabel(v.tag)}</a>
+                  <span class="gr-meta"> {date ? date.text : `block ${v.blockHeight}`} · {v.reason ?? 'invalid'}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </details>
+      )}
+    </section>
+  </Layout>
+)}
+<style>
+  .gr-crumbs { font-size: 0.875rem; color: var(--muted); margin-bottom: 1rem; display: flex; gap: 0.375rem; flex-wrap: wrap; }
+  .gr-meta, .gr-note, .gr-empty { color: var(--muted); font-size: 0.875rem; }
+  .gr-mode { margin: 0 0 0.35rem; color: var(--muted); font-size: 0.9375rem; }
+  .gr-links { list-style: none; padding: 0; margin: 0; display: flex; gap: 0.5rem 1rem; flex-wrap: wrap; font-size: 0.9375rem; }
+  .gr-links li { display: inline-flex; align-items: center; gap: 0.45rem; }
+  .gr-verified { font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--c-pos); padding: 0.1rem 0.45rem; border-radius: 999px; background: color-mix(in srgb, var(--c-pos) 12%, transparent); }
+  .gr-about { margin: 0 0 1.5rem; max-width: 65ch; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .gr-section { margin: 0 0 2rem; }
+  .gr-section__head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.25rem 1rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+  .gr-section__head .gr-h { margin: 0; }
+  .gr-section__link { font-size: 0.875rem; }
+  .gr-h { font-size: 1.125rem; margin: 0 0 0.75rem; }
+  .gr-h3 { font-size: 0.9375rem; margin: 1.25rem 0 0.5rem; color: var(--muted); font-weight: 600; }
+  /* Member tiles in the DRep list's identity style, two or three per row on wide screens. */
+  .gr-members { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr)); gap: 0.6rem; }
+  .gr-member { min-width: 0; display: flex; padding: 0.7rem 0.9rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+  .gr-members--minor .gr-member { padding: 0.45rem 0.75rem; background: transparent; }
+  .gr-member__sub { display: block; color: var(--muted); font-size: 0.8125rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .gr-list { list-style: none; padding: 0; display: grid; gap: 0.375rem; }
+  .gr-pager { display: flex; gap: 1rem; margin-top: 0.75rem; font-size: 0.875rem; font-weight: 600; }
+  .gr-actions { scroll-margin-top: 5rem; }
+  .gr-ocd { margin: 0 0 2rem; }
+  .gr-ocd .ocd__dd + .ocd__dd { margin-top: 0.2rem; }
+  .gr-ocd__foot { margin: 1rem 0 0; }
+  /* The Manage section the island renders: one card, its parts split by a line. */
+  .gr-actions :global(.group-manage) { margin: 0 0 2rem; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-2); box-shadow: var(--shadow); padding: 1.25rem 1.5rem; }
+  .gr-actions :global(.group-manage__h) { font-size: 1.125rem; margin: 0 0 1rem; }
+  .gr-actions :global(.group-manage__body) { display: flex; flex-direction: column; gap: 1.25rem; max-width: 44rem; }
+  .gr-actions :global(.group-manage__body > * + *) { border-top: 1px solid var(--border); padding-top: 1.25rem; }
+  @media (max-width: 560px) {
+    .gr-actions :global(.group-manage) { padding: 1rem; }
+  }
+  .gr-timeline { list-style: none; padding: 0; margin: 0; display: grid; gap: 0; }
+  .gr-event { display: grid; grid-template-columns: 2rem 1fr; gap: 0.75rem; position: relative; padding-bottom: 1rem; }
+  /* The line that joins the markers, left out after the last entry. */
+  .gr-event:not(:last-child)::before { content: ''; position: absolute; left: calc(1rem - 1px); top: 2rem; bottom: 0; width: 2px; background: var(--border); }
+  .gr-event__icon { width: 2rem; height: 2rem; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border); background: var(--bg); color: var(--muted); }
+  .gr-event--founded .gr-event__icon, .gr-event--approved .gr-event__icon, .gr-event--joined .gr-event__icon { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+  .gr-event--removed .gr-event__icon, .gr-event--dissolved .gr-event__icon { color: var(--danger); }
+  .gr-event__body { min-width: 0; padding-top: 0.25rem; }
+  .gr-event__text { margin: 0; overflow-wrap: anywhere; }
+  .gr-event__meta { margin: 0.125rem 0 0; color: var(--muted); font-size: 0.8125rem; }
+</style>

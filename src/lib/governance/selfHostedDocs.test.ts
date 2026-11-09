@@ -37,6 +37,14 @@ describe('selfHostedRef', () => {
     });
   });
 
+  it('maps a hosted group profile URL', () => {
+    expect(selfHostedRef(`https://preprod.dreptalk.com/group-profile/${HASH}.json`)).toEqual({
+      kind: 'group-profile',
+      hash: HASH,
+    });
+    expect(selfHostedRef(`https://dreptalk.com/group-profile/${HASH.toUpperCase()}.json`)).toEqual({ kind: 'other' });
+  });
+
   it('maps a self-hosted avatar URL (no .json suffix)', () => {
     expect(selfHostedRef(`https://dreptalk.com/api/avatar/${HASH}`)).toEqual({
       kind: 'avatar',

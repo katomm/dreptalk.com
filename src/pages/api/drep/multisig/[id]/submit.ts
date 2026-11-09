@@ -8,7 +8,7 @@ import type { APIRoute } from 'astro';
 import { Transaction } from '@evolution-sdk/evolution';
 import { jsonResponse, runtimeEnv } from '@/lib/api/response';
 import { getUserById } from '@/lib/db/users';
-import { getPendingMultisig } from '@/lib/db/pendingMultisigTx';
+import { getPendingVote } from '@/lib/db/pendingMultisigTx';
 import { parseNativeScriptJson, isNativeScriptSatisfied } from '@/lib/cardano/nativeScript';
 
 export const prerender = false;
@@ -26,7 +26,7 @@ export const POST: APIRoute = async ({ params, locals }) => {
   const db = env.DB as D1Database | undefined;
   if (!db) return jsonResponse({ error: 'service unavailable' }, 503);
 
-  const row = await getPendingMultisig(db, id);
+  const row = await getPendingVote(db, id);
   if (!row) return jsonResponse({ error: 'not found' }, 404);
 
   // Member gate: the session user's drep_id must match the row's drep_id.

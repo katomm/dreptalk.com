@@ -1,0 +1,71 @@
+---
+// Signing page of a DRep group action. The link alone shows nothing: the action GET route lets
+// only a session that may sign the action read it, so the panel shows a plain refusal to everyone
+// else and no row content reaches them.
+export const prerender = false;
+
+import Layout from '@/layouts/Layout.astro';
+import SigningPanel from '@/components/groups/SigningPanel.js';
+import { currentNetwork } from '@/lib/api/response.js';
+import { drepGroupsAvailable } from '@/lib/groups/gate.js';
+import { loadGroupRow, rowMaySign, sessionOf } from '@/lib/groups/actionServer.js';
+import { getGroup } from '@/lib/db/drepGroups.js';
+import { shortHash } from '@/lib/groups/view.js';
+import { env } from 'cloudflare:workers';
+
+const { id } = Astro.params;
+const network = currentNetwork().network;
+
+if (!drepGroupsAvailable(network)) {
+  return new Response(null, { status: 404 });
+}
+const user = Astro.locals.user;
+if (!user) {
+  return Astro.redirect('/login/');
+}
+
+Astro.response.headers.set('Cache-Control', 'no-store');
+
+// The breadcrumb leads back to the group, named only to a session that may sign the action, so
+// the link alone still shows nothing. A founding has no group page yet.
+let group: { id: string; name: string } | null = null;
+const db = env.DB as D1Database | undefined;
+if (db && id) {
+  try {
+    const ctx = await loadGroupRow(db, id);
+    if (ctx && ctx.intent.kind !== 'group_create' && rowMaySign(ctx, sessionOf(user))) {
+      const gid = ctx.intent.group.toLowerCase();
+      const row = await getGroup(db, gid);
+      group = { id: gid, name: row?.profile?.status === 'ok' && row.profile.name ? row.profile.name : shortHash(gid) };
+    }
+  } catch {
+    // The crumb falls back to the group list, the panel reports what went wrong.
+  }
+}
+---
+
+<Layout title="Sign a group action - DRepTalk" noindex={true}>
+  <nav class="gs-crumbs" aria-label="Breadcrumb">
+    <a href="/">DRepTalk</a><span>/</span><a href="/groups/">Groups</a><span>/</span>
+    {group && (<><a href={`/groups/${group.id}/`}>{group.name}</a><span>/</span></>)}
+    <span>Sign a group action</span>
+  </nav>
+
+  <h1 style="margin:0 0 0.25rem;">Sign a group action</h1>
+  <p style="margin:0 0 2rem;max-width:62ch;font-size:0.9375rem;color:var(--muted);">
+    Check what this transaction does, add your signature, and submit it once everyone who must sign has signed.{' '}
+    <a href="/help/drep-groups/">How group signing works</a>
+  </p>
+
+  {id ? (
+    <SigningPanel client:load actionId={id} network={network} />
+  ) : (
+    <div class="callout callout--error" role="alert">
+      <div class="callout__body">Missing signing link id.</div>
+    </div>
+  )}
+</Layout>
+
+<style>
+  .gs-crumbs { font-size: 0.875rem; color: var(--muted); margin-bottom: 1rem; display: flex; flex-wrap: wrap; gap: 0.375rem; }
+</style>

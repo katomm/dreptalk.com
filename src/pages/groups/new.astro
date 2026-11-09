@@ -1,0 +1,47 @@
+---
+// Founding wizard of DRep groups. Only a signed-in key DRep founds a group, as its first founder.
+export const prerender = false;
+
+import Layout from '@/layouts/Layout.astro';
+import GroupWizard from '@/components/groups/GroupWizard.js';
+import { currentNetwork } from '@/lib/api/response.js';
+import { sessionKeyHash } from '@/lib/auth/groupSigner.js';
+import { loginHref } from '@/lib/auth/postLoginDest.js';
+import { drepGroupsAvailable } from '@/lib/groups/gate.js';
+import { wallClockSlot } from '@/lib/groups/groupTx.js';
+
+const network = currentNetwork().network;
+
+if (!drepGroupsAvailable(network)) {
+  return new Response(null, { status: 404 });
+}
+const user = Astro.locals.user;
+if (!user) {
+  return Astro.redirect(loginHref('/groups/new/'));
+}
+
+Astro.response.headers.set('Cache-Control', 'no-store');
+// Retired DReps sign in as group signers, founding needs a registered DRep.
+const keyHash = user.roles.includes('drep') ? sessionKeyHash(user) : null;
+const drepId = keyHash ? (user.drepId ?? null) : null;
+---
+
+<Layout title="Found a new group or DRep party - DRepTalk" noindex={true}>
+  <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;display:flex;gap:0.375rem;">
+    <a href="/">DRepTalk</a><span>/</span><a href="/groups/">Groups</a><span>/</span><span>Found a new group or DRep party</span>
+  </nav>
+
+  <h1 style="margin:0 0 0.25rem;">Found a new group or DRep party</h1>
+  <p style="margin:0 0 2rem;max-width:62ch;font-size:0.9375rem;color:var(--muted);">
+    A group records on chain which DReps belong together. Members may agree to vote together, yet each one casts its own vote.{' '}
+    <a href="/help/drep-groups/">How DRep groups work</a>
+  </p>
+
+  {keyHash && drepId ? (
+    <GroupWizard client:load network={network} viewer={{ drepId, keyHash }} serverSlot={wallClockSlot(network)} />
+  ) : (
+    <div class="callout callout--info" role="status">
+      <div class="callout__body">Sign in as a registered DRep with a DRep key to found a group. Script DReps can join groups but cannot found them.</div>
+    </div>
+  )}
+</Layout>

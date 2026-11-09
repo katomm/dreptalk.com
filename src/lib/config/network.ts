@@ -1,5 +1,14 @@
 export type CardanoNetwork = 'mainnet' | 'preprod';
 
+/**
+ * Whether a surface limited to `networks` exists on `network`. No list means every network, an
+ * unknown network sees only the unlimited surfaces. The one predicate behind every per network
+ * switch (DRep groups, nav links, search entries).
+ */
+export function availableOn(networks: readonly CardanoNetwork[] | undefined, network: string | undefined): boolean {
+  return !networks || (network !== undefined && (networks as readonly string[]).includes(network));
+}
+
 export interface NetworkConfig {
   network: CardanoNetwork;
   koiosBaseUrl: string;

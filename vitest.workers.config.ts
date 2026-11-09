@@ -49,6 +49,8 @@ export default defineConfig(async () => {
           bindings: {
             // Pass serialized migration data so the setup file can apply them.
             TEST_D1_MIGRATIONS: JSON.stringify(migrations),
+            // Seeds of the drep-groups conformance suite, more in a local run with the variable set.
+            DREPTALK_CONFORMANCE_SEEDS: process.env.DREPTALK_CONFORMANCE_SEEDS ?? '12',
           },
         },
       }),

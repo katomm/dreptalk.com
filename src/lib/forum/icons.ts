@@ -39,3 +39,12 @@ export const PENCIL_PATH =
 // dreps directory teaser).
 export const TARGET_PATH =
   'M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0z M18 12a6 6 0 1 1-12 0 6 6 0 0 1 12 0z M14 12a2 2 0 0 1-4 0 2 2 0 0 1 4 0z';
+// Membership glyphs of the DRep group history: a person with a plus, a check, a minus or a cross.
+const PERSON = 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M13 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0';
+export const USER_PLUS_PATH = `${PERSON} M19 8v6 M22 11h-6`;
+export const USER_CHECK_PATH = `${PERSON} m16 11 2 2 4-4`;
+export const USER_MINUS_PATH = `${PERSON} M22 11h-6`;
+export const USER_X_PATH = `${PERSON} m17 8 5 5 M22 8l-5 5`;
+// A clock for a request that waits, and a crossed circle for something that ended.
+export const CLOCK_PATH = 'M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0z M12 6v6l4 2';
+export const CIRCLE_X_PATH = 'M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0z M15 9l-6 6 M9 9l6 6';

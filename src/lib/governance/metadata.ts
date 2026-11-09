@@ -199,7 +199,7 @@ function extractAuthorNames(raw: unknown): string[] | null {
 }
 
 /** Returns true for http(s) URLs that parse without error. */
-function isHttpUrl(raw: string): boolean {
+export function isHttpUrl(raw: string): boolean {
   try {
     const { protocol } = new URL(raw);
     return protocol === 'https:' || protocol === 'http:';

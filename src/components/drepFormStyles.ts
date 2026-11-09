@@ -13,6 +13,9 @@ export const inputStyle: CSSProperties = {
   fontSize: '1rem',
 };
 
+/** The text area of the DRep profile forms: the input style in the body font, growing downwards. */
+export const textAreaStyle: CSSProperties = { ...inputStyle, lineHeight: '1.6', resize: 'vertical', fontFamily: 'inherit' };
+
 export const labelStyle: CSSProperties = {
   display: 'block',
   fontSize: '0.875rem',

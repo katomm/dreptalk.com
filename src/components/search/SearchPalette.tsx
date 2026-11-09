@@ -18,6 +18,8 @@ interface PaletteProps {
   returnFocusRef?: React.RefObject<HTMLButtonElement | null>;
   /** Whether a session exists, so the personal pages can be offered. */
   signedIn?: boolean;
+  /** The network of the page, pages that exist only on another network are left out. */
+  network?: string;
   /** Scope pill preselected each time the palette opens (defaults to "all").
       Help and glossary pages pass "help" so a search starts within them. */
   initialScope?: Scope;
@@ -46,7 +48,7 @@ interface Row {
 const DEBOUNCE_MS = 250;
 const MIN_QUERY = 2;
 
-function buildRows(q: string, data: SearchResponseBody | null, signedIn: boolean): Row[] {
+function buildRows(q: string, data: SearchResponseBody | null, signedIn: boolean, network?: string): Row[] {
   const rows: Row[] = [];
   if (data?.exact) {
     rows.push({
@@ -110,7 +112,7 @@ function buildRows(q: string, data: SearchResponseBody | null, signedIn: boolean
       ...(r.imageHash ? { avatar: avatarUrl(r.imageHash, 20) } : {}),
     });
   }
-  for (const e of matchStaticEntries(q, signedIn)) {
+  for (const e of matchStaticEntries(q, signedIn, network)) {
     rows.push({ key: `static-${e.href}`, href: e.href, scope: 'all', group: 'Pages', label: e.label });
   }
   for (const scope of ['reviews', 'help'] as const) {
@@ -130,7 +132,7 @@ function buildRows(q: string, data: SearchResponseBody | null, signedIn: boolean
   return rows;
 }
 
-export default function SearchPalette({ open, onClose, returnFocusRef, signedIn = false, initialScope = 'all', seedQuery = '' }: PaletteProps) {
+export default function SearchPalette({ open, onClose, returnFocusRef, signedIn = false, network, initialScope = 'all', seedQuery = '' }: PaletteProps) {
   const [q, setQ] = useState('');
   const [data, setData] = useState<SearchResponseBody | null>(null);
   const [error, setError] = useState(false);
@@ -143,7 +145,7 @@ export default function SearchPalette({ open, onClose, returnFocusRef, signedIn 
   const hasQuery = trimmed.length >= MIN_QUERY;
 
   // Build all rows, then narrow to the active scope pill (pure client filter).
-  const allRows = useMemo(() => buildRows(q, hasQuery ? data : null, signedIn), [q, hasQuery, data, signedIn]);
+  const allRows = useMemo(() => buildRows(q, hasQuery ? data : null, signedIn, network), [q, hasQuery, data, signedIn, network]);
   const rows = useMemo(() => filterRowsByScope(allRows, scope), [allRows, scope]);
   const clampedActive = Math.min(active, Math.max(rows.length - 1, 0));
 

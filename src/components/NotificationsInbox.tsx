@@ -40,6 +40,8 @@ const KIND_LEAD: Record<Exclude<InboxItem['kind'], 'reply' | 'mention'>, string>
   delegation_digest: 'Epoch summary',
   rationale_ready: 'Your vote',
   review_published: 'New Governance Review',
+  group_join_request: 'Group join request',
+  group_signature_request: 'Signature request',
   gov_created: 'New governance action',
   gov_status: 'Governance action is now',
 };

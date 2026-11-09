@@ -5,7 +5,7 @@ import { useState, type ReactNode } from 'react';
 import DrepImageUpload, { type HostedImage } from '@/components/DrepImageUpload.js';
 import DrepLinksEditor, { type ProfileLink } from '@/components/DrepLinksEditor.js';
 import DrepProfilePreview from '@/components/DrepProfilePreview.js';
-import { inputStyle, labelStyle } from '@/components/drepFormStyles.js';
+import { inputStyle, labelStyle, textAreaStyle } from '@/components/drepFormStyles.js';
 
 export interface DrepProfileValue {
   name: string;
@@ -40,7 +40,6 @@ const NAME_MAX = 80;
 const BIO_MAX = 1000;
 const TEXT_MAX = 1000;
 
-const textAreaStyle = { ...inputStyle, lineHeight: '1.6', resize: 'vertical' as const, fontFamily: 'inherit' };
 const helpStyle = { display: 'block', fontSize: '0.8125rem', color: 'var(--muted)', margin: '0 0 0.375rem' } as const;
 const labelRowStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.5rem' } as const;
 const counterStyle = { fontSize: '0.75rem', color: 'var(--muted)', flexShrink: 0 } as const;

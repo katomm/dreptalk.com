@@ -15,10 +15,12 @@ import {
   getPrefs,
   setPref,
   getPendingCounts,
+  prefDefault,
   type NotificationChannelRow,
 } from './notificationChannels.js';
 import { activityInsert } from './activity.js';
 import { announceLatestEdition } from './reviewAnnouncements.js';
+import { insertGroupNotifications } from './groupNotifications.js';
 import { readDbNow } from './sql.js';
 import { withDbClock, afterDbMs } from './__tests__/dbClock.js';
 import { setChannelCursor, seedNotificationRow as seedNotificationRowOn } from './__tests__/notificationSeed.js';
@@ -53,6 +55,7 @@ const allEnabled = {
   delegation_digest: true,
   rationale_ready: true,
   governance_review: true,
+  drep_groups: true,
 };
 
 /** What a channel gets without stored choices: everything on except the opt-in epoch summary. */
@@ -327,6 +330,7 @@ describe('getPendingCounts', () => {
       delegationDigest: 0,
       rationaleReady: 0,
       reviews: 0,
+      drepGroups: 0,
       devices: 0,
       total: 2,
     });
@@ -364,6 +368,7 @@ describe('getPendingCounts', () => {
       delegationDigest: 0,
       rationaleReady: 0,
       reviews: 0,
+      drepGroups: 0,
       devices: 0,
       total: 1,
     });
@@ -388,6 +393,7 @@ describe('getPendingCounts', () => {
       delegationDigest: 0,
       rationaleReady: 0,
       reviews: 0,
+      drepGroups: 0,
       devices: 0,
       total: 1,
     });
@@ -409,6 +415,7 @@ describe('getPendingCounts', () => {
       delegationDigest: 0,
       rationaleReady: 0,
       reviews: 0,
+      drepGroups: 0,
       devices: 0,
       total: 0,
     });
@@ -430,6 +437,7 @@ describe('getPendingCounts', () => {
       delegationDigest: 0,
       rationaleReady: 0,
       reviews: 0,
+      drepGroups: 0,
       devices: 0,
       total: 0,
     });
@@ -458,6 +466,7 @@ describe('getPendingCounts', () => {
       delegationDigest: 0,
       rationaleReady: 0,
       reviews: 0,
+      drepGroups: 0,
       devices: 1,
       total: 1,
     });
@@ -531,5 +540,29 @@ describe('migration 0113', () => {
     expect(results.map((r) => r.name).sort()).toEqual([
       'idx_fanout_jobs_open_rotation', 'idx_notification_channels_dispatch', 'idx_notifications_created',
     ]);
+  });
+});
+
+describe('drep_groups preference', () => {
+  it('counts group notifications under the drep_groups preference', async () => {
+    await insertGroupNotifications(db(), [
+      { recipientId: 'gpref', type: 'group_join_request', eventKey: 'group-join:a', payload: { groupId: 'g1', groupName: 'Council', memberName: 'Carol' } },
+      { recipientId: 'gpref', type: 'group_signature_request', eventKey: 'group-sign:b', payload: { groupId: 'g1', groupName: 'Council', actionId: 'b' } },
+    ]);
+    const chan = { id: 'c', user_id: 'gpref', channel: 'webpush', target: 't', endpoint: 'e', created_at: 0, delivered_until: 0 } as NotificationChannelRow;
+    const off = await getPendingCounts(db(), chan, { ...allEnabled, drep_groups: false }, Number.MAX_SAFE_INTEGER);
+    expect(off.drepGroups).toBe(0);
+    expect(off.total).toBe(0);
+    const on = await getPendingCounts(db(), chan, allEnabled, Number.MAX_SAFE_INTEGER);
+    expect(on.drepGroups).toBe(2);
+    expect(on.total).toBe(2);
+  });
+
+  it('defaults the drep_groups preference to on for older channels', async () => {
+    // A channel created before the type existed has no stored row for it.
+    await addChannel(db(), { userId: 'gold', channel: 'webpush', target: 't', endpoint: 'https://push.example/gold' });
+    await db().prepare("DELETE FROM notification_prefs WHERE user_id = 'gold' AND event_type = 'drep_groups'").run();
+    expect((await getPrefs(db(), 'gold', 'webpush')).drep_groups).toBe(true);
+    expect(prefDefault('drep_groups')).toBe(true);
   });
 });

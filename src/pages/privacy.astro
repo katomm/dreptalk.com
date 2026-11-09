@@ -6,7 +6,7 @@ import { getLegalInfo } from '@/lib/legal';
 export const prerender = false;
 
 const legal = getLegalInfo();
-const lastUpdated = '2 September 2026';
+const lastUpdated = '3 November 2026';
 Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
 ---
 <Layout
@@ -99,8 +99,10 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
       chat ID. Legal basis: Art. 6(1)(a) GDPR (consent).
     </p>
     <p>
-      Personal notifications in your inbox (replies, mentions, delegation and DRep
-      updates) are deleted about 90 days after they were created once you have read
+      If you manage a DRep group, or are asked to sign one of its actions, you can also
+      receive notifications about join requests and signature requests for that group,
+      under the DRep groups preference. Personal notifications in your inbox (replies,
+      mentions, delegation and DRep updates, DRep group requests) are deleted about 90 days after they were created once you have read
       them, and after about one year at the latest.
     </p>
     <p>
@@ -137,7 +139,22 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
       description, image) that DReps publish on-chain via CIP-119 are displayed here;
       profile images are served through our own cache, so your browser never contacts
       the third-party hosts these images come from and your IP address is not revealed
-      to them.
+      to them. We also store public DRep group events, member lists and group profile
+      documents, read from the chain and from the location the group's profile names.
+    </p>
+    <p>
+      When you found, join, leave or manage a DRep group through this site, the
+      transaction is built in your browser and signed by your wallet. Once submitted it
+      is public chain data: it names your DRep key as a signer and carries the group
+      change. While signatures are collected, we store the unsigned transaction, the
+      signatures added so far, the keys that must sign, the account that started the
+      action, and the fee inputs of the initiator's wallet (the transaction hash and
+      index of each output that pays the fee), so the action can be checked, submitted,
+      or cancelled for good by spending those inputs. A group profile you create here
+      (name, description, website, charter, image link) is stored by us together with
+      the account that created it and is served publicly at its own address, so the
+      group's transaction can point to it. Legal basis: Art. 6(1)(b) GDPR (providing
+      the service you request).
     </p>
 
     <h2>Recipients and processors</h2>
@@ -177,13 +194,22 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
       public and permanent from that moment, even if you then decline the
       transaction, and it cannot be withdrawn.
     </p>
+    <p>
+      For DRep groups, the record of each group action (the transaction, its
+      signatures, the keys that must sign, the initiator's account and fee inputs, and
+      how the action ended) is kept while the action is open and deleted about 90 days
+      after it ended. An applied change stays public on chain. A hosted group profile that a group transaction on chain points to is kept
+      for good, since the chain keeps referring to it. A hosted group profile that no
+      transaction on chain points to is deleted about 7 days after it was stored, once
+      no open group action uses it any more.
+    </p>
 
     <h2>Your rights</h2>
     <p>
       Under the GDPR you have the right of access (Art. 15), rectification (Art. 16),
       erasure (Art. 17), restriction (Art. 18), data portability (Art. 20), and
       objection (Art. 21), and the right to lodge a complaint with a supervisory
-      authority. To exercise these, contact us at
+      authority. To exercise these, contact us at{' '}
       <a href={`mailto:${legal.email}`}>{legal.email}</a>. We can remove your forum
       account and content, but we cannot alter or erase data recorded on the public
       blockchain.

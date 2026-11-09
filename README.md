@@ -22,6 +22,7 @@ The aim is a place where Cardano governance is discussed, voted, and explained, 
 
 - **Governance actions.** A thread per on-chain action with the DRep, SPO and committee tallies, the vote rationales behind them, and a voting flow for DReps signing in their own wallet.
 - **CIP-179 surveys.** Surveys published on chain under metadata label 17 are mirrored from [Tessera](https://github.com/mpizenberg/cardano-tessera) when a governance action links one, and a DRep can answer from the thread with the wallet they signed in with. An answer is survey metadata and not a vote, so the card shows an informational tally under a stated counting rule, never a result.
+- **DRep groups.** Group events published under metadata label 8416 are ingested on preprod. Group pages at `/groups`, group chips on DRep profiles and a group filter on the DRep list read from them. DReps found groups at `/groups/new`, join and leave them, and manage them together through shared signing links (see below).
 - **Analytics.** A public dashboard at `/analytics` on vote concentration, committee and SPO participation, throughput and timing, the weight parked on the two default delegation options, and a report card per DRep.
 - **Governance Review.** A written edition per epoch window at `/governance-review`: what was decided, what moved, what is still open. Signed-in readers get a browser push or Telegram message when a new edition is out. Mainnet only.
 - **Treasury.** Enacted withdrawals tracked against the Net Change Limit of each budget period at `/treasury`.
@@ -30,6 +31,18 @@ The aim is a place where Cardano governance is discussed, voted, and explained, 
 ## Submitting a governance action
 
 A submit page at `/ga/new` builds and submits new governance actions: an information action, a motion of no confidence, a hard fork initiation, a new constitution, a committee update, and a treasury withdrawal, which the constitution's guardrails script checks before the wallet signs. It builds the CIP-108 metadata, pins it to IPFS, and the connected wallet builds, signs and submits the proposal transaction in the browser. The form can be drafted and reviewed, with a Proposal Draft linked in, before a wallet is connected. Signing happens from that review, so every action is seen as it will be published before the wallet opens, and dreptalk.com never handles keys.
+
+## Managing DRep groups
+
+On preprod, a signed-in key DRep founds a group alone or together with other DReps, and members join, leave, approve requests, change the management policy, edit the profile and dissolve the group from the group page. Every group transaction is built in the browser and paid by the initiator's wallet. When it needs more than one signature, it is stored with a shareable signing link at `/groups/sign/<id>`, where the other signers add their witnesses and anyone who may sign submits it. The server decodes every stored transaction and accepts it only when its events equal the declared action, and checks it against the current group state before storing and before submit. Each transaction is valid for 48 hours. The user guide is at `/help/drep-groups`.
+
+Storage, all in D1 and created by `migrations/0126_drep_group_actions.sql`:
+
+- `pending_multisig_tx` carries group transactions next to multisig votes, with the required signers, the initiator's fee inputs (transaction hash and index, so a cancelled action can be made unusable for good by spending them), the validity end and how the action was resolved. Group rows are kept as the record of each action.
+- `drep_group_profile_docs` holds the group profile documents DRepTalk hosts at `/group-profile/<hash>.json`, content addressed.
+- `drep_group_own_outcomes` records the verdict of every event of a tracked transaction, `drep_group_policy_keys` maps admin keys to policy scripts, `drep_group_anchor_refs` records which stored transactions reference a profile document, and `drep_group_join_notify` queues permissioned join requests for the admins' notification.
+
+The `drep-groups` phase of the governance run resolves submitted actions from those verdicts, marks actions that can never reach the chain, and sends join request notifications. The 6-hourly run deletes hosted profile documents that were never anchored on chain, once no stored transaction and no open action references them and a 7 day grace has passed. Two notification types, `group_join_request` and `group_signature_request`, share one preference, DRep groups, on by default.
 
 ## Quickstart
 
