@@ -179,6 +179,9 @@ const ICON_PATHS: Record<string, string> = {
   votes:
     '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M9 14l2 2 4-4"/>',
   participation: '<line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>',
+  members:
+    '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  mode: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/>',
   epoch:
     '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
 };
@@ -203,7 +206,8 @@ function statBlock(s: DrepStat, accent: string): string {
   </div>`;
 }
 
-export function drepCardHtml(m: DrepCardModel): string {
+/** The DRep card, also used for a DRep group with `kind` 'DRep group'. */
+export function drepCardHtml(m: DrepCardModel, kind = 'DRep'): string {
   const idLine = m.idShort
     ? `<div style="display:flex;font-size:24px;font-weight:500;color:${SUBTLE};margin-top:8px;">${esc(m.idShort)}</div>`
     : '';
@@ -219,7 +223,7 @@ export function drepCardHtml(m: DrepCardModel): string {
       <img src="${m.avatarDataUrl}" width="160" height="160" style="border-radius:999px;" />
     </div>
     <div style="display:flex;">${m.stats.map((s) => statBlock(s, m.accent)).join('')}</div>`;
-  return cardShell(m.accent, 'DRep', body);
+  return cardShell(m.accent, kind, body);
 }
 
 // Consumption gauge for the treasury Net Change Limit card: a rounded track
