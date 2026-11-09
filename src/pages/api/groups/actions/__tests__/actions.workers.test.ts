@@ -90,6 +90,13 @@ import { POST as witness } from '../[id]/witness';
 import { GET as held } from '../held';
 import { POST as create } from '../index';
 
+// Groups run on mainnet now, so the off path is tested with mainnet left out of the list.
+vi.mock('@/lib/groups/gate', async (orig) => {
+  const real = await orig<typeof import('@/lib/groups/gate')>();
+  const on = ['preprod'] as const;
+  return { DREP_GROUPS_NETWORKS: on, drepGroupsAvailable: (n: Parameters<typeof real.drepGroupsAvailable>[0]) => real.drepGroupsAvailable(n, on) };
+});
+
 const GID = groupIdString(PERM.ref);
 
 // Every action opened in a test spends its own output, the first one FEE_INPUT.

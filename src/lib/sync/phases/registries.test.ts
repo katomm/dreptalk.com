@@ -142,11 +142,11 @@ describe('governancePhases', () => {
     expect(activePhaseNames(governancePhases, govCtx(true, { pinGc: true }))).toContain('pin-gc');
   });
 
-  it('runs drep-groups last on preprod ticks only', () => {
+  it('runs drep-groups last on every tick where groups run', () => {
     for (const heavy of [true, false]) {
-      const preprod = activePhaseNames(governancePhases, govCtx(heavy, { network: 'preprod' }));
-      expect(preprod.at(-1)).toBe('drep-groups');
-      expect(activePhaseNames(governancePhases, govCtx(heavy, { network: 'mainnet' }))).not.toContain('drep-groups');
+      for (const network of ['preprod', 'mainnet'] as const) {
+        expect(activePhaseNames(governancePhases, govCtx(heavy, { network })).at(-1)).toBe('drep-groups');
+      }
     }
     expect(activePhaseNames(governancePhases, allGates).at(-1)).toBe('drep-groups');
   });
@@ -204,10 +204,10 @@ describe('drepPhases', () => {
     expect(activePhaseNames(drepPhases, drepCtx())).toEqual(drepPhases.map((d) => d.name));
   });
 
-  it('runs the group profile cleanup and the group action retention on preprod only', () => {
+  it('runs the group profile cleanup and the group action retention where groups run', () => {
     for (const name of ['group-profile-docs-gc', 'group-action-retention']) {
       expect(activePhaseNames(drepPhases, drepCtx({ network: 'preprod' }))).toContain(name);
-      expect(activePhaseNames(drepPhases, drepCtx({ network: 'mainnet' }))).not.toContain(name);
+      expect(activePhaseNames(drepPhases, drepCtx({ network: 'mainnet' }))).toContain(name);
     }
   });
 

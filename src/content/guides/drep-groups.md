@@ -21,16 +21,16 @@ faqs:
   - q: "I retired as a DRep but my key is still in a group policy. Can I still sign?"
     a: "Yes. Sign in with your DRep key as usual. While your key is in a policy of an active group, DRepTalk signs you in as a group signer, which opens group pages and signing links and nothing else."
   - q: "Where can I use DRep groups?"
-    a: "On the preprod test network for now, at preprod.dreptalk.com/groups."
+    a: "On mainnet at dreptalk.com/groups, and for testing on the preprod test network at preprod.dreptalk.com/groups."
 ---
 
 A DRep group is an on-chain record of which DReps belong together. Every change
 to a group is a small transaction with metadata under label 8416, signed by the
 DReps it concerns, so any tool can read the same history and check it by the same
 rules. DRepTalk builds these transactions for you, collects the signatures and
-shows each group with its members, policies and history. DRep groups currently
-run on the preprod test network, at
-[preprod.dreptalk.com/groups](https://preprod.dreptalk.com/groups/).
+shows each group with its members, policies and history in the
+[group directory](/groups/). To try groups without real funds, use the same pages on the
+preprod test network at [preprod.dreptalk.com/groups](https://preprod.dreptalk.com/groups/).
 
 ## What a group is and what it does not do
 
@@ -42,7 +42,7 @@ its own vote with its own DRep and its own rationale, delegators keep delegating
 DReps, and joining or leaving a group changes no delegation. Where DRepTalk adds
 numbers up for a group, it labels them as the voting power of affiliated DReps.
 
-The [group directory](https://preprod.dreptalk.com/groups/) lists groups once they
+The [group directory](/groups/) lists groups once they
 have enough active members, ranked by the voting power of affiliated DReps. For
 the directory each DRep counts toward its oldest group only, and toward its next
 oldest once that membership ends, so one DRep cannot fill the directory with
@@ -79,7 +79,7 @@ be members of a group, but not admins.
 ## Found a new group or DRep party
 
 Sign in as a registered DRep with your DRep key and open
-[Found a new group or DRep party](https://preprod.dreptalk.com/groups/new/). The wizard asks how
+[Found a new group or DRep party](/groups/new/). The wizard asks how
 members join, who founds the group, how many admins must sign, and for the
 profile, then shows a review of who has to sign.
 

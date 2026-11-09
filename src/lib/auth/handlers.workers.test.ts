@@ -14,7 +14,7 @@
 //   proper dreptalk:<domain>:<nonce>:<ts> payload (signature step is never
 //   reached after nonce rejection, so no fixture alignment is needed there).
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { env } from 'cloudflare:test';
 import { drepIdFromKeyHash } from '../cardano/identity.js';
 import { ed25519 } from '@noble/curves/ed25519.js';
@@ -29,6 +29,13 @@ import { ccHotKeyHashHex, DREP_SCRIPT_HEADER, drepIdFromPubKey } from '../cardan
 import { nativeScriptHash, parseNativeScriptJson } from '../cardano/nativeScript.js';
 import { encodeBech32 } from '../crypto/bech32.js';
 import { seedGroupKey } from './__fixtures__/seedGroupKey.js';
+
+// Groups run on mainnet now, so the off path is tested with mainnet left out of the list.
+vi.mock('@/lib/groups/gate', async (orig) => {
+  const real = await orig<typeof import('@/lib/groups/gate')>();
+  const on = ['preprod'] as const;
+  return { DREP_GROUPS_NETWORKS: on, drepGroupsAvailable: (n: Parameters<typeof real.drepGroupsAvailable>[0]) => real.drepGroupsAvailable(n, on) };
+});
 
 // Raw Ed25519 signing for the Calidus / CC-hot paste login flow. Returns the
 // public key and detached signature as the client would paste them.
