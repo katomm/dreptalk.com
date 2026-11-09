@@ -4,7 +4,7 @@ import type { CardanoNetwork } from '../config/network.js';
 import { delayProfile, hasProfileFor, type PaymentAddress, profilesToFetch, setWebsiteCheck, upsertProfile, websitesToCheck } from '../db/drepGroups.js';
 import { ANCHOR_FETCH_TIMEOUT_MS, type DedicatedGateway, fetchAnchorDoc, isHttpUrl, jsonLdValue } from '../governance/metadata.js';
 import { readBodyLimited } from '../http/bodyLimit.js';
-import { sanitizeExternalText } from '../validation/input.js';
+import { sanitizeExternalMultiline, sanitizeExternalText } from '../validation/input.js';
 import { WELL_KNOWN_MAX_BYTES } from './constants.js';
 
 const LIMITS = { name: 120, description: 2000, url: 500 };
@@ -21,11 +21,13 @@ interface GroupProfileFields {
 
 const EMPTY: GroupProfileFields = { name: null, description: null, website: null, image: null, charter: null, paymentAddresses: [] };
 
-function text(v: unknown, max: number): string | null {
+function text(v: unknown, max: number, multiline = false): string | null {
   const x = jsonLdValue(v);
   if (typeof x !== 'string') return null;
-  // Control characters out, then capped by code points so a surrogate pair is never split.
-  const t = Array.from(sanitizeExternalText(x, Number.POSITIVE_INFINITY)).slice(0, max).join('');
+  // Control characters out (a multiline field keeps its line breaks), then capped by code points
+  // so a surrogate pair is never split.
+  const clean = multiline ? sanitizeExternalMultiline(x, Number.POSITIVE_INFINITY) : sanitizeExternalText(x, Number.POSITIVE_INFINITY);
+  const t = Array.from(clean).slice(0, max).join('').trimEnd();
   return t.length === 0 ? null : t;
 }
 
@@ -53,7 +55,7 @@ export function extractGroupProfile(doc: unknown): GroupProfileFields {
     .slice(0, MAX_ADDRESSES);
   return {
     name: text(b.name, LIMITS.name),
-    description: text(b.description, LIMITS.description),
+    description: text(b.description, LIMITS.description, true),
     website: link(b.website),
     image: link(b.image),
     charter: link(b.charter),
