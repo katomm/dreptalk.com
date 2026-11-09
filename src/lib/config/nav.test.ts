@@ -7,9 +7,9 @@ const dreps = (network: 'mainnet' | 'preprod') => {
 };
 
 describe('navFor', () => {
-  it('lists DRep groups right after the DRep directory where groups run', () => {
+  it('lists DRep groups right above Register as a DRep where groups run', () => {
     const items = dreps('preprod');
-    expect(items.slice(0, 2)).toEqual(['DRep directory', 'DRep groups']);
+    expect(items.slice(-2)).toEqual(['DRep groups', 'Register as a DRep']);
     expect(navLinksFor('preprod').some((l) => l.href === '/groups/')).toBe(true);
   });
 

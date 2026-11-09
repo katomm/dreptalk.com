@@ -35,10 +35,10 @@ export const NAV: readonly NavEntry[] = [
     label: 'DReps',
     items: [
       { label: 'DRep directory', href: '/dreps/', hint: 'Every registered DRep with votes and voting power' },
-      { label: 'DRep groups', href: '/groups/', hint: 'DReps who belong together, recorded on chain', networks: DREP_GROUPS_NETWORKS },
       { label: 'Find your DRep', href: '/match/', hint: 'Vote on past proposals, find DReps who voted like you' },
       { label: 'Movers of the epoch', href: '/dreps/movers/', hint: 'Biggest voting power gains and losses this epoch' },
       { label: 'Badges', href: '/badges/', hint: 'What DReps earn for voting, explaining and discussing' },
+      { label: 'DRep groups', href: '/groups/', hint: 'DReps who belong together, recorded on chain', networks: DREP_GROUPS_NETWORKS },
       { label: 'Register as a DRep', href: '/register-drep/', hint: 'Become a DRep or edit your DRep profile' },
     ],
   },
