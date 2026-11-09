@@ -1142,11 +1142,11 @@ export const Q = Object.freeze({
   listedFaces: { sql: KEYED.listedFaces(1) },
   // Binds the key hash. The active groups with the key in their control or admission policy.
   groupsForPolicyKey: {
-    sql: `SELECT g.group_tx, g.group_ix FROM drep_group_policy_keys p
-          JOIN drep_groups g ON g.control = p.script AND g.status = 'active' WHERE p.key = ?1
-          UNION
-          SELECT g.group_tx, g.group_ix FROM drep_group_policy_keys p
-          JOIN drep_groups g ON g.admission = p.script AND g.status = 'active' WHERE p.key = ?1
+    // One OR over the two policy indexes, so each group comes back once without a sort for a UNION.
+    sql: `SELECT g.group_tx, g.group_ix FROM drep_groups g
+          WHERE (g.control IN (SELECT script FROM drep_group_policy_keys WHERE key = ?1)
+             OR g.admission IN (SELECT script FROM drep_group_policy_keys WHERE key = ?1))
+            AND g.status = 'active'
           LIMIT 100`,
   },
   ...(Object.fromEntries(
