@@ -65,6 +65,12 @@ describe('group profiles', () => {
     expect(many.paymentAddresses).toHaveLength(10);
   });
 
+  it('keeps the paragraphs of the description', () => {
+    const p = extractGroupProfile({ body: { name: 'C\nx', description: 'First.\r\n\r\n\n\nSecond line\nthird.\u0007' } });
+    expect(p.description).toBe('First.\n\nSecond line\nthird.');
+    expect(p.name).toBe('Cx');
+  });
+
   it('drops non http urls', () => {
     const p = extractGroupProfile({ body: { website: 'javascript:alert(1)', charter: 'data:text/html,x', image: 'https://img.test/a.png' } });
     expect(p).toMatchObject({ website: null, charter: null, image: 'https://img.test/a.png' });
