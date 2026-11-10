@@ -187,7 +187,7 @@ export const Q_SAMPLE_BINDS: Readonly<Record<keyof typeof Q, unknown[]>> = Objec
   actionOpenInputsOf: ['u', 10],
   resolveNeverIncluded: [10],
   joinNotifyPage: [10],
-  actionCreate: [...Array.from({ length: 16 }, () => 'x'), 1, '[]', 'x', 'x'],
+  actionCreate: [...Array.from({ length: 16 }, () => 'x'), 1, '[]', 'x', 'x', 'x'],
   actionOpenControl: ['group1x', 'group1x', 'group1x'],
   actionFreeStale: ['id', 0, 0],
   actionPruneResolved: [0, 10],

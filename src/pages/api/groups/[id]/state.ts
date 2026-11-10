@@ -31,7 +31,17 @@ function groupStateOf(
   const control = policy(s.control);
   const admission = s.admission ? policy(s.admission) : null;
   if (!ref || !control) return null;
-  return { ref, mode: group.mode === 'open' ? 'open' : 'permissioned', status: group.status === 'dissolved' ? 'dissolved' : 'active', seq: BigInt(group.seq), control, admission };
+  return {
+    ref,
+    mode: group.mode === 'open' ? 'open' : 'permissioned',
+    status: group.status === 'dissolved' ? 'dissolved' : 'active',
+    seq: BigInt(group.seq),
+    control,
+    admission,
+    // The words of an intent do not depend on resignations.
+    resignedControl: [],
+    resignedAdmission: [],
+  };
 }
 
 export const GET: APIRoute = async ({ params, locals }) => {

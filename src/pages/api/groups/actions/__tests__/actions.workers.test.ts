@@ -3,7 +3,7 @@
 // Koios faked. Transactions are written byte by byte and signed with fixed ed25519 test keys.
 import { Transaction } from '@evolution-sdk/evolution';
 import { env } from 'cloudflare:test';
-import { decodeTransaction, encodeNativeScript, type GroupEvent, nativeScriptHash, type NativeScript, type PayloadInput } from 'drep-groups';
+import { decodeTransaction, encodeNativeScript, type GroupEvent, majorityScript, nativeScriptHash, type NativeScript, type PayloadInput } from 'drep-groups';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { hexToBytes } from '@/lib/crypto/hex';
 import { createPendingMultisig, getPendingMultisig, type PendingWitness } from '@/lib/db/pendingMultisigTx';
@@ -26,6 +26,7 @@ import {
   groupTx,
   PAY,
   PERM,
+  reg,
   SOLO,
   seed,
   seedPermissioned,
@@ -355,6 +356,58 @@ describe('group action routes', () => {
     expect((await sign(id, alice, row.bodyHash, PAY, ALICE)).json).toEqual({ accepted: [PAY.hash, ALICE.hash], ignored: [], satisfied: true });
     const view = await call<Record<string, unknown>>(GET, erin, { id });
     expect(view.json).toMatchObject({ signed: [ERIN.hash, ALICE.hash], satisfied: true, canSubmit: true });
+  });
+
+  it('refuses an update whose required signers omit a key new to control', async () => {
+    await seedPermissioned();
+    // Bob consented to admission only, so he signs again before he gains control.
+    const promoteBob: GroupIntent = { kind: 'group_update', group: GID, approvals: [], control: { keys: [ALICE.hash, BOB.hash], n: 1 } };
+    const res = await open(alice, promoteBob, { payload: await payloadIn(promoteBob), selected: [ALICE.hash], signers: [ALICE.hash] });
+    expect(res).toMatchObject({ status: 422, json: { error: 'required signers differ from the selected signers' } });
+    expect((await openIn(alice, promoteBob, [ALICE.hash], [BOB.hash])).status).toBe(200);
+  });
+
+  it('asks a resigned key listed again to sign and accepts its witness', async () => {
+    const both = majorityScript([ALICE.hash, BOB.hash], 1);
+    const ref = PERM.ref;
+    await seed(
+      [
+        reg(5, ALICE),
+        reg(6, BOB),
+        groupTx(10, { events: [{ tag: 'create', mode: 'open', control: both.hash, admission: null, profile: null }], scripts: [both.script] }, [ALICE, BOB]),
+        groupTx(20, { events: [{ tag: 'resign', group: ref, key: ALICE.hash }] }, [ALICE]),
+      ],
+      30,
+    );
+    const gid = groupIdString(ref);
+    const state = await readGroupState(env.DB, ref);
+    expect(state?.resignedControl).toEqual([ALICE.hash]);
+    const relist: GroupIntent = { kind: 'group_update', group: gid, approvals: [], control: { keys: [ALICE.hash, BOB.hash], n: 1 } };
+    // Alice resigned, she may sign the update but never open it.
+    expect((await openIn(alice, relist, [ALICE.hash])).status).toBe(403);
+    const row = await openIn(bob, relist, [BOB.hash], [ALICE.hash]);
+    expect(row.status).toBe(200);
+    const id = row.json.id as string;
+    expect((await sign(id, alice, row.bodyHash, ALICE)).json).toEqual({ accepted: [ALICE.hash], ignored: [], satisfied: false });
+    expect((await sign(id, bob, row.bodyHash, PAY, BOB)).json).toEqual({ accepted: [PAY.hash, BOB.hash], ignored: [], satisfied: true });
+  });
+
+  it('keeps a key that resigned from every needed role out of the additional witnesses', async () => {
+    const both = majorityScript([ALICE.hash, BOB.hash], 1);
+    const ref = PERM.ref;
+    await seed(
+      [
+        reg(5, ALICE),
+        reg(6, BOB),
+        groupTx(10, { events: [{ tag: 'create', mode: 'open', control: both.hash, admission: null, profile: null }], scripts: [both.script] }, [ALICE, BOB]),
+        groupTx(20, { events: [{ tag: 'resign', group: ref, key: ALICE.hash }] }, [ALICE]),
+      ],
+      30,
+    );
+    const row = await openIn(bob, { kind: 'group_dissolve', group: groupIdString(ref) }, [BOB.hash]);
+    expect(row.status).toBe(200);
+    const res = await sign(row.json.id as string, bob, row.bodyHash, ALICE, BOB);
+    expect(res.json).toEqual({ accepted: [BOB.hash], ignored: [ALICE.hash], satisfied: true });
   });
 
   it('accepts a repeated signature of the same key without storing it twice', async () => {

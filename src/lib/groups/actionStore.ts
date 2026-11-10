@@ -34,7 +34,7 @@ export interface NewGroupAction {
  * only while its group has no open control action, decided in the same statement.
  */
 export async function createGroupAction(db: D1Database, rec: NewGroupAction): Promise<'created' | 'slot taken'> {
-  const [, twoByte, legacy] = groupIdFormsOf(rec.subjectId);
+  const [current, twoByte, legacy] = groupIdFormsOf(rec.subjectId);
   const res = await db
     .prepare(Q.actionCreate.sql)
     .bind(
@@ -56,6 +56,7 @@ export async function createGroupAction(db: D1Database, rec: NewGroupAction): Pr
       rec.profileHash?.toLowerCase() ?? null,
       rec.controlSlot ? 1 : 0,
       JSON.stringify([...new Set(rec.feePayKeys.map((k) => k.toLowerCase()))].sort()),
+      current,
       twoByte,
       legacy,
     )

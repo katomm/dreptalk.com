@@ -1302,8 +1302,8 @@ export const Q = Object.freeze({
           ORDER BY never_included_at DESC LIMIT ?`,
     boundedScan: 'pending_multisig_tx_never_included',
   },
-  // Binds the columns of a new group signing row, the control slot flag 17th, the fee payment keys 18th, then the two
-  // other forms of the subject id (groupIdFormsOf), the subject being in the current form. A control row is stored
+  // Binds the columns of a new group signing row, the control slot flag 17th, the fee payment keys 18th, then the
+  // three forms of the subject id (groupIdFormsOf), whatever form the subject is stored in. A control row is stored
   // only while the group has no open control row under any id form, in the same statement.
   actionCreate: {
     sql: `INSERT INTO pending_multisig_tx (id, drep_id, action, action_params, unsigned_tx_cbor, body_hash, native_script,
@@ -1311,7 +1311,7 @@ export const Q = Object.freeze({
             fee_inputs, event_count, profile_hash, control_slot, fee_pay_keys)
           SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, '[]', 'collecting', NULL, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18
           WHERE ?17 = 0 OR NOT EXISTS (
-            SELECT 1 FROM pending_multisig_tx WHERE drep_id IN (?2, ?19, ?20) AND control_slot = 1 AND resolved_at IS NULL)`,
+            SELECT 1 FROM pending_multisig_tx WHERE drep_id IN (?19, ?20, ?21) AND control_slot = 1 AND resolved_at IS NULL)`,
   },
   // Binds the cutoff in milliseconds and the limit. Group and member rows resolved before the cutoff, the oldest first.
   actionPruneResolved: {

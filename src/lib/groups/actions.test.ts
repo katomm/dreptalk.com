@@ -48,10 +48,27 @@ const policy = (keys: number[], n: number): GroupState['control'] => {
   return Object.assign(s.script, { hash: s.hash });
 };
 
-function state(o: { mode?: GroupState['mode']; control?: GroupState['control']; admission?: GroupState['admission'] | 'same' } = {}): GroupState {
+function state(
+  o: {
+    mode?: GroupState['mode'];
+    control?: GroupState['control'];
+    admission?: GroupState['admission'] | 'same';
+    resignedControl?: number[];
+    resignedAdmission?: number[];
+  } = {},
+): GroupState {
   const control = o.control ?? policy([ALICE, BOB, DAVE, ERIN], 3);
   const admission = o.admission === 'same' || o.admission === undefined ? control : o.admission;
-  return { ref: GROUP, mode: o.mode ?? 'permissioned', status: 'active', seq: 4n, control, admission };
+  return {
+    ref: GROUP,
+    mode: o.mode ?? 'permissioned',
+    status: 'active',
+    seq: 4n,
+    control,
+    admission,
+    resignedControl: (o.resignedControl ?? []).map(K),
+    resignedAdmission: (o.resignedAdmission ?? []).map(K),
+  };
 }
 
 const tags = (p: PayloadInput): string[] => p.events.map((e) => e.tag);
@@ -206,6 +223,67 @@ describe('policies, keys and initiators', () => {
     expect(signerSetSatisfies(s, scriptLeave, member, [K(7)], { invalidBefore: null, invalidHereafter: null })).toBe(false);
     expect(expectedPayload(scriptLeave, s, new Map()).events).toEqual([{ tag: 'leave', join: { txHash: T(60), index: 1 } }]);
     expect(expectedPayload(leave, s, joins).events).toEqual([{ tag: 'leave', join: { txHash: T(50), index: 0 } }]);
+  });
+});
+
+describe('consent per role and resigned keys', () => {
+  const interval = { invalidBefore: null, invalidHereafter: 1000n };
+
+  it('makes a key moving from admission into control sign explicitly', () => {
+    const s = state({ control: policy([ALICE], 1), admission: policy([ALICE, BOB], 1) });
+    const promote: GroupIntent = { kind: 'group_update', group: GID, approvals: [], control: { keys: [K(ALICE), K(BOB)], n: 1 } };
+    expect(neededKeys(promote, s, null)).toEqual({ mandatory: [K(BOB)], optional: [K(ALICE)] });
+    expect(signerSetSatisfies(s, promote, null, [K(ALICE)], interval)).toBe(false);
+    expect(signerSetSatisfies(s, promote, null, [K(ALICE), K(BOB)], interval)).toBe(true);
+  });
+
+  it('makes a control key moving into admission sign explicitly', () => {
+    const s = state({ control: policy([ALICE, BOB], 1), admission: policy([ALICE], 1) });
+    const same: GroupIntent = { kind: 'group_update', group: GID, approvals: [], admission: 'same' };
+    expect(neededKeys(same, s, null).mandatory).toEqual([K(BOB)]);
+  });
+
+  it('lists every policy key of a create as mandatory', () => {
+    const intent: GroupIntent = {
+      kind: 'group_create',
+      mode: 'permissioned',
+      control: { keys: [K(ALICE), K(BOB)], n: 1 },
+      admission: { keys: [K(CAROL), K(DAVE)], n: 1 },
+      founders: [keyId(ALICE)],
+      profile: ANCHOR,
+    };
+    expect(neededKeys(intent, null, null).mandatory).toEqual([ALICE, BOB, CAROL, DAVE].map(K));
+  });
+
+  it('does not count a key that resigned from control toward the control policy', () => {
+    const s = state({ control: policy([ALICE], 1), admission: policy([BOB], 1), resignedControl: [ALICE] });
+    const dissolve: GroupIntent = { kind: 'group_dissolve', group: GID };
+    expect(signerSetSatisfies(s, dissolve, null, [K(ALICE)], interval)).toBe(false);
+    expect(neededKeys(dissolve, s, null)).toEqual({ mandatory: [], optional: [] });
+    expect(neededPolicyKeys(dissolve, s, null)).toEqual([]);
+    expect(mayInitiate(dissolve, s, { keyHash: K(ALICE), drepId: keyId(ALICE) })).toBe(false);
+  });
+
+  it('counts a key resigned only from control toward the admission policy', () => {
+    const shared = policy([ALICE, BOB], 1);
+    const s = state({ control: shared, admission: shared, resignedControl: [ALICE] });
+    const approve: GroupIntent = { kind: 'group_approve', group: GID, joins: [CAROL_JOIN] };
+    expect(signerSetSatisfies(s, approve, null, [K(ALICE)], interval)).toBe(true);
+    expect(neededPolicyKeys(approve, s, null)).toEqual([K(ALICE), K(BOB)]);
+    const dissolve: GroupIntent = { kind: 'group_dissolve', group: GID };
+    expect(signerSetSatisfies(s, dissolve, null, [K(ALICE)], interval)).toBe(false);
+  });
+
+  it('asks a resigned key listed again to sign explicitly, and then counts it', () => {
+    const any = policy([ALICE, BOB], 1);
+    const s = state({ control: any, admission: any, resignedControl: [ALICE], resignedAdmission: [ALICE] });
+    const relist: GroupIntent = { kind: 'group_update', group: GID, approvals: [], control: { keys: [K(ALICE), K(BOB)], n: 1 } };
+    expect(neededKeys(relist, s, null)).toEqual({ mandatory: [K(ALICE)], optional: [K(BOB)] });
+    expect(mayInitiate(relist, s, { keyHash: K(BOB), drepId: keyId(BOB) })).toBe(true);
+    expect(mayInitiate(relist, s, { keyHash: K(ALICE), drepId: keyId(ALICE) })).toBe(false);
+    expect(maySign(relist, s, null, { keyHash: K(ALICE), drepId: keyId(ALICE) })).toBe(true);
+    expect(signerSetSatisfies(s, relist, null, [K(ALICE)], interval)).toBe(false);
+    expect(signerSetSatisfies(s, relist, null, [K(ALICE), K(BOB)], interval)).toBe(true);
   });
 });
 

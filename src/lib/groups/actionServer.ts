@@ -399,7 +399,10 @@ export async function rowRateRefusal(env: Cloudflare.Env, userId: string): Promi
 export const witnessKeys = (ws: PendingWitness[], role?: PendingWitness['role']): string[] =>
   ws.filter((w) => role === undefined || (w.role ?? 'signer') === role).map((w) => w.key_hash);
 
-/** True when the collected signers satisfy every needed policy and every required signer signed. */
+/**
+ * True when the collected signers satisfy every needed policy and every required signer signed. A
+ * key that resigned from a role counts toward that role's policy for nothing.
+ */
 export function collectedSatisfy(ctx: GroupRowContext): boolean {
   const signed = new Set(witnessKeys(ctx.witnesses));
   if (!ctx.requiredSigners.every((k) => signed.has(k))) return false;

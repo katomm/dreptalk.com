@@ -11,6 +11,7 @@ import { drepGroupsAvailable } from '@/lib/groups/gate.js';
 import { loadGroupRow, rowMaySign, sessionOf } from '@/lib/groups/actionServer.js';
 import { getGroup } from '@/lib/db/drepGroups.js';
 import { shortGroupId } from '@/lib/groups/view.js';
+import { canonicalGroupId } from '@/lib/groups/ids.js';
 import { env } from 'cloudflare:workers';
 
 const { id } = Astro.params;
@@ -34,7 +35,7 @@ if (db && id) {
   try {
     const ctx = await loadGroupRow(db, id);
     if (ctx && ctx.intent.kind !== 'group_create' && rowMaySign(ctx, sessionOf(user))) {
-      const gid = ctx.intent.group.toLowerCase();
+      const gid = canonicalGroupId(ctx.intent.group.toLowerCase());
       const row = await getGroup(db, gid);
       group = { id: gid, name: row?.profile?.status === 'ok' && row.profile.name ? row.profile.name : shortGroupId(gid) };
     }
