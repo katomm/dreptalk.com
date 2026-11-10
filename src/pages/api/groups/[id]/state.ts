@@ -20,7 +20,7 @@ const NO_STORE = { 'cache-control': 'no-store' };
 
 /** The group state the words of an intent compare with, null when a policy does not parse. */
 function groupStateOf(
-  group: { groupId: string; mode: string; status: string; seq: string },
+  group: { groupId: string; mode: string; status: string; seq: string; resignedControl: string[]; resignedAdmission: string[] },
   s: { control: { hash: string; json: string }; admission: { hash: string; json: string } | null },
 ): GroupState | null {
   const ref = groupIdParam(group.groupId);
@@ -38,9 +38,8 @@ function groupStateOf(
     seq: BigInt(group.seq),
     control,
     admission,
-    // The words of an intent do not depend on resignations.
-    resignedControl: [],
-    resignedAdmission: [],
+    resignedControl: group.resignedControl,
+    resignedAdmission: group.resignedAdmission,
   };
 }
 
@@ -97,6 +96,9 @@ export const GET: APIRoute = async ({ params, locals }) => {
       serverSlot: wallClockSlot(currentNetwork().network),
       control: s.control,
       admission: s.admission,
+      // Keys that resigned from a role, so the client asks the signers the server will count.
+      resignedControl: group.resignedControl,
+      resignedAdmission: group.resignedAdmission,
       names: Object.fromEntries(s.names),
       activeKeyMembers: s.activeKeyMembers,
       activeMembers: s.activeMembers,

@@ -75,6 +75,7 @@ export const ev = {
   ],
   approve: (join: Ref): Cbor => [4, refCbor(join)],
   leave: (join: Ref): Cbor => [5, refCbor(join)],
+  resign: (group: Ref, key: string): Cbor => [7, refCbor(group), hexToBytes(key)],
 };
 
 const chunks = (b: Uint8Array): Uint8Array[] => {

@@ -210,6 +210,8 @@ describe('PolicyEditor on the group page', () => {
     serverSlot: 1_000_000,
     control,
     admission: control,
+    resignedControl: [],
+    resignedAdmission: [],
     names: NAMES,
     activeKeyMembers: [A, B].map((k) => ({ drepId: drep(k), keyHash: k, name: NAMES[k] })),
     activeMembers: [],

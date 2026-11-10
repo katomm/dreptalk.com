@@ -455,3 +455,58 @@ describe('changesOfIntent', () => {
     ]);
   });
 });
+
+describe('resign', () => {
+  const interval = { invalidBefore: null, invalidHereafter: 1000n };
+  const names = new Map([[K(BOB), 'Bob']]);
+  const resignBob: GroupIntent = { kind: 'group_resign', group: GID, key: K(BOB).toUpperCase() };
+
+  it('builds one resign event, tag 7 on the wire', () => {
+    const s = state({ control: policy([ALICE], 1), admission: policy([BOB], 1) });
+    const p = expectedPayload(resignBob, s, new Map());
+    expect(p).toEqual({ events: [{ tag: 'resign', group: GROUP, key: K(BOB) }] });
+    expect(decode(p)?.events).toEqual([{ ok: true, event: { tag: 'resign', group: GROUP, key: K(BOB) } }]);
+    expect(encodePayload(p)).toEqual(encodePayload({ events: [{ tag: 'resign', group: GROUP, key: K(BOB) }] }));
+  });
+
+  it('needs only the explicit signature of the key and no policy', () => {
+    const s = state({ control: policy([ALICE], 1), admission: policy([BOB], 1) });
+    expect(neededPolicies(resignBob, s, null)).toEqual({ control: null, admission: null, member: null });
+    expect(neededKeys(resignBob, s, null)).toEqual({ mandatory: [K(BOB)], optional: [] });
+    expect(signerSetSatisfies(s, resignBob, null, [K(BOB)], interval)).toBe(true);
+    expect(signerSetSatisfies(s, resignBob, null, [K(ALICE)], interval)).toBe(false);
+    expect(maySign(resignBob, s, null, { keyHash: K(BOB), drepId: keyId(BOB) })).toBe(true);
+    expect(maySign(resignBob, s, null, { keyHash: K(ALICE), drepId: keyId(ALICE) })).toBe(false);
+  });
+
+  it('lets only the key itself open it, while a role lists it without a resignation', () => {
+    const s = state({ control: policy([ALICE], 1), admission: policy([BOB], 1) });
+    expect(mayInitiate(resignBob, s, { keyHash: K(BOB), drepId: keyId(BOB) })).toBe(true);
+    expect(mayInitiate(resignBob, s, { keyHash: K(ALICE), drepId: keyId(ALICE) })).toBe(false);
+    const resigned = state({ control: policy([ALICE], 1), admission: policy([BOB], 1), resignedAdmission: [BOB] });
+    expect(mayInitiate(resignBob, resigned, { keyHash: K(BOB), drepId: keyId(BOB) })).toBe(false);
+    expect(() => expectedPayload(resignBob, resigned, new Map())).toThrow('key not listed in any role');
+    // Resigned from control only, admission still lists the key.
+    const shared = policy([ALICE, BOB], 1);
+    const half = state({ control: shared, admission: shared, resignedControl: [BOB] });
+    expect(mayInitiate(resignBob, half, { keyHash: K(BOB), drepId: keyId(BOB) })).toBe(true);
+    expect(() => expectedPayload({ kind: 'group_resign', group: GID, key: K(OUTSIDER) }, s, new Map())).toThrow('key not listed in any role');
+    expect(mayInitiate(resignBob, { ...s, status: 'dissolved' }, { keyHash: K(BOB), drepId: keyId(BOB) })).toBe(false);
+  });
+
+  it('binds a resign event field by field', () => {
+    const s = state({ control: policy([ALICE], 1), admission: policy([BOB], 1) });
+    const p = expectedPayload(resignBob, s, new Map());
+    const other = { events: [{ tag: 'resign' as const, group: GROUP, key: K(ALICE) }] };
+    expect(bindContent(cleanFacts, decode(p), p, [K(BOB)], [K(BOB)])).toEqual({ ok: true });
+    expect(bindContent(cleanFacts, decode(other), p, [K(BOB)], [K(BOB)])).toEqual({ ok: false, reason: 'event 1 differs from the action' });
+  });
+
+  it('words a resign as a draft and as the events of a transaction', () => {
+    const s = state({ control: policy([ALICE], 1), admission: policy([BOB], 1) });
+    expect(changesOfIntent(resignBob, s).resigned).toBe(K(BOB));
+    expect(describeAction(changesOfIntent(resignBob, s), names)).toEqual(['Bob resigns as admin.']);
+    const p = expectedPayload(resignBob, s, new Map());
+    expect(describeAction(changesOfEvents(p.events, s), names)).toEqual(['Bob resigns as admin.']);
+  });
+});

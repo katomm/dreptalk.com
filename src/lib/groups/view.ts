@@ -138,6 +138,8 @@ export function eventLabel(tag: string | null): string {
       return 'Left';
     case 'remove':
       return 'Removed';
+    case 'resign':
+      return 'Admin resigned';
     default:
       return 'Unreadable event';
   }
@@ -152,6 +154,7 @@ export const ACTION_KIND_LABEL: Readonly<Record<string, string>> = {
   group_remove: 'Removal',
   group_update: 'Policy update',
   group_dissolve: 'Dissolution',
+  group_resign: 'Resignation',
 };
 
 /** Where an unresolved group action stands. A submitted one is confirming until the chain confirms it. */

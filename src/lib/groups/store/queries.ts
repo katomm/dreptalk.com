@@ -1143,10 +1143,14 @@ export const Q = Object.freeze({
   treasuryScripts: { sql: KEYED.treasuryScripts(1) },
   drepNames: { sql: KEYED.drepNames(1) },
   listedFaces: { sql: KEYED.listedFaces(1) },
-  // Binds the key hash. The active groups with the key in their control or admission policy.
+  // Binds the key hash. The active groups with the key in their control or admission policy, with the
+  // roles that list it and the resigned keys of each role.
   groupsForPolicyKey: {
     // One OR over the two policy indexes, so each group comes back once without a sort for a UNION.
-    sql: `SELECT g.group_tx, g.group_ix FROM drep_groups g
+    sql: `SELECT g.group_tx, g.group_ix, g.resigned_control, g.resigned_admission,
+            g.control IN (SELECT script FROM drep_group_policy_keys WHERE key = ?1) AS in_control,
+            coalesce(g.admission IN (SELECT script FROM drep_group_policy_keys WHERE key = ?1), 0) AS in_admission
+          FROM drep_groups g
           WHERE (g.control IN (SELECT script FROM drep_group_policy_keys WHERE key = ?1)
              OR g.admission IN (SELECT script FROM drep_group_policy_keys WHERE key = ?1))
             AND g.status = 'active'
@@ -1354,7 +1358,8 @@ export const Q = Object.freeze({
   // tx is processed.
   joinNotifyPage: {
     sql: `SELECT n.join_tx, n.join_ix, i.join_tx AS i_tx, i.group_tx, i.group_ix, i.approved_h, i.closed_h, i.eff_h,
-            s.bytes AS policy, p.name AS group_name, d.name AS member_name, ${processedSql('n.join_tx')} AS processed
+            s.bytes AS policy, CASE WHEN g.admission IS NULL THEN g.resigned_control ELSE g.resigned_admission END AS resigned,
+            p.name AS group_name, d.name AS member_name, ${processedSql('n.join_tx')} AS processed
           FROM drep_group_join_notify n
           LEFT JOIN drep_group_txs t ON t.tx_hash = n.join_tx
           LEFT JOIN drep_group_meta m ON m.id = 1
@@ -1454,8 +1459,8 @@ export const Q = Object.freeze({
   },
   // The newest versions of a group, the policies and profile each change set.
   historyVersions: {
-    sql: `SELECT at_tx, control, admission, profile_hash FROM drep_group_versions WHERE group_tx = ? AND group_ix = ?
-          ORDER BY at_h DESC, at_ti DESC, at_ph DESC, at_ix DESC LIMIT ?`,
+    sql: `SELECT at_tx, control, admission, profile_hash, resigned_control, resigned_admission FROM drep_group_versions
+          WHERE group_tx = ? AND group_ix = ? ORDER BY at_h DESC, at_ti DESC, at_ph DESC, at_ix DESC LIMIT ?`,
   },
   // Binds the group. The stored profile of the group while it has a verified one.
   profileCurrent: {

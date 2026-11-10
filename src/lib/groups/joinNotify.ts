@@ -1,12 +1,13 @@
 /// <reference types="@cloudflare/workers-types" />
 // The join request drain after the engine runs of a tick. A queued permissioned join whose tx the engine has fully
 // processed and which is still pending notifies the DRepTalk accounts of the key DReps in the group's admission
-// policy. A join approved or closed by then, or whose instance is gone, is dropped without a notification.
+// policy that have not resigned from admission. A join approved or closed by then, or whose instance is gone, is
+// dropped without a notification.
 import type { EventRef } from 'drep-groups';
 import { collectKeyHashes, parseNativeScript, refKey } from 'drep-groups';
 import { type GroupNotification, insertGroupNotifications, ROWS_PER_STATEMENT } from '../db/groupNotifications.js';
 import { D1_MAX_BINDS } from '../db/sql.js';
-import { bytesFromCol, refBinds, refFromCols, type Row } from './codec.js';
+import { bytesFromCol, hashListFromCol, refBinds, refFromCols, type Row } from './codec.js';
 import { JOIN_NOTIFY_PER_TICK } from './constants.js';
 import { drepIdForCredential, groupIdString } from './ids.js';
 import { statementsFor } from './resolve.js';
@@ -36,11 +37,15 @@ interface PendingJoin {
   dreps: string[];
 }
 
-/** Key DRep ids of the `sig` leaves of a stored policy, none when the script is missing or does not parse. */
-function keyDreps(policy: unknown): string[] {
+/**
+ * Key DRep ids of the `sig` leaves of a stored policy without the keys that resigned from its role,
+ * none when the script is missing or does not parse.
+ */
+function keyDreps(policy: unknown, resigned: unknown): string[] {
   const script = policy === null ? null : parseNativeScript(bytesFromCol(policy));
   if (!script) return [];
-  return [...new Set(collectKeyHashes(script))].map((hash) => drepIdForCredential({ kind: 'key', hash }));
+  const gone = new Set(resigned === null ? [] : hashListFromCol(resigned));
+  return [...new Set(collectKeyHashes(script))].filter((hash) => !gone.has(hash)).map((hash) => drepIdForCredential({ kind: 'key', hash }));
 }
 
 async function accountsByDrep(db: D1Database, dreps: string[]): Promise<Map<string, string[]>> {
@@ -76,7 +81,7 @@ export async function drainJoinNotifications(db: D1Database, lease: string, _now
         groupId: groupIdString(refFromCols(r.group_tx, r.group_ix)),
         groupName: r.group_name === null ? null : String(r.group_name),
         memberName: r.member_name === null ? null : String(r.member_name),
-        dreps: keyDreps(r.policy),
+        dreps: keyDreps(r.policy, r.resigned),
       });
     }
   }

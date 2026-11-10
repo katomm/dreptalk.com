@@ -28,6 +28,9 @@ export interface GroupActionView {
   serverSlot: number;
   control: PolicyView;
   admission: PolicyView | null;
+  /** Key hashes that resigned from the control and from the admission role. */
+  resignedControl: string[];
+  resignedAdmission: string[];
   /** DRep names by key hash. */
   names: Record<string, string>;
   activeKeyMembers: Array<{ drepId: string; keyHash: string; name: string | null }>;

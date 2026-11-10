@@ -1,4 +1,12 @@
-export type GroupActionKind = 'group_create' | 'group_join' | 'group_leave' | 'group_approve' | 'group_remove' | 'group_update' | 'group_dissolve';
+export type GroupActionKind =
+  | 'group_create'
+  | 'group_join'
+  | 'group_leave'
+  | 'group_approve'
+  | 'group_remove'
+  | 'group_update'
+  | 'group_dissolve'
+  | 'group_resign';
 
 export type PendingMultisigRow = {
   id: string;

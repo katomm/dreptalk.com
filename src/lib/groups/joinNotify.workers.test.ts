@@ -93,6 +93,14 @@ describe('join notifications through the phase', () => {
     expect(await queuedRows()).toBe(0);
   });
 
+  it('leaves out an admission key that resigned from admission', async () => {
+    await seedAdmins();
+    const resign: FakeTx = { hash: T(3), height: 100, index: 1, cbor: txCbor({ payload: payloadValue([ev.resign(group, A1)]), requiredSigners: [A1] }) };
+    await phase({ tip: 200, txs: [create, resign, join], regs: [regM] });
+    expect((await joinNotifications()).map((r) => r.recipient_id)).toEqual(['admin2']);
+    expect(await queuedRows()).toBe(0);
+  });
+
   it('sends nothing for a founding join approved in the same tx', async () => {
     await seedAdmins();
     await phase({ tip: 200, txs: [founding], regs: [regM] });

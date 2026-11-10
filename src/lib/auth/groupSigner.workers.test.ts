@@ -25,6 +25,20 @@ describe('groupsForPolicyKey', () => {
     await seedGroupKey(env.DB, { key: 'cd'.repeat(28), tag: 0x40 });
     expect(await groupsForPolicyKey(env.DB, KEY)).toEqual([]);
   });
+
+  it('drops a group the key resigned from in every role that lists it', async () => {
+    await seedGroupKey(env.DB, { key: KEY, tag: 0x50, resignedControl: true });
+    await seedGroupKey(env.DB, { key: KEY, tag: 0x60, inAdmission: true, resignedAdmission: true });
+    await seedGroupKey(env.DB, { key: KEY, tag: 0x70, inBoth: true, resignedControl: true, resignedAdmission: true });
+    expect(await groupsForPolicyKey(env.DB, KEY)).toEqual([]);
+  });
+
+  it('keeps a group while one role still lists the key without a resignation', async () => {
+    await seedGroupKey(env.DB, { key: KEY, tag: 0x50, inBoth: true, resignedAdmission: true });
+    await seedGroupKey(env.DB, { key: KEY, tag: 0x60, inBoth: true, resignedControl: true });
+    const refs = await groupsForPolicyKey(env.DB, KEY);
+    expect(refs.map((r) => r.txHash).sort()).toEqual(['50'.repeat(32), '60'.repeat(32)]);
+  });
 });
 
 describe('group signer roles', () => {

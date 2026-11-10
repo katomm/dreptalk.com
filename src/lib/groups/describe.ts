@@ -171,6 +171,8 @@ export interface GroupChanges {
   admission: { before: ScriptView | null; after: ScriptView | null } | 'same' | null;
   profile: { before: ProfileFields | null; after: ProfileFields | null } | null;
   dissolve: boolean;
+  /** The key hash of a resign, null for a resign whose key the history cannot tell. */
+  resigned?: string | null;
 }
 
 export const noChanges = (mode: GroupChanges['mode'] = null): GroupChanges => ({
@@ -188,6 +190,8 @@ export const noChanges = (mode: GroupChanges['mode'] = null): GroupChanges => ({
 
 const memberLabel = (m: Member, names: Names): string => (m ? drepLabel(m, names) : 'a request that is no longer stored');
 const members = (ms: Member[], names: Names): string => wordList(ms.map((m) => memberLabel(m, names)));
+/** Who resigned, by DRep name or short DRep id, and a line without a key when the history cannot tell it. */
+const resignedLine = (key: string | null, names: Names, verb: string): string => (key ? `${keyLabel(key, names)} ${verb} as admin.` : `An admin ${verb}.`);
 
 /** The sentences of the policy and profile changes. A pending action carries the new values. */
 function settingSentences(c: GroupChanges, names: Names, pending: boolean): string[] {
@@ -226,6 +230,7 @@ export function describeAction(c: GroupChanges, names: Names): string[] {
     if (c.approvals.length > 0) lines.push(`Approve ${members(c.approvals, names)} as ${c.approvals.length === 1 ? 'a member' : 'members'}.`);
     if (c.removals.length > 0) lines.push(`Remove ${members(c.removals, names)} from the group.`);
     if (c.leaves.length > 0) lines.push(`${members(c.leaves, names)} leaves the group.`);
+    if (c.resigned !== undefined) lines.push(resignedLine(c.resigned, names, 'resigns'));
   }
   lines.push(...settingSentences(c, names, true));
   if (c.dissolve) lines.push('Dissolve the group. Every membership ends.');
@@ -234,7 +239,7 @@ export function describeAction(c: GroupChanges, names: Names): string[] {
 }
 
 /** The marker of a history entry, the icon it shows. */
-export type HistoryKind = 'founded' | 'joined' | 'requested' | 'approved' | 'left' | 'removed' | 'policy' | 'profile' | 'dissolved';
+export type HistoryKind = 'founded' | 'joined' | 'requested' | 'approved' | 'left' | 'removed' | 'resign' | 'policy' | 'profile' | 'dissolved';
 
 /**
  * One history entry for the changes of one confirmed transaction, e.g. "Carol joined, approved by
@@ -265,6 +270,8 @@ export function describeHistory(c: GroupChanges, signers: string[], names: Names
   }
   if (c.removals.length > 0) note('removed', `${members(c.removals, names)} removed${by}.`);
   if (c.leaves.length > 0) note('left', `${members(c.leaves, names)} left.`);
+  // A resign is signed by the resigning key alone, so its signers are not named.
+  if (c.resigned !== undefined) note('resign', resignedLine(c.resigned, names, 'resigned'));
   if (kind === null) {
     // A settings only update names its signers after the change.
     const k: HistoryKind = c.control || c.admission ? 'policy' : 'profile';

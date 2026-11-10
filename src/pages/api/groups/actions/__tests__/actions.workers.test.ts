@@ -90,6 +90,7 @@ import { POST as submitted } from '../[id]/submitted';
 import { POST as witness } from '../[id]/witness';
 import { GET as held } from '../held';
 import { POST as create } from '../index';
+import { GET as groupState } from '../../[id]/state';
 
 // Groups run on mainnet now, so the off path is tested with mainnet left out of the list.
 vi.mock('@/lib/groups/gate', async (orig) => {
@@ -313,6 +314,43 @@ describe('group action routes', () => {
     expect(row).toMatchObject({ status: 'cancelled', resolution: 'failed' });
     expect(await openControlAction(env.DB, GID)).toBeNull();
     expect((await openIn(alice, dissolvePerm, [ALICE.hash])).status).toBe(200);
+  });
+
+  it('makes a collecting update stale once a resign moves seq, and the state shows the resignation', async () => {
+    await seedPermissioned();
+    const first = await openIn(alice, addErin, [ALICE.hash], [ERIN.hash]);
+    expect(first.status).toBe(200);
+    const id = first.json.id as string;
+    // Bob resigns from admission, which moves seq to 1 without touching control.
+    await seed([groupTx(50, { events: [{ tag: 'resign', group: PERM.ref, key: BOB.hash }] }, [BOB])], 50);
+    expect((await readGroupState(env.DB, PERM.ref))?.seq).toBe(1n);
+    expect((await sign(id, alice, first.bodyHash, ALICE)).json).toEqual({ error: 'stale' });
+    expect(await openControlAction(env.DB, GID)).toBeNull();
+    const view = await call<Record<string, unknown>>(groupState, alice, { id: GID });
+    expect(view.json).toMatchObject({ seq: '1', resignedControl: [], resignedAdmission: [BOB.hash] });
+  });
+
+  it('lets a key resign with its own signature, without the control slot', async () => {
+    await seedPermissioned();
+    const resignBob: GroupIntent = { kind: 'group_resign', group: GID, key: BOB.hash };
+    // Only the key itself opens its resignation.
+    expect((await openIn(alice, resignBob, [], [BOB.hash])).status).toBe(403);
+    const row = await openIn(bob, resignBob, [], [BOB.hash]);
+    expect(row.status).toBe(200);
+    expect(await openControlAction(env.DB, GID)).toBeNull();
+    expect((await openIn(alice, dissolvePerm, [ALICE.hash])).status).toBe(200);
+    const id = row.json.id as string;
+    expect((await sign(id, bob, row.bodyHash, PAY, BOB)).json).toEqual({ accepted: [PAY.hash, BOB.hash], ignored: [], satisfied: true });
+    expect((await call<Record<string, unknown>>(GET, bob, { id })).json).toMatchObject({ satisfied: true, canSubmit: true });
+  });
+
+  it('makes a resign stale once the key has resigned from every role', async () => {
+    await seedPermissioned();
+    const resignBob: GroupIntent = { kind: 'group_resign', group: GID, key: BOB.hash };
+    const row = await openIn(bob, resignBob, [], [BOB.hash]);
+    expect(row.status).toBe(200);
+    await seed([groupTx(50, { events: [{ tag: 'resign', group: PERM.ref, key: BOB.hash }] }, [BOB])], 50);
+    expect((await sign(row.json.id as string, bob, row.bodyHash, PAY, BOB)).json).toEqual({ error: 'stale' });
   });
 
   it('frees a stale slot when the next control action is opened', async () => {

@@ -62,8 +62,16 @@ function stateOf(v: GroupActionView): GroupState | null {
   if (!ref || !control) return null;
   const admission = v.admission === null ? null : v.admission.hash === v.control.hash ? control : policy(v.admission);
   if (v.admission !== null && !admission) return null;
-  // The view carries no resignations, the server judges them when the action is opened.
-  return { ref, mode: v.mode, status: v.status, seq: BigInt(v.seq), control, admission, resignedControl: [], resignedAdmission: [] };
+  return {
+    ref,
+    mode: v.mode,
+    status: v.status,
+    seq: BigInt(v.seq),
+    control,
+    admission,
+    resignedControl: v.resignedControl,
+    resignedAdmission: v.resignedAdmission,
+  };
 }
 
 /** The section an action was opened from, its draft opens in place of that section's form. */

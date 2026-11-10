@@ -193,6 +193,9 @@ export interface GroupRow {
   seq: string;
   controlHash: string;
   admissionHash: string | null;
+  /** Key hashes that resigned from the control and from the admission role. */
+  resignedControl: string[];
+  resignedAdmission: string[];
   profileUrl: string | null;
   profileHash: string | null;
   createdHeight: number;
@@ -255,6 +258,8 @@ function groupFromRow(r: Row): GroupRow {
     seq: String(r.seq),
     controlHash: hashFromCol(r.control),
     admissionHash: optHashFromCol(r.admission ?? null),
+    resignedControl: hashListFromCol(r.resigned_control),
+    resignedAdmission: hashListFromCol(r.resigned_admission),
     profileUrl: optStr(r.profile_url),
     profileHash: optHashFromCol(r.profile_hash ?? null),
     createdHeight: Number(r.created_h),
@@ -474,12 +479,14 @@ export interface HistoryEvent {
   blockTime: number | null;
 }
 
-/** A version of a group: the transaction that made it, its policies and its profile anchor hash. */
+/** A version of a group: the transaction that made it, its policies, its profile anchor hash and the resigned keys per role. */
 export interface HistoryVersion {
   txHash: string;
   control: string;
   admission: string | null;
   profileHash: string | null;
+  resignedControl: string[];
+  resignedAdmission: string[];
 }
 
 /**
@@ -511,6 +518,8 @@ export async function groupHistory(
       control: hashFromCol(r.control),
       admission: optHashFromCol(r.admission),
       profileHash: optHashFromCol(r.profile_hash),
+      resignedControl: hashListFromCol(r.resigned_control),
+      resignedAdmission: hashListFromCol(r.resigned_admission),
     }))
     .reverse();
   const txs = [...new Set(events.map((e) => e.txHash))];

@@ -176,4 +176,14 @@ describe('describeHistory', () => {
     });
     expect(describeHistory({ ...noChanges(), dissolve: true }, [A], names)).toEqual({ kind: 'dissolved', text: 'Group dissolved by Alice.' });
   });
+
+  it('reads a resignation by the key that resigned, without naming signers', () => {
+    expect(describeHistory({ ...noChanges(), resigned: B }, [B], names)).toEqual({ kind: 'resign', text: 'Bob resigned as admin.' });
+    expect(describeHistory({ ...noChanges(), resigned: D }, [D], names)).toEqual({
+      kind: 'resign',
+      text: `${shortHash(drepIdForCredential(key(D)))} resigned as admin.`,
+    });
+    expect(describeHistory({ ...noChanges(), resigned: null }, [], names)).toEqual({ kind: 'resign', text: 'An admin resigned.' });
+    expect(describeAction({ ...noChanges(), resigned: B }, names)).toEqual(['Bob resigns as admin.']);
+  });
 });

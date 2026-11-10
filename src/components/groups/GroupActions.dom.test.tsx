@@ -52,6 +52,8 @@ function view(o: Partial<GroupActionView> = {}): GroupActionView {
     serverSlot: 1_000_000,
     control,
     admission: control,
+    resignedControl: [],
+    resignedAdmission: [],
     names: NAMES,
     activeKeyMembers: [member(A), member(B)],
     activeMembers: [],
