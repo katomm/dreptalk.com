@@ -27,6 +27,7 @@ import {
   posOrNull,
   scriptDisplayJson,
   scriptFromDisplayJson,
+  versionFieldBinds,
   versionFromRow,
 } from './codec.js';
 
@@ -168,6 +169,8 @@ describe('rows', () => {
       status: 'active',
       ...pos('created', 8),
       ...nullPos('profile_set'),
+      resigned_control: [],
+      resigned_admission: [],
     });
     expect(v.seq).toBe(9007199254740993n);
     expect(v.profile).toEqual({ url: 'https://x.test/p.json', dataHash: 'bb' });
@@ -176,6 +179,47 @@ describe('rows', () => {
     expect(v.at.txHash).toBe('ab'.repeat(32));
     expect(v.id.txHash).toBe('cd'.repeat(32));
     expect(v.control).toBe('aa');
+  });
+  it('round trips the resigned keys of both roles through the version field binds', () => {
+    const k1 = '11'.repeat(28);
+    const k2 = '22'.repeat(28);
+    const at = pos('at', 9);
+    const fields = versionFieldBinds({
+      id: { txHash: 'cd'.repeat(32), index: 0 },
+      at: posFromRow(at, 'at'),
+      mode: 'permissioned',
+      control: 'aa'.repeat(28),
+      admission: 'bb'.repeat(28),
+      profile: null,
+      seq: 3n,
+      status: 'active',
+      createdAt: posFromRow(pos('created', 8), 'created'),
+      profileSetAt: null,
+      resignedControl: [k1, k2],
+      resignedAdmission: [],
+    });
+    const [mode, control, admission, profileUrl, profileHash, resignedControl, resignedAdmission] = fields;
+    expect(fields).toHaveLength(7);
+    const v = versionFromRow({
+      group_tx: hashBytes('cd'.repeat(32)),
+      group_ix: 0,
+      ...at,
+      mode,
+      control,
+      admission,
+      profile_url: profileUrl,
+      profile_hash: profileHash,
+      resigned_control: resignedControl,
+      resigned_admission: resignedAdmission,
+      seq: '3',
+      status: 'active',
+      ...pos('created', 8),
+      ...nullPos('profile_set'),
+    });
+    expect(v.resignedControl).toEqual([k1, k2]);
+    expect(v.resignedAdmission).toEqual([]);
+    expect(v.mode).toBe('permissioned');
+    expect(v.admission).toBe('bb'.repeat(28));
   });
   it('reads an instance with open approval and close', () => {
     const i = instanceFromRow({

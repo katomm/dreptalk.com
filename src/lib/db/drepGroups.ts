@@ -45,7 +45,7 @@ import { chunked, D1_MAX_BINDS } from './sql.js';
 export interface PaymentAddress {
   address: string;
   purpose?: string;
-  treasuryScript?: string;
+  paymentScript?: string;
 }
 
 export interface ProfileRow {

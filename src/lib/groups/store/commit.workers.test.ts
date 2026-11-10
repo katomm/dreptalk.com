@@ -27,7 +27,7 @@ import { sigScript } from '../__tests__/fixtures.js';
 import { profilesToFetch } from '../../db/drepGroups.js';
 import { ENGINE_BUDGET, LISTED_MIN_MEMBERS, PROFILE_MIN_MEMBERS } from '../constants.js';
 import { groupIdString } from '../ids.js';
-import { credBytes, hashBytes, posOrNull, type Row } from '../codec.js';
+import { credBytes, hashBytes, hashListBytes, posOrNull, type Row } from '../codec.js';
 import { acquireLease, invocationOwner } from './lease.js';
 import { commit, commitStatements, preRead } from './commit.js';
 
@@ -126,6 +126,33 @@ describe('drep groups commit', () => {
       expect(stmts.length + 2).toBeLessThanOrEqual(COMMIT_MAX_STATEMENTS);
       expect(maxBinds()).toBeLessThanOrEqual(D1_MAX_BINDS);
     }
+  });
+
+  it('stores the resigned keys of both roles on the version and on the group row', async () => {
+    const t = await lease();
+    const k1 = hex(31, 56);
+    const k2 = hex(32, 56);
+    const k3 = hex(33, 56);
+    const bytes = (v: unknown): number[] => Array.from(new Uint8Array(v as ArrayBuffer));
+    await commit(db, [create({ seq: 4n })], t);
+    expect(await group()).toMatchObject({ seq: '4', status: 'active' });
+    expect(bytes((await group()).resigned_control)).toEqual([]);
+    await commit(
+      db,
+      [groupUnit(30, { versions: [version(G, CREATED, pos(30), { seq: 5n, resignedControl: [k1, k2], resignedAdmission: [k3] })] })],
+      t,
+    );
+    const row = await db
+      .prepare('SELECT * FROM drep_group_versions WHERE group_tx = ? AND group_ix = ? AND at_h = 30')
+      .bind(GTX, G.index)
+      .first<Row>();
+    expect(row).toMatchObject({ seq: '5', status: 'active' });
+    expect(bytes(row?.resigned_control)).toEqual(Array.from(hashListBytes([k1, k2])));
+    expect(bytes(row?.resigned_admission)).toEqual(Array.from(hashListBytes([k3])));
+    const g = await group();
+    expect(g).toMatchObject({ cur_h: 30, seq: '5', status: 'active' });
+    expect(bytes(g.resigned_control)).toEqual(Array.from(hashListBytes([k1, k2])));
+    expect(bytes(g.resigned_admission)).toEqual(Array.from(hashListBytes([k3])));
   });
 
   it('applies a counter delta once per counted_as change', async () => {

@@ -105,6 +105,7 @@ export const Q_SAMPLE_BINDS: Readonly<Record<keyof typeof Q, unknown[]>> = Objec
   txsWithoutTime: [10],
   storedInputs: [],
   libVersion: ['0.2.0'],
+  witnessSearchReset: [],
   recoverySlots: ['truncate', 1, 0, null, null, 1, 'jobs', null],
   ...recoveryBinds(),
   profileDuePage: [1, 10],

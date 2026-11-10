@@ -60,7 +60,7 @@ async function seedPermissioned(l: string, extra: Input[] = [], top = 40): Promi
     env.DB,
     l,
     [
-      { tx: labelTx(10, 10, { payload: encodePayload({ events: [create], scripts: [control.script, admission.script] }), wk: [ALICE, BOB] }) },
+      { tx: labelTx(10, 10, { payload: encodePayload({ events: [create], scripts: [control.script, admission.script] }), rs: [ALICE, BOB], wk: [ALICE, BOB] }) },
       { ledger: ledgerRow(20, 20, key(CAROL), 'reg') },
       { tx: labelTx(30, 30, { payload: encodePayload({ events: [join] }), rs: [CAROL] }) },
       { ledger: ledgerRow(40, 40, key(DAVE), 'reg') },
@@ -144,11 +144,11 @@ describe('previewGroupTx', () => {
       scripts: [next.script],
     };
     const tx = txBytes(payload);
-    expect(verdicts(await previewGroupTx(env.DB, tx, [], [ALICE, CAROL], live()))).toEqual([
+    expect(verdicts(await previewGroupTx(env.DB, tx, [ALICE, CAROL], [ALICE, CAROL], live()))).toEqual([
       ['approve', false, 'admission policy not satisfied'],
       ['update', true, null],
     ]);
-    expect(verdicts(await previewGroupTx(env.DB, tx, [], [ALICE, BOB, CAROL], live()))).toEqual([
+    expect(verdicts(await previewGroupTx(env.DB, tx, [ALICE, CAROL], [ALICE, BOB, CAROL], live()))).toEqual([
       ['approve', true, null],
       ['update', true, null],
     ]);

@@ -109,7 +109,8 @@ export class D1DriverStore extends D1Store implements DriverStore {
             blockHash: input.txHash,
             blockTime: blockTime(input.blockHeight),
             witnessState: script ? 'checked' : 'na',
-            witness: script ? (memberScriptWitness(c, input.witnessScripts)?.bytes ?? null) : null,
+            // The member script from the witness set or a reference script, as the library resolves it.
+            witness: script ? (memberScriptWitness(c, input.witnessScripts, input.referenceScripts)?.bytes ?? null) : null,
           },
         ],
         null,
@@ -144,7 +145,7 @@ export class D1DriverStore extends D1Store implements DriverStore {
     const all = async (sql: string): Promise<Row[]> => (await this.db.prepare(sql).all<Row>()).results ?? [];
     const ref = (tx: unknown, ix: unknown) => ({ txHash: hashFromCol(tx), index: Number(ix) });
     const groupCols = `group_tx, group_ix, cur_h AS at_h, cur_ti AS at_ti, cur_ph AS at_ph, cur_ix AS at_ix, cur_tx AS at_tx,
-      mode, control, admission, profile_url, profile_hash, seq, status, created_h, created_ti, created_ph, created_ix, created_tx,
+      mode, control, admission, profile_url, profile_hash, resigned_control, resigned_admission, seq, status, created_h, created_ti, created_ph, created_ix, created_tx,
       profile_set_h, profile_set_ti, profile_set_ph, profile_set_ix, profile_set_tx`;
     const script = (r: Row) => {
       const bytes = bytesFromCol(r.bytes);

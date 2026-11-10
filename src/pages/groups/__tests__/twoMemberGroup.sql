@@ -25,7 +25,7 @@ INSERT OR REPLACE INTO drep_group_profiles (group_tx, group_ix, profile_url, dat
     payment_addresses_json, fetched_at)
   VALUES (X'f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0', 0, 'https://example.test/group.json', X'0a', 'ok',
     'Example Council', 'Two DReps who publish their rationales together.', 'https://example.test', NULL,
-    '[{"address":"addr_test1wrpu8s7rc0pu8s7rc0pu8s7rc0pu8s7rc0pu8s7rc0pu8scknledl","purpose":"Treasury","treasuryScript":"c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"}]', 0);
+    '[{"address":"addr_test1wrpu8s7rc0pu8s7rc0pu8s7rc0pu8s7rc0pu8s7rc0pu8scknledl","purpose":"Treasury","paymentScript":"c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"}]', 0);
 INSERT OR REPLACE INTO drep_group_instances (join_tx, join_ix, group_tx, group_ix, cred, drep_id, mode,
     joined_h, joined_ti, joined_ph, joined_ix, joined_tx, counted_as)
   VALUES (X'e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1', 0, X'f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0', 0,

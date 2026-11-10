@@ -665,7 +665,8 @@ export async function ingestDrepGroups(deps: {
 
 /**
  * Writes the library version in one batch with, when it differed and inputs are stored, the
- * rebuild that judges them again. True when a rebuild was opened.
+ * rebuild that judges them again and the reset that searches script registrations without a
+ * member script again. True when a rebuild was opened.
  */
 export async function checkLibraryVersion(db: D1Database, lease: string, known?: Row): Promise<boolean> {
   const meta = known ?? (await readMeta(db));
@@ -674,7 +675,9 @@ export async function checkLibraryVersion(db: D1Database, lease: string, known?:
   const rebuild = i !== null && (i.txs !== null || i.ledger !== null);
   await writeBatch(db, lease, [
     db.prepare(Q.libVersion.sql).bind(LIBRARY_VERSION),
-    ...(rebuild ? openRecoveryStatements(db, slotsFromMeta(meta), { kind: 'rebuild' }, null) : []),
+    ...(rebuild
+      ? [...openRecoveryStatements(db, slotsFromMeta(meta), { kind: 'rebuild' }, null), db.prepare(Q.witnessSearchReset.sql)]
+      : []),
   ]);
   return rebuild;
 }

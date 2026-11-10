@@ -29,7 +29,7 @@ vi.mock('@/lib/api/response', async (orig) => ({
   ...(await orig<typeof import('@/lib/api/response')>()),
   currentNetwork: () => ({ network: 'preprod', koiosBaseUrl: 'https://koios.invalid/api/v1' }),
 }));
-const SEEDED = 'drep_group17rc0pu8s7rc0pu8s7rc0pu8s7rc0pu8s7rc0pu8s7rc0pu8s7rcqqqqc6m8ss';
+const SEEDED = 'drep_group17rc0pu8s7rc0pu8s7rc0pu8s7rc0pu8s7rc0pu8s7rc0pu8s7rcqqdh4wag';
 const SEEDED_LEGACY = 'group17rc0pu8s7rc0pu8s7rc0pu8s7rc0pu8s7rc0pu8s7rc0pu8s7rcqqqqwf5cvh';
 const PERM_ID = groupIdString(PERM.ref);
 const OTHER_ID = groupIdString({ txHash: 'cd'.repeat(32), index: 0 });

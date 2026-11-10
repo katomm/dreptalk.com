@@ -372,6 +372,8 @@ function eventCanon(e: GroupEvent): string {
       return JSON.stringify([e.tag, refCanon(e.group), e.seq.toString()]);
     case 'join':
       return JSON.stringify([e.tag, refCanon(e.group), e.member.kind, e.member.hash.toLowerCase()]);
+    case 'resign':
+      return JSON.stringify([e.tag, refCanon(e.group), e.key.toLowerCase()]);
     default:
       return JSON.stringify([e.tag, refCanon(e.join)]);
   }

@@ -80,7 +80,7 @@ const webLink = (u: string | null | undefined): string | null => (u && isHttpUrl
 const website = webLink(profile?.website);
 const charter = webLink(profile?.charter);
 const addresses = profile?.paymentAddresses ?? [];
-const treasuryHashes = [...new Set(addresses.flatMap((a) => (a.treasuryScript ? [a.treasuryScript] : [])))];
+const treasuryHashes = [...new Set(addresses.flatMap((a) => (a.paymentScript ? [a.paymentScript] : [])))];
 const policyHashes = group ? [group.controlHash, ...(group.admissionHash ? [group.admissionHash] : [])] : [];
 
 const [note, verification, sections, history, notApplied, displays, treasury] =
@@ -418,7 +418,7 @@ const metaDescription = clipExcerpt(metaFull, 300);
             <div class="ocd__item">
               <dt class="ocd__dt">{a.entry.purpose ?? 'Address'}</dt>
               <dd class="ocd__dd"><span class="ocd__mono" title={a.entry.address}>{truncateIdMiddle(a.entry.address)}</span><CopyButton value={a.entry.address} label="Copy payment address" /></dd>
-              <dd class="ocd__dd gr-meta">{addressStatusLabel(a.check.status)}{a.check.status === 'script-controlled' && a.entry.treasuryScript ? `: ${describePolicy(treasuryViews.get(a.entry.treasuryScript) ?? null, names, admins)}` : ''}</dd>
+              <dd class="ocd__dd gr-meta">{addressStatusLabel(a.check.status)}{a.check.status === 'script-controlled' && a.entry.paymentScript ? `: ${describePolicy(treasuryViews.get(a.entry.paymentScript) ?? null, names, admins)}` : ''}</dd>
             </div>
           ))}
         </dl>
