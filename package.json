@@ -65,7 +65,7 @@
     "cardano-tessera-respond": "0.8.0",
     "cborg": "^6.1.3",
     "cip-179": "0.6.1",
-    "drep-groups": "0.3.1",
+    "drep-groups": "0.4.0",
     "jsonld": "^9.0.0",
     "marked": "^18.1.0",
     "react": "^19.3.0",
