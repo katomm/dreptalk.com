@@ -59,6 +59,8 @@ export function policyKeyHashes(s: ScriptView | null): string[] {
 
 /** The first 8 and last 4 characters of a long hash or id. */
 export const shortHash = (h: string): string => truncateIdMiddle(h, 8, 4);
+/** Short form of a group id that keeps the `drep_group1` prefix and a few characters after it. */
+export const shortGroupId = (id: string): string => truncateIdMiddle(id, 15, 6);
 
 const NUMBER_WORDS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
 

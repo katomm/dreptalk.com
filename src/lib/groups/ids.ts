@@ -1,7 +1,7 @@
 import { type Credential, type EventRef, groupIdFromBech32, groupIdToBech32, type Network } from 'drep-groups';
 import type { CardanoNetwork } from '../config/network.js';
-import { encodeBech32 } from '../crypto/bech32.js';
-import { hexToBytes } from '../crypto/hex.js';
+import { decodeBech32, encodeBech32 } from '../crypto/bech32.js';
+import { bytesToHex, hexToBytes } from '../crypto/hex.js';
 import { DREP_KEY_HEADER, DREP_SCRIPT_HEADER, parseDrepId } from '../cardano/identity.js';
 
 /** The address network the library checks payment addresses against: mainnet, or testnet for preprod. */
@@ -28,12 +28,27 @@ export function groupIdString(ref: EventRef): string {
   return groupIdToBech32(ref);
 }
 
-/** Parses a group id from a URL parameter. Lowercases first, returns null on anything invalid. */
-export function groupIdParam(param: string | undefined): EventRef | null {
-  if (!param) return null;
+// Group ids used the bech32 prefix `group` until the CIP renamed it to `drep_group`.
+// Shared links, notifications and stored action intents still carry the old form.
+const LEGACY_GROUP_PREFIX = 'group';
+
+function legacyGroupId(s: string): EventRef | null {
   try {
-    return groupIdFromBech32(param.toLowerCase());
+    const { prefix, data } = decodeBech32(s);
+    if (prefix !== LEGACY_GROUP_PREFIX || data.length !== 34) return null;
+    return { txHash: bytesToHex(data.subarray(0, 32)), index: ((data[32] as number) << 8) | (data[33] as number) };
   } catch {
     return null;
+  }
+}
+
+/** Parses a group id from a URL parameter. Lowercases first, accepts the legacy `group1` form, returns null on anything invalid. */
+export function groupIdParam(param: string | undefined): EventRef | null {
+  if (!param) return null;
+  const s = param.toLowerCase();
+  try {
+    return groupIdFromBech32(s);
+  } catch {
+    return legacyGroupId(s);
   }
 }

@@ -29,7 +29,7 @@ import { parsePage, pageToOffset, cacheControlForSynced, formatAda, formatAdaCom
 import { drepDescriptor } from '@/lib/forum/author.js';
 import { drepGroupsAvailable } from '@/lib/groups/gate.js';
 import { groupIdParam, groupIdString } from '@/lib/groups/ids.js';
-import { shortHash } from '@/lib/groups/view.js';
+import { shortGroupId } from '@/lib/groups/view.js';
 
 const db = env.DB as D1Database | undefined;
 const PAGE_SIZE = 50;
@@ -218,7 +218,7 @@ const selfStanding = selfRanking ? selfStandingLine(selfRanking) : null;
 
   {groupId && (
     <p class="dreps-filter">
-      Showing members of <a href={`/groups/${groupId}/`}>{groupName ?? shortHash(groupId)}</a>
+      Showing members of <a href={`/groups/${groupId}/`}>{groupName ?? shortGroupId(groupId)}</a>
       <span style="margin:0 0.5rem;color:var(--muted);" aria-hidden="true">&middot;</span>
       <a href={removeGroupHref}>Remove group filter</a>
     </p>

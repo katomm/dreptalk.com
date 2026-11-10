@@ -1,7 +1,8 @@
 // Open Graph card model for one DRep group at /groups/:id/. Same layout as the DRep card: name,
 // short id and an excerpt of the description beside the group image, then the stat row. Shared by
 // the /og/group/:id.png route (renders it) and the group page (versions its og:image URL).
-import { clipExcerpt, truncateIdMiddle } from '../forum/view.js';
+import { clipExcerpt } from '../forum/view.js';
+import { shortGroupId } from '../groups/view.js';
 import { formatAdaCompact } from '../format/ada.js';
 import type { DrepCardModel } from './model.js';
 import { BRAND_ACCENT } from './theme.js';
@@ -25,7 +26,7 @@ export function groupCardVersion(g: GroupCardInput): string {
 }
 
 export function groupCardModel(g: GroupCardInput, opts: { avatarDataUrl: string }): DrepCardModel {
-  const idShort = truncateIdMiddle(g.groupId);
+  const idShort = shortGroupId(g.groupId);
   const name = g.name?.trim();
   const members = g.closing ? 'Closing' : String(g.members);
   return {

@@ -15,7 +15,7 @@ import { drepGroupsAvailable } from '@/lib/groups/gate.js';
 import { groupsCardVersion } from '@/lib/og/groupsCard.js';
 import { sessionKeyHash } from '@/lib/auth/groupSigner.js';
 import { loginHref } from '@/lib/auth/postLoginDest.js';
-import { hostedAvatarHash, LISTED_RULE, memberCount, memberCountWords, modeLabel, modeShort, shortHash } from '@/lib/groups/view.js';
+import { hostedAvatarHash, LISTED_RULE, memberCount, memberCountWords, modeLabel, modeShort, shortGroupId, shortHash } from '@/lib/groups/view.js';
 
 const available = drepGroupsAvailable(currentNetwork().network);
 const db = env.DB as D1Database | undefined;
@@ -93,7 +93,7 @@ if (available) {
             const own = faces.get(g.groupId) ?? [];
             const author = {
               authorId: g.groupId,
-              displayName: g.name ?? shortHash(g.groupId),
+              displayName: g.name ?? shortGroupId(g.groupId),
               identiconSeed: g.groupId,
               imageHash: hostedAvatarHash(g.image),
             };
@@ -106,7 +106,7 @@ if (available) {
                       <span class="drep-table__ranksub">#{rank}</span>
                       <span class={`gr-pill${g.mode === 'permissioned' ? ' gr-pill--permissioned' : ''}`} title={modeLabel(g.mode)}>{modeShort(g.mode)}</span>
                       {g.status === 'dissolved' && <span class="gr-pill gr-pill--dissolved">Dissolved</span>}
-                      <code class="gr-sub__id" title={g.groupId}>{shortHash(g.groupId)}</code>
+                      <code class="gr-sub__id" title={g.groupId}>{shortGroupId(g.groupId)}</code>
                       <span class="gr-sub__members">{memberCount(g.members)}</span>
                       {g.websiteVerified && <span class="gr-sub__verified">Website verified</span>}
                     </span>

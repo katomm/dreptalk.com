@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { drepGroupsAvailable } from './gate.js';
 import { credentialForDrepId, drepIdForCredential, groupIdParam, groupIdString } from './ids.js';
+import { encodeBech32 } from '../crypto/bech32.js';
+import { hexToBytes } from '../crypto/hex.js';
 
 describe('drepGroupsAvailable', () => {
   it('is true on preprod and mainnet', () => {
@@ -33,6 +35,14 @@ describe('group ids', () => {
     const s = groupIdString(ref);
     expect(groupIdParam(s)).toEqual(ref);
     expect(groupIdParam(s.toUpperCase())).toEqual(ref);
+  });
+  it('reads the legacy group1 form as the same id', () => {
+    expect(groupIdString(ref).startsWith('drep_group1')).toBe(true);
+    const bytes = new Uint8Array(34);
+    bytes.set(hexToBytes(ref.txHash), 0);
+    bytes[33] = ref.index;
+    expect(groupIdParam(encodeBech32('group', bytes))).toEqual(ref);
+    expect(groupIdParam(encodeBech32('pool', bytes))).toBeNull();
   });
   it('returns null for garbage and undefined', () => {
     expect(groupIdParam('group1xyz')).toBeNull();

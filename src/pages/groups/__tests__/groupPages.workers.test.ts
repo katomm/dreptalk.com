@@ -29,7 +29,8 @@ vi.mock('@/lib/api/response', async (orig) => ({
   ...(await orig<typeof import('@/lib/api/response')>()),
   currentNetwork: () => ({ network: 'preprod', koiosBaseUrl: 'https://koios.invalid/api/v1' }),
 }));
-const SEEDED = 'group17rc0pu8s7rc0pu8s7rc0pu8s7rc0pu8s7rc0pu8s7rc0pu8s7rcqqqqwf5cvh';
+const SEEDED = 'drep_group17rc0pu8s7rc0pu8s7rc0pu8s7rc0pu8s7rc0pu8s7rc0pu8s7rcqqqqc6m8ss';
+const SEEDED_LEGACY = 'group17rc0pu8s7rc0pu8s7rc0pu8s7rc0pu8s7rc0pu8s7rc0pu8s7rcqqqqwf5cvh';
 const PERM_ID = groupIdString(PERM.ref);
 const OTHER_ID = groupIdString({ txHash: 'cd'.repeat(32), index: 0 });
 
@@ -58,6 +59,7 @@ describe('group detail lookup', () => {
     await seedTwoMemberGroup();
     const group = await getGroup(db, SEEDED.toUpperCase());
     expect(group?.groupId).toBe(SEEDED);
+    expect((await getGroup(db, SEEDED_LEGACY))?.groupId).toBe(SEEDED);
     expect(group?.members).toBe(2);
     expect(group?.profile?.name).toBe('Example Council');
     const listed = await listListedGroups(db, null, 50);
