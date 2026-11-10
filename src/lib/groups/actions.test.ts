@@ -27,6 +27,7 @@ import {
   neededPolicyKeys,
   neededPolicies,
   proposeDrift,
+  controlFrozen,
   proposeUpdate,
   resignFreezes,
   signerSetSatisfies,
@@ -516,6 +517,12 @@ describe('resigned admins', () => {
   it('keeps no key that resigned from control in the proposed update', () => {
     const s = state({ control: policy([ALICE, BOB, DAVE, ERIN], 3), admission: 'same', resignedControl: [BOB] });
     expect(proposeUpdate(s, [ALICE, BOB, DAVE, ERIN].map(keyId), [keyId(CAROL)]).keys).toEqual([K(ALICE), K(CAROL), K(DAVE), K(ERIN)]);
+  });
+
+  it('tells when the keys not resigned from control can no longer satisfy it', () => {
+    expect(controlFrozen(policy([ALICE, BOB, CAROL], 2), [K(ALICE)])).toBe(false);
+    expect(controlFrozen(policy([ALICE, BOB, CAROL], 2), [K(ALICE), K(BOB)])).toBe(true);
+    expect(controlFrozen(policy([ALICE], 1), [])).toBe(false);
   });
 
   it('tells when a resign leaves no remaining key able to satisfy the control policy', () => {

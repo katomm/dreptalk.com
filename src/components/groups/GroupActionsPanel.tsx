@@ -2,8 +2,8 @@
 // and leaving, the request queue of the admins with approve or remove and the offer to update the
 // management policy in the same transaction, removing active members, the notice when the policy
 // keys drifted from the members, and the policy editor with the resign of an admin. Keys that
-// resigned from a role stay in its script but count as admins of that role nowhere. Every action is built in the browser and
-// either completes in one wallet step or gives a link.
+// resigned from a role stay in its script but count as admins of that role nowhere. Every action
+// is built in the browser and either completes in one wallet step or gives a link.
 import { type Credential, evaluateNativeScript, type NativeScript } from 'drep-groups';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { CardanoNetwork } from '@/lib/config/network.js';
@@ -15,6 +15,7 @@ import {
   mayInitiate,
   neededKeys,
   proposeDrift,
+  controlFrozen,
   proposeUpdate,
   resignFreezes,
   sameSet,
@@ -259,7 +260,8 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
   const controlKeys = v.control.keys;
   // The drift compares the admins of control with the members that have not resigned from it.
   const policyMembers = [...memberKeys].filter((k) => !resignedControl.has(k.toLowerCase()));
-  const drift = v.mode === 'permissioned' && !sameSet(activeControl, policyMembers);
+  // A frozen group can take no policy update, so it shows no drift notice.
+  const drift = v.mode === 'permissioned' && state !== null && !controlFrozen(state.control, v.resignedControl) && !sameSet(activeControl, policyMembers);
   const notInPolicy = policyMembers.filter((k) => !activeControl.includes(k.toLowerCase()));
   const formerInPolicy = activeControl.filter((k) => !memberKeys.has(k));
   // Signer labels mark policy keys of DReps that are no longer members, applicants are not marked.

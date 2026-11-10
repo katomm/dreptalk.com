@@ -308,6 +308,20 @@ describe('GroupActions resigned admins', () => {
     expect(screen.queryByRole('button', { name: 'Resign as admin' })).toBeNull();
   });
 
+  it('shows no drift notice in a group whose control policy no remaining admin can satisfy', async () => {
+    // 1 of 1 where Alice resigned, Bob is still a member.
+    show(view({ control: policy([A], 1), admission: policy([A], 1), resignedControl: [A], resignedAdmission: [A], viewer: viewer(B, { joinId: `${'02'.repeat(32)}#1`, state: 'active' }) }));
+    expect(await screen.findByRole('button', { name: 'Leave' })).toBeTruthy();
+    expect(screen.queryByText(/still managed by/)).toBeNull();
+  });
+
+  it('shows no drift notice when the admins left cannot reach the threshold of a 2 of 3 policy', async () => {
+    const three = policy([A, B, C], 2);
+    show(view({ control: three, admission: three, activeKeyMembers: [member(B), member(C), member(D)], resignedControl: [A, B], resignedAdmission: [A, B], viewer: viewer(C, { joinId: `${'03'.repeat(32)}#1`, state: 'active' }) }));
+    expect(await screen.findByRole('button', { name: 'Leave' })).toBeTruthy();
+    expect(screen.queryByText(/still managed by/)).toBeNull();
+  });
+
   it('completes a resign in one wallet step with the key as its only signer', async () => {
     show(view({ control: policy([A, B, E], 2), admission: null, mode: 'open', viewer: viewer(A, ALICE_JOIN) }), [
       { url: /\/api\/groups\/actions$/, body: { id: 'z1' } },

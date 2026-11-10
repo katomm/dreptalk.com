@@ -148,15 +148,19 @@ export function mayResign(state: GroupState, key: string): boolean {
 const ALL_TIME_LOCKS = { invalidBefore: 2n ** 64n, invalidHereafter: 0n } as const;
 
 /**
- * Whether the control policy can no longer be satisfied once `key` resigns: the resigning key and
- * every key already resigned from control count as unable to sign, every other listed key as
- * signing, and time locks as met. Such a group is frozen, nobody can change or dissolve it.
+ * Whether the control policy can no longer be satisfied: every key resigned from control counts as
+ * unable to sign, every other listed key as signing, and time locks as met. Such a group is
+ * frozen, nobody can change or dissolve it.
  */
-export function resignFreezes(control: NativeScript, key: string, resignedControl: readonly string[]): boolean {
-  const out = resignedSet([...resignedControl, key]);
+export function controlFrozen(control: NativeScript, resignedControl: readonly string[]): boolean {
+  const out = resignedSet(resignedControl);
   const signers = new Set(policyKeys(control).filter((k) => !out.has(k)));
   return !evaluateNativeScript(control, { signers, ...ALL_TIME_LOCKS });
 }
+
+/** Whether the control policy is frozen once `key` resigns, on top of the keys already resigned. */
+export const resignFreezes = (control: NativeScript, key: string, resignedControl: readonly string[]): boolean =>
+  controlFrozen(control, [...resignedControl, key]);
 
 function leaveRef(intent: { member: string; join?: string }, joinMembers: Map<string, Credential>): EventRef {
   if (intent.join !== undefined) return parseJoinRef(intent.join);
