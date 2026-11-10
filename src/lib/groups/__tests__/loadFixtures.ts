@@ -13,8 +13,8 @@ import { INGEST } from '../store/queries.js';
 const MAX = Number.MAX_SAFE_INTEGER;
 
 // A minimal definite length CBOR encoder: unsigned integers, bytes, text, arrays, maps with uint keys,
-// booleans and null.
-export type Cbor = number | boolean | null | Uint8Array | string | Cbor[] | Map<number, Cbor>;
+// tags, booleans and null.
+export type Cbor = number | boolean | null | Uint8Array | string | Cbor[] | Map<number, Cbor> | { tag: number; value: Cbor };
 function head(out: number[], major: number, n: number): void {
   const m = major << 5;
   if (n < 24) out.push(m | n);
@@ -36,6 +36,9 @@ function put(out: number[], v: Cbor): void {
   } else if (Array.isArray(v)) {
     head(out, 4, v.length);
     for (const x of v) put(out, x);
+  } else if (!(v instanceof Map)) {
+    head(out, 6, v.tag);
+    put(out, v.value);
   } else {
     head(out, 5, v.size);
     for (const [k, x] of v) {

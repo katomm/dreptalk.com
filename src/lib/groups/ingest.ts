@@ -5,11 +5,12 @@
 // markers flagged by a rebuild. Only blocks DEPTH deep are read. Every step derives its work from
 // stored state and writes through the lease checked store functions, so a run that fails at any
 // point leaves every cursor matching what was stored and the next run continues from there.
-import type { ChainTx, Credential, LedgerInput, Recovery, TxPosition } from 'drep-groups';
+import type { ChainTx, Credential, LedgerInput, Recovery, TxIn, TxPosition } from 'drep-groups';
 import {
   credKey,
   decodePayload,
   decodeTransaction,
+  decodeTxRefs,
   GROUPS_LABEL,
   hexToBytes,
   LIBRARY_VERSION,
@@ -31,6 +32,7 @@ import {
   MAX_GATE_CHECKS_PER_RUN,
   MAX_HISTORY_BATCHES_PER_RUN,
   MAX_NEW_TXS_PER_RUN,
+  MAX_REF_SCRIPT_TXS_PER_RUN,
   MAX_REG_PAGES_PER_RUN,
   MAX_ROLLBACK_PROBES_PER_RUN,
   MAX_SCRIPT_SEARCH_FETCHES_PER_RUN,
@@ -47,6 +49,7 @@ import {
   markSolo,
   recordWitnessChecks,
   setKnown,
+  type WitnessCheck,
   type StoredLedgerRow,
   storeHistoryPage,
   storeLabelTxs,
@@ -137,7 +140,8 @@ const WITNESS_QUERIES =
   2 +
   per('witnessChecked', MAX_SCRIPT_SEARCH_ROWS_PER_RUN) +
   per('witnessFound', MAX_SCRIPT_SEARCH_ROWS_PER_RUN) +
-  per('witnessFailed', MAX_SCRIPT_SEARCH_ROWS_PER_RUN);
+  per('witnessFailed', MAX_SCRIPT_SEARCH_ROWS_PER_RUN) +
+  per('witnessProgress', MAX_SCRIPT_SEARCH_ROWS_PER_RUN);
 
 // A partial Koios answer never counts as complete: the run fails and the next one retries.
 function requireAll<T extends { tx_hash: string }>(hashes: string[], rows: T[], what: string): Map<string, T> {
@@ -498,9 +502,61 @@ async function readRegistrations(ctx: Ctx): Promise<void> {
   result.backlog = true;
 }
 
+/** A registration whose witness set holds no member script, searched in the reference scripts of its outputs. */
+interface RefSearch {
+  txHash: string;
+  certIndex: number;
+  credential: Credential;
+  /** The inputs and reference inputs of the registration, each pointing to one output. */
+  refs: TxIn[];
+  /** The sorted, deduplicated producing tx hashes. */
+  producers: string[];
+  pos: number;
+  /** The producing txs fetched this run, from pos on. */
+  batch: string[];
+}
+
+/** The script_ref of every output of a producing tx, none for a tx the decoder cannot read (Byron). */
+function outputScriptRefs(cbor: string): (Uint8Array | null)[] {
+  try {
+    return decodeTxRefs(hexToBytes(cbor)).outputScriptRefs;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The outcome of a reference script search over its batch. Only the output an input or reference
+ * input points to counts. A match counts even when Koios left out another tx of the batch. Without
+ * a match a left out tx fails the check, and the search ends with no witness only after the last
+ * producing tx was read.
+ */
+function refSearchOutcome(s: RefSearch, cbors: Map<string, string>): WitnessCheck {
+  const { txHash, certIndex } = s;
+  const outputs = new Map<string, (Uint8Array | null)[]>();
+  for (const h of s.batch) {
+    const cbor = cbors.get(h);
+    if (cbor !== undefined) outputs.set(h, outputScriptRefs(cbor));
+  }
+  const scriptRefs = s.refs.flatMap((r) => {
+    const ref = outputs.get(r.txHash)?.[r.index];
+    return ref ? [ref] : [];
+  });
+  const witness = memberScriptWitness(s.credential, [], scriptRefs)?.bytes ?? null;
+  if (witness !== null) return { txHash, certIndex, witness };
+  if (outputs.size < s.batch.length) {
+    console.warn(`[drep-groups] reference script search of ${txHash} failed, retried later`);
+    return { txHash, certIndex, failed: true };
+  }
+  const next = s.pos + s.batch.length;
+  return next >= s.producers.length ? { txHash, certIndex, witness: null } : { txHash, certIndex, refSearchPos: next };
+}
+
 /**
  * Pending reg rows of script credentials whose check is due, oldest retry first: the witness that
- * matches the credential, or none. A fetch that fails or leaves a tx out backs off.
+ * matches the credential, or none. The witness set comes first, then the reference scripts of the
+ * outputs the registration spends or references, MAX_REF_SCRIPT_TXS_PER_RUN producing txs per row
+ * and run. A fetch that fails or leaves a tx out backs off.
  */
 async function searchWitnesses(ctx: Ctx): Promise<void> {
   const { db, koios, lease, now, result } = ctx;
@@ -511,25 +567,46 @@ async function searchWitnesses(ctx: Ctx): Promise<void> {
   const fetched = new Set(hashes);
   const due = rows.filter((r) => fetched.has(hashFromCol(r.tx_hash)));
   const cbors = await cborsOf(koios, hashes);
-  const checks = due.map((r) => {
+  const checks: WitnessCheck[] = [];
+  const searches: RefSearch[] = [];
+  for (const r of due) {
     const txHash = hashFromCol(r.tx_hash);
     const certIndex = Number(r.cert_index);
     const cbor = cbors.get(txHash);
+    let search: RefSearch | null = null;
     if (cbor !== undefined) {
       try {
-        const tx = decodeTransaction(hexToBytes(cbor), { txHash, blockHeight: Number(r.block_height), txIndex: Number(r.tx_index) });
+        const bytes = hexToBytes(cbor);
+        const tx = decodeTransaction(bytes, { txHash, blockHeight: Number(r.block_height), txIndex: Number(r.tx_index) });
         const credential: Credential = credFromKey(credKeyFromCol(r.cred));
-        return { txHash, certIndex, witness: memberScriptWitness(credential, tx.witnessScripts)?.bytes ?? null };
+        const witness = memberScriptWitness(credential, tx.witnessScripts)?.bytes ?? null;
+        if (witness !== null) {
+          checks.push({ txHash, certIndex, witness });
+          continue;
+        }
+        const { inputs, referenceInputs } = decodeTxRefs(bytes);
+        const refs = [...inputs, ...referenceInputs];
+        const producers = [...new Set(refs.map((x) => x.txHash))].sort();
+        const pos = Number(r.ref_search_pos);
+        search = { txHash, certIndex, credential, refs, producers, pos, batch: producers.slice(pos, pos + MAX_REF_SCRIPT_TXS_PER_RUN) };
       } catch {
         // Unreadable CBOR backs off like a failed fetch.
       }
     }
-    console.warn(`[drep-groups] witness check of ${txHash} failed, retried later`);
-    return { txHash, certIndex, failed: true as const };
-  });
+    if (search === null) {
+      console.warn(`[drep-groups] witness check of ${txHash} failed, retried later`);
+      checks.push({ txHash, certIndex, failed: true });
+    } else if (search.batch.length === 0) checks.push({ txHash, certIndex, witness: null });
+    else searches.push(search);
+  }
+  if (searches.length > 0) {
+    const refCbors = await cborsOf(koios, [...new Set(searches.flatMap((s) => s.batch))]);
+    for (const s of searches) checks.push(refSearchOutcome(s, refCbors));
+  }
   await recordWitnessChecks(db, lease, checks, now);
   result.witnessChecks = checks.length;
-  if (rows.length === MAX_SCRIPT_SEARCH_ROWS_PER_RUN || due.length < rows.length) result.backlog = true;
+  const searching = checks.some((c) => 'refSearchPos' in c);
+  if (rows.length === MAX_SCRIPT_SEARCH_ROWS_PER_RUN || due.length < rows.length || searching) result.backlog = true;
 }
 
 /**

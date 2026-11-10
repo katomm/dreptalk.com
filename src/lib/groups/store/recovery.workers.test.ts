@@ -171,9 +171,10 @@ class Twin {
     const script = c.kind === 'script' && input.kind === 'reg';
     const row: StoredLedgerRow = {
       ...ledgerRow(c, input.kind, input.blockHeight, input.certIndex),
-      input: { ...input, witnessScripts: undefined },
+      input: { ...input, witnessScripts: undefined, referenceScripts: undefined },
       witnessState: script ? 'checked' : 'na',
-      witness: script ? (memberScriptWitness(c, input.witnessScripts)?.bytes ?? null) : null,
+      // The member script from the witness set or a reference script, as the library resolves it.
+      witness: script ? (memberScriptWitness(c, input.witnessScripts, input.referenceScripts)?.bytes ?? null) : null,
     };
     await storeLedgerRows(db, this.lease, [row], null);
   }

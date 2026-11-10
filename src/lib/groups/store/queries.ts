@@ -366,6 +366,11 @@ export const INGEST = Object.freeze({
     UPDATE drep_group_ledger SET witness_state = 'checked', witness = k.w
     FROM k WHERE drep_group_ledger.tx_hash = k.tx AND drep_group_ledger.cert_index = k.ix
       AND drep_group_ledger.witness_state = 'pending'`,
+  // A reference script search that is not done yet: the row stays pending at its next position.
+  witnessProgress: (n: number) => `WITH k(tx, ix, p) AS (VALUES ${values(3, n)})
+    UPDATE drep_group_ledger SET ref_search_pos = k.p
+    FROM k WHERE drep_group_ledger.tx_hash = k.tx AND drep_group_ledger.cert_index = k.ix
+      AND drep_group_ledger.witness_state = 'pending'`,
   // found is derived again from the checked rows of every credential named by the rows.
   witnessFound: (n: number) => `WITH k(tx, ix) AS (VALUES ${values(2, n)})
     UPDATE drep_group_tracked SET (found_h, found_ti, found_ph, found_ix, found_tx) = ${FIRST_WITNESS}
@@ -404,6 +409,7 @@ export const INGEST_WIDTH: Readonly<Record<keyof typeof INGEST, number>> = Objec
   witnessChecked: 3,
   witnessFound: 2,
   witnessFailed: 2,
+  witnessProgress: 3,
   insertAnchorRefs: 2,
   refetchFailed: 1,
   setTxTimes: 2,
@@ -1234,7 +1240,7 @@ export const Q = Object.freeze({
   },
   // Binds now and the limit. Pending reg rows whose witness check is due, in the order of the partial index.
   pendingWitnesses: {
-    sql: `SELECT tx_hash, cert_index, cred, block_height, tx_index FROM drep_group_ledger
+    sql: `SELECT tx_hash, cert_index, cred, block_height, tx_index, ref_search_pos FROM drep_group_ledger
           WHERE witness_state = 'pending' AND witness_retry_at <= ?
           ORDER BY witness_retry_at, block_height, tx_index, cert_index LIMIT ?`,
   },
