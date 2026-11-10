@@ -131,6 +131,10 @@ test('the founding wizard walks the alone and together paths to the review', asy
 test('an admin sees the request queue, the combined update offer, the policy editor and the dissolve confirmation', async ({ page, wallet, koios }) => {
   await signInAsSeededDrep(page, koios, wallet.drepId);
   const errors = pageErrors(page);
+  // The old id form answers with a permanent redirect to the canonical URL.
+  const old = await page.request.get(`/groups/${GROUP_OLD}/`, { maxRedirects: 0 });
+  expect(old.status()).toBe(301);
+  expect(new URL(old.headers().location ?? '', 'http://x').pathname).toBe(`/groups/${GROUP}/`);
   await page.goto(`/groups/${GROUP_OLD}/`);
   await page.waitForURL(`**/groups/${GROUP}/`);
   await waitForHydration(page);

@@ -13,7 +13,8 @@
 // backfill preprod and leave the groups phase no queries.
 //
 // The specs build on each other, in this order: found-solo, found-joint, join-request, admit,
-// leave, dissolve. Each takes one write run of its own (DREPTALK_E2E_CHAIN=write and the spec file).
+// leave, resign, dissolve. The resign also runs right after found-joint. Each takes one write run
+// of its own (DREPTALK_E2E_CHAIN=write and the spec file).
 // The founding specs give their group a name unique to the run and keep its id in
 // e2e/.chain-state.json (gitignored), where the later specs read it. E2E_SOLO_GROUP_ID and
 // E2E_JOINT_GROUP_ID override the file, for example to point the later specs at an older group.
@@ -47,7 +48,8 @@ export const CONFIRMING = 'The transaction is submitted and waiting for the chai
 
 /**
  * The groups of a run: `solo` is the throwaway group the solo founding creates and the dissolve
- * ends, `joint` the 2 of 3 group of accounts 0, 1 and 2 for the join request, admission and leave.
+ * ends, `joint` the 2 of 3 group of accounts 0, 1 and 2 for the join request, admission, leave and
+ * resign.
  */
 export type ChainGroupKind = 'solo' | 'joint';
 const GROUP_NAMES: Record<ChainGroupKind, string> = { solo: 'E2E test throwaway group (solo)', joint: 'E2E test joint group (2 of 3)' };
