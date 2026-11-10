@@ -15,10 +15,10 @@ import {
   unresolvedGroupActionsForDrep,
 } from '../../../lib/db/drepGroups.js';
 import { planOf } from '../../../lib/groups/__tests__/queryPlan.js';
-import { createGroupAction, type NewGroupAction } from '../../../lib/groups/actionStore.js';
+import { createGroupAction, type NewGroupAction, openControlAction } from '../../../lib/groups/actionStore.js';
 import { type GroupIntent, parseJoinRef } from '../../../lib/groups/actions.js';
 import { wallClockSlot } from '../../../lib/groups/groupTx.js';
-import { groupIdParam, groupIdString } from '../../../lib/groups/ids.js';
+import { groupIdForms, groupIdParam, groupIdString } from '../../../lib/groups/ids.js';
 import { GET as stateRoute } from '../../api/groups/[id]/state.js';
 import { ALICE, BOB, CAROL, call, DAVE, groupTx, PERM, seed, seedPermissioned, sessionOf } from '../../api/groups/actions/__tests__/fixtures.js';
 import seedSql from './twoMemberGroup.sql?raw';
@@ -31,6 +31,8 @@ vi.mock('@/lib/api/response', async (orig) => ({
 }));
 const SEEDED = 'drep_group17rc0pu8s7rc0pu8s7rc0pu8s7rc0pu8s7rc0pu8s7rc0pu8s7rcqqdh4wag';
 const SEEDED_LEGACY = 'group17rc0pu8s7rc0pu8s7rc0pu8s7rc0pu8s7rc0pu8s7rc0pu8s7rcqqqqwf5cvh';
+// The 34 byte `drep_group1` form the ids had before the one byte index.
+const SEEDED_TWO_BYTE = 'drep_group17rc0pu8s7rc0pu8s7rc0pu8s7rc0pu8s7rc0pu8s7rc0pu8s7rcqqqqc6m8ss';
 const PERM_ID = groupIdString(PERM.ref);
 const OTHER_ID = groupIdString({ txHash: 'cd'.repeat(32), index: 0 });
 
@@ -60,6 +62,8 @@ describe('group detail lookup', () => {
     const group = await getGroup(db, SEEDED.toUpperCase());
     expect(group?.groupId).toBe(SEEDED);
     expect((await getGroup(db, SEEDED_LEGACY))?.groupId).toBe(SEEDED);
+    // The group page answers a 301 to the canonical URL whenever the read id differs from the requested one.
+    expect((await getGroup(db, SEEDED_TWO_BYTE))?.groupId).toBe(SEEDED);
     expect(group?.members).toBe(2);
     expect(group?.profile?.name).toBe('Example Council');
     const listed = await listListedGroups(db, null, 50);
@@ -179,6 +183,38 @@ describe('group action readers', () => {
     expect(carol.map((r) => ({ id: r.id, groupId: r.groupId }))).toEqual([{ id: 'j1', groupId: PERM_ID }]);
     expect(await unresolvedGroupActionsForDrep(db, DAVE.drepId)).toEqual([]);
     expect(await unresolvedGroupActionsForDrep(db, 'garbage')).toEqual([]);
+  });
+
+  it('reads rows stored under an old group id form as the current id', async () => {
+    await seedPermissioned();
+    const [, twoByte, legacy] = groupIdForms(PERM.ref);
+    // A submitted approval stored with the legacy `group1` id as its subject and in its intent.
+    await createGroupAction(db, rec('old', { subjectId: legacy, intent: { kind: 'group_approve', group: legacy, joins: [PERM.carolJoin] }, requiredSigners: [CAROL.hash] }));
+    await db.prepare("UPDATE pending_multisig_tx SET status = 'submitted' WHERE id = 'old'").run();
+    // Carol's own leave whose intent names the group in the 34 byte `drep_group1` form.
+    const leave: GroupIntent = { kind: 'group_leave', group: twoByte, member: CAROL.drepId, join: PERM.carolJoin };
+    await createGroupAction(db, rec('l3', { kind: 'group_leave', subjectKind: 'member', subjectId: CAROL.drepId, intent: leave, requiredSigners: [CAROL.hash] }));
+
+    const group = await getGroup(db, PERM_ID);
+    if (!group) throw new Error('seeded group missing');
+    const s = await groupActionState(db, group, { drepId: CAROL.drepId });
+    expect(s.rows.map((r) => ({ id: r.id, status: r.status, groupId: r.groupId }))).toEqual([{ id: 'old', status: 'submitted', groupId: PERM_ID }]);
+    expect(s.viewerRows.map((r) => ({ id: r.id, groupId: r.groupId }))).toEqual([{ id: 'l3', groupId: PERM_ID }]);
+    const carol = await unresolvedGroupActionsForDrep(db, CAROL.drepId);
+    expect(carol.map((r) => ({ id: r.id, groupId: r.groupId })).sort((a, b) => a.id.localeCompare(b.id))).toEqual([
+      { id: 'l3', groupId: PERM_ID },
+      { id: 'old', groupId: PERM_ID },
+    ]);
+  });
+
+  it('lets an open control row stored under an old id form hold the slot', async () => {
+    await seedPermissioned();
+    const [, twoByte] = groupIdForms(PERM.ref);
+    const update = (id: string, group: string): NewGroupAction =>
+      rec(id, { kind: 'group_update', subjectId: group, intent: { kind: 'group_update', group, approvals: [] }, controlSlot: true, requiredSigners: [ALICE.hash] });
+    expect(await createGroupAction(db, update('u-old', twoByte))).toBe('created');
+    expect(await createGroupAction(db, update('u-new', PERM_ID))).toBe('slot taken');
+    expect((await openControlAction(db, PERM_ID))?.id).toBe('u-old');
   });
 
   it('reads the unresolved rows of a DRep through the subject and the unresolved indexes', async () => {

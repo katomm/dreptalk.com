@@ -30,7 +30,7 @@ import {
 } from '../groups/codec.js';
 import { openControlAction } from '../groups/actionStore.js';
 import { type ProfileFields, profileFieldsOfDoc } from '../groups/describe.js';
-import { credentialForDrepId, drepIdForCredential, groupIdParam, groupIdString } from '../groups/ids.js';
+import { canonicalGroupId, credentialForDrepId, drepIdForCredential, groupIdForms, groupIdParam, groupIdString } from '../groups/ids.js';
 import { picked } from '../groups/jobs.js';
 import { noKeys } from '../groups/preview.js';
 import { certPos, countedAs } from '../groups/store/commit.js';
@@ -644,13 +644,15 @@ export interface GroupActionRow {
 const ROW_COLS = `id, action, status, subject_kind, drep_id, control_slot, created_by, required_signers, created_at,
   action_params, json_extract(action_params, '$.group') AS grp, spent_seen_h`;
 
-// Binds the group id and the limit. Unresolved rows whose subject is the group, a create included.
+// Binds the three forms of the group id (groupIdForms) and the limit. Unresolved rows whose subject is the group, a
+// create included, whichever id form they were stored under.
 const GROUP_ROWS_SQL = `SELECT ${ROW_COLS} FROM pending_multisig_tx
-  WHERE subject_kind = 'group' AND drep_id = ? AND resolved_at IS NULL ORDER BY created_at DESC LIMIT ?`;
-// Binds the member DRep id, the group id and the limit. The member's own unresolved join and leave rows of the group.
+  WHERE subject_kind = 'group' AND drep_id IN (?1, ?2, ?3) AND resolved_at IS NULL ORDER BY created_at DESC LIMIT ?4`;
+// Binds the member DRep id, the three forms of the group id and the limit. The member's own unresolved join and leave
+// rows of the group.
 const MEMBER_ROWS_SQL = `SELECT ${ROW_COLS} FROM pending_multisig_tx
-  WHERE subject_kind = 'member' AND drep_id = ?1 AND resolved_at IS NULL AND json_extract(action_params, '$.group') = ?2
-  ORDER BY created_at DESC LIMIT ?3`;
+  WHERE subject_kind = 'member' AND drep_id = ?1 AND resolved_at IS NULL AND json_extract(action_params, '$.group') IN (?2, ?3, ?4)
+  ORDER BY created_at DESC LIMIT ?5`;
 /**
  * Binds the DRep id, its key hash (NULL for a script DRep) and the limit. Its own member rows, and
  * every unresolved group row that lists its key as a required signer, which covers a joint create
@@ -676,7 +678,8 @@ function actionRowFrom(r: Row): GroupActionRow {
     kind: String(r.action) as GroupActionKind,
     status: String(r.status) as GroupActionRow['status'],
     subjectKind,
-    groupId: subjectKind === 'group' ? String(r.drep_id) : String(r.grp ?? ''),
+    // Rows keep the id form they were stored with, the reader shows the current one.
+    groupId: canonicalGroupId(subjectKind === 'group' ? String(r.drep_id) : String(r.grp ?? '')),
     controlSlot: Number(r.control_slot) === 1,
     createdBy: String(r.created_by),
     requiredSigners: r.required_signers === null ? [] : (JSON.parse(String(r.required_signers)) as string[]),
@@ -733,12 +736,13 @@ export async function groupActionState(
   const hashes = [group.controlHash, ...(group.admissionHash ? [group.admissionHash] : [])];
   const cred = viewer.drepId ? credentialForDrepId(viewer.drepId) : null;
   const viewerCred = cred ? { kind: cred.kind, hash: cred.hash.toLowerCase() } : null;
+  const forms = groupIdForms(group.ref);
   const [displays, openControl, rows, viewerRows, active, pending, view] = await Promise.all([
     scriptDisplays(db, hashes),
     openControlAction(db, group.groupId),
-    db.prepare(GROUP_ROWS_SQL).bind(group.groupId, ACTION_ROWS_LIMIT).all<Row>(),
+    db.prepare(GROUP_ROWS_SQL).bind(...forms, ACTION_ROWS_LIMIT).all<Row>(),
     viewer.drepId
-      ? db.prepare(MEMBER_ROWS_SQL).bind(viewer.drepId, group.groupId, ACTION_ROWS_LIMIT).all<Row>()
+      ? db.prepare(MEMBER_ROWS_SQL).bind(viewer.drepId, ...forms, ACTION_ROWS_LIMIT).all<Row>()
       : Promise.resolve({ results: [] as Row[] }),
     listMembers(db, group.ref, 'active', null, ACTION_MEMBERS_LIMIT),
     listMembers(db, group.ref, 'pending', null, ACTION_MEMBERS_LIMIT),

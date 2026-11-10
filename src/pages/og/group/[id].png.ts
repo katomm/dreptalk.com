@@ -1,13 +1,14 @@
 // GET /og/group/:id.png
 //
 // Dynamic Open Graph card for one DRep group, rendered on demand and cached like the DRep card.
-// The image is the group's hosted image when DRepTalk stores it, else the identicon of the group
-// id, as on the group page. Answers 404 where groups do not run and for an unknown group.
+// The image is the group's hosted image when DRepTalk stores it, else the identicon of the group's
+// output reference, as on the group page. Answers 404 where groups do not run and for an unknown group.
 import type { APIRoute } from 'astro';
 import { currentNetwork, runtimeEnv } from '@/lib/api/response';
 import { getGroup } from '@/lib/db/drepGroups.js';
 import type { ImagesLike } from '@/lib/dreps/avatarStore.js';
 import { drepGroupsAvailable } from '@/lib/groups/gate';
+import { groupIdentSeed } from '@/lib/groups/ids.js';
 import { hostedAvatarHash } from '@/lib/groups/view.js';
 import { loadAvatar } from '@/lib/og/assets.js';
 import { groupCardModel } from '@/lib/og/groupCard.js';
@@ -27,7 +28,7 @@ export const GET: APIRoute = async ({ params, locals, request }) => {
   const imageHash = hostedAvatarHash(profile?.image);
 
   return renderOgCard(env.ASSETS as unknown as Fetcher, request.url, async () => {
-    const avatarDataUrl = await loadAvatar(env.AVATARS as R2Bucket | undefined, group.groupId, imageHash, env.IMAGES as ImagesLike | undefined);
+    const avatarDataUrl = await loadAvatar(env.AVATARS as R2Bucket | undefined, groupIdentSeed(group.ref), imageHash, env.IMAGES as ImagesLike | undefined);
     const model = groupCardModel(
       {
         groupId: group.groupId,

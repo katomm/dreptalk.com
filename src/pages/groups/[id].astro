@@ -37,7 +37,7 @@ import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import type { VitalCard } from '@/lib/analytics/hubView.js';
 import { GROUP_PAGE_SIZE, RETENTION_KEEP_APPLIED, RETENTION_KEEP_NOT_APPLIED } from '@/lib/groups/constants.js';
 import { drepGroupsAvailable } from '@/lib/groups/gate.js';
-import { addressNetwork } from '@/lib/groups/ids.js';
+import { addressNetwork, groupIdentSeed } from '@/lib/groups/ids.js';
 import { type HistoryKind, type ProfileFields, policyShape, policyWords, profileFieldsOfDoc } from '@/lib/groups/describe.js';
 import { historyEntries } from '@/lib/groups/history.js';
 import { CIRCLE_X_PATH, CLOCK_PATH, PENCIL_PATH, SHIELD_PATH, USER_CHECK_PATH, USER_MINUS_PATH, USER_PLUS_PATH, USER_X_PATH, USERS_PATH } from '@/lib/forum/icons.js';
@@ -65,7 +65,7 @@ const id = Astro.params.id ?? '';
 // Group ids are lowercase bech32, an uppercase spelling moves to the canonical URL.
 if (available && id !== id.toLowerCase()) return Astro.redirect(`/groups/${id.toLowerCase()}/${Astro.url.search}`, 301);
 const group = available && db ? await getGroup(db, id) : null;
-// A legacy `group1` id or another spelling moves to the canonical `drep_group1` URL.
+// An old 34 byte id (`group1` or `drep_group1`) or another spelling moves to the canonical URL.
 if (group && group.groupId !== id) return Astro.redirect(`/groups/${group.groupId}/${Astro.url.search}`, 301);
 if (group) {
   Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
@@ -202,7 +202,7 @@ const nextQuery = (kind: keyof typeof SECTION_TITLE, after: string): string => {
 };
 
 // Header and tiles. The image shows when DRepTalk hosts it, the page's CSP loads no other origin, so
-// a group without one shows the identicon of its id as a DRep without an image does.
+// a group without one shows the identicon of its output reference as a DRep without an image does.
 const avatarHash = hostedAvatarHash(profile?.image);
 const adminKeys = new Set([...admins].map((k) => k.toLowerCase()));
 const founded = group ? (group.createdTime ?? blockTimes.get(group.createdHeight) ?? null) : null;
@@ -304,7 +304,7 @@ const metaDescription = clipExcerpt(metaFull, 300);
 
     <header class="drep-hd">
       <span class="drep-hd__avatar">
-        <Avatar seed={group.groupId} imageHash={avatarHash} size={96} />
+        <Avatar seed={groupIdentSeed(group.ref)} imageHash={avatarHash} size={96} />
       </span>
       <div class="drep-hd__main">
         <div class="drep-hd__tags">

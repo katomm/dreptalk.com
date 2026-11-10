@@ -12,6 +12,7 @@ import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import { cacheControlForSynced, formatAda, formatAdaCompact } from '@/lib/forum/view.js';
 import { DREP_GROUPS_STANDARD_URL, GROUP_PAGE_SIZE, LISTED_MIN_MEMBERS } from '@/lib/groups/constants.js';
 import { drepGroupsAvailable } from '@/lib/groups/gate.js';
+import { groupIdentSeedOf } from '@/lib/groups/ids.js';
 import { groupsCardVersion } from '@/lib/og/groupsCard.js';
 import { sessionKeyHash } from '@/lib/auth/groupSigner.js';
 import { loginHref } from '@/lib/auth/postLoginDest.js';
@@ -94,7 +95,7 @@ if (available) {
             const author = {
               authorId: g.groupId,
               displayName: g.name ?? shortGroupId(g.groupId),
-              identiconSeed: g.groupId,
+              identiconSeed: groupIdentSeedOf(g.groupId),
               imageHash: hostedAvatarHash(g.image),
             };
             return (

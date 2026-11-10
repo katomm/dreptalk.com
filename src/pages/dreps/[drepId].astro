@@ -40,6 +40,7 @@ import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
 import { ogCardVersion } from '@/lib/og/version.js';
 import { currentNetwork } from '@/lib/api/response';
 import { drepGroupsAvailable } from '@/lib/groups/gate.js';
+import { groupIdentSeedOf } from '@/lib/groups/ids.js';
 import { ACTION_KIND_LABEL, ACTION_STATUS_LABEL, hostedAvatarHash, shortGroupId } from '@/lib/groups/view.js';
 import Avatar from '@/components/Avatar.astro';
 import CopyButton from '@/components/CopyButton.astro';
@@ -339,7 +340,7 @@ const profileSummary = drep
           </span>
           {groups.map((g) => (
             <a class="drep-hd__group" href={`/groups/${g.groupId}/`} title={g.groupId}>
-              <Avatar seed={g.groupId} imageHash={hostedAvatarHash(g.image)} size={16} />
+              <Avatar seed={groupIdentSeedOf(g.groupId)} imageHash={hostedAvatarHash(g.image)} size={16} />
               {g.name ?? shortGroupId(g.groupId)}
             </a>
           ))}
