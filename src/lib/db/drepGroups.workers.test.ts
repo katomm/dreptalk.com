@@ -263,7 +263,7 @@ describe('drepGroups readers: groups', () => {
     await seedInstance(1, 101, { member: 7, joined: 10, mode: 'permissioned', approved: 11 });
     await seedInstance(2, 102, { member: 7, joined: 10, closed: { at: 12, reason: 'left' }, counted: 'former' });
     await seedInstance(3, 103, { member: 7, joined: 10 });
-    expect(await groupsForDrep(db, drepOf(7), 20)).toEqual([{ groupId: idOf(1), name: 'Council', mode: 'permissioned' }]);
+    expect(await groupsForDrep(db, drepOf(7), 20)).toEqual([{ groupId: idOf(1), name: 'Council', image: null, mode: 'permissioned' }]);
     expect(await groupsForDrep(db, drepOf(8), 20)).toEqual([]);
   });
 

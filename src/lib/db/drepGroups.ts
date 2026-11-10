@@ -532,10 +532,10 @@ export async function pendingVerification(db: D1Database, group: EventRef): Prom
 }
 
 /** The active groups the DRep is an open member of, by group key. */
-export async function groupsForDrep(db: D1Database, drepId: string, limit: number): Promise<Array<{ groupId: string; name: string | null; mode: string }>> {
+export async function groupsForDrep(db: D1Database, drepId: string, limit: number): Promise<Array<{ groupId: string; name: string | null; image: string | null; mode: string }>> {
   return pageRead('DRep groups', [], async () => {
     const res = await db.prepare(Q.drepGroups.sql).bind(drepId, limit).all<Row>();
-    return (res.results ?? []).map((r) => ({ groupId: groupIdString(refFromCols(r.group_tx, r.group_ix)), name: optStr(r.name), mode: String(r.mode) }));
+    return (res.results ?? []).map((r) => ({ groupId: groupIdString(refFromCols(r.group_tx, r.group_ix)), name: optStr(r.name), image: optStr(r.image), mode: String(r.mode) }));
   });
 }
 
