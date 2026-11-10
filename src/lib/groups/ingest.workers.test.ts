@@ -3,7 +3,7 @@
 // runs with a fresh lease until it reports no more work, then the stored state is read.
 import { env } from 'cloudflare:test';
 import type { ChainInput, ChainTx, Credential, Recovery } from 'drep-groups';
-import { decodeTransaction, encodePayload, hexToBytes, LIBRARY_VERSION, RETENTION_FLOOR, refKey, replay } from 'drep-groups';
+import { bytesToHex, decodeTransaction, encodePayload, hexToBytes, LIBRARY_VERSION, RETENTION_FLOOR, refKey, replay } from 'drep-groups';
 import { describe, expect, it, vi } from 'vitest';
 import { type Allowance, allowance, countingDb, UNLIMITED } from '../sync/queryBudget.js';
 import {
@@ -27,11 +27,18 @@ import {
   txCbor,
 } from './__tests__/fixtures.js';
 import { comparableD1 } from './__tests__/engineFixtures.js';
-import { settle } from './__tests__/loadFixtures.js';
+import { cbor, settle } from './__tests__/loadFixtures.js';
 import { credBytes, hashBytes, hashFromCol, type Row } from './codec.js';
-import { DEPTH, ENGINE_BUDGET, MAX_REF_SCRIPT_TXS_PER_RUN, WITNESS_BACKOFF_BASE_MS } from './constants.js';
+import {
+  DEPTH,
+  ENGINE_BUDGET,
+  INGEST_QUERY_SHARE,
+  MAX_REF_SCRIPT_TXS_PER_RUN,
+  MAX_SCRIPT_SEARCH_ROWS_PER_RUN,
+  WITNESS_BACKOFF_BASE_MS,
+} from './constants.js';
 import { credentialForDrepId, drepIdForCredential } from './ids.js';
-import { checkLibraryVersion, type IngestResult, ingestDrepGroups } from './ingest.js';
+import { checkLibraryVersion, type IngestResult, ingestDrepGroups, WITNESS_QUERIES } from './ingest.js';
 import { acquireLease, invocationOwner, releaseLease } from './store/lease.js';
 import { storeLabelTxs } from './store/ingest.js';
 import { openRecovery } from './store/recovery.js';
@@ -505,11 +512,24 @@ describe('ingestDrepGroups: events and registrations', () => {
       expect((await ledgerOf(S))[0]).toMatchObject({ witness_state: 'checked', witness: null });
     });
 
-    it('reads no script from a producing transaction it cannot decode', async () => {
-      const P: FakeTx = { hash: T(0xa20), height: 110, index: 0, label: false, cbor: '80' };
+    it('reads no script from a Byron producing transaction', async () => {
+      // The Byron Tx as Koios serves it: [inputs, outputs, attributes], an address wrapped in tag 24.
+      const byron = bytesToHex(cbor([[[0, { tag: 24, value: cbor([hexToBytes(T(0xa30)), 0]) }]], [[[{ tag: 24, value: new Uint8Array([0xa0]) }, 0], 1_000_000]], new Map()]));
+      const P: FakeTx = { hash: T(0xa20), height: 110, index: 0, label: false, cbor: byron };
       await tick(chainWith([P, regTx({ inputs: [{ txHash: P.hash, index: 0 }] })]));
       expect((await ledgerOf(S))[0]).toMatchObject({ witness_state: 'checked', witness: null, witness_attempts: 0 });
       expect(await instanceOf(S)).toEqual([]);
+    });
+
+    it('backs off a producing transaction whose CBOR is malformed', async () => {
+      const good = txCbor({ outputs: [{ native: sig(K(0xa1)) }] });
+      const P: FakeTx = { hash: T(0xa20), height: 110, index: 0, label: false, cbor: good.slice(0, -2) };
+      const chain = chainWith([P, regTx({ inputs: [{ txHash: P.hash, index: 0 }] })]);
+      await tick(chain);
+      expect((await ledgerOf(S))[0]).toMatchObject({ witness_state: 'pending', witness_attempts: 1, ref_search_pos: 0, witness: null });
+      P.cbor = good;
+      await tick(chain, { now: WITNESS_BACKOFF_BASE_MS });
+      expect(new Uint8Array((await ledgerOf(S))[0].witness as ArrayBuffer)).toEqual(script.bytes);
     });
 
     it('backs off a producing transaction Koios leaves out and keeps the position', async () => {
@@ -812,5 +832,32 @@ describe('ingestDrepGroups: a finite allowance', () => {
     const next = await finite(c, 10_000);
     expect(next.starved).toEqual([]);
     expect(await comparableD1(db)).toEqual(snapshot);
+  });
+
+  it('keeps a full reference script search within its reserved queries', async () => {
+    // 50 script DReps, the most rows one search takes, registered in two txs whose 9 producing txs each hold no script.
+    const keys = Array.from({ length: MAX_SCRIPT_SEARCH_ROWS_PER_RUN }, (_, i) => K(0xc00 + i));
+    const creds = keys.map((k): Credential => ({ kind: 'script', hash: sigScript(k).hash }));
+    const producers = Array.from({ length: 18 }, (_, i): FakeTx => ({ hash: T(0xd10 + i), height: 90, index: i, label: false, cbor: txCbor({ outputs: [{}] }) }));
+    const regTxs = [0, 1].map((t): FakeTx => ({
+      hash: T(0xd00 + t),
+      height: 100,
+      index: t,
+      label: false,
+      cbor: txCbor({ inputs: producers.slice(9 * t, 9 * t + 9).map((p) => ({ txHash: p.hash, index: 0 })), outputs: [{}] }),
+    }));
+    const joins: FakeTx = { hash: T(0xd30), height: 110, index: 0, cbor: txCbor({ payload: payloadValue(creds.map((c) => ev.join(GROUP, c.hash, 'script'))) }) };
+    const regs = creds.map((c, i): FakeReg => ({ ...regRow(c, 'registered', T(0xd00 + (i % 2)), 100), index: i % 2, cert: Math.floor(i / 2) }));
+    const c: Chain = { tip: 200, txs: [create, ...producers, ...regTxs, joins], regs: [regM, ...regs] };
+    const log: Check[] = [];
+    const r = await finite(c, INGEST_QUERY_SHARE, log);
+    expect(r.starved).toEqual([]);
+    expect(r.witnessChecks).toBe(MAX_SCRIPT_SEARCH_ROWS_PER_RUN);
+    const rows = await all("SELECT ref_search_pos FROM drep_group_ledger WHERE witness_state = 'pending'");
+    expect(rows.map((x) => Number(x.ref_search_pos))).toEqual(Array(MAX_SCRIPT_SEARCH_ROWS_PER_RUN).fill(MAX_REF_SCRIPT_TXS_PER_RUN));
+    // The witness step spends no more than it reserved: from its check to the next step's check.
+    const at = log.findIndex((x) => x.cost === WITNESS_QUERIES);
+    expect(at).toBeGreaterThanOrEqual(0);
+    expect(log[at + 1].spent - log[at].spent).toBeLessThanOrEqual(WITNESS_QUERIES);
   });
 });

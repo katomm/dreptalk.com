@@ -17,6 +17,7 @@ import {
   memberScriptWitness,
   RETENTION_FLOOR,
 } from 'drep-groups';
+import { decode as decodeCbor } from 'cborg';
 import { chunked, D1_MAX_BINDS } from '../db/sql.js';
 import { type DrepRegistrationRow, KOIOS_PAGE_CAP, type MetalabelTxRow } from '../koios/client.js';
 import type { GovSyncKoios } from '../sync/phases/context.js';
@@ -135,7 +136,7 @@ const ledgerCost = (rows: number, creds: number): number =>
   1;
 const PROBE_QUERIES = 2 * MAX_ROLLBACK_PROBES_PER_RUN + 4;
 const GATE_QUERIES = 1 + 2 + per('setKnown', MAX_GATE_CHECKS_PER_RUN) + 1;
-const WITNESS_QUERIES =
+export const WITNESS_QUERIES =
   1 +
   2 +
   per('witnessChecked', MAX_SCRIPT_SEARCH_ROWS_PER_RUN) +
@@ -516,19 +517,38 @@ interface RefSearch {
   batch: string[];
 }
 
-/** The script_ref of every output of a producing tx, none for a tx the decoder cannot read (Byron). */
-function outputScriptRefs(cbor: string): (Uint8Array | null)[] {
+/**
+ * Whether bytes are a Byron tx. Koios serves one as the Byron Tx [inputs, outputs, attributes], a
+ * TxAux [Tx, witnesses] is accepted too: a well-formed array whose first item is an array. From
+ * Shelley on the first item is the body map. Byron txs carry tag 24 only.
+ */
+function isByronTx(bytes: Uint8Array): boolean {
   try {
-    return decodeTxRefs(hexToBytes(cbor)).outputScriptRefs;
+    const top: unknown = decodeCbor(bytes, { useMaps: true, tags: { 24: (d) => d() } });
+    return Array.isArray(top) && Array.isArray(top[0]);
   } catch {
-    return [];
+    return false;
+  }
+}
+
+/**
+ * The script_ref of every output of a producing tx. A Byron tx has none, since its outputs cannot
+ * carry scripts. Any other CBOR the decoder cannot read gives null, so the check fails and is
+ * retried instead of deciding that there is no script.
+ */
+function outputScriptRefs(cbor: string): (Uint8Array | null)[] | null {
+  const bytes = hexToBytes(cbor);
+  try {
+    return decodeTxRefs(bytes).outputScriptRefs;
+  } catch {
+    return isByronTx(bytes) ? [] : null;
   }
 }
 
 /**
  * The outcome of a reference script search over its batch. Only the output an input or reference
- * input points to counts. A match counts even when Koios left out another tx of the batch. Without
- * a match a left out tx fails the check, and the search ends with no witness only after the last
+ * input points to counts. A match counts even when Koios left out another tx of the batch or served
+ * one that cannot be read. Without a match such a tx fails the check, and the search ends with no witness only after the last
  * producing tx was read.
  */
 function refSearchOutcome(s: RefSearch, cbors: Map<string, string>): WitnessCheck {
@@ -536,7 +556,8 @@ function refSearchOutcome(s: RefSearch, cbors: Map<string, string>): WitnessChec
   const outputs = new Map<string, (Uint8Array | null)[]>();
   for (const h of s.batch) {
     const cbor = cbors.get(h);
-    if (cbor !== undefined) outputs.set(h, outputScriptRefs(cbor));
+    const refs = cbor === undefined ? null : outputScriptRefs(cbor);
+    if (refs !== null) outputs.set(h, refs);
   }
   const scriptRefs = s.refs.flatMap((r) => {
     const ref = outputs.get(r.txHash)?.[r.index];
