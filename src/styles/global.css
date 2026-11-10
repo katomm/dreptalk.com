@@ -877,7 +877,8 @@ a.drep-stat:focus-visible { outline: 2px solid var(--accent); outline-offset: 2p
   background: color-mix(in srgb, var(--c-neg) 12%, transparent);
 }
 .drep-hd__dot { width: 0.4rem; height: 0.4rem; border-radius: 50%; background: currentColor; flex: none; }
-.drep-hd__group { font-size: 0.75rem; padding: 0.125rem 0.5rem; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); text-decoration: none; }
+.drep-hd__group { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.75rem; padding: 0.125rem 0.5rem; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); text-decoration: none; }
+.drep-hd__group:has(.avatar) { padding-left: 0.2rem; }
 .drep-hd__group--pending { border-style: dashed; }
 .drep-hd__status--ok {
   color: var(--c-pos);

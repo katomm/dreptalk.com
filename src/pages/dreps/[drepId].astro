@@ -40,7 +40,7 @@ import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
 import { ogCardVersion } from '@/lib/og/version.js';
 import { currentNetwork } from '@/lib/api/response';
 import { drepGroupsAvailable } from '@/lib/groups/gate.js';
-import { ACTION_KIND_LABEL, ACTION_STATUS_LABEL, shortHash } from '@/lib/groups/view.js';
+import { ACTION_KIND_LABEL, ACTION_STATUS_LABEL, hostedAvatarHash, shortHash } from '@/lib/groups/view.js';
 import Avatar from '@/components/Avatar.astro';
 import CopyButton from '@/components/CopyButton.astro';
 import ShareButton from '@/components/ShareButton.astro';
@@ -338,7 +338,10 @@ const profileSummary = drep
             {statusLabel}
           </span>
           {groups.map((g) => (
-            <a class="drep-hd__group" href={`/groups/${g.groupId}/`} title={g.groupId}>{g.name ? `${g.name} · ${shortHash(g.groupId)}` : shortHash(g.groupId)}</a>
+            <a class="drep-hd__group" href={`/groups/${g.groupId}/`} title={g.groupId}>
+              <Avatar seed={g.groupId} imageHash={hostedAvatarHash(g.image)} size={16} />
+              {g.name ?? shortHash(g.groupId)}
+            </a>
           ))}
           {groupActions.map((a) => {
             const label = `${ACTION_KIND_LABEL[a.kind] ?? a.kind} · ${shortHash(a.groupId)} · ${ACTION_STATUS_LABEL[a.status] ?? a.status}`;

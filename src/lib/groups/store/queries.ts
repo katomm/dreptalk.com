@@ -1463,7 +1463,7 @@ export const Q = Object.freeze({
   },
   // Binds the DRep and the limit. Active groups the DRep is an open member of, by group key.
   drepGroups: {
-    sql: `SELECT i.group_tx, i.group_ix, g.mode, p.name FROM drep_group_instances i
+    sql: `SELECT i.group_tx, i.group_ix, g.mode, p.name, p.image FROM drep_group_instances i
           JOIN drep_groups g ON g.group_tx = i.group_tx AND g.group_ix = i.group_ix AND g.status = 'active' ${PROFILE_JOIN}
           WHERE i.drep_id = ? AND i.counted_as = 'open' ORDER BY i.group_tx, i.group_ix LIMIT ?`,
   },
