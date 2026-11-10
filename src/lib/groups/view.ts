@@ -75,6 +75,26 @@ export function activeAdminKeys(
   return new Set([...of(control, resignedControl), ...of(admission ?? [], resignedAdmission)]);
 }
 
+/**
+ * The management threshold tile. The value is the threshold of the control script as published on
+ * chain. Keys that resigned stay in that script, so the sub line counts the admins that remain. A
+ * frozen policy, which no remaining admin can satisfy, shows as Frozen even when its shape is not a
+ * flat list of keys. Null when there is nothing to show.
+ */
+export function thresholdTile(
+  shape: { n: number; keys: readonly string[] } | null,
+  resignedControl: readonly string[],
+  frozen: boolean,
+): { value: string; sub: string } | null {
+  if (frozen) return { value: 'Frozen', sub: 'No admin can reach the threshold' };
+  if (!shape) return null;
+  const value = `${shape.n} of ${shape.keys.length}`;
+  const out = new Set(resignedControl.map((k) => k.toLowerCase()));
+  const remaining = shape.keys.filter((k) => !out.has(k.toLowerCase())).length;
+  if (remaining === shape.keys.length) return { value, sub: 'admins must sign a change' };
+  return { value, sub: `${shape.n} of ${remaining} remaining ${remaining === 1 ? 'admin' : 'admins'} must sign a change` };
+}
+
 /** The first 8 and last 4 characters of a long hash or id. */
 export const shortHash = (h: string): string => truncateIdMiddle(h, 8, 4);
 /** Short form of a group id that keeps the `drep_group1` prefix and a few characters after it. */

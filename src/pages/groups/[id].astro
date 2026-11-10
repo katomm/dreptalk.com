@@ -36,6 +36,8 @@ import { buildBreadcrumbLd } from '@/lib/jsonld/breadcrumb.js';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import type { VitalCard } from '@/lib/analytics/hubView.js';
 import { GROUP_PAGE_SIZE, RETENTION_KEEP_APPLIED, RETENTION_KEEP_NOT_APPLIED } from '@/lib/groups/constants.js';
+import { controlFrozen } from '@/lib/groups/actions.js';
+import { scriptFromDisplayJson } from '@/lib/groups/codec.js';
 import { drepGroupsAvailable } from '@/lib/groups/gate.js';
 import { addressNetwork, groupIdentSeed } from '@/lib/groups/ids.js';
 import { type HistoryKind, type PolicyKeyPart, type ProfileFields, policyKeyPart, policyKeyParts, policyShape, policyWords, profileFieldsOfDoc } from '@/lib/groups/describe.js';
@@ -57,6 +59,7 @@ import {
   shortGroupId,
   shortHash,
   statusNoteLabel,
+  thresholdTile,
 } from '@/lib/groups/view.js';
 
 const net = currentNetwork();
@@ -217,7 +220,10 @@ const foundedText =
     : group
       ? `Block ${group.createdHeight}`
       : '';
-const threshold = policyShape(control);
+// A control policy that no remaining admin can satisfy freezes the group. A script whose display
+// is cut at the depth limit cannot be judged and counts as not frozen.
+const controlScript = group ? scriptFromDisplayJson(displays.get(group.controlHash) ?? '') : null;
+const threshold = group ? thresholdTile(policyShape(control), group.resignedControl, controlScript !== null && controlFrozen(controlScript, group.resignedControl)) : null;
 const statCards: VitalCard[] = group
   ? [
       {
@@ -235,7 +241,7 @@ const statCards: VitalCard[] = group
       },
       { label: 'Founded', value: foundedText, icon: 'calendar', alt: true },
       ...(threshold
-        ? [{ label: 'Management threshold', value: `${threshold.n} of ${threshold.keys.length}`, icon: 'shield' as const, sub: 'admins must sign a change', alt: true }]
+        ? [{ label: 'Management threshold', value: threshold.value, icon: 'shield' as const, sub: threshold.sub, alt: true }]
         : []),
     ]
   : [];

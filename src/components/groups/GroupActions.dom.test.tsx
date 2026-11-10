@@ -322,6 +322,34 @@ describe('GroupActions resigned admins', () => {
     expect(screen.queryByText(/still managed by/)).toBeNull();
   });
 
+  it('gives no freeze warning for an admission only resign while control is already frozen', async () => {
+    // Control 1 of 1 where Alice resigned, Bob still holds the admission role.
+    show(view({ control: policy([A], 1), admission: policy([B], 1), resignedControl: [A], viewer: viewer(B, { joinId: `${'02'.repeat(32)}#1`, state: 'active' }) }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage the group' }));
+    expect(screen.getByRole('heading', { name: 'Resign as admin' })).toBeTruthy();
+    expect(screen.getByText(/Your key stops counting as admin/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Review and sign' }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByText(/Nobody will be able to change or dissolve/)).toBeNull();
+    expect(screen.queryByText(/Type the group name/)).toBeNull();
+  });
+
+  it('offers no update and no dissolve once the control policy is frozen, only the resign', async () => {
+    // 2 of 3 where Bob and Carol resigned: Alice alone cannot reach the threshold.
+    const three = policy([A, B, C], 2);
+    show(view({ control: three, admission: three, resignedControl: [B, C], resignedAdmission: [B, C], viewer: viewer(A, { joinId: `${'01'.repeat(32)}#1`, state: 'active' }) }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage the group' }));
+    expect(screen.getByRole('heading', { name: 'Resign as admin' })).toBeTruthy();
+    for (const name of ['Edit the profile', 'Change admins or threshold', 'Dissolve the group']) expect(screen.queryByRole('button', { name })).toBeNull();
+    expect(screen.queryByText(/Nobody will be able to change or dissolve/)).toBeNull();
+  });
+
+  it('offers update and dissolve next to the resign while the control policy is not frozen', async () => {
+    const three = policy([A, B, C], 2);
+    show(view({ control: three, admission: three, resignedControl: [C], resignedAdmission: [C], viewer: viewer(A, { joinId: `${'01'.repeat(32)}#1`, state: 'active' }) }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage the group' }));
+    for (const name of ['Edit the profile', 'Change admins or threshold', 'Dissolve the group', 'Resign as admin']) expect(screen.getByRole('button', { name })).toBeTruthy();
+  });
+
   it('completes a resign in one wallet step with the key as its only signer', async () => {
     show(view({ control: policy([A, B, E], 2), admission: null, mode: 'open', viewer: viewer(A, ALICE_JOIN) }), [
       { url: /\/api\/groups\/actions$/, body: { id: 'z1' } },

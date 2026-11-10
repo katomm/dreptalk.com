@@ -248,11 +248,13 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
   // The same initiation rule as the server, so no control is offered that the server would refuse.
   const session = { keyHash: viewerKey, drepId: viewerDrep };
   const allowed = (intent: GroupIntent): boolean => state !== null && mayInitiate(intent, state, session);
+  // A frozen control policy takes no update and no dissolve, no remaining admin can satisfy it.
+  const frozen = state !== null && controlFrozen(state.control, v.resignedControl);
   const canApprove = allowed({ kind: 'group_approve', group: v.groupId, joins: [] });
   const canRemove = allowed({ kind: 'group_remove', group: v.groupId, joins: [] });
-  const canUpdate = allowed({ kind: 'group_update', group: v.groupId, approvals: [] });
+  const canUpdate = !frozen && allowed({ kind: 'group_update', group: v.groupId, approvals: [] });
   // Only whether approvals are present decides the policies a combined update needs.
-  const canCombined = allowed({ kind: 'group_update', group: v.groupId, approvals: [ANY_JOIN] });
+  const canCombined = !frozen && allowed({ kind: 'group_update', group: v.groupId, approvals: [ANY_JOIN] });
   // A key that may only open the combined update approves with the update, without a decline.
   const updateForced = !canApprove && canCombined;
   const useUpdate = offer !== null && !v.openControl && offer.ticked.length > 0 && canCombined && (withUpdate || updateForced);
@@ -261,7 +263,7 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
   // The drift compares the admins of control with the members that have not resigned from it.
   const policyMembers = [...memberKeys].filter((k) => !resignedControl.has(k.toLowerCase()));
   // A frozen group can take no policy update, so it shows no drift notice.
-  const drift = v.mode === 'permissioned' && state !== null && !controlFrozen(state.control, v.resignedControl) && !sameSet(activeControl, policyMembers);
+  const drift = v.mode === 'permissioned' && state !== null && !frozen && !sameSet(activeControl, policyMembers);
   const notInPolicy = policyMembers.filter((k) => !activeControl.includes(k.toLowerCase()));
   const formerInPolicy = activeControl.filter((k) => !memberKeys.has(k));
   // Signer labels mark policy keys of DReps that are no longer members, applicants are not marked.
@@ -301,11 +303,12 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
           invalidHereafter: null,
         })
       : false;
-  const canDissolve = allowed({ kind: 'group_dissolve', group: v.groupId });
+  const canDissolve = !frozen && allowed({ kind: 'group_dissolve', group: v.groupId });
   // A resign row links only for its own key, so a linked one is the viewer's own resign in progress.
   const ownResignOpen = v.rows.some((r) => r.kind === 'group_resign' && r.id !== null && r.status !== 'cancelled');
   const resignKey = viewerKey !== null && !ownResignOpen && allowed({ kind: 'group_resign', group: v.groupId, key: viewerKey }) ? viewerKey : null;
-  const freezes = state !== null && resignKey !== null && resignFreezes(state.control, resignKey, v.resignedControl);
+  // Only a resign that turns a group frozen warns, an admission only resign in a frozen group does not.
+  const freezes = state !== null && resignKey !== null && !frozen && resignFreezes(state.control, resignKey, v.resignedControl);
   const canManage = canUpdate || resignKey !== null;
   // Active members the viewer may remove, the viewer's own membership ends with Leave instead.
   const removable =
