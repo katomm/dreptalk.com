@@ -79,12 +79,14 @@ export interface PolicyEditorProps {
   groupId: string;
   /** Threshold of the current control policy. */
   current: { n: number; k: number };
+  /** Every key of the control policy, the keys that resigned from control included. */
   controlKeys: string[];
-  /** Keys that resigned from control: listed in the policy, but not ticked as admins of a new one. */
-  resignedControl: string[];
   /** The admission policy is the control policy and follows it. */
   sameAdmission: boolean;
-  /** Every key of the current policies, a key outside them is newly listed. */
+  /**
+   * The control keys that have not resigned from control. They start ticked, and a key outside
+   * them is newly listed.
+   */
   listed: Set<string>;
   memberKeys: string[];
   nameOf: (key: string) => string;
@@ -114,10 +116,9 @@ type Task = 'profile' | 'policy' | 'dissolve' | 'resign';
 export default function PolicyEditor(props: PolicyEditorProps) {
   const { groupId, current, controlKeys, sameAdmission, listed, memberKeys, slotHeld, canUpdate, canDissolve, resignKey, onContinue, onClose } = props;
   const [task, setTask] = useState<Task>(!canUpdate ? 'resign' : props.initial ? 'policy' : 'profile');
-  const [proposal, setProposal] = useState<Proposal>(() => {
-    const resigned = new Set(props.resignedControl.map((k) => k.toLowerCase()));
-    return props.initial ?? { keys: uniq([...controlKeys, ...memberKeys]), ticked: uniq(controlKeys).filter((k) => !resigned.has(k)), n: current.n, sameAdmission };
-  });
+  const [proposal, setProposal] = useState<Proposal>(
+    () => props.initial ?? { keys: uniq([...controlKeys, ...memberKeys]), ticked: uniq(controlKeys).filter((k) => listed.has(k)), n: current.n, sameAdmission },
+  );
   const [typedName, setTypedName] = useState('');
   const [added, setAdded] = useState<Map<string, string>>(new Map());
   const [profile, setProfile] = useState(profileDraftOf(props.profile));

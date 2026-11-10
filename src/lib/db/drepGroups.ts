@@ -748,7 +748,7 @@ export async function groupActionState(
   const forms = groupIdForms(group.ref);
   const [displays, openControl, rows, viewerRows, active, pending, view] = await Promise.all([
     scriptDisplays(db, hashes),
-    openControlAction(db, group.groupId),
+    openControlAction(db, forms),
     db.prepare(GROUP_ROWS_SQL).bind(...forms, ACTION_ROWS_LIMIT).all<Row>(),
     viewer.drepId
       ? db.prepare(MEMBER_ROWS_SQL).bind(viewer.drepId, ...forms, ACTION_ROWS_LIMIT).all<Row>()

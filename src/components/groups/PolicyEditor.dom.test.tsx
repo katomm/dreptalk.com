@@ -54,7 +54,6 @@ function editor(o: Partial<PolicyEditorProps> = {}, replies: Reply[] = []) {
       groupId={GID}
       current={{ n: 1, k: 2 }}
       controlKeys={[A, B]}
-      resignedControl={[]}
       sameAdmission
       listed={new Set([A, B])}
       memberKeys={[A, B]}
@@ -176,7 +175,7 @@ describe('PolicyEditor management policy', () => {
   });
 
   it('offers a key that resigned from control without ticking it', () => {
-    editor({ resignedControl: [B], listed: new Set([A]) });
+    editor({ listed: new Set([A]) });
     fireEvent.click(screen.getByRole('button', { name: 'Change admins or threshold' }));
     expect((screen.getByRole('checkbox', { name: 'Alice' }) as HTMLInputElement).checked).toBe(true);
     const bob = screen.getByRole('checkbox', { name: 'Bob' }) as HTMLInputElement;

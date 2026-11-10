@@ -57,6 +57,21 @@ export function policyKeyHashes(s: ScriptView | null): string[] {
   return 'children' in s ? s.children.flatMap(policyKeyHashes) : [];
 }
 
+/** The keys that resigned from a role as a set, lowercased once here. Absent reads as none. */
+export const resignedSet = (resigned: readonly string[] | undefined): Set<string> => new Set((resigned ?? []).map((k) => k.toLowerCase()));
+
+/** Whether the key resigned from the role. */
+export const hasResigned = (resigned: readonly string[], key: string): boolean => resignedSet(resigned).has(key.toLowerCase());
+
+/**
+ * The keys that have not resigned from the role, in their order and spelling. The resigned keys
+ * come as a list or as a set that resignedSet built.
+ */
+export function withoutResigned(keys: readonly string[], resigned: readonly string[] | ReadonlySet<string> | undefined): string[] {
+  const out = resigned instanceof Set ? resigned : resignedSet(resigned as readonly string[] | undefined);
+  return keys.filter((k) => !out.has(k.toLowerCase()));
+}
+
 /**
  * The admins of a group: the keys of the control and the admission policy, each without the keys
  * that resigned from that role. A resigned key stays in the script until the role's policy is
@@ -68,10 +83,7 @@ export function activeAdminKeys(
   resignedControl: readonly string[],
   resignedAdmission: readonly string[],
 ): Set<string> {
-  const of = (keys: readonly string[], resigned: readonly string[]) => {
-    const out = new Set(resigned.map((k) => k.toLowerCase()));
-    return keys.map((k) => k.toLowerCase()).filter((k) => !out.has(k));
-  };
+  const of = (keys: readonly string[], resigned: readonly string[]) => withoutResigned(keys.map((k) => k.toLowerCase()), resigned);
   return new Set([...of(control, resignedControl), ...of(admission ?? [], resignedAdmission)]);
 }
 
@@ -89,8 +101,7 @@ export function thresholdTile(
   if (frozen) return { value: 'Frozen', sub: 'No admin can reach the threshold' };
   if (!shape) return null;
   const value = `${shape.n} of ${shape.keys.length}`;
-  const out = new Set(resignedControl.map((k) => k.toLowerCase()));
-  const remaining = shape.keys.filter((k) => !out.has(k.toLowerCase())).length;
+  const remaining = withoutResigned(shape.keys, resignedControl).length;
   if (remaining === shape.keys.length) return { value, sub: 'admins must sign a change' };
   return { value, sub: `${shape.n} of ${remaining} remaining ${remaining === 1 ? 'admin' : 'admins'} must sign a change` };
 }

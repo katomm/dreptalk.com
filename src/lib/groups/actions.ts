@@ -28,7 +28,7 @@ import {
 import { scriptDisplayJson } from './codec.js';
 import { credentialForDrepId, groupIdParam } from './ids.js';
 import { type GroupChanges, noChanges } from './describe.js';
-import { type ScriptView, scriptFromJson } from './view.js';
+import { resignedSet, type ScriptView, scriptFromJson, withoutResigned } from './view.js';
 
 type Policy = NativeScript & { hash: string };
 
@@ -139,7 +139,7 @@ function founderCredentials(founders: string[]): Credential[] {
 export function mayResign(state: GroupState, key: string): boolean {
   const k = key.toLowerCase();
   if (state.status !== 'active') return false;
-  const listed = (p: NativeScript | null, resigned: readonly string[]) => !!p && policyKeys(p).includes(k) && !resignedSet(resigned).has(k);
+  const listed = (p: NativeScript | null, resigned: readonly string[]) => !!p && withoutResigned(policyKeys(p), resigned).includes(k);
   return listed(state.control, state.resignedControl) || listed(state.admission, state.resignedAdmission);
 }
 
@@ -153,8 +153,7 @@ const ALL_TIME_LOCKS = { invalidBefore: 2n ** 64n, invalidHereafter: 0n } as con
  * frozen, nobody can change or dissolve it.
  */
 export function controlFrozen(control: NativeScript, resignedControl: readonly string[]): boolean {
-  const out = resignedSet(resignedControl);
-  const signers = new Set(policyKeys(control).filter((k) => !out.has(k)));
+  const signers = new Set(withoutResigned(policyKeys(control), resignedControl));
   return !evaluateNativeScript(control, { signers, ...ALL_TIME_LOCKS });
 }
 
@@ -282,8 +281,6 @@ interface RolePolicy {
   resigned: Set<string>;
 }
 
-const resignedSet = (keys: readonly string[] | undefined): Set<string> => new Set((keys ?? []).map((k) => k.toLowerCase()));
-
 function neededRoles(intent: GroupIntent, state: GroupState | null, memberScript: NativeScript | null): RolePolicy[] {
   const p = neededPolicies(intent, state, memberScript);
   const roles: RolePolicy[] = [];
@@ -294,7 +291,7 @@ function neededRoles(intent: GroupIntent, state: GroupState | null, memberScript
 }
 
 /** Listed keys of the role's policy that have not resigned from the role, the keys whose signature counts. */
-const activeKeys = (r: RolePolicy): string[] => policyKeys(r.script).filter((k) => !r.resigned.has(k));
+const activeKeys = (r: RolePolicy): string[] => withoutResigned(policyKeys(r.script), r.resigned);
 
 /**
  * Keys the new policy of a role lists and its current policy does not, a key that resigned from
@@ -302,7 +299,7 @@ const activeKeys = (r: RolePolicy): string[] => policyKeys(r.script).filter((k) 
  */
 function newToRole(next: NativeScript | undefined, current: NativeScript | null, resigned: readonly string[]): string[] {
   if (!next) return [];
-  const listed = new Set(current ? activeKeys({ script: current, resigned: resignedSet(resigned) }) : []);
+  const listed = new Set(current ? withoutResigned(policyKeys(current), resigned) : []);
   return policyKeys(next).filter((k) => !listed.has(k));
 }
 
@@ -431,8 +428,7 @@ export function signerSetSatisfies(
   const set = new Set(signers.map((s) => s.toLowerCase()));
   if (memberCredentialOf(intent)?.kind === 'script' && !memberScript) return false;
   for (const r of neededRoles(intent, state, memberScript)) {
-    const counted = r.resigned.size === 0 ? set : new Set([...set].filter((k) => !r.resigned.has(k)));
-    const ctx = { signers: counted, invalidBefore: interval.invalidBefore, invalidHereafter: interval.invalidHereafter };
+    const ctx = { signers: new Set(withoutResigned([...set], r.resigned)), invalidBefore: interval.invalidBefore, invalidHereafter: interval.invalidHereafter };
     if (!evaluateNativeScript(r.script, ctx)) return false;
   }
   return neededKeys(intent, state, memberScript).mandatory.every((k) => set.has(k));
@@ -679,10 +675,10 @@ function proposal(state: GroupState, keys: string[]): { keys: string[]; n: numbe
  */
 export function proposeUpdate(state: GroupState, activeKeyMembers: string[], approved: string[]): { keys: string[]; n: number; sameAdmission: boolean } {
   const active = new Set(keyMembers(activeKeyMembers));
-  const resigned = resignedSet(state.resignedControl);
-  const kept = collectKeyHashes(state.control)
-    .map((k) => k.toLowerCase())
-    .filter((k) => active.has(k) && !resigned.has(k));
+  const kept = withoutResigned(
+    collectKeyHashes(state.control).map((k) => k.toLowerCase()),
+    state.resignedControl,
+  ).filter((k) => active.has(k));
   return proposal(state, uniq([...kept, ...keyMembers(approved)]));
 }
 

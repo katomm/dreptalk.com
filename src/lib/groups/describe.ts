@@ -61,31 +61,29 @@ export function policyWords(s: ScriptView | null, names: Names): string {
   return `${ratio(p)}: ${wordList(p.keys.map((k) => keyLabel(k, names)))}`;
 }
 
-/** An admin key of a policy for display: its label, the DRep page it links to and whether it resigned from the role. */
+/** An admin key of a policy for display: its label and the DRep page it links to. */
 export interface PolicyKeyPart {
   key: string;
   label: string;
   /** The DRep profile of the key credential, null when no DRep with a name has it. */
   href: string | null;
-  resigned: boolean;
 }
 
 /**
  * A flat policy as its threshold and its keys, each named and linked as the DRep with the same key
- * credential where one is known, and marked when it resigned from the role. Null for a nested or
- * time locked policy, which `policyWords` describes in full.
+ * credential where one is known. Null for a nested or time locked policy, which `policyWords`
+ * describes in full.
  */
-export function policyKeyParts(s: ScriptView | null, names: Names, resigned: readonly string[]): { ratio: string; keys: PolicyKeyPart[] } | null {
+export function policyKeyParts(s: ScriptView | null, names: Names): { ratio: string; keys: PolicyKeyPart[] } | null {
   const p = policyShape(s);
   if (!p) return null;
-  const out = new Set(resigned.map((k) => k.toLowerCase()));
-  return { ratio: ratio(p), keys: p.keys.map((key) => policyKeyPart(key, names, out.has(key))) };
+  return { ratio: ratio(p), keys: p.keys.map((key) => policyKeyPart(key, names)) };
 }
 
 /** One admin key for display, named and linked as the DRep with the same key credential where one is known. */
-export function policyKeyPart(key: string, names: Names, resigned: boolean): PolicyKeyPart {
+export function policyKeyPart(key: string, names: Names): PolicyKeyPart {
   const k = key.toLowerCase();
-  return { key: k, label: keyLabel(k, names), href: names.has(k) ? `/dreps/${drepIdForCredential({ kind: 'key', hash: k })}/` : null, resigned };
+  return { key: k, label: keyLabel(k, names), href: names.has(k) ? `/dreps/${drepIdForCredential({ kind: 'key', hash: k })}/` : null };
 }
 
 /**

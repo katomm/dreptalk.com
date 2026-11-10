@@ -8,6 +8,7 @@ import { collectKeyHashes, parseNativeScript, refKey } from 'drep-groups';
 import { type GroupNotification, insertGroupNotifications, ROWS_PER_STATEMENT } from '../db/groupNotifications.js';
 import { D1_MAX_BINDS } from '../db/sql.js';
 import { bytesFromCol, hashListFromCol, refBinds, refFromCols, type Row } from './codec.js';
+import { withoutResigned } from './view.js';
 import { JOIN_NOTIFY_PER_TICK } from './constants.js';
 import { drepIdForCredential, groupIdString } from './ids.js';
 import { statementsFor } from './resolve.js';
@@ -44,8 +45,7 @@ interface PendingJoin {
 function keyDreps(policy: unknown, resigned: unknown): string[] {
   const script = policy === null ? null : parseNativeScript(bytesFromCol(policy));
   if (!script) return [];
-  const gone = new Set(resigned === null ? [] : hashListFromCol(resigned));
-  return [...new Set(collectKeyHashes(script))].filter((hash) => !gone.has(hash)).map((hash) => drepIdForCredential({ kind: 'key', hash }));
+  return withoutResigned([...new Set(collectKeyHashes(script))], hashListFromCol(resigned)).map((hash) => drepIdForCredential({ kind: 'key', hash }));
 }
 
 async function accountsByDrep(db: D1Database, dreps: string[]): Promise<Map<string, string[]>> {

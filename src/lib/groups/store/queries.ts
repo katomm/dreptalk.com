@@ -1153,12 +1153,13 @@ export const Q = Object.freeze({
   // roles that list it and the resigned keys of each role.
   groupsForPolicyKey: {
     // One OR over the two policy indexes, so each group comes back once without a sort for a UNION.
-    sql: `SELECT g.group_tx, g.group_ix, g.resigned_control, g.resigned_admission,
-            g.control IN (SELECT script FROM drep_group_policy_keys WHERE key = ?1) AS in_control,
-            coalesce(g.admission IN (SELECT script FROM drep_group_policy_keys WHERE key = ?1), 0) AS in_admission
+    // The scripts that list the key are named once, SQLite expands each use into the same subquery.
+    sql: `WITH k AS (SELECT script FROM drep_group_policy_keys WHERE key = ?1)
+          SELECT g.group_tx, g.group_ix, g.resigned_control, g.resigned_admission,
+            g.control IN k AS in_control,
+            coalesce(g.admission IN k, 0) AS in_admission
           FROM drep_groups g
-          WHERE (g.control IN (SELECT script FROM drep_group_policy_keys WHERE key = ?1)
-             OR g.admission IN (SELECT script FROM drep_group_policy_keys WHERE key = ?1))
+          WHERE (g.control IN k OR g.admission IN k)
             AND g.status = 'active'
           LIMIT 100`,
   },

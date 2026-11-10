@@ -27,7 +27,7 @@ import { libraryScript, scriptFromDisplayJson } from '@/lib/groups/codec.js';
 import { credentialForDrepId, drepIdForCredential, groupIdParam } from '@/lib/groups/ids.js';
 import { describeAction, type GroupChanges } from '@/lib/groups/describe.js';
 import type { GroupProfileInput } from '@/lib/groups/profileDocs.js';
-import { activeAdminKeys, shortHash } from '@/lib/groups/view.js';
+import { activeAdminKeys, resignedSet, shortHash, withoutResigned } from '@/lib/groups/view.js';
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { readableError } from '@/lib/wallet/walletError.js';
 import { afterLock, DraftPanel, lockBound, type Outcome, OutcomeNotice, SLOT_HELD, useActionRunner } from './actionFlow.js';
@@ -112,9 +112,10 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
   // Every key the policies list, resigned ones included, and the admins among them.
   const policyKeys = useMemo(() => new Set([...v.control.keys, ...(v.admission?.keys ?? [])]), [v]);
   const admins = useMemo(() => activeAdminKeys(v.control.keys, v.admission?.keys ?? null, v.resignedControl, v.resignedAdmission), [v]);
-  // The control keys that have not resigned from control, and the members that did.
+  // The control keys that have not resigned from control, as a list and as the set the policy forms tick.
   const activeControl = useMemo(() => [...activeAdminKeys(v.control.keys, null, v.resignedControl, [])], [v]);
-  const resignedControl = useMemo(() => new Set(v.resignedControl.map((k) => k.toLowerCase())), [v]);
+  const activeControlSet = useMemo(() => new Set(activeControl), [activeControl]);
+  const resignedControl = useMemo(() => resignedSet(v.resignedControl), [v]);
   const isAdmin = viewerKey !== null && admins.has(viewerKey);
   const activeIds = useMemo(() => v.activeKeyMembers.map((m) => m.drepId), [v]);
   // Members a new management policy is offered with: a member that resigned from control stays out.
@@ -261,7 +262,7 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
   const approveOk = picked.length > 0 && (useUpdate || canApprove);
   const controlKeys = v.control.keys;
   // The drift compares the admins of control with the members that have not resigned from it.
-  const policyMembers = [...memberKeys].filter((k) => !resignedControl.has(k.toLowerCase()));
+  const policyMembers = withoutResigned([...memberKeys], resignedControl);
   // A frozen group can take no policy update, so it shows no drift notice.
   const drift = v.mode === 'permissioned' && state !== null && !frozen && !sameSet(activeControl, policyMembers);
   const notInPolicy = policyMembers.filter((k) => !activeControl.includes(k.toLowerCase()));
@@ -422,9 +423,8 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
               groupId={v.groupId}
               current={current}
               controlKeys={controlKeys}
-              resignedControl={v.resignedControl}
               sameAdmission={v.admission?.hash === v.control.hash}
-              listed={new Set(activeControl)}
+              listed={activeControlSet}
               memberKeys={[...memberKeys]}
               nameOf={nameOf}
               profile={profile}
@@ -488,7 +488,7 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
                       Also update the management policy in the same transaction
                     </label>
                   )}
-                  {(withUpdate || updateForced) && <PolicyFields proposal={offer} onChange={setOffer} current={current} listed={new Set(activeControl)} nameOf={nameOf} />}
+                  {(withUpdate || updateForced) && <PolicyFields proposal={offer} onChange={setOffer} current={current} listed={activeControlSet} nameOf={nameOf} />}
                 </div>
               ))}
             <div style={buttons}>

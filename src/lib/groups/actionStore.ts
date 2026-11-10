@@ -64,9 +64,13 @@ export async function createGroupAction(db: D1Database, rec: NewGroupAction): Pr
   return (res.meta.changes ?? 0) > 0 ? 'created' : 'slot taken';
 }
 
-/** The row holding the group's control slot under any form of its id, null when the slot is free. */
-export async function openControlAction(db: D1Database, groupId: string): Promise<PendingMultisigRow | null> {
-  return (await db.prepare(Q.actionOpenControl.sql).bind(...groupIdFormsOf(groupId)).first<PendingMultisigRow>()) ?? null;
+/**
+ * The row holding the group's control slot under any form of its id, null when the slot is free.
+ * Takes the id string or the forms groupIdForms already built.
+ */
+export async function openControlAction(db: D1Database, group: string | readonly [string, string, string]): Promise<PendingMultisigRow | null> {
+  const forms = typeof group === 'string' ? groupIdFormsOf(group) : group;
+  return (await db.prepare(Q.actionOpenControl.sql).bind(...forms).first<PendingMultisigRow>()) ?? null;
 }
 
 /**

@@ -4,7 +4,7 @@
 // version before it, both stored per change.
 import type { Credential } from 'drep-groups';
 import { describeHistory, type GroupChanges, type HistoryKind, type Names, noChanges, type ProfileFields, policyShape } from './describe.js';
-import type { ScriptView } from './view.js';
+import { type ScriptView, withoutResigned } from './view.js';
 
 export interface HistoryInput {
   events: Array<{ txHash: string; eventIndex: number; tag: string; subject: Credential | null; blockHeight: number }>;
@@ -71,7 +71,7 @@ export function historyEntries(
    * Without the version before, only a single resigned key is certain.
    */
   const resignedKey = (before: Version | null, after: Version | null): string | null => {
-    const fresh = (was: string[] | undefined, now: string[] | undefined) => lower(now).filter((k) => !lower(was).includes(k));
+    const fresh = (was: string[] | undefined, now: string[] | undefined) => withoutResigned(lower(now), was);
     const keys = [...new Set([...fresh(before?.resignedControl, after?.resignedControl), ...fresh(before?.resignedAdmission, after?.resignedAdmission)])];
     return keys.length === 1 || (before && keys.length > 0) ? keys[0] : null;
   };

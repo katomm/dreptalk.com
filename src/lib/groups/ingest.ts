@@ -516,6 +516,37 @@ interface RefSearch {
   pos: number;
   /** The producing txs fetched this run, from pos on. */
   batch: string[];
+  /** Failed witness checks of the row before this run. */
+  attempts: number;
+}
+
+/**
+ * A failed witness check. A row whose check keeps failing holds its credential's joins and leaves
+ * back, so the failure that reaches WITNESS_STUCK_ATTEMPTS is logged once as an error.
+ */
+function failedCheck(txHash: string, certIndex: number, attempts: number): WitnessCheck {
+  if (attempts === WITNESS_STUCK_ATTEMPTS - 1) {
+    console.error(`[drep-groups] witness check of ${txHash}#${certIndex} failed ${WITNESS_STUCK_ATTEMPTS} times, its credential stays unjudged`);
+  }
+  return { txHash, certIndex, failed: true };
+}
+
+/** A cache that computes a value once per key. A throw is kept too and thrown again on every later read. */
+function perKey<T>(): (key: string, compute: () => T) => T {
+  const done = new Map<string, { value: T } | { error: unknown }>();
+  return (key, compute) => {
+    let r = done.get(key);
+    if (r === undefined) {
+      try {
+        r = { value: compute() };
+      } catch (error) {
+        r = { error };
+      }
+      done.set(key, r);
+    }
+    if ('error' in r) throw r.error;
+    return r.value;
+  };
 }
 
 /**
@@ -547,17 +578,17 @@ function outputScriptRefs(cbor: string): (Uint8Array | null)[] | null {
 }
 
 /**
- * The outcome of a reference script search over its batch. Only the output an input or reference
- * input points to counts. A match counts even when Koios left out another tx of the batch or served
- * one that cannot be read. Without a match such a tx fails the check, and the search ends with no witness only after the last
- * producing tx was read.
+ * The outcome of a reference script search over its batch, given the output script refs of every
+ * producing tx fetched this run (null for one Koios left out or that cannot be read). Only the
+ * output an input or reference input points to counts. A match counts even when Koios left out
+ * another tx of the batch or served one that cannot be read. Without a match such a tx fails the
+ * check, and the search ends with no witness only after the last producing tx was read.
  */
-function refSearchOutcome(s: RefSearch, cbors: Map<string, string>): WitnessCheck {
+function refSearchOutcome(s: RefSearch, producerOutputs: Map<string, (Uint8Array | null)[] | null>): WitnessCheck {
   const { txHash, certIndex } = s;
   const outputs = new Map<string, (Uint8Array | null)[]>();
   for (const h of s.batch) {
-    const cbor = cbors.get(h);
-    const refs = cbor === undefined ? null : outputScriptRefs(cbor);
+    const refs = producerOutputs.get(h) ?? null;
     if (refs !== null) outputs.set(h, refs);
   }
   const scriptRefs = s.refs.flatMap((r) => {
@@ -568,7 +599,7 @@ function refSearchOutcome(s: RefSearch, cbors: Map<string, string>): WitnessChec
   if (witness !== null) return { txHash, certIndex, witness };
   if (outputs.size < s.batch.length) {
     console.warn(`[drep-groups] reference script search of ${txHash} failed, retried later`);
-    return { txHash, certIndex, failed: true };
+    return failedCheck(txHash, certIndex, s.attempts);
   }
   const next = s.pos + s.batch.length;
   return next >= s.producers.length ? { txHash, certIndex, witness: null } : { txHash, certIndex, refSearchPos: next };
@@ -589,47 +620,58 @@ async function searchWitnesses(ctx: Ctx): Promise<void> {
   const fetched = new Set(hashes);
   const due = rows.filter((r) => fetched.has(hashFromCol(r.tx_hash)));
   const cbors = await cborsOf(koios, hashes);
+  // Rows of the same registration tx decode it once, an unreadable one included. Its inputs are
+  // decoded only for a row whose witness set holds no match.
+  const decodedTx = perKey<{ bytes: Uint8Array; witnessScripts: ChainTx['witnessScripts'] }>();
+  const txRefs = perKey<{ refs: TxIn[]; producers: string[] }>();
   const checks: WitnessCheck[] = [];
   const searches: RefSearch[] = [];
   for (const r of due) {
     const txHash = hashFromCol(r.tx_hash);
     const certIndex = Number(r.cert_index);
+    const attempts = Number(r.witness_attempts);
     const cbor = cbors.get(txHash);
     let search: RefSearch | null = null;
     if (cbor !== undefined) {
       try {
-        const bytes = hexToBytes(cbor);
-        const tx = decodeTransaction(bytes, { txHash, blockHeight: Number(r.block_height), txIndex: Number(r.tx_index) });
+        const { bytes, witnessScripts } = decodedTx(txHash, () => {
+          const bytes = hexToBytes(cbor);
+          return { bytes, witnessScripts: decodeTransaction(bytes, { txHash, blockHeight: Number(r.block_height), txIndex: Number(r.tx_index) }).witnessScripts };
+        });
         const credential: Credential = credFromKey(credKeyFromCol(r.cred));
-        const witness = memberScriptWitness(credential, tx.witnessScripts)?.bytes ?? null;
+        const witness = memberScriptWitness(credential, witnessScripts)?.bytes ?? null;
         if (witness !== null) {
           checks.push({ txHash, certIndex, witness });
           continue;
         }
-        const { inputs, referenceInputs } = decodeTxRefs(bytes);
-        const refs = [...inputs, ...referenceInputs];
-        const producers = [...new Set(refs.map((x) => x.txHash))].sort();
+        const { refs, producers } = txRefs(txHash, () => {
+          const { inputs, referenceInputs } = decodeTxRefs(bytes);
+          const ins = [...inputs, ...referenceInputs];
+          return { refs: ins, producers: [...new Set(ins.map((x) => x.txHash))].sort() };
+        });
         const pos = Number(r.ref_search_pos);
-        search = { txHash, certIndex, credential, refs, producers, pos, batch: producers.slice(pos, pos + MAX_REF_SCRIPT_TXS_PER_RUN) };
+        search = { txHash, certIndex, credential, refs, producers, pos, batch: producers.slice(pos, pos + MAX_REF_SCRIPT_TXS_PER_RUN), attempts };
       } catch {
         // Unreadable CBOR backs off like a failed fetch.
       }
     }
     if (search === null) {
       console.warn(`[drep-groups] witness check of ${txHash} failed, retried later`);
-      checks.push({ txHash, certIndex, failed: true });
+      checks.push(failedCheck(txHash, certIndex, attempts));
     } else if (search.batch.length === 0) checks.push({ txHash, certIndex, witness: null });
     else searches.push(search);
   }
   if (searches.length > 0) {
-    const refCbors = await cborsOf(koios, [...new Set(searches.flatMap((s) => s.batch))]);
-    for (const s of searches) checks.push(refSearchOutcome(s, refCbors));
-  }
-  // A row whose check keeps failing holds its credential's joins and leaves back, logged once as an error.
-  const attempts = new Map(due.map((r) => [`${hashFromCol(r.tx_hash)}#${Number(r.cert_index)}`, Number(r.witness_attempts)]));
-  for (const c of checks) {
-    if (!('failed' in c) || attempts.get(`${c.txHash}#${c.certIndex}`) !== WITNESS_STUCK_ATTEMPTS - 1) continue;
-    console.error(`[drep-groups] witness check of ${c.txHash}#${c.certIndex} failed ${WITNESS_STUCK_ATTEMPTS} times, its credential stays unjudged`);
+    // Each producing tx is fetched and decoded once per run, whichever searches share it.
+    const producers = [...new Set(searches.flatMap((s) => s.batch))];
+    const refCbors = await cborsOf(koios, producers);
+    const producerOutputs = new Map(
+      producers.map((h) => {
+        const cbor = refCbors.get(h);
+        return [h, cbor === undefined ? null : outputScriptRefs(cbor)] as const;
+      }),
+    );
+    for (const s of searches) checks.push(refSearchOutcome(s, producerOutputs));
   }
   await recordWitnessChecks(db, lease, checks, now);
   result.witnessChecks = checks.length;

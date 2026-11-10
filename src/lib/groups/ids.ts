@@ -64,6 +64,15 @@ export function groupIdFormsOf(id: string): [string, string, string] {
 
 /** A stored id string in the current form, the string itself when it is no readable group id. */
 export function canonicalGroupId(id: string): string {
+  // A lowercase 33 byte id is already canonical, its bech32 encoding is unique.
+  if (id.startsWith(`${GROUP_PREFIX}1`)) {
+    try {
+      groupIdFromBech32(id);
+      return id;
+    } catch {
+      // Another form or no group id, read below.
+    }
+  }
   const ref = groupIdParam(id);
   return ref ? groupIdString(ref) : id;
 }

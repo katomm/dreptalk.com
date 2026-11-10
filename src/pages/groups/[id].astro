@@ -11,6 +11,7 @@ import DrepStatCard from '@/components/DrepStatCard.astro';
 import JsonLd from '@/components/JsonLd.astro';
 import ShareButton from '@/components/ShareButton.astro';
 import GroupActions from '@/components/groups/GroupActions.js';
+import PolicyKeyList from '@/components/groups/PolicyKeyList.astro';
 import NotFoundPage from '../404.astro';
 import { currentNetwork } from '@/lib/api/response';
 import { groupCardVersion } from '@/lib/og/groupCard.js';
@@ -40,7 +41,7 @@ import { controlFrozen } from '@/lib/groups/actions.js';
 import { scriptFromDisplayJson } from '@/lib/groups/codec.js';
 import { drepGroupsAvailable } from '@/lib/groups/gate.js';
 import { addressNetwork, groupIdentSeed } from '@/lib/groups/ids.js';
-import { type HistoryKind, type PolicyKeyPart, type ProfileFields, policyKeyPart, policyKeyParts, policyShape, policyWords, profileFieldsOfDoc } from '@/lib/groups/describe.js';
+import { type HistoryKind, type ProfileFields, policyKeyPart, policyKeyParts, policyShape, policyWords, profileFieldsOfDoc } from '@/lib/groups/describe.js';
 import { historyEntries } from '@/lib/groups/history.js';
 import { CIRCLE_X_PATH, CLOCK_PATH, PENCIL_PATH, SHIELD_PATH, USER_CHECK_PATH, USER_MINUS_PATH, USER_PLUS_PATH, USER_X_PATH, USERS_PATH } from '@/lib/forum/icons.js';
 import {
@@ -267,13 +268,10 @@ const policyRoles = group
     ].map((r) => ({
       label: r.label,
       words: policyWords(r.script, names),
-      parts: policyKeyParts(r.script, names, r.resigned),
-      resigned: r.resigned.map((k) => policyKeyPart(k, names, true)),
+      parts: policyKeyParts(r.script, names),
+      resigned: r.resigned.map((k) => policyKeyPart(k, names)),
     }))
   : [];
-// The separator before the i-th of n names: "A, B and C".
-const listSep = (i: number, n: number): string => (i === 0 ? '' : i === n - 1 ? ' and ' : ', ');
-const keyNames = (keys: PolicyKeyPart[]) => keys.map((k, i) => ({ ...k, sep: listSep(i, keys.length) }));
 
 const siteOrigin = Astro.site?.origin ?? SITE_ORIGIN;
 const canonical = group ? `${siteOrigin}/groups/${group.groupId}/` : siteOrigin;
@@ -431,14 +429,14 @@ const metaDescription = clipExcerpt(metaFull, 300);
             <dt class="ocd__dt">{r.label}</dt>
             <dd class="ocd__dd">
               {r.parts ? (
-                <span>{r.parts.ratio}: {keyNames(r.parts.keys).map((k) => <>{k.sep}{k.href ? <a href={k.href}>{k.label}</a> : k.label}</>)}</span>
+                <span>{r.parts.ratio}: <PolicyKeyList keys={r.parts.keys} /></span>
               ) : (
                 <span>{r.words}</span>
               )}
             </dd>
             {r.resigned.length > 0 && (
               <dd class="ocd__dd gr-meta">
-                <span><span class="gr-resigned">Resigned</span> {keyNames(r.resigned).map((k) => <>{k.sep}{k.href ? <a href={k.href}>{k.label}</a> : k.label}</>)}</span>
+                <span><span class="gr-resigned">Resigned</span> <PolicyKeyList keys={r.resigned} /></span>
               </dd>
             )}
           </div>
