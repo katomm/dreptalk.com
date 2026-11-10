@@ -999,21 +999,26 @@ describe('drep groups ingest and recovery', () => {
     expect(await tracked()).toMatchObject({ pending_witness: 0, complete: 1, found_h: 40 });
   });
 
-  it('a library version change rebuild sends script registrations without a witness back to the witness search', async () => {
+  it('a library version change rebuild sends script registrations without a witness before found back to the witness search', async () => {
     const t = await lease();
     const s: Credential = { kind: 'script', hash: hex(77) };
+    const s2: Credential = { kind: 'script', hash: hex(78) };
     const k = keyCred(5);
-    await track(s, 1);
-    await track(k, 2);
+    // found of s is the witnessed row at 40.
+    await track(s, 1, { found_h: 40, found_ti: 0, found_ph: 0, found_ix: 0, found_tx: `X'${txHashOf(40)}'` });
+    await track(s2, 2);
+    await track(k, 3);
     const row = (c: Credential, kind: 'reg' | 'unreg', h: number, witness: string, state: string): string =>
       `INSERT INTO drep_group_ledger (tx_hash, cert_index, cred, kind, block_height, block_hash, tx_index, block_time,
          witness, witness_state, witness_attempts, witness_retry_at, ref_search_pos)
        VALUES (X'${txHashOf(h)}', 0, ${C(credKey(c))}, '${kind}', ${h}, X'0b', 0, ${h * 20}, ${witness}, '${state}', 3, 9000, 4)`;
     await exec(
+      row(s, 'reg', 30, 'NULL', 'checked'),
       row(s, 'reg', 40, "X'01'", 'checked'),
       row(s, 'reg', 50, 'NULL', 'checked'),
       row(s, 'reg', 60, 'NULL', 'skipped'),
       row(s, 'unreg', 70, 'NULL', 'na'),
+      row(s2, 'reg', 75, 'NULL', 'checked'),
       row(k, 'reg', 80, 'NULL', 'na'),
       row(k, 'reg', 90, 'NULL', 'checked'),
     );
@@ -1026,21 +1031,27 @@ describe('drep groups ingest and recovery', () => {
         .first<Row>()) as Row;
     const reset = { witness_state: 'pending', witness_attempts: 0, witness_retry_at: 0, ref_search_pos: 0 };
     const kept = (state: string) => ({ witness_state: state, witness_attempts: 3, witness_retry_at: 9000, ref_search_pos: 4 });
+    // Before found, and a credential without a found witness: searched again.
+    expect(await ledger(30)).toEqual(reset);
+    expect(await ledger(75)).toEqual(reset);
+    // found itself and everything after it cannot change found.
     expect(await ledger(40)).toEqual(kept('checked'));
-    expect(await ledger(50)).toEqual(reset);
-    expect(await ledger(60)).toEqual(reset);
+    expect(await ledger(50)).toEqual(kept('checked'));
+    expect(await ledger(60)).toEqual(kept('skipped'));
     expect(await ledger(70)).toEqual(kept('na'));
     expect(await ledger(80)).toEqual(kept('na'));
     expect(await ledger(90)).toEqual(kept('checked'));
     const tracked = async (c: Credential): Promise<Row> =>
       (await db.prepare('SELECT pending_witness, complete FROM drep_group_tracked WHERE cred = ?').bind(credBytes(credKey(c))).first<Row>()) as Row;
-    expect(await tracked(s)).toEqual({ pending_witness: 2, complete: 0 });
+    expect(await tracked(s)).toEqual({ pending_witness: 1, complete: 0 });
+    expect(await tracked(s2)).toEqual({ pending_witness: 1, complete: 0 });
     expect(await tracked(k)).toEqual({ pending_witness: 0, complete: 1 });
     expect(await meta()).toMatchObject({ rec_first_kind: 'rebuild' });
     // The same version opens nothing and resets nothing again.
-    await exec("UPDATE drep_group_ledger SET witness_state = 'checked' WHERE block_height IN (50, 60)");
+    await exec("UPDATE drep_group_ledger SET witness_state = 'checked' WHERE block_height IN (30, 75)");
     expect(await checkLibraryVersion(db, t)).toBe(false);
-    expect((await ledger(50)).witness_state).toBe('checked');
+    expect((await ledger(30)).witness_state).toBe('checked');
+    expect((await ledger(75)).witness_state).toBe('checked');
   });
 
   it('records the gate answer once and pages solo histories', async () => {

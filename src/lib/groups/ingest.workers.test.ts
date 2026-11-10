@@ -36,6 +36,7 @@ import {
   MAX_REF_SCRIPT_TXS_PER_RUN,
   MAX_SCRIPT_SEARCH_ROWS_PER_RUN,
   WITNESS_BACKOFF_BASE_MS,
+  WITNESS_STUCK_ATTEMPTS,
 } from './constants.js';
 import { credentialForDrepId, drepIdForCredential } from './ids.js';
 import { checkLibraryVersion, type IngestResult, ingestDrepGroups, WITNESS_QUERIES } from './ingest.js';
@@ -414,6 +415,39 @@ describe('ingestDrepGroups: events and registrations', () => {
     }
     expect(retries).toEqual([WITNESS_BACKOFF_BASE_MS, 1_000_000 + 2 * WITNESS_BACKOFF_BASE_MS, 3_000_000 + 4 * WITNESS_BACKOFF_BASE_MS]);
     expect(await instanceOf(creds[0])).toEqual([]);
+  });
+
+  it('logs a witness check as an error once when it failed the stuck number of times', async () => {
+    const script = sigScript(K(0x95));
+    const S: Credential = { kind: 'script', hash: script.hash };
+    const chain: Chain = {
+      tip: 300,
+      txs: [
+        create,
+        { hash: T(0x960), height: 120, index: 0, label: false, cbor: txCbor({ requiredSigners: [K(0x95)], witnessScripts: [sig(K(0x95))] }) },
+        { hash: T(0x961), height: 121, index: 0, cbor: txCbor({ payload: payloadValue([ev.join(GROUP, script.hash, 'script')]), requiredSigners: [K(0x95)] }) },
+      ],
+      regs: [regM, regRow(S, 'registered', T(0x960), 120)],
+      leaveOut: new Set([T(0x960)]),
+    };
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const stuck = () => log.mock.calls.filter((c) => String(c[0]).includes('witness check of'));
+    try {
+      await tick(chain, { now: 0 });
+      expect((await ledgerOf(S))[0]).toMatchObject({ witness_state: 'pending', witness_attempts: 1 });
+      expect(stuck()).toEqual([]);
+      const due = (attempts: number) =>
+        db.prepare('UPDATE drep_group_ledger SET witness_attempts = ?, witness_retry_at = 0 WHERE tx_hash = ?').bind(attempts, hashBytes(T(0x960))).run();
+      await due(WITNESS_STUCK_ATTEMPTS - 1);
+      await tick(chain, { now: 1 });
+      expect((await ledgerOf(S))[0]).toMatchObject({ witness_attempts: WITNESS_STUCK_ATTEMPTS });
+      expect(stuck()).toHaveLength(1);
+      await due(WITNESS_STUCK_ATTEMPTS);
+      await tick(chain, { now: 2 });
+      expect(stuck()).toHaveLength(1);
+    } finally {
+      log.mockRestore();
+    }
   });
 
   describe('member scripts from reference scripts', () => {

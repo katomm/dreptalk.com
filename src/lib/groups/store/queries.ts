@@ -1240,7 +1240,7 @@ export const Q = Object.freeze({
   },
   // Binds now and the limit. Pending reg rows whose witness check is due, in the order of the partial index.
   pendingWitnesses: {
-    sql: `SELECT tx_hash, cert_index, cred, block_height, tx_index, ref_search_pos FROM drep_group_ledger
+    sql: `SELECT tx_hash, cert_index, cred, block_height, tx_index, ref_search_pos, witness_attempts FROM drep_group_ledger
           WHERE witness_state = 'pending' AND witness_retry_at <= ?
           ORDER BY witness_retry_at, block_height, tx_index, cert_index LIMIT ?`,
   },
@@ -1261,14 +1261,17 @@ export const Q = Object.freeze({
             (SELECT 1 FROM drep_group_ledger WHERE block_height >= 0 LIMIT 1) AS ledger`,
   },
   libVersion: { sql: 'UPDATE drep_group_meta SET lib_version = ? WHERE id = 1' },
-  // Script credential registrations whose witness search found no member script, or that were
-  // skipped behind an earlier match, are searched again from the start. Run once by the rebuild of a
-  // library version change. A stored credential starts with its kind byte, 1 for a script, so the
-  // range seeks the credential index.
+  // Script credential registrations whose witness search found no member script are searched again
+  // from the start, if they lie before the credential's found witness or the credential has none.
+  // A row after found cannot change it, the first witness wins and every witness of a credential
+  // carries the same script. Skipped rows lie after found by construction and stay. Run once by the
+  // rebuild of a library version change. A stored credential starts with its kind byte, 1 for a
+  // script, so the range seeks the credential index.
   witnessSearchReset: {
     sql: `UPDATE drep_group_ledger SET witness_state = 'pending', witness_attempts = 0, witness_retry_at = 0, ref_search_pos = 0
-          WHERE cred >= X'01' AND cred < X'02' AND kind = 'reg'
-            AND (witness_state = 'skipped' OR (witness_state = 'checked' AND witness IS NULL))`,
+          WHERE cred >= X'01' AND cred < X'02' AND kind = 'reg' AND witness_state = 'checked' AND witness IS NULL
+            AND NOT EXISTS (SELECT 1 FROM drep_group_tracked t WHERE t.cred = drep_group_ledger.cred AND t.found_h IS NOT NULL
+              AND (t.found_h, t.found_ti, t.found_ix) < (drep_group_ledger.block_height, drep_group_ledger.tx_index, drep_group_ledger.cert_index))`,
   },
   // Binds both slots, then whether to set the phase and the phase, then rebuilding (NULL keeps it).
   recoverySlots: {

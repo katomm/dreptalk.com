@@ -41,6 +41,7 @@ import {
   MAX_SOLO_HISTORIES_PER_RUN,
   REG_OVERLAP_SECONDS,
   TX_TIME_BACKFILL_PER_RUN,
+  WITNESS_STUCK_ATTEMPTS,
 } from './constants.js';
 import { credentialForDrepId, drepIdForCredential } from './ids.js';
 import {
@@ -623,6 +624,12 @@ async function searchWitnesses(ctx: Ctx): Promise<void> {
   if (searches.length > 0) {
     const refCbors = await cborsOf(koios, [...new Set(searches.flatMap((s) => s.batch))]);
     for (const s of searches) checks.push(refSearchOutcome(s, refCbors));
+  }
+  // A row whose check keeps failing holds its credential's joins and leaves back, logged once as an error.
+  const attempts = new Map(due.map((r) => [`${hashFromCol(r.tx_hash)}#${Number(r.cert_index)}`, Number(r.witness_attempts)]));
+  for (const c of checks) {
+    if (!('failed' in c) || attempts.get(`${c.txHash}#${c.certIndex}`) !== WITNESS_STUCK_ATTEMPTS - 1) continue;
+    console.error(`[drep-groups] witness check of ${c.txHash}#${c.certIndex} failed ${WITNESS_STUCK_ATTEMPTS} times, its credential stays unjudged`);
   }
   await recordWitnessChecks(db, lease, checks, now);
   result.witnessChecks = checks.length;
