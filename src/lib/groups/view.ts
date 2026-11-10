@@ -57,6 +57,24 @@ export function policyKeyHashes(s: ScriptView | null): string[] {
   return 'children' in s ? s.children.flatMap(policyKeyHashes) : [];
 }
 
+/**
+ * The admins of a group: the keys of the control and the admission policy, each without the keys
+ * that resigned from that role. A resigned key stays in the script until the role's policy is
+ * replaced, but it is no admin of that role. Lowercase.
+ */
+export function activeAdminKeys(
+  control: readonly string[],
+  admission: readonly string[] | null,
+  resignedControl: readonly string[],
+  resignedAdmission: readonly string[],
+): Set<string> {
+  const of = (keys: readonly string[], resigned: readonly string[]) => {
+    const out = new Set(resigned.map((k) => k.toLowerCase()));
+    return keys.map((k) => k.toLowerCase()).filter((k) => !out.has(k));
+  };
+  return new Set([...of(control, resignedControl), ...of(admission ?? [], resignedAdmission)]);
+}
+
 /** The first 8 and last 4 characters of a long hash or id. */
 export const shortHash = (h: string): string => truncateIdMiddle(h, 8, 4);
 /** Short form of a group id that keeps the `drep_group1` prefix and a few characters after it. */

@@ -13,6 +13,7 @@ import { describeAction } from '@/lib/groups/describe';
 import { credentialForDrepId, groupIdParam } from '@/lib/groups/ids';
 import { drepGroupsAvailable } from '@/lib/groups/gate';
 import { wallClockSlot } from '@/lib/groups/groupTx';
+import { activeAdminKeys } from '@/lib/groups/view';
 
 export const prerender = false;
 
@@ -58,7 +59,8 @@ export const GET: APIRoute = async ({ params, locals }) => {
 
   // A signing link is handed out to its initiator, to the keys it lists and to the member it is about.
   const key = viewer?.keyHash?.toLowerCase() ?? null;
-  const policyKeys = new Set([...s.control.keys, ...(s.admission?.keys ?? [])]);
+  // The admins: keys of the policies that have not resigned from their role.
+  const admins = activeAdminKeys(s.control.keys, s.admission?.keys ?? null, group.resignedControl, group.resignedAdmission);
   const linkFor = (r: GroupActionRow): string | null =>
     user && (r.createdBy === user.id || (key !== null && r.requiredSigners.includes(key)) || r.subjectKind === 'member') ? r.id : null;
   // A row the session may open is described in words, from its intent and the state read above.
@@ -104,7 +106,7 @@ export const GET: APIRoute = async ({ params, locals }) => {
       activeMembers: s.activeMembers,
       pending: s.pending,
       // Admins see the open control action they would compete with.
-      openControl: s.openControl ? { id: key !== null && policyKeys.has(key) ? s.openControl.id : linkFor(s.openControl) } : null,
+      openControl: s.openControl ? { id: key !== null && admins.has(key) ? s.openControl.id : linkFor(s.openControl) } : null,
       rows,
       viewer: viewer ? { keyHash: key, drepId: viewer.drepId, join: s.viewerJoin } : null,
     },

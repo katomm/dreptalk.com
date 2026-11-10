@@ -1,10 +1,10 @@
 ---
 title: "DRep groups: found a new group or DRep party and manage it together"
-description: "How DRep groups work on DRepTalk: open and permissioned groups, founding alone or with other DReps, joining and leaving, approving requests, removing members, keeping the management policy in step with the members, signing links, cancelling and dissolving."
+description: "How DRep groups work on DRepTalk: open and permissioned groups, founding alone or with other DReps, joining and leaving, approving requests, removing members, keeping the management policy in step with the members, signing links, cancelling, dissolving and resigning as admin."
 cardLabel: "DRep groups"
 category: "For DReps"
 order: 7
-updated: 2026-11-03
+updated: 2026-11-10
 faqs:
   - q: "Does a DRep group vote?"
     a: "No. A group records which DReps belong together. Every member votes with their own DRep and their own rationale, and joining or leaving a group changes no delegation."
@@ -244,6 +244,26 @@ is a management action, so the management policy has to be satisfied, and the
 page asks for an explicit confirmation. It cannot be undone. Every membership
 closes, members' delegations do not change, and the group page with its history
 stays readable.
+
+## Resigning as admin
+
+An admin can resign at any time with their own signature, the same way a member
+can always leave. Open **Manage the group** on the group page and choose
+**Resign as admin**. No other admin signs, and an open management action does
+not block it. Your key stops counting in every policy of the group that lists
+it. It stays inside the policy until the group replaces that policy, and the
+group page lists it as resigned. Your membership does not change, leaving is a
+separate step. A management action still collecting signatures when your
+resignation is confirmed can no longer be submitted and has to be started again.
+
+To become an admin again, the group lists your key in a new policy and you sign
+that update yourself.
+
+If the remaining admins can no longer reach the threshold of the management
+policy without you, the group is frozen once you resign: nobody can change or
+dissolve it, and your signature no longer counts either. Members can still
+leave. The page warns you in that case and asks you to type the group name
+before you continue.
 
 ## Retired admins: the group signer login
 

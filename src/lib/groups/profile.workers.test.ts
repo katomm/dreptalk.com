@@ -181,7 +181,7 @@ describe('group profiles', () => {
     expect((await dueRows()).map((r) => r.kind)).toEqual(['profile']);
   });
 
-  it('drops control characters, caps by code points and accepts only a hex treasury script', () => {
+  it('drops control characters, caps by code points and accepts only a hex payment script', () => {
     const p = extractGroupProfile({
       body: {
         name: `Co\u0000un\u0007cil`,

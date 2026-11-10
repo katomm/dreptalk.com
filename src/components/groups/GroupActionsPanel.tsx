@@ -1,7 +1,8 @@
 // The signed-in part of a DRep group page, loaded only for a session: joining, requesting to join
 // and leaving, the request queue of the admins with approve or remove and the offer to update the
 // management policy in the same transaction, removing active members, the notice when the policy
-// keys drifted from the members, and the policy editor. Every action is built in the browser and
+// keys drifted from the members, and the policy editor with the resign of an admin. Keys that
+// resigned from a role stay in its script but count as admins of that role nowhere. Every action is built in the browser and
 // either completes in one wallet step or gives a link.
 import { type Credential, evaluateNativeScript, type NativeScript } from 'drep-groups';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -15,6 +16,7 @@ import {
   neededKeys,
   proposeDrift,
   proposeUpdate,
+  resignFreezes,
   sameSet,
   signerSetSatisfies,
   thresholdOf,
@@ -24,7 +26,7 @@ import { libraryScript, scriptFromDisplayJson } from '@/lib/groups/codec.js';
 import { credentialForDrepId, drepIdForCredential, groupIdParam } from '@/lib/groups/ids.js';
 import { describeAction, type GroupChanges } from '@/lib/groups/describe.js';
 import type { GroupProfileInput } from '@/lib/groups/profileDocs.js';
-import { shortHash } from '@/lib/groups/view.js';
+import { activeAdminKeys, shortHash } from '@/lib/groups/view.js';
 import { fetchWithTimeout } from '@/lib/http/fetchWithTimeout.js';
 import { readableError } from '@/lib/wallet/walletError.js';
 import { afterLock, DraftPanel, lockBound, type Outcome, OutcomeNotice, SLOT_HELD, useActionRunner } from './actionFlow.js';
@@ -106,9 +108,16 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
   const viewerKey = v.viewer?.keyHash ?? null;
   const viewerDrep = v.viewer?.drepId ?? null;
   const scriptViewer = viewerDrep ? credentialForDrepId(viewerDrep)?.kind === 'script' : false;
+  // Every key the policies list, resigned ones included, and the admins among them.
   const policyKeys = useMemo(() => new Set([...v.control.keys, ...(v.admission?.keys ?? [])]), [v]);
-  const isAdmin = viewerKey !== null && policyKeys.has(viewerKey);
+  const admins = useMemo(() => activeAdminKeys(v.control.keys, v.admission?.keys ?? null, v.resignedControl, v.resignedAdmission), [v]);
+  // The control keys that have not resigned from control, and the members that did.
+  const activeControl = useMemo(() => [...activeAdminKeys(v.control.keys, null, v.resignedControl, [])], [v]);
+  const resignedControl = useMemo(() => new Set(v.resignedControl.map((k) => k.toLowerCase())), [v]);
+  const isAdmin = viewerKey !== null && admins.has(viewerKey);
   const activeIds = useMemo(() => v.activeKeyMembers.map((m) => m.drepId), [v]);
+  // Members a new management policy is offered with: a member that resigned from control stays out.
+  const policyIds = useMemo(() => v.activeKeyMembers.filter((m) => !resignedControl.has(m.keyHash.toLowerCase())).map((m) => m.drepId), [v, resignedControl]);
   const memberKeys = useMemo(() => new Set(v.activeKeyMembers.map((m) => m.keyHash)), [v]);
   // Policy keys of neither an active member nor an applicant: DReps that left or were removed.
   const formerKeys = useMemo(() => {
@@ -248,14 +257,16 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
   const useUpdate = offer !== null && !v.openControl && offer.ticked.length > 0 && canCombined && (withUpdate || updateForced);
   const approveOk = picked.length > 0 && (useUpdate || canApprove);
   const controlKeys = v.control.keys;
-  const drift = v.mode === 'permissioned' && !sameSet(controlKeys, [...memberKeys]);
-  const notInPolicy = [...memberKeys].filter((k) => !controlKeys.includes(k));
-  const formerInPolicy = controlKeys.filter((k) => !memberKeys.has(k));
+  // The drift compares the admins of control with the members that have not resigned from it.
+  const policyMembers = [...memberKeys].filter((k) => !resignedControl.has(k.toLowerCase()));
+  const drift = v.mode === 'permissioned' && !sameSet(activeControl, policyMembers);
+  const notInPolicy = policyMembers.filter((k) => !activeControl.includes(k.toLowerCase()));
+  const formerInPolicy = activeControl.filter((k) => !memberKeys.has(k));
   // Signer labels mark policy keys of DReps that are no longer members, applicants are not marked.
   const signerName = (key: string) =>
     formerKeys.has(key) ? `${nameOf(key)} (no longer a member)` : nameOf(key);
   const driftText = [
-    `The group is still managed by: ${controlKeys.map(nameOf).join(', ')}.`,
+    `The group is still managed by: ${activeControl.map(nameOf).join(', ')}.`,
     notInPolicy.length > 0 ? `Members not in the policy: ${notInPolicy.map(nameOf).join(', ')}.` : '',
     formerInPolicy.length > 0 ? `No longer members: ${formerInPolicy.map(nameOf).join(', ')}.` : '',
   ]
@@ -266,9 +277,9 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
     state !== null &&
     join !== null &&
     viewerKey !== null &&
-    controlKeys.includes(viewerKey) &&
+    activeControl.includes(viewerKey) &&
     !evaluateNativeScript(state.control, {
-      signers: new Set(controlKeys.filter((k) => k !== viewerKey && memberKeys.has(k))),
+      signers: new Set(activeControl.filter((k) => k !== viewerKey && memberKeys.has(k))),
       invalidBefore: null,
       invalidHereafter: null,
     });
@@ -289,6 +300,11 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
         })
       : false;
   const canDissolve = allowed({ kind: 'group_dissolve', group: v.groupId });
+  // A resign row links only for its own key, so a linked one is the viewer's own resign in progress.
+  const ownResignOpen = v.rows.some((r) => r.kind === 'group_resign' && r.id !== null && r.status !== 'cancelled');
+  const resignKey = viewerKey !== null && !ownResignOpen && allowed({ kind: 'group_resign', group: v.groupId, key: viewerKey }) ? viewerKey : null;
+  const freezes = state !== null && resignKey !== null && resignFreezes(state.control, resignKey, v.resignedControl);
+  const canManage = canUpdate || resignKey !== null;
   // Active members the viewer may remove, the viewer's own membership ends with Leave instead.
   const removable =
     active && v.mode === 'permissioned'
@@ -347,7 +363,7 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
               {leaveWarning && canUpdate && v.openControl && <p style={muted}>{SLOT_HELD}</p>}
               <div style={buttons}>
                 {leaveWarning && canUpdate && !v.openControl && (
-                  <button type="button" className="btn" onClick={() => openEditor(activeIds.filter((d) => d !== viewerDrep))}>
+                  <button type="button" className="btn" onClick={() => openEditor(policyIds.filter((d) => d !== viewerDrep))}>
                     Update the policy first
                   </button>
                 )}
@@ -374,7 +390,7 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
               <p style={muted}>{SLOT_HELD}</p>
             ) : (
               <div style={buttons}>
-                <button type="button" className="btn" onClick={() => openEditor(activeIds)}>
+                <button type="button" className="btn" onClick={() => openEditor(policyIds)}>
                   Update the policy
                 </button>
               </div>
@@ -382,7 +398,7 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
         </section>
       )}
 
-      {active && canUpdate && !editor && (
+      {active && canManage && !editor && (
         <section aria-label="Group management" style={part}>
           <p style={muted}>You are an admin of this group.</p>
           <div style={buttons}>
@@ -393,7 +409,7 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
         </section>
       )}
 
-      {active && canUpdate && editor && (
+      {active && canManage && editor && (
         <>
           {/* The editor stays mounted while its draft is open, so Back returns to the filled form. */}
           <div hidden={drafting('editor')}>
@@ -401,14 +417,19 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
               groupId={v.groupId}
               current={current}
               controlKeys={controlKeys}
+              resignedControl={v.resignedControl}
               sameAdmission={v.admission?.hash === v.control.hash}
-              listed={policyKeys}
+              listed={new Set(activeControl)}
               memberKeys={[...memberKeys]}
               nameOf={nameOf}
               profile={profile}
               initial={editor.initial}
               slotHeld={v.openControl !== null}
+              canUpdate={canUpdate}
               canDissolve={canDissolve}
+              resignKey={resignKey}
+              resignFreezes={freezes}
+              groupName={profile?.name || v.groupId}
               onContinue={(intent, label, names, profileChange) => {
                 setAddedNames(names);
                 void open(intent, label, 'editor', profileChange, new Map([...nameMap, ...names]));
@@ -462,7 +483,7 @@ export default function GroupActionsPanel({ v, fetchedAt, network, profile, relo
                       Also update the management policy in the same transaction
                     </label>
                   )}
-                  {(withUpdate || updateForced) && <PolicyFields proposal={offer} onChange={setOffer} current={current} listed={policyKeys} nameOf={nameOf} />}
+                  {(withUpdate || updateForced) && <PolicyFields proposal={offer} onChange={setOffer} current={current} listed={new Set(activeControl)} nameOf={nameOf} />}
                 </div>
               ))}
             <div style={buttons}>

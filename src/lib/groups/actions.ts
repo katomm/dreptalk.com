@@ -143,6 +143,21 @@ export function mayResign(state: GroupState, key: string): boolean {
   return listed(state.control, state.resignedControl) || listed(state.admission, state.resignedAdmission);
 }
 
+// Validity bounds under which every time lock of a policy holds: `after` needs a start at or past
+// its slot and `before` an end at or before its slot.
+const ALL_TIME_LOCKS = { invalidBefore: 2n ** 64n, invalidHereafter: 0n } as const;
+
+/**
+ * Whether the control policy can no longer be satisfied once `key` resigns: the resigning key and
+ * every key already resigned from control count as unable to sign, every other listed key as
+ * signing, and time locks as met. Such a group is frozen, nobody can change or dissolve it.
+ */
+export function resignFreezes(control: NativeScript, key: string, resignedControl: readonly string[]): boolean {
+  const out = resignedSet([...resignedControl, key]);
+  const signers = new Set(policyKeys(control).filter((k) => !out.has(k)));
+  return !evaluateNativeScript(control, { signers, ...ALL_TIME_LOCKS });
+}
+
 function leaveRef(intent: { member: string; join?: string }, joinMembers: Map<string, Credential>): EventRef {
   if (intent.join !== undefined) return parseJoinRef(intent.join);
   const want = credKey(memberCredential(intent.member));
@@ -655,11 +670,15 @@ function proposal(state: GroupState, keys: string[]): { keys: string[]; n: numbe
 
 /**
  * The control policy offered with an admission: current control keys whose DRep is still an
- * active member, plus every approved member, at the carried ratio. Members are DRep ids.
+ * active member and that have not resigned from control, plus every approved member, at the
+ * carried ratio. Members are DRep ids.
  */
 export function proposeUpdate(state: GroupState, activeKeyMembers: string[], approved: string[]): { keys: string[]; n: number; sameAdmission: boolean } {
   const active = new Set(keyMembers(activeKeyMembers));
-  const kept = collectKeyHashes(state.control).filter((k) => active.has(k.toLowerCase()));
+  const resigned = resignedSet(state.resignedControl);
+  const kept = collectKeyHashes(state.control)
+    .map((k) => k.toLowerCase())
+    .filter((k) => active.has(k) && !resigned.has(k));
   return proposal(state, uniq([...kept, ...keyMembers(approved)]));
 }
 

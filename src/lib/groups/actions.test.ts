@@ -28,6 +28,7 @@ import {
   neededPolicies,
   proposeDrift,
   proposeUpdate,
+  resignFreezes,
   signerSetSatisfies,
 } from './actions.js';
 import { describeAction } from './describe.js';
@@ -508,5 +509,32 @@ describe('resign', () => {
     expect(describeAction(changesOfIntent(resignBob, s), names)).toEqual(['Bob resigns as admin.']);
     const p = expectedPayload(resignBob, s, new Map());
     expect(describeAction(changesOfEvents(p.events, s), names)).toEqual(['Bob resigns as admin.']);
+  });
+});
+
+describe('resigned admins', () => {
+  it('keeps no key that resigned from control in the proposed update', () => {
+    const s = state({ control: policy([ALICE, BOB, DAVE, ERIN], 3), admission: 'same', resignedControl: [BOB] });
+    expect(proposeUpdate(s, [ALICE, BOB, DAVE, ERIN].map(keyId), [keyId(CAROL)]).keys).toEqual([K(ALICE), K(CAROL), K(DAVE), K(ERIN)]);
+  });
+
+  it('tells when a resign leaves no remaining key able to satisfy the control policy', () => {
+    // 2 of 3: the two other admins still reach the threshold.
+    expect(resignFreezes(policy([ALICE, BOB, CAROL], 2), K(ALICE), [])).toBe(false);
+    // 2 of 3 with one admin already resigned: the last other admin alone does not.
+    expect(resignFreezes(policy([ALICE, BOB, CAROL], 2), K(ALICE), [K(BOB)])).toBe(true);
+    // The only admin of a 1 of 1 policy.
+    expect(resignFreezes(policy([ALICE], 1), K(ALICE), [])).toBe(true);
+    // Time locks count as satisfied, only the keys decide.
+    const locked: NativeScript = {
+      type: 'all',
+      scripts: [
+        { type: 'any', scripts: [{ type: 'sig', keyHash: K(ALICE) }, { type: 'sig', keyHash: K(BOB) }] },
+        { type: 'after', slot: 10n ** 12n },
+        { type: 'before', slot: 1n },
+      ],
+    } as NativeScript;
+    expect(resignFreezes(locked, K(ALICE), [])).toBe(false);
+    expect(resignFreezes(locked, K(ALICE), [K(BOB)])).toBe(true);
   });
 });

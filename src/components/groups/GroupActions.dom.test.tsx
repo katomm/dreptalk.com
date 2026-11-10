@@ -282,6 +282,50 @@ describe('GroupActions leave warning', () => {
   });
 });
 
+describe('GroupActions resigned admins', () => {
+  const ALICE_JOIN = { joinId: `${'01'.repeat(32)}#1`, state: 'active' as const };
+
+  it('gives a key that resigned from control no leave warning', async () => {
+    show(view({ control: policy([A, B], 2), admission: null, mode: 'open', resignedControl: [A], viewer: viewer(A, ALICE_JOIN) }));
+    expect(await screen.findByRole('button', { name: 'Leave' })).toBeTruthy();
+    expect(screen.queryByText(/can no longer reach its threshold/)).toBeNull();
+  });
+
+  it('does not count a resigned admin among those who still reach the threshold', async () => {
+    show(view({ control: policy([A, B], 1), admission: null, mode: 'open', resignedControl: [B], viewer: viewer(A, ALICE_JOIN) }));
+    expect(await screen.findByText(/can no longer reach its threshold/)).toBeTruthy();
+  });
+
+  it('does not report a member who resigned from control as outside the policy', async () => {
+    show(view({ resignedControl: [B], resignedAdmission: [B], viewer: viewer(A, ALICE_JOIN) }));
+    expect(await screen.findByRole('button', { name: 'Leave' })).toBeTruthy();
+    expect(screen.queryByText(/still managed by/)).toBeNull();
+  });
+
+  it('offers no second resign while the own one is in progress', async () => {
+    show(view({ control: policy([A, B, E], 2), admission: null, mode: 'open', viewer: viewer(A, ALICE_JOIN), rows: [{ id: 'z0', kind: 'group_resign', status: 'collecting' }] }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage the group' }));
+    expect(screen.queryByRole('button', { name: 'Resign as admin' })).toBeNull();
+  });
+
+  it('completes a resign in one wallet step with the key as its only signer', async () => {
+    show(view({ control: policy([A, B, E], 2), admission: null, mode: 'open', viewer: viewer(A, ALICE_JOIN) }), [
+      { url: /\/api\/groups\/actions$/, body: { id: 'z1' } },
+      { url: /\/witness$/, body: { accepted: [A], ignored: [], satisfied: true } },
+      { url: /\/submit$/, body: { assembledTxHex: '84bb' } },
+      { url: /\/submitted$/, body: { ok: true } },
+    ]);
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage the group' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Resign as admin' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Review and sign' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Build and sign' }));
+    await waitFor(() => expect(submitTx).toHaveBeenCalledWith('84bb'));
+    expect((buildGroupTx.mock.calls[0][0] as { requiredSigners: string[] }).requiredSigners).toEqual([A]);
+    const post = calls.find((c) => c.url.endsWith('/api/groups/actions'));
+    expect(post?.body).toMatchObject({ intent: { kind: 'group_resign', group: GID, key: A }, selected: [] });
+  });
+});
+
 describe('GroupActions member removal', () => {
   const BOB_JOIN = `${'02'.repeat(32)}#1`;
   const SCRIPT_MEMBER = drepIdForCredential({ kind: 'script', hash: key('f') });

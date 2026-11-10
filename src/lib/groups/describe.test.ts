@@ -7,6 +7,7 @@ import {
   describeProfileChange,
   drepLabel,
   noChanges,
+  policyKeyParts,
   policyShape,
   profileFieldsOfDoc,
   wordList,
@@ -185,5 +186,23 @@ describe('describeHistory', () => {
     });
     expect(describeHistory({ ...noChanges(), resigned: null }, [], names)).toEqual({ kind: 'resign', text: 'An admin resigned.' });
     expect(describeAction({ ...noChanges(), resigned: B }, names)).toEqual(['Bob resigns as admin.']);
+  });
+});
+
+describe('policyKeyParts', () => {
+  it('links the admins that are DReps, marks the resigned ones and keeps the threshold', () => {
+    const parts = policyKeyParts(nOfK(2, [A, B, D]), names, [B]);
+    expect(parts).toEqual({
+      ratio: '2 of 3',
+      keys: [
+        { key: A, label: 'Alice', href: `/dreps/${drepIdForCredential(key(A))}/`, resigned: false },
+        { key: B, label: 'Bob', href: `/dreps/${drepIdForCredential(key(B))}/`, resigned: true },
+        { key: D, label: shortHash(drepIdForCredential(key(D))), href: null, resigned: false },
+      ],
+    });
+  });
+
+  it('leaves a nested policy to the words', () => {
+    expect(policyKeyParts({ kind: 'all', children: [sig(A), { kind: 'after', slot: '5' }] }, names, [])).toBeNull();
   });
 });

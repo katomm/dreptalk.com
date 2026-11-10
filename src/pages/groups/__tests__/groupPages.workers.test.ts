@@ -284,6 +284,18 @@ describe('group action state route', () => {
     expect(Math.abs(res.json.serverSlot - wallClockSlot('preprod'))).toBeLessThanOrEqual(2);
   });
 
+  it('shows the open control action to admins only while they have not resigned', async () => {
+    await seedPermissioned();
+    const update: GroupIntent = { kind: 'group_update', group: PERM_ID, approvals: [] };
+    const held = { ...approve('u1', 'u-alice'), kind: 'group_update' as const, intent: update, controlSlot: true, requiredSigners: [ALICE.hash] };
+    await createGroupAction(db, held);
+    type Slot = StateBody & { openControl: { id: string | null } | null };
+    expect((await call<Slot>(stateRoute, sessionOf('u-bob', BOB), { id: PERM_ID })).json.openControl).toEqual({ id: 'u1' });
+    // Bob resigns from admission, his only role.
+    await seed([groupTx(50, { events: [{ tag: 'resign', group: PERM.ref, key: BOB.hash }] }, [BOB])], 50);
+    expect((await call<Slot>(stateRoute, sessionOf('u-bob', BOB), { id: PERM_ID })).json.openControl).toEqual({ id: null });
+  });
+
   it('answers 404 for an unknown group', async () => {
     const res = await call<StateBody>(stateRoute, null, { id: OTHER_ID });
     expect(res.status).toBe(404);

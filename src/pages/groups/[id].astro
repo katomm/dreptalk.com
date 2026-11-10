@@ -38,10 +38,11 @@ import type { VitalCard } from '@/lib/analytics/hubView.js';
 import { GROUP_PAGE_SIZE, RETENTION_KEEP_APPLIED, RETENTION_KEEP_NOT_APPLIED } from '@/lib/groups/constants.js';
 import { drepGroupsAvailable } from '@/lib/groups/gate.js';
 import { addressNetwork, groupIdentSeed } from '@/lib/groups/ids.js';
-import { type HistoryKind, type ProfileFields, policyShape, policyWords, profileFieldsOfDoc } from '@/lib/groups/describe.js';
+import { type HistoryKind, type PolicyKeyPart, type ProfileFields, policyKeyPart, policyKeyParts, policyShape, policyWords, profileFieldsOfDoc } from '@/lib/groups/describe.js';
 import { historyEntries } from '@/lib/groups/history.js';
 import { CIRCLE_X_PATH, CLOCK_PATH, PENCIL_PATH, SHIELD_PATH, USER_CHECK_PATH, USER_MINUS_PATH, USER_PLUS_PATH, USER_X_PATH, USERS_PATH } from '@/lib/forum/icons.js';
 import {
+  activeAdminKeys,
   addressStatusLabel,
   describePolicy,
   eventLabel,
@@ -107,7 +108,10 @@ const [note, verification, sections, history, notApplied, displays, treasury] =
 
 const control = group ? scriptFromJson(displays.get(group.controlHash)) : null;
 const admission = group?.admissionHash ? scriptFromJson(displays.get(group.admissionHash)) : null;
-const admins = new Set([...policyKeyHashes(control), ...policyKeyHashes(admission)]);
+const controlKeys = policyKeyHashes(control);
+const admissionKeys = policyKeyHashes(admission);
+// A key that resigned from a role stays in its script but is no admin of that role.
+const admins = activeAdminKeys(controlKeys, admissionKeys, group?.resignedControl ?? [], group?.resignedAdmission ?? []);
 const treasuryViews = new Map(treasuryHashes.map((h) => [h, scriptFromJson(treasury.displays.get(h))]));
 // The history reads the policies and profiles every change set.
 const versionHashes = history.versions.flatMap((v) => (v.admission ? [v.control, v.admission] : [v.control]));
@@ -125,7 +129,7 @@ const historyProfiles = new Map<string, ProfileFields | null>(profileHashes.map(
 if (profile?.dataHash) historyProfiles.set(profile.dataHash, profile);
 const historyKeys = [...historyScripts.values()].flatMap(policyKeyHashes);
 
-const allKeys = [...admins, ...[...treasuryViews.values()].flatMap(policyKeyHashes), ...historyKeys];
+const allKeys = [...controlKeys, ...admissionKeys, ...[...treasuryViews.values()].flatMap(policyKeyHashes), ...historyKeys];
 const subjects = history.events.flatMap((e) => (e.subject ? [e.subject] : []));
 const nameCreds = [...allKeys.map((hash) => ({ kind: 'key' as const, hash })), ...subjects];
 const names = db && nameCreds.length > 0 ? await drepNamesForCredentials(db, nameCreds) : new Map<string, string>();
@@ -206,7 +210,6 @@ const nextQuery = (kind: keyof typeof SECTION_TITLE, after: string): string => {
 // Header and tiles. The image shows when DRepTalk hosts it, the page's CSP loads no other origin, so
 // a group without one shows the identicon of its output reference as a DRep without an image does.
 const avatarHash = hostedAvatarHash(profile?.image);
-const adminKeys = new Set([...admins].map((k) => k.toLowerCase()));
 const founded = group ? (group.createdTime ?? blockTimes.get(group.createdHeight) ?? null) : null;
 const foundedText =
   founded !== null
@@ -237,7 +240,8 @@ const statCards: VitalCard[] = group
     ]
   : [];
 // A member as the DRep list shows a DRep: avatar, name or short id, a link to the profile while the
-// membership is not closed, and the Admin badge for a key in the management or admission policy.
+// membership is not closed, and the Admin badge for a key in the management or admission policy
+// that has not resigned from that role.
 // A former member whose key is still in a policy reads "Still admin" until the policy drops it.
 const memberIdentity = (m: MemberRow): AuthorDescriptor => ({
   authorId: m.drepId,
@@ -245,8 +249,25 @@ const memberIdentity = (m: MemberRow): AuthorDescriptor => ({
   ...(m.state === 'closed' ? {} : { drepId: m.drepId, drepSlug: m.drepSlug }),
   imageHash: m.drepImage,
   identiconSeed: m.drepHex ?? m.drepId,
-  badges: m.drepHex && adminKeys.has(m.drepHex.toLowerCase()) ? [m.state === 'closed' ? 'Still admin' : 'Admin'] : [],
+  badges: m.drepHex && admins.has(m.drepHex.toLowerCase()) ? [m.state === 'closed' ? 'Still admin' : 'Admin'] : [],
 });
+
+// The policies by role: the threshold and the admins, linked to their DRep profiles, and the keys
+// that resigned from the role. A nested policy is described in words.
+const policyRoles = group
+  ? [
+      { label: 'Management', script: control, resigned: group.resignedControl },
+      ...(group.mode === 'permissioned' ? [{ label: 'Admission', script: admission, resigned: group.resignedAdmission }] : []),
+    ].map((r) => ({
+      label: r.label,
+      words: policyWords(r.script, names),
+      parts: policyKeyParts(r.script, names, r.resigned),
+      resigned: r.resigned.map((k) => policyKeyPart(k, names, true)),
+    }))
+  : [];
+// The separator before the i-th of n names: "A, B and C".
+const listSep = (i: number, n: number): string => (i === 0 ? '' : i === n - 1 ? ' and ' : ', ');
+const keyNames = (keys: PolicyKeyPart[]) => keys.map((k, i) => ({ ...k, sep: listSep(i, keys.length) }));
 
 const siteOrigin = Astro.site?.origin ?? SITE_ORIGIN;
 const canonical = group ? `${siteOrigin}/groups/${group.groupId}/` : siteOrigin;
@@ -399,16 +420,23 @@ const metaDescription = clipExcerpt(metaFull, 300);
     <section class="ocd gr-ocd">
       <h2 class="ocd__h">Policies</h2>
       <dl class="ocd__grid">
-        <div class="ocd__item">
-          <dt class="ocd__dt">Management</dt>
-          <dd class="ocd__dd">{policyWords(control, names)}</dd>
-        </div>
-        {group.mode === 'permissioned' && (
+        {policyRoles.map((r) => (
           <div class="ocd__item">
-            <dt class="ocd__dt">Admission</dt>
-            <dd class="ocd__dd">{policyWords(admission, names)}</dd>
+            <dt class="ocd__dt">{r.label}</dt>
+            <dd class="ocd__dd">
+              {r.parts ? (
+                <span>{r.parts.ratio}: {keyNames(r.parts.keys).map((k) => <>{k.sep}{k.href ? <a href={k.href}>{k.label}</a> : k.label}</>)}</span>
+              ) : (
+                <span>{r.words}</span>
+              )}
+            </dd>
+            {r.resigned.length > 0 && (
+              <dd class="ocd__dd gr-meta">
+                <span><span class="gr-resigned">Resigned</span> {keyNames(r.resigned).map((k) => <>{k.sep}{k.href ? <a href={k.href}>{k.label}</a> : k.label}</>)}</span>
+              </dd>
+            )}
           </div>
-        )}
+        ))}
       </dl>
     </section>
 
@@ -480,6 +508,7 @@ const metaDescription = clipExcerpt(metaFull, 300);
   .gr-mode { margin: 0 0 0.35rem; color: var(--muted); font-size: 0.9375rem; }
   .gr-links { list-style: none; padding: 0; margin: 0; display: flex; gap: 0.5rem 1rem; flex-wrap: wrap; font-size: 0.9375rem; }
   .gr-links li { display: inline-flex; align-items: center; gap: 0.45rem; }
+  .gr-resigned { font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); padding: 0.1rem 0.45rem; border-radius: 999px; background: color-mix(in srgb, var(--muted) 12%, transparent); margin-right: 0.25rem; }
   .gr-verified { font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--c-pos); padding: 0.1rem 0.45rem; border-radius: 999px; background: color-mix(in srgb, var(--c-pos) 12%, transparent); }
   .gr-about { margin: 0 0 1.5rem; max-width: 65ch; white-space: pre-wrap; overflow-wrap: anywhere; }
   .gr-section { margin: 0 0 2rem; }

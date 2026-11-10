@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  activeAdminKeys,
   addressStatusLabel,
   describePolicy,
   eventLabel,
@@ -111,5 +112,14 @@ describe('hostedAvatarHash', () => {
     expect(hostedAvatarHash(`https://dreptalk.com/api/avatar/${h.toUpperCase()}`)).toBeNull();
     expect(hostedAvatarHash('not a url')).toBeNull();
     expect(hostedAvatarHash(null)).toBeNull();
+  });
+});
+
+describe('activeAdminKeys', () => {
+  it('counts a key as admin only in the roles it has not resigned from', () => {
+    const [a, b, c] = ['a', 'b', 'c'].map((x) => x.repeat(56));
+    expect([...activeAdminKeys([a, b], [b, c], [b], [])].sort()).toEqual([a, b, c]);
+    expect([...activeAdminKeys([a, b], [b, c], [b], [b.toUpperCase()])].sort()).toEqual([a, c]);
+    expect([...activeAdminKeys([a.toUpperCase()], null, [], [])]).toEqual([a]);
   });
 });
