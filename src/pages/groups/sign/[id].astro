@@ -10,7 +10,7 @@ import { currentNetwork } from '@/lib/api/response.js';
 import { drepGroupsAvailable } from '@/lib/groups/gate.js';
 import { loadGroupRow, rowMaySign, sessionOf } from '@/lib/groups/actionServer.js';
 import { getGroup } from '@/lib/db/drepGroups.js';
-import { shortHash } from '@/lib/groups/view.js';
+import { shortGroupId } from '@/lib/groups/view.js';
 import { env } from 'cloudflare:workers';
 
 const { id } = Astro.params;
@@ -36,7 +36,7 @@ if (db && id) {
     if (ctx && ctx.intent.kind !== 'group_create' && rowMaySign(ctx, sessionOf(user))) {
       const gid = ctx.intent.group.toLowerCase();
       const row = await getGroup(db, gid);
-      group = { id: gid, name: row?.profile?.status === 'ok' && row.profile.name ? row.profile.name : shortHash(gid) };
+      group = { id: gid, name: row?.profile?.status === 'ok' && row.profile.name ? row.profile.name : shortGroupId(gid) };
     }
   } catch {
     // The crumb falls back to the group list, the panel reports what went wrong.

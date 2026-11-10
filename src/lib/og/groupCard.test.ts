@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { groupCardModel, groupCardVersion, type GroupCardInput } from './groupCard.js';
 
 const G: GroupCardInput = {
-  groupId: 'group1mz6spxh0f5huee8c4krz62tpzwr2g85k78lxqvp7asypkt7vsjqsqqq3f046h',
+  groupId: 'drep_group1mz6spxh0f5huee8c4krz62tpzwr2g85k78lxqvp7asypkt7vsjqsqqq86q2xs',
   name: 'Commons Council',
   description: 'First paragraph.\n\nSecond paragraph.',
   mode: 'open',
@@ -17,7 +17,7 @@ describe('group card', () => {
   it('shows the name, the short id, one line of the description and the stats', () => {
     const m = groupCardModel(G, { avatarDataUrl: 'data:x' });
     expect(m.name).toBe('Commons Council');
-    expect(m.idShort).toMatch(/^group1/);
+    expect(m.idShort).toMatch(/^drep_group1/);
     expect(m.bio).toBe('First paragraph. Second paragraph.');
     expect(m.stats.map((s) => s.icon)).toEqual(['power', 'members', 'mode']);
     expect(m.stats[1]).toMatchObject({ value: '4', label: 'members' });
@@ -26,7 +26,7 @@ describe('group card', () => {
 
   it('falls back to the short id without a profile and marks a dissolved group', () => {
     const m = groupCardModel({ ...G, name: null, description: null, status: 'dissolved' }, { avatarDataUrl: 'data:x' });
-    expect(m.name).toMatch(/^group1/);
+    expect(m.name).toMatch(/^drep_group1/);
     expect(m.idShort).toBeNull();
     expect(m.bio).toBeNull();
     expect(m.stats[2]).toMatchObject({ value: 'Dissolved', label: '' });

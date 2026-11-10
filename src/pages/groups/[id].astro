@@ -53,6 +53,7 @@ import {
   reasonLabel,
   scriptFromJson,
   sectionParam,
+  shortGroupId,
   shortHash,
   statusNoteLabel,
 } from '@/lib/groups/view.js';
@@ -64,6 +65,8 @@ const id = Astro.params.id ?? '';
 // Group ids are lowercase bech32, an uppercase spelling moves to the canonical URL.
 if (available && id !== id.toLowerCase()) return Astro.redirect(`/groups/${id.toLowerCase()}/${Astro.url.search}`, 301);
 const group = available && db ? await getGroup(db, id) : null;
+// A legacy `group1` id or another spelling moves to the canonical `drep_group1` URL.
+if (group && group.groupId !== id) return Astro.redirect(`/groups/${group.groupId}/${Astro.url.search}`, 301);
 if (group) {
   Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
 } else {
@@ -171,7 +174,7 @@ const editableProfile = profile
       ...(profile.image ? { image: profile.image } : {}),
     }
   : null;
-const title = profile?.name ?? (group ? shortHash(group.groupId) : '');
+const title = profile?.name ?? (group ? shortGroupId(group.groupId) : '');
 const noteText = statusNoteLabel(note);
 const indicator = !group
   ? null
@@ -315,7 +318,7 @@ const metaDescription = clipExcerpt(metaFull, 300);
           <h1 class="drep-hd__name">{title}</h1>
           <ShareButton url={canonical} title={`${title} on DRepTalk`} ariaLabel="Share this group" />
         </div>
-        <div class="drep-hd__id"><span title={group.groupId}>{truncateIdMiddle(group.groupId)}</span><CopyButton value={group.groupId} label="Copy group id" /></div>
+        <div class="drep-hd__id"><span title={group.groupId}>{shortGroupId(group.groupId)}</span><CopyButton value={group.groupId} label="Copy group id" /></div>
         <p class="gr-mode">{modeLabel(group.mode)}</p>
         {(website || charter) && (
           <ul class="gr-links">

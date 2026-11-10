@@ -101,7 +101,7 @@ export function chainGroup(kind: ChainGroupKind): { id: string; name?: string } 
  */
 export async function expectUnlistedButLinked(page: Page, groupId: string, founderDrepId: string): Promise<void> {
   await page.goto('/groups/');
-  await expect(page.locator('a[href^="/groups/group1"]').first()).toBeVisible();
+  await expect(page.locator('a[href^="/groups/drep_group1"]').first()).toBeVisible();
   await expect(page.locator(`a[href="/groups/${groupId}/"]`)).toHaveCount(0);
   await page.goto(`/dreps/${founderDrepId}/`);
   await expect(page.locator(`a.drep-hd__group[href="/groups/${groupId}/"]`)).toBeVisible();

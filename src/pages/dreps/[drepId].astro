@@ -40,7 +40,7 @@ import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
 import { ogCardVersion } from '@/lib/og/version.js';
 import { currentNetwork } from '@/lib/api/response';
 import { drepGroupsAvailable } from '@/lib/groups/gate.js';
-import { ACTION_KIND_LABEL, ACTION_STATUS_LABEL, hostedAvatarHash, shortHash } from '@/lib/groups/view.js';
+import { ACTION_KIND_LABEL, ACTION_STATUS_LABEL, hostedAvatarHash, shortGroupId } from '@/lib/groups/view.js';
 import Avatar from '@/components/Avatar.astro';
 import CopyButton from '@/components/CopyButton.astro';
 import ShareButton from '@/components/ShareButton.astro';
@@ -340,11 +340,11 @@ const profileSummary = drep
           {groups.map((g) => (
             <a class="drep-hd__group" href={`/groups/${g.groupId}/`} title={g.groupId}>
               <Avatar seed={g.groupId} imageHash={hostedAvatarHash(g.image)} size={16} />
-              {g.name ?? shortHash(g.groupId)}
+              {g.name ?? shortGroupId(g.groupId)}
             </a>
           ))}
           {groupActions.map((a) => {
-            const label = `${ACTION_KIND_LABEL[a.kind] ?? a.kind} · ${shortHash(a.groupId)} · ${ACTION_STATUS_LABEL[a.status] ?? a.status}`;
+            const label = `${ACTION_KIND_LABEL[a.kind] ?? a.kind} · ${shortGroupId(a.groupId)} · ${ACTION_STATUS_LABEL[a.status] ?? a.status}`;
             // A founding group has no page until the chain confirms it.
             return a.kind === 'group_create'
               ? <span class="drep-hd__group drep-hd__group--pending" title={a.groupId}>{label}</span>

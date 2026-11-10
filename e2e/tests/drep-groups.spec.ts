@@ -5,7 +5,7 @@ import { signIn, waitForHydration } from './helpers.js';
 
 // The permissioned group of e2e/seed.sql, managed 2 of 3 by the test wallet's DRep key, Alice and
 // Erin, with Bob's request pending and an approval of it collecting signatures.
-const GROUP = 'group1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq8zuq9qqqqwesjwz';
+const GROUP = 'drep_group1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq8zuq9qqqqc2ldj9';
 const GROUP_NAME = 'E2E Permissioned Council';
 const ACTION = 'e2e00000000000000000000000000a01';
 const SEEDED_DREP = 'drep1y2jmg4g450lced7q9n34rq6d5vjwkm0ugx6h0894u6ur92s9txn3a';
