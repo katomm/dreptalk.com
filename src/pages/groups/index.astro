@@ -4,6 +4,7 @@ import { env } from 'cloudflare:workers';
 import Layout from '@/layouts/Layout.astro';
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
 import Avatar from '@/components/Avatar.astro';
+import Callout from '@/components/Callout.astro';
 import Pager from '@/components/Pager.astro';
 import NotFoundPage from '../404.astro';
 import { currentNetwork } from '@/lib/api/response';
@@ -19,6 +20,8 @@ import { loginHref } from '@/lib/auth/postLoginDest.js';
 import { hostedAvatarHash, LISTED_RULE, memberCount, memberCountWords, modeLabel, modeShort, shortGroupId, shortHash } from '@/lib/groups/view.js';
 
 const available = drepGroupsAvailable(currentNetwork().network);
+// While the CIP is in review, mainnet visitors are pointed to preprod for trying groups out.
+const onMainnet = currentNetwork().network === 'mainnet';
 const db = env.DB as D1Database | undefined;
 // The cursor is "<power>.<groupId>". A bech32 id has no dot, so the first dot splits it.
 const afterParam = Astro.url.searchParams.get('after');
@@ -66,6 +69,14 @@ if (available) {
       Groups are ranked by the voting power of their affiliated DReps and listed once they have {LISTED_RULE}.{' '}
       <a href="/help/drep-groups/">How DRep groups work</a>
     </p>
+    {onMainnet && (
+      <div class="gr-review">
+        <Callout>
+          DRep groups follow a <a href={DREP_GROUPS_STANDARD_URL} rel="noopener">standard</a> that is still in review, so the format can change before it is final.
+          To try them out, use <a href="https://preprod.dreptalk.com/groups/">DRepTalk on preprod</a> first.
+        </Callout>
+      </div>
+    )}
     {groups.length === 0 && !after ? (
       <section class="gr-empty" aria-label="No groups yet">
         <h2>No groups yet</h2>
@@ -154,6 +165,7 @@ if (available) {
   .gr-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem 1.25rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
   .gr-head h1 { margin: 0; }
   .gr-intro { color: var(--muted); max-width: 46rem; margin: 0 0 1.5rem; }
+  .gr-review { max-width: 46rem; margin: 0 0 1.5rem; }
   .gr-empty { border: 1px solid var(--border); border-radius: 0.75rem; padding: 1.25rem 1.5rem; max-width: 46rem; }
   .gr-empty h2 { margin: 0 0 0.5rem; font-size: 1.125rem; }
   .gr-empty p { margin: 0 0 0.75rem; color: var(--muted); }
