@@ -5,7 +5,10 @@ import { signIn, waitForHydration } from './helpers.js';
 
 // The permissioned group of e2e/seed.sql, managed 2 of 3 by the test wallet's DRep key, Alice and
 // Erin, with Bob's request pending and an approval of it collecting signatures.
-const GROUP = 'drep_group1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq8zuq9qqqqc2ldj9';
+const GROUP = 'drep_group1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq8zuq9qq43v6lk';
+// The same group in the 34 byte id form it had before the one byte index. The seeded approval row
+// is stored under it, and links in that form move to the canonical URL.
+const GROUP_OLD = 'drep_group1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq8zuq9qqqqc2ldj9';
 const GROUP_NAME = 'E2E Permissioned Council';
 const ACTION = 'e2e00000000000000000000000000a01';
 const SEEDED_DREP = 'drep1y2jmg4g450lced7q9n34rq6d5vjwkm0ugx6h0894u6ur92s9txn3a';
@@ -128,7 +131,12 @@ test('the founding wizard walks the alone and together paths to the review', asy
 test('an admin sees the request queue, the combined update offer, the policy editor and the dissolve confirmation', async ({ page, wallet, koios }) => {
   await signInAsSeededDrep(page, koios, wallet.drepId);
   const errors = pageErrors(page);
-  await page.goto(`/groups/${GROUP}/`);
+  // The old id form answers with a permanent redirect to the canonical URL.
+  const old = await page.request.get(`/groups/${GROUP_OLD}/`, { maxRedirects: 0 });
+  expect(old.status()).toBe(301);
+  expect(new URL(old.headers().location ?? '', 'http://x').pathname).toBe(`/groups/${GROUP}/`);
+  await page.goto(`/groups/${GROUP_OLD}/`);
+  await page.waitForURL(`**/groups/${GROUP}/`);
   await waitForHydration(page);
   const island = page.locator('#requests');
   await expect(island.getByRole('heading', { name: 'You are a member of this group' })).toBeVisible();

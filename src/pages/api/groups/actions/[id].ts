@@ -5,7 +5,7 @@ import type { APIRoute } from 'astro';
 import { jsonResponse } from '@/lib/api/response';
 import { collectedSatisfy, describeTxNamed, feeInputKeys, koiosFor, openRowRequest, submitBlocker, witnessKeys } from '@/lib/groups/actionServer';
 import { eventsOf } from '@/lib/groups/actionTx';
-import { groupIdString } from '@/lib/groups/ids';
+import { canonicalGroupId, groupIdString } from '@/lib/groups/ids';
 
 export const prerender = false;
 
@@ -49,7 +49,7 @@ export const GET: APIRoute = async ({ params, locals }) => {
       kind: row.action,
       status: row.status,
       resolution: row.resolution,
-      groupId: ctx.state ? groupIdString(ctx.state.ref) : intent.kind === 'group_create' ? row.drep_id : intent.group,
+      groupId: ctx.state ? groupIdString(ctx.state.ref) : canonicalGroupId(intent.kind === 'group_create' ? row.drep_id : intent.group),
       lines,
       requiredSigners: ctx.requiredSigners,
       signed: signers.filter((k) => required.has(k)),

@@ -44,7 +44,7 @@ const GROUP_CONTEXT = {
         '@context': {
           address: 'DRG:address',
           purpose: 'DRG:purpose',
-          treasuryScript: 'DRG:treasuryScript',
+          paymentScript: 'DRG:paymentScript',
         },
       },
     },

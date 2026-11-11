@@ -210,13 +210,18 @@ export function decodeContext(row: Record<string, unknown>): TxContext {
   };
 }
 
-/** Column values of a version's fields mode, control, admission, profile_url and profile_hash. */
+/**
+ * Column values of a version's fields mode, control, admission, profile_url, profile_hash,
+ * resigned_control and resigned_admission.
+ */
 export const versionFieldBinds = (v: GroupVersion): unknown[] => [
   v.mode,
   hashBytes(v.control),
   optHash(v.admission),
   v.profile?.url ?? null,
   optHash(v.profile?.dataHash ?? null),
+  hashListBytes(v.resignedControl),
+  hashListBytes(v.resignedAdmission),
 ];
 
 /** Reads a drep_group_versions row. The seq column is TEXT because it can exceed 2^53. */
@@ -233,6 +238,8 @@ export function versionFromRow(row: Record<string, unknown>): GroupVersion {
     status: String(col(row, 'status')) as GroupVersion['status'],
     createdAt: posFromRow(row, 'created'),
     profileSetAt: posOrNull(row, 'profile_set'),
+    resignedControl: hashListFromCol(col(row, 'resigned_control')),
+    resignedAdmission: hashListFromCol(col(row, 'resigned_admission')),
   };
 }
 

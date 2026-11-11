@@ -5,6 +5,7 @@ import type { GroupActionKind, PendingMultisigRow } from '../db/pendingMultisigT
 import type { GroupIntent } from './actions.js';
 import type { OutRef } from './groupTx.js';
 import { ACTION_TTL_SECONDS, GROUP_ACTION_PRUNE_PER_RUN, GROUP_ACTION_RETENTION_MS, OPEN_INPUT_ROWS } from './constants.js';
+import { groupIdFormsOf } from './ids.js';
 import { Q } from './store/queries.js';
 
 export interface NewGroupAction {
@@ -33,6 +34,7 @@ export interface NewGroupAction {
  * only while its group has no open control action, decided in the same statement.
  */
 export async function createGroupAction(db: D1Database, rec: NewGroupAction): Promise<'created' | 'slot taken'> {
+  const [current, twoByte, legacy] = groupIdFormsOf(rec.subjectId);
   const res = await db
     .prepare(Q.actionCreate.sql)
     .bind(
@@ -54,14 +56,21 @@ export async function createGroupAction(db: D1Database, rec: NewGroupAction): Pr
       rec.profileHash?.toLowerCase() ?? null,
       rec.controlSlot ? 1 : 0,
       JSON.stringify([...new Set(rec.feePayKeys.map((k) => k.toLowerCase()))].sort()),
+      current,
+      twoByte,
+      legacy,
     )
     .run();
   return (res.meta.changes ?? 0) > 0 ? 'created' : 'slot taken';
 }
 
-/** The row holding the group's control slot, null when the slot is free. */
-export async function openControlAction(db: D1Database, groupId: string): Promise<PendingMultisigRow | null> {
-  return (await db.prepare(Q.actionOpenControl.sql).bind(groupId).first<PendingMultisigRow>()) ?? null;
+/**
+ * The row holding the group's control slot under any form of its id, null when the slot is free.
+ * Takes the id string or the forms groupIdForms already built.
+ */
+export async function openControlAction(db: D1Database, group: string | readonly [string, string, string]): Promise<PendingMultisigRow | null> {
+  const forms = typeof group === 'string' ? groupIdFormsOf(group) : group;
+  return (await db.prepare(Q.actionOpenControl.sql).bind(...forms).first<PendingMultisigRow>()) ?? null;
 }
 
 /**

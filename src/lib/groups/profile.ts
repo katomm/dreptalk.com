@@ -48,9 +48,9 @@ export function extractGroupProfile(doc: unknown): GroupProfileFields {
       const address = text(o.address, LIMITS.url);
       if (!address) return [];
       const purpose = text(o.purpose, LIMITS.name) ?? undefined;
-      const script = text(o.treasuryScript, 56);
-      const treasuryScript = script && /^[0-9a-f]{56}$/.test(script) ? script : undefined;
-      return [{ address, ...(purpose ? { purpose } : {}), ...(treasuryScript ? { treasuryScript } : {}) }];
+      const script = text(o.paymentScript, 56);
+      const paymentScript = script && /^[0-9a-f]{56}$/.test(script) ? script : undefined;
+      return [{ address, ...(purpose ? { purpose } : {}), ...(paymentScript ? { paymentScript } : {}) }];
     })
     .slice(0, MAX_ADDRESSES);
   return {

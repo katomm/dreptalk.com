@@ -5,6 +5,7 @@ export const GROUP_ORDER = [
   'Roles and bodies',
   'Voting and delegation',
   'Governance action types',
+  'DRep groups',
 ] as const;
 
 export type GlossaryGroup = (typeof GROUP_ORDER)[number];

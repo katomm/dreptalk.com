@@ -57,6 +57,55 @@ export function policyKeyHashes(s: ScriptView | null): string[] {
   return 'children' in s ? s.children.flatMap(policyKeyHashes) : [];
 }
 
+/** The keys that resigned from a role as a set, lowercased once here. Absent reads as none. */
+export const resignedSet = (resigned: readonly string[] | undefined): Set<string> => new Set((resigned ?? []).map((k) => k.toLowerCase()));
+
+/** Whether the key resigned from the role. */
+export const hasResigned = (resigned: readonly string[], key: string): boolean => resignedSet(resigned).has(key.toLowerCase());
+
+/**
+ * The keys that have not resigned from the role, in their order and spelling. The resigned keys
+ * come as a list or as a set that resignedSet built.
+ */
+export function withoutResigned(keys: readonly string[], resigned: readonly string[] | ReadonlySet<string> | undefined): string[] {
+  const out = resigned instanceof Set ? resigned : resignedSet(resigned as readonly string[] | undefined);
+  return keys.filter((k) => !out.has(k.toLowerCase()));
+}
+
+/**
+ * The admins of a group: the keys of the control and the admission policy, each without the keys
+ * that resigned from that role. A resigned key stays in the script until the role's policy is
+ * replaced, but it is no admin of that role. Lowercase.
+ */
+export function activeAdminKeys(
+  control: readonly string[],
+  admission: readonly string[] | null,
+  resignedControl: readonly string[],
+  resignedAdmission: readonly string[],
+): Set<string> {
+  const of = (keys: readonly string[], resigned: readonly string[]) => withoutResigned(keys.map((k) => k.toLowerCase()), resigned);
+  return new Set([...of(control, resignedControl), ...of(admission ?? [], resignedAdmission)]);
+}
+
+/**
+ * The management threshold tile. The value is the threshold of the control script as published on
+ * chain. Keys that resigned stay in that script, so the sub line counts the admins that remain. A
+ * frozen policy, which no remaining admin can satisfy, shows as Frozen even when its shape is not a
+ * flat list of keys. Null when there is nothing to show.
+ */
+export function thresholdTile(
+  shape: { n: number; keys: readonly string[] } | null,
+  resignedControl: readonly string[],
+  frozen: boolean,
+): { value: string; sub: string } | null {
+  if (frozen) return { value: 'Frozen', sub: 'No admin can reach the threshold' };
+  if (!shape) return null;
+  const value = `${shape.n} of ${shape.keys.length}`;
+  const remaining = withoutResigned(shape.keys, resignedControl).length;
+  if (remaining === shape.keys.length) return { value, sub: 'admins must sign a change' };
+  return { value, sub: `${shape.n} of ${remaining} remaining ${remaining === 1 ? 'admin' : 'admins'} must sign a change` };
+}
+
 /** The first 8 and last 4 characters of a long hash or id. */
 export const shortHash = (h: string): string => truncateIdMiddle(h, 8, 4);
 /** Short form of a group id that keeps the `drep_group1` prefix and a few characters after it. */
@@ -138,6 +187,8 @@ export function eventLabel(tag: string | null): string {
       return 'Left';
     case 'remove':
       return 'Removed';
+    case 'resign':
+      return 'Admin resigned';
     default:
       return 'Unreadable event';
   }
@@ -152,6 +203,7 @@ export const ACTION_KIND_LABEL: Readonly<Record<string, string>> = {
   group_remove: 'Removal',
   group_update: 'Policy update',
   group_dissolve: 'Dissolution',
+  group_resign: 'Resignation',
 };
 
 /** Where an unresolved group action stands. A submitted one is confirming until the chain confirms it. */

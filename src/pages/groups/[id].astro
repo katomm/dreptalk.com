@@ -11,6 +11,7 @@ import DrepStatCard from '@/components/DrepStatCard.astro';
 import JsonLd from '@/components/JsonLd.astro';
 import ShareButton from '@/components/ShareButton.astro';
 import GroupActions from '@/components/groups/GroupActions.js';
+import PolicyKeyList from '@/components/groups/PolicyKeyList.astro';
 import NotFoundPage from '../404.astro';
 import { currentNetwork } from '@/lib/api/response';
 import { groupCardVersion } from '@/lib/og/groupCard.js';
@@ -36,12 +37,15 @@ import { buildBreadcrumbLd } from '@/lib/jsonld/breadcrumb.js';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import type { VitalCard } from '@/lib/analytics/hubView.js';
 import { GROUP_PAGE_SIZE, RETENTION_KEEP_APPLIED, RETENTION_KEEP_NOT_APPLIED } from '@/lib/groups/constants.js';
+import { controlFrozen } from '@/lib/groups/actions.js';
+import { scriptFromDisplayJson } from '@/lib/groups/codec.js';
 import { drepGroupsAvailable } from '@/lib/groups/gate.js';
-import { addressNetwork } from '@/lib/groups/ids.js';
-import { type HistoryKind, type ProfileFields, policyShape, policyWords, profileFieldsOfDoc } from '@/lib/groups/describe.js';
+import { addressNetwork, groupIdentSeed } from '@/lib/groups/ids.js';
+import { type HistoryKind, type ProfileFields, policyKeyPart, policyKeyParts, policyShape, policyWords, profileFieldsOfDoc } from '@/lib/groups/describe.js';
 import { historyEntries } from '@/lib/groups/history.js';
 import { CIRCLE_X_PATH, CLOCK_PATH, PENCIL_PATH, SHIELD_PATH, USER_CHECK_PATH, USER_MINUS_PATH, USER_PLUS_PATH, USER_X_PATH, USERS_PATH } from '@/lib/forum/icons.js';
 import {
+  activeAdminKeys,
   addressStatusLabel,
   describePolicy,
   eventLabel,
@@ -56,6 +60,7 @@ import {
   shortGroupId,
   shortHash,
   statusNoteLabel,
+  thresholdTile,
 } from '@/lib/groups/view.js';
 
 const net = currentNetwork();
@@ -65,7 +70,7 @@ const id = Astro.params.id ?? '';
 // Group ids are lowercase bech32, an uppercase spelling moves to the canonical URL.
 if (available && id !== id.toLowerCase()) return Astro.redirect(`/groups/${id.toLowerCase()}/${Astro.url.search}`, 301);
 const group = available && db ? await getGroup(db, id) : null;
-// A legacy `group1` id or another spelling moves to the canonical `drep_group1` URL.
+// An old 34 byte id (`group1` or `drep_group1`) or another spelling moves to the canonical URL.
 if (group && group.groupId !== id) return Astro.redirect(`/groups/${group.groupId}/${Astro.url.search}`, 301);
 if (group) {
   Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
@@ -80,7 +85,7 @@ const webLink = (u: string | null | undefined): string | null => (u && isHttpUrl
 const website = webLink(profile?.website);
 const charter = webLink(profile?.charter);
 const addresses = profile?.paymentAddresses ?? [];
-const treasuryHashes = [...new Set(addresses.flatMap((a) => (a.treasuryScript ? [a.treasuryScript] : [])))];
+const treasuryHashes = [...new Set(addresses.flatMap((a) => (a.paymentScript ? [a.paymentScript] : [])))];
 const policyHashes = group ? [group.controlHash, ...(group.admissionHash ? [group.admissionHash] : [])] : [];
 
 const [note, verification, sections, history, notApplied, displays, treasury] =
@@ -107,7 +112,10 @@ const [note, verification, sections, history, notApplied, displays, treasury] =
 
 const control = group ? scriptFromJson(displays.get(group.controlHash)) : null;
 const admission = group?.admissionHash ? scriptFromJson(displays.get(group.admissionHash)) : null;
-const admins = new Set([...policyKeyHashes(control), ...policyKeyHashes(admission)]);
+const controlKeys = policyKeyHashes(control);
+const admissionKeys = policyKeyHashes(admission);
+// A key that resigned from a role stays in its script but is no admin of that role.
+const admins = activeAdminKeys(controlKeys, admissionKeys, group?.resignedControl ?? [], group?.resignedAdmission ?? []);
 const treasuryViews = new Map(treasuryHashes.map((h) => [h, scriptFromJson(treasury.displays.get(h))]));
 // The history reads the policies and profiles every change set.
 const versionHashes = history.versions.flatMap((v) => (v.admission ? [v.control, v.admission] : [v.control]));
@@ -125,7 +133,7 @@ const historyProfiles = new Map<string, ProfileFields | null>(profileHashes.map(
 if (profile?.dataHash) historyProfiles.set(profile.dataHash, profile);
 const historyKeys = [...historyScripts.values()].flatMap(policyKeyHashes);
 
-const allKeys = [...admins, ...[...treasuryViews.values()].flatMap(policyKeyHashes), ...historyKeys];
+const allKeys = [...controlKeys, ...admissionKeys, ...[...treasuryViews.values()].flatMap(policyKeyHashes), ...historyKeys];
 const subjects = history.events.flatMap((e) => (e.subject ? [e.subject] : []));
 const nameCreds = [...allKeys.map((hash) => ({ kind: 'key' as const, hash })), ...subjects];
 const names = db && nameCreds.length > 0 ? await drepNamesForCredentials(db, nameCreds) : new Map<string, string>();
@@ -139,6 +147,7 @@ const HISTORY_ICON: Record<HistoryKind, string> = {
   approved: USER_CHECK_PATH,
   left: USER_MINUS_PATH,
   removed: USER_X_PATH,
+  resign: USER_MINUS_PATH,
   policy: SHIELD_PATH,
   profile: PENCIL_PATH,
   dissolved: CIRCLE_X_PATH,
@@ -150,6 +159,7 @@ const HISTORY_KIND_LABEL: Record<HistoryKind, string> = {
   approved: 'Approved',
   left: 'Left',
   removed: 'Removed',
+  resign: 'Admin resigned',
   policy: 'Policy update',
   profile: 'Profile update',
   dissolved: 'Dissolved',
@@ -202,9 +212,8 @@ const nextQuery = (kind: keyof typeof SECTION_TITLE, after: string): string => {
 };
 
 // Header and tiles. The image shows when DRepTalk hosts it, the page's CSP loads no other origin, so
-// a group without one shows the identicon of its id as a DRep without an image does.
+// a group without one shows the identicon of its output reference as a DRep without an image does.
 const avatarHash = hostedAvatarHash(profile?.image);
-const adminKeys = new Set([...admins].map((k) => k.toLowerCase()));
 const founded = group ? (group.createdTime ?? blockTimes.get(group.createdHeight) ?? null) : null;
 const foundedText =
   founded !== null
@@ -212,7 +221,10 @@ const foundedText =
     : group
       ? `Block ${group.createdHeight}`
       : '';
-const threshold = policyShape(control);
+// A control policy that no remaining admin can satisfy freezes the group. A script whose display
+// is cut at the depth limit cannot be judged and counts as not frozen.
+const controlScript = group ? scriptFromDisplayJson(displays.get(group.controlHash) ?? '') : null;
+const threshold = group ? thresholdTile(policyShape(control), group.resignedControl, controlScript !== null && controlFrozen(controlScript, group.resignedControl)) : null;
 const statCards: VitalCard[] = group
   ? [
       {
@@ -230,12 +242,13 @@ const statCards: VitalCard[] = group
       },
       { label: 'Founded', value: foundedText, icon: 'calendar', alt: true },
       ...(threshold
-        ? [{ label: 'Management threshold', value: `${threshold.n} of ${threshold.keys.length}`, icon: 'shield' as const, sub: 'admins must sign a change', alt: true }]
+        ? [{ label: 'Management threshold', value: threshold.value, icon: 'shield' as const, sub: threshold.sub, alt: true }]
         : []),
     ]
   : [];
 // A member as the DRep list shows a DRep: avatar, name or short id, a link to the profile while the
-// membership is not closed, and the Admin badge for a key in the management or admission policy.
+// membership is not closed, and the Admin badge for a key in the management or admission policy
+// that has not resigned from that role.
 // A former member whose key is still in a policy reads "Still admin" until the policy drops it.
 const memberIdentity = (m: MemberRow): AuthorDescriptor => ({
   authorId: m.drepId,
@@ -243,8 +256,22 @@ const memberIdentity = (m: MemberRow): AuthorDescriptor => ({
   ...(m.state === 'closed' ? {} : { drepId: m.drepId, drepSlug: m.drepSlug }),
   imageHash: m.drepImage,
   identiconSeed: m.drepHex ?? m.drepId,
-  badges: m.drepHex && adminKeys.has(m.drepHex.toLowerCase()) ? [m.state === 'closed' ? 'Still admin' : 'Admin'] : [],
+  badges: m.drepHex && admins.has(m.drepHex.toLowerCase()) ? [m.state === 'closed' ? 'Still admin' : 'Admin'] : [],
 });
+
+// The policies by role: the threshold and the admins, linked to their DRep profiles, and the keys
+// that resigned from the role. A nested policy is described in words.
+const policyRoles = group
+  ? [
+      { label: 'Management', script: control, resigned: group.resignedControl },
+      ...(group.mode === 'permissioned' ? [{ label: 'Admission', script: admission, resigned: group.resignedAdmission }] : []),
+    ].map((r) => ({
+      label: r.label,
+      words: policyWords(r.script, names),
+      parts: policyKeyParts(r.script, names),
+      resigned: r.resigned.map((k) => policyKeyPart(k, names)),
+    }))
+  : [];
 
 const siteOrigin = Astro.site?.origin ?? SITE_ORIGIN;
 const canonical = group ? `${siteOrigin}/groups/${group.groupId}/` : siteOrigin;
@@ -304,7 +331,7 @@ const metaDescription = clipExcerpt(metaFull, 300);
 
     <header class="drep-hd">
       <span class="drep-hd__avatar">
-        <Avatar seed={group.groupId} imageHash={avatarHash} size={96} />
+        <Avatar seed={groupIdentSeed(group.ref)} imageHash={avatarHash} size={96} />
       </span>
       <div class="drep-hd__main">
         <div class="drep-hd__tags">
@@ -397,16 +424,23 @@ const metaDescription = clipExcerpt(metaFull, 300);
     <section class="ocd gr-ocd">
       <h2 class="ocd__h">Policies</h2>
       <dl class="ocd__grid">
-        <div class="ocd__item">
-          <dt class="ocd__dt">Management</dt>
-          <dd class="ocd__dd">{policyWords(control, names)}</dd>
-        </div>
-        {group.mode === 'permissioned' && (
+        {policyRoles.map((r) => (
           <div class="ocd__item">
-            <dt class="ocd__dt">Admission</dt>
-            <dd class="ocd__dd">{policyWords(admission, names)}</dd>
+            <dt class="ocd__dt">{r.label}</dt>
+            <dd class="ocd__dd">
+              {r.parts ? (
+                <span>{r.parts.ratio}: <PolicyKeyList keys={r.parts.keys} /></span>
+              ) : (
+                <span>{r.words}</span>
+              )}
+            </dd>
+            {r.resigned.length > 0 && (
+              <dd class="ocd__dd gr-meta">
+                <span><span class="gr-resigned">Resigned</span> <PolicyKeyList keys={r.resigned} /></span>
+              </dd>
+            )}
           </div>
-        )}
+        ))}
       </dl>
     </section>
 
@@ -418,7 +452,7 @@ const metaDescription = clipExcerpt(metaFull, 300);
             <div class="ocd__item">
               <dt class="ocd__dt">{a.entry.purpose ?? 'Address'}</dt>
               <dd class="ocd__dd"><span class="ocd__mono" title={a.entry.address}>{truncateIdMiddle(a.entry.address)}</span><CopyButton value={a.entry.address} label="Copy payment address" /></dd>
-              <dd class="ocd__dd gr-meta">{addressStatusLabel(a.check.status)}{a.check.status === 'script-controlled' && a.entry.treasuryScript ? `: ${describePolicy(treasuryViews.get(a.entry.treasuryScript) ?? null, names, admins)}` : ''}</dd>
+              <dd class="ocd__dd gr-meta">{addressStatusLabel(a.check.status)}{a.check.status === 'script-controlled' && a.entry.paymentScript ? `: ${describePolicy(treasuryViews.get(a.entry.paymentScript) ?? null, names, admins)}` : ''}</dd>
             </div>
           ))}
         </dl>
@@ -478,6 +512,7 @@ const metaDescription = clipExcerpt(metaFull, 300);
   .gr-mode { margin: 0 0 0.35rem; color: var(--muted); font-size: 0.9375rem; }
   .gr-links { list-style: none; padding: 0; margin: 0; display: flex; gap: 0.5rem 1rem; flex-wrap: wrap; font-size: 0.9375rem; }
   .gr-links li { display: inline-flex; align-items: center; gap: 0.45rem; }
+  .gr-resigned { font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); padding: 0.1rem 0.45rem; border-radius: 999px; background: color-mix(in srgb, var(--muted) 12%, transparent); margin-right: 0.25rem; }
   .gr-verified { font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--c-pos); padding: 0.1rem 0.45rem; border-radius: 999px; background: color-mix(in srgb, var(--c-pos) 12%, transparent); }
   .gr-about { margin: 0 0 1.5rem; max-width: 65ch; white-space: pre-wrap; overflow-wrap: anywhere; }
   .gr-section { margin: 0 0 2rem; }

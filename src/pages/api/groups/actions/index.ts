@@ -57,6 +57,7 @@ function addedKeys(intent: GroupIntent, mandatory: string[]): string[] {
     const admission = intent.admission === 'same' || intent.admission === null ? [] : intent.admission.keys;
     return uniq([...intent.control.keys, ...admission]);
   }
+  // Deliberately every mandatory key of an update: also a key moving between roles and a resigned key listed again.
   return intent.kind === 'group_update' ? mandatory : [];
 }
 
@@ -65,6 +66,8 @@ function displayPolicy(intent: GroupIntent, state: GroupState | null, memberScri
   switch (intent.kind) {
     case 'group_create':
       return scriptDisplayJson(majorityScript(intent.control.keys, intent.control.n).script);
+    case 'group_resign':
+      return scriptDisplayJson({ type: 'sig', keyHash: intent.key.toLowerCase() });
     case 'group_join':
     case 'group_leave': {
       const c = credentialForDrepId(intent.member);

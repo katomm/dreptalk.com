@@ -8,13 +8,51 @@ import { type Cbor, cbor } from './loadFixtures.js';
 export { deepScriptBytes } from './engineFixtures.js';
 export { ev, keyHex as K, payloadValue, sig, sigScript, txHex as T } from './loadFixtures.js';
 
-/** A Conway transaction: body with required signers, native witness scripts, is_valid and a metadata map. */
-export function txCbor(o: { payload?: Cbor; foreign?: Cbor; requiredSigners?: string[]; witnessScripts?: Cbor[] }): string {
+/** An output reference, the producing tx hash and the output index. */
+export interface OutRef {
+  txHash: string;
+  index: number;
+}
+/** An output, with a reference script of a native script (language 0) or opaque Plutus bytes (language 2). */
+export type FakeOutput = { native?: Cbor; plutus?: Uint8Array };
+
+/** The script_ref of an output: tag 24 around the CBOR of [language, script]. */
+const scriptRef = (o: FakeOutput): Cbor | undefined =>
+  o.native !== undefined
+    ? { tag: 24, value: cbor([0, o.native]) }
+    : o.plutus !== undefined
+      ? { tag: 24, value: cbor([2, o.plutus]) }
+      : undefined;
+const outputCbor = (o: FakeOutput): Cbor => {
+  const out = new Map<number, Cbor>([
+    [0, hexToBytes(`60${'ab'.repeat(28)}`)],
+    [1, 2_000_000],
+  ]);
+  const ref = scriptRef(o);
+  if (ref !== undefined) out.set(3, ref);
+  return out;
+};
+
+/**
+ * A Conway transaction: body with inputs, outputs, reference inputs and required signers, native
+ * witness scripts, is_valid and a metadata map.
+ */
+export function txCbor(o: {
+  payload?: Cbor;
+  foreign?: Cbor;
+  requiredSigners?: string[];
+  witnessScripts?: Cbor[];
+  inputs?: OutRef[];
+  referenceInputs?: OutRef[];
+  outputs?: FakeOutput[];
+}): string {
+  const ref = (r: OutRef): Cbor => [hexToBytes(r.txHash), r.index];
   const body = new Map<number, Cbor>([
-    [0, []],
-    [1, []],
+    [0, (o.inputs ?? []).map(ref)],
+    [1, (o.outputs ?? []).map(outputCbor)],
     [2, 170_000],
   ]);
+  if (o.referenceInputs?.length) body.set(18, o.referenceInputs.map(ref));
   if (o.requiredSigners?.length) body.set(14, o.requiredSigners.map(hexToBytes));
   const wits = new Map<number, Cbor>();
   if (o.witnessScripts?.length) wits.set(1, o.witnessScripts);

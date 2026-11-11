@@ -181,22 +181,22 @@ describe('group profiles', () => {
     expect((await dueRows()).map((r) => r.kind)).toEqual(['profile']);
   });
 
-  it('drops control characters, caps by code points and accepts only a hex treasury script', () => {
+  it('drops control characters, caps by code points and accepts only a hex payment script', () => {
     const p = extractGroupProfile({
       body: {
         name: `Co\u0000un\u0007cil`,
         description: '\u{1F600}'.repeat(2001),
         paymentAddresses: [
-          { address: 'a', treasuryScript: 'a'.repeat(56) },
-          { address: 'b', treasuryScript: 'A'.repeat(56) },
-          { address: 'c', treasuryScript: 'zz' },
+          { address: 'a', paymentScript: 'a'.repeat(56) },
+          { address: 'b', paymentScript: 'A'.repeat(56) },
+          { address: 'c', paymentScript: 'zz' },
         ],
       },
     });
     expect(p.name).toBe('Council');
     expect(Array.from(p.description ?? '')).toHaveLength(2000);
     expect(p.description?.endsWith('\u{1F600}')).toBe(true);
-    expect(p.paymentAddresses).toEqual([{ address: 'a', treasuryScript: 'a'.repeat(56) }, { address: 'b' }, { address: 'c' }]);
+    expect(p.paymentAddresses).toEqual([{ address: 'a', paymentScript: 'a'.repeat(56) }, { address: 'b' }, { address: 'c' }]);
   });
 
   it('keeps a stored profile on a transient failure and only delays it', async () => {

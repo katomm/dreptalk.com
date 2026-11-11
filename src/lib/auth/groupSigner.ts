@@ -3,8 +3,9 @@
 // with the narrow group-signer role while its key sits in a policy of an active DRep group.
 import type { EventRef } from 'drep-groups';
 import { parseDrepId } from '../cardano/identity.js';
-import { hashBytes, refFromCols } from '../groups/codec.js';
+import { hashBytes, hashListFromCol, refFromCols } from '../groups/codec.js';
 import { Q } from '../groups/store/queries.js';
+import { hasResigned } from '../groups/view.js';
 import { GROUP_SIGNER_ROLE } from './roles.js';
 import type { CardanoNetwork } from '../config/network.js';
 import { drepGroupsAvailable } from '../groups/gate.js';
@@ -23,10 +24,17 @@ export function sessionKeyHash(user: App.Locals['user']): string | null {
   return parsed?.kind === 'key' ? parsed.hashHex : null;
 }
 
-/** The active groups that have the key in their control or admission policy. */
+/**
+ * The active groups that have the key in their control or admission policy, while at least one
+ * role that lists it does not have it resigned.
+ */
 export async function groupsForPolicyKey(db: D1Database, keyHash: string): Promise<EventRef[]> {
-  const { results } = await db.prepare(Q.groupsForPolicyKey.sql).bind(hashBytes(keyHash)).all<Record<string, unknown>>();
-  return results.map((r) => refFromCols(r.group_tx, r.group_ix));
+  const key = keyHash.toLowerCase();
+  const { results } = await db.prepare(Q.groupsForPolicyKey.sql).bind(hashBytes(key)).all<Record<string, unknown>>();
+  const counts = (listed: unknown, resigned: unknown) => Number(listed) === 1 && !hasResigned(hashListFromCol(resigned), key);
+  return results
+    .filter((r) => counts(r.in_control, r.resigned_control) || counts(r.in_admission, r.resigned_admission))
+    .map((r) => refFromCols(r.group_tx, r.group_ix));
 }
 
 /**

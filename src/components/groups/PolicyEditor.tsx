@@ -1,12 +1,14 @@
 // What the admins of a DRep group change through the control policy: the profile, the admins and
 // the threshold of the management policy, and dissolving the group. Each change becomes an intent
 // that the group page builds and signs like every other group action. All of them hold the
-// group's single management slot, so the editor waits while another one is open.
+// group's single management slot, so the editor waits while another one is open. Resigning as
+// admin needs only the admin's own key and no slot, so it stays open to every admin of any role.
 import { useState } from 'react';
 import { carryThreshold, type GroupIntent, sameSet, uniq } from '@/lib/groups/actions.js';
 import type { GroupProfileInput } from '@/lib/groups/profileDocs.js';
 import { readableError } from '@/lib/wallet/walletError.js';
 import { SLOT_HELD } from './actionFlow.js';
+import { inputStyle, labelStyle } from '@/components/drepFormStyles.js';
 import SegmentedControl from '@/components/SegmentedControl.js';
 import { DrepAdder, type ProfileDraft, ProfileFields, profileDraftOf, profileError, storeProfile, ThresholdField, thresholdError } from './groupForms.js';
 import { Callout, choice, h3, muted, part, rows, stack } from './groupUi.js';
@@ -31,6 +33,8 @@ export const updateIntent = (group: string, p: Proposal, approvals: string[]): G
 });
 
 export const DISSOLVE_WARNING = "This cannot be undone. Members' delegations do not change.";
+export const RESIGN_NOTE = 'Your key stops counting as admin in every role of this group that lists it. Only your own signature is needed. Your membership does not change.';
+export const RESIGN_FREEZE_WARNING = 'Nobody will be able to change or dissolve this group after you resign. Members can still leave.';
 
 /** The keys of a management policy to tick, its threshold and who has to sign for being newly listed. */
 export function PolicyFields({
@@ -75,10 +79,14 @@ export interface PolicyEditorProps {
   groupId: string;
   /** Threshold of the current control policy. */
   current: { n: number; k: number };
+  /** Every key of the control policy, the keys that resigned from control included. */
   controlKeys: string[];
   /** The admission policy is the control policy and follows it. */
   sameAdmission: boolean;
-  /** Every key of the current policies, a key outside them is newly listed. */
+  /**
+   * The control keys that have not resigned from control. They start ticked, and a key outside
+   * them is newly listed.
+   */
   listed: Set<string>;
   memberKeys: string[];
   nameOf: (key: string) => string;
@@ -86,7 +94,15 @@ export interface PolicyEditorProps {
   /** A proposal to start the policy change with, for example the members after a drift. */
   initial: Proposal | null;
   slotHeld: boolean;
+  /** The key may change the profile and the management policy. */
+  canUpdate: boolean;
   canDissolve: boolean;
+  /** The viewer's key when a role still counts it, so it may resign, else null. */
+  resignKey: string | null;
+  /** The resign leaves no remaining key able to satisfy the control policy. */
+  resignFreezes: boolean;
+  /** What the viewer types to confirm a resign that freezes the group. */
+  groupName: string;
   /**
    * `names` holds the names of admins added by DRep id, by key hash. A profile change gives the
    * profile before and after, for the description of the draft.
@@ -95,14 +111,15 @@ export interface PolicyEditorProps {
   onClose: () => void;
 }
 
-type Task = 'profile' | 'policy' | 'dissolve';
+type Task = 'profile' | 'policy' | 'dissolve' | 'resign';
 
 export default function PolicyEditor(props: PolicyEditorProps) {
-  const { groupId, current, controlKeys, sameAdmission, listed, memberKeys, slotHeld, canDissolve, onContinue, onClose } = props;
-  const [task, setTask] = useState<Task>(props.initial ? 'policy' : 'profile');
+  const { groupId, current, controlKeys, sameAdmission, listed, memberKeys, slotHeld, canUpdate, canDissolve, resignKey, onContinue, onClose } = props;
+  const [task, setTask] = useState<Task>(!canUpdate ? 'resign' : props.initial ? 'policy' : 'profile');
   const [proposal, setProposal] = useState<Proposal>(
-    props.initial ?? { keys: uniq([...controlKeys, ...memberKeys]), ticked: uniq(controlKeys), n: current.n, sameAdmission },
+    () => props.initial ?? { keys: uniq([...controlKeys, ...memberKeys]), ticked: uniq(controlKeys).filter((k) => listed.has(k)), n: current.n, sameAdmission },
   );
+  const [typedName, setTypedName] = useState('');
   const [added, setAdded] = useState<Map<string, string>>(new Map());
   const [profile, setProfile] = useState(profileDraftOf(props.profile));
   const [confirmDissolve, setConfirmDissolve] = useState(false);
@@ -141,29 +158,39 @@ export default function PolicyEditor(props: PolicyEditorProps) {
   }
 
   const tabs: Array<[Task, string]> = [
-    ['profile', 'Edit the profile'],
-    ['policy', 'Change admins or threshold'],
+    ...(canUpdate
+      ? ([
+          ['profile', 'Edit the profile'],
+          ['policy', 'Change admins or threshold'],
+        ] as Array<[Task, string]>)
+      : []),
     ...(canDissolve ? ([['dissolve', 'Dissolve the group']] as Array<[Task, string]>) : []),
+    ...(resignKey ? ([['resign', 'Resign as admin']] as Array<[Task, string]>) : []),
   ];
+  // Every task but the resign holds the management slot.
+  const waiting = slotHeld && task !== 'resign';
+  const resignBlocked = props.resignFreezes && typedName.trim() !== props.groupName.trim();
 
   return (
     <section aria-label="Manage the group" style={part}>
       <h3 style={h3}>Manage the group</h3>
-      {slotHeld ? (
+      {tabs.length > 1 && (
+        <SegmentedControl
+          ariaLabel="What to change"
+          value={task}
+          onChange={(t) => {
+            setError(null);
+            setTask(t);
+          }}
+          wrap
+          minButtonInlineSize="11rem"
+          options={tabs.map(([value, label]) => ({ value, label }))}
+        />
+      )}
+      {waiting ? (
         <p style={muted}>{SLOT_HELD}</p>
       ) : (
         <>
-          <SegmentedControl
-            ariaLabel="What to change"
-            value={task}
-            onChange={(t) => {
-              setError(null);
-              setTask(t);
-            }}
-            wrap
-            minButtonInlineSize="11rem"
-            options={tabs.map(([value, label]) => ({ value, label }))}
-          />
 
           {task === 'profile' && (
             <div style={stack}>
@@ -218,6 +245,38 @@ export default function PolicyEditor(props: PolicyEditorProps) {
                   className="btn btn-primary"
                   disabled={!confirmDissolve}
                   onClick={() => onContinue({ kind: 'group_dissolve', group: groupId }, 'Dissolve the group', added)}
+                >
+                  Review and sign
+                </button>
+              </div>
+            </div>
+          )}
+
+          {task === 'resign' && resignKey && (
+            <div style={stack}>
+              {tabs.length === 1 && <h4 style={h3}>Resign as admin</h4>}
+              <p style={{ margin: 0 }}>{RESIGN_NOTE}</p>
+              {props.resignFreezes && (
+                <>
+                  <Callout kind="error">{RESIGN_FREEZE_WARNING}</Callout>
+                  <label style={{ display: 'block' }}>
+                    <span style={labelStyle}>Type the group name, {props.groupName}, to confirm</span>
+                    <input
+                      type="text"
+                      autoComplete="off"
+                      value={typedName}
+                      onChange={(e) => setTypedName(e.target.value)}
+                      style={inputStyle}
+                    />
+                  </label>
+                </>
+              )}
+              <div>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={resignBlocked}
+                  onClick={() => onContinue({ kind: 'group_resign', group: groupId, key: resignKey }, 'Resign as admin', added)}
                 >
                   Review and sign
                 </button>

@@ -3,8 +3,8 @@
 // binding of a decoded transaction to that payload, and the events in plain words. Pure, no I/O.
 //
 // String conventions of an intent: `founders`, `member` and the members of a proposal are DRep ids,
-// policy `keys` are key hashes (lowercase hex), `group` is the bech32 group id and join references
-// are `txHash#index` as the library's refKey writes them.
+// policy `keys` and the `key` of a resign are key hashes (lowercase hex), `group` is the bech32
+// group id and join references are `txHash#index` as the library's refKey writes them.
 import {
   type Anchor,
   type Credential,
@@ -28,7 +28,7 @@ import {
 import { scriptDisplayJson } from './codec.js';
 import { credentialForDrepId, groupIdParam } from './ids.js';
 import { type GroupChanges, noChanges } from './describe.js';
-import { type ScriptView, scriptFromJson } from './view.js';
+import { resignedSet, type ScriptView, scriptFromJson, withoutResigned } from './view.js';
 
 type Policy = NativeScript & { hash: string };
 
@@ -39,6 +39,9 @@ export interface GroupState {
   seq: bigint;
   control: Policy;
   admission: Policy | null;
+  /** Keys that resigned from the role. Their `sig` is false when that role's policy is evaluated. */
+  resignedControl: string[];
+  resignedAdmission: string[];
 }
 
 export interface Majority {
@@ -58,7 +61,8 @@ export type GroupIntent =
   | { kind: 'group_join' | 'group_leave'; group: string; member: string; join?: string }
   | { kind: 'group_approve' | 'group_remove'; group: string; joins: string[] }
   | { kind: 'group_update'; group: string; approvals: string[]; control?: Majority; admission?: Majority | 'same'; profile?: Anchor }
-  | { kind: 'group_dissolve'; group: string };
+  | { kind: 'group_dissolve'; group: string }
+  | { kind: 'group_resign'; group: string; key: string };
 
 /** An intent that does not describe a buildable action. Callers answer it like an EncodeError. */
 export class IntentError extends Error {}
@@ -126,6 +130,36 @@ function founderCredentials(founders: string[]): Credential[] {
   if (new Set(creds.map(credKey)).size !== creds.length) throw new IntentError('a founder is listed twice');
   return creds;
 }
+
+/**
+ * Whether a role whose current policy lists the key still counts it, the condition of a valid
+ * resign: the group is active and the control or the admission policy lists the key without a
+ * resignation from that role.
+ */
+export function mayResign(state: GroupState, key: string): boolean {
+  const k = key.toLowerCase();
+  if (state.status !== 'active') return false;
+  const listed = (p: NativeScript | null, resigned: readonly string[]) => !!p && withoutResigned(policyKeys(p), resigned).includes(k);
+  return listed(state.control, state.resignedControl) || listed(state.admission, state.resignedAdmission);
+}
+
+// Validity bounds under which every time lock of a policy holds: `after` needs a start at or past
+// its slot and `before` an end at or before its slot.
+const ALL_TIME_LOCKS = { invalidBefore: 2n ** 64n, invalidHereafter: 0n } as const;
+
+/**
+ * Whether the control policy can no longer be satisfied: every key resigned from control counts as
+ * unable to sign, every other listed key as signing, and time locks as met. Such a group is
+ * frozen, nobody can change or dissolve it.
+ */
+export function controlFrozen(control: NativeScript, resignedControl: readonly string[]): boolean {
+  const signers = new Set(withoutResigned(policyKeys(control), resignedControl));
+  return !evaluateNativeScript(control, { signers, ...ALL_TIME_LOCKS });
+}
+
+/** Whether the control policy is frozen once `key` resigns, on top of the keys already resigned. */
+export const resignFreezes = (control: NativeScript, key: string, resignedControl: readonly string[]): boolean =>
+  controlFrozen(control, [...resignedControl, key]);
 
 function leaveRef(intent: { member: string; join?: string }, joinMembers: Map<string, Credential>): EventRef {
   if (intent.join !== undefined) return parseJoinRef(intent.join);
@@ -200,6 +234,11 @@ function build(intent: GroupIntent, state: GroupState | null, joinMembers: Map<s
       const group = groupRef(intent, state);
       return { events: [{ tag: 'dissolve', group, seq: requireState(state).seq }] };
     }
+    case 'group_resign': {
+      const group = groupRef(intent, state);
+      if (!mayResign(requireState(state), intent.key)) throw new IntentError('key not listed in any role');
+      return { events: [{ tag: 'resign', group, key: intent.key.toLowerCase() }] };
+    }
   }
 }
 
@@ -207,7 +246,7 @@ function build(intent: GroupIntent, state: GroupState | null, joinMembers: Map<s
  * The policies the action is judged against in the current state: the control policy for an
  * update or dissolve, the admission policy for approvals and removes (also those of a combined
  * update), and a script DRep's own script for its join or leave. A create has no current policy,
- * its consent rule needs every listed key instead.
+ * its consent rule needs every listed key instead, and a resign needs only the key's own signature.
  */
 export function neededPolicies(
   intent: GroupIntent,
@@ -216,6 +255,7 @@ export function neededPolicies(
 ): { control: NativeScript | null; admission: NativeScript | null; member: NativeScript | null } {
   switch (intent.kind) {
     case 'group_create':
+    case 'group_resign':
       return { control: null, admission: null, member: null };
     case 'group_join':
     case 'group_leave':
@@ -235,18 +275,48 @@ export function neededPolicies(
 const policyKeys = (...ps: Array<NativeScript | null | undefined>): string[] =>
   uniq(ps.flatMap((p) => (p ? collectKeyHashes(p) : [])));
 
+/** A needed policy with the keys that resigned from its role. A member script has none. */
+interface RolePolicy {
+  script: NativeScript;
+  resigned: Set<string>;
+}
+
+function neededRoles(intent: GroupIntent, state: GroupState | null, memberScript: NativeScript | null): RolePolicy[] {
+  const p = neededPolicies(intent, state, memberScript);
+  const roles: RolePolicy[] = [];
+  if (p.control) roles.push({ script: p.control, resigned: resignedSet(state?.resignedControl) });
+  if (p.admission) roles.push({ script: p.admission, resigned: resignedSet(state?.resignedAdmission) });
+  if (p.member) roles.push({ script: p.member, resigned: new Set() });
+  return roles;
+}
+
+/** Listed keys of the role's policy that have not resigned from the role, the keys whose signature counts. */
+const activeKeys = (r: RolePolicy): string[] => withoutResigned(policyKeys(r.script), r.resigned);
+
 /**
- * Keys of the action. Mandatory keys must sign: every key a create lists and every founder, a key
- * DRep's own key for its join or leave, and every key an update newly lists. Optional keys are the
- * keys of the needed current policies, of which enough sign to satisfy them.
+ * Keys the new policy of a role lists and its current policy does not, a key that resigned from
+ * the role counting as not listed. A role without a new policy has none.
+ */
+function newToRole(next: NativeScript | undefined, current: NativeScript | null, resigned: readonly string[]): string[] {
+  if (!next) return [];
+  const listed = new Set(current ? withoutResigned(policyKeys(current), resigned) : []);
+  return policyKeys(next).filter((k) => !listed.has(k));
+}
+
+/**
+ * Keys of the action. Mandatory keys must sign explicitly: every key a create lists and every
+ * founder, a key DRep's own key for its join or leave, the resigning key, and every key an update
+ * lists in the new policy of a role that the current policy of that role does not list, a resigned
+ * key counting as not listed. So a key moving from admission into control signs again. Optional
+ * keys are the keys of the needed current policies that have not resigned from the role, of which
+ * enough sign to satisfy them.
  */
 export function neededKeys(
   intent: GroupIntent,
   state: GroupState | null,
   memberScript: NativeScript | null,
 ): { mandatory: string[]; optional: string[] } {
-  const policies = neededPolicies(intent, state, memberScript);
-  const current = policyKeys(policies.control, policies.admission, policies.member);
+  const current = neededPolicyKeys(intent, state, memberScript);
   let mandatory: string[] = [];
   switch (intent.kind) {
     case 'group_create': {
@@ -263,10 +333,12 @@ export function neededKeys(
     case 'group_update': {
       const s = requireState(state);
       const { control, admission } = updatePolicies(intent, s);
-      const listed = new Set(policyKeys(s.control, s.admission));
-      mandatory = policyKeys(control, admission).filter((k) => !listed.has(k));
+      mandatory = uniq([...newToRole(control, s.control, s.resignedControl), ...newToRole(admission, s.admission, s.resignedAdmission)]);
       break;
     }
+    case 'group_resign':
+      mandatory = [intent.key.toLowerCase()];
+      break;
     default:
       break;
   }
@@ -282,8 +354,9 @@ const sameCredential = (a: string | null, b: string): boolean => {
 
 /**
  * Who may open the signing link: a listed founder for a create, the member for its join or leave,
- * otherwise a key that is a sig leaf of a needed current policy. Newly listed keys and the extra
- * keys of a separate admission policy of a create may sign but never initiate.
+ * the key itself for its resign while a role still counts it, otherwise a key of a needed current
+ * policy that has not resigned from its role. Newly listed keys and the extra keys of a separate
+ * admission policy of a create may sign but never initiate.
  */
 export function mayInitiate(intent: GroupIntent, state: GroupState | null, session: { keyHash: string | null; drepId: string | null }): boolean {
   switch (intent.kind) {
@@ -292,6 +365,14 @@ export function mayInitiate(intent: GroupIntent, state: GroupState | null, sessi
     case 'group_join':
     case 'group_leave':
       return sameCredential(session.drepId, intent.member);
+    case 'group_resign':
+      if (!session.keyHash || !state || session.keyHash.toLowerCase() !== intent.key.toLowerCase()) return false;
+      try {
+        groupRef(intent, state);
+      } catch {
+        return false;
+      }
+      return mayResign(state, intent.key);
     default: {
       // A dissolved group takes no further actions, and the state must be the intent's group.
       if (!session.keyHash || !state || state.status === 'dissolved') return false;
@@ -300,8 +381,7 @@ export function mayInitiate(intent: GroupIntent, state: GroupState | null, sessi
       } catch {
         return false;
       }
-      const p = neededPolicies(intent, state, null);
-      return policyKeys(p.control, p.admission).includes(session.keyHash.toLowerCase());
+      return neededPolicyKeys(intent, state, null).includes(session.keyHash.toLowerCase());
     }
   }
 }
@@ -325,13 +405,19 @@ export function maySign(
   return mandatory.includes(key) || optional.includes(key);
 }
 
-/** Lowercase key hashes of every `sig` leaf of the policies the action needs in the state. */
+/**
+ * Lowercase key hashes of every `sig` leaf of the policies the action needs in the state, without
+ * the keys that resigned from the role of that policy. A key resigned from every needed role is
+ * left out, its signature counts toward none of them.
+ */
 export function neededPolicyKeys(intent: GroupIntent, state: GroupState | null, memberScript: NativeScript | null): string[] {
-  const p = neededPolicies(intent, state, memberScript);
-  return policyKeys(p.control, p.admission, p.member);
+  return uniq(neededRoles(intent, state, memberScript).flatMap(activeKeys));
 }
 
-/** True when the signers satisfy every needed policy within the interval and every mandatory key signed. */
+/**
+ * True when the signers satisfy every needed policy within the interval and every mandatory key
+ * signed. Each role's policy is evaluated without the keys that resigned from that role.
+ */
 export function signerSetSatisfies(
   state: GroupState | null,
   intent: GroupIntent,
@@ -340,10 +426,11 @@ export function signerSetSatisfies(
   interval: { invalidBefore: bigint | null; invalidHereafter: bigint | null },
 ): boolean {
   const set = new Set(signers.map((s) => s.toLowerCase()));
-  const ctx = { signers: set, invalidBefore: interval.invalidBefore, invalidHereafter: interval.invalidHereafter };
-  const p = neededPolicies(intent, state, memberScript);
   if (memberCredentialOf(intent)?.kind === 'script' && !memberScript) return false;
-  for (const s of [p.control, p.admission, p.member]) if (s && !evaluateNativeScript(s, ctx)) return false;
+  for (const r of neededRoles(intent, state, memberScript)) {
+    const ctx = { signers: new Set(withoutResigned([...set], r.resigned)), invalidBefore: interval.invalidBefore, invalidHereafter: interval.invalidHereafter };
+    if (!evaluateNativeScript(r.script, ctx)) return false;
+  }
   return neededKeys(intent, state, memberScript).mandatory.every((k) => set.has(k));
 }
 
@@ -372,6 +459,8 @@ function eventCanon(e: GroupEvent): string {
       return JSON.stringify([e.tag, refCanon(e.group), e.seq.toString()]);
     case 'join':
       return JSON.stringify([e.tag, refCanon(e.group), e.member.kind, e.member.hash.toLowerCase()]);
+    case 'resign':
+      return JSON.stringify([e.tag, refCanon(e.group), e.key.toLowerCase()]);
     default:
       return JSON.stringify([e.tag, refCanon(e.join)]);
   }
@@ -482,6 +571,9 @@ export function changesOfEvents(
       case 'remove':
         c.removals.push(joined(e.join));
         break;
+      case 'resign':
+        c.resigned = e.key.toLowerCase();
+        break;
     }
   }
   return c;
@@ -533,6 +625,9 @@ export function changesOfIntent(
     case 'group_dissolve':
       c.dissolve = true;
       break;
+    case 'group_resign':
+      c.resigned = intent.key.toLowerCase();
+      break;
   }
   return c;
 }
@@ -575,11 +670,15 @@ function proposal(state: GroupState, keys: string[]): { keys: string[]; n: numbe
 
 /**
  * The control policy offered with an admission: current control keys whose DRep is still an
- * active member, plus every approved member, at the carried ratio. Members are DRep ids.
+ * active member and that have not resigned from control, plus every approved member, at the
+ * carried ratio. Members are DRep ids.
  */
 export function proposeUpdate(state: GroupState, activeKeyMembers: string[], approved: string[]): { keys: string[]; n: number; sameAdmission: boolean } {
   const active = new Set(keyMembers(activeKeyMembers));
-  const kept = collectKeyHashes(state.control).filter((k) => active.has(k.toLowerCase()));
+  const kept = withoutResigned(
+    collectKeyHashes(state.control).map((k) => k.toLowerCase()),
+    state.resignedControl,
+  ).filter((k) => active.has(k));
   return proposal(state, uniq([...kept, ...keyMembers(approved)]));
 }
 

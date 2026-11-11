@@ -13,8 +13,8 @@ import { INGEST } from '../store/queries.js';
 const MAX = Number.MAX_SAFE_INTEGER;
 
 // A minimal definite length CBOR encoder: unsigned integers, bytes, text, arrays, maps with uint keys,
-// booleans and null.
-export type Cbor = number | boolean | null | Uint8Array | string | Cbor[] | Map<number, Cbor>;
+// tags, booleans and null.
+export type Cbor = number | boolean | null | Uint8Array | string | Cbor[] | Map<number, Cbor> | { tag: number; value: Cbor };
 function head(out: number[], major: number, n: number): void {
   const m = major << 5;
   if (n < 24) out.push(m | n);
@@ -36,6 +36,9 @@ function put(out: number[], v: Cbor): void {
   } else if (Array.isArray(v)) {
     head(out, 4, v.length);
     for (const x of v) put(out, x);
+  } else if (!(v instanceof Map)) {
+    head(out, 6, v.tag);
+    put(out, v.value);
   } else {
     head(out, 5, v.size);
     for (const [k, x] of v) {
@@ -75,6 +78,7 @@ export const ev = {
   ],
   approve: (join: Ref): Cbor => [4, refCbor(join)],
   leave: (join: Ref): Cbor => [5, refCbor(join)],
+  resign: (group: Ref, key: string): Cbor => [7, refCbor(group), hexToBytes(key)],
 };
 
 const chunks = (b: Uint8Array): Uint8Array[] => {
@@ -333,7 +337,7 @@ export function baseInputs(): { inputs: Input[]; top: number; base: Base } {
   const [c, d, e] = [keyHex(7), keyHex(8), keyHex(9)];
   const join = (n: number, h: number, m: string) => ({ tx: labelTx(n, h, { payload: payload([ev.join(group, m)]), rs: [m] }) });
   const inputs: Input[] = [
-    { tx: labelTx(GROUP_TX, 10, { payload: payload([ev.create(control.hash)], [control.bytes]), wk: [CONTROL] }) },
+    { tx: labelTx(GROUP_TX, 10, { payload: payload([ev.create(control.hash)], [control.bytes]), rs: [CONTROL], wk: [CONTROL] }) },
     { ledger: ledgerRow(40, 40, keyOf(c), 'reg') },
     { ledger: ledgerRow(41, 41, keyOf(d), 'reg') },
     { ledger: ledgerRow(42, 42, keyOf(e), 'reg') },
@@ -399,7 +403,7 @@ export const SHAPES: Shape[] = [
     },
     fresh: (top, b, n) => {
       const inputs: Input[] = Array.from({ length: 20 }, (_, i) => ({
-        tx: labelTx(top + 1 + i, top + 1 + i, { payload: payload([ev.update(b.group, n + i)]), wk: [b.control] }),
+        tx: labelTx(top + 1 + i, top + 1 + i, { payload: payload([ev.update(b.group, n + i)]), rs: [b.control], wk: [b.control] }),
       }));
       return { inputs, verdicts: 20 };
     },
@@ -553,7 +557,7 @@ export function worstCaseBase(): { inputs: Input[]; top: number } {
   const joins = WORST_MEMBERS.flatMap((m, j) => [0, 1, 2].map((k) => ev.join(worstGroup(0, 3 * j + k), m)));
   return {
     inputs: [
-      ...WORST_GROUPS_TX.map((n) => ({ tx: labelTx(n, n, { payload: payload(creates, [control.bytes]), wk: [CONTROL] }) })),
+      ...WORST_GROUPS_TX.map((n) => ({ tx: labelTx(n, n, { payload: payload(creates, [control.bytes]), rs: [CONTROL], wk: [CONTROL] }) })),
       ...WORST_MEMBERS.map((m, j) => ({ ledger: ledgerRow(20 + j, 20 + j, keyOf(m), 'reg') })),
       { tx: labelTx(30, 30, { payload: payload(joins), rs: WORST_MEMBERS }) },
     ],
@@ -610,7 +614,7 @@ export function hostileTxs(variant: string): { inputs: Input[]; top: number } {
   return {
     inputs: [0, 1].map((t) => {
       const { events, scripts, wk } = make(t);
-      return { tx: labelTx(40 + t, 40 + t, { payload: payload(events, scripts), wk }) };
+      return { tx: labelTx(40 + t, 40 + t, { payload: payload(events, scripts), rs: wk, wk }) };
     }),
     top: 41,
   };
@@ -642,7 +646,7 @@ export function batchedCreates(count: number, from: number): { inputs: Input[]; 
   for (let t = 0; t < txs; t++) {
     const events = Array.from({ length: per(t) }, () => ev.create(control.hash));
     const h = from + 1 + t;
-    inputs.push({ tx: labelTx(h, h, { payload: payload(events, t === 0 ? [control.bytes] : []), wk: [f] }) });
+    inputs.push({ tx: labelTx(h, h, { payload: payload(events, t === 0 ? [control.bytes] : []), rs: [f], wk: [f] }) });
   }
   for (let t = 0; t < txs; t++) {
     const groups = Array.from({ length: per(t) }, (_, i) => ev.join({ txHash: txHex(from + 1 + t), index: i }, f));

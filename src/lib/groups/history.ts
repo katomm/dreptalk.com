@@ -4,12 +4,20 @@
 // version before it, both stored per change.
 import type { Credential } from 'drep-groups';
 import { describeHistory, type GroupChanges, type HistoryKind, type Names, noChanges, type ProfileFields, policyShape } from './describe.js';
-import type { ScriptView } from './view.js';
+import { type ScriptView, withoutResigned } from './view.js';
 
 export interface HistoryInput {
   events: Array<{ txHash: string; eventIndex: number; tag: string; subject: Credential | null; blockHeight: number }>;
   /** Oldest first, the version before the oldest event's included when there is one. */
-  versions: Array<{ txHash: string; control: string; admission: string | null; profileHash: string | null }>;
+  versions: Array<{
+    txHash: string;
+    control: string;
+    admission: string | null;
+    profileHash: string | null;
+    /** Keys resigned from each role, absent read as none. */
+    resignedControl?: string[];
+    resignedAdmission?: string[];
+  }>;
   /** Key hashes that signed each transaction, payment keys included. */
   signers: ReadonlyMap<string, string[]>;
 }
@@ -55,6 +63,18 @@ export function historyEntries(
     beforeOf.set(tx, current);
     current = made(tx) ?? current;
   }
+  type Version = HistoryInput['versions'][number];
+  const lower = (ks: string[] | undefined): string[] => (ks ?? []).map((k) => k.toLowerCase());
+  /**
+   * The key a resign event of the transaction recorded: per role, the keys resigned after it and
+   * not before, since a key can still be resigned from one role when it resigns from the other.
+   * Without the version before, only a single resigned key is certain.
+   */
+  const resignedKey = (before: Version | null, after: Version | null): string | null => {
+    const fresh = (was: string[] | undefined, now: string[] | undefined) => withoutResigned(lower(now), was);
+    const keys = [...new Set([...fresh(before?.resignedControl, after?.resignedControl), ...fresh(before?.resignedAdmission, after?.resignedAdmission)])];
+    return keys.length === 1 || (before && keys.length > 0) ? keys[0] : null;
+  };
   const keysOf = (v: HistoryInput['versions'][number] | null): Set<string> =>
     new Set([script(v?.control), script(v?.admission)].flatMap((x) => policyShape(x)?.keys ?? []));
 
@@ -92,6 +112,9 @@ export function historyEntries(
           break;
         case 'remove':
           c.removals.push(e.subject);
+          break;
+        case 'resign':
+          c.resigned = resignedKey(before, after);
           break;
       }
     }

@@ -61,7 +61,11 @@ function editor(o: Partial<PolicyEditorProps> = {}, replies: Reply[] = []) {
       profile={{ name: 'Council', description: 'DReps who vote together.', website: 'https://c.test', image: 'https://dreptalk.com/drep-images/c.png' }}
       initial={null}
       slotHeld={false}
+      canUpdate
       canDissolve
+      resignKey={A}
+      resignFreezes={false}
+      groupName="Council"
       onContinue={onContinue}
       onClose={() => {}}
       {...o}
@@ -170,6 +174,16 @@ describe('PolicyEditor management policy', () => {
     expect(onContinue.mock.calls[0][0]).toMatchObject({ control: { keys: [A, B, E], n: 2 } });
   });
 
+  it('offers a key that resigned from control without ticking it', () => {
+    editor({ listed: new Set([A]) });
+    fireEvent.click(screen.getByRole('button', { name: 'Change admins or threshold' }));
+    expect((screen.getByRole('checkbox', { name: 'Alice' }) as HTMLInputElement).checked).toBe(true);
+    const bob = screen.getByRole('checkbox', { name: 'Bob' }) as HTMLInputElement;
+    expect(bob.checked).toBe(false);
+    fireEvent.click(bob);
+    expect(screen.getByText('Each newly listed admin has to sign the update: Bob.')).toBeTruthy();
+  });
+
   it('waits while another management action holds the slot', () => {
     editor({ slotHeld: true });
     expect(screen.getByText(/Another management action is open/)).toBeTruthy();
@@ -210,6 +224,8 @@ describe('PolicyEditor on the group page', () => {
     serverSlot: 1_000_000,
     control,
     admission: control,
+    resignedControl: [],
+    resignedAdmission: [],
     names: NAMES,
     activeKeyMembers: [A, B].map((k) => ({ drepId: drep(k), keyHash: k, name: NAMES[k] })),
     activeMembers: [],
@@ -249,6 +265,76 @@ describe('PolicyEditor on the group page', () => {
     await screen.findByRole('checkbox', { name: 'Zoltan' });
     fireEvent.click(screen.getByRole('button', { name: 'Review and sign' }));
     expect(await screen.findByText('Must sign: Zoltan')).toBeTruthy();
+  });
+
+  const FREEZE = 'Nobody will be able to change or dissolve this group after you resign. Members can still leave.';
+  const resignTab = async () => {
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage the group' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Resign as admin' }));
+  };
+
+  it('asks for the group name before the last admin able to manage the group resigns', async () => {
+    const both = policy([A, B], 2);
+    stubFetch([{ url: /\/state$/, body: { ...v, control: both, admission: both } }]);
+    render(<GroupActions groupId={GID} network="preprod" profile={{ name: 'Council' }} />);
+    await resignTab();
+    expect(screen.getByText(FREEZE)).toBeTruthy();
+    const go = screen.getByRole('button', { name: 'Review and sign' }) as HTMLButtonElement;
+    expect(go.disabled).toBe(true);
+    const field = screen.getByRole('textbox', { name: 'Type the group name, Council, to confirm' });
+    fireEvent.change(field, { target: { value: 'Counci' } });
+    expect(go.disabled).toBe(true);
+    fireEvent.change(field, { target: { value: 'Council' } });
+    expect(go.disabled).toBe(false);
+    fireEvent.click(go);
+    expect(await screen.findByText('Alice resigns as admin.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Build and sign' })).toBeTruthy();
+  });
+
+  it('counts the keys that already resigned from control as unable to sign', async () => {
+    const three = policy([A, B, E], 2);
+    stubFetch([{ url: /\/state$/, body: { ...v, control: three, admission: three, resignedControl: [B], resignedAdmission: [B] } }]);
+    render(<GroupActions groupId={GID} network="preprod" profile={{ name: 'Council' }} />);
+    await resignTab();
+    expect(screen.getByText(FREEZE)).toBeTruthy();
+  });
+
+  it('lets one of three admins of a 2 of 3 policy resign without the warning', async () => {
+    const three = policy([A, B, E], 2);
+    stubFetch([{ url: /\/state$/, body: { ...v, control: three, admission: three } }]);
+    render(<GroupActions groupId={GID} network="preprod" profile={{ name: 'Council' }} />);
+    await resignTab();
+    expect(screen.queryByText(FREEZE)).toBeNull();
+    expect(screen.queryByRole('textbox', { name: /to confirm/ })).toBeNull();
+    const go = screen.getByRole('button', { name: 'Review and sign' }) as HTMLButtonElement;
+    expect(go.disabled).toBe(false);
+    fireEvent.click(go);
+    expect(await screen.findByText('Alice resigns as admin.')).toBeTruthy();
+  });
+
+  it('offers an admission only admin the resign alone, also while the management slot is held', async () => {
+    stubFetch([
+      {
+        url: /\/state$/,
+        body: { ...v, control: policy([B], 1), admission: policy([A], 1), openControl: { id: null } },
+      },
+    ]);
+    render(<GroupActions groupId={GID} network="preprod" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage the group' }));
+    expect(screen.queryByRole('button', { name: 'Edit the profile' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Change admins or threshold' })).toBeNull();
+    expect(screen.queryByText(/Another management action is open/)).toBeNull();
+    // Without a profile name the group id is the name to type, and only a frozen control policy asks for it.
+    expect(screen.queryByText(FREEZE)).toBeNull();
+    expect((screen.getByRole('button', { name: 'Review and sign' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('is not offered to a key that resigned from every role', async () => {
+    stubFetch([{ url: /\/state$/, body: { ...v, resignedControl: [A], resignedAdmission: [A] } }]);
+    render(<GroupActions groupId={GID} network="preprod" />);
+    expect(await screen.findByRole('button', { name: 'Leave' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Manage the group' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Resign as admin' })).toBeNull();
   });
 
   it('is not offered to a member outside the policies', async () => {

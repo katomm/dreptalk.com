@@ -11,6 +11,7 @@ import {
   pruneResolvedGroupActions,
 } from './actionStore.js';
 import { GROUP_ACTION_PRUNE_PER_RUN, GROUP_ACTION_RETENTION_MS } from './constants.js';
+import { groupIdForms } from './ids.js';
 
 const G1 = 'group1aaa';
 const G2 = 'group1bbb';
@@ -69,6 +70,13 @@ describe('group action store', () => {
     expect(await createGroupAction(env.DB, rec('d', { subjectId: G2 }))).toBe('created');
     expect((await openControlAction(env.DB, G1))?.id).toBe('a');
     expect((await openControlAction(env.DB, G2))?.id).toBe('d');
+  });
+
+  it('holds the control slot whatever form the subject id of either row is spelled in', async () => {
+    const [current, twoByte, legacy] = groupIdForms({ txHash: '0a'.repeat(32), index: 1 });
+    expect(await createGroupAction(env.DB, rec('a', { subjectId: current }))).toBe('created');
+    expect(await createGroupAction(env.DB, rec('b', { subjectId: legacy }))).toBe('slot taken');
+    expect(await createGroupAction(env.DB, rec('c', { subjectId: twoByte }))).toBe('slot taken');
   });
 
   it('keeps the slot on cancel and frees it for a stale seq', async () => {

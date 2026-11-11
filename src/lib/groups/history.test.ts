@@ -100,4 +100,41 @@ describe('historyEntries', () => {
       ['left', 'Bob left.'],
     ]);
   });
+
+  it('reads a resignation from the resigned keys of the versions', () => {
+    const input: HistoryInput = {
+      events: [{ txHash: T(5), eventIndex: 0, tag: 'resign', subject: null, blockHeight: 50 }],
+      versions: [
+        { txHash: T(1), control: P2, admission: P2, profileHash: DOC1, resignedControl: [A], resignedAdmission: [A] },
+        { txHash: T(5), control: P2, admission: P2, profileHash: DOC1, resignedControl: [A, B], resignedAdmission: [A, B] },
+      ],
+      signers: new Map([[T(5), [B, PAY]]]),
+    };
+    expect(historyEntries(input, ctx)).toEqual([{ txHash: T(5), blockHeight: 50, kind: 'resign', text: 'Bob resigned as admin.' }]);
+  });
+
+  it('reads a resignation from one role by a key still resigned from the other', () => {
+    const input: HistoryInput = {
+      events: [{ txHash: T(6), eventIndex: 0, tag: 'resign', subject: null, blockHeight: 60 }],
+      versions: [
+        // Alice was listed again in control after resigning from both roles, admission keeps her resignation.
+        { txHash: T(5), control: P1, admission: P2, profileHash: DOC1, resignedControl: [], resignedAdmission: [A] },
+        { txHash: T(6), control: P1, admission: P2, profileHash: DOC1, resignedControl: [A], resignedAdmission: [A] },
+      ],
+      signers: new Map([[T(6), [A]]]),
+    };
+    expect(historyEntries(input, ctx).map((e) => e.text)).toEqual(['Alice resigned as admin.']);
+  });
+
+  it('names the key of a resignation without the version before only when it is the only resigned key', () => {
+    const only: HistoryInput = {
+      events: [{ txHash: T(5), eventIndex: 0, tag: 'resign', subject: null, blockHeight: 50 }],
+      versions: [{ txHash: T(5), control: P2, admission: P2, profileHash: DOC1, resignedControl: [C], resignedAdmission: [] }],
+      signers: new Map(),
+    };
+    expect(historyEntries(only, ctx).map((e) => e.text)).toEqual(['Carol resigned as admin.']);
+    const two: HistoryInput = { ...only, versions: [{ ...only.versions[0], resignedControl: [B, C] }] };
+    expect(historyEntries(two, ctx).map((e) => e.text)).toEqual(['An admin resigned.']);
+  });
 });
+

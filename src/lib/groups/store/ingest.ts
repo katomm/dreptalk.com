@@ -304,21 +304,26 @@ export async function markSolo(db: D1Database, lease: string, creds: string[]): 
   await writeBatch(db, lease, stmts(db, 'markSolo', creds, (c) => [credBytes(c)]));
 }
 
+/** The outcome of one witness check: the matching witness or none, a failed fetch, or a search that goes on. */
+export type WitnessCheck = { txHash: string; certIndex: number } & (
+  | { witness: Uint8Array | null }
+  | { failed: true }
+  | { refSearchPos: number }
+);
+
 /**
  * Results of witness checks of pending rows. A checked row keeps only the matching witness and an
- * earlier match moves found back. A failed fetch keeps the row pending and backs off.
+ * earlier match moves found back. A failed fetch keeps the row pending and backs off. A reference
+ * script search that is not done keeps the row pending at its next position, without a backoff.
  */
-export async function recordWitnessChecks(
-  db: D1Database,
-  lease: string,
-  checks: Array<{ txHash: string; certIndex: number; witness: Uint8Array | null } | { txHash: string; certIndex: number; failed: true }>,
-  now: number,
-): Promise<void> {
-  const ok = checks.flatMap((c) => ('failed' in c ? [] : [c]));
+export async function recordWitnessChecks(db: D1Database, lease: string, checks: WitnessCheck[], now: number): Promise<void> {
+  const ok = checks.flatMap((c) => ('witness' in c ? [c] : []));
   const failed = checks.filter((c) => 'failed' in c);
+  const going = checks.flatMap((c) => ('refSearchPos' in c ? [c] : []));
   await writeBatch(db, lease, [
     ...stmts(db, 'witnessChecked', ok, (c) => [hashBytes(c.txHash), c.certIndex, c.witness]),
     ...stmts(db, 'witnessFound', ok.filter((c) => c.witness !== null), (c) => [hashBytes(c.txHash), c.certIndex]),
     ...stmts(db, 'witnessFailed', failed, (c) => [hashBytes(c.txHash), c.certIndex], [now]),
+    ...stmts(db, 'witnessProgress', going, (c) => [hashBytes(c.txHash), c.certIndex, c.refSearchPos]),
   ]);
 }

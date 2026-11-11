@@ -41,6 +41,8 @@ describe('profile documents', () => {
     const parsed = JSON.parse(body);
     expect(parsed.hashAlgorithm).toBe('blake2b-256');
     expect(parsed['@context'].body['@context'].name).toBe('DRG:name');
+    // The term of the library's published context.
+    expect(parsed['@context'].body['@context'].paymentAddresses['@context']).toEqual({ address: 'DRG:address', purpose: 'DRG:purpose', paymentScript: 'DRG:paymentScript' });
     expect(parsed.body).toEqual({ name: 'Council', website: 'https://c.test' });
     await putProfileDoc(db, { hash, body, createdBy: 'u1', now: NOW });
     expect(await getProfileDocBody(db, hash)).toBe(body);

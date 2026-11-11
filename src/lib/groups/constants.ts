@@ -26,8 +26,16 @@ export const MAX_REG_PAGES_PER_RUN = 10;
 export const MAX_ROLLBACK_PROBES_PER_RUN = 20;
 export const MAX_SCRIPT_SEARCH_ROWS_PER_RUN = 50;
 export const MAX_SCRIPT_SEARCH_FETCHES_PER_RUN = 25;
+/**
+ * Producing txs fetched per script registration and run when its member script is searched in the
+ * reference scripts of the outputs it spends or references. The search walks the sorted hashes of
+ * these txs from drep_group_ledger.ref_search_pos on. A budget of DRepTalk, not of the protocol.
+ */
+export const MAX_REF_SCRIPT_TXS_PER_RUN = 8;
 export const WITNESS_BACKOFF_BASE_MS = 900_000;
 export const WITNESS_BACKOFF_MAX_MS = 86_400_000;
+/** Failed witness checks of one row after which the failure is logged once as an error. */
+export const WITNESS_STUCK_ATTEMPTS = 5;
 export const MARKER_REFETCH_PER_RUN = 100;
 export const MARKER_REFETCH_ATTEMPTS = 5;
 /** Stored txs per run that get the block time they were stored without, one Koios call. */

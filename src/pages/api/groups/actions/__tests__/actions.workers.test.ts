@@ -3,7 +3,7 @@
 // Koios faked. Transactions are written byte by byte and signed with fixed ed25519 test keys.
 import { Transaction } from '@evolution-sdk/evolution';
 import { env } from 'cloudflare:test';
-import { decodeTransaction, encodeNativeScript, type GroupEvent, nativeScriptHash, type NativeScript, type PayloadInput } from 'drep-groups';
+import { decodeTransaction, encodeNativeScript, type GroupEvent, majorityScript, nativeScriptHash, type NativeScript, type PayloadInput } from 'drep-groups';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { hexToBytes } from '@/lib/crypto/hex';
 import { createPendingMultisig, getPendingMultisig, type PendingWitness } from '@/lib/db/pendingMultisigTx';
@@ -26,6 +26,7 @@ import {
   groupTx,
   PAY,
   PERM,
+  reg,
   SOLO,
   seed,
   seedPermissioned,
@@ -89,6 +90,7 @@ import { POST as submitted } from '../[id]/submitted';
 import { POST as witness } from '../[id]/witness';
 import { GET as held } from '../held';
 import { POST as create } from '../index';
+import { GET as groupState } from '../../[id]/state';
 
 // Groups run on mainnet now, so the off path is tested with mainnet left out of the list.
 vi.mock('@/lib/groups/gate', async (orig) => {
@@ -314,6 +316,43 @@ describe('group action routes', () => {
     expect((await openIn(alice, dissolvePerm, [ALICE.hash])).status).toBe(200);
   });
 
+  it('makes a collecting update stale once a resign moves seq, and the state shows the resignation', async () => {
+    await seedPermissioned();
+    const first = await openIn(alice, addErin, [ALICE.hash], [ERIN.hash]);
+    expect(first.status).toBe(200);
+    const id = first.json.id as string;
+    // Bob resigns from admission, which moves seq to 1 without touching control.
+    await seed([groupTx(50, { events: [{ tag: 'resign', group: PERM.ref, key: BOB.hash }] }, [BOB])], 50);
+    expect((await readGroupState(env.DB, PERM.ref))?.seq).toBe(1n);
+    expect((await sign(id, alice, first.bodyHash, ALICE)).json).toEqual({ error: 'stale' });
+    expect(await openControlAction(env.DB, GID)).toBeNull();
+    const view = await call<Record<string, unknown>>(groupState, alice, { id: GID });
+    expect(view.json).toMatchObject({ seq: '1', resignedControl: [], resignedAdmission: [BOB.hash] });
+  });
+
+  it('lets a key resign with its own signature, without the control slot', async () => {
+    await seedPermissioned();
+    const resignBob: GroupIntent = { kind: 'group_resign', group: GID, key: BOB.hash };
+    // Only the key itself opens its resignation.
+    expect((await openIn(alice, resignBob, [], [BOB.hash])).status).toBe(403);
+    const row = await openIn(bob, resignBob, [], [BOB.hash]);
+    expect(row.status).toBe(200);
+    expect(await openControlAction(env.DB, GID)).toBeNull();
+    expect((await openIn(alice, dissolvePerm, [ALICE.hash])).status).toBe(200);
+    const id = row.json.id as string;
+    expect((await sign(id, bob, row.bodyHash, PAY, BOB)).json).toEqual({ accepted: [PAY.hash, BOB.hash], ignored: [], satisfied: true });
+    expect((await call<Record<string, unknown>>(GET, bob, { id })).json).toMatchObject({ satisfied: true, canSubmit: true });
+  });
+
+  it('makes a resign stale once the key has resigned from every role', async () => {
+    await seedPermissioned();
+    const resignBob: GroupIntent = { kind: 'group_resign', group: GID, key: BOB.hash };
+    const row = await openIn(bob, resignBob, [], [BOB.hash]);
+    expect(row.status).toBe(200);
+    await seed([groupTx(50, { events: [{ tag: 'resign', group: PERM.ref, key: BOB.hash }] }, [BOB])], 50);
+    expect((await sign(row.json.id as string, bob, row.bodyHash, PAY, BOB)).json).toEqual({ error: 'stale' });
+  });
+
   it('frees a stale slot when the next control action is opened', async () => {
     await seedPermissioned();
     const first = await openIn(alice, dissolvePerm, [ALICE.hash]);
@@ -355,6 +394,58 @@ describe('group action routes', () => {
     expect((await sign(id, alice, row.bodyHash, PAY, ALICE)).json).toEqual({ accepted: [PAY.hash, ALICE.hash], ignored: [], satisfied: true });
     const view = await call<Record<string, unknown>>(GET, erin, { id });
     expect(view.json).toMatchObject({ signed: [ERIN.hash, ALICE.hash], satisfied: true, canSubmit: true });
+  });
+
+  it('refuses an update whose required signers omit a key new to control', async () => {
+    await seedPermissioned();
+    // Bob consented to admission only, so he signs again before he gains control.
+    const promoteBob: GroupIntent = { kind: 'group_update', group: GID, approvals: [], control: { keys: [ALICE.hash, BOB.hash], n: 1 } };
+    const res = await open(alice, promoteBob, { payload: await payloadIn(promoteBob), selected: [ALICE.hash], signers: [ALICE.hash] });
+    expect(res).toMatchObject({ status: 422, json: { error: 'required signers differ from the selected signers' } });
+    expect((await openIn(alice, promoteBob, [ALICE.hash], [BOB.hash])).status).toBe(200);
+  });
+
+  it('asks a resigned key listed again to sign and accepts its witness', async () => {
+    const both = majorityScript([ALICE.hash, BOB.hash], 1);
+    const ref = PERM.ref;
+    await seed(
+      [
+        reg(5, ALICE),
+        reg(6, BOB),
+        groupTx(10, { events: [{ tag: 'create', mode: 'open', control: both.hash, admission: null, profile: null }], scripts: [both.script] }, [ALICE, BOB]),
+        groupTx(20, { events: [{ tag: 'resign', group: ref, key: ALICE.hash }] }, [ALICE]),
+      ],
+      30,
+    );
+    const gid = groupIdString(ref);
+    const state = await readGroupState(env.DB, ref);
+    expect(state?.resignedControl).toEqual([ALICE.hash]);
+    const relist: GroupIntent = { kind: 'group_update', group: gid, approvals: [], control: { keys: [ALICE.hash, BOB.hash], n: 1 } };
+    // Alice resigned, she may sign the update but never open it.
+    expect((await openIn(alice, relist, [ALICE.hash])).status).toBe(403);
+    const row = await openIn(bob, relist, [BOB.hash], [ALICE.hash]);
+    expect(row.status).toBe(200);
+    const id = row.json.id as string;
+    expect((await sign(id, alice, row.bodyHash, ALICE)).json).toEqual({ accepted: [ALICE.hash], ignored: [], satisfied: false });
+    expect((await sign(id, bob, row.bodyHash, PAY, BOB)).json).toEqual({ accepted: [PAY.hash, BOB.hash], ignored: [], satisfied: true });
+  });
+
+  it('keeps a key that resigned from every needed role out of the additional witnesses', async () => {
+    const both = majorityScript([ALICE.hash, BOB.hash], 1);
+    const ref = PERM.ref;
+    await seed(
+      [
+        reg(5, ALICE),
+        reg(6, BOB),
+        groupTx(10, { events: [{ tag: 'create', mode: 'open', control: both.hash, admission: null, profile: null }], scripts: [both.script] }, [ALICE, BOB]),
+        groupTx(20, { events: [{ tag: 'resign', group: ref, key: ALICE.hash }] }, [ALICE]),
+      ],
+      30,
+    );
+    const row = await openIn(bob, { kind: 'group_dissolve', group: groupIdString(ref) }, [BOB.hash]);
+    expect(row.status).toBe(200);
+    const res = await sign(row.json.id as string, bob, row.bodyHash, ALICE, BOB);
+    expect(res.json).toEqual({ accepted: [BOB.hash], ignored: [ALICE.hash], satisfied: true });
   });
 
   it('accepts a repeated signature of the same key without storing it twice', async () => {

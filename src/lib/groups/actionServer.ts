@@ -17,7 +17,7 @@ import { freeStaleSlot } from './actionStore.js';
 import { controlSeq, type DecodedGroupTx, decodeGroupTx, eventsOf, paymentKeyHash } from './actionTx.js';
 import { ACTION_RATE } from './constants.js';
 import { drepGroupsAvailable } from './gate.js';
-import { changesOfEvents, type GroupIntent, type GroupState, IntentError, maySign, parseJoinRef, signerSetSatisfies } from './actions.js';
+import { changesOfEvents, type GroupIntent, type GroupState, IntentError, mayResign, maySign, parseJoinRef, signerSetSatisfies } from './actions.js';
 import { hashBytes, scriptDisplayJson, scriptFromDisplayJson } from './codec.js';
 import { describeAction, type GroupChanges } from './describe.js';
 import { credentialForDrepId, drepIdForCredential, groupIdParam } from './ids.js';
@@ -73,8 +73,13 @@ export const intentSchema: z.ZodType<GroupIntent> = z.discriminatedUnion('kind',
     })
     .strict(),
   z.object({ kind: z.literal('group_dissolve'), group: groupId }).strict(),
+  z.object({ kind: z.literal('group_resign'), group: groupId, key: KEY_HASH }).strict(),
 ]) as unknown as z.ZodType<GroupIntent>;
 
+/**
+ * Kinds that take the group's control slot. A resign checks no seq and takes none, but it moves
+ * seq, so an open control action goes stale once a resign is included.
+ */
 export const isControlKind = (kind: GroupIntent['kind']): boolean => kind === 'group_update' || kind === 'group_dissolve';
 
 /** The DRep members a payload's joins and leaves name, whose registration and scripts Koios answers. */
@@ -192,8 +197,9 @@ export async function releaseStaleSlot(db: D1Database, row: PendingMultisigRow, 
 /**
  * The checks before every witness and submit: collecting, not past its validity end, every fee
  * input unspent, the group's seq unchanged for a control action (else its slot is freed), the
- * admission policy unchanged for an approval or removal, and every target request still in a
- * state the action can act on. Gives the payment key hashes of the fee input addresses.
+ * resigning key still counted by a role for a resign, the admission policy unchanged for an
+ * approval or removal, and every target request still in a state the action can act on. Gives
+ * the payment key hashes of the fee input addresses.
  */
 export async function checkFresh(
   db: D1Database,
@@ -215,6 +221,7 @@ export async function checkFresh(
     await releaseStaleSlot(db, row, now);
     return no(409, 'stale');
   }
+  if (intent.kind === 'group_resign' && !mayResign(state, intent.key)) return no(409, 'stale');
   if ((intent.kind === 'group_approve' || intent.kind === 'group_remove') && (!state.admission || policyJson(state.admission) !== row.native_script)) {
     return no(409, 'stale');
   }
@@ -246,7 +253,10 @@ export async function namesFor(
   events: GroupEvent[],
 ): Promise<{ names: Map<string, string>; joinMembers: Map<string, Credential> }> {
   const creds = new Map<string, Credential>(keyHashes.map((h) => [h.toLowerCase(), { kind: 'key', hash: h.toLowerCase() }]));
-  for (const e of events) if (e.tag === 'join') creds.set(e.member.hash.toLowerCase(), e.member);
+  for (const e of events) {
+    if (e.tag === 'join') creds.set(e.member.hash.toLowerCase(), e.member);
+    if (e.tag === 'resign') creds.set(e.key.toLowerCase(), { kind: 'key', hash: e.key.toLowerCase() });
+  }
   const joinRefs = events.flatMap((e) => ('join' in e && !('local' in e.join) ? [e.join] : []));
   const insts = joinRefs.length > 0 ? await instancesOf(db, joinRefs) : new Map();
   const joinMembers = new Map<string, Credential>();
@@ -399,7 +409,10 @@ export async function rowRateRefusal(env: Cloudflare.Env, userId: string): Promi
 export const witnessKeys = (ws: PendingWitness[], role?: PendingWitness['role']): string[] =>
   ws.filter((w) => role === undefined || (w.role ?? 'signer') === role).map((w) => w.key_hash);
 
-/** True when the collected signers satisfy every needed policy and every required signer signed. */
+/**
+ * True when the collected signers satisfy every needed policy and every required signer signed. A
+ * key that resigned from a role counts toward that role's policy for nothing.
+ */
 export function collectedSatisfy(ctx: GroupRowContext): boolean {
   const signed = new Set(witnessKeys(ctx.witnesses));
   if (!ctx.requiredSigners.every((k) => signed.has(k))) return false;

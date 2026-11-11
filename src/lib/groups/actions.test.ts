@@ -27,7 +27,9 @@ import {
   neededPolicyKeys,
   neededPolicies,
   proposeDrift,
+  controlFrozen,
   proposeUpdate,
+  resignFreezes,
   signerSetSatisfies,
 } from './actions.js';
 import { describeAction } from './describe.js';
@@ -48,10 +50,27 @@ const policy = (keys: number[], n: number): GroupState['control'] => {
   return Object.assign(s.script, { hash: s.hash });
 };
 
-function state(o: { mode?: GroupState['mode']; control?: GroupState['control']; admission?: GroupState['admission'] | 'same' } = {}): GroupState {
+function state(
+  o: {
+    mode?: GroupState['mode'];
+    control?: GroupState['control'];
+    admission?: GroupState['admission'] | 'same';
+    resignedControl?: number[];
+    resignedAdmission?: number[];
+  } = {},
+): GroupState {
   const control = o.control ?? policy([ALICE, BOB, DAVE, ERIN], 3);
   const admission = o.admission === 'same' || o.admission === undefined ? control : o.admission;
-  return { ref: GROUP, mode: o.mode ?? 'permissioned', status: 'active', seq: 4n, control, admission };
+  return {
+    ref: GROUP,
+    mode: o.mode ?? 'permissioned',
+    status: 'active',
+    seq: 4n,
+    control,
+    admission,
+    resignedControl: (o.resignedControl ?? []).map(K),
+    resignedAdmission: (o.resignedAdmission ?? []).map(K),
+  };
 }
 
 const tags = (p: PayloadInput): string[] => p.events.map((e) => e.tag);
@@ -206,6 +225,67 @@ describe('policies, keys and initiators', () => {
     expect(signerSetSatisfies(s, scriptLeave, member, [K(7)], { invalidBefore: null, invalidHereafter: null })).toBe(false);
     expect(expectedPayload(scriptLeave, s, new Map()).events).toEqual([{ tag: 'leave', join: { txHash: T(60), index: 1 } }]);
     expect(expectedPayload(leave, s, joins).events).toEqual([{ tag: 'leave', join: { txHash: T(50), index: 0 } }]);
+  });
+});
+
+describe('consent per role and resigned keys', () => {
+  const interval = { invalidBefore: null, invalidHereafter: 1000n };
+
+  it('makes a key moving from admission into control sign explicitly', () => {
+    const s = state({ control: policy([ALICE], 1), admission: policy([ALICE, BOB], 1) });
+    const promote: GroupIntent = { kind: 'group_update', group: GID, approvals: [], control: { keys: [K(ALICE), K(BOB)], n: 1 } };
+    expect(neededKeys(promote, s, null)).toEqual({ mandatory: [K(BOB)], optional: [K(ALICE)] });
+    expect(signerSetSatisfies(s, promote, null, [K(ALICE)], interval)).toBe(false);
+    expect(signerSetSatisfies(s, promote, null, [K(ALICE), K(BOB)], interval)).toBe(true);
+  });
+
+  it('makes a control key moving into admission sign explicitly', () => {
+    const s = state({ control: policy([ALICE, BOB], 1), admission: policy([ALICE], 1) });
+    const same: GroupIntent = { kind: 'group_update', group: GID, approvals: [], admission: 'same' };
+    expect(neededKeys(same, s, null).mandatory).toEqual([K(BOB)]);
+  });
+
+  it('lists every policy key of a create as mandatory', () => {
+    const intent: GroupIntent = {
+      kind: 'group_create',
+      mode: 'permissioned',
+      control: { keys: [K(ALICE), K(BOB)], n: 1 },
+      admission: { keys: [K(CAROL), K(DAVE)], n: 1 },
+      founders: [keyId(ALICE)],
+      profile: ANCHOR,
+    };
+    expect(neededKeys(intent, null, null).mandatory).toEqual([ALICE, BOB, CAROL, DAVE].map(K));
+  });
+
+  it('does not count a key that resigned from control toward the control policy', () => {
+    const s = state({ control: policy([ALICE], 1), admission: policy([BOB], 1), resignedControl: [ALICE] });
+    const dissolve: GroupIntent = { kind: 'group_dissolve', group: GID };
+    expect(signerSetSatisfies(s, dissolve, null, [K(ALICE)], interval)).toBe(false);
+    expect(neededKeys(dissolve, s, null)).toEqual({ mandatory: [], optional: [] });
+    expect(neededPolicyKeys(dissolve, s, null)).toEqual([]);
+    expect(mayInitiate(dissolve, s, { keyHash: K(ALICE), drepId: keyId(ALICE) })).toBe(false);
+  });
+
+  it('counts a key resigned only from control toward the admission policy', () => {
+    const shared = policy([ALICE, BOB], 1);
+    const s = state({ control: shared, admission: shared, resignedControl: [ALICE] });
+    const approve: GroupIntent = { kind: 'group_approve', group: GID, joins: [CAROL_JOIN] };
+    expect(signerSetSatisfies(s, approve, null, [K(ALICE)], interval)).toBe(true);
+    expect(neededPolicyKeys(approve, s, null)).toEqual([K(ALICE), K(BOB)]);
+    const dissolve: GroupIntent = { kind: 'group_dissolve', group: GID };
+    expect(signerSetSatisfies(s, dissolve, null, [K(ALICE)], interval)).toBe(false);
+  });
+
+  it('asks a resigned key listed again to sign explicitly, and then counts it', () => {
+    const any = policy([ALICE, BOB], 1);
+    const s = state({ control: any, admission: any, resignedControl: [ALICE], resignedAdmission: [ALICE] });
+    const relist: GroupIntent = { kind: 'group_update', group: GID, approvals: [], control: { keys: [K(ALICE), K(BOB)], n: 1 } };
+    expect(neededKeys(relist, s, null)).toEqual({ mandatory: [K(ALICE)], optional: [K(BOB)] });
+    expect(mayInitiate(relist, s, { keyHash: K(BOB), drepId: keyId(BOB) })).toBe(true);
+    expect(mayInitiate(relist, s, { keyHash: K(ALICE), drepId: keyId(ALICE) })).toBe(false);
+    expect(maySign(relist, s, null, { keyHash: K(ALICE), drepId: keyId(ALICE) })).toBe(true);
+    expect(signerSetSatisfies(s, relist, null, [K(ALICE)], interval)).toBe(false);
+    expect(signerSetSatisfies(s, relist, null, [K(ALICE), K(BOB)], interval)).toBe(true);
   });
 });
 
@@ -375,5 +455,93 @@ describe('changesOfIntent', () => {
     expect(describeAction(changesOfIntent(jointCreate, null), names)).toEqual([
       'Found a permissioned group with Alice, Bob and Carol as founders, managed by 2 of 3: Alice, Bob and Carol.',
     ]);
+  });
+});
+
+describe('resign', () => {
+  const interval = { invalidBefore: null, invalidHereafter: 1000n };
+  const names = new Map([[K(BOB), 'Bob']]);
+  const resignBob: GroupIntent = { kind: 'group_resign', group: GID, key: K(BOB).toUpperCase() };
+
+  it('builds one resign event, tag 7 on the wire', () => {
+    const s = state({ control: policy([ALICE], 1), admission: policy([BOB], 1) });
+    const p = expectedPayload(resignBob, s, new Map());
+    expect(p).toEqual({ events: [{ tag: 'resign', group: GROUP, key: K(BOB) }] });
+    expect(decode(p)?.events).toEqual([{ ok: true, event: { tag: 'resign', group: GROUP, key: K(BOB) } }]);
+    expect(encodePayload(p)).toEqual(encodePayload({ events: [{ tag: 'resign', group: GROUP, key: K(BOB) }] }));
+  });
+
+  it('needs only the explicit signature of the key and no policy', () => {
+    const s = state({ control: policy([ALICE], 1), admission: policy([BOB], 1) });
+    expect(neededPolicies(resignBob, s, null)).toEqual({ control: null, admission: null, member: null });
+    expect(neededKeys(resignBob, s, null)).toEqual({ mandatory: [K(BOB)], optional: [] });
+    expect(signerSetSatisfies(s, resignBob, null, [K(BOB)], interval)).toBe(true);
+    expect(signerSetSatisfies(s, resignBob, null, [K(ALICE)], interval)).toBe(false);
+    expect(maySign(resignBob, s, null, { keyHash: K(BOB), drepId: keyId(BOB) })).toBe(true);
+    expect(maySign(resignBob, s, null, { keyHash: K(ALICE), drepId: keyId(ALICE) })).toBe(false);
+  });
+
+  it('lets only the key itself open it, while a role lists it without a resignation', () => {
+    const s = state({ control: policy([ALICE], 1), admission: policy([BOB], 1) });
+    expect(mayInitiate(resignBob, s, { keyHash: K(BOB), drepId: keyId(BOB) })).toBe(true);
+    expect(mayInitiate(resignBob, s, { keyHash: K(ALICE), drepId: keyId(ALICE) })).toBe(false);
+    const resigned = state({ control: policy([ALICE], 1), admission: policy([BOB], 1), resignedAdmission: [BOB] });
+    expect(mayInitiate(resignBob, resigned, { keyHash: K(BOB), drepId: keyId(BOB) })).toBe(false);
+    expect(() => expectedPayload(resignBob, resigned, new Map())).toThrow('key not listed in any role');
+    // Resigned from control only, admission still lists the key.
+    const shared = policy([ALICE, BOB], 1);
+    const half = state({ control: shared, admission: shared, resignedControl: [BOB] });
+    expect(mayInitiate(resignBob, half, { keyHash: K(BOB), drepId: keyId(BOB) })).toBe(true);
+    expect(() => expectedPayload({ kind: 'group_resign', group: GID, key: K(OUTSIDER) }, s, new Map())).toThrow('key not listed in any role');
+    expect(mayInitiate(resignBob, { ...s, status: 'dissolved' }, { keyHash: K(BOB), drepId: keyId(BOB) })).toBe(false);
+  });
+
+  it('binds a resign event field by field', () => {
+    const s = state({ control: policy([ALICE], 1), admission: policy([BOB], 1) });
+    const p = expectedPayload(resignBob, s, new Map());
+    const other = { events: [{ tag: 'resign' as const, group: GROUP, key: K(ALICE) }] };
+    expect(bindContent(cleanFacts, decode(p), p, [K(BOB)], [K(BOB)])).toEqual({ ok: true });
+    expect(bindContent(cleanFacts, decode(other), p, [K(BOB)], [K(BOB)])).toEqual({ ok: false, reason: 'event 1 differs from the action' });
+  });
+
+  it('words a resign as a draft and as the events of a transaction', () => {
+    const s = state({ control: policy([ALICE], 1), admission: policy([BOB], 1) });
+    expect(changesOfIntent(resignBob, s).resigned).toBe(K(BOB));
+    expect(describeAction(changesOfIntent(resignBob, s), names)).toEqual(['Bob resigns as admin.']);
+    const p = expectedPayload(resignBob, s, new Map());
+    expect(describeAction(changesOfEvents(p.events, s), names)).toEqual(['Bob resigns as admin.']);
+  });
+});
+
+describe('resigned admins', () => {
+  it('keeps no key that resigned from control in the proposed update', () => {
+    const s = state({ control: policy([ALICE, BOB, DAVE, ERIN], 3), admission: 'same', resignedControl: [BOB] });
+    expect(proposeUpdate(s, [ALICE, BOB, DAVE, ERIN].map(keyId), [keyId(CAROL)]).keys).toEqual([K(ALICE), K(CAROL), K(DAVE), K(ERIN)]);
+  });
+
+  it('tells when the keys not resigned from control can no longer satisfy it', () => {
+    expect(controlFrozen(policy([ALICE, BOB, CAROL], 2), [K(ALICE)])).toBe(false);
+    expect(controlFrozen(policy([ALICE, BOB, CAROL], 2), [K(ALICE), K(BOB)])).toBe(true);
+    expect(controlFrozen(policy([ALICE], 1), [])).toBe(false);
+  });
+
+  it('tells when a resign leaves no remaining key able to satisfy the control policy', () => {
+    // 2 of 3: the two other admins still reach the threshold.
+    expect(resignFreezes(policy([ALICE, BOB, CAROL], 2), K(ALICE), [])).toBe(false);
+    // 2 of 3 with one admin already resigned: the last other admin alone does not.
+    expect(resignFreezes(policy([ALICE, BOB, CAROL], 2), K(ALICE), [K(BOB)])).toBe(true);
+    // The only admin of a 1 of 1 policy.
+    expect(resignFreezes(policy([ALICE], 1), K(ALICE), [])).toBe(true);
+    // Time locks count as satisfied, only the keys decide.
+    const locked: NativeScript = {
+      type: 'all',
+      scripts: [
+        { type: 'any', scripts: [{ type: 'sig', keyHash: K(ALICE) }, { type: 'sig', keyHash: K(BOB) }] },
+        { type: 'after', slot: 10n ** 12n },
+        { type: 'before', slot: 1n },
+      ],
+    } as NativeScript;
+    expect(resignFreezes(locked, K(ALICE), [])).toBe(false);
+    expect(resignFreezes(locked, K(ALICE), [K(BOB)])).toBe(true);
   });
 });

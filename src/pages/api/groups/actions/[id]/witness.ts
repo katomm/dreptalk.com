@@ -1,7 +1,8 @@
 // POST /api/groups/actions/[id]/witness
 // Adds the signatures of a wallet witness set to a group signing link. Each vkey witness is
-// verified over the body hash on its own and kept when its key is a required signer or a key of
-// a policy the action needs. The initiator's witness for the payment key of a fee input is kept
+// verified over the body hash on its own and kept when its key is a required signer (a consenting
+// key, a member's own key) or a key of a policy the action needs that has not resigned from that
+// policy's role. The initiator's witness for the payment key of a fee input is kept
 // as the funding witness. Every other key is reported as ignored, and a witness set without any
 // kept key is refused as not a signer. A key that already signed is accepted again without a change.
 import type { APIRoute } from 'astro';

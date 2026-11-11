@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  activeAdminKeys,
   addressStatusLabel,
   describePolicy,
   eventLabel,
@@ -11,6 +12,7 @@ import {
   scriptFromJson,
   shortHash,
   statusNoteLabel,
+  thresholdTile,
 } from './view.js';
 
 const K = (n: number) => n.toString(16).padStart(2, '0').repeat(28);
@@ -111,5 +113,44 @@ describe('hostedAvatarHash', () => {
     expect(hostedAvatarHash(`https://dreptalk.com/api/avatar/${h.toUpperCase()}`)).toBeNull();
     expect(hostedAvatarHash('not a url')).toBeNull();
     expect(hostedAvatarHash(null)).toBeNull();
+  });
+});
+
+describe('activeAdminKeys', () => {
+  it('counts a key as admin only in the roles it has not resigned from', () => {
+    const [a, b, c] = ['a', 'b', 'c'].map((x) => x.repeat(56));
+    expect([...activeAdminKeys([a, b], [b, c], [b], [])].sort()).toEqual([a, b, c]);
+    expect([...activeAdminKeys([a, b], [b, c], [b], [b.toUpperCase()])].sort()).toEqual([a, c]);
+    expect([...activeAdminKeys([a.toUpperCase()], null, [], [])]).toEqual([a]);
+  });
+});
+
+describe('thresholdTile', () => {
+  const shape = { n: 2, keys: [K(1), K(2), K(3)] };
+
+  it('shows the policy ratio while no admin resigned', () => {
+    expect(thresholdTile(shape, [], false)).toEqual({ value: '2 of 3', sub: 'admins must sign a change' });
+  });
+
+  it('keeps the policy ratio and counts the remaining admins once one resigned', () => {
+    expect(thresholdTile({ n: 2, keys: [K(1), K(2), K(3), K(4)] }, [K(4).toUpperCase()], false)).toEqual({
+      value: '2 of 4',
+      sub: '2 of 3 remaining admins must sign a change',
+    });
+    expect(thresholdTile({ n: 1, keys: [K(1), K(2)] }, [K(2)], false)).toEqual({ value: '1 of 2', sub: '1 of 1 remaining admin must sign a change' });
+  });
+
+  it('ignores resigned keys that are not in the policy', () => {
+    expect(thresholdTile(shape, [K(9)], false)).toEqual({ value: '2 of 3', sub: 'admins must sign a change' });
+  });
+
+  it('shows a frozen policy as Frozen, also when its shape is nested', () => {
+    const frozen = { value: 'Frozen', sub: 'No admin can reach the threshold' };
+    expect(thresholdTile(shape, [K(1), K(2)], true)).toEqual(frozen);
+    expect(thresholdTile(null, [], true)).toEqual(frozen);
+  });
+
+  it('shows nothing for a nested policy that is not frozen', () => {
+    expect(thresholdTile(null, [K(1)], false)).toBeNull();
   });
 });

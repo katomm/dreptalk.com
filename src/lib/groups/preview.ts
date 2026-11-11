@@ -175,5 +175,7 @@ export async function readGroupState(db: D1Database, group: EventRef): Promise<G
     seq: v.seq,
     control,
     admission: v.admission === null ? null : v.admission === v.control ? control : policy(v.admission),
+    resignedControl: v.resignedControl,
+    resignedAdmission: v.resignedAdmission,
   };
 }

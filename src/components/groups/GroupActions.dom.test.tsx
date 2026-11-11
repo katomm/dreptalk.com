@@ -52,6 +52,8 @@ function view(o: Partial<GroupActionView> = {}): GroupActionView {
     serverSlot: 1_000_000,
     control,
     admission: control,
+    resignedControl: [],
+    resignedAdmission: [],
     names: NAMES,
     activeKeyMembers: [member(A), member(B)],
     activeMembers: [],
@@ -277,6 +279,92 @@ describe('GroupActions leave warning', () => {
     show(view({ control: policy([A, B], 1), admission: null, mode: 'open', viewer: viewer(A, { joinId: `${'01'.repeat(32)}#1`, state: 'active' }) }));
     expect(await screen.findByRole('button', { name: 'Leave' })).toBeTruthy();
     expect(screen.queryByText(/can no longer reach its threshold/)).toBeNull();
+  });
+});
+
+describe('GroupActions resigned admins', () => {
+  const ALICE_JOIN = { joinId: `${'01'.repeat(32)}#1`, state: 'active' as const };
+
+  it('gives a key that resigned from control no leave warning', async () => {
+    show(view({ control: policy([A, B], 2), admission: null, mode: 'open', resignedControl: [A], viewer: viewer(A, ALICE_JOIN) }));
+    expect(await screen.findByRole('button', { name: 'Leave' })).toBeTruthy();
+    expect(screen.queryByText(/can no longer reach its threshold/)).toBeNull();
+  });
+
+  it('does not count a resigned admin among those who still reach the threshold', async () => {
+    show(view({ control: policy([A, B], 1), admission: null, mode: 'open', resignedControl: [B], viewer: viewer(A, ALICE_JOIN) }));
+    expect(await screen.findByText(/can no longer reach its threshold/)).toBeTruthy();
+  });
+
+  it('does not report a member who resigned from control as outside the policy', async () => {
+    show(view({ resignedControl: [B], resignedAdmission: [B], viewer: viewer(A, ALICE_JOIN) }));
+    expect(await screen.findByRole('button', { name: 'Leave' })).toBeTruthy();
+    expect(screen.queryByText(/still managed by/)).toBeNull();
+  });
+
+  it('offers no second resign while the own one is in progress', async () => {
+    show(view({ control: policy([A, B, E], 2), admission: null, mode: 'open', viewer: viewer(A, ALICE_JOIN), rows: [{ id: 'z0', kind: 'group_resign', status: 'collecting' }] }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage the group' }));
+    expect(screen.queryByRole('button', { name: 'Resign as admin' })).toBeNull();
+  });
+
+  it('shows no drift notice in a group whose control policy no remaining admin can satisfy', async () => {
+    // 1 of 1 where Alice resigned, Bob is still a member.
+    show(view({ control: policy([A], 1), admission: policy([A], 1), resignedControl: [A], resignedAdmission: [A], viewer: viewer(B, { joinId: `${'02'.repeat(32)}#1`, state: 'active' }) }));
+    expect(await screen.findByRole('button', { name: 'Leave' })).toBeTruthy();
+    expect(screen.queryByText(/still managed by/)).toBeNull();
+  });
+
+  it('shows no drift notice when the admins left cannot reach the threshold of a 2 of 3 policy', async () => {
+    const three = policy([A, B, C], 2);
+    show(view({ control: three, admission: three, activeKeyMembers: [member(B), member(C), member(D)], resignedControl: [A, B], resignedAdmission: [A, B], viewer: viewer(C, { joinId: `${'03'.repeat(32)}#1`, state: 'active' }) }));
+    expect(await screen.findByRole('button', { name: 'Leave' })).toBeTruthy();
+    expect(screen.queryByText(/still managed by/)).toBeNull();
+  });
+
+  it('gives no freeze warning for an admission only resign while control is already frozen', async () => {
+    // Control 1 of 1 where Alice resigned, Bob still holds the admission role.
+    show(view({ control: policy([A], 1), admission: policy([B], 1), resignedControl: [A], viewer: viewer(B, { joinId: `${'02'.repeat(32)}#1`, state: 'active' }) }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage the group' }));
+    expect(screen.getByRole('heading', { name: 'Resign as admin' })).toBeTruthy();
+    expect(screen.getByText(/Your key stops counting as admin/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Review and sign' }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByText(/Nobody will be able to change or dissolve/)).toBeNull();
+    expect(screen.queryByText(/Type the group name/)).toBeNull();
+  });
+
+  it('offers no update and no dissolve once the control policy is frozen, only the resign', async () => {
+    // 2 of 3 where Bob and Carol resigned: Alice alone cannot reach the threshold.
+    const three = policy([A, B, C], 2);
+    show(view({ control: three, admission: three, resignedControl: [B, C], resignedAdmission: [B, C], viewer: viewer(A, { joinId: `${'01'.repeat(32)}#1`, state: 'active' }) }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage the group' }));
+    expect(screen.getByRole('heading', { name: 'Resign as admin' })).toBeTruthy();
+    for (const name of ['Edit the profile', 'Change admins or threshold', 'Dissolve the group']) expect(screen.queryByRole('button', { name })).toBeNull();
+    expect(screen.queryByText(/Nobody will be able to change or dissolve/)).toBeNull();
+  });
+
+  it('offers update and dissolve next to the resign while the control policy is not frozen', async () => {
+    const three = policy([A, B, C], 2);
+    show(view({ control: three, admission: three, resignedControl: [C], resignedAdmission: [C], viewer: viewer(A, { joinId: `${'01'.repeat(32)}#1`, state: 'active' }) }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage the group' }));
+    for (const name of ['Edit the profile', 'Change admins or threshold', 'Dissolve the group', 'Resign as admin']) expect(screen.getByRole('button', { name })).toBeTruthy();
+  });
+
+  it('completes a resign in one wallet step with the key as its only signer', async () => {
+    show(view({ control: policy([A, B, E], 2), admission: null, mode: 'open', viewer: viewer(A, ALICE_JOIN) }), [
+      { url: /\/api\/groups\/actions$/, body: { id: 'z1' } },
+      { url: /\/witness$/, body: { accepted: [A], ignored: [], satisfied: true } },
+      { url: /\/submit$/, body: { assembledTxHex: '84bb' } },
+      { url: /\/submitted$/, body: { ok: true } },
+    ]);
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage the group' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Resign as admin' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Review and sign' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Build and sign' }));
+    await waitFor(() => expect(submitTx).toHaveBeenCalledWith('84bb'));
+    expect((buildGroupTx.mock.calls[0][0] as { requiredSigners: string[] }).requiredSigners).toEqual([A]);
+    const post = calls.find((c) => c.url.endsWith('/api/groups/actions'));
+    expect(post?.body).toMatchObject({ intent: { kind: 'group_resign', group: GID, key: A }, selected: [] });
   });
 });
 

@@ -123,8 +123,8 @@ export const KEYED_WIDTH: Readonly<Record<keyof typeof KEYED, number>> = Object.
 });
 
 const POS = (p: string): string => `${p}_h, ${p}_ti, ${p}_ph, ${p}_ix, ${p}_tx`;
-const VERSION_COLS = `group_tx, group_ix, ${POS('at')}, mode, control, admission, profile_url, profile_hash, seq, status,
-  ${POS('created')}, ${POS('profile_set')}`;
+const VERSION_COLS = `group_tx, group_ix, ${POS('at')}, mode, control, admission, profile_url, profile_hash, resigned_control,
+  resigned_admission, seq, status, ${POS('created')}, ${POS('profile_set')}`;
 const INSTANCE_COLS = `join_tx, join_ix, group_tx, group_ix, cred, drep_id, mode, ${POS('joined')}, ${POS('approved')},
   ${POS('closed')}, close_reason, counted_as, ${POS('eff')}, eff_reason`;
 // The gen guard of a publication: a NULL bind accepts any gen.
@@ -166,14 +166,15 @@ export const COMMIT = Object.freeze({
     `INSERT OR IGNORE INTO drep_group_scripts (hash, ${POS('at')}, bytes, display_json) VALUES ${values(8, n)}`,
   insertMemberScripts: (n: number) =>
     `INSERT OR IGNORE INTO drep_group_member_scripts (cred, ${POS('at')}, bytes, display_json) VALUES ${values(8, n)}`,
-  upsertVersions: (n: number) => `INSERT OR REPLACE INTO drep_group_versions (${VERSION_COLS}) VALUES ${values(24, n)}`,
+  upsertVersions: (n: number) => `INSERT OR REPLACE INTO drep_group_versions (${VERSION_COLS}) VALUES ${values(26, n)}`,
   // The group row from its stored version. A create inserts the counters at 0, a later version
   // writes the version fields only, never a counter and never gen.
   upsertGroups: (n: number) => `WITH k(gtx, gix, h, ti, ph, ix) AS (VALUES ${values(6, n)})
     INSERT INTO drep_groups (group_tx, group_ix, ${POS('cur')}, mode, control, admission, profile_url,
-      profile_hash, seq, status, ${POS('created')}, ${POS('profile_set')}, ${POS('dissolved')}, closing)
+      profile_hash, resigned_control, resigned_admission, seq, status, ${POS('created')}, ${POS('profile_set')},
+      ${POS('dissolved')}, closing)
     SELECT v.group_tx, v.group_ix, v.at_h, v.at_ti, v.at_ph, v.at_ix, v.at_tx, v.mode, v.control, v.admission,
-      v.profile_url, v.profile_hash, v.seq, v.status, ${POS('v.created')}, ${POS('v.profile_set')},
+      v.profile_url, v.profile_hash, v.resigned_control, v.resigned_admission, v.seq, v.status, ${POS('v.created')}, ${POS('v.profile_set')},
       ${['h', 'ti', 'ph', 'ix', 'tx'].map((c) => `CASE WHEN v.status = 'dissolved' THEN v.at_${c} END`).join(', ')},
       CASE WHEN v.status = 'dissolved' THEN 1 ELSE 0 END
     FROM k JOIN drep_group_versions v ON v.group_tx = k.gtx AND v.group_ix = k.gix
@@ -182,7 +183,9 @@ export const COMMIT = Object.freeze({
     ON CONFLICT (group_tx, group_ix) DO UPDATE SET
       cur_h = excluded.cur_h, cur_ti = excluded.cur_ti, cur_ph = excluded.cur_ph, cur_ix = excluded.cur_ix,
       cur_tx = excluded.cur_tx, mode = excluded.mode, control = excluded.control, admission = excluded.admission,
-      profile_url = excluded.profile_url, profile_hash = excluded.profile_hash, seq = excluded.seq, status = excluded.status,
+      profile_url = excluded.profile_url, profile_hash = excluded.profile_hash,
+      resigned_control = excluded.resigned_control, resigned_admission = excluded.resigned_admission,
+      seq = excluded.seq, status = excluded.status,
       created_h = excluded.created_h, created_ti = excluded.created_ti, created_ph = excluded.created_ph,
       created_ix = excluded.created_ix, created_tx = excluded.created_tx,
       profile_set_h = excluded.profile_set_h, profile_set_ti = excluded.profile_set_ti,
@@ -274,7 +277,7 @@ export const COMMIT_WIDTH: Readonly<Record<keyof typeof COMMIT, number>> = Objec
   preVerdicts: 2,
   insertScripts: 8,
   insertMemberScripts: 8,
-  upsertVersions: 24,
+  upsertVersions: 26,
   upsertGroups: 6,
   dueProfileIfListed: 2,
   dueProfileIfAnchored: 2,
@@ -363,6 +366,11 @@ export const INGEST = Object.freeze({
     UPDATE drep_group_ledger SET witness_state = 'checked', witness = k.w
     FROM k WHERE drep_group_ledger.tx_hash = k.tx AND drep_group_ledger.cert_index = k.ix
       AND drep_group_ledger.witness_state = 'pending'`,
+  // A reference script search that is not done yet: the row stays pending at its next position.
+  witnessProgress: (n: number) => `WITH k(tx, ix, p) AS (VALUES ${values(3, n)})
+    UPDATE drep_group_ledger SET ref_search_pos = k.p
+    FROM k WHERE drep_group_ledger.tx_hash = k.tx AND drep_group_ledger.cert_index = k.ix
+      AND drep_group_ledger.witness_state = 'pending'`,
   // found is derived again from the checked rows of every credential named by the rows.
   witnessFound: (n: number) => `WITH k(tx, ix) AS (VALUES ${values(2, n)})
     UPDATE drep_group_tracked SET (found_h, found_ti, found_ph, found_ix, found_tx) = ${FIRST_WITNESS}
@@ -401,6 +409,7 @@ export const INGEST_WIDTH: Readonly<Record<keyof typeof INGEST, number>> = Objec
   witnessChecked: 3,
   witnessFound: 2,
   witnessFailed: 2,
+  witnessProgress: 3,
   insertAnchorRefs: 2,
   refetchFailed: 1,
   setTxTimes: 2,
@@ -748,8 +757,8 @@ const VERSIONS_PAGE = `SELECT g.group_tx AS k_gtx, g.group_ix AS k_gix, g.profil
     ORDER BY x.at_h DESC, x.at_ti DESC, x.at_ph DESC, x.at_ix DESC LIMIT 1)
   WHERE g.cur_h > ? ORDER BY g.cur_h, g.rowid LIMIT ?`;
 
-const RESTORE_COLS = `cur_h, cur_ti, cur_ph, cur_ix, cur_tx, mode, control, admission, profile_url, profile_hash, seq, status,
-  ${POS('created')}, ${POS('profile_set')}`;
+const RESTORE_COLS = `cur_h, cur_ti, cur_ph, cur_ix, cur_tx, mode, control, admission, profile_url, profile_hash,
+  resigned_control, resigned_admission, seq, status, ${POS('created')}, ${POS('profile_set')}`;
 const dissolvedCut = (c: string): string => `dissolved_${c} = CASE WHEN dissolved_h > ? THEN NULL ELSE dissolved_${c} END`;
 
 // Keyed statements of the versions phase, built per chunk length. D1 binds numbers as REAL, so
@@ -759,7 +768,7 @@ export const REC_KEYED = Object.freeze({
   restoreGroups: (n: number) => `WITH k(gtx, gix, h, ti, ph, ix) AS (VALUES ${values(6, n)})
     UPDATE drep_groups SET (${RESTORE_COLS}) = (
         SELECT v.at_h, v.at_ti, v.at_ph, v.at_ix, v.at_tx, v.mode, v.control, v.admission, v.profile_url, v.profile_hash,
-          v.seq, v.status, ${POS('v.created')}, ${POS('v.profile_set')}
+          v.resigned_control, v.resigned_admission, v.seq, v.status, ${POS('v.created')}, ${POS('v.profile_set')}
         FROM drep_group_versions v WHERE v.group_tx = k.gtx AND v.group_ix = k.gix
           AND v.at_h = k.h AND v.at_ti = k.ti AND v.at_ph = k.ph AND v.at_ix = k.ix),
       ${['h', 'ti', 'ph', 'ix', 'tx'].map(dissolvedCut).join(', ')},
@@ -1096,7 +1105,7 @@ const SAME_ANCHOR = `EXISTS (SELECT 1 FROM drep_groups g WHERE g.group_tx = drep
 // Page readers.
 const LISTED_ORDER = 'g.member_power DESC, g.group_tx, g.group_ix';
 const GROUP_READ = `g.group_tx, g.group_ix, g.mode, g.status, g.seq, g.control, g.admission, g.profile_url, g.profile_hash,
-    g.created_h, g.profile_set_h, g.members, g.pending, g.former, g.applied_events, g.not_applied_events,
+    g.resigned_control, g.resigned_admission, g.created_h, g.profile_set_h, g.members, g.pending, g.former, g.applied_events, g.not_applied_events,
     CAST(g.member_power AS TEXT) AS member_power, g.closing`;
 const LISTED_READ = `${GROUP_READ}, p.name AS p_name, p.image AS p_image, p.website_verified_at AS p_verified`;
 const PROFILE_JOIN = 'LEFT JOIN drep_group_profiles p ON p.group_tx = g.group_tx AND p.group_ix = g.group_ix';
@@ -1140,12 +1149,17 @@ export const Q = Object.freeze({
   treasuryScripts: { sql: KEYED.treasuryScripts(1) },
   drepNames: { sql: KEYED.drepNames(1) },
   listedFaces: { sql: KEYED.listedFaces(1) },
-  // Binds the key hash. The active groups with the key in their control or admission policy.
+  // Binds the key hash. The active groups with the key in their control or admission policy, with the
+  // roles that list it and the resigned keys of each role.
   groupsForPolicyKey: {
     // One OR over the two policy indexes, so each group comes back once without a sort for a UNION.
-    sql: `SELECT g.group_tx, g.group_ix FROM drep_groups g
-          WHERE (g.control IN (SELECT script FROM drep_group_policy_keys WHERE key = ?1)
-             OR g.admission IN (SELECT script FROM drep_group_policy_keys WHERE key = ?1))
+    // The scripts that list the key are named once, SQLite expands each use into the same subquery.
+    sql: `WITH k AS (SELECT script FROM drep_group_policy_keys WHERE key = ?1)
+          SELECT g.group_tx, g.group_ix, g.resigned_control, g.resigned_admission,
+            g.control IN k AS in_control,
+            coalesce(g.admission IN k, 0) AS in_admission
+          FROM drep_groups g
+          WHERE (g.control IN k OR g.admission IN k)
             AND g.status = 'active'
           LIMIT 100`,
   },
@@ -1227,7 +1241,7 @@ export const Q = Object.freeze({
   },
   // Binds now and the limit. Pending reg rows whose witness check is due, in the order of the partial index.
   pendingWitnesses: {
-    sql: `SELECT tx_hash, cert_index, cred, block_height, tx_index FROM drep_group_ledger
+    sql: `SELECT tx_hash, cert_index, cred, block_height, tx_index, ref_search_pos, witness_attempts FROM drep_group_ledger
           WHERE witness_state = 'pending' AND witness_retry_at <= ?
           ORDER BY witness_retry_at, block_height, tx_index, cert_index LIMIT ?`,
   },
@@ -1248,6 +1262,18 @@ export const Q = Object.freeze({
             (SELECT 1 FROM drep_group_ledger WHERE block_height >= 0 LIMIT 1) AS ledger`,
   },
   libVersion: { sql: 'UPDATE drep_group_meta SET lib_version = ? WHERE id = 1' },
+  // Script credential registrations whose witness search found no member script are searched again
+  // from the start, if they lie before the credential's found witness or the credential has none.
+  // A row after found cannot change it, the first witness wins and every witness of a credential
+  // carries the same script. Skipped rows lie after found by construction and stay. Run once by the
+  // rebuild of a library version change. A stored credential starts with its kind byte, 1 for a
+  // script, so the range seeks the credential index.
+  witnessSearchReset: {
+    sql: `UPDATE drep_group_ledger SET witness_state = 'pending', witness_attempts = 0, witness_retry_at = 0, ref_search_pos = 0
+          WHERE cred >= X'01' AND cred < X'02' AND kind = 'reg' AND witness_state = 'checked' AND witness IS NULL
+            AND NOT EXISTS (SELECT 1 FROM drep_group_tracked t WHERE t.cred = drep_group_ledger.cred AND t.found_h IS NOT NULL
+              AND (t.found_h, t.found_ti, t.found_ix) < (drep_group_ledger.block_height, drep_group_ledger.tx_index, drep_group_ledger.cert_index))`,
+  },
   // Binds both slots, then whether to set the phase and the phase, then rebuilding (NULL keeps it).
   recoverySlots: {
     sql: `UPDATE drep_group_meta SET rec_first_kind = ?, rec_first_above = ?, rec_first_time = ?,
@@ -1290,15 +1316,16 @@ export const Q = Object.freeze({
           ORDER BY never_included_at DESC LIMIT ?`,
     boundedScan: 'pending_multisig_tx_never_included',
   },
-  // Binds the columns of a new group signing row, the control slot flag 17th, the fee payment keys last. A control row is stored only while
-  // the group has no open control row, in the same statement.
+  // Binds the columns of a new group signing row, the control slot flag 17th, the fee payment keys 18th, then the
+  // three forms of the subject id (groupIdFormsOf), whatever form the subject is stored in. A control row is stored
+  // only while the group has no open control row under any id form, in the same statement.
   actionCreate: {
     sql: `INSERT INTO pending_multisig_tx (id, drep_id, action, action_params, unsigned_tx_cbor, body_hash, native_script,
             witnesses, status, tx_hash, created_by, created_at, expires_at, subject_kind, required_signers, invalid_hereafter,
             fee_inputs, event_count, profile_hash, control_slot, fee_pay_keys)
           SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, '[]', 'collecting', NULL, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18
           WHERE ?17 = 0 OR NOT EXISTS (
-            SELECT 1 FROM pending_multisig_tx WHERE drep_id = ?2 AND control_slot = 1 AND resolved_at IS NULL)`,
+            SELECT 1 FROM pending_multisig_tx WHERE drep_id IN (?19, ?20, ?21) AND control_slot = 1 AND resolved_at IS NULL)`,
   },
   // Binds the cutoff in milliseconds and the limit. Group and member rows resolved before the cutoff, the oldest first.
   actionPruneResolved: {
@@ -1320,9 +1347,9 @@ export const Q = Object.freeze({
           ORDER BY invalid_hereafter LIMIT ?`,
     boundedScan: 'pending_multisig_tx_unresolved',
   },
-  // Binds the group id. The row holding the group's control slot.
+  // Binds the three forms of the group id (groupIdFormsOf). The row holding the group's control slot.
   actionOpenControl: {
-    sql: 'SELECT * FROM pending_multisig_tx WHERE drep_id = ? AND control_slot = 1 AND resolved_at IS NULL LIMIT 1',
+    sql: 'SELECT * FROM pending_multisig_tx WHERE drep_id IN (?, ?, ?) AND control_slot = 1 AND resolved_at IS NULL LIMIT 1',
   },
   // Binds the row id, now in seconds and now in milliseconds. A collecting or cancelled control row whose seq is
   // stale resolves failed and closes. resolved_at counts milliseconds like the resolver's, cancelled_at seconds.
@@ -1341,7 +1368,8 @@ export const Q = Object.freeze({
   // tx is processed.
   joinNotifyPage: {
     sql: `SELECT n.join_tx, n.join_ix, i.join_tx AS i_tx, i.group_tx, i.group_ix, i.approved_h, i.closed_h, i.eff_h,
-            s.bytes AS policy, p.name AS group_name, d.name AS member_name, ${processedSql('n.join_tx')} AS processed
+            s.bytes AS policy, CASE WHEN g.admission IS NULL THEN g.resigned_control ELSE g.resigned_admission END AS resigned,
+            p.name AS group_name, d.name AS member_name, ${processedSql('n.join_tx')} AS processed
           FROM drep_group_join_notify n
           LEFT JOIN drep_group_txs t ON t.tx_hash = n.join_tx
           LEFT JOIN drep_group_meta m ON m.id = 1
@@ -1441,8 +1469,8 @@ export const Q = Object.freeze({
   },
   // The newest versions of a group, the policies and profile each change set.
   historyVersions: {
-    sql: `SELECT at_tx, control, admission, profile_hash FROM drep_group_versions WHERE group_tx = ? AND group_ix = ?
-          ORDER BY at_h DESC, at_ti DESC, at_ph DESC, at_ix DESC LIMIT ?`,
+    sql: `SELECT at_tx, control, admission, profile_hash, resigned_control, resigned_admission FROM drep_group_versions
+          WHERE group_tx = ? AND group_ix = ? ORDER BY at_h DESC, at_ti DESC, at_ph DESC, at_ix DESC LIMIT ?`,
   },
   // Binds the group. The stored profile of the group while it has a verified one.
   profileCurrent: {

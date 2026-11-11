@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { groupCardModel, groupCardVersion, type GroupCardInput } from './groupCard.js';
 
 const G: GroupCardInput = {
-  groupId: 'drep_group1mz6spxh0f5huee8c4krz62tpzwr2g85k78lxqvp7asypkt7vsjqsqqq86q2xs',
+  groupId: 'drep_group1mz6spxh0f5huee8c4krz62tpzwr2g85k78lxqvp7asypkt7vsjqsq6rj3w3',
   name: 'Commons Council',
   description: 'First paragraph.\n\nSecond paragraph.',
   mode: 'open',

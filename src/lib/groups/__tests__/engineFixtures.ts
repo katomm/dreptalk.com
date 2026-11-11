@@ -88,6 +88,8 @@ export function version(group: EventRef, created: Pos, at: Pos, over: Partial<Gr
     status: 'active',
     createdAt: created,
     profileSetAt: null,
+    resignedControl: [],
+    resignedAdmission: [],
     ...over,
   };
 }
