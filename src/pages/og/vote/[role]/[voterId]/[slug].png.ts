@@ -8,6 +8,7 @@
 import type { APIRoute } from 'astro';
 import { runtimeEnv } from '@/lib/api/response';
 import { getDrepByIdOrSlug } from '@/lib/db/dreps.js';
+import { getPrimaryHandle } from '@/lib/db/drepHandles.js';
 import { getGovernanceActionByTopicId } from '@/lib/db/governance.js';
 import { getTopicBySlug } from '@/lib/db/forum.js';
 import { getPoolByIdOrSlug } from '@/lib/db/pools.js';
@@ -49,9 +50,14 @@ export const GET: APIRoute = async ({ params, locals, request }) => {
     env.IMAGES as ImagesLike | undefined,
   );
 
-  const model = voteCardModel(
-    { name, voterId: voterKey, vote: vote.vote, rationaleText: vote.bodyText, actionTitle: action.title ?? topic!.title, role: isDrep ? 'DRep' : 'SPO' },
-    { avatarDataUrl },
-  );
-  return renderOgCard(env.ASSETS as unknown as Fetcher, request.url, () => voteCardHtml(model));
+  // The handle is read inside the builder, so a card served from the cache costs no lookup.
+  return renderOgCard(env.ASSETS as unknown as Fetcher, request.url, async () => {
+    // Only DReps have a drep.link handle, a pool keeps its truncated id.
+    const handle = drep ? await getPrimaryHandle(db, drep.drepId, Math.floor(Date.now() / 1000)) : null;
+    const model = voteCardModel(
+      { name, voterId: voterKey, vote: vote.vote, rationaleText: vote.bodyText, actionTitle: action.title ?? topic!.title, role: isDrep ? 'DRep' : 'SPO', handle },
+      { avatarDataUrl },
+    );
+    return voteCardHtml(model);
+  });
 };

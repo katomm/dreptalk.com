@@ -6,6 +6,7 @@
 import type { APIRoute } from 'astro';
 import { runtimeEnv } from '@/lib/api/response';
 import { getDrepByIdOrSlug } from '@/lib/db/dreps.js';
+import { getPrimaryHandle } from '@/lib/db/drepHandles.js';
 import { countDrepVotes, getDrepParticipation } from '@/lib/db/drepVotes.js';
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
 import { influencePct } from '@/lib/dreps/profile.js';
@@ -38,12 +39,15 @@ export const GET: APIRoute = async ({ params, locals, request }) => {
     ),
   ]);
 
-  const model = drepCardModel(drep, {
-    avatarDataUrl,
-    influencePct: influencePct(drep.votingPower, activeStake.total),
-    votesCast,
-    participation,
+  // The handle is read inside the builder, so a card served from the cache costs no lookup.
+  return renderOgCard(env.ASSETS as unknown as Fetcher, request.url, async () => {
+    const handle = await getPrimaryHandle(db, drep.drepId, Math.floor(Date.now() / 1000));
+    const model = drepCardModel({ ...drep, handle }, {
+      avatarDataUrl,
+      influencePct: influencePct(drep.votingPower, activeStake.total),
+      votesCast,
+      participation,
+    });
+    return drepCardHtml(model);
   });
-
-  return renderOgCard(env.ASSETS as unknown as Fetcher, request.url, () => drepCardHtml(model));
 };

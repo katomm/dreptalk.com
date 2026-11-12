@@ -20,6 +20,7 @@ import { isVoteStatementIndexable, positionsVoterAnchor } from '@/lib/governance
 import { drepDescriptor } from '@/lib/forum/author.js';
 import { excerptFromHtml } from '@/lib/forum/view.js';
 import { ogCardVersion } from '@/lib/og/version.js';
+import { getPrimaryHandle } from '@/lib/db/drepHandles.js';
 
 const db = env.DB as D1Database | undefined;
 const { drepId, action } = Astro.params;
@@ -55,7 +56,13 @@ if (drep && govAction && topic && !vote) {
 
 const ready = !!(drep && db && topic && govAction && vote);
 const now = Date.now();
-const earlier = ready ? await getSupersededVotesFor(db!, drep!.drepId, govAction!.id) : [];
+const [earlier, drepLinkHandle] = ready
+  ? await Promise.all([
+      getSupersededVotesFor(db!, drep!.drepId, govAction!.id),
+      // Read only to version the share card, which shows the short link.
+      getPrimaryHandle(db!, drep!.drepId, Math.floor(now / 1000)),
+    ])
+  : [[], null];
 const actionTitle = ready ? (govAction!.title ?? topic!.title) : '';
 const displayName = drep?.name ?? drep?.drepId ?? '';
 const hasMetadata = !!(drep?.name?.trim() || drep?.bio?.trim());
@@ -75,7 +82,7 @@ const author = ready ? drepDescriptor(drep!) : null;
 // the vote changes: a just-cast vote flips from pending "yes" to synced "Yes",
 // and without a fresh URL the first (grey "voted") render would stick for a day.
 const ogImage = ready
-  ? `/og/vote/drep/${drep!.slug ?? drep!.drepId}/${topic!.slug}.png?v=${ogCardVersion([vote!.vote, vote!.localStatus ?? '', vote!.bodyText])}`
+  ? `/og/vote/drep/${drep!.slug ?? drep!.drepId}/${topic!.slug}.png?v=${ogCardVersion([vote!.vote, vote!.localStatus ?? '', vote!.bodyText, drepLinkHandle])}`
   : '/og.jpg';
 ---
 {ready ? (
