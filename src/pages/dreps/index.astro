@@ -1,7 +1,7 @@
 ---
 export const prerender = false;
 
-import { env } from 'cloudflare:workers';
+import { requestDb } from '@/lib/db/requestDb.js';
 import Layout from '@/layouts/Layout.astro';
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
@@ -31,7 +31,7 @@ import { drepGroupsAvailable } from '@/lib/groups/gate.js';
 import { groupIdParam, groupIdString } from '@/lib/groups/ids.js';
 import { shortGroupId } from '@/lib/groups/view.js';
 
-const db = env.DB as D1Database | undefined;
+const db = requestDb();
 const PAGE_SIZE = 50;
 const page = parsePage(Astro.url.searchParams.get('page'));
 const activeOnly = Astro.url.searchParams.get('all') !== '1';

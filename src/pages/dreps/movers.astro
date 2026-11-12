@@ -1,7 +1,7 @@
 ---
 export const prerender = false;
 
-import { env } from 'cloudflare:workers';
+import { requestDb } from '@/lib/db/requestDb.js';
 import Layout from '@/layouts/Layout.astro';
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
 import DrepSelfCard from '@/components/DrepSelfCard.astro';
@@ -16,7 +16,7 @@ import { ogCardVersion } from '@/lib/og/version.js';
 import { currentEpochProgress } from '@/lib/config/network.js';
 import { currentNetwork } from '@/lib/api/response.js';
 
-const db = env.DB as D1Database | undefined;
+const db = requestDb();
 
 // How far the currently running epoch has progressed, for the indicator under
 // the intro: the standings turn over at the next boundary. Deterministic epoch

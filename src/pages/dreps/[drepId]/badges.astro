@@ -1,7 +1,7 @@
 ---
 export const prerender = false;
 
-import { env } from 'cloudflare:workers';
+import { requestDb } from '@/lib/db/requestDb.js';
 import Layout from '@/layouts/Layout.astro';
 import NotFound from '@/components/NotFound.astro';
 import BadgeTile from '@/components/BadgeTile.astro';
@@ -13,7 +13,7 @@ import { buildBadgeGallery } from '@/lib/badges/gallery.js';
 import { cacheControlForSynced, truncateId } from '@/lib/forum/view.js';
 
 const { drepId } = Astro.params;
-const db = env.DB as D1Database | undefined;
+const db = requestDb();
 
 const drep = drepId && db ? await getDrepByIdOrSlug(db, drepId) : null;
 

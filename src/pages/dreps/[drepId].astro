@@ -1,7 +1,7 @@
 ---
 export const prerender = false;
 
-import { env } from 'cloudflare:workers';
+import { requestDb } from '@/lib/db/requestDb.js';
 import Layout from '@/layouts/Layout.astro';
 import JsonLd from '@/components/JsonLd.astro';
 import NotFound from '@/components/NotFound.astro';
@@ -52,7 +52,7 @@ import {
 } from '@/lib/forum/view.js';
 
 const { drepId } = Astro.params;
-const db = env.DB as D1Database | undefined;
+const db = requestDb();
 
 // The activity section's tab, link-based like the governance-action page:
 // the default All feed lives at the plain profile URL, other tabs at ?tab=<id>.

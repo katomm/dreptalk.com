@@ -6,12 +6,12 @@
 // /t/<slug>/ page, or fall back to search when the action is not on DRepTalk.
 export const prerender = false;
 
-import { env } from 'cloudflare:workers';
+import { requestDb } from '@/lib/db/requestDb.js';
 import { detectIdentifier } from '@/lib/search/identifiers';
 import { resolveIdentifier } from '@/lib/db/search';
 
 const { id = '' } = Astro.params;
-const db = env.DB as D1Database | undefined;
+const db = requestDb();
 
 const ident = db ? detectIdentifier(id) : null;
 const hit = db && ident ? await resolveIdentifier(db, ident) : null;

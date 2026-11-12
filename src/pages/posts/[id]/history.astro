@@ -17,10 +17,10 @@ import { richDiff } from '@/lib/forum/htmlDiff.js';
 import { shiftContentHeadings } from '@/lib/sanitizedHtmlGrammar.js';
 import { clampVersionPair, formatVersionTime, statText, versionLabel } from '@/lib/forum/historyView.js';
 import { lineDiffWithWords } from '@/lib/forum/lineDiff.js';
-import { env } from 'cloudflare:workers';
+import { requestDb } from '@/lib/db/requestDb.js';
 
 const { id } = Astro.params;
-const db = env.DB as D1Database | undefined;
+const db = requestDb();
 const history = id && db ? await getPostHistory(db, id) : null;
 
 const user = Astro.locals.user;

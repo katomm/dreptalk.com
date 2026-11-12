@@ -1,6 +1,6 @@
 ---
 export const prerender = false;
-import { env } from 'cloudflare:workers';
+import { requestDb } from '@/lib/db/requestDb.js';
 import { checkPaymentAddress } from 'drep-groups';
 import Layout from '@/layouts/Layout.astro';
 import NotFound from '@/components/NotFound.astro';
@@ -65,7 +65,7 @@ import {
 
 const net = currentNetwork();
 const available = drepGroupsAvailable(net.network);
-const db = env.DB as D1Database | undefined;
+const db = requestDb();
 const id = Astro.params.id ?? '';
 // Group ids are lowercase bech32, an uppercase spelling moves to the canonical URL.
 if (available && id !== id.toLowerCase()) return Astro.redirect(`/groups/${id.toLowerCase()}/${Astro.url.search}`, 301);

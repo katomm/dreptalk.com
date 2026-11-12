@@ -1,7 +1,7 @@
 ---
 export const prerender = false;
 
-import { env } from 'cloudflare:workers';
+import { requestDb } from '@/lib/db/requestDb.js';
 import Layout from '@/layouts/Layout.astro';
 import TreasuryDonut from '@/components/ncl/TreasuryDonut.astro';
 import NclPeriodsTable from '@/components/ncl/NclPeriodsTable.astro';
@@ -11,7 +11,7 @@ import { ogCardVersion } from '@/lib/og/version.js';
 // Public, low-churn: withdrawals change at most a few times per epoch.
 Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
 
-const db = env.DB as D1Database | undefined;
+const db = requestDb();
 const data = db ? await loadTreasuryOverview(db) : null;
 
 // Version the card URL by what it renders (consumed vs ceiling) so a share

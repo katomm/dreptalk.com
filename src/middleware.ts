@@ -5,6 +5,7 @@ import { defineMiddleware } from 'astro:middleware';
 import { env, waitUntil } from 'cloudflare:workers';
 import { parseSessionToken, buildSessionCookie, clearSessionCookie, resolveSessionLocals } from './lib/auth/session.js';
 import { sessionActivityHook } from './lib/auth/sessionActivity.js';
+import { openRequestDb, runWithDb } from './lib/db/requestDb.js';
 import { crossOriginWriteResponse } from './lib/http/origin.js';
 import { applySecurityHeaders, relaxStyleSrc } from './lib/http/securityHeaders.js';
 import { trailingSlashRedirect } from './lib/http/trailingSlash.js';
@@ -98,6 +99,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
     const cookieHeader = context.request.headers.get('Cookie');
     const token = parseSessionToken(cookieHeader);
     if (token) {
+      // The activity write on renewal stays on the primary binding on purpose.
       const db = env?.DB as D1Database | undefined;
       // The record slides server-side every 6 hours, but the cookie carries a
       // fixed Max-Age from the mint. Without re-issuing it here an active user
@@ -121,7 +123,10 @@ export const onRequest = defineMiddleware(async (context, next) => {
   const renderPage = async (): Promise<Response> => {
     let response: Response;
     try {
-      response = await next();
+      // Each render, including a background cache refresh, reads through its
+      // own D1 handle: a replica session for anonymous reads, the primary for
+      // everything else. See lib/db/requestDb for the rules.
+      response = await runWithDb(openRequestDb(env?.DB as D1Database | undefined, context.request), next);
     } catch (err) {
       if (isDatabaseUnavailable(err)) {
         console.error('Serving 503 (database temporarily unavailable):', err);

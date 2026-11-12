@@ -22,10 +22,10 @@ import { originForNetwork } from '@/lib/cip100/origin.js';
 import { formatVersionTime } from '@/lib/forum/historyView.js';
 import { cacheControlFor } from '@/lib/forum/view.js';
 import { isForumId } from '@/lib/validation/input.js';
-import { env } from 'cloudflare:workers';
+import { requestDb } from '@/lib/db/requestDb.js';
 
 const postId = Astro.params.postId ?? '';
-const db = env.DB as D1Database | undefined;
+const db = requestDb();
 
 // Not Astro.site: astro.config.mjs hardcodes site to the mainnet apex and the
 // preprod build does not override it, so the published addresses would claim

@@ -1,7 +1,7 @@
 ---
 export const prerender = false;
 
-import { env } from 'cloudflare:workers';
+import { requestDb } from '@/lib/db/requestDb.js';
 import Layout from '@/layouts/Layout.astro';
 import BadgeTile from '@/components/BadgeTile.astro';
 import {
@@ -16,7 +16,7 @@ import { getBadgeHolderCounts } from '@/lib/db/badgeAwards.js';
 // Public badge index; holder counts change at most hourly, cache at the edge.
 Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
 
-const db = env.DB as D1Database | undefined;
+const db = requestDb();
 const holders = db ? await getBadgeHolderCounts(db) : new Map<string, number>();
 
 const categories = Object.keys(BADGE_CATEGORY_LABELS) as BadgeCategory[];

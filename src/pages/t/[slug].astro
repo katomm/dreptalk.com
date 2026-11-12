@@ -109,10 +109,11 @@ import { NCL_PERIODS } from '../../../config/ncl-periods.js';
 import { nclStatusFor, currentNclPeriod } from '@/lib/governance/ncl.js';
 import { getEnactedTreasuryWithdrawals, getNclActionLinks, type NclActionLink } from '@/lib/db/treasury.js';
 import { env } from 'cloudflare:workers';
+import { requestDb } from '@/lib/db/requestDb.js';
 
 const { slug } = Astro.params;
 
-const db = env.DB as D1Database | undefined;
+const db = requestDb();
 
 // A pasted governance-action id routes to its discussion: resolve it to the
 // canonical topic slug and 301-redirect, mirroring the DRep id->slug redirect.

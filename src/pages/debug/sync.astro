@@ -6,7 +6,7 @@
 // mirrors what the public freshness page promises), so there is no auth gate.
 export const prerender = false;
 
-import { env } from 'cloudflare:workers';
+import { requestDb } from '@/lib/db/requestDb.js';
 import Layout from '@/layouts/Layout.astro';
 import { listSyncRuns, latestSyncRunByKind, type SyncRun } from '@/lib/db/syncRuns.js';
 import { readVotingTimingSnapshot } from '@/lib/db/votingTimingSnapshot.js';
@@ -36,7 +36,7 @@ const KINDS = [
 ] as const;
 
 const now = Date.now();
-const db = env.DB as D1Database;
+const db = requestDb() as D1Database;
 
 // The run history and the given-up count are independent reads; start both
 // before awaiting so they overlap. Each keeps its own error handling: a missing

@@ -1,6 +1,7 @@
 // Shared helpers for API route handlers.
 import { env as workersEnv } from 'cloudflare:workers';
 import { networkFromEnv, type NetworkConfig } from '@/lib/config/network';
+import { requestDb } from '@/lib/db/requestDb.js';
 
 /**
  * Builds a JSON Response with the correct content-type header.
@@ -25,8 +26,16 @@ export function jsonResponse(
  * accepted for call-site compatibility but is no longer read.
  */
 export function runtimeEnv(_locals?: App.Locals): Cloudflare.Env {
-  return (workersEnv ?? {}) as Cloudflare.Env;
+  if (!workersEnv) return {} as Cloudflare.Env;
+  requestEnv ??= new Proxy(workersEnv as Cloudflare.Env, {
+    // DB is the request's handle (a replica session for anonymous reads, see
+    // lib/db/requestDb). Every other key goes to the live bindings object, so
+    // no binding can get lost the way it could in a copy.
+    get: (target, key) => (key === 'DB' ? requestDb() : Reflect.get(target, key)),
+  });
+  return requestEnv;
 }
+let requestEnv: Cloudflare.Env | undefined;
 
 /**
  * Resolves the active Cardano network from the runtime env (CARDANO_NETWORK),

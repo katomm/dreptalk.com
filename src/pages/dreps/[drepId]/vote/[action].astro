@@ -4,7 +4,7 @@
 // Positions tab and used as the target of the vote OG card.
 export const prerender = false;
 
-import { env } from 'cloudflare:workers';
+import { requestDb } from '@/lib/db/requestDb.js';
 import Layout from '@/layouts/Layout.astro';
 import NotFound from '@/components/NotFound.astro';
 import VoteStatement from '@/components/VoteStatement.astro';
@@ -22,7 +22,7 @@ import { excerptFromHtml } from '@/lib/forum/view.js';
 import { ogCardVersion } from '@/lib/og/version.js';
 import { getPrimaryHandle } from '@/lib/db/drepHandles.js';
 
-const db = env.DB as D1Database | undefined;
+const db = requestDb();
 const { drepId, action } = Astro.params;
 
 const drep = drepId && db ? await getDrepByIdOrSlug(db, drepId) : null;

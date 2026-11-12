@@ -12,7 +12,7 @@ import { loadGroupRow, rowMaySign, sessionOf } from '@/lib/groups/actionServer.j
 import { getGroup } from '@/lib/db/drepGroups.js';
 import { shortGroupId } from '@/lib/groups/view.js';
 import { canonicalGroupId } from '@/lib/groups/ids.js';
-import { env } from 'cloudflare:workers';
+import { requestDb } from '@/lib/db/requestDb.js';
 
 const { id } = Astro.params;
 const network = currentNetwork().network;
@@ -30,7 +30,7 @@ Astro.response.headers.set('Cache-Control', 'no-store');
 // The breadcrumb leads back to the group, named only to a session that may sign the action, so
 // the link alone still shows nothing. A founding has no group page yet.
 let group: { id: string; name: string } | null = null;
-const db = env.DB as D1Database | undefined;
+const db = requestDb();
 if (db && id) {
   try {
     const ctx = await loadGroupRow(db, id);

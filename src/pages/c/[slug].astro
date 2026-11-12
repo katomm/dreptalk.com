@@ -51,6 +51,7 @@ import { currentNetwork } from '@/lib/api/response.js';
 // persists/restores the reader's sort choice in localStorage.
 import govPrefsRestoreJs from '@/scripts/gov-prefs-restore.js?raw';
 import { env } from 'cloudflare:workers';
+import { requestDb } from '@/lib/db/requestDb.js';
 
 const { slug } = Astro.params;
 // The categories this deployment serves, for the sidebar and for resolving
@@ -67,7 +68,7 @@ if (notFound) {
   Astro.response.headers.set('Cache-Control', 'no-store');
 }
 
-const db = env.DB as D1Database | undefined;
+const db = requestDb();
 
 const PAGE_SIZE = 30;
 const page = parsePage(Astro.url.searchParams.get('page'));

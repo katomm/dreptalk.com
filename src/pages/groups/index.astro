@@ -1,6 +1,6 @@
 ---
 export const prerender = false;
-import { env } from 'cloudflare:workers';
+import { requestDb } from '@/lib/db/requestDb.js';
 import Layout from '@/layouts/Layout.astro';
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
 import Avatar from '@/components/Avatar.astro';
@@ -22,7 +22,7 @@ import { hostedAvatarHash, LISTED_RULE, memberCount, memberCountWords, modeLabel
 const available = drepGroupsAvailable(currentNetwork().network);
 // While the CIP is in review, mainnet visitors are pointed to preprod for trying groups out.
 const onMainnet = currentNetwork().network === 'mainnet';
-const db = env.DB as D1Database | undefined;
+const db = requestDb();
 // The cursor is "<power>.<groupId>". A bech32 id has no dot, so the first dot splits it.
 const afterParam = Astro.url.searchParams.get('after');
 const dot = afterParam?.indexOf('.') ?? -1;
