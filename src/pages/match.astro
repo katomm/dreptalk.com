@@ -3,7 +3,7 @@ export const prerender = false;
 // Public matching quiz: answer real on-chain governance questions, get the
 // DReps whose past votes align. All scoring happens client-side, answers
 // never reach the server (share state lives in the URL fragment).
-import { env } from 'cloudflare:workers';
+import { requestDb } from '@/lib/db/requestDb.js';
 import JsonLd from '@/components/JsonLd.astro';
 import MatchQuiz from '@/components/MatchQuiz.tsx';
 import { loadTrackingViewer } from '@/lib/delegation/viewer';
@@ -24,7 +24,7 @@ import {
   selectQuestions,
 } from '@/lib/match/logic.js';
 
-const db = env.DB as D1Database | undefined;
+const db = requestDb();
 const network = currentNetwork().network;
 const thresholds = MATCH_THRESHOLDS[network];
 

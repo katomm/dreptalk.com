@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 import { getCollection } from 'astro:content';
 import { env } from 'cloudflare:workers';
+import { requestDb } from '@/lib/db/requestDb.js';
 import { getCategories } from '../../config/categories.js';
 import { currentNetwork } from '../lib/api/response.js';
 import { listIndexableDrepIds } from '../lib/db/dreps.js';
@@ -48,7 +49,7 @@ export const GET: APIRoute = async ({ site }) => {
     ...getCategories({ surveys: surveysEnabled(env) }).map((c) => ({ path: `/c/${c.slug}/` })),
   ];
 
-  const db = env.DB as D1Database | undefined;
+  const db = requestDb();
   if (db) {
     const rows =
       (

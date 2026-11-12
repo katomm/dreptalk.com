@@ -7,9 +7,9 @@ import { handleSearch, normalizeQuery } from '@/lib/search/handler';
 import { getContentIndex } from '@/lib/search/contentIndex';
 import { parseScope, SCOPES, SCOPE_LABELS, searchPageHref } from '@/lib/search/scopes';
 import { parsePage } from '@/lib/forum/view';
-import { env } from 'cloudflare:workers';
+import { requestDb } from '@/lib/db/requestDb.js';
 
-const db = env.DB as D1Database | undefined;
+const db = requestDb();
 
 const url = Astro.url;
 const rawQuery = url.searchParams.get('q');

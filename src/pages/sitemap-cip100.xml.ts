@@ -4,7 +4,7 @@
 // so listing them would grow without limit and tell a crawler nothing the
 // manifest does not already say.
 import type { APIRoute } from 'astro';
-import { env } from 'cloudflare:workers';
+import { requestDb } from '@/lib/db/requestDb.js';
 import { currentNetwork } from '@/lib/api/response';
 import { originForNetwork, threadManifestUrl } from '@/lib/cip100/origin';
 import { corsHeaders } from '@/lib/cip100/cors';
@@ -17,7 +17,7 @@ export const GET: APIRoute = async () => {
   // mainnet URLs from preprod. Every emitted URL in this feature comes from
   // originForNetwork, and this sitemap is no exception.
   const origin = originForNetwork(currentNetwork().network === 'preprod' ? 'preprod' : 'mainnet');
-  const db = env.DB as D1Database | undefined;
+  const db = requestDb();
   const rows = db
     ? (
         await db

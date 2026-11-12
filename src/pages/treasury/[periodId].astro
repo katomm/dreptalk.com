@@ -1,7 +1,7 @@
 ---
 export const prerender = false;
 
-import { env } from 'cloudflare:workers';
+import { requestDb } from '@/lib/db/requestDb.js';
 import Layout from '@/layouts/Layout.astro';
 import NotFound from '@/components/NotFound.astro';
 import { loadTreasuryOverview } from '@/lib/treasury/overview.js';
@@ -15,7 +15,7 @@ import { ogCardVersion } from '@/lib/og/version.js';
 // Public, low-churn: withdrawals change at most a few times per epoch.
 Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
 
-const db = env.DB as D1Database | undefined;
+const db = requestDb();
 const data = db ? await loadTreasuryOverview(db) : null;
 const card = data?.periods.find((c) => c.period.id === Astro.params.periodId);
 

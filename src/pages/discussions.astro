@@ -11,6 +11,7 @@ import { getCategories } from '../../config/categories.js';
 import { surveysEnabled } from '@/lib/surveys/switch.js';
 import { cacheControlFor, parsePage, pageToOffset, SITE_ORIGIN, ACTIVE_WINDOW_MS, CARD_FACE_LIMIT } from '@/lib/forum/view.js';
 import { env } from 'cloudflare:workers';
+import { requestDb } from '@/lib/db/requestDb.js';
 import RecentlyActiveCard from '@/components/RecentlyActiveCard.astro';
 // Segmented pill styles for the activity filter, shared with the governance-actions
 // list and /vote so the three controls stay identical.
@@ -18,7 +19,7 @@ import '@/styles/list-controls.css';
 import { countActiveByRole } from '@/lib/db/activeParticipants.js';
 import { loadActiveFaces } from '@/lib/forum/activeFaces.js';
 
-const db = env.DB as D1Database | undefined;
+const db = requestDb();
 const now = Date.now();
 
 const categories = getCategories({ surveys: surveysEnabled(env) });

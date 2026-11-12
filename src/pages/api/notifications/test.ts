@@ -5,6 +5,7 @@
 // shows; for telegram the send happens immediately, no delay needed. Rate
 // limited so nobody floods the push services.
 import { waitUntil } from 'cloudflare:workers';
+import { requestDb } from '@/lib/db/requestDb.js';
 import type { APIRoute } from 'astro';
 import { z } from 'zod';
 import { jsonResponse, runtimeEnv } from '@/lib/api/response';
@@ -26,7 +27,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     return jsonResponse({ ok: false, error: 'unauthorized' }, 401);
   }
   const env = runtimeEnv(locals as App.Locals);
-  const db = env.DB as D1Database | undefined;
+  const db = requestDb();
   const rateLimiter = env.RATE_LIMITER;
   if (!db || !rateLimiter) {
     return jsonResponse({ ok: false, error: 'service unavailable' }, 503);

@@ -5,7 +5,7 @@
 // These are the pure predicates; the middleware wires them to caches.default.
 // On this Cloudflare zone s-maxage alone does not edge-cache a Worker response,
 // only the Cache API does, so the header is otherwise inert for logged-out traffic.
-import { parseSessionToken } from '../auth/session.js';
+import { hasSessionCookie } from '../auth/session.js';
 
 /**
  * Cache key for a page: the URL plus the deploy it was rendered by, GET. Never
@@ -38,7 +38,7 @@ export function pageCacheKey(url: string, version?: string): Request {
  */
 export function isCacheableRequest(request: Request): boolean {
   if (request.method !== 'GET') return false;
-  return parseSessionToken(request.headers.get('Cookie')) === null;
+  return !hasSessionCookie(request);
 }
 
 /**

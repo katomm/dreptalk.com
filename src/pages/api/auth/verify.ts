@@ -1,5 +1,6 @@
 import type { APIRoute } from 'astro';
 import { env, waitUntil } from 'cloudflare:workers';
+import { requestDb } from '@/lib/db/requestDb.js';
 import { handleVerify } from '@/lib/auth/handlers';
 import { currentNetwork } from '@/lib/api/response';
 import { createKoiosClient } from '@/lib/koios/client';
@@ -17,7 +18,7 @@ const RATE_WINDOW_SEC = 60;
 export const POST: APIRoute = async ({ request }) => {
   try {
     const sessionKv = env.SESSIONS as KVNamespace | undefined;
-    const db = env.DB as D1Database | undefined;
+    const db = requestDb();
     const rateLimiter = env.RATE_LIMITER;
 
     if (!sessionKv || !db || !rateLimiter) {

@@ -1,7 +1,7 @@
 ---
 export const prerender = false;
 
-import { env } from 'cloudflare:workers';
+import { requestDb } from '@/lib/db/requestDb.js';
 import Layout from '@/layouts/Layout.astro';
 import NotFound from '@/components/NotFound.astro';
 import ProfileSyncing from '@/components/ProfileSyncing.astro';
@@ -27,7 +27,7 @@ import { isIndexableProfile } from '@/lib/dreps/profile.js';
 import { cacheControlForSynced, truncateIdMiddle, SITE_ORIGIN } from '@/lib/forum/view.js';
 
 const { poolId } = Astro.params;
-const db = env.DB as D1Database | undefined;
+const db = requestDb();
 
 const pool = poolId && db ? await getPoolByIdOrSlug(db, poolId) : null;
 

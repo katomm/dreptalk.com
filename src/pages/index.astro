@@ -33,6 +33,7 @@ import GovTypeIcon from '@/components/GovTypeIcon.astro';
 import { getActiveDrepStake } from '@/lib/db/stakeParticipation.js';
 import { cacheControlFor, formatRelativeTime, ACTIVE_WINDOW_MS, CARD_FACE_LIMIT } from '@/lib/forum/view.js';
 import { env } from 'cloudflare:workers';
+import { requestDb } from '@/lib/db/requestDb.js';
 import RecentlyActiveCard from '@/components/RecentlyActiveCard.astro';
 import DrepStatCard from '@/components/DrepStatCard.astro';
 import { listLatestEpochStats } from '@/lib/db/governanceEpochStats.js';
@@ -47,7 +48,7 @@ import ReviewSubscribe from '@/components/review/ReviewSubscribe.astro';
 import { loadEditions } from '@/lib/review/editions.js';
 import { resolveNetwork } from '@/lib/config/network';
 
-const db = env.DB as D1Database | undefined;
+const db = requestDb();
 const now = Date.now();
 const user = Astro.locals.user;
 

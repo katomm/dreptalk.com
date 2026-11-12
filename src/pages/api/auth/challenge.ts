@@ -1,5 +1,6 @@
 import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
+import { requestDb } from '@/lib/db/requestDb.js';
 import { handleChallenge } from '@/lib/auth/handlers';
 import { checkRate } from '@/lib/rate';
 import { clientIpFrom } from '@/lib/http/clientIp';
@@ -18,7 +19,7 @@ const RATE_WINDOW_SEC = 60;
 const HOST_RE = /^[a-zA-Z0-9.-]+(?::\d{1,5})?$/;
 
 export const POST: APIRoute = async ({ request }) => {
-  const db = env.DB as D1Database | undefined;
+  const db = requestDb();
   const rateLimiter = env.RATE_LIMITER;
   if (!db || !rateLimiter) {
     return new Response(JSON.stringify({ ok: false, error: 'service unavailable' }), {
