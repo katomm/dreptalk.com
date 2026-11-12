@@ -367,6 +367,28 @@ describe('gcDrepAvatars', () => {
     expect(await bucket().get(thumbAvatarKey(dropHash))).toBeNull();
   });
 
+  it('keeps images a group profile or a hosted group profile document points at', async () => {
+    const profileHash = 'a'.repeat(64);
+    const docHash = 'b'.repeat(64);
+    const orphanHash = 'c'.repeat(64);
+    await db()
+      .prepare('INSERT INTO drep_group_profiles (group_tx, group_ix, status, name, image) VALUES (?, 0, ?, ?, ?)')
+      .bind(new Uint8Array(32).fill(7), 'ok', 'Gc Group', `https://preprod.dreptalk.com/api/avatar/${profileHash}`)
+      .run();
+    // A profile change still waiting for admin signatures only lives in its hosted document.
+    await db()
+      .prepare('INSERT INTO drep_group_profile_docs (hash, body, created_by, created_at) VALUES (?, ?, ?, ?)')
+      .bind('d'.repeat(64), JSON.stringify({ body: { image: `https://dreptalk.com/api/avatar/${docHash}` } }), 'u1', Date.now())
+      .run();
+    for (const h of [profileHash, docHash, orphanHash]) await bucket().put(AVATAR_KEY_PREFIX + h, PNG_BYTES);
+
+    const r = await gcDrepAvatars({ db: db(), bucket: bucket(), nowMs: Date.now() + 25 * 60 * 60 * 1000 });
+    expect(r.deleted).toBe(1);
+    expect(await bucket().get(AVATAR_KEY_PREFIX + profileHash)).not.toBeNull();
+    expect(await bucket().get(AVATAR_KEY_PREFIX + docHash)).not.toBeNull();
+    expect(await bucket().get(AVATAR_KEY_PREFIX + orphanHash)).toBeNull();
+  });
+
   it('keeps a fresh orphan inside the grace period', async () => {
     await bucket().put(AVATAR_KEY_PREFIX + '5'.repeat(64), PNG_BYTES);
 

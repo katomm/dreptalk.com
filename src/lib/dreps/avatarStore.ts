@@ -17,6 +17,7 @@ import {
   listReferencedImageHashes,
 } from '../db/dreps.js';
 import { AVATAR_THUMB_EDGE } from '../identity/avatarUrl.js';
+import { listReferencedGroupImageHashes } from '../groups/imageRefs.js';
 
 // Hard ceiling on the bytes we are willing to keep in R2 for one avatar (512 KB).
 // An image over this is only storable as a downscaled WebP; without a downscaler
@@ -370,13 +371,19 @@ export interface AvatarGcDeps {
 
 /**
  * Deletes avatars/<hash>, og-avatars/<hash>.png and avatar-thumbs/<hash>
- * objects that no dreps row references anymore, once they are older than the
- * grace period. All prefixes are keyed by the same content hash, so an avatar
- * and its renditions go at the same time. Paginates the R2 listing; bounded deletions per run.
+ * objects that neither a dreps row nor a DRep group references anymore, once
+ * they are older than the grace period. Group images share the bucket and are
+ * referenced only by URL, so they count as in use too. All prefixes are keyed
+ * by the same content hash, so an avatar and its renditions go at the same
+ * time. Paginates the R2 listing, bounded deletions per run.
  */
 export async function gcDrepAvatars(deps: AvatarGcDeps): Promise<{ scanned: number; deleted: number }> {
   const deleteLimit = deps.deleteLimit ?? 200;
-  const referenced = await listReferencedImageHashes(deps.db);
+  const [referenced, groupImages] = await Promise.all([
+    listReferencedImageHashes(deps.db),
+    listReferencedGroupImageHashes(deps.db),
+  ]);
+  for (const h of groupImages) referenced.add(h);
   if (deps.extraReferenced) for (const h of deps.extraReferenced) referenced.add(h);
 
   // Collect deletable keys first (each page is scanned fully so `scanned` is
