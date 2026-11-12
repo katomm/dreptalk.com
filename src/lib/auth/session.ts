@@ -488,3 +488,12 @@ export function parseSessionToken(cookieHeader: string | null): string | null {
   }
   return null;
 }
+
+/**
+ * True when a request carries a session cookie. The single definition of a
+ * signed-in request for the page cache and for read replica routing, so the
+ * two can never disagree on who is anonymous.
+ */
+export function hasSessionCookie(request: Request): boolean {
+  return parseSessionToken(request.headers.get('Cookie')) !== null;
+}

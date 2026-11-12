@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -6,36 +6,21 @@ import { describe, expect, it } from 'vitest';
 // never by reading DB straight off the cloudflare:workers env. A direct read
 // always hits the primary and silently skips the read replica for anonymous
 // visitors (see lib/db/requestDb). The middleware is the one place that needs
-// the raw binding: it opens the request handle and keeps the session activity
-// write on the primary.
+// the raw binding, for the session activity write that stays on the primary.
 
 const SRC = path.join(import.meta.dirname, '..', '..');
-const ROOTS = ['pages', 'components', 'layouts', 'lib'];
 const ALLOWED = new Set(['middleware.ts', 'lib/db/requestDb.ts']);
-
-function sourceFiles(dir: string): string[] {
-  return readdirSync(dir).flatMap((name) => {
-    const full = path.join(dir, name);
-    if (statSync(full).isDirectory()) return name === '__tests__' ? [] : sourceFiles(full);
-    return /\.(ts|tsx|astro)$/.test(name) && !/\.test\.tsx?$/.test(name) && !/workers\.ts$/.test(name) ? [full] : [];
-  });
-}
+const IMPORTS_ENV = /import \{[^}]*\benv\b[^}]*\} from 'cloudflare:workers'/;
+const READS_DB = /\benv\??\.DB\b|\benv\[['"]DB['"]\]|\{[^}]*\bDB\b[^}]*\}\s*=\s*env\b/;
 
 describe('D1 handle guard', () => {
   it('no request code reads DB off the cloudflare:workers env', () => {
-    const offenders = [...ROOTS.flatMap((root) => sourceFiles(path.join(SRC, root))), path.join(SRC, 'middleware.ts')]
-      .map((file) => path.relative(SRC, file))
-      .filter((rel) => !ALLOWED.has(rel) && !rel.startsWith('lib/test-'))
+    const offenders = readdirSync(SRC, { recursive: true, encoding: 'utf8' })
+      .filter((rel) => /\.(ts|tsx|astro)$/.test(rel) && !/\.test\.tsx?$|workers\.ts$|__tests__|^lib\/test-/.test(rel))
+      .filter((rel) => !ALLOWED.has(rel))
       .filter((rel) => {
         const text = readFileSync(path.join(SRC, rel), 'utf8');
-        const binding = text.match(/import \{([^}]*)\} from 'cloudflare:workers'/)?.[1];
-        const local = binding
-          ?.split(',')
-          .map((part) => part.trim())
-          .find((part) => part === 'env' || part.startsWith('env as '));
-        if (!local) return false;
-        const name = local === 'env' ? 'env' : local.slice('env as '.length).trim();
-        return new RegExp(`\\b${name}\\??\\.DB\\b`).test(text);
+        return IMPORTS_ENV.test(text) && READS_DB.test(text);
       });
     expect(offenders).toEqual([]);
   });

@@ -11,7 +11,7 @@ vi.mock('astro:middleware', () => ({
 import { onRequest } from '../../middleware.js';
 import { createSession } from '../auth/session.js';
 import { runtimeEnv } from '../api/response.js';
-import { mayReadFromReplica, openRequestDb, requestDb, runWithDb } from './requestDb.js';
+import { mayReadFromReplica, requestDb, runWithRequestDb } from './requestDb.js';
 
 type Ctx = Parameters<typeof onRequest>[0];
 
@@ -52,6 +52,7 @@ describe('mayReadFromReplica', () => {
     expect(mayReadFromReplica(signedIn)).toBe(false);
     expect(mayReadFromReplica(new Request('https://dreptalk.com/api/x', { method: 'POST' }))).toBe(false);
     expect(mayReadFromReplica(new Request('https://dreptalk.com/api/drep/multisig/abc'))).toBe(false);
+    expect(mayReadFromReplica(new Request('https://dreptalk.com/api/drep/multisig'))).toBe(false);
     expect(mayReadFromReplica(new Request('https://dreptalk.com/api/gov-action/status?tx=1'))).toBe(false);
   });
 });
@@ -83,7 +84,7 @@ describe('request D1 handle through the middleware', () => {
     const reqs = ['https://dreptalk.com/a/', 'https://dreptalk.com/b/'].map((url) => new Request(url));
     const pairs = await Promise.all(
       reqs.map((request) =>
-        runWithDb(openRequestDb(env.DB, request), async () => {
+        runWithRequestDb(request, async () => {
           const first = requestDb();
           await new Promise((r) => setTimeout(r, 5));
           return [first, requestDb()] as const;
