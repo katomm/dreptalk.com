@@ -7,6 +7,7 @@
 
 import { BRAND_ACCENT, CARD_BG, INK, MUTED, OG_HEIGHT, SUBTLE, TALLY, TRACK, tint, HAIRLINE } from './theme.js';
 import { fmtPctFine } from '../governance/view.js';
+import { DREP_LINK_HOST } from '../drepLink/handle.js';
 import type { AnalyticsCardChart, AnalyticsCardModel, CommitteeCardModel, DiscussionCardModel, DrepCardModel, DrepStat, GovCardModel, MoverRow, MoversCardModel, ReviewCardModel, ReviewIndexCardModel, TreasuryCardModel, VoteCardModel } from './model.js';
 import { ANALYTICS_CHART_HEIGHT, ANALYTICS_CHART_INSET, ANALYTICS_CHART_WIDTH } from './model.js';
 
@@ -206,11 +207,24 @@ function statBlock(s: DrepStat, accent: string): string {
   </div>`;
 }
 
-/** The DRep card, also used for a DRep group with `kind` 'DRep group'. */
-export function drepCardHtml(m: DrepCardModel, kind = 'DRep'): string {
-  const idLine = m.idShort
+// The line under the name on the DRep and vote cards: the drep.link short link
+// when the DRep has a handle, else the truncated id. A card whose name already
+// is the truncated id has no id line, the short link still shows there.
+function identityLine(m: { idShort: string | null; handle: string | null }): string {
+  if (m.handle) {
+    return `<div style="display:flex;font-size:24px;margin-top:8px;">
+      <span style="display:flex;font-weight:500;color:${SUBTLE};">${DREP_LINK_HOST}/</span>
+      <span style="display:flex;font-weight:600;color:${MUTED};">${esc(m.handle)}</span>
+    </div>`;
+  }
+  return m.idShort
     ? `<div style="display:flex;font-size:24px;font-weight:500;color:${SUBTLE};margin-top:8px;">${esc(m.idShort)}</div>`
     : '';
+}
+
+/** The DRep card, also used for a DRep group with `kind` 'DRep group'. */
+export function drepCardHtml(m: DrepCardModel, kind = 'DRep'): string {
+  const idLine = identityLine(m);
   const bioLine = m.bio
     ? `<div style="display:flex;font-size:24px;font-weight:500;color:${MUTED};margin-top:16px;line-height:1.35;">${esc(m.bio)}</div>`
     : '';
@@ -456,9 +470,7 @@ export function helpCardHtml(m: DiscussionCardModel & { illustrationDataUrl?: st
 }
 
 export function voteCardHtml(m: VoteCardModel): string {
-  const idLine = m.idShort
-    ? `<div style="display:flex;font-size:24px;font-weight:500;color:${SUBTLE};margin-top:8px;">${esc(m.idShort)}</div>`
-    : '';
+  const idLine = identityLine(m);
   const rationale = m.rationaleExcerpt
     ? `<div style="display:flex;align-items:flex-start;margin-top:24px;max-width:1010px;">
         <div style="display:flex;font-size:110px;font-weight:800;color:${tint(BRAND_ACCENT)};line-height:0.8;margin-right:18px;">“</div>

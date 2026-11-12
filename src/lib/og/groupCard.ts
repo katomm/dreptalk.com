@@ -33,6 +33,7 @@ export function groupCardModel(g: GroupCardInput, opts: { avatarDataUrl: string 
     accent: BRAND_ACCENT,
     name: name ? clipExcerpt(name, 40) : idShort,
     idShort: name ? idShort : null,
+    handle: null,
     // One line of the description, its paragraphs joined, as the page meta description does.
     bio: g.description ? clipExcerpt(g.description.replace(/\s+/g, ' ').trim(), 120) : null,
     avatarDataUrl: opts.avatarDataUrl,

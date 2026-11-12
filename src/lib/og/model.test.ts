@@ -10,7 +10,7 @@ import {
   moversCardModel,
   voteCardModel,
 } from './model.js';
-import { analyticsCardHtml, moversCardHtml } from './templates.js';
+import { analyticsCardHtml, drepCardHtml, moversCardHtml, voteCardHtml } from './templates.js';
 import { accentForType, BRAND_ACCENT, TALLY } from './theme.js';
 
 const baseAction: GovCardInput = {
@@ -131,6 +131,26 @@ describe('drepCardModel', () => {
     expect(m.bio).toBeNull();
     expect(m.stats).toHaveLength(3);
     expect(m.stats[0].label).toBe('voting power');
+  });
+
+  const cardOpts = { avatarDataUrl: 'data:,', influencePct: null, votesCast: 0, participation: null };
+
+  it('shows the drep.link short link instead of the truncated id when the DRep has a handle', () => {
+    const m = drepCardModel({ ...drep, handle: 'lido-nation' }, cardOpts);
+    expect(m.handle).toBe('lido-nation');
+    const html = drepCardHtml(m);
+    expect(html).toContain('drep.link/');
+    expect(html).toContain('lido-nation');
+    expect(html).not.toContain(m.idShort as string);
+    expect(html).not.toMatch(/<div (?![^>]*display:flex)[^>]*>\s*</);
+  });
+
+  it('keeps the truncated id when the DRep has no handle', () => {
+    const m = drepCardModel({ ...drep, handle: null }, cardOpts);
+    expect(m.handle).toBeNull();
+    const html = drepCardHtml(m);
+    expect(html).toContain(m.idShort as string);
+    expect(html).not.toContain('drep.link');
   });
 });
 
@@ -292,6 +312,32 @@ describe('moversCardModel', () => {
 });
 
 describe('voteCardModel', () => {
+  const voteInput = {
+    name: 'Maya Okafor',
+    voterId: 'drep1abcdefghijklmnopqrstuvwxyz0123456789longtail',
+    vote: 'Yes',
+    rationaleText: 'short',
+    actionTitle: 'Fund Core Infra',
+    role: 'DRep' as const,
+  };
+
+  it('shows the drep.link short link instead of the truncated id when the DRep has a handle', () => {
+    const m = voteCardModel({ ...voteInput, handle: 'maya' }, { avatarDataUrl: 'data:,' });
+    const html = voteCardHtml(m);
+    expect(html).toContain('drep.link/');
+    expect(html).toContain('maya');
+    expect(html).not.toContain(m.idShort as string);
+    expect(html).not.toMatch(/<div (?![^>]*display:flex)[^>]*>\s*</);
+  });
+
+  it('keeps the truncated id for a voter without a handle, which is every pool', () => {
+    const m = voteCardModel({ ...voteInput, role: 'SPO', voterId: 'pool1abcdefghijklmnopqrstuvwxyz0123456789longtail' }, { avatarDataUrl: 'data:,' });
+    expect(m.handle).toBeNull();
+    const html = voteCardHtml(m);
+    expect(html).toContain(m.idShort as string);
+    expect(html).not.toContain('drep.link');
+  });
+
   it('maps vote to a coloured label and clamps the excerpt', () => {
     const m = voteCardModel(
       { name: 'Maya Okafor', voterId: 'drep1abc', vote: 'No', rationaleText: 'x'.repeat(300), actionTitle: 'Fund Core Infra', role: 'DRep' },

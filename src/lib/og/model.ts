@@ -132,6 +132,8 @@ export interface DrepCardInput {
   active: boolean;
   status: string;
   registeredEpoch: number | null;
+  /** The DRep's live drep.link handle, shown in place of the truncated id. */
+  handle?: string | null;
 }
 
 export type DrepStatIcon = 'power' | 'votes' | 'participation' | 'epoch' | 'members' | 'mode';
@@ -146,6 +148,8 @@ export interface DrepCardModel {
   accent: string;
   name: string;
   idShort: string | null;
+  /** drep.link handle for the sub-line. When set it replaces the truncated id there. */
+  handle: string | null;
   bio: string | null;
   avatarDataUrl: string;
   stats: DrepStat[];
@@ -188,6 +192,7 @@ export function drepCardModel(
     accent: BRAND_ACCENT,
     name: hasName ? clamp(d.name as string, 40) : idShort,
     idShort: hasName ? idShort : null,
+    handle: d.handle ?? null,
     bio: d.bio ? excerptFromHtml(d.bio, 120) : null,
     avatarDataUrl: opts.avatarDataUrl,
     stats,
@@ -490,11 +495,15 @@ export interface VoteCardInput {
   rationaleText: string;
   actionTitle: string;
   role: 'DRep' | 'SPO';
+  /** The DRep's live drep.link handle. Pools have none. */
+  handle?: string | null;
 }
 
 export interface VoteCardModel {
   name: string;
   idShort: string | null;
+  /** drep.link handle for the sub-line. When set it replaces the truncated id there. */
+  handle: string | null;
   avatarDataUrl: string;
   /** Reads as a sentence after the name, e.g. "voted No" or "abstained". */
   votePhrase: string;
@@ -517,6 +526,7 @@ export function voteCardModel(v: VoteCardInput, opts: { avatarDataUrl: string })
   return {
     name: hasName ? clamp(v.name as string, 40) : idShort,
     idShort: hasName ? idShort : null,
+    handle: v.handle ?? null,
     avatarDataUrl: opts.avatarDataUrl,
     votePhrase,
     voteColor,
