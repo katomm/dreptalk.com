@@ -1,0 +1,36 @@
+---
+// Post links name only the post: /t/<slug>/#post-<id>. That format is fixed,
+// emitted CIP-100 documents carry it in their hashed body. So a link can
+// arrive on a view that does not hold its post: the overview tab of a
+// governance action, or page 1 of a thread whose post sits on a later page.
+// This script notices the missing post, asks where it lives and moves there.
+// A page that holds its post makes no request. Renders no markup.
+---
+
+<script>
+  import { resolvePostLink, type PostLinkTarget } from '@/lib/forum/paging';
+
+  async function resolve() {
+    const hash = window.location.hash;
+    if (!hash.startsWith('#post-') || document.getElementById(hash.slice(1))) return;
+    let target: PostLinkTarget;
+    try {
+      const res = await fetch(`/api/posts/${encodeURIComponent(hash.slice('#post-'.length))}/location`);
+      if (!res.ok) return;
+      target = await res.json();
+    } catch {
+      return;
+    }
+    // The reader may have moved on to another post while the answer was on
+    // its way. A late answer must not pull them back.
+    if (window.location.hash !== hash) return;
+    // Null when this view is already the right one. The post can still be
+    // missing then, on an edge copy older than the post, and staying put is
+    // what keeps this from looping.
+    const url = resolvePostLink(window.location, target);
+    if (url) window.location.replace(url);
+  }
+
+  window.addEventListener('hashchange', resolve);
+  resolve();
+</script>

@@ -17,6 +17,7 @@ import { PROPOSAL_DRAFTS_CATEGORY_SLUG } from '../../config/categories.js';
 import { DRAFT_FOLD_CHARS, plainTextLength } from '@/lib/forum/postLimits.js';
 import type { MandateBadge } from '@/lib/forum/mandate.js';
 import type { ComposerMandate } from '@/lib/forum/writeMandate.js';
+import { threadPageUrl } from '@/lib/forum/paging.js';
 
 interface Props {
   topic: Topic;
@@ -29,8 +30,9 @@ interface Props {
   flaggedPostIds: Set<string>;
   viewerReactions: Map<string, Reaction>;
   isGovernanceTopic: boolean;
-  prevPage: number | null;
-  nextPage: number | null;
+  /** 1-based page of the thread this view renders, and how many pages it has. */
+  page: number;
+  pageCount: number;
   now: number;
   /** 1-based numbering offset for top-level posts on this page; undefined renders no Post #N (governance topics). */
   startIndex?: number;
@@ -56,8 +58,8 @@ const {
   flaggedPostIds,
   viewerReactions,
   isGovernanceTopic,
-  prevPage,
-  nextPage,
+  page,
+  pageCount,
   now,
   startIndex,
   mandates,
@@ -80,8 +82,10 @@ const grantActiveFor = (post: { proposer_grant_id: string | null }) =>
 // a pure co-proposer sees them too.
 const canParticipate = !!user && (isWriter(user.roles) || !!composerMandate?.hasMandate) && !topic.locked;
 
-// Governance threads live behind the discussion tab; plain threads paginate at the root.
-const pageQueryPrefix = isGovernanceTopic ? '?tab=discussion&page=' : '?page=';
+// Pagination counts top-level posts, replies render with their parent.
+const pageUrl = (n: number) => threadPageUrl({ slug: topic.slug, governance: isGovernanceTopic, page: n });
+const prevPage = page > 1 ? page - 1 : null;
+const nextPage = page < pageCount ? page + 1 : null;
 
 // How many reply levels get their own indent. Replies nest without limit,
 // deeper ones sit flush at the cap and name the reply they answered instead.
@@ -108,7 +112,7 @@ const notVoted = (author: AuthorDescriptor) =>
   />
 )}
 
-<div style="display:flex;flex-direction:column;gap:0;">
+<div class="thread-posts" data-page={page} data-page-count={pageCount} style="display:flex;flex-direction:column;gap:0;">
   {thread.topLevel.map((post, i) => {
     // The opening post: carries the system identity on governance topics, and
     // takes no Reply button (replying to the opener IS a top-level comment).
@@ -174,10 +178,11 @@ const notVoted = (author: AuthorDescriptor) =>
   })}
 </div>
 
-{(prevPage || nextPage) && (
-  <nav style="display:flex;gap:1rem;margin-top:1.5rem;font-size:0.875rem;">
-    {prevPage && <a href={`/t/${topic.slug}/${pageQueryPrefix}${prevPage}`} data-pager="prev">Previous page</a>}
-    {nextPage && <a href={`/t/${topic.slug}/${pageQueryPrefix}${nextPage}`} data-pager="next">Next page</a>}
+{pageCount > 1 && (
+  <nav aria-label="Thread pages" style="display:flex;gap:1rem;align-items:baseline;margin-top:1.5rem;font-size:0.875rem;">
+    {prevPage && <a href={pageUrl(prevPage)} data-pager="prev">Previous page</a>}
+    <span data-pager-status style="color:var(--muted);">Page {page} of {pageCount}</span>
+    {nextPage && <a href={pageUrl(nextPage)} data-pager="next">Next page</a>}
   </nav>
 )}
 
@@ -225,11 +230,17 @@ const notVoted = (author: AuthorDescriptor) =>
   // restoration is disabled before it can run and re-enabled once landed.
   // The post's top is aligned below the sticky header (its scroll-margin-top),
   // because centering a post taller than the viewport lands mid-text on phones.
-  if (window.location.hash.startsWith('#post-')) {
+  // #latest names the last post of the page, whatever its id: the thread map's
+  // "Latest" link uses it to reach the end of the last page from an earlier one.
+  if (window.location.hash.startsWith('#post-') || window.location.hash === '#latest') {
     const pendingLanding = sessionStorage.getItem('dreptalk:land-on-post') !== null;
     sessionStorage.removeItem('dreptalk:land-on-post');
     const landOnHashPost = () => {
-      document.getElementById(window.location.hash.slice(1))?.scrollIntoView({ block: 'start' });
+      const target =
+        window.location.hash === '#latest'
+          ? [...document.querySelectorAll('.thread-posts article[data-post-id]')].at(-1)
+          : document.getElementById(window.location.hash.slice(1));
+      target?.scrollIntoView({ block: 'start' });
     };
     if (pendingLanding) history.scrollRestoration = 'manual';
     landOnHashPost();
