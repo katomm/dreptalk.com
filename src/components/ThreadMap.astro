@@ -232,14 +232,18 @@ const { variant } = Astro.props;
     // The sheet. A modal dialog traps focus, closes on Escape and makes the
     // page inert, but the page behind still scrolls under a touch or a wheel,
     // so the scroll is locked for as long as it is open.
+    let locked = false;
     function openSheet() {
       if (sheet.open) return;
       sheet.showModal();
+      locked = true;
       root.style.overflow = 'hidden';
       centerCurrentRow();
     }
     function closeSheet() {
-      root.style.overflow = '';
+      // Only this sheet's own lock is released, never one another dialog holds.
+      if (locked) root.style.overflow = '';
+      locked = false;
       if (sheet.open) sheet.close();
     }
     pill.addEventListener('click', openSheet);
@@ -254,7 +258,11 @@ const { variant } = Astro.props;
     // A jump from the sheet (a row, Top, Latest, a neighbor page) closes it
     // first. The link's own navigation follows and does the scrolling.
     card.addEventListener('click', (event) => {
-      if (sheet.open && (event.target as Element).closest('a[href]')) closeSheet();
+      if (!sheet.open || !(event.target as Element).closest('a[href]')) return;
+      closeSheet();
+      // Closing hands focus back to the pill. Dropped again, so keyboard and
+      // screen reader continue from the post the link jumps to.
+      pill.blur();
     });
 
     // Reading position. The header changes height at several widths, so it is
