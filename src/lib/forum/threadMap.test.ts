@@ -7,6 +7,7 @@ import {
   lengthBarPx,
   MAP_MIN_POSTS,
   MAP_MIN_WORDS,
+  pillHidden,
   shouldShowMap,
 } from './threadMap.js';
 
@@ -93,5 +94,20 @@ describe('currentIndex', () => {
   it('is -1 without posts', () => {
     expect(currentIndex([], 80, false)).toBe(-1);
     expect(currentIndex([], 80, true)).toBe(-1);
+  });
+});
+
+describe('pillHidden', () => {
+  const shown = { formFocused: false, postsEnd: 900, pillBottom: 800, overlapsForm: false };
+  it('shows the pill while posts reach below it', () => {
+    expect(pillHidden(shown)).toBe(false);
+    expect(pillHidden({ ...shown, postsEnd: 800 })).toBe(false);
+  });
+  it('hides it once the posts end above its bottom edge', () => {
+    expect(pillHidden({ ...shown, postsEnd: 799 })).toBe(true);
+  });
+  it('hides it while a text control has focus or a form sits under it', () => {
+    expect(pillHidden({ ...shown, formFocused: true })).toBe(true);
+    expect(pillHidden({ ...shown, overlapsForm: true })).toBe(true);
   });
 });

@@ -1,13 +1,14 @@
 ---
-// Thread map: a sticky overview of every post on the page, with the reading
-// position, a jump list and a participant filter. It renders as an empty hidden
-// shell. The script fills it from the posts already on the page and shows it
-// only for long threads on wide enough screens, so short threads and phones get
-// no extra markup beyond this shell and no work.
+// Thread map: an overview of every post on the page, with the reading
+// position, a jump list and a participant filter. It renders as hidden shells.
+// The script fills the map from the posts already on the page, only for long
+// threads, so short threads get no extra markup beyond these shells and no work.
 //
-// variant "rail": a column in the empty margin right of the reading column
-// (plain topics). variant "card": the last card of an existing sidebar
-// (survey, draft and governance discussion pages).
+// Wide screens show the map beside the posts. variant "rail": a column in the
+// empty margin right of the reading column (plain topics). variant "card": the
+// last card of an existing sidebar (survey, draft and governance discussion
+// pages). Below the width that has room for either, the same card opens from a
+// small fixed pill as a bottom sheet.
 interface Props {
   variant: 'rail' | 'card';
 }
@@ -20,6 +21,7 @@ const { variant } = Astro.props;
       <div class="thread-map__count">
         <span class="thread-map__current" data-tm-pos></span>
         <span class="thread-map__words" data-tm-words></span>
+        <button type="button" class="thread-map__close" data-tm-close>Close</button>
       </div>
       <div class="thread-map__bar"><span data-tm-bar></span></div>
       <div class="thread-map__links">
@@ -27,6 +29,7 @@ const { variant } = Astro.props;
         <a data-tm-latest href="#">Latest</a>
         <a data-tm-prev hidden href="#">Previous page</a>
         <a data-tm-next hidden href="#">Next page</a>
+        <span class="thread-map__page" data-tm-page hidden></span>
       </div>
     </div>
     <p class="thread-map__label" data-tm-people-label></p>
@@ -37,14 +40,25 @@ const { variant } = Astro.props;
     </nav>
   </div>
 </aside>
+<button type="button" class="thread-map-pill" data-tm-pill hidden aria-haspopup="dialog">
+  <span class="thread-map-pill__row">
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h8" /></svg>
+    <span data-tm-pill-pos></span>
+    <span class="thread-map-pill__dot" aria-hidden="true"></span>
+  </span>
+  <span class="thread-map-pill__bar"><span data-tm-pill-bar></span></span>
+</button>
+<dialog class="thread-map-sheet" data-tm-sheet aria-label="Thread map"></dialog>
 
 <script>
+  import { threadPageUrl } from '@/lib/forum/paging';
   import {
     countWords,
     currentIndex,
     groupParticipants,
     indentLevel,
     lengthBarPx,
+    pillHidden,
     shouldShowMap,
   } from '@/lib/forum/threadMap';
 
@@ -55,6 +69,8 @@ const { variant } = Astro.props;
   const ROW_AVATAR_PX = 18;
   const PERSON_AVATAR_PX = 24;
 
+  type Mode = 'wide' | 'narrow';
+
   const shell = document.querySelector<HTMLElement>('.thread-map');
   // In the sidebar layouts the map sits in the column next to the posts, so the
   // posts are found by a document search, not by walking up from the map. A
@@ -62,19 +78,17 @@ const { variant } = Astro.props;
   const container = document.querySelector<HTMLElement>('.thread-single, .ga-detail-layout__main');
   if (shell && container) watch(shell, container);
 
-  // Shown only where there is room, re-checked when the window changes size.
-  // Nothing is read or built until the first time the map has room, so phones
-  // and narrow windows do no work beyond this check.
+  // A long thread gets its map at any width. The width only decides where the
+  // map shows: beside the posts where there is room, behind the pill where
+  // there is none. Re-checked when the window changes size.
   function watch(shell: HTMLElement, container: HTMLElement) {
     const rail = shell.classList.contains('thread-map--rail');
     // The rail needs a text column of at least 36rem, its own 14.5rem with the
     // gap and the page padding (see the main rule below), so from 53.5rem (856px).
     const media = window.matchMedia(rail ? '(min-width: 53.5rem)' : '(min-width: 901px)');
-    let map: ReturnType<typeof build> | undefined;
-    const apply = () => {
-      if (media.matches && map === undefined) map = build(shell, container);
-      map?.show(media.matches);
-    };
+    const map = build(shell, container);
+    if (!map) return;
+    const apply = () => map.setMode(media.matches ? 'wide' : 'narrow');
     media.addEventListener('change', apply);
     apply();
   }
@@ -99,11 +113,21 @@ const { variant } = Astro.props;
     const totalWords = posts.reduce((sum, post) => sum + post.words, 0);
     if (!shouldShowMap(posts.length, totalWords)) return null;
 
-    const q = <T extends Element>(selector: string) => shell.querySelector<T>(selector)!;
+    const card = shell.querySelector<HTMLElement>('.thread-map__card')!;
+    const q = <T extends Element>(selector: string) => card.querySelector<T>(selector)!;
     const listWrap = q<HTMLElement>('[data-tm-list-wrap]');
     const list = q<HTMLOListElement>('[data-tm-list]');
     const pos = q<HTMLElement>('[data-tm-pos]');
     const bar = q<HTMLElement>('[data-tm-bar]');
+    // Pill and sheet move to the body: fixed positioning must not depend on
+    // the column the shell happens to sit in, which stacks or scrolls away.
+    const pill = document.querySelector<HTMLButtonElement>('[data-tm-pill]')!;
+    const sheet = document.querySelector<HTMLDialogElement>('[data-tm-sheet]')!;
+    document.body.appendChild(pill);
+    document.body.appendChild(sheet);
+    const pillPos = pill.querySelector<HTMLElement>('[data-tm-pill-pos]')!;
+    const pillBar = pill.querySelector<HTMLElement>('[data-tm-pill-bar]')!;
+    const root = document.documentElement;
 
     const maxWords = Math.max(...posts.map((post) => post.words));
     const rows = posts.map((post, index) => {
@@ -113,10 +137,21 @@ const { variant } = Astro.props;
       if (post.snippet) link.title = post.snippet;
       link.style.setProperty('--tm-indent', String(indentLevel(post.depth)));
       link.appendChild(avatarFor(articles[index], ROW_AVATAR_PX));
+      const text = document.createElement('span');
+      text.className = 'thread-map__text';
       const name = document.createElement('span');
       name.className = 'thread-map__name';
       name.textContent = post.authorName;
-      link.appendChild(name);
+      text.appendChild(name);
+      // The first words of the post, shown in the sheet only. A touch screen
+      // has no hover title, and one author's rows are otherwise all alike.
+      if (post.snippet) {
+        const snippet = document.createElement('span');
+        snippet.className = 'thread-map__snippet';
+        snippet.textContent = post.snippet;
+        text.appendChild(snippet);
+      }
+      link.appendChild(text);
       const width = lengthBarPx(post.words, maxWords);
       if (width > 0) {
         const len = document.createElement('span');
@@ -131,8 +166,10 @@ const { variant } = Astro.props;
     });
 
     q<HTMLElement>('[data-tm-words]').textContent = `${new Intl.NumberFormat('en-US', { notation: 'compact' }).format(totalWords)} words`;
-    q<HTMLAnchorElement>('[data-tm-top]').href = `#post-${posts[0].id}`;
-    q<HTMLAnchorElement>('[data-tm-latest]').href = `#post-${posts[posts.length - 1].id}`;
+    const top = q<HTMLAnchorElement>('[data-tm-top]');
+    const latest = q<HTMLAnchorElement>('[data-tm-latest]');
+    top.href = `#post-${posts[0].id}`;
+    latest.href = `#post-${posts[posts.length - 1].id}`;
     // Neighbor pages: reuse the rendered pager links, which already carry the
     // right query form (governance threads live behind ?tab=discussion).
     for (const dir of ['prev', 'next'] as const) {
@@ -142,6 +179,20 @@ const { variant } = Astro.props;
         target.href = source.href;
         target.hidden = false;
       }
+    }
+    // A thread of several pages: the counts above are this page's, so the map
+    // says which page it is, and Top and Latest mean the thread's, not the page's.
+    const postsEl = container.querySelector<HTMLElement>('.thread-posts');
+    const page = Number(postsEl?.dataset.page ?? 1);
+    const pages = Number(postsEl?.dataset.pageCount ?? 1);
+    if (pages > 1) {
+      const slug = window.location.pathname.split('/')[2] ?? '';
+      const governance = new URLSearchParams(window.location.search).get('tab') === 'discussion';
+      const label = q<HTMLElement>('[data-tm-page]');
+      label.textContent = `Page ${page} of ${pages}`;
+      label.hidden = false;
+      if (page > 1) top.href = threadPageUrl({ slug, governance });
+      if (page < pages) latest.href = threadPageUrl({ slug, governance, page: pages, hash: '#latest' });
     }
 
     // Participant filter: one participant at a time, a second click clears it.
@@ -167,12 +218,44 @@ const { variant } = Astro.props;
     });
     function setFilter(authorId: string | null) {
       selected = authorId;
+      // Card and pill both say that a filter is set: the narrow rail shows its
+      // participants only then (the way to clear it), the pill shows its dot.
+      card.toggleAttribute('data-filtered', authorId !== null);
+      pill.toggleAttribute('data-filtered', authorId !== null);
       for (const button of buttons) button.setAttribute('aria-pressed', String(button.dataset.authorId === authorId));
       posts.forEach((post, index) => {
         rows[index].classList.toggle('is-dim', authorId !== null && post.authorId !== authorId);
         articles[index].classList.toggle('thread-map-hl', authorId !== null && post.authorId === authorId);
       });
     }
+
+    // The sheet. A modal dialog traps focus, closes on Escape and makes the
+    // page inert, but the page behind still scrolls under a touch or a wheel,
+    // so the scroll is locked for as long as it is open.
+    function openSheet() {
+      if (sheet.open) return;
+      sheet.showModal();
+      root.style.overflow = 'hidden';
+      centerCurrentRow();
+    }
+    function closeSheet() {
+      root.style.overflow = '';
+      if (sheet.open) sheet.close();
+    }
+    pill.addEventListener('click', openSheet);
+    q<HTMLButtonElement>('[data-tm-close]').addEventListener('click', closeSheet);
+    // Escape closes the dialog without passing through closeSheet.
+    sheet.addEventListener('close', closeSheet);
+    sheet.addEventListener('click', (event) => {
+      // The card fills the dialog, so a click on the dialog itself is a click
+      // on the backdrop.
+      if (event.target === sheet) closeSheet();
+    });
+    // A jump from the sheet (a row, Top, Latest, a neighbor page) closes it
+    // first. The link's own navigation follows and does the scrolling.
+    card.addEventListener('click', (event) => {
+      if (sheet.open && (event.target as Element).closest('a[href]')) closeSheet();
+    });
 
     // Reading position. The header changes height at several widths, so it is
     // measured, and the measurement also drives the sticky offset in CSS. The
@@ -183,53 +266,105 @@ const { variant } = Astro.props;
       const height = header?.offsetHeight ?? 0;
       if (height !== headerHeight) {
         headerHeight = height;
-        document.documentElement.style.setProperty('--site-header-h', `${height}px`);
+        root.style.setProperty('--site-header-h', `${height}px`);
       }
       update();
     });
 
+    let mode: Mode | undefined;
     let current = -1;
     let frame = 0;
     function schedule() {
       if (!frame) frame = requestAnimationFrame(update);
     }
+    function centerCurrentRow() {
+      const row = rows[current];
+      // A closed sheet has no height to center in.
+      if (row && listWrap.clientHeight > 0) listWrap.scrollTop = row.offsetTop - listWrap.clientHeight / 2;
+    }
     function update() {
       frame = 0;
-      const scrollHeight = document.documentElement.scrollHeight;
+      const scrollHeight = root.scrollHeight;
       const viewport = window.innerHeight;
       // A page that does not scroll is never "at the end", so the first post
       // stays current there instead of the last one.
       const atEnd = scrollHeight > viewport + 2 && viewport + window.scrollY >= scrollHeight - 2;
       const tops = articles.map((article) => article.getBoundingClientRect().top);
       const next = currentIndex(tops, headerHeight + BAND_OFFSET, atEnd);
-      if (next === current || next < 0) return;
-      rows[current]?.removeAttribute('aria-current');
-      current = next;
-      const row = rows[current];
-      row.setAttribute('aria-current', 'location');
-      pos.textContent = `${current + 1} / ${posts.length}`;
-      bar.style.width = `${Math.round(((current + 1) / posts.length) * 100)}%`;
-      // Follow inside the list only. scrollIntoView would also move the window
-      // and fight the reader's own scrolling.
-      const above = row.offsetTop < listWrap.scrollTop;
-      const below = row.offsetTop + row.offsetHeight > listWrap.scrollTop + listWrap.clientHeight;
-      if (above || below) listWrap.scrollTop = row.offsetTop - listWrap.clientHeight / 2;
+      if (next !== current && next >= 0) {
+        rows[current]?.removeAttribute('aria-current');
+        current = next;
+        const row = rows[current];
+        row.setAttribute('aria-current', 'location');
+        const share = `${Math.round(((current + 1) / posts.length) * 100)}%`;
+        pos.textContent = `${current + 1} / ${posts.length}`;
+        bar.style.width = share;
+        pillPos.textContent = pos.textContent;
+        pillBar.style.width = share;
+        pill.setAttribute('aria-label', `Thread map, post ${current + 1} of ${posts.length}`);
+        // Follow inside the list only. scrollIntoView would also move the window
+        // and fight the reader's own scrolling.
+        const above = row.offsetTop < listWrap.scrollTop;
+        const below = row.offsetTop + row.offsetHeight > listWrap.scrollTop + listWrap.clientHeight;
+        if (above || below) centerCurrentRow();
+      }
+      if (mode === 'narrow') placePill();
     }
 
-    return {
-      show(visible: boolean) {
-        shell.hidden = !visible;
-        if (visible) {
-          if (header) headerObserver.observe(header);
-          window.addEventListener('scroll', schedule, { passive: true });
-          window.addEventListener('resize', schedule);
-        } else {
-          headerObserver.disconnect();
-          window.removeEventListener('scroll', schedule);
-          window.removeEventListener('resize', schedule);
-          // No outline may stay on the posts once its control is gone.
-          setFilter(null);
+    // The pill steps aside without leaving the layout (visibility, not
+    // display), so its own box stays measurable while it is away.
+    let formFocused = false;
+    const forms = (postsEl ?? container).getElementsByTagName('form');
+    function placePill() {
+      const box = pill.getBoundingClientRect();
+      const postsEnd = (postsEl ?? articles[articles.length - 1]).getBoundingClientRect().bottom;
+      let overlapsForm = false;
+      for (const form of forms) {
+        const r = form.getBoundingClientRect();
+        if (r.height > 0 && r.bottom > box.top && r.top < box.bottom && r.right > box.left && r.left < box.right) {
+          overlapsForm = true;
+          break;
         }
+      }
+      const away = pillHidden({ formFocused, postsEnd, pillBottom: box.bottom, overlapsForm });
+      pill.classList.toggle('is-away', away);
+      // No outline on a post without its control in view.
+      if (away) root.dataset.tmOutlines = 'off';
+      else delete root.dataset.tmOutlines;
+    }
+    const main = document.querySelector('main');
+    main?.addEventListener('focusin', (event) => {
+      formFocused = (event.target as Element).matches('input, textarea, select, [contenteditable]:not([contenteditable="false"])');
+      schedule();
+    });
+    main?.addEventListener('focusout', () => {
+      formFocused = false;
+      schedule();
+    });
+
+    if (header) headerObserver.observe(header);
+    else update();
+    window.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('resize', schedule);
+
+    return {
+      // A mode change only moves the card and swaps what shows it. Position,
+      // listeners and the filter stay.
+      setMode(next: Mode) {
+        if (next === mode) return;
+        mode = next;
+        if (next === 'wide') {
+          // An open sheet would stay modal over the page with its card gone.
+          closeSheet();
+          shell.appendChild(card);
+          delete root.dataset.tmOutlines;
+        } else {
+          sheet.appendChild(card);
+        }
+        shell.hidden = next !== 'wide';
+        pill.hidden = next !== 'narrow';
+        update();
+        if (next === 'wide') centerCurrentRow();
       },
     };
   }
@@ -284,9 +419,10 @@ const { variant } = Astro.props;
       --tm-rail-gap: 1.5rem;
     }
     /* The narrow rail keeps position and post list and drops the participant
-       filter, which would take half its height. */
-    .thread-map--rail [data-tm-people-label],
-    .thread-map--rail .thread-map__people {
+       filter, which would take half its height. A filter set on the phone
+       before the window grew keeps it, as the only way to clear it here. */
+    .thread-map--rail .thread-map__card:not([data-filtered]) [data-tm-people-label],
+    .thread-map--rail .thread-map__card:not([data-filtered]) .thread-map__people {
       display: none;
     }
   }
@@ -408,12 +544,25 @@ const { variant } = Astro.props;
   .thread-map__row.is-dim {
     opacity: 0.35;
   }
-  .thread-map__name {
+  .thread-map__text {
     flex: 1;
     min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .thread-map__name,
+  .thread-map__snippet {
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+  }
+  /* Sheet only, see below. Beside the posts the snippet is the hover title. */
+  .thread-map__snippet,
+  .thread-map__close {
+    display: none;
+  }
+  .thread-map__page {
+    color: var(--muted);
   }
   .thread-map__len {
     flex: none;
@@ -433,18 +582,185 @@ const { variant } = Astro.props;
     width: 60% !important;
     height: 60% !important;
   }
-  /* The filtered participant's posts in the thread itself. */
+  /* The filtered participant's posts in the thread itself. Not drawn while the
+     pill has stepped aside, so an outline never shows without its control. */
   article.thread-map-hl {
     outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
     outline-offset: 0.5rem;
     border-radius: 0.375rem;
   }
+  html[data-tm-outlines='off'] article.thread-map-hl {
+    outline: none;
+  }
+
+  /* ---- Phones and narrow windows: pill and sheet ------------------------ */
+  .thread-map-pill {
+    position: fixed;
+    right: max(0.75rem, env(safe-area-inset-right, 0px));
+    bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
+    /* Below the header, the preprod flag and the composer's quote note (50). */
+    z-index: 40;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.3125rem;
+    min-width: 5.75rem;
+    min-height: 2.75rem;
+    padding: 0.4375rem 0.875rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface);
+    color: var(--fg);
+    font: inherit;
+    font-size: 0.875rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    box-shadow: var(--shadow-lg);
+    cursor: pointer;
+  }
+  .thread-map-pill[hidden] {
+    display: none;
+  }
+  .thread-map-pill.is-away {
+    visibility: hidden;
+  }
+  /* The preprod flag sits in the same corner, only on preprod. */
+  body:has(.preprod-flag) .thread-map-pill {
+    bottom: calc(max(12px, env(safe-area-inset-bottom, 0px)) + 2.25rem);
+  }
+  .thread-map-pill:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .thread-map-pill__row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4375rem;
+    white-space: nowrap;
+  }
+  .thread-map-pill__dot {
+    display: none;
+    width: 0.4375rem;
+    height: 0.4375rem;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+  .thread-map-pill[data-filtered] .thread-map-pill__dot {
+    display: block;
+  }
+  .thread-map-pill__bar {
+    display: block;
+    height: 3px;
+    border-radius: 2px;
+    background: var(--border);
+    overflow: hidden;
+  }
+  .thread-map-pill__bar span {
+    display: block;
+    height: 100%;
+    width: 0;
+    background: var(--accent);
+  }
+
+  .thread-map-sheet {
+    position: fixed;
+    inset: auto 0 0 0;
+    width: 100%;
+    max-width: none;
+    max-height: 80dvh;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-top: 1px solid var(--border);
+    border-radius: 1rem 1rem 0 0;
+    background: var(--surface);
+    color: var(--fg);
+    overflow: hidden;
+  }
+  .thread-map-sheet[open] {
+    display: flex;
+  }
+  .thread-map-sheet::backdrop {
+    background: rgb(0 0 0 / 0.45);
+  }
+  .thread-map-sheet .thread-map__card {
+    flex: 1;
+    min-width: 0;
+    max-height: 80dvh;
+    border: 0;
+    border-radius: 0;
+    padding: 0.75rem 1rem max(0.5rem, env(safe-area-inset-bottom, 0px));
+    font-size: 0.9375rem;
+  }
+  .thread-map-sheet .thread-map__count {
+    align-items: center;
+  }
+  .thread-map-sheet .thread-map__words {
+    flex: 1;
+  }
+  .thread-map-sheet .thread-map__close {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+    margin: -0.375rem -0.5rem -0.375rem 0;
+    padding: 0 0.5rem;
+    border: 0;
+    background: none;
+    color: var(--accent);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .thread-map-sheet .thread-map__links {
+    gap: 0 1.25rem;
+  }
+  .thread-map-sheet .thread-map__links > * {
+    padding: 0.625rem 0;
+  }
+  .thread-map-sheet .thread-map__people {
+    gap: 0.125rem;
+  }
+  .thread-map-sheet .thread-map__person {
+    padding: 0.25rem;
+  }
+  .thread-map-sheet .thread-map__person .thread-map__avatar {
+    --avatar-size: 32px !important;
+  }
+  .thread-map-sheet .thread-map__list {
+    overscroll-behavior: contain;
+  }
+  .thread-map-sheet .thread-map__row {
+    gap: 0.625rem;
+    min-height: 2.75rem;
+    padding-block: 0.375rem;
+    padding-inline-start: calc(0.5rem + var(--tm-indent, 0) * 1rem);
+  }
+  .thread-map-sheet .thread-map__row .thread-map__avatar {
+    --avatar-size: 24px !important;
+  }
+  .thread-map-sheet .thread-map__snippet {
+    display: block;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+  .thread-map-sheet .thread-map__row[aria-current='location'] .thread-map__snippet {
+    color: inherit;
+  }
   @media (prefers-reduced-motion: no-preference) {
+    .thread-map-sheet[open] {
+      animation: thread-map-sheet-in 0.15s ease-out;
+    }
     .thread-map__row {
       transition: background-color 0.15s ease;
     }
     .thread-map__bar span {
       transition: width 0.2s ease;
+    }
+  }
+  @keyframes thread-map-sheet-in {
+    from {
+      transform: translateY(100%);
     }
   }
 </style>
