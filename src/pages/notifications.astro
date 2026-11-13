@@ -37,6 +37,7 @@ import { parseGroupNotificationPayload, formatGroupNotificationTitle, groupNotif
 import { parseDelegationDigestPayload, formatDelegationDigestInboxTitle } from '@/lib/notifications/delegationDigest.js';
 import { parseReviewPayload } from '@/lib/db/reviewAnnouncements.js';
 import { editionPath } from '@/lib/review/windows.js';
+import { threadPageUrl } from '@/lib/forum/paging.js';
 
 const user = Astro.locals.user;
 if (!user) {
@@ -300,8 +301,6 @@ if (db) {
     }
     const topic = n.topic_id ? topicsById.get(n.topic_id) : undefined;
     if (!topic || topic.deleted) return [];
-    const discussionTab = topic.source === 'governance' ? '?tab=discussion' : '';
-    const anchor = n.post_id ? `#post-${n.post_id}` : '';
     const actor = n.actor_id ? identities.describe(n.actor_id) : null;
     return [
       {
@@ -312,7 +311,11 @@ if (db) {
         actorHref: actor ? authorProfileHref(actor) : null,
         verb: PERSONAL_VERBS[n.type] ?? null,
         title: topic.title,
-        href: `/t/${topic.slug}/${discussionTab}${anchor}`,
+        href: threadPageUrl({
+          slug: topic.slug,
+          governance: topic.source === 'governance',
+          hash: n.post_id ? `#post-${n.post_id}` : '',
+        }),
         pill: null,
       },
     ];

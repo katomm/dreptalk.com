@@ -98,7 +98,7 @@ describe('currentIndex', () => {
 });
 
 describe('pillHidden', () => {
-  const shown = { formFocused: false, postsEnd: 900, pillBottom: 800, overlapsForm: false };
+  const shown = { formFocused: false, postsEnd: 900, pillBottom: 800 };
   it('shows the pill while posts reach below it', () => {
     expect(pillHidden(shown)).toBe(false);
     expect(pillHidden({ ...shown, postsEnd: 800 })).toBe(false);
@@ -106,8 +106,7 @@ describe('pillHidden', () => {
   it('hides it once the posts end above its bottom edge', () => {
     expect(pillHidden({ ...shown, postsEnd: 799 })).toBe(true);
   });
-  it('hides it while a text control has focus or a form sits under it', () => {
+  it('hides it while a text control has focus', () => {
     expect(pillHidden({ ...shown, formFocused: true })).toBe(true);
-    expect(pillHidden({ ...shown, overlapsForm: true })).toBe(true);
   });
 });

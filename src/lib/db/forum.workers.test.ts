@@ -642,21 +642,21 @@ describe('getPostLocation', () => {
     const { topic, openerId, ids } = await topicWithTopLevel('pl01', 2);
     const reply = await createPost(db(), { topicId: topic.id, authorId: AUTHOR, bodyMd: 'r', bodyHtml: '<p>r</p>', now: T2, parentPostId: ids[1] });
 
-    expect(await getPostLocation(db(), openerId, 2)).toEqual({ topicSlug: topic.slug, tab: null, page: 1 });
-    expect(await getPostLocation(db(), ids[0], 2)).toEqual({ topicSlug: topic.slug, tab: null, page: 1 });
-    expect(await getPostLocation(db(), ids[1], 2)).toEqual({ topicSlug: topic.slug, tab: null, page: 2 });
-    expect(await getPostLocation(db(), reply.id, 2)).toEqual({ topicSlug: topic.slug, tab: null, page: 2 });
+    expect(await getPostLocation(db(), openerId, 2)).toEqual({ topicSlug: topic.slug, governance: false, page: 1 });
+    expect(await getPostLocation(db(), ids[0], 2)).toEqual({ topicSlug: topic.slug, governance: false, page: 1 });
+    expect(await getPostLocation(db(), ids[1], 2)).toEqual({ topicSlug: topic.slug, governance: false, page: 2 });
+    expect(await getPostLocation(db(), reply.id, 2)).toEqual({ topicSlug: topic.slug, governance: false, page: 2 });
   });
 
-  it('names the discussion tab for a governance topic', async () => {
+  it('marks a governance topic', async () => {
     const { topic, mirrorPostId } = await govTopicWithEarlierRationale('pl02');
-    expect(await getPostLocation(db(), mirrorPostId)).toEqual({ topicSlug: topic.slug, tab: 'discussion', page: 1 });
+    expect(await getPostLocation(db(), mirrorPostId)).toEqual({ topicSlug: topic.slug, governance: true, page: 1 });
   });
 
   it('answers for a hidden post', async () => {
     const { topic, ids } = await topicWithTopLevel('pl03', 1);
     await db().prepare('UPDATE posts SET hidden = 1 WHERE id = ?').bind(ids[0]).run();
-    expect(await getPostLocation(db(), ids[0])).toEqual({ topicSlug: topic.slug, tab: null, page: 1 });
+    expect(await getPostLocation(db(), ids[0])).toEqual({ topicSlug: topic.slug, governance: false, page: 1 });
   });
 
   it('does not count a deleted earlier top-level post', async () => {

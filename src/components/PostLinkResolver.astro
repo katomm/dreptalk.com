@@ -8,14 +8,17 @@
 ---
 
 <script>
-  import { resolvePostLink, type PostLinkTarget } from '@/lib/forum/paging';
+  import { resolvePostLink, type PostLocation } from '@/lib/forum/paging';
+  import { isForumId } from '@/lib/validation/input';
 
   async function resolve() {
     const hash = window.location.hash;
     if (!hash.startsWith('#post-') || document.getElementById(hash.slice(1))) return;
-    let target: PostLinkTarget;
+    const postId = hash.slice('#post-'.length);
+    if (!isForumId(postId)) return;
+    let target: PostLocation;
     try {
-      const res = await fetch(`/api/posts/${encodeURIComponent(hash.slice('#post-'.length))}/location`);
+      const res = await fetch(`/api/posts/${postId}/location`);
       if (!res.ok) return;
       target = await res.json();
     } catch {

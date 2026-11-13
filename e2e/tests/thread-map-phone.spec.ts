@@ -249,19 +249,19 @@ test('the map of a paged thread names the page and links across pages', async ({
   await page.goto(P60);
   await expect(page.locator('[data-tm-page]')).toHaveText('Page 1 of 2');
   await expect(page.locator('[data-tm-latest]')).toHaveAttribute('href', `${P60}?page=2#latest`);
-  await expect(page.locator('[data-tm-top]')).toHaveAttribute('href', '#post-e2e-tmap-p60-01');
+  await expect(page.locator('[data-tm-top]')).toHaveAttribute('href', '#post-e2e7a600-0000-4000-8000-000000000001');
   await page.locator('[data-tm-latest]').click();
   await page.waitForURL(`**${P60}?page=2#latest`);
   await expect
     .poll(() => page.evaluate(() => {
-      const top = document.getElementById('post-e2e-tmap-p60-60')?.getBoundingClientRect().top ?? -1;
+      const top = document.getElementById('post-e2e7a600-0000-4000-8000-000000000060')?.getBoundingClientRect().top ?? -1;
       return top >= 0 && top < window.innerHeight;
     }))
     .toBe(true);
   // The second page is long enough for a map of its own.
   await expect(page.locator('[data-tm-page]')).toHaveText('Page 2 of 2');
   await expect(page.locator('[data-tm-top]')).toHaveAttribute('href', P60);
-  await expect(page.locator('[data-tm-latest]')).toHaveAttribute('href', '#post-e2e-tmap-p60-60');
+  await expect(page.locator('[data-tm-latest]')).toHaveAttribute('href', '#post-e2e7a600-0000-4000-8000-000000000060');
 
   await page.goto(`${GA_PAGED}?tab=discussion`);
   await expect(page.locator('[data-tm-latest]')).toHaveAttribute('href', `${GA_PAGED}?tab=discussion&page=2#latest`);

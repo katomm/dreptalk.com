@@ -204,8 +204,9 @@ FROM n JOIN authors ON authors.k = (i - 1) % 5;
 -- Thread paging (tests/thread-paging.spec.ts). A page holds 50 top-level
 -- posts: one plain topic with exactly 50, one with 60 (so the second page is
 -- long enough for the thread map) and a reply under post 53, and a governance
--- action whose discussion has the system opener plus 59 posts. The ids match
--- the e2e-tmap- cleanup above.
+-- action whose discussion has the system opener plus 59 posts. The topic ids
+-- match the e2e-tmap- cleanup above. The post ids have the UUID shape of real
+-- post ids, which the post location endpoint insists on.
 INSERT INTO topics (id, category_slug, author_id, source, title, slug, pinned, locked, deleted, post_count, last_post_at, created_at) VALUES
   ('e2e-tmap-p50', 'budget', 'drep1seedadahernandezxq8f7w2lk9p3m5r6t0v4y7c2e5h8j1n4q7s0u3w6', 'user', 'E2E Thread Paging Fifty', 'e2e-thread-paging-fifty-e2e7a5', 0, 0, 0, 50, strftime('%s','now')*1000 - 1*86400000, strftime('%s','now')*1000 - 10*86400000),
   ('e2e-tmap-p60', 'budget', 'drep1seedadahernandezxq8f7w2lk9p3m5r6t0v4y7c2e5h8j1n4q7s0u3w6', 'user', 'E2E Thread Paging Sixty', 'e2e-thread-paging-sixty-e2e7a6', 0, 0, 0, 61, strftime('%s','now')*1000 - 1*86400000, strftime('%s','now')*1000 - 10*86400000),
@@ -221,19 +222,19 @@ authors(k, id) AS (VALUES
   (2, 'drep1seedmayaokaforv5b7n9m1q3w5e7r9t1y3u5i7o9p1a3s5d7f9g1h3j5'),
   (3, 'drep1seedstefanvolkovk7l9z1x3c5v7b9n1m3q5w7e9r1t3y5u7i9o1p3a5'),
   (4, 'drep1seedanonskepticd3f5g7h9j1k3l5z7x9c1v3b5n7m9q1w3e5r7t9y1u3')),
-topics_n(topic, prefix, top) AS (VALUES ('e2e-tmap-p50', 'e2e-tmap-p50-', 50), ('e2e-tmap-p60', 'e2e-tmap-p60-', 60))
+topics_n(topic, prefix, top) AS (VALUES ('e2e-tmap-p50', 'e2e7a500-0000-4000-8000-', 50), ('e2e-tmap-p60', 'e2e7a600-0000-4000-8000-', 60))
 INSERT INTO posts (id, topic_id, author_id, body_md, body_html, created_at)
-SELECT prefix || printf('%02d', i), topic, authors.id,
+SELECT prefix || printf('%012d', i), topic, authors.id,
   'Post ' || i || ' ' || trim(replace(hex(zeroblob(10)), '00', 'paging ')),
   '<p>Post ' || i || ' ' || trim(replace(hex(zeroblob(10)), '00', 'paging ')) || '</p>',
   strftime('%s','now')*1000 - 10*86400000 + i * 3600000
 FROM topics_n JOIN n ON i <= top JOIN authors ON authors.k = (i - 1) % 5;
 
 INSERT INTO posts (id, topic_id, author_id, body_md, body_html, parent_post_id, reply_to_post_id, created_at) VALUES
-  ('e2e-tmap-p60-r1', 'e2e-tmap-p60', 'drep1seedliamparkq2w4e6r8t0y1u3i5o7p9a1s3d5f7g9h1j3k5l7z9x1c3', 'A reply on the second page.', '<p>A reply on the second page.</p>', 'e2e-tmap-p60-53', 'e2e-tmap-p60-53', strftime('%s','now')*1000 - 2*86400000);
+  ('e2e7a600-0000-4000-8000-000000000a01', 'e2e-tmap-p60', 'drep1seedliamparkq2w4e6r8t0y1u3i5o7p9a1s3d5f7g9h1j3k5l7z9x1c3', 'A reply on the second page.', '<p>A reply on the second page.</p>', 'e2e7a600-0000-4000-8000-000000000053', 'e2e7a600-0000-4000-8000-000000000053', strftime('%s','now')*1000 - 2*86400000);
 
 INSERT INTO posts (id, topic_id, author_id, body_md, body_html, created_at) VALUES
-  ('e2e-tmap-gap-00', 'e2e-tmap-gap', 'gov-sync', 'Fixture action with a two-page discussion for the paging test.', '<p>Fixture action with a two-page discussion for the paging test.</p>', strftime('%s','now')*1000 - 10*86400000);
+  ('e2e7a700-0000-4000-8000-000000000000', 'e2e-tmap-gap', 'gov-sync', 'Fixture action with a two-page discussion for the paging test.', '<p>Fixture action with a two-page discussion for the paging test.</p>', strftime('%s','now')*1000 - 10*86400000);
 WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 59),
 authors(k, id) AS (VALUES
   (0, 'drep1seedadahernandezxq8f7w2lk9p3m5r6t0v4y7c2e5h8j1n4q7s0u3w6'),
@@ -242,7 +243,7 @@ authors(k, id) AS (VALUES
   (3, 'drep1seedstefanvolkovk7l9z1x3c5v7b9n1m3q5w7e9r1t3y5u7i9o1p3a5'),
   (4, 'drep1seedanonskepticd3f5g7h9j1k3l5z7x9c1v3b5n7m9q1w3e5r7t9y1u3'))
 INSERT INTO posts (id, topic_id, author_id, body_md, body_html, created_at)
-SELECT 'e2e-tmap-gap-' || printf('%02d', i), 'e2e-tmap-gap', authors.id,
+SELECT 'e2e7a700-0000-4000-8000-' || printf('%012d', i), 'e2e-tmap-gap', authors.id,
   'Post ' || i || ' ' || trim(replace(hex(zeroblob(10)), '00', 'paging ')),
   '<p>Post ' || i || ' ' || trim(replace(hex(zeroblob(10)), '00', 'paging ')) || '</p>',
   strftime('%s','now')*1000 - 10*86400000 + i * 3600000

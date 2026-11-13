@@ -82,8 +82,8 @@ const grantActiveFor = (post: { proposer_grant_id: string | null }) =>
 // a pure co-proposer sees them too.
 const canParticipate = !!user && (isWriter(user.roles) || !!composerMandate?.hasMandate) && !topic.locked;
 
-// Pagination counts top-level posts, replies render with their parent.
-const pageUrl = (n: number) => threadPageUrl({ slug: topic.slug, governance: isGovernanceTopic, page: n });
+const pageUrl = (n: number, hash?: string) =>
+  threadPageUrl({ slug: topic.slug, governance: isGovernanceTopic, page: n, hash });
 const prevPage = page > 1 ? page - 1 : null;
 const nextPage = page < pageCount ? page + 1 : null;
 
@@ -112,7 +112,16 @@ const notVoted = (author: AuthorDescriptor) =>
   />
 )}
 
-<div class="thread-posts" data-page={page} data-page-count={pageCount} style="display:flex;flex-direction:column;gap:0;">
+{/* The page facts the thread map reads: which page this is, and where the
+    thread starts and ends when that is on another page. */}
+<div
+  class="thread-posts"
+  data-page={page}
+  data-page-count={pageCount}
+  data-first-href={page > 1 ? pageUrl(1) : undefined}
+  data-latest-href={page < pageCount ? pageUrl(pageCount, '#latest') : undefined}
+  style="display:flex;flex-direction:column;gap:0;"
+>
   {thread.topLevel.map((post, i) => {
     // The opening post: carries the system identity on governance topics, and
     // takes no Reply button (replying to the opener IS a top-level comment).

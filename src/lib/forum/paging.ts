@@ -7,10 +7,13 @@ import { parsePage } from './view.js';
 /** Top-level posts per thread page. Replies render with their parent. */
 export const THREAD_PAGE_SIZE = 50;
 
+/** The tab of a governance action that renders its thread. */
+const DISCUSSION_TAB = 'discussion';
+
 /** Pages a thread with this many top-level posts has, at least 1. */
-export function pageCount(topLevelCount: number, pageSize = THREAD_PAGE_SIZE): number {
+export function pageCount(topLevelCount: number): number {
   if (!Number.isFinite(topLevelCount) || topLevelCount <= 0) return 1;
-  return Math.max(1, Math.ceil(topLevelCount / pageSize));
+  return Math.ceil(topLevelCount / THREAD_PAGE_SIZE);
 }
 
 /**
@@ -21,15 +24,15 @@ export function pageCount(topLevelCount: number, pageSize = THREAD_PAGE_SIZE): n
  */
 export function threadPageUrl(o: { slug: string; governance: boolean; page?: number; hash?: string }): string {
   const params: string[] = [];
-  if (o.governance) params.push('tab=discussion');
+  if (o.governance) params.push(`tab=${DISCUSSION_TAB}`);
   if (o.page !== undefined && o.page > 1) params.push(`page=${o.page}`);
   return `/t/${o.slug}/${params.length ? `?${params.join('&')}` : ''}${o.hash ?? ''}`;
 }
 
-/** Where a post renders: its topic, the tab that shows posts there, its page. */
-export interface PostLinkTarget {
+/** Where a post renders: its topic, whether that is a governance action, its page. */
+export interface PostLocation {
   topicSlug: string;
-  tab: 'discussion' | null;
+  governance: boolean;
   page: number;
 }
 
@@ -42,13 +45,12 @@ export interface PostLinkTarget {
  */
 export function resolvePostLink(
   current: { pathname: string; search: string; hash: string },
-  target: PostLinkTarget,
+  target: PostLocation,
 ): string | null {
   const path = current.pathname.endsWith('/') ? current.pathname : `${current.pathname}/`;
   if (path !== `/t/${target.topicSlug}/`) return null;
   const params = new URLSearchParams(current.search);
-  const governance = target.tab === 'discussion';
-  const onTab = !governance || params.get('tab') === 'discussion';
+  const onTab = !target.governance || params.get('tab') === DISCUSSION_TAB;
   if (onTab && parsePage(params.get('page')) === target.page) return null;
-  return threadPageUrl({ slug: target.topicSlug, governance, page: target.page, hash: current.hash });
+  return threadPageUrl({ slug: target.topicSlug, governance: target.governance, page: target.page, hash: current.hash });
 }

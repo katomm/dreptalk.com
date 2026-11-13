@@ -14,9 +14,6 @@ describe('pageCount', () => {
     expect(pageCount(Number.NaN)).toBe(1);
     expect(pageCount(-5)).toBe(1);
   });
-  it('takes another page size', () => {
-    expect(pageCount(3, 2)).toBe(2);
-  });
 });
 
 describe('threadPageUrl', () => {
@@ -39,8 +36,8 @@ describe('threadPageUrl', () => {
 });
 
 describe('resolvePostLink', () => {
-  const plain = (page: number) => ({ topicSlug: 's', tab: null, page }) as const;
-  const gov = (page: number) => ({ topicSlug: 's', tab: 'discussion', page }) as const;
+  const plain = (page: number) => ({ topicSlug: 's', governance: false, page });
+  const gov = (page: number) => ({ topicSlug: 's', governance: true, page });
   const at = (search: string, pathname = '/t/s/') => ({ pathname, search, hash: '#post-x' });
 
   it('ignores a post of another topic', () => {

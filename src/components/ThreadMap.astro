@@ -51,7 +51,6 @@ const { variant } = Astro.props;
 <dialog class="thread-map-sheet" data-tm-sheet aria-label="Thread map"></dialog>
 
 <script>
-  import { threadPageUrl } from '@/lib/forum/paging';
   import {
     countWords,
     currentIndex,
@@ -66,8 +65,6 @@ const { variant } = Astro.props;
   // larger than the posts' scroll-margin-top minus the header height, so a post
   // the map just jumped to counts as the current one.
   const BAND_OFFSET = 32;
-  const ROW_AVATAR_PX = 18;
-  const PERSON_AVATAR_PX = 24;
 
   type Mode = 'wide' | 'narrow';
 
@@ -128,6 +125,8 @@ const { variant } = Astro.props;
     const pillPos = pill.querySelector<HTMLElement>('[data-tm-pill-pos]')!;
     const pillBar = pill.querySelector<HTMLElement>('[data-tm-pill-bar]')!;
     const root = document.documentElement;
+    // Every post article renders inside the posts wrapper of ThreadPosts.
+    const postsEl = container.querySelector<HTMLElement>('.thread-posts')!;
 
     const maxWords = Math.max(...posts.map((post) => post.words));
     const rows = posts.map((post, index) => {
@@ -136,7 +135,7 @@ const { variant } = Astro.props;
       link.href = `#post-${post.id}`;
       if (post.snippet) link.title = post.snippet;
       link.style.setProperty('--tm-indent', String(indentLevel(post.depth)));
-      link.appendChild(avatarFor(articles[index], ROW_AVATAR_PX));
+      link.appendChild(avatarFor(articles[index]));
       const text = document.createElement('span');
       text.className = 'thread-map__text';
       const name = document.createElement('span');
@@ -181,19 +180,16 @@ const { variant } = Astro.props;
       }
     }
     // A thread of several pages: the counts above are this page's, so the map
-    // says which page it is, and Top and Latest mean the thread's, not the page's.
-    const postsEl = container.querySelector<HTMLElement>('.thread-posts');
-    const page = Number(postsEl?.dataset.page ?? 1);
-    const pages = Number(postsEl?.dataset.pageCount ?? 1);
-    if (pages > 1) {
-      const slug = window.location.pathname.split('/')[2] ?? '';
-      const governance = new URLSearchParams(window.location.search).get('tab') === 'discussion';
+    // says which page it is, and Top and Latest mean the thread's, not the
+    // page's. The page rendered both URLs where they lead to another page.
+    const { page, pageCount, firstHref, latestHref } = postsEl.dataset;
+    if (Number(pageCount) > 1) {
       const label = q<HTMLElement>('[data-tm-page]');
-      label.textContent = `Page ${page} of ${pages}`;
+      label.textContent = `Page ${page} of ${pageCount}`;
       label.hidden = false;
-      if (page > 1) top.href = threadPageUrl({ slug, governance });
-      if (page < pages) latest.href = threadPageUrl({ slug, governance, page: pages, hash: '#latest' });
     }
+    if (firstHref) top.href = firstHref;
+    if (latestHref) latest.href = latestHref;
 
     // Participant filter: one participant at a time, a second click clears it.
     // The synced opener of a governance action is the site, not a participant.
@@ -211,7 +207,7 @@ const { variant } = Astro.props;
       const label = `${participant.authorName}: ${participant.count} ${participant.count === 1 ? 'post' : 'posts'}`;
       button.title = label;
       button.setAttribute('aria-label', label);
-      button.appendChild(avatarFor(articles[participant.firstIndex], PERSON_AVATAR_PX));
+      button.appendChild(avatarFor(articles[participant.firstIndex]));
       button.addEventListener('click', () => setFilter(selected === participant.authorId ? null : participant.authorId));
       people.appendChild(button);
       return button;
@@ -230,44 +226,31 @@ const { variant } = Astro.props;
     }
 
     // The sheet. A modal dialog traps focus, closes on Escape and makes the
-    // page inert, but the page behind still scrolls under a touch or a wheel,
-    // so the scroll is locked for as long as it is open.
-    let locked = false;
-    function openSheet() {
+    // page inert. The page behind would still scroll under a touch or a
+    // wheel, which a style rule keyed on the open sheet prevents (see below).
+    pill.addEventListener('click', () => {
       if (sheet.open) return;
       sheet.showModal();
-      locked = true;
-      root.style.overflow = 'hidden';
       centerCurrentRow();
-    }
-    function closeSheet() {
-      // Only this sheet's own lock is released, never one another dialog holds.
-      if (locked) root.style.overflow = '';
-      locked = false;
-      if (sheet.open) sheet.close();
-    }
-    pill.addEventListener('click', openSheet);
-    q<HTMLButtonElement>('[data-tm-close]').addEventListener('click', closeSheet);
-    // Escape closes the dialog without passing through closeSheet.
-    sheet.addEventListener('close', closeSheet);
+    });
+    q<HTMLButtonElement>('[data-tm-close]').addEventListener('click', () => sheet.close());
     sheet.addEventListener('click', (event) => {
       // The card fills the dialog, so a click on the dialog itself is a click
       // on the backdrop.
-      if (event.target === sheet) closeSheet();
+      if (event.target === sheet) sheet.close();
     });
     // A jump from the sheet (a row, Top, Latest, a neighbor page) closes it
     // first. The link's own navigation follows and does the scrolling.
     card.addEventListener('click', (event) => {
       if (!sheet.open || !(event.target as Element).closest('a[href]')) return;
-      closeSheet();
+      sheet.close();
       // Closing hands focus back to the pill. Dropped again, so keyboard and
       // screen reader continue from the post the link jumps to.
       pill.blur();
     });
 
     // Reading position. The header changes height at several widths, so it is
-    // measured, and the measurement also drives the sticky offset in CSS. The
-    // observer's first callback, right after observe(), does the first update.
+    // measured, and the measurement also drives the sticky offset in CSS.
     const header = document.querySelector<HTMLElement>('.site-header');
     let headerHeight = -1;
     const headerObserver = new ResizeObserver(() => {
@@ -311,10 +294,13 @@ const { variant } = Astro.props;
         pillBar.style.width = share;
         pill.setAttribute('aria-label', `Thread map, post ${current + 1} of ${posts.length}`);
         // Follow inside the list only. scrollIntoView would also move the window
-        // and fight the reader's own scrolling.
-        const above = row.offsetTop < listWrap.scrollTop;
-        const below = row.offsetTop + row.offsetHeight > listWrap.scrollTop + listWrap.clientHeight;
-        if (above || below) centerCurrentRow();
+        // and fight the reader's own scrolling. A closed sheet has no list to
+        // follow in, opening it centers the row.
+        if (mode === 'wide' || sheet.open) {
+          const above = row.offsetTop < listWrap.scrollTop;
+          const below = row.offsetTop + row.offsetHeight > listWrap.scrollTop + listWrap.clientHeight;
+          if (above || below) centerCurrentRow();
+        }
       }
       if (mode === 'narrow') placePill();
     }
@@ -322,36 +308,29 @@ const { variant } = Astro.props;
     // The pill steps aside without leaving the layout (visibility, not
     // display), so its own box stays measurable while it is away.
     let formFocused = false;
-    const forms = (postsEl ?? container).getElementsByTagName('form');
+    let away = false;
     function placePill() {
-      const box = pill.getBoundingClientRect();
-      const postsEnd = (postsEl ?? articles[articles.length - 1]).getBoundingClientRect().bottom;
-      let overlapsForm = false;
-      for (const form of forms) {
-        const r = form.getBoundingClientRect();
-        if (r.height > 0 && r.bottom > box.top && r.top < box.bottom && r.right > box.left && r.left < box.right) {
-          overlapsForm = true;
-          break;
-        }
-      }
-      const away = pillHidden({ formFocused, postsEnd, pillBottom: box.bottom, overlapsForm });
+      const next = pillHidden({
+        formFocused,
+        postsEnd: postsEl.getBoundingClientRect().bottom,
+        pillBottom: pill.getBoundingClientRect().bottom,
+      });
+      if (next === away) return;
+      away = next;
       pill.classList.toggle('is-away', away);
-      // No outline on a post without its control in view.
-      if (away) root.dataset.tmOutlines = 'off';
-      else delete root.dataset.tmOutlines;
     }
+    const focusChanged = (focused: boolean) => {
+      if (focused === formFocused) return;
+      formFocused = focused;
+      if (mode === 'narrow') schedule();
+    };
     const main = document.querySelector('main');
-    main?.addEventListener('focusin', (event) => {
-      formFocused = (event.target as Element).matches('input, textarea, select, [contenteditable]:not([contenteditable="false"])');
-      schedule();
-    });
-    main?.addEventListener('focusout', () => {
-      formFocused = false;
-      schedule();
-    });
+    main?.addEventListener('focusin', (event) =>
+      focusChanged((event.target as Element).matches('input, textarea, select, [contenteditable]:not([contenteditable="false"])')),
+    );
+    main?.addEventListener('focusout', () => focusChanged(false));
 
     if (header) headerObserver.observe(header);
-    else update();
     window.addEventListener('scroll', schedule, { passive: true });
     window.addEventListener('resize', schedule);
 
@@ -363,9 +342,8 @@ const { variant } = Astro.props;
         mode = next;
         if (next === 'wide') {
           // An open sheet would stay modal over the page with its card gone.
-          closeSheet();
+          sheet.close();
           shell.appendChild(card);
-          delete root.dataset.tmOutlines;
         } else {
           sheet.appendChild(card);
         }
@@ -380,9 +358,10 @@ const { variant } = Astro.props;
   // A small copy of the avatar the post header already shows (identicon plus
   // stored image, or the logo for system authors), so the map loads no images
   // of its own. The copy keeps the original's scope attributes and with them
-  // its styles. Linked avatars become plain spans, since the copy sits inside a
-  // link or button.
-  function avatarFor(article: HTMLElement, size: number): HTMLElement {
+  // its styles, but not its inline size: the map sizes the copy by where it
+  // sits (see the styles). Linked avatars become plain spans, since the copy
+  // sits inside a link or button.
+  function avatarFor(article: HTMLElement): HTMLElement {
     const copy = document.createElement('span');
     const source = article.querySelector<HTMLElement>('.author-identity .avatar, .author-identity__avatar');
     if (source) {
@@ -393,7 +372,7 @@ const { variant } = Astro.props;
     }
     copy.classList.add('thread-map__avatar');
     copy.setAttribute('aria-hidden', 'true');
-    copy.style.setProperty('--avatar-size', `${size}px`);
+    copy.style.removeProperty('--avatar-size');
     return copy;
   }
 </script>
@@ -477,7 +456,8 @@ const { variant } = Astro.props;
     background: var(--border);
     overflow: hidden;
   }
-  .thread-map__bar span {
+  .thread-map__bar span,
+  .thread-map-pill__bar span {
     display: block;
     height: 100%;
     width: 0;
@@ -586,6 +566,12 @@ const { variant } = Astro.props;
     width: var(--avatar-size);
     height: var(--avatar-size);
   }
+  .thread-map__row .thread-map__avatar {
+    --avatar-size: 18px;
+  }
+  .thread-map__person .thread-map__avatar {
+    --avatar-size: 24px;
+  }
   .thread-map__avatar svg[style] {
     width: 60% !important;
     height: 60% !important;
@@ -597,7 +583,7 @@ const { variant } = Astro.props;
     outline-offset: 0.5rem;
     border-radius: 0.375rem;
   }
-  html[data-tm-outlines='off'] article.thread-map-hl {
+  body:has(> .thread-map-pill.is-away:not([hidden])) article.thread-map-hl {
     outline: none;
   }
 
@@ -664,12 +650,6 @@ const { variant } = Astro.props;
     background: var(--border);
     overflow: hidden;
   }
-  .thread-map-pill__bar span {
-    display: block;
-    height: 100%;
-    width: 0;
-    background: var(--accent);
-  }
 
   .thread-map-sheet {
     position: fixed;
@@ -688,6 +668,11 @@ const { variant } = Astro.props;
   }
   .thread-map-sheet[open] {
     display: flex;
+  }
+  /* The page behind the open sheet does not scroll. Keyed on the sheet's own
+     state, so every way of closing it releases the page with nothing to undo. */
+  html:has(.thread-map-sheet[open]) {
+    overflow: hidden;
   }
   .thread-map-sheet::backdrop {
     background: rgb(0 0 0 / 0.45);
@@ -733,7 +718,7 @@ const { variant } = Astro.props;
     padding: 0.25rem;
   }
   .thread-map-sheet .thread-map__person .thread-map__avatar {
-    --avatar-size: 32px !important;
+    --avatar-size: 32px;
   }
   .thread-map-sheet .thread-map__list {
     overscroll-behavior: contain;
@@ -745,7 +730,7 @@ const { variant } = Astro.props;
     padding-inline-start: calc(0.5rem + var(--tm-indent, 0) * 1rem);
   }
   .thread-map-sheet .thread-map__row .thread-map__avatar {
-    --avatar-size: 24px !important;
+    --avatar-size: 24px;
   }
   .thread-map-sheet .thread-map__snippet {
     display: block;

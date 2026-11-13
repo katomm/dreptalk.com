@@ -15,25 +15,25 @@ function callGet(postId: string) {
 }
 
 describe('GET /api/posts/[id]/location', () => {
-  it('answers with topic, tab and page for a live post', async () => {
+  it('answers with topic, kind and page for a live post', async () => {
     const { topic, firstPost } = await createTopic(env.DB, {
       categorySlug: 'general', authorId: 'drep-loc', title: 'Location route',
       bodyMd: 'b', bodyHtml: '<p>b</p>', now: NOW, rand: 'lr1',
     });
     const res = await callGet(firstPost.id);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, topicSlug: topic.slug, tab: null, page: 1 });
+    expect(await res.json()).toEqual({ ok: true, topicSlug: topic.slug, governance: false, page: 1 });
     expect(res.headers.get('Cache-Control')).toBe('public, max-age=60');
   });
 
   it('is a 404 for an unknown post', async () => {
-    const res = await callGet('no-such-post');
+    const res = await callGet('00000000-0000-4000-8000-000000000000');
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ ok: false, error: 'post_not_found' });
   });
 
-  it('is a 404 for an overlong id without asking the database', async () => {
-    const res = await callGet('x'.repeat(200));
+  it('is a 404 for anything that is not shaped like a post id', async () => {
+    const res = await callGet('no-such-post');
     expect(res.status).toBe(404);
   });
 });

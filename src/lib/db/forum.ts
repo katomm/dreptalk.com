@@ -7,7 +7,7 @@ import { sqlPlaceholders } from './sql.js';
 import { activityInsert } from './activity.js';
 import { isWithinGrace, mayEditRow } from '../forum/editPolicy.js';
 import { isGrantActiveForUser } from './proposerGrants.js';
-import { THREAD_PAGE_SIZE } from '../forum/paging.js';
+import { THREAD_PAGE_SIZE, type PostLocation } from '../forum/paging.js';
 
 export interface Topic {
   id: string;
@@ -1001,8 +1001,12 @@ export interface ThreadPage {
 // The page's top-level posts: live, parentless, oldest first, the id breaking a
 // tie so a post never changes pages between two requests. Shared between
 // the page query (full columns) and the children query's IN subselect (ids).
+// LIVE_TOP_LEVEL is what pagination counts. The page, the count and the rank
+// in getPostLocation all use it, so they cannot disagree about which posts
+// take up a place on a page.
+const LIVE_TOP_LEVEL = 'deleted = 0 AND parent_post_id IS NULL';
 const TOP_LEVEL_PAGE_SQL = `FROM posts
-   WHERE topic_id = ?1 AND deleted = 0 AND parent_post_id IS NULL
+   WHERE topic_id = ?1 AND ${LIVE_TOP_LEVEL}
    ORDER BY created_at ASC, id ASC
    LIMIT ?2 OFFSET ?3`;
 
@@ -1022,7 +1026,7 @@ export async function getThreadPage(
   topicId: string,
   opts?: { limit?: number; offset?: number },
 ): Promise<ThreadPage> {
-  const limit = Math.min(Math.max(opts?.limit ?? 50, 1), 100);
+  const limit = Math.min(Math.max(opts?.limit ?? THREAD_PAGE_SIZE, 1), 100);
   const offset = Math.max(opts?.offset ?? 0, 0);
 
   const [topRes, childRes, statsRes, countRes] = await db.batch([
@@ -1049,9 +1053,7 @@ export async function getThreadPage(
          LIMIT 1`,
       )
       .bind(topicId),
-    db
-      .prepare('SELECT COUNT(*) AS n FROM posts WHERE topic_id = ?1 AND deleted = 0 AND parent_post_id IS NULL')
-      .bind(topicId),
+    db.prepare(`SELECT COUNT(*) AS n FROM posts WHERE topic_id = ?1 AND ${LIVE_TOP_LEVEL}`).bind(topicId),
   ]);
 
   const topLevel = ((topRes.results ?? []) as PostRowNoBody[]).map(rowToPost);
@@ -1087,13 +1089,6 @@ export async function getThreadPage(
   };
 }
 
-/** Where a post renders: its topic, the tab that shows posts there, its page. */
-export interface PostLocation {
-  topicSlug: string;
-  tab: 'discussion' | null;
-  page: number;
-}
-
 /**
  * Where a post renders, for links that name only the post. Null for an unknown
  * or deleted post, a deleted topic, or a reply whose top-level post is deleted
@@ -1112,9 +1107,9 @@ export async function getPostLocation(
   const row = await db
     .prepare(
       `SELECT t.slug AS slug, t.source AS source,
-         (SELECT COUNT(*) FROM posts r
-           WHERE r.topic_id = root.topic_id AND r.deleted = 0 AND r.parent_post_id IS NULL
-             AND (r.created_at < root.created_at OR (r.created_at = root.created_at AND r.id < root.id))) AS before
+         (SELECT COUNT(*) FROM posts
+           WHERE topic_id = root.topic_id AND ${LIVE_TOP_LEVEL}
+             AND (created_at < root.created_at OR (created_at = root.created_at AND id < root.id))) AS before
        FROM posts p
        JOIN posts root ON root.id = COALESCE(p.parent_post_id, p.id)
        JOIN topics t ON t.id = p.topic_id
@@ -1125,7 +1120,7 @@ export async function getPostLocation(
   if (!row) return null;
   return {
     topicSlug: row.slug,
-    tab: row.source === 'governance' ? 'discussion' : null,
+    governance: row.source === 'governance',
     page: Math.floor(row.before / pageSize) + 1,
   };
 }

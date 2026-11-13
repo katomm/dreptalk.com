@@ -86,42 +86,55 @@ test('a governance discussion keeps its tab across pages', async ({ page }) => {
 });
 
 test('a link to a post on the second page ends there', async ({ page }) => {
-  await page.goto(`${P60}#post-e2e-tmap-p60-53`);
-  await page.waitForURL(`**${P60}?page=2#post-e2e-tmap-p60-53`);
-  await expect.poll(() => postInView(page, 'e2e-tmap-p60-53')).toBe(true);
+  await page.goto(`${P60}#post-e2e7a600-0000-4000-8000-000000000053`);
+  await page.waitForURL(`**${P60}?page=2#post-e2e7a600-0000-4000-8000-000000000053`);
+  await expect.poll(() => postInView(page, 'e2e7a600-0000-4000-8000-000000000053')).toBe(true);
 
   // A reply lives on the page of its top-level post.
-  await page.goto(`${P60}#post-e2e-tmap-p60-r1`);
-  await page.waitForURL(`**${P60}?page=2#post-e2e-tmap-p60-r1`);
-  await expect.poll(() => postInView(page, 'e2e-tmap-p60-r1')).toBe(true);
+  await page.goto(`${P60}#post-e2e7a600-0000-4000-8000-000000000a01`);
+  await page.waitForURL(`**${P60}?page=2#post-e2e7a600-0000-4000-8000-000000000a01`);
+  await expect.poll(() => postInView(page, 'e2e7a600-0000-4000-8000-000000000a01')).toBe(true);
 
   // A stale page number is corrected the same way.
-  await page.goto(`${P60}?page=2#post-e2e-tmap-p60-03`);
-  await page.waitForURL(`**${P60}#post-e2e-tmap-p60-03`);
-  await expect.poll(() => postInView(page, 'e2e-tmap-p60-03')).toBe(true);
+  await page.goto(`${P60}?page=2#post-e2e7a600-0000-4000-8000-000000000003`);
+  await page.waitForURL(`**${P60}#post-e2e7a600-0000-4000-8000-000000000003`);
+  await expect.poll(() => postInView(page, 'e2e7a600-0000-4000-8000-000000000003')).toBe(true);
 });
 
 test('a post link on a governance action opens the discussion tab', async ({ page }) => {
-  await page.goto(`${GA}#post-e2e-tmap-gap-05`);
-  await page.waitForURL(`**${GA}?tab=discussion#post-e2e-tmap-gap-05`);
-  await expect.poll(() => postInView(page, 'e2e-tmap-gap-05')).toBe(true);
+  await page.goto(`${GA}#post-e2e7a700-0000-4000-8000-000000000005`);
+  await page.waitForURL(`**${GA}?tab=discussion#post-e2e7a700-0000-4000-8000-000000000005`);
+  await expect.poll(() => postInView(page, 'e2e7a700-0000-4000-8000-000000000005')).toBe(true);
 
-  await page.goto(`${GA}#post-e2e-tmap-gap-55`);
-  await page.waitForURL(`**${GA}?tab=discussion&page=2#post-e2e-tmap-gap-55`);
-  await expect.poll(() => postInView(page, 'e2e-tmap-gap-55')).toBe(true);
+  await page.goto(`${GA}#post-e2e7a700-0000-4000-8000-000000000055`);
+  await page.waitForURL(`**${GA}?tab=discussion&page=2#post-e2e7a700-0000-4000-8000-000000000055`);
+  await expect.poll(() => postInView(page, 'e2e7a700-0000-4000-8000-000000000055')).toBe(true);
 });
 
 test('a link to an unknown post or to a post of another thread stays put', async ({ page }) => {
-  const unknown = page.waitForResponse((r) => r.url().includes('/api/posts/no-such-post/location'));
-  await page.goto(`${P60}#post-no-such-post`);
+  const missing = 'e2e7a600-0000-4000-8000-00000000dead';
+  const unknown = page.waitForResponse((r) => r.url().includes(`/api/posts/${missing}/location`));
+  await page.goto(`${P60}#post-${missing}`);
   expect((await unknown).status()).toBe(404);
-  expect(where(page)).toBe(`${P60}#post-no-such-post`);
+  expect(where(page)).toBe(`${P60}#post-${missing}`);
 
-  const foreign = page.waitForResponse((r) => r.url().includes('/api/posts/e2e-tmap-long-02/location'));
-  await page.goto(`${P60}#post-e2e-tmap-long-02`);
+  const other = 'e2e7a500-0000-4000-8000-000000000002';
+  const foreign = page.waitForResponse((r) => r.url().includes(`/api/posts/${other}/location`));
+  await page.goto(`${P60}#post-${other}`);
   expect((await foreign).status()).toBe(200);
   await page.waitForTimeout(300);
-  expect(where(page)).toBe(`${P60}#post-e2e-tmap-long-02`);
+  expect(where(page)).toBe(`${P60}#post-${other}`);
+});
+
+test('a hash that cannot be a post id asks nothing', async ({ page }) => {
+  const asked: string[] = [];
+  page.on('request', (r) => {
+    if (r.url().includes('/location')) asked.push(r.url());
+  });
+  await page.goto(`${P60}#post-not-an-id`);
+  await page.waitForTimeout(300);
+  expect(asked).toEqual([]);
+  expect(where(page)).toBe(`${P60}#post-not-an-id`);
 });
 
 test('a late answer does not pull the reader back after the hash changed', async ({ page }) => {
@@ -129,20 +142,20 @@ test('a late answer does not pull the reader back after the hash changed', async
   const held = new Promise<void>((resolve) => {
     release = resolve;
   });
-  await page.route('**/api/posts/e2e-tmap-p60-53/location', async (route) => {
+  await page.route('**/api/posts/e2e7a600-0000-4000-8000-000000000053/location', async (route) => {
     await held;
     await route.continue();
   });
-  const answered = page.waitForResponse((r) => r.url().includes('/api/posts/e2e-tmap-p60-53/location'));
-  await page.goto(`${P60}#post-e2e-tmap-p60-53`);
+  const answered = page.waitForResponse((r) => r.url().includes('/api/posts/e2e7a600-0000-4000-8000-000000000053/location'));
+  await page.goto(`${P60}#post-e2e7a600-0000-4000-8000-000000000053`);
   // The reader moves on to a post of this page while the answer is still out.
   await page.evaluate(() => {
-    window.location.hash = '#post-e2e-tmap-p60-02';
+    window.location.hash = '#post-e2e7a600-0000-4000-8000-000000000002';
   });
   release();
   await answered;
   await page.waitForTimeout(300);
-  expect(where(page)).toBe(`${P60}#post-e2e-tmap-p60-02`);
+  expect(where(page)).toBe(`${P60}#post-e2e7a600-0000-4000-8000-000000000002`);
 });
 
 test('a page that holds the linked post asks nothing', async ({ page }) => {
@@ -158,5 +171,5 @@ test('a page that holds the linked post asks nothing', async ({ page }) => {
 
 test('the latest hash ends at the last post of the page', async ({ page }) => {
   await page.goto(`${P60}?page=2#latest`);
-  await expect.poll(() => postInView(page, 'e2e-tmap-p60-60')).toBe(true);
+  await expect.poll(() => postInView(page, 'e2e7a600-0000-4000-8000-000000000060')).toBe(true);
 });

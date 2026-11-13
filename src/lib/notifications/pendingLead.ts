@@ -15,6 +15,7 @@ import type { PendingLead } from './pushMessage.js';
 import { getTopicsByIds } from '../db/forum.js';
 import { getGovernanceActionSlugsByIds } from '../db/governance.js';
 import { loadAuthorIdentity } from '../forum/author.js';
+import { threadPageUrl } from '../forum/paging.js';
 import { statusBadge } from '../governance/view.js';
 import { voteStatementPath } from '../governance/voteStatement.js';
 import { parseDrepEventPayload } from '../delegation/notifyPayload.js';
@@ -257,9 +258,12 @@ async function hydratePersonal(db: D1Database, row: PersonalRow): Promise<Pendin
       const body = actor
         ? `${actor} ${isMention ? 'mentioned you' : 'replied'}`
         : `New ${isMention ? 'mention' : 'reply'}`;
-      const tab = topic.source === 'governance' ? '?tab=discussion' : '';
-      const anchor = row.post_id ? `#post-${row.post_id}` : '';
-      return { title: `"${clip(topic.title)}"`, body, href: `/t/${topic.slug}/${tab}${anchor}` };
+      const href = threadPageUrl({
+        slug: topic.slug,
+        governance: topic.source === 'governance',
+        hash: row.post_id ? `#post-${row.post_id}` : '',
+      });
+      return { title: `"${clip(topic.title)}"`, body, href };
     }
   }
 }
