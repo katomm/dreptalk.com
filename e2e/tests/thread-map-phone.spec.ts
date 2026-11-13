@@ -65,7 +65,8 @@ test('the pill opens the sheet with the current row in view and touch-sized rows
   await pill(page).click();
   expect(await sheetOpen(page)).toBe(true);
   await expect(page.locator('[data-tm-pos]')).toHaveText('20 / 30');
-  await expect(people(page).first()).toBeVisible();
+  // No participant filter in the sheet, the post list gets the room.
+  await expect(page.locator('.thread-map-sheet .thread-map__people')).toBeHidden();
 
   const list = await box(page, '.thread-map__list');
   const current = await box(page, '.thread-map__row[aria-current="location"]');
@@ -134,47 +135,43 @@ test('the page behind the open sheet does not scroll', async ({ page }) => {
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(before);
 });
 
-test('the filter set in the sheet stays after closing and marks the pill', async ({ page }) => {
-  await openPhone(page, LONG);
-  await pill(page).click();
+test('a filter from the wide map is cleared when the map becomes the sheet', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(LONG);
   await people(page).first().click();
-  await expect(people(page).first()).toHaveAttribute('aria-pressed', 'true');
-  expect(await page.locator('.thread-map__row.is-dim').count()).toBeGreaterThan(0);
-  await page.locator('[data-tm-close]').click();
+  expect(await page.locator('article.thread-map-hl').count()).toBeGreaterThan(0);
 
-  await expect(pill(page)).toHaveAttribute('data-filtered', '');
-  await expect(page.locator('.thread-map-pill__dot')).toBeVisible();
-  const outlined = page.locator('article.thread-map-hl');
-  expect(await outlined.count()).toBeGreaterThan(0);
-  expect(await outlined.first().evaluate((el) => getComputedStyle(el).outlineStyle)).toBe('solid');
+  // The sheet has nothing to clear a filter with, so none comes along.
+  await page.setViewportSize({ width: 375, height: 812 });
+  await expect(pill(page)).toBeVisible();
+  await expect(page.locator('article.thread-map-hl')).toHaveCount(0);
+  await pill(page).click();
+  await expect(page.locator('.thread-map__row.is-dim')).toHaveCount(0);
 });
 
-test('widening the window with the sheet open closes it and keeps the filter', async ({ page }) => {
+test('widening the window with the sheet open closes it', async ({ page }) => {
   await openPhone(page, LONG);
   await pill(page).click();
-  await people(page).first().click();
   await page.setViewportSize({ width: 1440, height: 900 });
 
   expect(await sheetOpen(page)).toBe(false);
   await expect(page.locator('.thread-map')).toBeVisible();
   await expect(pill(page)).toBeHidden();
-  await expect(page.locator('.thread-map .thread-map__person').first()).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.thread-map .thread-map__row')).toHaveCount(30);
+  await expect(page.locator('.thread-map .thread-map__people')).toBeVisible();
   // The scroll lock of the sheet is gone.
   await page.evaluate(() => window.scrollTo(0, 900));
   expect(await page.evaluate(() => window.scrollY)).toBe(900);
 
   await page.setViewportSize({ width: 375, height: 812 });
   await expect(pill(page)).toBeVisible();
-  await expect(pill(page)).toHaveAttribute('data-filtered', '');
   await expect(page.locator('.thread-map')).toBeHidden();
 });
 
-test('a filter from the phone can be cleared in the narrow rail', async ({ page }) => {
-  await openPhone(page, LONG);
-  await pill(page).click();
+test('a filter from the wide rail can be cleared in the narrow rail', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(LONG);
   await people(page).first().click();
-  await page.locator('[data-tm-close]').click();
   // The narrow rail has no participants of its own, except to clear a filter.
   await page.setViewportSize({ width: 890, height: 800 });
   await expect(page.locator('.thread-map')).toBeVisible();
@@ -206,14 +203,8 @@ test('the pill is gone past the posts and never sits on the join banner', async 
   await expect(pill(page)).toBeVisible();
 });
 
-test('a focused text field hides the pill and the outlines until it loses focus', async ({ page }) => {
+test('a focused text field hides the pill until it loses focus', async ({ page }) => {
   await openPhone(page, LONG);
-  await pill(page).click();
-  await people(page).first().click();
-  await page.locator('[data-tm-close]').click();
-  const outlined = page.locator('article.thread-map-hl').first();
-  expect(await outlined.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe('solid');
-
   // The reply form needs a signed-in writer, a plain field in main stands in.
   await page.evaluate(() => {
     const field = document.createElement('textarea');
@@ -222,11 +213,9 @@ test('a focused text field hides the pill and the outlines until it loses focus'
     field.focus({ preventScroll: true });
   });
   await expect(pill(page)).toBeHidden();
-  expect(await outlined.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe('none');
 
   await page.evaluate(() => document.getElementById('e2e-field')?.blur());
   await expect(pill(page)).toBeVisible();
-  expect(await outlined.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe('solid');
 });
 
 test('a post without text gets a row without a second line', async ({ page }) => {
