@@ -112,6 +112,8 @@ import { getEnactedTreasuryWithdrawals, getNclActionLinks, type NclActionLink } 
 import { env } from 'cloudflare:workers';
 import { requestDb } from '@/lib/db/requestDb.js';
 import { THREAD_PAGE_SIZE, pageCount, threadPageUrl } from '@/lib/forum/paging.js';
+import { DEFAULT_VOTER_SORT, VOTER_SORTS, parsePositionsRole, parseVoterSort } from '@/lib/governance/positionsParams.js';
+import SortPrefRestore from '@/components/SortPrefRestore.astro';
 
 const { slug } = Astro.params;
 
@@ -246,7 +248,13 @@ const nclPeriod = govAction
 // carry no voter=. Only the positions queries and GaPositions use this page,
 // the discussion thread keeps the raw page param.
 const voterParam = Astro.url.searchParams.get('voter');
-const positionsRoleParam = Astro.url.searchParams.get('role');
+const positionsRole = parsePositionsRole(Astro.url.searchParams.get('role'));
+// The DRep list can be ordered by vote time (default) or by voting power. The
+// order lives in the URL so the per-URL page cache stays correct. The rank
+// lookup below must use the same order as the list, or a voter= link opens the
+// wrong page. SPO and CC lists have one order each and ignore the param.
+const positionsSortParam = Astro.url.searchParams.get('sort');
+const positionsSort = parseVoterSort(positionsSortParam);
 
 // Overview "Rationale highlights": a balanced top-N Yes + top-N No DRep rationales
 // (with text, non-abstain), loaded only on the default Overview tab where they render.
@@ -265,18 +273,18 @@ const basis = govAction ? basisEpoch(govAction) : null;
 // Round two. Every promise starts here, the single awaitAll settles them all.
 
 const positionsPageP: Promise<number> =
-  tab === 'positions' && voterParam && positionsRoleParam !== 'cc' && govAction && db
-    ? getActionVoterRank(db, govAction.id, voterParam, positionsRoleParam === 'spo' ? 'SPO' : 'DRep').then((rank) =>
+  tab === 'positions' && voterParam && positionsRole !== 'cc' && govAction && db
+    ? getActionVoterRank(db, govAction.id, voterParam, positionsRole === 'spo' ? 'SPO' : 'DRep', positionsSort).then((rank) =>
         rank != null ? Math.floor(rank / PAGE_SIZE) + 1 : page,
       )
     : Promise.resolve(page);
 
 // Positions tab: paginated voter list. Top participants and total count are always
 // loaded (sidebar card + tab badge), voter rows only on the positions tab.
-const topVotersP = govAction && db ? getActionVoters(db, govAction.id, { limit: 5 }) : Promise.resolve([] as ActionVoterRow[]);
+const topVotersP = govAction && db ? getActionVoters(db, govAction.id, { sort: 'power', limit: 5 }) : Promise.resolve([] as ActionVoterRow[]);
 const positionVotersP =
   govAction && db && tab === 'positions'
-    ? positionsPageP.then((p) => getActionVoters(db, govAction.id, { limit: PAGE_SIZE, offset: pageToOffset(p, PAGE_SIZE) }))
+    ? positionsPageP.then((p) => getActionVoters(db, govAction.id, { limit: PAGE_SIZE, offset: pageToOffset(p, PAGE_SIZE), sort: positionsSort }))
     : Promise.resolve([] as ActionVoterRow[]);
 const rationaleHighlightsP =
   govAction && db && tab === 'overview'
@@ -855,6 +863,10 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
     )}
     {discussionLd && <JsonLd data={discussionLd} />}
     {breadcrumbLd && <JsonLd data={breadcrumbLd} />}
+
+    {govAction && tab === 'positions' && positionsRole === 'drep' && (
+      <SortPrefRestore storageKey="dreptalk:positions-sort" sorts={VOTER_SORTS.map((s) => s.mode)} defaultSort={DEFAULT_VOTER_SORT} />
+    )}
     <PostLinkResolver />
 
     <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
@@ -949,6 +961,9 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
                 total={positionsTotal}
                 page={positionsPage}
                 pageSize={PAGE_SIZE}
+                role={positionsRole}
+                sort={positionsSort}
+                sortInUrl={positionsSortParam === positionsSort}
                 slug={topic.slug}
                 rationales={rationales}
                 notCounted={notCountedVoters}

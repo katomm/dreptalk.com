@@ -18,11 +18,14 @@ export const GOV_SORTS: readonly { mode: GovSort; label: string }[] = [
   { mode: 'ratified', label: 'Recently decided' },
 ];
 
+/** The order the list renders without a ?sort= param. */
+export const DEFAULT_GOV_SORT: GovSort = 'new';
+
 const VALID = new Set<string>(GOV_SORTS.map((s) => s.mode));
 
-/** Parses the ?sort= param; defaults to 'new' for anything unrecognized. */
+/** Parses the ?sort= param; defaults to DEFAULT_GOV_SORT for anything unrecognized. */
 export function parseGovSort(value: string | null): GovSort {
-  return value && VALID.has(value) ? (value as GovSort) : 'new';
+  return value && VALID.has(value) ? (value as GovSort) : DEFAULT_GOV_SORT;
 }
 
 // Lifecycle status filter for the governance list. Independent of sort: status narrows

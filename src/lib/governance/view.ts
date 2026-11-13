@@ -7,6 +7,7 @@
 import { formatAda, formatAdaCompact } from '../format/ada.js';
 import { epochStartUnix, type NetworkConfig } from '../config/network.js';
 import { excerptFromHtmlWithMarkdown, excerptFromMarkdown } from '../forum/excerpt.js';
+import { formatRelativeTime } from '../forum/view.js';
 import { buildBodyStake, shownYesPct } from './fullStakeView.js';
 import type { Body } from './thresholds.js';
 
@@ -252,6 +253,19 @@ const EPOCH_DATE_FMT = new Intl.DateTimeFormat('en-US', {
 /** "Jul 29, 2020" from a unix-seconds timestamp (see network.ts epochStartUnix). */
 export function formatEpochDate(unixSeconds: number): string {
   return EPOCH_DATE_FMT.format(new Date(unixSeconds * 1000));
+}
+
+// Past this age "3mo ago" says less than the day itself.
+const VOTE_TIME_RELATIVE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * When a vote was cast, for a row in a voter list: relative while the vote is
+ * recent ("2h ago"), the UTC date once it is older than 30 days ("Feb 15, 2025").
+ * blockTime is unix seconds, nowMs unix milliseconds.
+ */
+export function formatVoteTime(blockTime: number, nowMs: number): string {
+  const ms = blockTime * 1000;
+  return nowMs - ms < VOTE_TIME_RELATIVE_WINDOW_MS ? formatRelativeTime(ms, nowMs) : formatEpochDate(blockTime);
 }
 
 // Exact on-chain submission times (governance_actions.submitted_at) get minutes

@@ -95,7 +95,7 @@ const [stats, feed, votedHero, latestHero, defaultHeroRows, activeFaces, activeD
       // stored avatar hash + the vote). dreps are batched in one follow-up query.
       votedHeroP.then(async (vh): Promise<HeroVoteRow[]> => {
         if (!vh) return [];
-        const voters = await getActionVoters(db, vh.action.id, { limit: HERO_FETCH });
+        const voters = await getActionVoters(db, vh.action.id, { sort: 'power', limit: HERO_FETCH });
         const dreps = await getDrepsByIds(db, voters.map((v) => v.voter_id));
         return voters.map((v) => ({ descriptor: voterDescriptor(v, dreps), vote: v.vote }));
       }),
@@ -147,7 +147,7 @@ if (db && user?.roles.includes('drep')) {
   if (viewerDrepId) {
     const history = await getDrepVotingHistory(db, viewerDrepId, { limit: 12 });
     for (const c of orderVoteCandidates(history).slice(0, 3)) {
-      const voters = await getActionVoters(db, c.ga_id, { limit: HERO_FETCH });
+      const voters = await getActionVoters(db, c.ga_id, { sort: 'power', limit: HERO_FETCH });
       if (voters.length < HERO_MIN_ACTIVE) continue;
       const ring = buildPersonalizedRing({
         voters,

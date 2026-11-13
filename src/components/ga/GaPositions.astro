@@ -1,6 +1,7 @@
 ---
-// Positions tab: paginated list of all DReps and SPOs who voted on the governance action,
-// ordered by voting power desc. Each row shows identity, vote badge, and power.
+// Positions tab: paginated list of all DReps and SPOs who voted on the governance action.
+// DReps are ordered by vote time (newest first) or by voting power, the reader picks,
+// SPOs by vote time. Each row shows identity, vote badge, vote time, and power.
 // Rows with a rationale become expandable via native <details> (no inline script, CSP-safe).
 // A role segment (DReps / SPOs) toggles which voter list is shown.
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
@@ -18,7 +19,9 @@ import type { VoteConcentrationView } from '@/lib/analytics/voteConcentration.js
 import type { ActionVoteChanges } from '@/lib/analytics/voteChangeView.js';
 import { voterDescriptor } from '@/lib/forum/author.js';
 import { enhanceStoredHtml } from '@/lib/markdown.js';
-import { formatAdaCompact } from '@/lib/governance/view.js';
+import { formatAdaCompact, formatSubmittedDateTime, formatVoteTime } from '@/lib/governance/view.js';
+import { VOTER_SORTS, type PositionsRole, type VoterSort } from '@/lib/governance/positionsParams.js';
+import '@/styles/seg.css';
 import { voteStatementPath, positionsVoterAnchor } from '@/lib/governance/voteStatement.js';
 
 interface Props {
@@ -30,6 +33,12 @@ interface Props {
   total: number;
   page: number;
   pageSize: number;
+  /** Which voter list is shown. */
+  role: PositionsRole;
+  /** Order of the DRep list. The SPO and CC lists have one order each. */
+  sort: VoterSort;
+  /** True when the URL carries this sort explicitly, false when it is the default for a bare URL. */
+  sortInUrl: boolean;
   slug: string;
   rationales: Map<string, { bodyHtml: string | null; source: string; voterRole: string }>;
   /** Voter ids whose vote was cast after ratification and did not count in the tally. */
@@ -51,14 +60,11 @@ interface Props {
   drepChangeLine: string | null;
 }
 
-const { voters, dreps, spoVoters, pools, spoTotal, total, page, pageSize, slug, rationales, notCounted, voteHistory, now, ccRows, ccTotal, concentration, concentrationThresholdPct, drepChanges, spoChanges, drepChangeLine } = Astro.props;
+const { voters, dreps, spoVoters, pools, spoTotal, total, page, pageSize, role, sort, sortInUrl, slug, rationales, notCounted, voteHistory, now, ccRows, ccTotal, concentration, concentrationThresholdPct, drepChanges, spoChanges, drepChangeLine } = Astro.props;
 
 // One-decimal percent for the concentration strip, matching the hub's fmtShare.
 const fmtConcPct = (pct: number): string => `${pct.toFixed(1)}%`;
 
-// Determine active role from the query string; default to DReps.
-const roleParam = Astro.url.searchParams.get('role');
-const role = (roleParam === 'spo' ? 'spo' : roleParam === 'cc' ? 'cc' : 'drep') as 'drep' | 'spo' | 'cc';
 // The DRep/SPO list below is CC-agnostic. The CC role has its own list further
 // down, so it gets no rows here (voters/spoVoters only ever hold DRep/SPO rows).
 const activeVoters = role === 'spo' ? spoVoters : role === 'cc' ? [] : voters;
@@ -75,15 +81,36 @@ const prevPage = page > 1 ? page - 1 : null;
 // For the active list, use the appropriate length to determine whether a next page exists.
 const nextPage = activeVoters.length === pageSize ? page + 1 : null;
 
-// Build hrefs that preserve tab=positions and role, replacing only the page param.
-function pageHref(p: number): string {
-  return `/t/${slug}/?tab=positions&role=${role}&page=${p}`;
-}
+// Hrefs within the tab. A sort that is in the URL travels along on the pager
+// and the role toggle, so a reader who picked an order keeps it without a
+// detour through the restore script's redirect. A bare URL means the default
+// order with nothing saved against it, so its links stay bare too.
+const tabHref = `/t/${slug}/?tab=positions`;
+const keepSort = sortInUrl ? `&sort=${sort}` : '';
+const pageHref = (p: number): string => `${tabHref}&role=${role}${keepSort}&page=${p}`;
 
-// Role toggle hrefs: preserve tab=positions, reset page to avoid stale offsets.
-const drepHref = `/t/${slug}/?tab=positions&role=drep`;
-const spoHref = `/t/${slug}/?tab=positions&role=spo`;
-const ccHref = `/t/${slug}/?tab=positions&role=cc`;
+// Role toggle hrefs: reset the page to avoid stale offsets.
+const drepHref = `${tabHref}&role=drep${keepSort}`;
+const spoHref = `${tabHref}&role=spo${keepSort}`;
+const ccHref = `${tabHref}&role=cc${keepSort}`;
+
+// Sort control of the DRep list. Every option links with an explicit sort
+// param, the default included: the param is what the restore script stores, so
+// a reader with a saved choice can switch back. Links from outside this tab
+// carry no sort and follow the saved choice.
+const sortHref = (mode: VoterSort): string => `${tabHref}&role=drep&sort=${mode}`;
+
+// Vote time slot of a DRep or SPO row. A vote cast here that the chain has not
+// confirmed yet has no block time and reads "Pending". A confirmed vote without
+// a block time leaves the slot empty.
+function voteWhen(v: ActionVoterRow): { text: string; title?: string; datetime?: string } {
+  if (v.block_time != null) {
+    const ms = v.block_time * 1000;
+    return { text: formatVoteTime(v.block_time, now), title: formatSubmittedDateTime(ms), datetime: new Date(ms).toISOString() };
+  }
+  if (v.local_status === 'pending') return { text: 'Pending', title: 'Submitted, waiting for confirmation on chain' };
+  return { text: '' };
+}
 
 // Absolute origin for per-vote share links, so the copied link stands alone
 // off-site. Anchor-form links go through positionsVoterAnchor, which carries
@@ -183,6 +210,17 @@ const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
     </div>
   )}
 
+  {role === 'drep' && total > 1 && (
+    <div class="ga-positions__sort">
+      <span class="ga-positions__sort-label" id="ga-positions-sort">Sort by</span>
+      <div class="seg" role="group" aria-labelledby="ga-positions-sort">
+        {VOTER_SORTS.map((o) => (
+          <a class="seg__btn" href={sortHref(o.mode)} aria-current={o.mode === sort ? 'true' : undefined} rel="nofollow">{o.label}</a>
+        ))}
+      </div>
+    </div>
+  )}
+
   {activeVoters.length > 0 && (
     <ul class="ga-positions__list">
       {activeVoters.map((v) => {
@@ -193,6 +231,7 @@ const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
         const bodyHtml = rationales.get(descriptor.authorId)?.bodyHtml ?? null;
         const late = notCounted.has(v.voter_id);
         const history = voteHistory.get(v.voter_id) ?? [];
+        const when = voteWhen(v);
         const expandable = Boolean(bodyHtml) || history.length > 0;
         // When a rationale exists, share the dedicated vote page keyed by the
         // canonical slug (falling back to the raw id when unassigned) instead
@@ -205,12 +244,12 @@ const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
         const voteShareUrl = bodyHtml
           ? `${shareOrigin}${voteStatementPath(role === 'spo' ? 'spo' : 'drep', voterKey, slug)}`
           : `${shareOrigin}/t/${slug}/${positionsVoterAnchor(v.voter_id, role === 'spo' ? 'spo' : undefined)}`;
-        // Identity, vote, and power render identically whether or not the row
-        // expands; the power slot is always present (empty when unknown) so the
-        // amount column lines up across every row. SPO rows never carry a
-        // power value, so they skip the slot and give its width to the name.
-        // A late vote (cast after ratification) is tagged and its weight struck
-        // through.
+        // Identity, vote, time and power render identically whether or not the
+        // row expands. The time and power slots are always present (empty when
+        // unknown) so the columns line up across every row. SPO rows never
+        // carry a power value, so they skip that slot and give its width to
+        // the name. A late vote (cast after ratification) is tagged and its
+        // weight struck through.
         const lead = (
           <>
             <div class="ga-positions__identity">
@@ -227,9 +266,14 @@ const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
                 </span>
               )}
             </span>
-            {role !== 'spo' && (
-              <span class:list={['ga-positions__power', { 'ga-positions__power--struck': late }]}>{ada ?? ''}</span>
-            )}
+            <span class="ga-positions__meta">
+              {role !== 'spo' && (
+                <span class:list={['ga-positions__power', { 'ga-positions__power--struck': late }]}>{ada ?? ''}</span>
+              )}
+              {when.datetime
+                ? <time class="ga-positions__when" datetime={when.datetime} title={when.title}>{when.text}</time>
+                : <span class="ga-positions__when" title={when.title}>{when.text}</span>}
+            </span>
           </>
         );
         return (
@@ -432,14 +476,59 @@ const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
     overflow: hidden;
   }
 
-  .ga-positions__power {
-    flex-shrink: 0;
-    width: 5rem;
-    text-align: right;
+  .ga-positions__power,
+  .ga-positions__when {
     color: var(--muted);
-    font-size: 0.875rem;
     white-space: nowrap;
     font-variant-numeric: tabular-nums;
+  }
+
+  .ga-positions__power {
+    width: 5rem;
+    text-align: right;
+    font-size: 0.875rem;
+  }
+
+  /* Power and vote time. Phones stack them, right-aligned, so the row keeps
+     its width for the name. Wider screens give each its own fixed column,
+     time first, so the amounts stay in the column they had before. */
+  .ga-positions__meta {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.1rem;
+  }
+
+  .ga-positions__when {
+    font-size: 0.7rem;
+  }
+
+  @media (min-width: 40rem) {
+    .ga-positions__meta {
+      flex-direction: row-reverse;
+      align-items: center;
+      gap: 0.625rem;
+    }
+    .ga-positions__when {
+      width: 6rem;
+      text-align: right;
+      font-size: 0.8125rem;
+    }
+  }
+
+  /* Sort control above the DRep list. */
+  .ga-positions__sort {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin: 0 0 0.5rem;
+  }
+
+  .ga-positions__sort-label {
+    font-size: 0.75rem;
+    color: var(--muted);
   }
 
   .ga-positions__power--struck {
