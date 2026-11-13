@@ -175,7 +175,7 @@ const [thread, citablePostIds, relatedTopicRows, viewerComposerMandate, govActio
   await Promise.all([
     topic && db
       ? getThreadPage(db, topic.id, { limit: PAGE_SIZE, offset })
-      : Promise.resolve<ThreadPage>({ topLevel: [], childrenByParent: new Map(), openingPost: null, participants: null }),
+      : Promise.resolve<ThreadPage>({ topLevel: [], childrenByParent: new Map(), openingPost: null, participants: null, topLevelCount: 0 }),
     // The post ids on this page that have an emitted CIP-100 document, i.e. are
     // safe to show a Cite link for. A post inside its edit grace window, or one
     // the cron has not reached yet, has no version index at all: a visible link

@@ -11,6 +11,7 @@ import {
   getPostsByAuthor,
   buildTopicPostedAtStatements,
   setGovTopicTitleAndBody,
+  getPostLocation,
 } from './forum.js';
 import { upsertVoteRationalePost } from './voteRationalePost.js';
 import { GOV_SYNC_AUTHOR } from '../governance/sync.js';
@@ -571,5 +572,112 @@ describe('getPostsByAuthor', () => {
   it('excludes deleted and hidden posts', async () => {
     const rows = await getPostsByAuthor(env.DB, 'nobody-here', { limit: 10, offset: 0 });
     expect(rows).toEqual([]);
+  });
+});
+
+// ---- thread paging -----------------------------------------------------------
+
+/** A topic by AUTHOR with n more top-level posts by another author. */
+async function topicWithTopLevel(rand: string, n: number, otherAuthor = 'test-author-other') {
+  const { topic, firstPost } = await createTopic(db(), {
+    categorySlug: 'general',
+    authorId: AUTHOR,
+    title: `Paging ${rand}`,
+    bodyMd: 'open',
+    bodyHtml: '<p>open</p>',
+    now: T1,
+    rand,
+  });
+  const ids: string[] = [];
+  for (let i = 1; i <= n; i++) {
+    const post = await createPost(db(), {
+      topicId: topic.id,
+      authorId: otherAuthor,
+      bodyMd: `p${i}`,
+      bodyHtml: `<p>p${i}</p>`,
+      now: T1 + i,
+    });
+    ids.push(post.id);
+  }
+  return { topic, openerId: firstPost.id, ids };
+}
+
+describe('getThreadPage top-level count', () => {
+  it('counts live top-level posts, not replies and not deleted ones', async () => {
+    const { topic, ids } = await topicWithTopLevel('pg01', 3);
+    await createPost(db(), { topicId: topic.id, authorId: AUTHOR, bodyMd: 'r', bodyHtml: '<p>r</p>', now: T2, parentPostId: ids[0] });
+    await createPost(db(), { topicId: topic.id, authorId: AUTHOR, bodyMd: 'r', bodyHtml: '<p>r</p>', now: T2 + 1, parentPostId: ids[0] });
+    expect((await getThreadPage(db(), topic.id)).topLevelCount).toBe(4);
+
+    await db().prepare('UPDATE posts SET deleted = 1 WHERE id = ?').bind(ids[2]).run();
+    expect((await getThreadPage(db(), topic.id)).topLevelCount).toBe(3);
+  });
+
+  it('still counts and pages when the opening post is deleted', async () => {
+    const { topic, openerId } = await topicWithTopLevel('pg02', 51);
+    await db().prepare('UPDATE posts SET deleted = 1 WHERE id = ?').bind(openerId).run();
+
+    const first = await getThreadPage(db(), topic.id, { limit: 50, offset: 0 });
+    expect(first.topLevelCount).toBe(51);
+    expect(first.topLevel).toHaveLength(50);
+    const second = await getThreadPage(db(), topic.id, { limit: 50, offset: 50 });
+    expect(second.topLevelCount).toBe(51);
+    expect(second.topLevel).toHaveLength(1);
+  });
+
+  it('orders top-level posts with the same timestamp by id', async () => {
+    const { topic, ids } = await topicWithTopLevel('pg03', 2);
+    await db().prepare('UPDATE posts SET created_at = ? WHERE id IN (?, ?)').bind(T3, ids[0], ids[1]).run();
+    const [lo, hi] = [...ids].sort();
+
+    const all = await getThreadPage(db(), topic.id);
+    expect(all.topLevel.slice(-2).map((p) => p.id)).toEqual([lo, hi]);
+    expect((await getThreadPage(db(), topic.id, { limit: 1, offset: 1 })).topLevel[0].id).toBe(lo);
+    expect((await getThreadPage(db(), topic.id, { limit: 1, offset: 2 })).topLevel[0].id).toBe(hi);
+  });
+});
+
+describe('getPostLocation', () => {
+  it('gives the page of a top-level post and of a reply under it', async () => {
+    const { topic, openerId, ids } = await topicWithTopLevel('pl01', 2);
+    const reply = await createPost(db(), { topicId: topic.id, authorId: AUTHOR, bodyMd: 'r', bodyHtml: '<p>r</p>', now: T2, parentPostId: ids[1] });
+
+    expect(await getPostLocation(db(), openerId, 2)).toEqual({ topicSlug: topic.slug, tab: null, page: 1 });
+    expect(await getPostLocation(db(), ids[0], 2)).toEqual({ topicSlug: topic.slug, tab: null, page: 1 });
+    expect(await getPostLocation(db(), ids[1], 2)).toEqual({ topicSlug: topic.slug, tab: null, page: 2 });
+    expect(await getPostLocation(db(), reply.id, 2)).toEqual({ topicSlug: topic.slug, tab: null, page: 2 });
+  });
+
+  it('names the discussion tab for a governance topic', async () => {
+    const { topic, mirrorPostId } = await govTopicWithEarlierRationale('pl02');
+    expect(await getPostLocation(db(), mirrorPostId)).toEqual({ topicSlug: topic.slug, tab: 'discussion', page: 1 });
+  });
+
+  it('answers for a hidden post', async () => {
+    const { topic, ids } = await topicWithTopLevel('pl03', 1);
+    await db().prepare('UPDATE posts SET hidden = 1 WHERE id = ?').bind(ids[0]).run();
+    expect(await getPostLocation(db(), ids[0])).toEqual({ topicSlug: topic.slug, tab: null, page: 1 });
+  });
+
+  it('does not count a deleted earlier top-level post', async () => {
+    const { ids } = await topicWithTopLevel('pl04', 2);
+    await db().prepare('UPDATE posts SET deleted = 1 WHERE id = ?').bind(ids[0]).run();
+    expect((await getPostLocation(db(), ids[1], 2))!.page).toBe(1);
+  });
+
+  it('is null for what does not render', async () => {
+    const { topic, ids } = await topicWithTopLevel('pl05', 2);
+    const reply = await createPost(db(), { topicId: topic.id, authorId: AUTHOR, bodyMd: 'r', bodyHtml: '<p>r</p>', now: T2, parentPostId: ids[0] });
+
+    expect(await getPostLocation(db(), 'no-such-post')).toBeNull();
+    await db().prepare('UPDATE posts SET deleted = 1 WHERE id = ?').bind(ids[1]).run();
+    expect(await getPostLocation(db(), ids[1])).toBeNull();
+    // A reply whose top-level post is deleted is not rendered either.
+    await db().prepare('UPDATE posts SET deleted = 1 WHERE id = ?').bind(ids[0]).run();
+    expect(await getPostLocation(db(), reply.id)).toBeNull();
+
+    const other = await topicWithTopLevel('pl06', 1);
+    await db().prepare('UPDATE topics SET deleted = 1 WHERE id = ?').bind(other.topic.id).run();
+    expect(await getPostLocation(db(), other.ids[0])).toBeNull();
   });
 });
