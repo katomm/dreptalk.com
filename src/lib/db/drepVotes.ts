@@ -12,6 +12,7 @@ import { buildJobInsert, type FanoutEventType } from './fanoutJobs.js';
 import { chunked, D1_MAX_BINDS, sqlPlaceholders, DB_NOW_MS } from './sql.js';
 import { concludedStatusSql } from './sql.js';
 import { voteBucket } from '@/lib/governance/view.js';
+import type { VoterSort } from '@/lib/governance/positionsParams.js';
 
 export interface VoteInput {
   voterRole: string;
@@ -443,39 +444,55 @@ export interface ActionVoterRow {
   block_time: number | null;
   /** 1 when the vote carries a rationale anchor. Set by the positions list queries only. */
   has_anchor?: number;
+  /** 'pending' while a vote cast here awaits confirmation on chain. Positions list queries only. */
+  local_status?: string | null;
 }
 
-// Shared ORDER BY fragments (aliases: v = drep_votes, d = dreps) for the
-// action voter lists, the rank lookup below, and the rationale-highlights
-// ranking (actionRationale.ts), so a voter= deep link and the highlight pick
+// Shared ORDER BY fragments (aliases: v = drep_votes, d = dreps). The power
+// fragment ranks the DRep list under sort 'power', the sidebar top voters and
+// the rationale highlights (actionRationale.ts). The recent fragment orders the
+// SPO list and the DRep list under sort 'recent'. The rank lookup below picks
+// its fragment through the same voterOrder as the lists, so a voter= deep link
 // can never disagree with the rendered order.
 export const DREP_VOTERS_ORDER = '(d.voting_power IS NULL), CAST(d.voting_power AS INTEGER) DESC, v.voter_id';
-const SPO_VOTERS_ORDER = '(v.block_time IS NULL), v.block_time DESC, v.voter_id';
+// Newest vote first, for the SPO list and for the DRep list under sort 'recent'.
+// A vote cast here seconds ago has no block time until the sync confirms it, so
+// pending rows lead and only confirmed rows without a block time trail. Rows
+// without a block time fall back to synced_at, which for a pending vote is the
+// second it was submitted, so several pending votes also read newest first.
+const VOTERS_RECENT_ORDER =
+  "CASE WHEN v.local_status = 'pending' THEN 0 WHEN v.block_time IS NULL THEN 2 ELSE 1 END, v.block_time DESC, v.synced_at DESC, v.voter_id";
+// The one place that picks the ORDER BY for a voter list, shared by the list
+// queries and the rank lookup. Only the DRep list can be ranked by power.
+const voterOrder = (role: 'DRep' | 'SPO', sort: VoterSort): string =>
+  role === 'DRep' && sort === 'power' ? DREP_VOTERS_ORDER : VOTERS_RECENT_ORDER;
 const HAS_ANCHOR_SQL = "(v.meta_url IS NOT NULL AND v.meta_url <> '')";
 
 /**
- * DRep votes (role 'DRep') on one action, joined to dreps for identity + power,
- * ordered by voting power desc (unknown power last). Filtered by ga_id (the leading
- * column of the (ga_id, voter_id) primary key). Default limit 50, capped 200.
+ * DRep votes (role 'DRep') on one action, joined to dreps for identity + power.
+ * opts.sort is required and picks the order: 'power' is voting power desc
+ * (unknown power last), 'recent' is the newest vote first. Filtered by ga_id
+ * (the leading column of the (ga_id, voter_id) primary key). Default limit 50,
+ * capped 200.
  */
 export async function getActionVoters(
   db: D1Database,
   gaId: string,
-  opts?: { limit?: number; offset?: number },
+  opts: { sort: VoterSort; limit?: number; offset?: number },
 ): Promise<ActionVoterRow[]> {
-  const limit = Math.min(Math.max(opts?.limit ?? 50, 1), 200);
-  const offset = Math.max(opts?.offset ?? 0, 0);
+  const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
+  const offset = Math.max(opts.offset ?? 0, 0);
   const rows = (
     await db
       .prepare(
         `SELECT v.voter_id AS voter_id, v.vote AS vote,
                 d.voting_power AS voting_power, d.hex AS hex, v.voter_hex AS voter_hex, d.image_url AS image_url,
-                v.block_time AS block_time, ${HAS_ANCHOR_SQL} AS has_anchor
+                v.block_time AS block_time, ${HAS_ANCHOR_SQL} AS has_anchor, v.local_status AS local_status
          FROM drep_votes v
          LEFT JOIN dreps d ON d.drep_id = v.voter_id
          WHERE v.ga_id = ? AND v.voter_role = 'DRep'
            AND ${liveVoteSql('v')}
-         ORDER BY ${DREP_VOTERS_ORDER}
+         ORDER BY ${voterOrder('DRep', opts.sort)}
          LIMIT ? OFFSET ?`,
       )
       .bind(gaId, limit, offset)
@@ -495,7 +512,7 @@ export async function countActionVoters(db: D1Database, gaId: string): Promise<n
 
 /**
  * SPO votes (role 'SPO') on one action, joined to pools for the identicon seed,
- * ordered by vote time (newest first, NULL block_time last). SPOs are not power-ranked
+ * ordered by vote time (newest first, no block time last). SPOs are not power-ranked
  * (we do not store pool stake). Identity (name/ticker/logo) is resolved by the caller
  * via the pools map; this returns the same ActionVoterRow shape as getActionVoters for
  * component reuse, with voting_power null. Default limit 50, capped 200.
@@ -512,11 +529,12 @@ export async function getActionSpoVoters(
       .prepare(
         `SELECT v.voter_id AS voter_id, v.vote AS vote,
                 NULL AS voting_power, p.pool_hash AS hex, v.voter_hex AS voter_hex,
-                p.image_stored_url AS image_url, v.block_time AS block_time, ${HAS_ANCHOR_SQL} AS has_anchor
+                p.image_stored_url AS image_url, v.block_time AS block_time, ${HAS_ANCHOR_SQL} AS has_anchor,
+                v.local_status AS local_status
          FROM drep_votes v
          LEFT JOIN pools p ON p.pool_id = v.voter_id
          WHERE v.ga_id = ? AND v.voter_role = 'SPO' AND ${liveVoteSql('v')}
-         ORDER BY ${SPO_VOTERS_ORDER}
+         ORDER BY ${VOTERS_RECENT_ORDER}
          LIMIT ? OFFSET ?`,
       )
       .bind(gaId, limit, offset)
@@ -527,8 +545,10 @@ export async function getActionSpoVoters(
 
 /**
  * 0-based position of one voter in the action's ordered voter list, using the
- * exact ORDER BY of getActionVoters / getActionSpoVoters (the shared fragments
- * above). Null when the voter has no live vote in that role on the action.
+ * exact ORDER BY of getActionVoters / getActionSpoVoters (voterOrder above).
+ * Pass the same sort the DRep list is rendered with. The SPO list has one
+ * order, so the sort is ignored for it. Null when the voter has no live
+ * vote in that role on the action.
  * Lets the positions tab resolve a voter= deep link to the page that actually
  * renders the row, instead of pinning a page number that rots as votes arrive.
  */
@@ -537,15 +557,16 @@ export async function getActionVoterRank(
   gaId: string,
   voterId: string,
   role: 'DRep' | 'SPO',
+  sort: VoterSort,
 ): Promise<number | null> {
-  const isDrep = role === 'DRep';
+  const order = voterOrder(role, sort);
   const row = await db
     .prepare(
       `SELECT rn FROM (
          SELECT v.voter_id AS voter_id,
-                ROW_NUMBER() OVER (ORDER BY ${isDrep ? DREP_VOTERS_ORDER : SPO_VOTERS_ORDER}) AS rn
+                ROW_NUMBER() OVER (ORDER BY ${order}) AS rn
          FROM drep_votes v
-         ${isDrep ? 'LEFT JOIN dreps d ON d.drep_id = v.voter_id' : ''}
+         ${order === DREP_VOTERS_ORDER ? 'LEFT JOIN dreps d ON d.drep_id = v.voter_id' : ''}
          WHERE v.ga_id = ? AND v.voter_role = ? AND ${liveVoteSql('v')}
        ) WHERE voter_id = ?`,
     )

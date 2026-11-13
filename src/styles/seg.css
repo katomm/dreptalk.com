@@ -1,0 +1,28 @@
+/* Segmented pill group, shared by every list control that uses it. On its own
+   so a page that needs only the pills does not load the other list controls.
+   The active pill matches both the JS-toggled .is-active (vote) and the
+   server-rendered [aria-current] link (governance). */
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.seg__btn {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  padding: 0.35rem 0.75rem;
+  cursor: pointer;
+  text-decoration: none;
+  line-height: 1.4;
+}
+.seg__btn.is-active,
+.seg__btn[aria-current='true'] {
+  background: var(--accent);
+  /* On-accent foreground token: white in light mode, dark in dark mode, so the
+     active pill keeps AA contrast on both themes (a hardcoded white failed it in dark). */
+  color: var(--accent-fg);
+}

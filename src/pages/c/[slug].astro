@@ -31,6 +31,7 @@ import { ogCardVersion } from '@/lib/og/version.js';
 import TreasuryOverview from '@/components/ncl/TreasuryOverview.astro';
 import {
   parseGovSort,
+  DEFAULT_GOV_SORT,
   GOV_SORTS,
   GOV_STATUSES,
   parseGovStatus,
@@ -47,9 +48,7 @@ import { loadAuthorIdentities } from '@/lib/forum/author.js';
 import { loadMandates, type MandateBadge } from '@/lib/forum/mandate.js';
 import { parsePage, pageToOffset, cacheControlFor, formatRelativeTime, excerptFromHtml, SITE_ORIGIN } from '@/lib/forum/view.js';
 import { currentNetwork } from '@/lib/api/response.js';
-// Raw inline script (pinned in the CSP by its hash in astro.config.mjs) that
-// persists/restores the reader's sort choice in localStorage.
-import govPrefsRestoreJs from '@/scripts/gov-prefs-restore.js?raw';
+import SortPrefRestore from '@/components/SortPrefRestore.astro';
 import { env } from 'cloudflare:workers';
 import { requestDb } from '@/lib/db/requestDb.js';
 
@@ -324,7 +323,9 @@ const breadcrumbLd = {
   >
     <JsonLd data={breadcrumbLd} />
 
-    {isGovernanceCategory && <script is:inline set:html={govPrefsRestoreJs} />}
+    {isGovernanceCategory && (
+      <SortPrefRestore storageKey="dreptalk:gov-sort" sorts={GOV_SORTS.map((s) => s.mode)} defaultSort={DEFAULT_GOV_SORT} />
+    )}
 
     <CategoryShell category={category} categories={allCategories} stats={catStats} now={now} pager={pager}>
       {isGovernanceCategory ? (

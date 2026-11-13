@@ -15,6 +15,7 @@ import {
   fmtPctFine,
   formatEpochDate,
   formatSubmittedDateTime,
+  formatVoteTime,
   submittedDateLabel,
   govTypeTone,
   isSpoLedType,
@@ -639,5 +640,20 @@ describe('governanceActionDescription', () => {
   it('returns null with no abstract or only pointer lines', () => {
     expect(governanceActionDescription('InfoAction', null)).toBeNull();
     expect(governanceActionDescription('InfoAction', '**Proposal as pdf:** https://example.com/p.pdf')).toBeNull();
+  });
+});
+
+describe('formatVoteTime', () => {
+  const now = Date.UTC(2026, 10, 13, 12, 0, 0);
+  const secondsAgo = (s: number) => Math.floor(now / 1000) - s;
+
+  it('reads relative for a vote within the last 30 days', () => {
+    expect(formatVoteTime(secondsAgo(2 * 3600), now)).toBe('2h ago');
+    expect(formatVoteTime(secondsAgo(29 * 86400), now)).toBe('29d ago');
+  });
+
+  it('shows the UTC date once the vote is 30 days old or older', () => {
+    expect(formatVoteTime(secondsAgo(30 * 86400), now)).toBe('Oct 14, 2026');
+    expect(formatVoteTime(Date.UTC(2025, 1, 15, 23, 59) / 1000, now)).toBe('Feb 15, 2025');
   });
 });

@@ -1,0 +1,21 @@
+---
+// Remembers the reader's sort choice for a server-sorted list (the ?sort= query
+// param) in localStorage and restores it before the default order paints.
+// Render it early in the body of the page that owns the list. The script is
+// raw and inline, pinned in the CSP by its hash in astro.config.mjs, and reads
+// its config from the data attributes below.
+import sortPrefRestoreJs from '@/scripts/sort-pref-restore.js?raw';
+
+interface Props {
+  /** localStorage key that holds the choice. */
+  storageKey: string;
+  /** Every value the page accepts for ?sort=. */
+  sorts: readonly string[];
+  /** The order the server renders without the param. Never redirected to. */
+  defaultSort: string;
+}
+
+const { storageKey, sorts, defaultSort } = Astro.props;
+---
+
+<script is:inline data-key={storageKey} data-sorts={sorts.join(',')} data-default={defaultSort} set:html={sortPrefRestoreJs} />
