@@ -7,6 +7,7 @@ import { sqlPlaceholders } from './sql.js';
 import { activityInsert } from './activity.js';
 import { isWithinGrace, mayEditRow } from '../forum/editPolicy.js';
 import { isGrantActiveForUser } from './proposerGrants.js';
+import { THREAD_PAGE_SIZE, type PostLocation } from '../forum/paging.js';
 
 export interface Topic {
   id: string;
@@ -989,13 +990,24 @@ export interface ThreadPage {
    * for the header strip. Null for a topic with no posts.
    */
   participants: number | null;
+  /**
+   * Live top-level posts of the whole topic, the number pagination counts.
+   * Read on its own, never from the stats row: that row is missing once the
+   * topic author's opening post is deleted, and paging must still work then.
+   */
+  topLevelCount: number;
 }
 
-// The page's top-level posts: live, parentless, oldest first. Shared between
+// The page's top-level posts: live, parentless, oldest first, the id breaking a
+// tie so a post never changes pages between two requests. Shared between
 // the page query (full columns) and the children query's IN subselect (ids).
+// LIVE_TOP_LEVEL is what pagination counts. The page, the count and the rank
+// in getPostLocation all use it, so they cannot disagree about which posts
+// take up a place on a page.
+const LIVE_TOP_LEVEL = 'deleted = 0 AND parent_post_id IS NULL';
 const TOP_LEVEL_PAGE_SQL = `FROM posts
-   WHERE topic_id = ?1 AND deleted = 0 AND parent_post_id IS NULL
-   ORDER BY created_at ASC
+   WHERE topic_id = ?1 AND ${LIVE_TOP_LEVEL}
+   ORDER BY created_at ASC, id ASC
    LIMIT ?2 OFFSET ?3`;
 
 /**
@@ -1014,10 +1026,10 @@ export async function getThreadPage(
   topicId: string,
   opts?: { limit?: number; offset?: number },
 ): Promise<ThreadPage> {
-  const limit = Math.min(Math.max(opts?.limit ?? 50, 1), 100);
+  const limit = Math.min(Math.max(opts?.limit ?? THREAD_PAGE_SIZE, 1), 100);
   const offset = Math.max(opts?.offset ?? 0, 0);
 
-  const [topRes, childRes, statsRes] = await db.batch([
+  const [topRes, childRes, statsRes, countRes] = await db.batch([
     db.prepare(`SELECT ${POST_COLUMNS} ${TOP_LEVEL_PAGE_SQL}`).bind(topicId, limit, offset),
     db
       .prepare(
@@ -1041,6 +1053,7 @@ export async function getThreadPage(
          LIMIT 1`,
       )
       .bind(topicId),
+    db.prepare(`SELECT COUNT(*) AS n FROM posts WHERE topic_id = ?1 AND ${LIVE_TOP_LEVEL}`).bind(topicId),
   ]);
 
   const topLevel = ((topRes.results ?? []) as PostRowNoBody[]).map(rowToPost);
@@ -1072,5 +1085,42 @@ export async function getThreadPage(
     childrenByParent,
     openingPost: opening,
     participants,
+    topLevelCount: (countRes.results?.[0] as { n: number } | undefined)?.n ?? 0,
+  };
+}
+
+/**
+ * Where a post renders, for links that name only the post. Null for an unknown
+ * or deleted post, a deleted topic, or a reply whose top-level post is deleted
+ * (the thread page does not render those replies). A hidden post has a
+ * location, since the thread shows its placeholder to everyone.
+ *
+ * parent_post_id always names the top-level post, so the root is one hop away.
+ * The page is the root's rank among the topic's live top-level posts, in the
+ * order of TOP_LEVEL_PAGE_SQL.
+ */
+export async function getPostLocation(
+  db: D1Database,
+  postId: string,
+  pageSize = THREAD_PAGE_SIZE,
+): Promise<PostLocation | null> {
+  const row = await db
+    .prepare(
+      `SELECT t.slug AS slug, t.source AS source,
+         (SELECT COUNT(*) FROM posts
+           WHERE topic_id = root.topic_id AND ${LIVE_TOP_LEVEL}
+             AND (created_at < root.created_at OR (created_at = root.created_at AND id < root.id))) AS before
+       FROM posts p
+       JOIN posts root ON root.id = COALESCE(p.parent_post_id, p.id)
+       JOIN topics t ON t.id = p.topic_id
+       WHERE p.id = ?1 AND p.deleted = 0 AND root.deleted = 0 AND t.deleted = 0`,
+    )
+    .bind(postId)
+    .first<{ slug: string; source: string; before: number }>();
+  if (!row) return null;
+  return {
+    topicSlug: row.slug,
+    governance: row.source === 'governance',
+    page: Math.floor(row.before / pageSize) + 1,
   };
 }

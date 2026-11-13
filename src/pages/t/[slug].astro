@@ -7,6 +7,7 @@ import NotFound from '@/components/NotFound.astro';
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
 import ThreadPosts from '@/components/ThreadPosts.astro';
 import ThreadMap from '@/components/ThreadMap.astro';
+import PostLinkResolver from '@/components/PostLinkResolver.astro';
 import TitleEditor from '@/components/TitleEditor.astro';
 import GaTabs from '@/components/ga/GaTabs.astro';
 import GaOverview from '@/components/ga/GaOverview.astro';
@@ -110,6 +111,7 @@ import { nclStatusFor, currentNclPeriod } from '@/lib/governance/ncl.js';
 import { getEnactedTreasuryWithdrawals, getNclActionLinks, type NclActionLink } from '@/lib/db/treasury.js';
 import { env } from 'cloudflare:workers';
 import { requestDb } from '@/lib/db/requestDb.js';
+import { THREAD_PAGE_SIZE, pageCount, threadPageUrl } from '@/lib/forum/paging.js';
 
 const { slug } = Astro.params;
 
@@ -145,7 +147,8 @@ if (notFound) {
   Astro.response.headers.set('Cache-Control', 'no-store');
 }
 
-const PAGE_SIZE = 50;
+// One page size for the thread and for the voter lists of the Positions tab.
+const PAGE_SIZE = THREAD_PAGE_SIZE;
 const page = parsePage(Astro.url.searchParams.get('page'));
 const offset = pageToOffset(page, PAGE_SIZE);
 
@@ -175,7 +178,7 @@ const [thread, citablePostIds, relatedTopicRows, viewerComposerMandate, govActio
   await Promise.all([
     topic && db
       ? getThreadPage(db, topic.id, { limit: PAGE_SIZE, offset })
-      : Promise.resolve<ThreadPage>({ topLevel: [], childrenByParent: new Map(), openingPost: null, participants: null }),
+      : Promise.resolve<ThreadPage>({ topLevel: [], childrenByParent: new Map(), openingPost: null, participants: null, topLevelCount: 0 }),
     // The post ids on this page that have an emitted CIP-100 document, i.e. are
     // safe to show a Cite link for. A post inside its edit grace window, or one
     // the cron has not reached yet, has no version index at all: a visible link
@@ -200,6 +203,20 @@ const [thread, citablePostIds, relatedTopicRows, viewerComposerMandate, govActio
     isDraftTopic && db && topic ? getDraftLinkedActions(db, topic.id) : Promise.resolve([]),
     isDrep && (isGovernanceTopic || isSurveyTopic) && db ? getSelfDrepId(db, user) : Promise.resolve(null),
   ]);
+
+// A page past the last one (a stale link after deletions, a typed number) goes
+// to the last page. Only where this view renders the thread: the Positions tab
+// reads the same page parameter for its own list. 302, never 301, since the
+// thread can grow into that page number later.
+const pageTotal = pageCount(thread.topLevelCount);
+if (topic && (!isGovernanceTopic || tab === 'discussion') && page > pageTotal) {
+  const redirect = Astro.redirect(
+    threadPageUrl({ slug: topic.slug, governance: isGovernanceTopic, page: pageTotal }),
+    302,
+  );
+  redirect.headers.set('Cache-Control', 'no-store');
+  return redirect;
+}
 
 const relatedTopics = relatedTopicRows.map((r) => ({
   title: r.title,
@@ -694,10 +711,6 @@ if (committeeNameRows && onchainChanges?.kind === 'committee' && committee.membe
   }
 }
 
-const prevPage = page > 1 ? page - 1 : null;
-// Pagination counts top-level posts; replies render with their parent.
-const nextPage = thread.topLevel.length === PAGE_SIZE ? page + 1 : null;
-
 const firstPostDate = topic
   ? new Date(topic.created_at).toISOString()
   : new Date().toISOString();
@@ -744,7 +757,7 @@ const commentLd = topic
               author: authorNode(describe(p.author_id)),
               datePublished: new Date(p.created_at).toISOString(),
               text,
-              url: siteOrigin + `/t/${topic.slug}/#post-${p.id}`,
+              url: siteOrigin + threadPageUrl({ slug: topic.slug, governance: isGovernanceTopic, page, hash: `#post-${p.id}` }),
             }
           : null;
       })
@@ -842,6 +855,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
     )}
     {discussionLd && <JsonLd data={discussionLd} />}
     {breadcrumbLd && <JsonLd data={breadcrumbLd} />}
+    <PostLinkResolver />
 
     <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
       <a href="/">DRepTalk</a>
@@ -917,8 +931,8 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
                 flaggedPostIds={flaggedPostIds}
                 viewerReactions={viewerReactions}
                 isGovernanceTopic={isGovernanceTopic}
-                prevPage={prevPage}
-                nextPage={nextPage}
+                page={page}
+                pageCount={pageTotal}
                 now={now}
                 mandates={mandates}
                 viewerActiveGrantIds={viewerActiveGrantIds}
@@ -1074,8 +1088,8 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
           flaggedPostIds={flaggedPostIds}
           viewerReactions={viewerReactions}
           isGovernanceTopic={isGovernanceTopic}
-          prevPage={prevPage}
-          nextPage={nextPage}
+          page={page}
+          pageCount={pageTotal}
           now={now}
           startIndex={offset}
           mandates={mandates}

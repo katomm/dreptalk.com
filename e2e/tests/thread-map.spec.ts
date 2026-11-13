@@ -43,6 +43,9 @@ test('a long plain thread gets the rail and the wide page shape', async ({ page 
   await expect(rows(page)).toHaveCount(30);
   await expect(page.locator('.thread-map__person')).toHaveCount(5);
   await expect(page.locator('[data-tm-pos]')).toHaveText('1 / 30');
+  // Each row carries the first words of its post as a second line.
+  await expect(rows(page).first().locator('.thread-map__snippet')).toBeVisible();
+  await expect(rows(page).first().locator('.thread-map__snippet')).toContainText(/^Post 1 /);
   // With the rail the page takes the wide shape of the governance pages: the
   // text column grows, and column and rail line up with the header's content.
   const column = await rect(page, '.thread-single');
@@ -153,14 +156,16 @@ test('a depth-2 reply is indented deeper than a direct reply', async ({ page }) 
 test('each layout shows the map only where there is room', async ({ page }) => {
   await open(page, LONG, 1000);
   await expect(map(page)).toBeVisible();
+  await expect(page.locator('.thread-map__len').first()).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   // Between 856 and 1000px the text column narrows to make room.
   await open(page, LONG, 890);
   await expect(map(page)).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   expect((await rect(page, '.thread-single')).width).toBeGreaterThanOrEqual(576);
-  // The narrow rail drops the participant filter.
+  // The narrow rail drops the participant filter and the length bars.
   await expect(page.locator('.thread-map__people')).toBeHidden();
+  await expect(page.locator('.thread-map__len').first()).toBeHidden();
   await open(page, LONG, 850);
   await expect(map(page)).toBeHidden();
 

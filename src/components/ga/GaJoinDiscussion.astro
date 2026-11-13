@@ -3,6 +3,8 @@
 // so this is the page's main nudge to weigh in; the discussion tab itself owns the
 // composer and the signed-out sign-in banner. Rendered as its own block by the
 // thread page so it can sit at the very end of the mobile stack.
+import { threadPageUrl } from '@/lib/forum/paging.js';
+
 interface Props {
   slug: string;
   commentCount: number;
@@ -12,7 +14,7 @@ interface Props {
 
 const { slug, commentCount, loggedIn, locked } = Astro.props;
 
-const discussionHref = `/t/${slug}/?tab=discussion`;
+const discussionHref = threadPageUrl({ slug, governance: true });
 const commentLabel = commentCount === 1 ? '1 comment' : `${commentCount} comments`;
 const hasComments = commentCount > 0;
 ---

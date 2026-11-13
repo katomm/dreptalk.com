@@ -9,6 +9,7 @@ import LogoMark from '@/components/LogoMark.astro';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import { authorProfileHref } from '@/lib/forum/author.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
+import { threadPageUrl } from '@/lib/forum/paging.js';
 import { MESSAGE_PATH, USERS_PATH, topicTypeIconPath } from '@/lib/forum/icons.js';
 import { statusBadge, govStatusVerb, isTerminalStatus, TONE_COLORS } from '@/lib/governance/view.js';
 
@@ -39,7 +40,7 @@ const discussionsVerb =
 // tab explicitly, otherwise the post anchor lands on the Overview tab where the
 // comment is not rendered and the scroll never resolves.
 const href = event.refPostId
-  ? `/t/${event.topic.slug}/${event.topic.source === 'governance' ? '?tab=discussion' : ''}#post-${event.refPostId}`
+  ? threadPageUrl({ slug: event.topic.slug, governance: event.topic.source === 'governance', hash: `#post-${event.refPostId}` })
   : `/t/${event.topic.slug}/`;
 
 const badge =

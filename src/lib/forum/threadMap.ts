@@ -73,3 +73,13 @@ export function currentIndex(tops: number[], bandTop: number, atEnd: boolean): n
   });
   return current;
 }
+
+/**
+ * Whether the phone pill steps aside for a moment. Edges are viewport y
+ * coordinates. It hides while a text control has focus (the on-screen keyboard
+ * would sit under it) and once the posts end above its bottom edge: whatever
+ * follows them, the composer or the join banner, then never shares its area.
+ */
+export function pillHidden(s: { formFocused: boolean; postsEnd: number; pillBottom: number }): boolean {
+  return s.formFocused || s.postsEnd < s.pillBottom;
+}
