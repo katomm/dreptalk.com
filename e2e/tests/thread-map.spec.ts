@@ -43,9 +43,13 @@ test('a long plain thread gets the rail and the wide page shape', async ({ page 
   await expect(rows(page)).toHaveCount(30);
   await expect(page.locator('.thread-map__person')).toHaveCount(5);
   await expect(page.locator('[data-tm-pos]')).toHaveText('1 / 30');
-  // Each row carries the first words of its post as a second line.
+  // Each row shows the first words of its post next to the avatar. The
+  // author's name is not on screen, it stays in the row's accessible name.
   await expect(rows(page).first().locator('.thread-map__snippet')).toBeVisible();
   await expect(rows(page).first().locator('.thread-map__snippet')).toContainText(/^Post 1 /);
+  await expect(page.locator('.thread-map__name')).toHaveCount(0);
+  await expect(rows(page).first()).toHaveAttribute('aria-label', /^.+: Post 1 /);
+  await expect(rows(page).first()).toHaveAttribute('title', /^.+: Post 1 /);
   // With the rail the page takes the wide shape of the governance pages: the
   // text column grows, and column and rail line up with the header's content.
   const column = await rect(page, '.thread-single');

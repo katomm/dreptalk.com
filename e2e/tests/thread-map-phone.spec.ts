@@ -218,7 +218,7 @@ test('a focused text field hides the pill until it loses focus', async ({ page }
   await expect(pill(page)).toBeVisible();
 });
 
-test('a post without text gets a row without a second line', async ({ page }) => {
+test('a post without text gets a row with the author name', async ({ page }) => {
   // Posts hidden for the viewer render no prose. Strip one before the map reads it.
   await page.addInitScript(() => {
     new MutationObserver(() => {
@@ -230,6 +230,8 @@ test('a post without text gets a row without a second line', async ({ page }) =>
   const row = page.locator('.thread-map__row[href="#post-e2e-tmap-long-02"]');
   await expect(row.locator('.thread-map__snippet')).toHaveCount(0);
   await expect(row.locator('.thread-map__name')).toBeVisible();
+  // Every other row shows post text and no name.
+  await expect(page.locator('.thread-map__name')).toHaveCount(1);
   expect(await row.evaluate((el) => el.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
 });
 

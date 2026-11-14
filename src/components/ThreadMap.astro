@@ -103,7 +103,7 @@ const { variant } = Astro.props;
         isSystem: article.dataset.postSystem !== undefined,
         depth: Number(article.dataset.postDepth ?? 0),
         words: countWords(text),
-        snippet: text.trimStart().slice(0, 240).replace(/\s+/gu, ' ').trim().slice(0, 80),
+        snippet: text.trimStart().slice(0, 480).replace(/\s+/gu, ' ').trim().slice(0, 160),
       };
     });
     const totalWords = posts.reduce((sum, post) => sum + post.words, 0);
@@ -132,23 +132,21 @@ const { variant } = Astro.props;
       const link = document.createElement('a');
       link.className = 'thread-map__row';
       link.href = `#post-${post.id}`;
-      if (post.snippet) link.title = post.snippet;
+      // The avatar says who wrote the post, the text shows its first words. The
+      // name stays in the tooltip and in the accessible name, since the avatar
+      // copy is hidden from screen readers.
+      const label = post.snippet ? `${post.authorName}: ${post.snippet}` : post.authorName;
+      link.title = label;
+      link.setAttribute('aria-label', label);
       link.style.setProperty('--tm-indent', String(indentLevel(post.depth)));
       link.appendChild(avatarFor(articles[index]));
       const text = document.createElement('span');
       text.className = 'thread-map__text';
-      const name = document.createElement('span');
-      name.className = 'thread-map__name';
-      name.textContent = post.authorName;
-      text.appendChild(name);
-      // The first words of the post as a second line, since one author's rows
-      // are otherwise all alike.
-      if (post.snippet) {
-        const snippet = document.createElement('span');
-        snippet.className = 'thread-map__snippet';
-        snippet.textContent = post.snippet;
-        text.appendChild(snippet);
-      }
+      // A post without readable text (hidden, or images only) shows the name.
+      const line = document.createElement('span');
+      line.className = post.snippet ? 'thread-map__snippet' : 'thread-map__name';
+      line.textContent = post.snippet || post.authorName;
+      text.appendChild(line);
       link.appendChild(text);
       const width = lengthBarPx(post.words, maxWords);
       if (width > 0) {
@@ -413,8 +411,8 @@ const { variant } = Astro.props;
     .thread-map--rail .thread-map__card:not([data-filtered]) .thread-map__people {
       display: none;
     }
-    /* It also drops the length bar of each row, so name and first words get
-       the whole line. */
+    /* It also drops the length bar of each row, so the first words get the
+       whole line. */
     .thread-map--rail .thread-map__len {
       display: none;
     }
@@ -544,23 +542,22 @@ const { variant } = Astro.props;
     display: flex;
     flex-direction: column;
   }
-  .thread-map__name,
-  .thread-map__snippet {
+  .thread-map__name {
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
-  }
-  /* Two lines per row, set tight so the list still shows many posts. */
-  .thread-map__name {
     line-height: 1.3;
   }
+  /* Two lines of the post per row, set tight so the list still shows many
+     posts. Posts can open with a long hash or URL, which must break. */
   .thread-map__snippet {
-    font-size: 0.75rem;
-    line-height: 1.35;
-    color: color-mix(in srgb, var(--muted) 80%, transparent);
-  }
-  .thread-map__row[aria-current='location'] .thread-map__snippet {
-    color: inherit;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+    line-height: 1.3;
   }
   /* Sheet only, see below. */
   .thread-map__close {
@@ -584,7 +581,7 @@ const { variant } = Astro.props;
     height: var(--avatar-size);
   }
   .thread-map__row .thread-map__avatar {
-    --avatar-size: 18px;
+    --avatar-size: 22px;
   }
   .thread-map__person .thread-map__avatar {
     --avatar-size: 24px;
@@ -730,10 +727,7 @@ const { variant } = Astro.props;
     padding-inline-start: calc(0.5rem + var(--tm-indent, 0) * 1rem);
   }
   .thread-map-sheet .thread-map__row .thread-map__avatar {
-    --avatar-size: 24px;
-  }
-  .thread-map-sheet .thread-map__snippet {
-    font-size: 0.8125rem;
+    --avatar-size: 28px;
   }
   @media (prefers-reduced-motion: no-preference) {
     .thread-map-sheet[open] {
