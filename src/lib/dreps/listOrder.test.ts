@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   type DrepOrderRow,
+  drepListHref,
   explicitDrepListSort,
   firstGroupMiss,
+  firstGroupStandingLine,
   orderDrepList,
   parseDrepListSort,
   utcDayKey,
@@ -140,5 +142,48 @@ describe('orderDrepList', () => {
     const out = orderDrepList(rest, { day: DAY, floorLovelace: FLOOR });
     expect(out.firstGroupSize).toBe(0);
     expect(out.ids[0]).toBe('r_hi');
+  });
+});
+
+describe('drepListHref', () => {
+  const bare = { sortInUrl: null, all: false, group: null };
+  const power = { sortInUrl: 'power' as const, all: false, group: null };
+
+  it('keeps a bare URL bare', () => {
+    expect(drepListHref(bare)).toBe('/dreps/');
+    expect(drepListHref(bare, { page: 2 })).toBe('/dreps/?page=2');
+    expect(drepListHref(bare, { all: true })).toBe('/dreps/?all=1');
+  });
+  it('keeps a sort that is in the URL on every in-list link', () => {
+    expect(drepListHref(power, { page: 3 })).toBe('/dreps/?page=3&sort=power');
+    expect(drepListHref(power, { all: true })).toBe('/dreps/?all=1&sort=power');
+    expect(drepListHref({ ...power, all: true }, { all: false })).toBe('/dreps/?sort=power');
+    // "Active only" on /dreps/?all=1 without a sort: the full path drops the filter.
+    expect(drepListHref({ ...bare, all: true }, { all: false })).toBe('/dreps/');
+    expect(drepListHref({ ...power, group: 'group1abc' }, { group: null })).toBe('/dreps/?sort=power');
+  });
+  it('makes every sort control link explicit and drops the page', () => {
+    expect(drepListHref(power, { sort: 'active' })).toBe('/dreps/?sort=active');
+    expect(drepListHref(bare, { sort: 'delegators' })).toBe('/dreps/?sort=delegators');
+    expect(drepListHref({ sortInUrl: 'power', all: true, group: 'group1abc' }, { sort: 'active' }))
+      .toBe('/dreps/?all=1&sort=active&group=group1abc');
+  });
+  it('keeps all and group across the pager', () => {
+    expect(drepListHref({ sortInUrl: null, all: true, group: 'group1abc' }, { page: 2 }))
+      .toBe('/dreps/?page=2&all=1&group=group1abc');
+  });
+});
+
+describe('firstGroupStandingLine', () => {
+  const F = 25_000_000_000n;
+  it('words each case', () => {
+    expect(firstGroupStandingLine(null, 82.4, F)).toBe('Voted on 82% of governance actions. In the first group.');
+    expect(firstGroupStandingLine('inactive', 90, F)).toBe('Not active, so not in the first group.');
+    expect(firstGroupStandingLine('no_name', 90, F)).toBe('Not in the first group: your DRep metadata has no name.');
+    expect(firstGroupStandingLine('below_floor', 90, F)).toBe('Not in the first group: voting power is below 25,000 ada.');
+    expect(firstGroupStandingLine('no_report_card', null, F)).toBe('Not in the first group: no participation figure yet.');
+    expect(firstGroupStandingLine('below_threshold', 61.6, F)).toBe('Voted on 61% of governance actions. The first group starts at 70%.');
+    expect(firstGroupStandingLine('below_threshold', 69.5, F)).toBe('Voted on 69% of governance actions. The first group starts at 70%.');
+    expect(firstGroupStandingLine('do_not_list', 90, F)).toBe('Not in the first group: your DRep metadata sets doNotList.');
   });
 });

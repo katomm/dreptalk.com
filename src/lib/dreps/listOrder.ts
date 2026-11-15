@@ -116,3 +116,58 @@ export function orderDrepList(
   });
   return { ids: [...first, ...rest].map((r) => r.id), firstGroupSize: first.length };
 }
+
+export interface DrepListUrlState {
+  /** The valid `sort` the URL carries, or null for a bare URL. From explicitDrepListSort. */
+  sortInUrl: DrepListSort | null;
+  /** True when the URL has all=1. */
+  all: boolean;
+  /** Group id string of the group filter, or null. */
+  group: string | null;
+}
+
+/**
+ * Href of a link inside the list: always the full path "/dreps/" plus the query, never a bare
+ * query string. An empty href would resolve to the current URL and keep its query.
+ * Param order: page, all, sort, group. `change.sort` is the sort control: always explicit, page dropped.
+ */
+export function drepListHref(
+  state: DrepListUrlState,
+  change: { sort?: DrepListSort; all?: boolean; group?: null; page?: number } = {},
+): string {
+  const all = change.all ?? state.all;
+  const sort = change.sort ?? state.sortInUrl;
+  const group = change.group === null ? null : state.group;
+  const parts: string[] = [];
+  if (change.sort === undefined && change.page !== undefined) parts.push(`page=${change.page}`);
+  if (all) parts.push('all=1');
+  if (sort) parts.push(`sort=${sort}`);
+  // Group ids are bech32, safe in a query without encoding.
+  if (group) parts.push(`group=${group}`);
+  return parts.length ? `/dreps/?${parts.join('&')}` : '/dreps/';
+}
+
+/** The standing line of the signed-in DRep's card in the default view. */
+export function firstGroupStandingLine(
+  miss: FirstGroupMiss | null,
+  participationPct: number | null,
+  floorLovelace: bigint,
+): string {
+  const voted = participationPct === null ? '' : `Voted on ${wholePercent(participationPct)}% of governance actions. `;
+  switch (miss) {
+    case null:
+      return `${voted}In the first group.`;
+    case 'inactive':
+      return 'Not active, so not in the first group.';
+    case 'no_name':
+      return 'Not in the first group: your DRep metadata has no name.';
+    case 'below_floor':
+      return `Not in the first group: voting power is below ${(floorLovelace / 1_000_000n).toLocaleString('en-US')} ada.`;
+    case 'no_report_card':
+      return 'Not in the first group: no participation figure yet.';
+    case 'below_threshold':
+      return `${voted}The first group starts at ${FIRST_GROUP_MIN_PARTICIPATION_PCT}%.`;
+    case 'do_not_list':
+      return 'Not in the first group: your DRep metadata sets doNotList.';
+  }
+}
