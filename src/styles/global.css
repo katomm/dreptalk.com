@@ -1067,14 +1067,15 @@ a.drep-stat:focus-visible { outline: 2px solid var(--accent); outline-offset: 2p
    hides, and the kebab grows to a 44px tap target. Placed after the base rules so
    it overrides them. */
 @media (max-width: 640px) {
-  /* The rank sub-line and trend hide already apply from 960px down; mobile is
-     always power-ordered (the delegators sort is desktop-only). */
+  /* The rank sub-line and trend hide already apply from 960px down. The
+     delegators ranking swaps the power column for the delegator count (see the
+     drep-table--by-delegators rules below). */
   .drep-table thead th.drep-table__power-h { width: 6.5rem; }
   /* Wider than the 44px button so the right-aligned kebab keeps a gap to the
      voting-power column; the DRep name (which truncates) yields the space. */
   .drep-table thead th.drep-table__actions-h { width: 3.75rem; }
-  /* Trend is already hidden from 960px down (see above). Delegators is a
-     desktop-only column; the profile page carries the count on mobile. */
+  /* Trend is already hidden from 960px down (see above). Delegators hides here
+     except in the delegators ranking, the profile page carries the count. */
   .drep-table thead th.drep-table__delegators-h,
   .drep-table__delegators { display: none; }
   .drep-delegate-btn { display: none; }
@@ -1083,6 +1084,52 @@ a.drep-stat:focus-visible { outline: 2px solid var(--accent); outline-offset: 2p
   .drep-power__bar { display: none; }
   .drep-power__ada-full { display: none; }
   .drep-power__ada-compact { display: inline; }
+}
+
+/* Default view of the list (active DReps first): no rank and no trend, a Voted
+   and a Rationales column instead. Placed after the shared rules above so the
+   head widths win by source order at equal specificity. */
+.drep-table--active thead th.drep-table__voted-h { width: 9rem; }
+.drep-table--active thead th.drep-table__rationales-h { width: 7rem; text-align: right; }
+.drep-table--active thead th.drep-table__power-h { width: 9rem; text-align: right; }
+.drep-table--active td.drep-table__rationales { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+.drep-table--active .drep-table__power { text-align: right; }
+.drep-table--active .drep-power { align-items: flex-end; }
+.drep-table__voted { font-variant-numeric: tabular-nums; }
+/* Participation figure with its own bar. The power bar class hides on phones,
+   this one stays. */
+.drep-voted { display: flex; align-items: center; gap: 0.5rem; }
+.drep-voted__pct { min-width: 2.5rem; font-weight: 600; white-space: nowrap; }
+.drep-voted__bar { flex: 0 1 60px; height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; }
+.drep-voted__fill { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+/* Divider between the first group and everyone else. A full row with the same
+   cells as a data row, so the column hides below apply to it as well. The label
+   sits in the first cell and may run over the empty cells to its right. */
+.drep-table tbody tr.drep-table__divider td {
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.8125rem;
+  padding-top: 0.45rem;
+  padding-bottom: 0.45rem;
+}
+.drep-table tbody tr.drep-table__divider td:first-child { white-space: nowrap; overflow: visible; padding-left: 0.5rem; }
+
+@media (max-width: 960px) {
+  /* Five fixed columns and the name do not fit below this width. */
+  .drep-table--active thead th.drep-table__rationales-h,
+  .drep-table--active .drep-table__rationales { display: none; }
+}
+
+@media (max-width: 640px) {
+  .drep-table--active thead th.drep-table__voted-h,
+  .drep-table--active thead th.drep-table__power-h { width: 5.5rem; }
+  .drep-voted__bar { flex-basis: 32px; }
+  .drep-voted__pct { min-width: 0; }
+  /* The delegators ranking shows its own sort key on phones, in place of the power. */
+  .drep-table--by-delegators thead th.drep-table__delegators-h,
+  .drep-table--by-delegators .drep-table__delegators { display: table-cell; }
+  .drep-table--by-delegators thead th.drep-table__power-h,
+  .drep-table--by-delegators .drep-table__power { display: none; }
 }
 
 /* DRep voting history: a card holding a four-column table (vote, action, outcome,
