@@ -1,0 +1,52 @@
+---
+// Actions cell of a DRep directory row: the Delegate quick-action and the kebab
+// menu. DrepActionsMenu reads the data-drep-* attributes of both buttons.
+import type { Drep } from '@/lib/db/dreps.js';
+
+interface Props {
+  drep: Drep;
+  /** The row's display name, from drepDescriptor. */
+  name: string;
+  /** The 28-byte DRep credential hex, or null when the DRep cannot receive a delegation. */
+  cred: string | null;
+}
+const { drep, name, cred } = Astro.props;
+---
+
+<span class="drep-row-actions">
+  {/* Desktop quick-action, hidden on mobile (the kebab carries it
+      there). Only shown when the DRep can actually receive a
+      delegation (script DReps without a credential cannot). */}
+  {cred && (
+    <button
+      type="button"
+      class="btn btn-secondary drep-delegate-btn"
+      data-drep-delegate
+      data-drep-id={drep.drepId}
+      data-drep-slug={drep.slug ?? ''}
+      data-drep-name={name}
+      data-drep-cred={cred}
+      data-drep-script={drep.hasScript ? '1' : '0'}
+      aria-label={`Delegate voting power to ${name}`}
+    >
+      Delegate
+    </button>
+  )}
+  <button
+    type="button"
+    class="drep-action-btn"
+    data-drep-action
+    data-drep-id={drep.drepId}
+    data-drep-slug={drep.slug ?? ''}
+    data-drep-name={name}
+    data-drep-cred={cred ?? ''}
+    data-drep-script={drep.hasScript ? '1' : '0'}
+    aria-haspopup="true"
+    aria-expanded="false"
+    aria-label={`Actions for ${name}`}
+  >
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+      <circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" />
+    </svg>
+  </button>
+</span>

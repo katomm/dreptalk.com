@@ -2,6 +2,8 @@
 // first in an order that changes daily, everyone else follows by participation.
 // Pure functions only, no database access.
 
+import { isoDate } from '@/lib/format/date.js';
+
 export type DrepListSort = 'active' | 'power' | 'delegators';
 
 /** Sort options of the DRep list with their control labels, in display order. */
@@ -64,7 +66,7 @@ export function firstGroupMiss(row: DrepOrderRow, floorLovelace: bigint): FirstG
 
 /** 'YYYY-MM-DD' in UTC. */
 export function utcDayKey(nowMs: number): string {
-  return new Date(nowMs).toISOString().slice(0, 10);
+  return isoDate(new Date(nowMs));
 }
 
 /** A percent for display, rounded down, so 69.5 never reads as 70. */
