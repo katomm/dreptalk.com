@@ -8,7 +8,7 @@ import { credBytes, hashBytes } from '../groups/codec.js';
 import { LISTED_MIN_MEMBERS } from '../groups/constants.js';
 import { drepIdForCredential } from '../groups/ids.js';
 import { listGroupIdsForSitemap } from './drepGroups.js';
-import { listDreps } from './dreps.js';
+import { listDrepOrderRows, listDreps } from './dreps.js';
 
 const db = env.DB as D1Database;
 const seedGroup = (n: number, o?: GroupSeed): Promise<void> => seedGroupRow(db, n, o);
@@ -71,6 +71,17 @@ describe('listDreps group filter', () => {
     expect(await page({ activeOnly: false, sort: 'delegators', offset: 1, limit: 1 })).toEqual([drepOf(3)]);
     expect(await page({ activeOnly: false, sort: 'power', offset: 2 })).toEqual([drepOf(3)]);
     expect(await page({ activeOnly: true, sort: 'delegators', offset: 1 })).toEqual([drepOf(1)]);
+  });
+
+  it('filters the ordering rows by group exactly like the list', async () => {
+    for (const n of [1, 2, 3]) await seedDrep(n);
+    await seedGroup(1, { members: 1 });
+    await seedMember(1, 1, 'open');
+    await seedMember(1, 2, 'former');
+    const fromRows = (await listDrepOrderRows(db, { group: refOf(1) })).map((r) => r.drepId);
+    const fromList = (await listDreps(db, { group: refOf(1), limit: 100 })).map((d) => d.drepId);
+    expect(new Set(fromRows)).toEqual(new Set(fromList));
+    expect(fromRows).toEqual([drepOf(1)]);
   });
 
   it('lists a group in the sitemap from LISTED_MIN_MEMBERS members', async () => {

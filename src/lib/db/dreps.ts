@@ -8,6 +8,7 @@ import { SPECIAL_DREP_IDS } from '../dreps/special.js';
 import { computeVotingPowerDelta } from '../dreps/votingPowerTrend.js';
 import { buildJobInsert } from './fanoutJobs.js';
 import type { EventRef } from 'drep-groups';
+import type { DrepOrderRow } from '../dreps/listOrder.js';
 import { hexToBytes } from '../crypto/hex.js';
 import { GROUP_MEMBER_DREPS_SQL } from '../groups/store/memberDrepsSql.js';
 
@@ -311,6 +312,26 @@ export async function listIndexableDrepIds(db: D1Database): Promise<string[]> {
 }
 
 /**
+ * The WHERE clause shared by listDreps and listDrepOrderRows, so the two filters
+ * cannot drift. Both read FROM dreps d, and every outer column is qualified with
+ * d. because drep_id is ambiguous in the join with drep_report_card.
+ */
+function drepListFilter(opts: { activeOnly?: boolean; group?: EventRef }): { whereSql: string; binds: unknown[] } {
+  const where: string[] = [];
+  const binds: unknown[] = [];
+  if (opts.activeOnly) where.push('d.active = 1');
+  // Never list the predefined pseudo-DReps (always-abstain / always-no-confidence).
+  where.push(`d.drep_id NOT IN (${sqlPlaceholders(SPECIAL_DREP_IDS)})`);
+  binds.push(...SPECIAL_DREP_IDS);
+  if (opts.group) {
+    const tx = hexToBytes(opts.group.txHash);
+    where.push(`d.drep_id IN (${GROUP_MEMBER_DREPS_SQL})`);
+    binds.push(tx, opts.group.index, tx, opts.group.index);
+  }
+  return { whereSql: `WHERE ${where.join(' AND ')}`, binds };
+}
+
+/**
  * Directory listing: dreps ordered by numeric voting power desc, optionally
  * active-only, paginated. ~2k rows total, so the CAST sort is cheap.
  * Default limit 50, capped 100. Name search is handled by the global FTS palette.
@@ -321,28 +342,17 @@ export async function listDreps(
 ): Promise<Drep[]> {
   const limit = Math.min(Math.max(opts.limit ?? 50, 1), 100);
   const offset = Math.max(opts.offset ?? 0, 0);
-  const where: string[] = [];
-  const binds: unknown[] = [];
-  if (opts.activeOnly) where.push('active = 1');
-  // Never list the predefined pseudo-DReps (always-abstain / always-no-confidence).
-  where.push(`drep_id NOT IN (${sqlPlaceholders(SPECIAL_DREP_IDS)})`);
-  binds.push(...SPECIAL_DREP_IDS);
-  if (opts.group) {
-    const tx = hexToBytes(opts.group.txHash);
-    where.push(`drep_id IN (${GROUP_MEMBER_DREPS_SQL})`);
-    binds.push(tx, opts.group.index, tx, opts.group.index);
-  }
-  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const { whereSql, binds } = drepListFilter(opts);
   // Whitelisted sort keys only (never interpolate user input). Delegator sort keeps
   // voting power as the tie-break and pushes never-counted rows (NULL) to the end.
   const orderSql =
     opts.sort === 'delegators'
-      ? 'ORDER BY delegator_count DESC NULLS LAST, CAST(voting_power AS INTEGER) DESC'
-      : 'ORDER BY CAST(voting_power AS INTEGER) DESC';
+      ? 'ORDER BY d.delegator_count DESC NULLS LAST, CAST(d.voting_power AS INTEGER) DESC'
+      : 'ORDER BY CAST(d.voting_power AS INTEGER) DESC';
   const rows = (
     await db
       .prepare(
-        `SELECT * FROM dreps ${whereSql}
+        `SELECT d.* FROM dreps d ${whereSql}
          ${orderSql}
          LIMIT ? OFFSET ?`,
       )
@@ -350,6 +360,65 @@ export async function listDreps(
       .all<DrepRow>()
   ).results ?? [];
   return rows.map(rowToDrep);
+}
+
+interface DrepOrderDbRow {
+  drep_id: string;
+  active: number;
+  has_name: number;
+  voting_power: string | null;
+  do_not_list: number;
+  participation_pct: number | null;
+  rationale_pct: number | null;
+}
+
+const ORDER_ROW_SELECT = `SELECT d.drep_id, d.active, (d.name IS NOT NULL AND d.name <> '') AS has_name,
+          d.voting_power, d.do_not_list, c.participation_pct, c.rationale_pct
+     FROM dreps d LEFT JOIN drep_report_card c ON c.drep_id = d.drep_id`;
+
+function rowToOrderRow(r: DrepOrderDbRow): DrepOrderRow {
+  return {
+    drepId: r.drep_id,
+    active: r.active === 1,
+    hasName: r.has_name === 1,
+    votingPower: r.voting_power,
+    doNotList: r.do_not_list === 1,
+    participationPct: r.participation_pct,
+    rationalePct: r.rationale_pct,
+  };
+}
+
+/** Ordering columns of every DRep in the filter. Same filter as listDreps: specials never, active-only optional, group optional. */
+export async function listDrepOrderRows(
+  db: D1Database,
+  opts: { activeOnly?: boolean; group?: EventRef },
+): Promise<DrepOrderRow[]> {
+  const { whereSql, binds } = drepListFilter(opts);
+  const rows = (
+    await db
+      .prepare(`${ORDER_ROW_SELECT} ${whereSql}`)
+      .bind(...binds)
+      .all<DrepOrderDbRow>()
+  ).results ?? [];
+  return rows.map(rowToOrderRow);
+}
+
+/** The same columns for one DRep, without any filter. Null when the id is unknown. */
+export async function getDrepOrderRow(db: D1Database, drepId: string): Promise<DrepOrderRow | null> {
+  const row = await db
+    .prepare(`${ORDER_ROW_SELECT} WHERE d.drep_id = ?`)
+    .bind(drepId)
+    .first<DrepOrderDbRow>();
+  return row ? rowToOrderRow(row) : null;
+}
+
+/** Full rows in exactly the order of `ids`. An id without a row is skipped. */
+export async function getDrepsInOrder(db: D1Database, ids: string[]): Promise<Drep[]> {
+  const byId = await getDrepsByIds(db, ids);
+  return ids.flatMap((id) => {
+    const d = byId.get(id);
+    return d ? [d] : [];
+  });
 }
 
 /**
