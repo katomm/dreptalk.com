@@ -1115,15 +1115,21 @@ a.drep-stat:focus-visible { outline: 2px solid var(--accent); outline-offset: 2p
 .drep-table tbody tr.drep-table__divider td:first-child { white-space: nowrap; overflow: visible; padding-left: 0.5rem; }
 
 @media (max-width: 960px) {
-  /* Five fixed columns and the name do not fit below this width. */
+  /* Five fixed columns and the name do not fit below this width. Rationales and
+     Delegators drop out, the name keeps DRep, Voted, power and the actions. */
   .drep-table--active thead th.drep-table__rationales-h,
-  .drep-table--active .drep-table__rationales { display: none; }
+  .drep-table--active .drep-table__rationales,
+  .drep-table--active thead th.drep-table__delegators-h,
+  .drep-table--active .drep-table__delegators { display: none; }
 }
 
 @media (max-width: 640px) {
   /* Slim Voted and power columns so the DRep name keeps room next to the
-     actions column. Voted shows only its percent here, the bar drops out. */
-  .drep-table--active thead th.drep-table__voted-h { width: 3.25rem; }
+     actions column. Voted shows only its percent here, the bar drops out. Its
+     left padding keeps the figure off the end of the name, the width still fits
+     "100%" next to it. */
+  .drep-table--active thead th.drep-table__voted-h { width: 3.75rem; padding-left: 0.5rem; }
+  .drep-table--active td.drep-table__voted { padding-left: 0.5rem; }
   .drep-table--active thead th.drep-table__power-h { width: 4.75rem; }
   .drep-table--active .drep-voted__bar { display: none; }
   .drep-voted__pct { min-width: 0; }
