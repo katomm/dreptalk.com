@@ -372,7 +372,7 @@ interface DrepOrderDbRow {
   rationale_pct: number | null;
 }
 
-const ORDER_ROW_SELECT = `SELECT d.drep_id, d.active, (d.name IS NOT NULL AND d.name <> '') AS has_name,
+const ORDER_ROW_SELECT = `SELECT d.drep_id, d.active, (d.name IS NOT NULL AND trim(d.name) <> '') AS has_name,
           d.voting_power, d.do_not_list, c.participation_pct, c.rationale_pct
      FROM dreps d LEFT JOIN drep_report_card c ON c.drep_id = d.drep_id`;
 

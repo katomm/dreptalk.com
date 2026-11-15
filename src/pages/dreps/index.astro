@@ -29,6 +29,7 @@ import {
   DREP_LIST_SORTS,
   FIRST_GROUP_MIN_PARTICIPATION_PCT,
   drepListHref,
+  drepListPage,
   explicitDrepListSort,
   firstGroupMiss,
   firstGroupStandingLine,
@@ -126,15 +127,12 @@ const [orderRows, rankingRows, concentrationRows, powerAggregates, recentEpochSt
 // participation. Only the visible page of full rows is loaded.
 const order = orderRows ? orderDrepList(orderRows, { day: utcDayKey(Date.now()), floorLovelace: floor }) : null;
 const orderRowById = new Map<string, DrepOrderRow>(orderRows ? orderRows.map((r) => [r.drepId, r]) : []);
-const dreps: Drep[] =
-  rankingRows ??
-  (db && order ? await getDrepsInOrder(db, order.ids.slice(listOffset, listOffset + PAGE_SIZE)) : []);
 const firstGroupSize = order?.firstGroupSize ?? 0;
-// Id of the first DRep after the first group, where the divider row goes. Keyed
-// on the id (not the row index) so a skipped id cannot shift it. Null when the
-// list is all first group or has no first group at all.
-const dividerBeforeId =
-  order && firstGroupSize > 0 && firstGroupSize < order.ids.length ? order.ids[firstGroupSize] : null;
+// This page of the default view: its ids, the id the divider row goes before
+// (null when this page has no divider) and whether a next page exists.
+const orderPage = order ? drepListPage(order.ids, firstGroupSize, listOffset, PAGE_SIZE) : null;
+const dividerBeforeId = orderPage?.dividerBeforeId ?? null;
+const dreps: Drep[] = rankingRows ?? (db && orderPage ? await getDrepsInOrder(db, orderPage.pageIds) : []);
 // Top-10 share per epoch for the teaser sparkline (the live figure above it
 // comes from the current snapshot, the line from the stored epoch series).
 const top10Series = recentSeries(contiguousTail(recentEpochStats), 'top10SharePct');
@@ -225,17 +223,19 @@ const network = currentNetwork().network;
 
 Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
 
-const nextPage = (order ? order.ids.length > listOffset + PAGE_SIZE : dreps.length === PAGE_SIZE) ? page + 1 : null;
+const nextPage = (orderPage ? orderPage.hasNext : dreps.length === PAGE_SIZE) ? page + 1 : null;
 const prevPage = page > 1 ? page - 1 : null;
 const pageHref = (p: number): string => drepListHref(listState, { page: p });
 
-// Rule line above the default view's table, only when a first group exists.
+// Rule line above the default view's table, only when a first group exists and the page has rows.
 const firstGroupRule =
   firstGroupSize === 1
     ? { lead: '1 DRep is shown first, in an order that changes every day. It voted', meets: 'meets' }
     : { lead: `${firstGroupSize.toLocaleString('en-US')} DReps are shown first, in an order that changes every day. They voted`, meets: 'meet' };
 
 // Intro sentence and meta description by view.
+// The default view falls back to plain copy when the first group is empty, so
+// the page does not promise a daily order it cannot show.
 const VIEW_COPY: Record<DrepListSort, { intro: string; meta: string }> = {
   active: {
     intro:
@@ -251,7 +251,12 @@ const VIEW_COPY: Record<DrepListSort, { intro: string; meta: string }> = {
     meta: "Browse every Cardano DRep ranked by active voting power. See each delegate representative's voting record, delegation, and governance participation on DRepTalk.",
   },
 };
-const { intro: introText, meta: metaDescription } = VIEW_COPY[sort];
+const EMPTY_FIRST_GROUP_COPY = {
+  intro: 'Decentralized Representatives in Cardano governance.',
+  meta: "Browse every Cardano DRep. See each delegate representative's voting record, delegation, and governance participation on DRepTalk.",
+};
+const { intro: introText, meta: metaDescription } =
+  sort === 'active' && firstGroupSize === 0 ? EMPTY_FIRST_GROUP_COPY : VIEW_COPY[sort];
 
 // The 28-byte DRep credential the delegation tx targets. Prefer the stored Koios
 // `hex`; fall back to deriving it from the drep id. Null disables the delegate
@@ -370,7 +375,7 @@ const selfDelta = selfDrep ? computeVotingPowerDelta(selfDrep.votingPowerSnapsho
     </div>
   </div>
 
-  {sort === 'active' && firstGroupSize > 0 && (
+  {sort === 'active' && firstGroupSize > 0 && dreps.length > 0 && (
     <p class="dreps-filter">
       {firstGroupRule.lead} on at least {FIRST_GROUP_MIN_PARTICIPATION_PCT}% of governance actions and {firstGroupRule.meets}{' '}
       <a href="/help/delegate-to-a-drep/#how-the-drep-list-is-ordered">the other conditions for the first group</a>.

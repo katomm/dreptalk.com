@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   type DrepOrderRow,
   drepListHref,
+  drepListPage,
   explicitDrepListSort,
   firstGroupMiss,
   firstGroupStandingLine,
@@ -51,6 +52,10 @@ describe('wholePercent', () => {
     expect(wholePercent(70)).toBe(70);
     expect(wholePercent(0)).toBe(0);
   });
+  it('does not read an exact ratio stored as a float one point low', () => {
+    expect(wholePercent((29 / 50) * 100)).toBe(58);
+    expect(wholePercent(69.5)).toBe(69);
+  });
 });
 
 describe('firstGroupMiss', () => {
@@ -75,6 +80,9 @@ describe('firstGroupMiss', () => {
     expect(firstGroupMiss(row('a', { active: false, hasName: false }), FLOOR)).toBe('inactive');
     // A new DRep: 4 of 4 voted, no report card row yet.
     expect(firstGroupMiss(row('a', { participationPct: null, doNotList: true }), FLOOR)).toBe('no_report_card');
+    expect(firstGroupMiss(row('a', { hasName: false, votingPower: '0' }), FLOOR)).toBe('no_name');
+    expect(firstGroupMiss(row('a', { votingPower: '0', participationPct: null }), FLOOR)).toBe('below_floor');
+    expect(firstGroupMiss(row('a', { participationPct: 50, doNotList: true }), FLOOR)).toBe('below_threshold');
   });
 });
 
@@ -145,6 +153,26 @@ describe('orderDrepList', () => {
   });
 });
 
+describe('drepListPage', () => {
+  const ids = Array.from({ length: 90 }, (_, i) => `d${i + 1}`);
+
+  it('puts the divider on the page where the first group ends', () => {
+    expect(drepListPage(ids, 55, 0, 50)).toEqual({ pageIds: ids.slice(0, 50), dividerBeforeId: null, hasNext: true });
+    expect(drepListPage(ids, 55, 50, 50)).toEqual({ pageIds: ids.slice(50, 90), dividerBeforeId: 'd56', hasNext: false });
+  });
+  it('makes the divider the first row of the next page when the group ends at a page end', () => {
+    expect(drepListPage(ids, 50, 0, 50).dividerBeforeId).toBeNull();
+    expect(drepListPage(ids, 50, 50, 50).dividerBeforeId).toBe('d51');
+  });
+  it('has no divider for an empty first group or one that is the whole list', () => {
+    expect(drepListPage(ids, 0, 0, 50).dividerBeforeId).toBeNull();
+    expect(drepListPage(ids, 90, 50, 50).dividerBeforeId).toBeNull();
+  });
+  it('returns an empty page past the end', () => {
+    expect(drepListPage(ids, 55, 1000, 50)).toEqual({ pageIds: [], dividerBeforeId: null, hasNext: false });
+  });
+});
+
 describe('drepListHref', () => {
   const bare = { sortInUrl: null, all: false, group: null };
   const power = { sortInUrl: 'power' as const, all: false, group: null };
@@ -178,12 +206,15 @@ describe('firstGroupStandingLine', () => {
   const F = 25_000_000_000n;
   it('words each case', () => {
     expect(firstGroupStandingLine(null, 82.4, F)).toBe('Voted on 82% of governance actions. In the first group.');
-    expect(firstGroupStandingLine('inactive', 90, F)).toBe('Not active, so not in the first group.');
-    expect(firstGroupStandingLine('no_name', 90, F)).toBe('Not in the first group: your DRep metadata has no name.');
-    expect(firstGroupStandingLine('below_floor', 90, F)).toBe('Not in the first group: voting power is below 25,000 ada.');
+    expect(firstGroupStandingLine('inactive', 90, F)).toBe('Voted on 90% of governance actions. Not active, so not in the first group.');
+    expect(firstGroupStandingLine('inactive', null, F)).toBe('Not active, so not in the first group.');
+    expect(firstGroupStandingLine('no_name', 90, F)).toBe('Voted on 90% of governance actions. Not in the first group: your DRep metadata has no name.');
+    expect(firstGroupStandingLine('no_name', null, F)).toBe('Not in the first group: your DRep metadata has no name.');
+    expect(firstGroupStandingLine('below_floor', 90, F)).toBe('Voted on 90% of governance actions. Not in the first group: voting power is below 25,000 ada.');
+    expect(firstGroupStandingLine('below_floor', null, F)).toBe('Not in the first group: voting power is below 25,000 ada.');
     expect(firstGroupStandingLine('no_report_card', null, F)).toBe('Not in the first group: no participation figure yet.');
     expect(firstGroupStandingLine('below_threshold', 61.6, F)).toBe('Voted on 61% of governance actions. The first group starts at 70%.');
     expect(firstGroupStandingLine('below_threshold', 69.5, F)).toBe('Voted on 69% of governance actions. The first group starts at 70%.');
-    expect(firstGroupStandingLine('do_not_list', 90, F)).toBe('Not in the first group: your DRep metadata sets doNotList.');
+    expect(firstGroupStandingLine('do_not_list', 90, F)).toBe('Voted on 90% of governance actions. Not in the first group: your DRep metadata sets doNotList.');
   });
 });

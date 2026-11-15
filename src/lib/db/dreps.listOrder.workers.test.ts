@@ -82,6 +82,10 @@ describe('listDrepOrderRows', () => {
     await seedDrep({ id: 'o_dnl', name: 'Shy', doNotList: true });
     expect((await listDrepOrderRows(db(), {})).find((r) => r.drepId === 'o_dnl')!.doNotList).toBe(true);
   });
+  it('treats a whitespace-only name as no name', async () => {
+    await seedDrep({ id: 'o_spaces', name: '   ' });
+    expect((await listDrepOrderRows(db(), {})).find((r) => r.drepId === 'o_spaces')!.hasName).toBe(false);
+  });
 });
 
 describe('getDrepOrderRow', () => {

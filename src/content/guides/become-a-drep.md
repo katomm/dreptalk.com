@@ -4,7 +4,7 @@ description: "What a DRep is, what the role involves, which wallet you need, and
 cardLabel: "How to become a DRep"
 category: "Start here"
 order: 1
-updated: 2026-09-18
+updated: 2026-11-16
 ---
 
 Becoming a DRep (delegated representative) is how you take an active role in
@@ -90,7 +90,8 @@ Your profile becomes discoverable to ada holders looking for a DRep to delegate
 to. Wallets that support CIP-95 governance, block explorers, and DRepTalk's own
 [DRep directory](/dreps/) will all list you. If you set the "do not list"
 flag, tools that respect it leave you out of their directories. DRepTalk's
-directory still shows you, only the [Find your DRep](/match/) quiz skips you.
+directory still shows you, but not in the first group of the list, and the
+[Find your DRep](/match/) quiz skips you.
 
 From this point you can:
 

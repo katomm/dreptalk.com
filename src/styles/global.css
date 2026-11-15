@@ -1095,9 +1095,12 @@ a.drep-stat:focus-visible { outline: 2px solid var(--accent); outline-offset: 2p
 .drep-table--active td.drep-table__rationales { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
 .drep-table--active .drep-table__power { text-align: right; }
 .drep-table--active .drep-power { align-items: flex-end; }
+/* The DRep cell has no left padding here, so the self row's accent bar would
+   sit under the avatar. Room for the bar in this view only. */
+.drep-table--active tbody tr.drep-row--self td:first-child { padding-left: 0.6rem; }
 .drep-table__voted { font-variant-numeric: tabular-nums; }
-/* Participation figure with its own bar. The power bar class hides on phones,
-   this one stays. */
+/* Participation figure with its own bar. The bar hides at 640px and below,
+   see the phone rules further down. */
 .drep-voted { display: flex; align-items: center; gap: 0.5rem; }
 .drep-voted__pct { min-width: 2.5rem; font-weight: 600; white-space: nowrap; }
 .drep-voted__bar { flex: 0 1 60px; height: 6px; border-radius: 999px; background: var(--border); overflow: hidden; }

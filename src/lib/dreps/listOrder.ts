@@ -69,9 +69,13 @@ export function utcDayKey(nowMs: number): string {
   return isoDate(new Date(nowMs));
 }
 
-/** A percent for display, rounded down, so 69.5 never reads as 70. */
+/**
+ * A percent for display, rounded down, so 69.5 never reads as 70. The small
+ * epsilon keeps an exact ratio stored as a float (29 of 50 as 57.99999999999999)
+ * from reading one point low.
+ */
 export function wholePercent(pct: number): number {
-  return Math.floor(pct);
+  return Math.floor(pct + 1e-9);
 }
 
 // FNV-1a over the UTF-16 code units of "<day>:<drepId>", as an unsigned 32-bit integer.
@@ -119,6 +123,26 @@ export function orderDrepList(
   return { ids: [...first, ...rest].map((r) => r.id), firstGroupSize: first.length };
 }
 
+/**
+ * One page of the default view: the ids to load, the id the divider row goes
+ * before (keyed on the id, so a skipped id cannot shift it) and whether a next
+ * page exists. No divider when the first group is empty or is the whole list.
+ */
+export function drepListPage(
+  ids: string[],
+  firstGroupSize: number,
+  offset: number,
+  pageSize: number,
+): { pageIds: string[]; dividerBeforeId: string | null; hasNext: boolean } {
+  const pageIds = ids.slice(offset, offset + pageSize);
+  const splitsHere = firstGroupSize > 0 && firstGroupSize < ids.length && firstGroupSize >= offset && firstGroupSize < offset + pageSize;
+  return {
+    pageIds,
+    dividerBeforeId: splitsHere ? ids[firstGroupSize] : null,
+    hasNext: ids.length > offset + pageSize,
+  };
+}
+
 export interface DrepListUrlState {
   /** The valid `sort` the URL carries, or null for a bare URL. From explicitDrepListSort. */
   sortInUrl: DrepListSort | null;
@@ -160,16 +184,16 @@ export function firstGroupStandingLine(
     case null:
       return `${voted}In the first group.`;
     case 'inactive':
-      return 'Not active, so not in the first group.';
+      return `${voted}Not active, so not in the first group.`;
     case 'no_name':
-      return 'Not in the first group: your DRep metadata has no name.';
+      return `${voted}Not in the first group: your DRep metadata has no name.`;
     case 'below_floor':
-      return `Not in the first group: voting power is below ${(floorLovelace / 1_000_000n).toLocaleString('en-US')} ada.`;
+      return `${voted}Not in the first group: voting power is below ${(floorLovelace / 1_000_000n).toLocaleString('en-US')} ada.`;
     case 'no_report_card':
-      return 'Not in the first group: no participation figure yet.';
+      return `${voted}Not in the first group: no participation figure yet.`;
     case 'below_threshold':
       return `${voted}The first group starts at ${FIRST_GROUP_MIN_PARTICIPATION_PCT}%.`;
     case 'do_not_list':
-      return 'Not in the first group: your DRep metadata sets doNotList.';
+      return `${voted}Not in the first group: your DRep metadata sets doNotList.`;
   }
 }
