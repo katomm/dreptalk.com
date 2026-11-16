@@ -13,6 +13,13 @@ async function seedHistory(epoch: number, rows: [string, string, number | null][
   }
 }
 
+async function seedDrep(drepId: string, votingPower: string | null, active = 1) {
+  await env.DB.prepare(
+    `INSERT INTO dreps (drep_id, status, active, voting_power, last_synced_at, created_at)
+     VALUES (?, 'registered', ?, ?, 0, 0)`,
+  ).bind(drepId, active, votingPower).run();
+}
+
 async function statsRow(epoch: number) {
   return env.DB.prepare('SELECT * FROM governance_epoch_stats WHERE epoch = ?').bind(epoch)
     .first<Record<string, unknown>>();
@@ -42,7 +49,7 @@ describe('syncCurrentEpochStats', () => {
       ['drep1b', '400', null],
       ['drep_always_abstain', '9000', 200],
     ]);
-    const r1 = await syncCurrentEpochStats({ db: env.DB, koios: makeKoios(), cfg, epoch: 540 });
+    const r1 = await syncCurrentEpochStats({ db: env.DB, koios: makeKoios(), cfg, epoch: 540, drepsFresh: false });
     expect(r1.written).toBe(true);
     let row = await statsRow(540);
     expect(row?.total_drep_power).toBe('1000');
@@ -59,15 +66,112 @@ describe('syncCurrentEpochStats', () => {
     await env.DB.prepare(
       'UPDATE drep_voting_power_history SET delegator_count = 50 WHERE drep_id = ? AND epoch = 540',
     ).bind('drep1b').run();
-    await syncCurrentEpochStats({ db: env.DB, koios: makeKoios(), cfg, epoch: 540 });
+    await syncCurrentEpochStats({ db: env.DB, koios: makeKoios(), cfg, epoch: 540, drepsFresh: false });
     row = await statsRow(540);
     expect(row?.delegator_total).toBe(150);
     expect(row?.vote_data_complete).toBe(0);
   });
 
   it('skips without history rows for the epoch', async () => {
-    const r = await syncCurrentEpochStats({ db: env.DB, koios: makeKoios(), cfg, epoch: 999 });
+    const r = await syncCurrentEpochStats({ db: env.DB, koios: makeKoios(), cfg, epoch: 999, drepsFresh: false });
     expect(r.written).toBe(false);
+  });
+});
+
+describe('unexpired DReps in the current-epoch pass', () => {
+  const UNEXPIRED = ['unexpired_drep_count', 'unexpired_powered_drep_count', 'unexpired_drep_power', 'unexpired_top10_share_pct'];
+
+  async function seedEpoch(epoch: number) {
+    await seedHistory(epoch, [
+      ['drep1a', '600', null],
+      ['drep1b', '400', null],
+      ['drep1expired', '5000', null],
+      ['drep_always_abstain', '9000', null],
+    ]);
+  }
+
+  async function seedGroup() {
+    await seedDrep('drep1a', '600');
+    await seedDrep('drep1b', '400');
+    await seedDrep('drep1nopower', '0');
+    // Holds the most power of all, but its activity has expired.
+    await seedDrep('drep1expired', '5000', 0);
+    // The predefined options never count as DReps, whatever their row says.
+    await seedDrep('drep_always_abstain', '9000');
+    await seedDrep('drep_always_no_confidence', '100');
+  }
+
+  it('writes the group the DRep list shows: active rows only, predefined options left out', async () => {
+    await seedEpoch(600);
+    await seedGroup();
+    await syncCurrentEpochStats({ db: env.DB, koios: makeKoios(), cfg, epoch: 600, drepsFresh: true });
+    const row = await statsRow(600);
+    expect(row?.unexpired_drep_count).toBe(3);
+    expect(row?.unexpired_powered_drep_count).toBe(2);
+    expect(row?.unexpired_drep_power).toBe('1000');
+    expect(row?.unexpired_top10_share_pct).toBe(100);
+    // The snapshot aggregate in the same row still covers the expired DRep.
+    expect(row?.total_drep_power).toBe('6000');
+  });
+
+  it('a second run in the same epoch updates the one row instead of adding one', async () => {
+    await seedEpoch(601);
+    await seedGroup();
+    await syncCurrentEpochStats({ db: env.DB, koios: makeKoios(), cfg, epoch: 601, drepsFresh: true });
+    const first = await statsRow(601);
+
+    // Nothing changed on chain: the rerun stores the same values.
+    await syncCurrentEpochStats({ db: env.DB, koios: makeKoios(), cfg, epoch: 601, drepsFresh: true });
+    const second = await statsRow(601);
+    for (const c of UNEXPIRED) expect(second?.[c]).toEqual(first?.[c]);
+
+    // The expired DRep voted and is active again: the same row follows.
+    await env.DB.prepare('UPDATE dreps SET active = 1 WHERE drep_id = ?').bind('drep1expired').run();
+    await syncCurrentEpochStats({ db: env.DB, koios: makeKoios(), cfg, epoch: 601, drepsFresh: true });
+    const third = await statsRow(601);
+    expect(third?.unexpired_drep_count).toBe(4);
+    expect(third?.unexpired_powered_drep_count).toBe(3);
+    expect(third?.unexpired_drep_power).toBe('6000');
+
+    const n = await env.DB.prepare('SELECT COUNT(*) AS n FROM governance_epoch_stats').first<{ n: number }>();
+    expect(n?.n).toBe(1);
+  });
+
+  it('keeps the last observation when a later run has no fresh DRep sync', async () => {
+    await seedEpoch(602);
+    await seedGroup();
+    await syncCurrentEpochStats({ db: env.DB, koios: makeKoios(), cfg, epoch: 602, drepsFresh: true });
+    // The dreps table moved on, but this run's dreps phase failed, so the
+    // table is not an observation of this run.
+    await env.DB.prepare('UPDATE dreps SET active = 0').run();
+    await syncCurrentEpochStats({ db: env.DB, koios: makeKoios(), cfg, epoch: 602, drepsFresh: false });
+    const row = await statsRow(602);
+    expect(row?.unexpired_drep_count).toBe(3);
+    expect(row?.unexpired_drep_power).toBe('1000');
+  });
+
+  it('stores NULL for a new epoch whose first run has no fresh DRep sync (rollover with a failed dreps phase)', async () => {
+    await seedEpoch(603);
+    // The table still holds the previous epoch's group.
+    await seedGroup();
+    await syncCurrentEpochStats({ db: env.DB, koios: makeKoios(), cfg, epoch: 603, drepsFresh: false });
+    const row = await statsRow(603);
+    expect(row).not.toBeNull();
+    for (const c of UNEXPIRED) expect(row?.[c]).toBeNull();
+
+    // The next run with a fresh sync fills the same row.
+    await syncCurrentEpochStats({ db: env.DB, koios: makeKoios(), cfg, epoch: 603, drepsFresh: true });
+    expect((await statsRow(603))?.unexpired_drep_count).toBe(3);
+  });
+
+  it('leaves backfilled past epochs NULL, whatever the dreps table holds today', async () => {
+    await seedGroup();
+    await backfillEpochStats({ db: env.DB, koios: makeKoios(), cfg, currentEpoch: 541, budget: 3 });
+    for (const epoch of [538, 539, 540]) {
+      const row = await statsRow(epoch);
+      expect(row).not.toBeNull();
+      for (const c of UNEXPIRED) expect(row?.[c]).toBeNull();
+    }
   });
 });
 
@@ -149,7 +253,7 @@ describe('finalization after an epoch roll', () => {
        VALUES ('gaF', 'drep1a', 'DRep', 'Yes', ?, 0)`,
     ).bind(t0 + 10).run();
 
-    const live = await syncCurrentEpochStats({ db: env.DB, koios: makeKoios(), cfg, epoch: 540 });
+    const live = await syncCurrentEpochStats({ db: env.DB, koios: makeKoios(), cfg, epoch: 540, drepsFresh: false });
     expect(live.written).toBe(true);
     let row = await statsRow(540);
     // Written while the epoch is still open: incomplete no matter what the

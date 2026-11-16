@@ -11,6 +11,7 @@ const baseInput = {
   votesCast: 7,
   voteDataComplete: true,
   treasuryLovelace: '1234',
+  unexpiredDreps: null,
 };
 
 describe('computeGini', () => {
@@ -131,5 +132,77 @@ describe('silent powered DReps', () => {
     expect(row.silentPoweredDrepCount).toBe(1);
     // The recently-voting count is the set size, voters without power included.
     expect(row.recentlyVotingDrepCount).toBe(3);
+  });
+});
+
+describe('unexpired DReps (the group behind the DRep list header)', () => {
+  const history = [h('drep1a', '600')];
+
+  it('stores four NULLs without a fresh observation', () => {
+    const row = computeEpochStatsRow({ ...baseInput, history, unexpiredDreps: null });
+    expect(row.unexpiredDrepCount).toBeNull();
+    expect(row.unexpiredPoweredDrepCount).toBeNull();
+    expect(row.unexpiredDrepPower).toBeNull();
+    expect(row.unexpiredTop10SharePct).toBeNull();
+  });
+
+  it('counts every observed DRep, and only those with power above zero as powered', () => {
+    const row = computeEpochStatsRow({
+      ...baseInput,
+      history,
+      unexpiredDreps: [{ votingPower: '700' }, { votingPower: '300' }, { votingPower: '0' }, { votingPower: null }],
+    });
+    expect(row.unexpiredDrepCount).toBe(4);
+    expect(row.unexpiredPoweredDrepCount).toBe(2);
+    expect(row.unexpiredDrepPower).toBe('1000');
+    expect(row.unexpiredTop10SharePct).toBe(100);
+  });
+
+  it('counts a malformed or negative amount as zero power, like the list header, instead of failing the row', () => {
+    // The column is untrusted text. A throw here would take the whole epoch
+    // row with it, treasury and vote counts included.
+    const row = computeEpochStatsRow({
+      ...baseInput,
+      history,
+      unexpiredDreps: [{ votingPower: '500' }, { votingPower: '1.5' }, { votingPower: 'abc' }, { votingPower: '-1' }],
+    });
+    expect(row.unexpiredDrepCount).toBe(4);
+    expect(row.unexpiredPoweredDrepCount).toBe(1);
+    expect(row.unexpiredDrepPower).toBe('500');
+  });
+
+  it('is independent of the snapshot rows of the epoch', () => {
+    // The observed list is the DRep list's own group, a DRep in it needs no
+    // snapshot row and a snapshot row does not put a DRep into it.
+    const row = computeEpochStatsRow({ ...baseInput, history, unexpiredDreps: [{ votingPower: '5' }] });
+    expect(row.totalDrepPower).toBe('600');
+    expect(row.unexpiredDrepPower).toBe('5');
+  });
+
+  it('sums lovelace amounts beyond 2^53 exactly', () => {
+    const row = computeEpochStatsRow({
+      ...baseInput,
+      history,
+      unexpiredDreps: [{ votingPower: '9007199254740993' }, { votingPower: '9007199254740993' }],
+    });
+    expect(row.unexpiredDrepPower).toBe('18014398509481986');
+  });
+
+  it('takes the top-10 share from the ten largest amounts, in any input order', () => {
+    // One small DRep first, then 10 of 100 each: the ten largest hold 1000 of 1010.
+    const row = computeEpochStatsRow({
+      ...baseInput,
+      history,
+      unexpiredDreps: [{ votingPower: '10' }, ...Array.from({ length: 10 }, () => ({ votingPower: '100' }))],
+    });
+    expect(row.unexpiredTop10SharePct).toBeCloseTo(99.0099, 3);
+  });
+
+  it('reports an observed empty group as zeros, not as missing', () => {
+    const row = computeEpochStatsRow({ ...baseInput, history, unexpiredDreps: [] });
+    expect(row.unexpiredDrepCount).toBe(0);
+    expect(row.unexpiredPoweredDrepCount).toBe(0);
+    expect(row.unexpiredDrepPower).toBe('0');
+    expect(row.unexpiredTop10SharePct).toBe(0);
   });
 });

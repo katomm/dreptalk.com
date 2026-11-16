@@ -1,8 +1,9 @@
 // Phase registry for the DRep cron (0 */6): enumerate every registered DRep and
 // persist profile data, then the derived per-epoch and per-profile passes.
-// Two values genuinely flow between phases (the delegator counts observed by
-// the dreps phase, and the epoch the voting-power history captured); they live
-// in an explicitly typed per-run state rather than ad-hoc locals.
+// Three values genuinely flow between phases (the delegator counts observed by
+// the dreps phase, whether that phase refreshed the dreps table at all, and
+// the epoch the voting-power history captured). They live in an explicitly
+// typed per-run state rather than ad-hoc locals.
 
 import { syncDreps, backfillRegisteredEpochs, backfillDrepSlugs } from '../../dreps/sync.js';
 import { syncDrepHandles } from '../../drepLink/sync.js';
@@ -49,6 +50,15 @@ export interface DrepSyncState {
    */
   observedDelegatorCounts: ReadonlyMap<string, number>;
   /**
+   * True once the dreps phase of this run has refreshed the dreps table
+   * (DrepSyncResult.tableRefreshed). The epoch-stats phase reads the header
+   * group of the DRep list from that table and must not take a table left
+   * over from an earlier run for an observation of this one. At an epoch
+   * rollover that would be the previous epoch's group. Stays false when the
+   * phase throws.
+   */
+  drepsFresh: boolean;
+  /**
    * The epoch the history phase captured this run, so the digest only ever
    * evaluates data written in the same pass. Set only after the history sync
    * returned, so a failed fetch skips the digest until the next run.
@@ -57,7 +67,7 @@ export interface DrepSyncState {
 }
 
 export function initialDrepSyncState(): DrepSyncState {
-  return { observedDelegatorCounts: new Map(), vpHistoryEpoch: null };
+  return { observedDelegatorCounts: new Map(), drepsFresh: false, vpHistoryEpoch: null };
 }
 
 export interface DrepSyncContext extends CoreSyncContext {
@@ -101,6 +111,7 @@ export const drepPhases: readonly SyncPhaseDef<DrepSyncContext>[] = [
         followedDrepIds,
       });
       ctx.state.observedDelegatorCounts = r.observedDelegatorCounts;
+      ctx.state.drepsFresh = r.tableRefreshed;
       console.log(
         `[drep-sync] total=${r.total} updated=${r.updated} skipped=${r.skipped} ` +
           `deactivated=${r.deactivated} anchorsFetched=${r.anchorsFetched} ` +
@@ -219,12 +230,15 @@ export const drepPhases: readonly SyncPhaseDef<DrepSyncContext>[] = [
     // this run. Runs after the vote-history sweep so the vote-derived columns
     // see the freshest sweep state, and is recomputed every run: intra-epoch
     // votes and late delegator stamps converge onto the same row until the
-    // epoch rolls. Metric definitions live in analytics/epochStatsContract.ts.
+    // epoch rolls. The unexpired columns need this run's dreps phase to have
+    // refreshed the dreps table (state.drepsFresh). Metric definitions live
+    // in analytics/epochStatsContract.ts.
     name: 'epoch-stats',
     run: async (ctx) => {
       if (ctx.state.vpHistoryEpoch === null) return { items: 0 };
       const r = await syncCurrentEpochStats({
         db: ctx.db, koios: ctx.koios, cfg: ctx.cfg, epoch: ctx.state.vpHistoryEpoch,
+        drepsFresh: ctx.state.drepsFresh,
       });
       console.log(`[epoch-stats] epoch=${ctx.state.vpHistoryEpoch} written=${r.written}`);
       return { items: r.written ? 1 : 0 };

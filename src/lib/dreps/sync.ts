@@ -38,6 +38,13 @@ const METADATA_GC_GRACE_SEC = 24 * 60 * 60;
 
 export interface DrepSyncResult {
   total: number;
+  /**
+   * Whether this run refreshed the dreps table: false when Koios enumerated no
+   * DReps, which is treated as a transient (no row is updated, deactivated or
+   * collected). A caller that reads the table as this run's observation of the
+   * chain, like the epoch stats, has to check this first.
+   */
+  tableRefreshed: boolean;
   updated: number;
   skipped: number;
   /** Rows transitioned to inactive because the DRep left the registered set. */
@@ -565,6 +572,7 @@ export async function syncDreps(deps: DrepSyncDeps): Promise<DrepSyncResult> {
 
   return {
     total: ids.length,
+    tableRefreshed: ids.length > 0,
     updated,
     skipped,
     deactivated,

@@ -8,9 +8,15 @@
 // (both vote-derived columns and the flag) once the epoch has closed and the
 // vote-history sweep has drained. The backfill also fetches older epochs from
 // Koios transiently (never into the history table), oldest first, budgeted
-// per run, and leaves the forward-only delegator columns NULL. See
+// per run, and leaves the forward-only columns NULL: the delegator counts and
+// the unexpired columns, which only the current-epoch pass can observe. See
 // epochStatsContract.ts for what every column means.
-import { computeEpochStatsRow, countSilentPoweredDreps, type EpochHistoryInput } from './epochStats.js';
+import {
+  computeEpochStatsRow,
+  countSilentPoweredDreps,
+  type EpochHistoryInput,
+  type UnexpiredDrepInput,
+} from './epochStats.js';
 import { RECENT_VOTING_WINDOW_EPOCHS } from './epochStatsContract.js';
 import {
   upsertEpochStats,
@@ -22,6 +28,7 @@ import {
   listIncompleteVoteDataEpochs,
   updateVoteDerivedStats,
 } from '../db/governanceEpochStats.js';
+import { listDrepsForConcentration } from '../db/dreps.js';
 import { fetchEpochPowerRows } from '../dreps/votingPowerHistorySync.js';
 import type { NetworkConfig } from '../config/network.js';
 
@@ -51,6 +58,11 @@ async function loadStoredEpochHistory(db: D1Database, epoch: number): Promise<Ep
  * to observe votes in it), so the live pass always passes false regardless of
  * sweep state. The backfill passes true, since a backfilled epoch has already
  * closed, and the sweep-based gate (unswept === 0) is the right check there.
+ *
+ * `unexpiredDreps` is this run's observation of the DRep list's header group, or
+ * null when there is none: every past epoch, and a live run whose dreps phase
+ * did not deliver. Null stores NULL: neither D1 nor Koios keeps the group of
+ * a past epoch, so there is nothing to compute it from afterwards.
  */
 async function buildRow(
   db: D1Database,
@@ -59,6 +71,7 @@ async function buildRow(
   history: EpochHistoryInput[],
   treasuryLovelace: string | null,
   epochClosed: boolean,
+  unexpiredDreps: readonly UnexpiredDrepInput[] | null,
 ) {
   const [unswept, recentlyVotingDrepIds, votesCast] = await Promise.all([
     countUnsweptActions(db),
@@ -72,6 +85,7 @@ async function buildRow(
     votesCast,
     voteDataComplete: epochClosed && unswept === 0,
     treasuryLovelace,
+    unexpiredDreps,
   });
 }
 
@@ -81,13 +95,25 @@ export interface SyncCurrentEpochStatsDeps {
   cfg: NetworkConfig;
   /** The epoch the history phase captured this run. */
   epoch: number;
+  /**
+   * Whether the dreps phase of THIS run refreshed the dreps table (see
+   * DrepSyncState.drepsFresh). False writes NULL for the unexpired columns
+   * and the upsert keeps the epoch's last real observation.
+   */
+  drepsFresh: boolean;
 }
 
 export async function syncCurrentEpochStats(deps: SyncCurrentEpochStatsDeps): Promise<{ written: boolean }> {
   const history = await loadStoredEpochHistory(deps.db, deps.epoch);
   if (history.length === 0) return { written: false };
-  const treasury = (await deps.koios.totals(deps.epoch))?.treasuryLovelace ?? null;
-  const row = await buildRow(deps.db, deps.cfg, deps.epoch, history, treasury, false);
+  const [totals, unexpiredDreps] = await Promise.all([
+    deps.koios.totals(deps.epoch),
+    // The same read the DRep list's header uses, so the stored group and the
+    // displayed one share one definition.
+    deps.drepsFresh ? listDrepsForConcentration(deps.db) : null,
+  ]);
+  const treasury = totals?.treasuryLovelace ?? null;
+  const row = await buildRow(deps.db, deps.cfg, deps.epoch, history, treasury, false, unexpiredDreps);
   await upsertEpochStats(deps.db, row);
   return { written: true };
 }
@@ -181,7 +207,7 @@ export async function backfillEpochStats(
     const totalsRow = await deps.koios.totals(epoch);
     if (totalsRow == null) continue; // atomic completeness, epoch stays in remaining
     const history: EpochHistoryInput[] = rows.map((r) => ({ drepId: r.drepId, amount: r.amount }));
-    const row = await buildRow(deps.db, deps.cfg, epoch, history, totalsRow.treasuryLovelace, true);
+    const row = await buildRow(deps.db, deps.cfg, epoch, history, totalsRow.treasuryLovelace, true, null);
     if (await insertEpochStatsIfMissing(deps.db, row)) inserted++;
   }
   // Everything not inserted this run is still missing, including epochs the
