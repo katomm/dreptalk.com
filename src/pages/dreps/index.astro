@@ -6,12 +6,43 @@ import Layout from '@/layouts/Layout.astro';
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
 import DrepActionsMenu from '@/components/DrepActionsMenu.tsx';
+import DrepRowActions from '@/components/DrepRowActions.astro';
 import { loadTrackingViewer } from '@/lib/delegation/viewer';
-import DrepStatIcon from '@/components/DrepStatIcon.astro';
 import DrepSelfCard from '@/components/DrepSelfCard.astro';
 import DrepTrendChip from '@/components/DrepTrendChip.astro';
 import Pager from '@/components/Pager.astro';
-import { listDreps, listDrepsForConcentration, getDrepRanking, type DrepRanking } from '@/lib/db/dreps.js';
+import SortPrefRestore from '@/components/SortPrefRestore.astro';
+import {
+  listDreps,
+  listDrepsForConcentration,
+  getDrepRanking,
+  getDrepById,
+  getDrepOrderRow,
+  getDrepsInOrder,
+  listDrepOrderRows,
+  countRegularVoters,
+  type Drep,
+  type DrepRanking,
+} from '@/lib/db/dreps.js';
+import {
+  DEFAULT_DREP_LIST_SORT,
+  DREP_LIST_SORTS,
+  FIRST_GROUP_MIN_PARTICIPATION_PCT,
+  drepListHref,
+  drepListPage,
+  explicitDrepListSort,
+  firstGroupMiss,
+  firstGroupStandingLine,
+  orderDrepList,
+  parseDrepListSort,
+  utcDayKey,
+  wholePercent,
+  type DrepListSort,
+  type DrepListUrlState,
+  type DrepOrderRow,
+} from '@/lib/dreps/listOrder.js';
+import { MATCH_THRESHOLDS } from '@/lib/match/logic.js';
+import '@/styles/seg.css';
 import { getSelfDrepId } from '@/lib/db/users.js';
 import { getVotingPowerEpochAggregates } from '@/lib/db/drepVotingPowerHistory.js';
 import { computeConcentration } from '@/lib/dreps/concentration.js';
@@ -20,7 +51,7 @@ import { contiguousTail, recentSeries, GLANCE_WINDOW_EPOCHS } from '@/lib/analyt
 import { listLatestEpochStats } from '@/lib/db/governanceEpochStats.js';
 import DonutRing from '@/components/DonutRing.astro';
 import Sparkline from '@/components/Sparkline.astro';
-import { computeDrepStatTrends } from '@/lib/dreps/statTrend.js';
+import { computeDrepStatTrends, type StatTrend } from '@/lib/dreps/statTrend.js';
 import { influencePct } from '@/lib/dreps/profile.js';
 import { computeVotingPowerDelta } from '@/lib/dreps/votingPowerTrend.js';
 import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
@@ -35,10 +66,17 @@ const db = requestDb();
 const PAGE_SIZE = 50;
 const page = parsePage(Astro.url.searchParams.get('page'));
 const activeOnly = Astro.url.searchParams.get('all') !== '1';
-// Sort key from the query string; anything but "delegators" falls back to power.
-const sort = Astro.url.searchParams.get('sort') === 'delegators' ? 'delegators' : 'power';
-// Offset into the power-sorted listing; also the base for each row's rank number
-// (rank = offset + row index + 1), so ranks stay continuous across pages.
+// Order of the list from the query string. A missing or unknown value is the
+// default view (active DReps first). sortInUrl keeps whether the URL named one,
+// so the in-list links carry the param only when the reader chose it.
+const sortParam = Astro.url.searchParams.get('sort');
+const sort = parseDrepListSort(sortParam);
+const sortInUrl = explicitDrepListSort(sortParam);
+// Voting power floor of the first group, the same floor the match quiz uses.
+const floor = BigInt(MATCH_THRESHOLDS[currentNetwork().network].powerFloorLovelace);
+// Offset into the ordered listing. In the two rankings it is also the base for
+// each row's rank number (rank = offset + row index + 1), so ranks stay
+// continuous across pages.
 const listOffset = pageToOffset(page, PAGE_SIZE);
 // Group filter, where DRep groups run. A malformed value, or groups tables that are not there yet, show the normal list.
 const groupParam = drepGroupsAvailable(currentNetwork().network) ? groupIdParam(Astro.url.searchParams.get('group') ?? undefined) : null;
@@ -47,25 +85,51 @@ const groupRead =
 const groupRef = groupRead === undefined ? null : groupParam;
 const groupId = groupRef ? groupIdString(groupRef) : null;
 const groupName = groupRead?.profile?.name ?? null;
-// Query string of the list links, with the group filter when one is set.
-const listQuery = (group: string | null, parts: string[]): string =>
-  [...parts, ...(group ? [`group=${group}`] : [])].filter(Boolean).join('&');
-const href = (...parts: string[]): string => `?${listQuery(groupId, parts)}`;
-const ungrouped = listQuery(null, [activeOnly ? '' : 'all=1', sort === 'delegators' ? 'sort=delegators' : '']);
-const removeGroupHref = `/dreps/${ungrouped ? `?${ungrouped}` : ''}`;
+// URL state of the list. Every link inside the list is built from it through
+// drepListHref, which always returns the full "/dreps/" path.
+const listState: DrepListUrlState = { sortInUrl, all: !activeOnly, group: groupId };
+const removeGroupHref = drepListHref(listState, { group: null });
 
-// The directory listing, the concentration aggregate, and the power-history
-// aggregates are independent reads, fetch them concurrently so a cold (uncached)
-// render pays one round-trip of latency, not three.
-const [dreps, concentrationRows, powerAggregates, recentEpochStats] = db
-  ? await Promise.all([
-      listDreps(db, { activeOnly, limit: PAGE_SIZE, offset: listOffset, sort, group: groupRef ?? undefined }),
-      listDrepsForConcentration(db),
-      getVotingPowerEpochAggregates(db),
-      // A short epoch window for the concentration teaser's trend line.
-      listLatestEpochStats(db, GLANCE_WINDOW_EPOCHS),
-    ])
-  : [[], [], [], []];
+// The directory listing (or, in the default view, the ordering columns of every
+// DRep in the filter), the concentration aggregate, the power-history
+// aggregates, the regular voter count, the signed-in DRep id and the tracking
+// viewer are independent reads, fetch them concurrently so a cold (uncached)
+// render pays one round-trip of latency, not several. One listing slot is filled per view, the other is null.
+const user = Astro.locals.user;
+const [listingReads, selfDrepId, trackingViewer] = await Promise.all([
+  db
+    ? Promise.all([
+        sort === 'active' ? listDrepOrderRows(db, { activeOnly, group: groupRef ?? undefined }) : null,
+        sort === 'active'
+          ? null
+          : listDreps(db, { activeOnly, limit: PAGE_SIZE, offset: listOffset, sort, group: groupRef ?? undefined }),
+        listDrepsForConcentration(db),
+        getVotingPowerEpochAggregates(db),
+        // A short epoch window for the concentration teaser's trend line.
+        listLatestEpochStats(db, GLANCE_WINDOW_EPOCHS),
+        // The "Vote regularly" figure of the header band, global like the other three.
+        countRegularVoters(db, FIRST_GROUP_MIN_PARTICIPATION_PCT),
+      ])
+    : null,
+  // The signed-in DRep, for the pinned "this is you" card and the row highlight.
+  db ? getSelfDrepId(db, user) : null,
+  // The dialog offers delegation tracking after a successful delegation, which
+  // needs to know whether this account has a stake wallet linked at all.
+  loadTrackingViewer(db, user?.id ?? null),
+]);
+const [orderRows, rankingRows, concentrationRows, powerAggregates, recentEpochStats, regularVoterCount] =
+  listingReads ?? [null, null, [], [], [], 0];
+
+// Default view: the first group in today's order, then everyone else by
+// participation. Only the visible page of full rows is loaded.
+const order = orderRows ? orderDrepList(orderRows, { day: utcDayKey(Date.now()), floorLovelace: floor }) : null;
+const orderRowById = new Map<string, DrepOrderRow>(orderRows ? orderRows.map((r) => [r.drepId, r]) : []);
+const firstGroupSize = order?.firstGroupSize ?? 0;
+// This page of the default view: its ids, the id the divider row goes before
+// (null when this page has no divider) and whether a next page exists.
+const orderPage = order ? drepListPage(order.ids, firstGroupSize, listOffset, PAGE_SIZE) : null;
+const dividerBeforeId = orderPage?.dividerBeforeId ?? null;
+const dreps: Drep[] = rankingRows ?? (db && orderPage ? await getDrepsInOrder(db, orderPage.pageIds) : []);
 // Top-10 share per epoch for the teaser sparkline (the live figure above it
 // comes from the current snapshot, the line from the stored epoch series).
 const top10Series = recentSeries(contiguousTail(recentEpochStats), 'top10SharePct');
@@ -84,60 +148,100 @@ const concentration = computeConcentration(
   concentrationRows.map((r) => ({ drepId: r.drepId, name: r.name, slug: r.slug, power: toLovelace(r.votingPower) })),
 );
 
-// Where the logged-in DRep stands in this exact listing (same filter + sort), for
-// the pinned "this is you" card and to highlight their own row when it's on the
-// visible page. Only runs when a DRep is signed in.
-const selfDrepId = db ? await getSelfDrepId(db, Astro.locals.user) : null;
-const selfRanking =
-  db && selfDrepId ? await getDrepRanking(db, selfDrepId, { activeOnly, sort }) : null;
+function selfStandingLine(r: DrepRanking): string {
+  const n = (v: number): string => v.toLocaleString('en-US');
+  if (r.rank != null)
+    return `Rank #${n(r.rank)} of ${n(r.total)} by ${sort === 'delegators' ? 'delegators' : 'voting power'}`;
+  if (activeOnly && !r.drep.active) return 'Retired, not in the active ranking';
+  if (sort === 'delegators') return 'Delegator count pending';
+  return `Not yet ranked (of ${n(r.total)})`;
+}
+
+// The signed-in DRep's row and the standing line of the pinned "this is you" card.
+// Under the rankings the card shows the rank in this listing (same filter and sort).
+// In the default view it says whether the DRep is in the first group. The card
+// ignores the group filter in every view. Both stay null when no DRep is found.
+let selfDrep: Drep | null = null;
+let selfStanding: string | null = null;
+if (db && selfDrepId) {
+  if (sort === 'active') {
+    // Both rows must exist, a session can carry a DRep id that has no row yet.
+    const [drep, orderRow] = await Promise.all([getDrepById(db, selfDrepId), getDrepOrderRow(db, selfDrepId)]);
+    if (drep && orderRow) {
+      selfDrep = drep;
+      selfStanding = firstGroupStandingLine(firstGroupMiss(orderRow, floor), orderRow.participationPct, floor);
+    }
+  } else {
+    const ranking = await getDrepRanking(db, selfDrepId, { activeOnly, sort });
+    if (ranking) {
+      selfDrep = ranking.drep;
+      selfStanding = selfStandingLine(ranking);
+    }
+  }
+}
 
 // The same total the donut uses (active, non-special), so a row's table share and
 // the concentration view agree. Number is exact enough for the percent display.
 const totalActivePower = Number(concentration.totalPower);
 
-// Header stat cards. The current figures come from the live concentration (the
-// authoritative active set); the "this epoch" deltas come from the per-epoch
-// history aggregates (newest first). Deltas stay hidden until two epochs exist.
+// Header band figures. The current values come from the live concentration (the
+// authoritative active set), the "this epoch" deltas from the per-epoch history
+// aggregates (newest first). Deltas stay hidden until two epochs exist.
 const statTrends = computeDrepStatTrends(powerAggregates[0], powerAggregates[1]);
-// Average voting power per active DRep. BigInt division avoids the Number range
-// (total lovelace exceeds it), then formatted compact like the row values.
-const avgPowerLabel =
-  concentration.drepCount > 0
-    ? formatAdaCompact((BigInt(concentration.totalPower) / BigInt(concentration.drepCount)).toString())
-    : formatAdaCompact('0');
 // Concentration headline: the share of active voting power held by the ten largest
 // DReps (topK carries more than ten, so slicing is safe).
 const top10Pct = concentration.topK.slice(0, 10).reduce((acc, t) => acc + t.pct, 0);
 
-// The four header cards, in mockup order. `trend` renders the "this epoch" chip;
-// `sub` is a static caption for the card that has no epoch delta. The icon tint
-// alternates (accent, positive) to match the directory's palette.
-const statCards: {
-  label: string;
-  value: string;
-  icon: 'people' | 'power' | 'gauge' | 'share';
-  alt: boolean;
-  trend?: (typeof statTrends)['activeDreps'];
-  sub?: string;
-}[] = [
-  { label: 'Active DReps', value: concentration.drepCount.toLocaleString('en-US'), icon: 'people', alt: false, trend: statTrends.activeDreps },
-  { label: 'Total voting power', value: formatAdaCompact(concentration.totalPower), icon: 'power', alt: true, trend: statTrends.totalPower },
-  { label: 'Avg. voting power', value: avgPowerLabel, icon: 'gauge', alt: false, trend: statTrends.avgPower },
-  { label: 'Top 10 control', value: `${top10Pct.toFixed(1)}%`, icon: 'share', alt: true, sub: 'held by the 10 largest' },
+// The four cells of the header band, in order. `trend` renders the "this epoch"
+// line, `sub` is a static caption for a cell without an epoch delta.
+const bandCells: { label: string; value: string; trend?: StatTrend | null; sub?: string }[] = [
+  { label: 'Active DReps', value: concentration.drepCount.toLocaleString('en-US'), trend: statTrends.activeDreps },
+  {
+    label: 'Vote regularly',
+    value: regularVoterCount.toLocaleString('en-US'),
+    sub: `on at least ${FIRST_GROUP_MIN_PARTICIPATION_PCT}% of actions`,
+  },
+  { label: 'Total voting power', value: formatAdaCompact(concentration.totalPower), trend: statTrends.totalPower },
+  { label: 'Top 10 control', value: `${top10Pct.toFixed(1)}%`, sub: 'held by the 10 largest' },
 ];
 
 // DrepActionsMenu uses the deployment's real network for the delegation tx + explorer links.
 const network = currentNetwork().network;
 
-// The dialog offers delegation tracking after a successful delegation, which
-// needs to know whether this account has a stake wallet linked at all.
-const trackingViewer = await loadTrackingViewer(db, Astro.locals.user?.id ?? null);
-
 Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
 
-const nextPage = dreps.length === PAGE_SIZE ? page + 1 : null;
+const nextPage = (orderPage ? orderPage.hasNext : dreps.length === PAGE_SIZE) ? page + 1 : null;
 const prevPage = page > 1 ? page - 1 : null;
-const qs = (p: number) => href(`page=${p}`, activeOnly ? '' : 'all=1', sort === 'delegators' ? 'sort=delegators' : '');
+const pageHref = (p: number): string => drepListHref(listState, { page: p });
+
+// Rule line above the default view's table, only when a first group exists and the page has rows.
+const firstGroupRule =
+  firstGroupSize === 1
+    ? { lead: '1 DRep is shown first, in an order that changes every day. It voted', meets: 'meets' }
+    : { lead: `${firstGroupSize.toLocaleString('en-US')} DReps are shown first, in an order that changes every day. They voted`, meets: 'meet' };
+
+// Intro sentence and meta description by view. In the default view the rule
+// line above the table explains the daily order.
+const VIEW_COPY: Record<DrepListSort, { intro: string; meta: string }> = {
+  active: {
+    intro: 'Decentralized Representatives in Cardano governance.',
+    meta: "Browse every Cardano DRep, with those who vote regularly shown first. See each delegate representative's voting record, delegation, and governance participation on DRepTalk.",
+  },
+  delegators: {
+    intro: 'Decentralized Representatives in Cardano governance, ranked by number of delegators.',
+    meta: "Browse every Cardano DRep ranked by number of delegators. See each delegate representative's voting record, delegation, and governance participation on DRepTalk.",
+  },
+  power: {
+    intro: 'Decentralized Representatives in Cardano governance, ranked by active voting power.',
+    meta: "Browse every Cardano DRep ranked by active voting power. See each delegate representative's voting record, delegation, and governance participation on DRepTalk.",
+  },
+};
+// The default view's meta falls back to plain copy when the first group is
+// empty, so the description does not promise an order the page cannot show.
+const EMPTY_FIRST_GROUP_META =
+  "Browse every Cardano DRep. See each delegate representative's voting record, delegation, and governance participation on DRepTalk.";
+const introText = VIEW_COPY[sort].intro;
+const metaDescription = sort === 'active' && firstGroupSize === 0 ? EMPTY_FIRST_GROUP_META : VIEW_COPY[sort].meta;
 
 // The 28-byte DRep credential the delegation tx targets. Prefer the stored Koios
 // `hex`; fall back to deriving it from the drep id. Null disables the delegate
@@ -165,52 +269,42 @@ const deltaTitle = (dir: 'up' | 'down' | 'flat'): string =>
       ? 'Voting power down since the previous epoch'
       : 'Voting power unchanged since the previous epoch';
 
-// The pinned self-card contents (rank line, identity, latest-epoch trend), derived
+// The pinned self-card contents (standing line, identity, latest-epoch trend), derived
 // once so the template stays declarative. Null unless a DRep is signed in and found.
-const selfDescriptor = selfRanking ? drepDescriptor(selfRanking.drep) : null;
-const selfDelta = selfRanking
-  ? computeVotingPowerDelta(selfRanking.drep.votingPowerSnapshot, selfRanking.drep.votingPowerPrev)
-  : null;
-function selfStandingLine(r: DrepRanking): string {
-  const n = (v: number): string => v.toLocaleString('en-US');
-  if (r.rank != null)
-    return `Rank #${n(r.rank)} of ${n(r.total)} by ${sort === 'delegators' ? 'delegators' : 'voting power'}`;
-  if (activeOnly && !r.drep.active) return 'Retired, not in the active ranking';
-  if (sort === 'delegators') return 'Delegator count pending';
-  return `Not yet ranked (of ${n(r.total)})`;
-}
-const selfStanding = selfRanking ? selfStandingLine(selfRanking) : null;
+const selfDescriptor = selfDrep ? drepDescriptor(selfDrep) : null;
+const selfDelta = selfDrep ? computeVotingPowerDelta(selfDrep.votingPowerSnapshot, selfDrep.votingPowerPrev) : null;
 ---
 
 {/* wide: all four primary-nav destinations share the wide shell, so the content
     column keeps one width while moving through the main nav. */}
-<Layout title="Cardano DReps - Delegate Representatives - DRepTalk" description="Browse every Cardano DRep ranked by active voting power. See each delegate representative's voting record, delegation, and governance participation on DRepTalk." ogImage="/og-dreps.jpg" wide>
-  <h1>DReps</h1>
+<Layout title="Cardano DReps - Delegate Representatives - DRepTalk" description={metaDescription} ogImage="/og-dreps.jpg" wide>
+  <SortPrefRestore storageKey="dreptalk:dreps-sort" sorts={DREP_LIST_SORTS.map((s) => s.mode)} defaultSort={DEFAULT_DREP_LIST_SORT} />
+  <div class="dreps-head">
+    <h1>DReps</h1>
+    <a class="btn btn-primary" href="/match/">Find your DRep</a>
+  </div>
   <p class="dreps-intro">
-    Decentralized Representatives in Cardano governance, ranked by active voting power.
+    {introText}{' '}
     New to this? Learn <a href="/help/delegate-to-a-drep/">how to delegate your voting power</a>{' '}
     or <a href="/help/become-a-drep/">how to become a DRep</a> yourself.
   </p>
 
   {concentration.drepCount > 0 && (
-    <div class="drep-stats">
-      {statCards.map((card) => (
-        <div class={`drep-stat${card.alt ? ' drep-stat--alt' : ''}`}>
-          <span class="drep-stat__icon"><DrepStatIcon name={card.icon} /></span>
-          <span class="drep-stat__body">
-            <span class="drep-stat__label">{card.label}</span>
-            <span class="drep-stat__value">{card.value}</span>
-            {card.trend ? (
-              <span class={`drep-stat__delta drep-stat__delta--${card.trend.direction}`}>
-                {card.trend.direction !== 'flat' && (
-                  <span class="drep-stat__arrow" aria-hidden="true">{card.trend.direction === 'up' ? '↑' : '↓'}</span>
-                )}
-                {card.trend.label} this epoch
-              </span>
-            ) : card.sub ? (
-              <span class="drep-stat__sub">{card.sub}</span>
-            ) : null}
-          </span>
+    <div class="drep-band">
+      {bandCells.map((cell) => (
+        <div class="drep-band__cell">
+          <span class="drep-stat__label">{cell.label}</span>
+          <span class="drep-stat__value">{cell.value}</span>
+          {cell.trend ? (
+            <span class={`drep-stat__delta drep-stat__delta--${cell.trend.direction}`}>
+              {cell.trend.direction !== 'flat' && (
+                <span class="drep-stat__arrow" aria-hidden="true">{cell.trend.direction === 'up' ? '↑' : '↓'}</span>
+              )}
+              {cell.trend.label} this epoch
+            </span>
+          ) : cell.sub ? (
+            <span class="drep-stat__sub">{cell.sub}</span>
+          ) : null}
         </div>
       ))}
     </div>
@@ -224,21 +318,10 @@ const selfStanding = selfRanking ? selfStandingLine(selfRanking) : null;
     </p>
   )}
 
-  <p class="dreps-filter">
-    {activeOnly ? <a href={href('all=1')}>Show all DReps</a> : <a href={href()}>Active only</a>}
-    <span style="margin:0 0.5rem;color:var(--muted);" aria-hidden="true">&middot;</span>
-    <a href="/dreps/movers/">Movers of the epoch</a>
-  </p>
-
-  <a class="drep-match-teaser" href="/match/">
-    <strong>Find your DRep</strong>
-    <span>Answer questions from real governance votes and see which DReps vote like you.</span>
-  </a>
-
   {selfDescriptor && selfStanding && (
     <DrepSelfCard descriptor={selfDescriptor} standing={selfStanding}>
-      {selfRanking!.drep.votingPower != null && (
-        <span class="drep-self-power">{formatAdaCompact(selfRanking!.drep.votingPower)}</span>
+      {selfDrep?.votingPower != null && (
+        <span class="drep-self-power">{formatAdaCompact(selfDrep.votingPower)}</span>
       )}
       {selfDelta && (
         <DrepTrendChip delta={selfDelta} flatBar title={deltaTitle(selfDelta.direction)} showAda={false} />
@@ -246,29 +329,119 @@ const selfStanding = selfRanking ? selfStandingLine(selfRanking) : null;
     </DrepSelfCard>
   )}
 
+  {/* Toolbar directly above the table: the order on the left, the filter links on the right. */}
+  <div class="dreps-toolbar">
+    <div class="seg" role="group" aria-label="Order of the list">
+      {DREP_LIST_SORTS.map((o) => (
+        <a
+          class="seg__btn"
+          href={drepListHref(listState, { sort: o.mode })}
+          aria-current={o.mode === sort ? 'true' : undefined}
+          rel="nofollow"
+        >
+          {o.label}
+        </a>
+      ))}
+    </div>
+    <span>
+      {activeOnly ? (
+        <a href={drepListHref(listState, { all: true })}>Show all DReps</a>
+      ) : (
+        <a href={drepListHref(listState, { all: false })}>Active only</a>
+      )}
+      <span style="margin:0 0.5rem;color:var(--muted);" aria-hidden="true">&middot;</span>
+      <a href="/dreps/movers/">Movers of the epoch</a>
+    </span>
+  </div>
+
+  {sort === 'active' && firstGroupSize > 0 && dreps.length > 0 && (
+    <p class="dreps-filter">
+      {firstGroupRule.lead} on at least {FIRST_GROUP_MIN_PARTICIPATION_PCT}% of governance actions and {firstGroupRule.meets}{' '}
+      <a href="/help/delegate-to-a-drep/#how-the-drep-list-is-ordered">the other conditions for the first group</a>.
+    </p>
+  )}
+
   {dreps.length === 0 ? (
     <p style="color:var(--muted);">No DReps found.</p>
+  ) : sort === 'active' ? (
+    <table class="drep-table drep-table--active">
+      <thead>
+        <tr>
+          <th scope="col">DRep</th>
+          <th scope="col" class="drep-table__voted-h">Voted</th>
+          <th scope="col" class="drep-table__rationales-h">Rationales</th>
+          <th scope="col" class="drep-table__power-h">Voting power</th>
+          <th scope="col" class="drep-table__delegators-h">Delegators</th>
+          <th scope="col" class="drep-table__actions-h">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {dreps.map((d) => {
+          const descriptor = drepDescriptor(d);
+          const cred = credentialHexFor(d);
+          const isSelf = selfDrepId != null && d.drepId === selfDrepId;
+          const orderRow = orderRowById.get(d.drepId);
+          const participation = orderRow?.participationPct ?? null;
+          const voted = participation === null ? null : wholePercent(participation);
+          const rationales = orderRow?.rationalePct ?? null;
+          return (
+            <>
+              {d.drepId === dividerBeforeId && (
+                <tr class="drep-table__divider">
+                  <td>Other DReps, by share of actions voted on</td>
+                  <td class="drep-table__voted"></td>
+                  <td class="drep-table__rationales"></td>
+                  <td class="drep-table__power"></td>
+                  <td class="drep-table__delegators"></td>
+                  <td class="drep-table__actions"></td>
+                </tr>
+              )}
+              <tr class:list={{ 'drep-row--self': isSelf }}>
+                <td>
+                  <AuthorIdentity author={descriptor} size={AVATAR_SIZE.rowLead} truncate />
+                </td>
+                <td class="drep-table__voted">
+                  {voted === null ? (
+                    'n/a'
+                  ) : (
+                    <span class="drep-voted">
+                      <span class="drep-voted__pct">{voted}%</span>
+                      <span class="drep-voted__bar" aria-hidden="true">
+                        <span class="drep-voted__fill" style={`width:${Math.min(Math.max(voted, 0), 100)}%`}></span>
+                      </span>
+                    </span>
+                  )}
+                </td>
+                <td class="drep-table__rationales">{rationales === null ? 'n/a' : `${wholePercent(rationales)}%`}</td>
+                <td class="drep-table__power">
+                  <div class="drep-power">
+                    <span class="drep-power__ada">
+                      <span class="drep-power__ada-full">{formatAda(d.votingPower)}</span>
+                      <span class="drep-power__ada-compact">{formatAdaCompact(d.votingPower)}</span>
+                    </span>
+                  </div>
+                </td>
+                <td class="drep-table__delegators">
+                  {d.delegatorCount != null ? d.delegatorCount.toLocaleString('en-US') : 'n/a'}
+                </td>
+                <td class="drep-table__actions">
+                  <DrepRowActions drep={d} name={descriptor.displayName} cred={cred} />
+                </td>
+              </tr>
+            </>
+          );
+        })}
+      </tbody>
+    </table>
   ) : (
-    <table class="drep-table">
+    <table class:list={['drep-table', { 'drep-table--by-delegators': sort === 'delegators' }]}>
       <thead>
         <tr>
           <th scope="col" class="drep-table__rank-h"><span class="sr-only">Rank</span></th>
           <th scope="col">DRep</th>
-          <th scope="col" class="drep-table__power-h">
-            {sort === 'power' ? (
-              <a href={href(activeOnly ? '' : 'all=1')} aria-current="true">Voting power &darr;</a>
-            ) : (
-              <a href={href(activeOnly ? '' : 'all=1')}>Voting power</a>
-            )}
-          </th>
+          <th scope="col" class="drep-table__power-h">Voting power</th>
           <th scope="col" class="drep-table__trend-h">Trend <span class="drep-table__trend-sub">(vs last epoch)</span></th>
-          <th scope="col" class="drep-table__delegators-h">
-            {sort === 'delegators' ? (
-              <a href={href(activeOnly ? '' : 'all=1')} aria-current="true">Delegators &darr;</a>
-            ) : (
-              <a href={href('sort=delegators', activeOnly ? '' : 'all=1')}>Delegators</a>
-            )}
-          </th>
+          <th scope="col" class="drep-table__delegators-h">Delegators</th>
           <th scope="col" class="drep-table__actions-h">Actions</th>
         </tr>
       </thead>
@@ -311,43 +484,7 @@ const selfStanding = selfRanking ? selfStandingLine(selfRanking) : null;
                 {d.delegatorCount != null ? d.delegatorCount.toLocaleString('en-US') : 'n/a'}
               </td>
               <td class="drep-table__actions">
-                <span class="drep-row-actions">
-                  {/* Desktop quick-action; hidden on mobile (the kebab carries it
-                      there). Only shown when the DRep can actually receive a
-                      delegation (script DReps without a credential cannot). */}
-                  {cred && (
-                    <button
-                      type="button"
-                      class="btn btn-secondary drep-delegate-btn"
-                      data-drep-delegate
-                      data-drep-id={d.drepId}
-                      data-drep-slug={d.slug ?? ''}
-                      data-drep-name={descriptor.displayName}
-                      data-drep-cred={cred}
-                      data-drep-script={d.hasScript ? '1' : '0'}
-                      aria-label={`Delegate voting power to ${descriptor.displayName}`}
-                    >
-                      Delegate
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    class="drep-action-btn"
-                    data-drep-action
-                    data-drep-id={d.drepId}
-                    data-drep-slug={d.slug ?? ''}
-                    data-drep-name={descriptor.displayName}
-                    data-drep-cred={cred ?? ''}
-                    data-drep-script={d.hasScript ? '1' : '0'}
-                    aria-haspopup="true"
-                    aria-expanded="false"
-                    aria-label={`Actions for ${descriptor.displayName}`}
-                  >
-                    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
-                      <circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" />
-                    </svg>
-                  </button>
-                </span>
+                <DrepRowActions drep={d} name={descriptor.displayName} cred={cred} />
               </td>
             </tr>
           );
@@ -357,8 +494,8 @@ const selfStanding = selfRanking ? selfStandingLine(selfRanking) : null;
   )}
 
   <Pager
-    prevHref={prevPage ? qs(prevPage) : null}
-    nextHref={nextPage ? qs(nextPage) : null}
+    prevHref={prevPage ? pageHref(prevPage) : null}
+    nextHref={nextPage ? pageHref(nextPage) : null}
     page={page}
     label="DReps pagination"
   />
@@ -383,34 +520,6 @@ const selfStanding = selfRanking ? selfStandingLine(selfRanking) : null;
 </Layout>
 
 <style>
-  /* Quiet banner linking to the /match/ quiz, reusing the directory's stat-tile
-     tokens (border, radius, surface) so it reads as part of the page, not an ad. */
-  .drep-match-teaser {
-    display: flex;
-    flex-direction: column;
-    gap: 0.15rem;
-    padding: 0.85rem 1rem;
-    margin: 0 0 1.25rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--surface);
-    text-decoration: none;
-    color: var(--fg);
-    transition: border-color 0.15s ease;
-  }
-  .drep-match-teaser:hover {
-    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
-  }
-  .drep-match-teaser strong {
-    font-size: 0.9375rem;
-  }
-  .drep-match-teaser span {
-    display: block;
-    margin-top: 0.15rem;
-    font-size: 0.8125rem;
-    color: var(--muted);
-  }
-
   /* Quiet banner linking to the /analytics/ page, reusing the directory's
      stat-tile tokens (border, radius, surface) so it reads as part of the page. */
   .drep-conc-teaser {

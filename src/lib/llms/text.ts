@@ -51,7 +51,7 @@ const HUBS: ReadonlyArray<{ path: string; label: string; note: string }> = [
   {
     path: '/dreps/',
     label: 'DReps',
-    note: 'Every Cardano DRep ranked by voting power, with voting record, rationales and delegation history on each profile.',
+    note: 'Every Cardano DRep, those who vote regularly first, with voting record, rationales and delegation history on each profile.',
   },
   {
     path: '/analytics/',

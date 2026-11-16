@@ -4,7 +4,7 @@ description: "How any ada holder hands their Cardano voting power to a DRep, wha
 cardLabel: "Delegating to a DRep"
 category: "Start here"
 order: 2
-updated: 2026-09-18
+updated: 2026-11-15
 ---
 
 Every ada holder on Cardano has voting power in the governance system. If you
@@ -52,6 +52,30 @@ A few things worth checking before you delegate:
 
 There is no lock-in. You can switch to a different DRep or change your
 delegation at any time.
+
+## How the DRep list is ordered
+
+The [DRep list](/dreps/) opens with DReps who vote regularly. A DRep is in this
+first group when all of these are true:
+
+- it is active
+- its metadata has a name
+- it holds at least 25,000 ada of voting power (1,000 ada on the preprod test network)
+- it voted on at least 70% of the governance actions it could vote on, as counted on its [report card](/help/drep-report-card/)
+- its metadata does not ask to be left out of listings
+
+The first group is shown in an order that changes every day, so no DRep holds
+the top position. Every other DRep follows below, ordered by the share of
+actions voted on.
+
+Voting power does not decide the order. A large DRep and a small one have the
+same chance of being at the top on a given day. If you want the rankings, the
+control above the list switches to **Voting power** or **Delegators**, and the
+list remembers your choice in this browser.
+
+A new DRep gets a report card once five governance actions it could vote on
+have been decided. From then on it can enter the first group, if it meets
+every condition above.
 
 ## How to delegate
 

@@ -19,13 +19,6 @@ describe('computeDrepStatTrends', () => {
     expect(t.totalPower).toEqual({ direction: 'up', label: '8.7%' });
   });
 
-  it('reports average voting power per DRep independently of the total', () => {
-    // Total flat but the count fell, so the average per DRep rose.
-    const t = computeDrepStatTrends(agg(535, 8, 1000), agg(534, 10, 1000));
-    expect(t.avgPower?.direction).toBe('up');
-    expect(t.avgPower?.label).toBe('25.0%');
-  });
-
   it('marks an unchanged metric as flat', () => {
     const t = computeDrepStatTrends(agg(535, 100, 1000), agg(534, 100, 1000));
     expect(t.activeDreps?.direction).toBe('flat');
@@ -35,7 +28,6 @@ describe('computeDrepStatTrends', () => {
   it('omits a percent trend when the previous base was zero', () => {
     const t = computeDrepStatTrends(agg(535, 5, 1000), agg(534, 0, 0));
     expect(t.totalPower).toBeNull();
-    expect(t.avgPower).toBeNull();
     // The count still has a well-defined absolute delta.
     expect(t.activeDreps).toEqual({ direction: 'up', label: '5' });
   });
@@ -44,12 +36,10 @@ describe('computeDrepStatTrends', () => {
     expect(computeDrepStatTrends(agg(535, 100, 1000), undefined)).toEqual({
       activeDreps: null,
       totalPower: null,
-      avgPower: null,
     });
     expect(computeDrepStatTrends(undefined, undefined)).toEqual({
       activeDreps: null,
       totalPower: null,
-      avgPower: null,
     });
   });
 });
