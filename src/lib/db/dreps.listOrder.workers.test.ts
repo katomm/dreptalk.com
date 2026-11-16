@@ -118,6 +118,13 @@ describe('countRegularVoters', () => {
     await seedDrep({ id: 'r_nocard', name: 'No card' });
     expect(await countRegularVoters(db(), 70)).toBe(2);
   });
+  it('counts a DRep that votes regularly but is outside the first group', async () => {
+    // No name, below the 25,000 ada power floor and doNotList set: each of these
+    // keeps a DRep out of the first group, none of them matters for this count.
+    await seedDrep({ id: 'r_outside', name: null, power: '1000000000', doNotList: true });
+    await seedCard({ id: 'r_outside', participation: 80, rationale: null });
+    expect(await countRegularVoters(db(), 70)).toBe(1);
+  });
   it('never counts a predefined option', async () => {
     const [special] = SPECIAL_DREP_IDS;
     await seedDrep({ id: special, name: null });
