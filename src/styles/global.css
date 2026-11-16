@@ -812,6 +812,52 @@ a.drep-stat:focus-visible { outline: 2px solid var(--accent); outline-offset: 2p
   .drep-stat__value { font-size: 1.15rem; }
 }
 
+/* DReps directory header: the heading row with the quiz button, the band of four
+   figures and the toolbar above the table. The cells reuse the .drep-stat text
+   classes but not the tile box, which other pages share. */
+.dreps-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1rem;
+  margin: 1.35rem 0;
+}
+.dreps-head h1 { margin: 0; }
+.drep-band {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  margin: 0 0 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.drep-band__cell {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.8rem 1.1rem;
+}
+.drep-band__cell + .drep-band__cell { border-left: 1px solid var(--border); }
+@media (max-width: 640px) {
+  .drep-band { grid-template-columns: repeat(2, 1fr); }
+  .drep-band__cell:nth-child(3) { border-left: none; }
+  .drep-band__cell:nth-child(n + 3) { border-top: 1px solid var(--border); }
+}
+.dreps-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin: 1rem 0 0.6rem;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+/* The rule line follows the toolbar at the toolbar's own spacing. */
+.dreps-toolbar + .dreps-filter { margin-top: 0; }
+
 /* ==========================================================================
    Profile header: avatar, kind and status pills, name, id line. Shared by the
    DRep profile and the DRep group page.

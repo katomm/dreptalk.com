@@ -412,6 +412,19 @@ export async function getDrepOrderRow(db: D1Database, drepId: string): Promise<D
   return row ? rowToOrderRow(row) : null;
 }
 
+/** Active DReps (specials excluded) whose report card shows at least `minPct` participation. */
+export async function countRegularVoters(db: D1Database, minPct: number): Promise<number> {
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM dreps d JOIN drep_report_card c ON c.drep_id = d.drep_id
+       WHERE d.active = 1 AND d.drep_id NOT IN (${sqlPlaceholders(SPECIAL_DREP_IDS)})
+         AND c.participation_pct >= ?`,
+    )
+    .bind(...SPECIAL_DREP_IDS, minPct)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
 /** Full rows in exactly the order of `ids`. An id without a row is skipped. */
 export async function getDrepsInOrder(db: D1Database, ids: string[]): Promise<Drep[]> {
   const byId = await getDrepsByIds(db, ids);

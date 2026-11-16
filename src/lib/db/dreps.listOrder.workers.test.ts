@@ -1,8 +1,9 @@
 // The ordering queries behind the DRep list: one light read of the ordering
-// columns, and the full rows of a page of ids in the order given.
+// columns, the full rows of a page of ids in the order given, and the count of
+// DReps who vote regularly for the header band.
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { listDrepOrderRows, getDrepOrderRow, getDrepsInOrder } from './dreps.js';
+import { listDrepOrderRows, getDrepOrderRow, getDrepsInOrder, countRegularVoters } from './dreps.js';
 import { SPECIAL_DREP_IDS } from '../dreps/special.js';
 
 const db = () => env.DB;
@@ -101,5 +102,30 @@ describe('getDrepsInOrder', () => {
     for (const id of ['g_1', 'g_2', 'g_3']) await seedDrep({ id, name: id });
     const out = await getDrepsInOrder(db(), ['g_3', 'g_missing', 'g_1', 'g_2']);
     expect(out.map((d) => d.drepId)).toEqual(['g_3', 'g_1', 'g_2']);
+  });
+});
+
+describe('countRegularVoters', () => {
+  it('counts active DReps whose card meets the minimum, inclusive', async () => {
+    await seedDrep({ id: 'r_70', name: 'Seventy' });
+    await seedCard({ id: 'r_70', participation: 70, rationale: null });
+    await seedDrep({ id: 'r_699', name: 'Just under' });
+    await seedCard({ id: 'r_699', participation: 69.9, rationale: null });
+    await seedDrep({ id: 'r_95', name: 'Ninety-five' });
+    await seedCard({ id: 'r_95', participation: 95, rationale: null });
+    await seedDrep({ id: 'r_retired', name: 'Retired', active: false });
+    await seedCard({ id: 'r_retired', participation: 99, rationale: null });
+    await seedDrep({ id: 'r_nocard', name: 'No card' });
+    expect(await countRegularVoters(db(), 70)).toBe(2);
+  });
+  it('never counts a predefined option', async () => {
+    const [special] = SPECIAL_DREP_IDS;
+    await seedDrep({ id: special, name: null });
+    await seedCard({ id: special, participation: 100, rationale: null });
+    expect(await countRegularVoters(db(), 70)).toBe(0);
+  });
+  it('is 0 without any report card rows', async () => {
+    await seedDrep({ id: 'r_plain', name: 'Plain' });
+    expect(await countRegularVoters(db(), 70)).toBe(0);
   });
 });

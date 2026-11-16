@@ -1,7 +1,7 @@
-// Pure "this epoch" delta math for the DReps directory stat cards. Given the two
+// Pure "this epoch" delta math for the DReps directory header band. Given the two
 // most recent epoch aggregates (newest first), it yields display-ready deltas for
-// the active-DRep count, total voting power, and average voting power. No I/O, so
-// it is unit-tested in the node pool; the .astro page only renders the result.
+// the active-DRep count and total voting power. No I/O, so it is unit-tested
+// in the node pool; the .astro page only renders the result.
 import { formatTrendPct } from './votingPowerTrend.js';
 
 export interface StatEpochAggregate {
@@ -22,8 +22,6 @@ export interface DrepStatTrends {
   activeDreps: StatTrend | null;
   /** Change in total voting power (percent, e.g. "8.7%"). */
   totalPower: StatTrend | null;
-  /** Change in average voting power per DRep (percent). */
-  avgPower: StatTrend | null;
 }
 
 function direction(delta: number): 'up' | 'down' | 'flat' {
@@ -43,7 +41,7 @@ function pctTrend(current: number, previous: number): StatTrend | null {
 }
 
 /**
- * Deltas for the three aggregatable cards. Returns all-null when fewer than two
+ * Deltas for the two aggregatable figures. Returns all-null when fewer than two
  * epochs have synced (a single epoch has nothing to compare against), so the page
  * simply omits the "this epoch" chips until the history window fills.
  */
@@ -52,18 +50,15 @@ export function computeDrepStatTrends(
   previous?: StatEpochAggregate,
 ): DrepStatTrends {
   if (!current || !previous) {
-    return { activeDreps: null, totalPower: null, avgPower: null };
+    return { activeDreps: null, totalPower: null };
   }
   const countDelta = current.count - previous.count;
   const activeDreps: StatTrend = {
     direction: direction(countDelta),
     label: Math.abs(countDelta).toLocaleString('en-US'),
   };
-  const avgCurrent = current.count > 0 ? current.total / current.count : 0;
-  const avgPrevious = previous.count > 0 ? previous.total / previous.count : 0;
   return {
     activeDreps,
     totalPower: pctTrend(current.total, previous.total),
-    avgPower: pctTrend(avgCurrent, avgPrevious),
   };
 }
