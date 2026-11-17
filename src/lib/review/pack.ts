@@ -148,7 +148,19 @@ export interface WindowPack {
     endingWithin12: number;
   };
   epochStats: { rows: Array<Record<string, number | string | boolean | null> & { epoch: number }>; metrics: Record<string, { column: string; definition: string; reliability: string; unit: PackUnit }> };
-  powerHistory: { coverage: { from: number; to: number } | null; covered: boolean; coveredAtTo: boolean; drops: Array<{ drepId: string; name: string | null; fromAda: number; toAda: number; deltaAda: number; deregistered: boolean }> | null; dropsRange: { from: number; to: number } | null };
+  powerHistory: {
+    coverage: { from: number; to: number } | null;
+    covered: boolean;
+    coveredAtTo: boolean;
+    drops: Array<{ drepId: string; name: string | null; fromAda: number; toAda: number; deltaAda: number; deregistered: boolean }> | null;
+    dropsRange: { from: number; to: number } | null;
+    /** Pack version 3: delegated power per epoch for every DRep the pack ranks
+     *  (topDreps, then drops), so an edition can draw how a DRep's power moved,
+     *  not only where it started and ended. One point per epoch of seriesRange,
+     *  in epoch order, powerAda null where no snapshot row exists. */
+    series: Array<{ drepId: string; name: string | null; points: Array<{ epoch: number; powerAda: number | null }> }> | null;
+    seriesRange: { from: number; to: number } | null;
+  };
   /** The curated net change limit periods this window falls in, with what the
    *  ceiling had absorbed by `epochTo`. An NCL is set by an info action and has
    *  no on-chain value, so the ceiling itself comes from the site's curated
@@ -935,6 +947,39 @@ export async function buildWindowPack(
   // The two epochs a drop row compares, so a reader of the pack can name the span.
   const dropsRange = drops == null ? null : { from: dropsFrom, to };
 
+  // Power paths for the DReps the pack already names. The span matches the
+  // epoch stats lead-in, so a power line and a stats line can share an axis.
+  // Points are listed for every epoch of the span, with null for an epoch that
+  // has no snapshot row, because a line chart checks its epochs one by one and
+  // a missing row is a gap, never a zero.
+  const seriesIds = [...new Set([...topDreps.map((d) => d.drepId), ...(drops ?? []).map((d) => d.drepId)])];
+  const seriesRange = coverage == null
+    ? null
+    : (() => {
+        const lo = Math.max(coverage.from, from - LEAD_IN_EPOCHS);
+        const hi = Math.min(coverage.to, to);
+        return lo <= hi ? { from: lo, to: hi } : null;
+      })();
+  const seriesRows = seriesRange != null && seriesIds.length > 0
+    ? await readPowerForDreps(db, seriesRange.from, seriesRange.to, seriesIds)
+    : [];
+  const seriesPower = new Map<string, number>();
+  for (const r of seriesRows) {
+    const ada = lovelaceToAda(r.amount);
+    if (ada != null) seriesPower.set(powerKey(r.drep_id, r.epoch), ada);
+  }
+  const seriesNames = new Map<string, string | null>([
+    ...topDreps.map((d) => [d.drepId, d.name] as const),
+    ...(drops ?? []).map((d) => [d.drepId, d.name] as const),
+  ]);
+  const series = seriesRange == null
+    ? null
+    : seriesIds.map((drepId) => {
+        const points: Array<{ epoch: number; powerAda: number | null }> = [];
+        for (let e = seriesRange.from; e <= seriesRange.to; e++) points.push({ epoch: e, powerAda: seriesPower.get(powerKey(drepId, e)) ?? null });
+        return { drepId, name: seriesNames.get(drepId) ?? null, points };
+      });
+
   const [ccNameRows, { members, hotToCold }] = await Promise.all([getAllCcMemberNames(db), getCommitteeTimeline(db)]);
   const ccNames = buildCcNameIndex(ccNameRows, hotToCold);
   const rationaleRows = await readRationalesForActions(db, focusIds);
@@ -993,7 +1038,7 @@ export async function buildWindowPack(
       endingWithin12: committeeRows.filter((m) => m.eligibleAtEnd && m.termExpiration <= to + TERM_HORIZON).length,
     },
     epochStats: { rows: windowStats.map(packStatsRow), metrics: statsMetrics() },
-    powerHistory: { coverage, covered, coveredAtTo, drops, dropsRange },
+    powerHistory: { coverage, covered, coveredAtTo, drops, dropsRange, series, seriesRange },
     ncl: buildNcl(
       withdrawals,
       new Set([...grouped.events, ...grouped.closingAtBoundary].map((r) => r.id)),

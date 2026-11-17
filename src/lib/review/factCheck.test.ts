@@ -186,6 +186,61 @@ describe('a fact read outside the frozen pack', () => {
   });
 });
 
+describe('a power path drawn from powerHistory.series (pack version 3)', () => {
+  const drepId = 'drep1ytvlwvyjmzfyn56n0zz4f6lj94wxhmsl5zky6knnzrf4jygpyahug';
+  const pack = {
+    actions: { events: [], closingAtBoundary: [], open: [], comparisons: [] },
+    powerHistory: {
+      series: [{ drepId, name: 'EMURGO', points: [
+        { epoch: 662, powerAda: 300_836_456.79 },
+        { epoch: 663, powerAda: 300_728_862.9 },
+        { epoch: 664, powerAda: null },
+        { epoch: 665, powerAda: 212_179_969.16 },
+      ] }],
+      seriesRange: { from: 662, to: 665 },
+    },
+  };
+  const chart = (values: string, epochFrom = 662) => [
+    '```chart',
+    'type: line',
+    'title: Power delegated to EMURGO',
+    'sources: ["powerHistory.series[0].points[].powerAda"]',
+    'epochSource: "powerHistory.series[0].points[].epoch"',
+    'format: M',
+    `epochFrom: ${epochFrom}`,
+    `values: [${values}]`,
+    'yMin: 200',
+    'yMax: 320',
+    '```',
+  ].join('\n');
+  const of = (rule: string, body: string) =>
+    factCheckEdition({ frontmatter: emptyFrontmatter as never, body, pack })
+      .filter((f) => f.rule === rule && !/\((title|standfirst)\)$/.test(f.message))
+      .map((f) => f.message);
+
+  it('accepts a line over the series, with the missing snapshot as a gap', () => {
+    expect(of('chart-source-mismatch', chart('300.8, 300.7, null, 212.2'))).toEqual([]);
+  });
+  it('flags a value the series does not hold', () => {
+    expect(of('chart-source-mismatch', chart('300.8, 290.0, null, 212.2'))).toEqual([expect.stringContaining('value 2')]);
+  });
+  it('flags a line whose epochs do not match the series', () => {
+    expect(of('chart-source-mismatch', chart('300.8, 300.7, null, 212.2', 663))).toEqual([expect.stringContaining('do not match')]);
+  });
+  it('licenses a link to a DRep the series names', () => {
+    expect(of('link-not-in-pack', `[EMURGO](/dreps/${drepId}/) fell to ₳212.2M at epoch 665.`)).toEqual([]);
+  });
+  it('still flags that link in a pack without a series', () => {
+    const older = { actions: pack.actions, powerHistory: { drops: null } };
+    const found = factCheckEdition({ frontmatter: emptyFrontmatter as never, body: `[EMURGO](/dreps/${drepId}/) fell.`, pack: older })
+      .filter((f) => f.rule === 'link-not-in-pack');
+    expect(found).toEqual([expect.objectContaining({ message: expect.stringContaining('unknown DRep') })]);
+  });
+  it('licenses the series values for the prose', () => {
+    expect(of('number-not-in-pack', `[EMURGO](/dreps/${drepId}/) held ₳300.7M at epoch 663 and ₳212.2M at epoch 665.`)).toEqual([]);
+  });
+});
+
 describe('an action ratified in the window and enacted after it', () => {
   const base = { id: `${'b'.repeat(64)}#0`, title: 'T', aliases: [], type: 'TreasuryWithdrawals', drepYesPct: null };
   const pack = {
