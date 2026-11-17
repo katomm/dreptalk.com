@@ -273,6 +273,34 @@ describe('buildWindowPack', () => {
     expect(pack.powerHistory.dropsRange).toEqual({ from: 649, to: 652 });
   });
 
+  it('carries a power path per ranked DRep, with a gap where no snapshot exists', async () => {
+    // drepSteady is ranked at the window end, drepGone only as a drop: it has no
+    // row at 651 and none after 651, so its path shows gaps, never zeros.
+    await env.DB.prepare(
+      `INSERT INTO drep_voting_power_history (drep_id, epoch, amount) VALUES
+        ('drepSteady', 649, '5000000'), ('drepSteady', 650, '6000000'), ('drepSteady', 651, '7000000'), ('drepSteady', 652, '8000000'),
+        ('drepGone', 649, '90000000000000'), ('drepGone', 650, '80000000000000')`,
+    ).run();
+    const pack = await buildWindowPack(env.DB, cfg, 650, 652);
+    // The span follows the stats lead-in, clipped to what the history covers.
+    expect(pack.powerHistory.seriesRange).toEqual({ from: 649, to: 652 });
+    const byId = new Map(pack.powerHistory.series?.map((s) => [s.drepId, s]));
+    expect(byId.get('drepSteady')?.points).toEqual([
+      { epoch: 649, powerAda: 5 }, { epoch: 650, powerAda: 6 }, { epoch: 651, powerAda: 7 }, { epoch: 652, powerAda: 8 },
+    ]);
+    expect(byId.get('drepGone')?.points.map((p) => p.powerAda)).toEqual([90_000_000, 80_000_000, null, null]);
+    // The ranked DReps come first, in their ranking order.
+    expect(pack.powerHistory.series?.[0].drepId).toBe(pack.topDreps[0].drepId);
+    expect(pack.packVersion).toBe(3);
+  });
+
+  it('has no power path when the history does not reach the window end', async () => {
+    await env.DB.prepare(`INSERT INTO drep_voting_power_history (drep_id, epoch, amount) VALUES ('drepA', 651, '1000000'), ('drepA', 652, '2000000')`).run();
+    const older = await buildWindowPack(env.DB, cfg, 640, 642);
+    expect(older.powerHistory.seriesRange).toBeNull();
+    expect(older.powerHistory.series).toBeNull();
+  });
+
   it('excludes votes cast after the window from voteTimeline and spo', async () => {
     await seedAction(ids.closing, 'NewCommittee', 'active', { submitted: 646, expiry: 653 });
     await env.DB.prepare(
