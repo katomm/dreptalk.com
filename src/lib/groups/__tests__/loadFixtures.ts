@@ -69,7 +69,7 @@ export function sigScript(key: string): { bytes: Uint8Array; hash: string } {
 type Ref = { txHash: string; index: number };
 const refCbor = (r: Ref): Cbor => [hexToBytes(r.txHash), r.index];
 export const ev = {
-  create: (control: string): Cbor => [0, 0, hexToBytes(control), []],
+  create: (control: string): Cbor => [0, 0, hexToBytes(control)],
   update: (group: Ref, seq: number, changes = new Map<number, Cbor>()): Cbor => [1, refCbor(group), seq, changes],
   join: (group: Ref | number, member: string, kind: 'key' | 'script' = 'key'): Cbor => [
     3,
