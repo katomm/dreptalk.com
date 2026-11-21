@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import {
+  getEpochStatsByEpoch,
+  listEpochStats,
+  listLatestEpochStats,
   upsertEpochStats,
   insertEpochStatsIfMissing,
   getStoredStatsEpochs,
@@ -34,6 +37,10 @@ function row(epoch: number, over: Partial<EpochStatsRow> = {}): EpochStatsRow {
     votesCast: 5,
     voteDataComplete: false,
     treasuryLovelace: '77',
+    unexpiredDrepCount: null,
+    unexpiredPoweredDrepCount: null,
+    unexpiredDrepPower: null,
+    unexpiredTop10SharePct: null,
     ...over,
   };
 }
@@ -58,6 +65,72 @@ describe('epoch stats persistence', () => {
       'SELECT treasury_lovelace FROM governance_epoch_stats WHERE epoch = 550',
     ).first<{ treasury_lovelace: string }>();
     expect(stored?.treasury_lovelace).toBe('77');
+  });
+
+  it('stores the unexpired values, a later observation replaces them', async () => {
+    const first = {
+      unexpiredDrepCount: 265,
+      unexpiredPoweredDrepCount: 263,
+      unexpiredDrepPower: '4637984076953154',
+      unexpiredTop10SharePct: 54.2,
+    };
+    await upsertEpochStats(env.DB, row(560, first));
+    expect(await getEpochStatsByEpoch(env.DB, 560)).toMatchObject(first);
+
+    const second = {
+      unexpiredDrepCount: 266,
+      unexpiredPoweredDrepCount: 264,
+      unexpiredDrepPower: '4638000000000000',
+      unexpiredTop10SharePct: 54.1,
+    };
+    await upsertEpochStats(env.DB, row(560, second));
+    expect(await getEpochStatsByEpoch(env.DB, 560)).toMatchObject(second);
+    const n = await env.DB.prepare('SELECT COUNT(*) AS n FROM governance_epoch_stats WHERE epoch = 560')
+      .first<{ n: number }>();
+    expect(n?.n).toBe(1);
+    // Every reader carries the fields.
+    expect((await listEpochStats(env.DB, { fromEpoch: 560 }))[0]).toMatchObject(second);
+    expect((await listLatestEpochStats(env.DB, 1))[0]).toMatchObject(second);
+  });
+
+  it('keeps the earlier unexpired values when a later upsert has no observation', async () => {
+    const observed = {
+      unexpiredDrepCount: 265,
+      unexpiredPoweredDrepCount: 263,
+      unexpiredDrepPower: '4637984076953154',
+      unexpiredTop10SharePct: 54.2,
+    };
+    await upsertEpochStats(env.DB, row(561, observed));
+    // Same epoch, a run whose dreps phase failed: the row is rewritten, the
+    // observation is not.
+    await upsertEpochStats(env.DB, row(561, { votesCast: 9 }));
+    const stored = await getEpochStatsByEpoch(env.DB, 561);
+    expect(stored).toMatchObject({ ...observed, votesCast: 9 });
+  });
+
+  it('stores NULL, never zero, for an epoch without an observation', async () => {
+    await upsertEpochStats(env.DB, row(562));
+    await insertEpochStatsIfMissing(env.DB, row(563));
+    for (const epoch of [562, 563]) {
+      expect(await getEpochStatsByEpoch(env.DB, epoch)).toMatchObject({
+        unexpiredDrepCount: null,
+        unexpiredPoweredDrepCount: null,
+        unexpiredDrepPower: null,
+        unexpiredTop10SharePct: null,
+      });
+    }
+  });
+
+  it('the vote repair of a closed epoch leaves its unexpired observation alone', async () => {
+    const observed = {
+      unexpiredDrepCount: 265,
+      unexpiredPoweredDrepCount: 263,
+      unexpiredDrepPower: '4637984076953154',
+      unexpiredTop10SharePct: 54.2,
+    };
+    await upsertEpochStats(env.DB, row(564, observed));
+    await updateVoteDerivedStats(env.DB, 564, 12, 4, 2, true);
+    expect(await getEpochStatsByEpoch(env.DB, 564)).toMatchObject({ ...observed, votesCast: 12, voteDataComplete: true });
   });
 
   it('repairs both vote-derived columns together', async () => {

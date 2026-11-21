@@ -23,6 +23,10 @@ function row(epoch: number, over: Partial<EpochStatsRow> = {}): EpochStatsRow {
     votesCast: 12,
     voteDataComplete: true,
     treasuryLovelace: '99',
+    unexpiredDrepCount: null,
+    unexpiredPoweredDrepCount: null,
+    unexpiredDrepPower: null,
+    unexpiredTop10SharePct: null,
     ...over,
   };
 }
@@ -46,6 +50,17 @@ describe('seriesStartFromRows', () => {
     ];
     expect(seriesStartFromRows(rows, 'delegatorTotal')).toBe(511);
     expect(seriesStartFromRows(rows, 'treasuryLovelace')).toBe(512);
+  });
+
+  it('starts the unexpired metrics at the first observed epoch, rows from before the columns stay out', () => {
+    const rows = [
+      row(510),
+      row(511, { unexpiredDrepCount: 265, unexpiredDrepPower: '4600' }),
+      row(512, { unexpiredDrepCount: 266, unexpiredDrepPower: '4700' }),
+    ];
+    expect(seriesStartFromRows(rows, 'unexpiredDrepCount')).toBe(511);
+    expect(seriesStartFromRows(rows, 'unexpiredDrepPower')).toBe(511);
+    expect(seriesStartFromRows([row(510)], 'unexpiredTop10SharePct')).toBeNull();
   });
 
   it('starts first-complete metrics at the first row with voteDataComplete true', () => {

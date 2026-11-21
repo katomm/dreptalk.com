@@ -27,6 +27,19 @@ export interface EpochStatsInput {
   votesCast: number;
   voteDataComplete: boolean;
   treasuryLovelace: string | null;
+  /**
+   * The group behind the DRep list's header numbers as the dreps phase of
+   * this run observed it: registered DReps whose activity has not expired,
+   * specials excluded (the rows of listDrepsForConcentration). Null when this
+   * run has no fresh observation, which stores NULL instead of a stale or
+   * guessed value.
+   */
+  unexpiredDreps: readonly UnexpiredDrepInput[] | null;
+}
+
+export interface UnexpiredDrepInput {
+  /** Lovelace, null when Koios served no amount (counts as zero power). */
+  votingPower: string | null;
 }
 
 export interface EpochStatsRow {
@@ -48,6 +61,14 @@ export interface EpochStatsRow {
   votesCast: number;
   voteDataComplete: boolean;
   treasuryLovelace: string | null;
+  /** Unexpired DReps at the last DRep sync of the epoch, zero power included. Null without an observation. */
+  unexpiredDrepCount: number | null;
+  /** The subset of unexpiredDrepCount holding voting power above zero. */
+  unexpiredPoweredDrepCount: number | null;
+  /** Summed voting power (lovelace) of the unexpired DReps. */
+  unexpiredDrepPower: string | null;
+  /** Share of unexpiredDrepPower held by its ten largest DReps. */
+  unexpiredTop10SharePct: number | null;
 }
 
 const [ABSTAIN_ID, ANC_ID] = SPECIAL_DREP_IDS;
@@ -91,6 +112,57 @@ export function countSilentPoweredDreps(history: EpochHistoryInput[], voters: Re
   return silent;
 }
 
+const desc = (a: bigint, b: bigint) => (a < b ? 1 : a > b ? -1 : 0);
+
+/** Sum of the ten largest amounts. */
+function top10Sum(amounts: bigint[]): bigint {
+  return [...amounts].sort(desc).slice(0, 10).reduce((a, b) => a + b, 0n);
+}
+
+/**
+ * Lenient lovelace parse for the dreps.voting_power column: NULL, anything
+ * that is no integer string and negative amounts all count as zero. The list
+ * header parses the same column the same way, and a throw here would discard
+ * the whole epoch row, not just these columns.
+ */
+function positiveLovelace(s: string | null): bigint {
+  try {
+    const p = BigInt(s ?? '0');
+    return p > 0n ? p : 0n;
+  } catch {
+    return 0n;
+  }
+}
+
+type UnexpiredStats = Pick<
+  EpochStatsRow,
+  'unexpiredDrepCount' | 'unexpiredPoweredDrepCount' | 'unexpiredDrepPower' | 'unexpiredTop10SharePct'
+>;
+
+/**
+ * Aggregates over the observed unexpired group. BigInt throughout, lovelace
+ * sums exceed Number's exact range. A DRep without power still counts as
+ * unexpired, the powered count is the subset above zero.
+ */
+function summarizeUnexpiredDreps(dreps: readonly UnexpiredDrepInput[] | null): UnexpiredStats {
+  if (dreps === null) {
+    return {
+      unexpiredDrepCount: null,
+      unexpiredPoweredDrepCount: null,
+      unexpiredDrepPower: null,
+      unexpiredTop10SharePct: null,
+    };
+  }
+  const powers = dreps.map((d) => positiveLovelace(d.votingPower));
+  const total = powers.reduce((a, b) => a + b, 0n);
+  return {
+    unexpiredDrepCount: dreps.length,
+    unexpiredPoweredDrepCount: powers.filter((p) => p > 0n).length,
+    unexpiredDrepPower: total.toString(),
+    unexpiredTop10SharePct: pct4(top10Sum(powers), total),
+  };
+}
+
 export function computeEpochStatsRow(input: EpochStatsInput): EpochStatsRow {
   const seen = new Set<string>();
   const specials = new Map<string, EpochHistoryInput>();
@@ -107,10 +179,7 @@ export function computeEpochStatsRow(input: EpochStatsInput): EpochStatsRow {
   const powers = regular.map((r) => BigInt(r.amount));
   const clamped = powers.map((p) => (p > 0n ? p : 0n));
   const totalPower = clamped.reduce((a, b) => a + b, 0n);
-  const top10 = [...clamped]
-    .sort((a, b) => (a < b ? 1 : a > b ? -1 : 0))
-    .slice(0, 10)
-    .reduce((a, b) => a + b, 0n);
+  const top10 = top10Sum(clamped);
 
   // computeConcentration supplies the coalition counts (its two-pointer walk),
   // the top-10 share above comes from the raw distribution instead of summing
@@ -143,5 +212,6 @@ export function computeEpochStatsRow(input: EpochStatsInput): EpochStatsRow {
     votesCast: input.votesCast,
     voteDataComplete: input.voteDataComplete,
     treasuryLovelace: input.treasuryLovelace,
+    ...summarizeUnexpiredDreps(input.unexpiredDreps),
   };
 }

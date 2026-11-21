@@ -62,7 +62,11 @@ export type EpochStatsMetricKey =
   | 'minCoalition50'
   | 'minCoalition67'
   | 'votesCast'
-  | 'treasuryLovelace';
+  | 'treasuryLovelace'
+  | 'unexpiredDrepCount'
+  | 'unexpiredPoweredDrepCount'
+  | 'unexpiredDrepPower'
+  | 'unexpiredTop10SharePct';
 
 export const EPOCH_STATS_METRICS: Record<EpochStatsMetricKey, EpochStatsMetric> = {
   totalDrepPower: {
@@ -184,6 +188,49 @@ export const EPOCH_STATS_METRICS: Record<EpochStatsMetricKey, EpochStatsMetric> 
     includesSpecials: false,
     source: 'koios-totals',
     definition: 'Treasury balance (lovelace) at the epoch.',
+  },
+  // The four unexpired metrics describe the group behind the header numbers
+  // of the DRep list ("Active DReps", "Total voting power"): every row with
+  // dreps.active = 1, that is registered DReps whose activity has not expired
+  // under the chain's drep_activity rule (Koios drep_info.active). No voting
+  // record, name or power floor is part of it. "Unexpired" keeps them apart
+  // from recentlyVotingDrepCount, the other meaning of "active". They are the
+  // state at the last DRep sync of the epoch, a different instant than the
+  // boundary snapshot behind totalDrepPower and poweredDrepCount in the same row.
+  unexpiredDrepCount: {
+    column: 'unexpired_drep_count',
+    reliability: 'forward-only',
+    start: 'first-non-null',
+    includesSpecials: false,
+    source: 'live-observation',
+    definition: 'Registered DReps whose activity had not expired at the last DRep sync of the epoch, DReps without voting power included.',
+  },
+  unexpiredPoweredDrepCount: {
+    column: 'unexpired_powered_drep_count',
+    reliability: 'forward-only',
+    start: 'first-non-null',
+    includesSpecials: false,
+    source: 'live-observation',
+    definition: 'Registered DReps with voting power above zero whose activity had not expired at the last DRep sync of the epoch.',
+  },
+  unexpiredDrepPower: {
+    column: 'unexpired_drep_power',
+    reliability: 'forward-only',
+    start: 'first-non-null',
+    includesSpecials: false,
+    source: 'live-observation',
+    definition: 'Summed voting power (lovelace) of the registered DReps whose activity had not expired at the last DRep sync of the epoch.',
+  },
+  unexpiredTop10SharePct: {
+    column: 'unexpired_top10_share_pct',
+    reliability: 'forward-only',
+    start: 'first-non-null',
+    includesSpecials: false,
+    source: 'live-observation',
+    // From the raw amounts, like top10SharePct. The list's "Top 10" card sums
+    // per-DRep percents that are already rounded to two decimals, so the two
+    // can differ in the last digit. Do not align this one to the card.
+    definition: 'Share of the unexpired voting power held by its ten largest DReps at the last DRep sync of the epoch, computed from the raw amounts.',
   },
 };
 
