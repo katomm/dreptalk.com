@@ -4,7 +4,7 @@ description: "What the governance analytics page shows, where its numbers come f
 cardLabel: "Analytics page"
 category: "Understanding governance"
 order: 90
-updated: 2026-09-18
+updated: 2026-11-23
 faqs:
   - q: "Why do some charts start later than others?"
     a: "Each chart starts at the first epoch its metric can be measured. Delegator counts, for example, exist only from when DRepTalk began recording them."
@@ -24,7 +24,7 @@ faqs:
     a: "Each action is measured against the members eligible when it was decided, which changes with resignations, ended terms and key registrations."
 ---
 
-The [analytics page](/analytics/) tracks how healthy, representative and decentralized Cardano governance is, one epoch at a time. Everything on it comes from on-chain data, refreshed several times a day. The page is organized in five chapters: governance today, representation and participation, accountability and behavior, decentralization, and governance throughput. The [homepage](/) carries a "Governance at a glance" strip with four of its headline figures, DReps holding delegated power, delegated voting power, DReps that voted in the recent window, and the share held by the top 10 DReps, each with a sparkline of the last epochs and a link into the chapter that explains it.
+The [analytics page](/analytics/) tracks how healthy, representative and decentralized Cardano governance is, one epoch at a time. Everything on it comes from on-chain data, refreshed several times a day. The page is organized in five chapters: governance today, representation and participation, accountability and behavior, decentralization, and governance throughput. Above them sit two headline figures from the most recent decided actions: the median share of the voting power delegated to DReps that was represented in each vote, and the median number of DReps that cast half of the voted power. Both leave the default options out, and the line under them says how much of the delegated power those options hold. The [homepage](/) carries a "Governance at a glance" strip with four of its headline figures, DReps holding delegated power, delegated voting power, DReps that voted in the recent window, and the share held by the top 10 DReps, each with a sparkline of the last epochs and a link into the chapter that explains it.
 
 ## The two layers
 
@@ -40,7 +40,7 @@ The "voted in the last 12 epochs" figure counts DReps with at least one on-chain
 
 The silent counterpart uses the same window but a different base: it counts the DReps that held delegated power in an epoch and cast no vote in the twelve epochs up to it. The two charts are deliberately not each other's mirror. A DRep that voted and has since retired still counts as having voted in the window, but it holds no power and so is never silent. The share chart next to them reads the silent count against the power holders of the same epoch, so it is the cleaner participation rate of the two.
 
-The default options also get a share chart: the two predefined options together, as a percentage of everything delegated to them and to representative DReps. It is the per-epoch version of the comparison sentence under the two option cards.
+The default options also get a share chart: the two predefined options together, as a percentage of everything delegated to them and to representative DReps. It is the per-epoch version of the bar under the two option cards, which splits the current delegated total into representative DReps, always abstain and always no confidence.
 
 The "DRep activity" section reads the current registrations rather than a trend. Two bars split all registered DReps by registration state, active against inactive or retired, and by voting history, ever voted on chain against never voted, with a note on how many active registrations hold delegated power. Below them the section states how much stake is still delegated to inactive DReps, how many of them hold it, how much of it the ten largest hold, and lists the largest inactive DReps by voting power. A retired DRep holds no voting power, so this stake sits entirely with DReps that are still registered but stopped voting.
 

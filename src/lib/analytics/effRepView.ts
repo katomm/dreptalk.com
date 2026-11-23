@@ -23,6 +23,8 @@ export interface EffRepRow {
   type: string;
   decidedEpoch: number;
   powerSharePct: number;
+  /** DRep votes the action's own tally counted, the count behind countSharePct. */
+  votesCast: number;
   countSharePct: number | null;
   halfCount: number | null;
   voterCount: number | null;
@@ -68,6 +70,7 @@ export function buildEffRep(
       type: action.type,
       decidedEpoch: action.decidedEpoch,
       powerSharePct,
+      votesCast: action.votesCast,
       countSharePct,
       halfCount: conc?.halfCount ?? null,
       voterCount: conc?.voterCount ?? null,

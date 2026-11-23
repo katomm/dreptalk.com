@@ -3,6 +3,7 @@
 // (homepage strip, DReps directory, guides) builds its href from here, so a
 // renamed section cannot silently strand a link at the top of the page.
 export const HUB_SECTION_IDS = {
+  lead: 'hub-lead-title',
   today: 'chapter-today-title',
   defaults: 'hub-defaults-title',
   trends: 'hub-trends-title',
@@ -26,4 +27,20 @@ export type HubSection = keyof typeof HUB_SECTION_IDS;
 /** Absolute href that opens the hub scrolled to one section. */
 export function hubHref(section: HubSection): string {
   return `/analytics/#${HUB_SECTION_IDS[section]}`;
+}
+
+/**
+ * The hub's chapters as the questions they answer, for the jump links under
+ * the headline figures. Rationales get their own entry because readers come to
+ * the site for them, and that link falls back to the chapter head while the
+ * panel has no data yet. Throughput is listed only when its chapter renders.
+ */
+export function hubJumpLinks(opts: { hasRationale: boolean; hasThroughput: boolean }): { label: string; id: string }[] {
+  return [
+    { label: 'Where does governance stand today?', id: HUB_SECTION_IDS.today },
+    { label: 'Who votes, and how much power shows up?', id: HUB_SECTION_IDS.representation },
+    { label: 'Do DReps explain their votes?', id: opts.hasRationale ? HUB_SECTION_IDS.rationale : HUB_SECTION_IDS.accountability },
+    { label: 'How concentrated is voting power?', id: HUB_SECTION_IDS.decentralization },
+    ...(opts.hasThroughput ? [{ label: 'How fast are actions decided?', id: HUB_SECTION_IDS.throughput }] : []),
+  ];
 }

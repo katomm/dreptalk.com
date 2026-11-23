@@ -41,6 +41,7 @@ describe('buildEffRep', () => {
     expect(view.rows).toHaveLength(2);
     expect(view.rows[0].powerSharePct).toBe(64);
     expect(view.rows[0].countSharePct).toBe(50);
+    expect(view.rows[0].votesCast).toBe(400);
     expect(view.rows[1].countSharePct).toBeNull();
     expect(view.medianPowerSharePct).toBe(44.5);
     expect(view.skipped).toBe(2);
