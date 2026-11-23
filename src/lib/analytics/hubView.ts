@@ -218,14 +218,26 @@ export function commonSeriesStart(starts: (number | null)[]): number | null {
 const PROVISIONAL_VOTING_SUB = 'still filling in for the running epoch';
 const votedLabel = () => `Voted in the last ${RECENT_VOTING_WINDOW_EPOCHS} epochs`;
 
-/** The four hub vitals. Empty array when no stats row exists yet. */
+/** A hub vital plus the picture it draws in place of the plain icon. */
+export type HubVital = VitalCard & { series?: number[]; ring?: number };
+
+/**
+ * The four hub vitals. Empty array when no stats row exists yet. `rows` (the
+ * ascending epoch history) feeds each count's sparkline over the last
+ * GLANCE_WINDOW_EPOCHS gapless epochs, the same window as the homepage strip.
+ * The circulating share has no per-epoch history (only the current
+ * circulation is stored), so it draws a donut instead.
+ */
 export function buildVitals(
   current: EpochStatsRow | null,
   prev: EpochStatsRow | null,
   circulationLovelace: string | null,
-): VitalCard[] {
+  rows: EpochStatsRow[] = [],
+): HubVital[] {
   if (!current) return [];
   const share = circulatingSharePct(current.totalDrepPower, circulationLovelace);
+  const tail = contiguousTail(rows).slice(-GLANCE_WINDOW_EPOCHS);
+  const voteTail = tail.slice(0, tail.findLastIndex((r) => r.voteDataComplete) + 1);
   return [
     {
       label: 'DReps holding delegated power',
@@ -236,6 +248,7 @@ export function buildVitals(
       // while the DRep activity section's count below is active-only. Without
       // this the two counts on the same page look like a contradiction.
       sub: 'including retired DReps still holding stake',
+      series: recentSeries(tail, 'poweredDrepCount'),
     },
     {
       label: votedLabel(),
@@ -243,6 +256,7 @@ export function buildVitals(
       icon: 'gauge',
       alt: true,
       sub: current.voteDataComplete === false ? PROVISIONAL_VOTING_SUB : 'superseded votes included',
+      series: recentSeries(voteTail, 'recentlyVotingDrepCount'),
     },
     {
       label: 'Delegated voting power',
@@ -252,6 +266,7 @@ export function buildVitals(
       valueShort: formatAdaCompact(current.totalDrepPower, 2) ?? undefined,
       icon: 'power',
       trend: trendChip(current.totalDrepPower, prev ? prev.totalDrepPower : null, formatAdaDelta),
+      series: recentSeries(tail, 'totalDrepPower'),
     },
     {
       label: 'Share of circulating ada',
@@ -259,6 +274,7 @@ export function buildVitals(
       icon: 'share',
       alt: true,
       sub: 'delegated to DReps',
+      ring: share ?? undefined,
     },
   ];
 }
@@ -341,28 +357,44 @@ export function buildGlanceTiles(rows: EpochStatsRow[], circulationLovelace: str
   ];
 }
 
+export interface PowerSplitSegment {
+  key: 'repr' | 'abstain' | 'anc';
+  label: string;
+  amountLabel: string;
+  pct: number;
+}
+
 /**
- * Compact-formatted comparison between the two default-option pools (abstain
- * plus always-no-confidence) and the represented total, for the hub's
- * default-options card. Null unless all three lovelace amounts parse, BigInt
- * throughout since the pools run well past Number's safe-integer range.
+ * How everything delegated for governance splits between representative
+ * DReps and the two default options, for the hub's one-bar breakdown. Null
+ * unless all three lovelace amounts parse and the sum is positive. BigInt for
+ * the sum and the shares since the pools run well past Number's
+ * safe-integer range. defaultsPct is the two default
+ * options together, quoted next to headline figures that leave them out.
  */
-export function defaultOptionsComparison(
+export function delegatedPowerSplit(
   abstain: string | null | undefined,
   anc: string | null | undefined,
   reprTotal: string | null,
-): { defaultsLabel: string; reprLabel: string } | null {
+): { segments: PowerSplitSegment[]; defaultsPct: number } | null {
   if (abstain == null || anc == null || reprTotal == null) return null;
-  let defaultsSum: bigint;
-  let repr: bigint;
+  let parts: [PowerSplitSegment['key'], string, bigint][];
   try {
-    defaultsSum = BigInt(abstain) + BigInt(anc);
-    repr = BigInt(reprTotal);
+    parts = [
+      ['repr', 'Representative DReps', BigInt(reprTotal)],
+      ['abstain', 'Always abstain', BigInt(abstain)],
+      ['anc', 'Always no confidence', BigInt(anc)],
+    ];
   } catch {
     return null;
   }
-  const defaultsLabel = formatAdaCompact(defaultsSum.toString());
-  const reprLabel = formatAdaCompact(repr.toString());
-  if (defaultsLabel == null || reprLabel == null) return null;
-  return { defaultsLabel, reprLabel };
+  const total = parts.reduce((sum, [, , v]) => sum + v, 0n);
+  if (total <= 0n) return null;
+  const segments: PowerSplitSegment[] = [];
+  for (const [key, label, v] of parts) {
+    const amountLabel = formatAdaCompact(v.toString());
+    if (amountLabel == null) return null;
+    segments.push({ key, label, amountLabel, pct: pct4(v, total) });
+  }
+  return { segments, defaultsPct: 100 - segments[0].pct };
 }

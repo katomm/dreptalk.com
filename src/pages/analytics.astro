@@ -31,7 +31,7 @@ import { buildCcNameIndex } from '@/lib/governance/ccNames.js';
 import { computeConcentration } from '@/lib/dreps/concentration.js';
 import { buildThresholdMarkers, buildCoalitionTable } from '@/lib/dreps/thresholdMarkers.js';
 import { seriesStartFromRows } from '@/lib/analytics/epochStatsContract.js';
-import { buildVitals, commonSeriesStart, contiguousPrefix, defaultOptionsComparison, defaultsShareSeries, metricSeries, netChange, rowBeforeEpoch, votedShareSeries } from '@/lib/analytics/hubView.js';
+import { buildVitals, commonSeriesStart, contiguousPrefix, defaultsShareSeries, delegatedPowerSplit, metricSeries, netChange, rowBeforeEpoch, votedShareSeries } from '@/lib/analytics/hubView.js';
 import { buildEffRep } from '@/lib/analytics/effRepView.js';
 import { buildVoteChangeView } from '@/lib/analytics/voteChangeView.js';
 import { buildRationaleCoverage } from '@/lib/analytics/rationaleCoverageView.js';
@@ -39,8 +39,9 @@ import { buildCcPanel, selectExtremes } from '@/lib/analytics/ccPanelView.js';
 import { buildDroppedActions, buildSpoSnapshot, buildThroughput } from '@/lib/analytics/outcomesView.js';
 import { ogCardVersion } from '@/lib/og/version.js';
 import type { EpochStatsRow } from '@/lib/analytics/epochStats.js';
-import { HUB_SECTION_IDS as HUB } from '@/lib/analytics/hubSections.js';
+import { HUB_SECTION_IDS as HUB, hubJumpLinks } from '@/lib/analytics/hubSections.js';
 import DrepStatCard from '@/components/DrepStatCard.astro';
+import EffRepRow from '@/components/EffRepRow.astro';
 import { loadEditions, editionSlug } from '@/lib/review/editions.js';
 import { awaitAll } from '@/lib/awaitAll.js';
 
@@ -240,7 +241,7 @@ const current = stats.length > 0 ? stats[stats.length - 1] : null;
 // The true previous epoch's row, never a positional neighbor: mid-backfill
 // stats[length - 2] would be an ancient epoch and every delta would lie.
 const prev = current ? rowBeforeEpoch(stats, current.epoch) : null;
-const vitals = buildVitals(current, prev, params?.circulationLovelace ?? null);
+const vitals = buildVitals(current, prev, params?.circulationLovelace ?? null, stats);
 // Per-action vote powers for the concentration read, one batched query for the
 // listed actions. Completeness gating happens in the builder: an action with
 // any missing per-vote power renders no half-count, never a zero.
@@ -314,12 +315,20 @@ const ancDelta = netChange(
   (n) => n.toLocaleString('en-US'),
 );
 // Non-null only once the two default pools and the represented total all
-// parse, so the comparison line quietly disappears rather than half-render.
-const defaultsComparison = defaultOptionsComparison(
+// parse, so the split bar quietly disappears rather than half-render.
+const powerSplit = delegatedPowerSplit(
   defaults.abstain?.votingPower,
   defaults.noConfidence?.votingPower,
   current?.totalDrepPower ?? null,
 );
+
+const hasThroughput = throughput.enacted + throughput.expired + throughput.closed > 0;
+const jumpLinks = hubJumpLinks({ hasRationale: rationaleCoverage.countPct != null, hasThroughput });
+
+// The first rows of the effective-representation panel stay visible, the rest
+// of the actions behind the headline figures fold into a details element.
+const EFFREP_VISIBLE = 6;
+const effRepHidden = effRep.rows.slice(EFFREP_VISIBLE);
 
 const fmtAdaCompact = (v: number) => formatAdaCompact(String(Math.round(v)));
 const fmtTwoDec = (v: number) => v.toFixed(2);
@@ -408,12 +417,40 @@ const activityBars = activity
     <p class="hub-review">Read the numbers in context: <a href={`/governance-review/${editionSlug(latestReview)}/`}>{latestReview.data.title}</a>, the Governance Review for epochs {latestReview.data.epochFrom} to {latestReview.data.epochTo}.</p>
   )}
 
+  {effRep.medianPowerSharePct != null && (
+    <section class="hub-lead" aria-labelledby={HUB.lead}>
+      <h2 id={HUB.lead} class="hub-lead__title">DRep participation across the last {effRep.rows.length} decided actions</h2>
+      <div class="hub-lead__grid">
+        <div class="hub-lead__stat">
+          <p class="hub-lead__value">{fmtShare(effRep.medianPowerSharePct)}</p>
+          <p class="hub-lead__label">Median share of the voting power delegated to DReps that was represented per action, default options excluded</p>
+        </div>
+        {effRep.medianHalfCount != null && (
+          <div class="hub-lead__stat">
+            <p class="hub-lead__value">{fmtCount(effRep.medianHalfCount)} DReps</p>
+            <p class="hub-lead__label">Median number of DReps accounting for half of the voting power cast</p>
+          </div>
+        )}
+      </div>
+      {powerSplit && (
+        <p class="hub-lead__foot">Always abstain and always no confidence together hold {fmtShare(powerSplit.defaultsPct)} of all delegated power and are counted separately. <a href={`#${HUB.defaults}`}>How it splits</a></p>
+      )}
+      <p class="hub-lead__foot"><a href={`#${HUB.effrep}`}>Explore these {effRep.rows.length} actions</a></p>
+    </section>
+  )}
+
   {vitals.length > 0 && (
     <div class="drep-stats">
-      {vitals.map((card) => <DrepStatCard card={card} />)}
+      {vitals.map((card) => <DrepStatCard card={card} ring={card.ring} series={card.series} />)}
     </div>
   )}
   {current && <p class="hub-asof">As of epoch {current.epoch}</p>}
+
+  <nav class="hub-jump" aria-label="Questions this page answers">
+    <ul>
+      {jumpLinks.map((j) => <li><a href={`#${j.id}`}>{j.label}</a></li>)}
+    </ul>
+  </nav>
   {!hasBackbone && (
     <p class="hub-empty">Per-epoch data starts filling in with the next sync run. Vitals and the per-epoch trend charts fill in once the first epoch is recorded.</p>
   )}
@@ -450,8 +487,18 @@ const activityBars = activity
           </div>
         ))}
       </div>
-      {defaultsComparison && (
-        <p class="hub-defaults__compare">Default options hold {defaultsComparison.defaultsLabel}, compared with {defaultsComparison.reprLabel} delegated to representative DReps.</p>
+      {powerSplit && (
+        <div class="hub-cbar hub-defaults__split">
+          <p class="hub-cbar__title">Where the delegated voting power sits</p>
+          <div class="hub-cbar__track" role="img" aria-label={powerSplit.segments.map((seg) => `${seg.label} ${fmtShare(seg.pct)}`).join(', ')}>
+            {powerSplit.segments.map((seg) => <span class={`hub-cbar__seg hub-cbar__seg--${seg.key}`} style={`width:${seg.pct.toFixed(2)}%`}></span>)}
+          </div>
+          <ul class="hub-cbar__legend">
+            {powerSplit.segments.map((seg) => (
+              <li class="hub-cbar__legend-item"><span class={`hub-cbar__dot hub-cbar__dot--${seg.key}`} aria-hidden="true"></span><strong>{fmtShare(seg.pct)}</strong> {seg.label}, {seg.amountLabel}</li>
+            ))}
+          </ul>
+        </div>
       )}
       {defaultsShare.length > 1 && (
         <div class="hub-defaults__share">
@@ -486,28 +533,19 @@ const activityBars = activity
     {effRep.rows.length > 0 && (
       <section class="hub-effrep" aria-labelledby={HUB.effrep}>
         <HeadingAnchor level={3} id={HUB.effrep}>Effective representation</HeadingAnchor>
-        <p class="hub-effrep__lede">Across the last {effRep.rows.length} decided actions, a median of {fmtShare(effRep.medianPowerSharePct)} of the delegated voting power was actually represented in the vote.{effRep.medianHalfCount != null && ` A median of ${fmtCount(effRep.medianHalfCount)} DReps was enough to cast half of the voted power.`}</p>
+        <p class="hub-effrep__lede">The {effRep.rows.length} decided actions behind the figures at the top of the page: how many DReps voted, how much of the delegated power they represented, and how few of them cast half of it.</p>
         <ul class="hub-effrep__rows">
-          {effRep.rows.slice(0, 6).map((row) => (
-            <li class="hub-effrep__row">
-              <div class="hub-effrep__head">
-                <span class="hub-effrep__title">
-                  {row.href ? <a href={row.href}>{row.title}</a> : row.title}
-                </span>
-                <span class="hub-effrep__type">{readableType(row.type)}</span>
-                <span class="hub-effrep__epoch">Epoch {row.decidedEpoch}</span>
-              </div>
-              <div class="hub-effrep__meter">
-                <span class="hub-effrep__bar" aria-hidden="true"><span class="hub-effrep__fill" style={`width:${row.powerSharePct.toFixed(1)}%`}></span></span>
-                <span class="hub-effrep__value">{fmtShare(row.powerSharePct)}</span>
-              </div>
-              {(row.countSharePct != null || row.halfCount != null) && (
-                <p class="hub-effrep__note">{row.countSharePct != null && `${fmtShare(row.countSharePct)} of DReps voted`}{row.countSharePct != null && row.halfCount != null && ', '}{row.halfCount != null && `${row.halfCount} of ${row.voterCount} voters cast half of the voted power`}</p>
-              )}
-            </li>
-          ))}
+          {effRep.rows.slice(0, EFFREP_VISIBLE).map((row) => <EffRepRow row={row} />)}
         </ul>
-        <p class="hub-effrep__more">Showing the six most recent decided actions. <a href={ACTIONS_LIST_HREF}>View all governance actions</a></p>
+        {effRepHidden.length > 0 && (
+          <details class="hub-effrep__rest">
+            <summary>Show {effRepHidden.length} more {effRepHidden.length === 1 ? 'action' : 'actions'}</summary>
+            <ul class="hub-effrep__rows">
+              {effRepHidden.map((row) => <EffRepRow row={row} />)}
+            </ul>
+          </details>
+        )}
+        <p class="hub-effrep__more"><a href={ACTIONS_LIST_HREF}>View all governance actions</a></p>
         <p class="hub-effrep__footnote">Denominator: the delegated voting power in each action's decision epoch, the predefined default options excluded. Concentration reads use the voting power each DRep voted with and appear only when it is recorded for every vote.{effRep.skipped > 0 && ` ${effRep.skipped} older actions without epoch data are not shown.`}</p>
       </section>
     )}
@@ -911,7 +949,7 @@ const activityBars = activity
     )}
   </section>
 
-  {throughput.enacted + throughput.expired + throughput.closed > 0 && (
+  {hasThroughput && (
   <section class="hub-chapter" aria-labelledby={HUB.throughput}>
     <header class="hub-chapter__head">
       <p class="hub-chapter__eyebrow">Chapter</p>
@@ -1063,6 +1101,91 @@ const activityBars = activity
     margin: -0.25rem 0 1.25rem;
   }
 
+  /* The page's headline: two medians from the effective-representation panel,
+     shown together because each alone reads too rosy or too bleak. */
+  .hub-lead {
+    margin: 0 0 1.5rem;
+    padding: 1.25rem 1.5rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+  }
+  .hub-lead__title {
+    margin: 0 0 1rem;
+    font-size: 1rem;
+    font-weight: 600;
+  }
+  .hub-lead__grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.25rem 2rem;
+  }
+  .hub-lead__value {
+    margin: 0;
+    font-size: 2.25rem;
+    font-weight: 700;
+    line-height: 1.1;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .hub-lead__label {
+    margin: 0.35rem 0 0;
+    color: var(--muted);
+    font-size: 0.875rem;
+    max-width: 36ch;
+  }
+  .hub-lead__foot {
+    margin: 0.75rem 0 0;
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+  .hub-lead__foot a,
+  .hub-jump a {
+    color: var(--accent);
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .hub-lead__foot a:hover,
+  .hub-jump a:hover {
+    text-decoration: underline;
+  }
+
+  /* The pair stays side by side on a phone: the values are short, and two
+     stacked blocks would push the vitals below the fold. */
+  @media (max-width: 480px) {
+    .hub-lead {
+      padding: 1rem;
+    }
+    .hub-lead__grid {
+      gap: 1rem;
+    }
+    .hub-lead__value {
+      font-size: 1.6rem;
+    }
+    .hub-lead__label {
+      font-size: 0.8rem;
+    }
+  }
+
+  .hub-jump {
+    margin: 0 0 1.5rem;
+  }
+  .hub-jump ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .hub-jump li a {
+    display: inline-block;
+    padding: 0.35rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 0.85rem;
+  }
+
   .hub-asof {
     color: var(--muted);
     font-size: 0.8rem;
@@ -1198,10 +1321,12 @@ const activityBars = activity
   .hub-defaults__chip--flat {
     color: var(--muted);
   }
-  .hub-defaults__compare {
+  .hub-defaults__split {
     margin: 1.25rem 0 0;
-    color: var(--muted);
-    font-size: 0.85rem;
+    max-width: 40rem;
+  }
+  .hub-defaults__split strong {
+    color: var(--fg);
   }
   .hub-defaults__share {
     margin: 1.25rem 0 0;
@@ -1256,85 +1381,15 @@ const activityBars = activity
       grid-template-columns: repeat(2, 1fr);
     }
   }
-  .hub-effrep__row {
-    padding: 0.75rem 0.9rem;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--surface);
+  .hub-effrep__rest {
+    margin: 0 0 0.75rem;
   }
-  .hub-effrep__head {
-    display: flex;
-    align-items: baseline;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    margin: 0 0 0.5rem;
-  }
-  .hub-effrep__title {
+  .hub-effrep__rest summary {
+    cursor: pointer;
+    margin: 0 0 0.75rem;
+    color: var(--accent);
     font-weight: 600;
-    min-width: 0;
-  }
-  .hub-effrep__title a {
-    color: var(--fg);
-    text-decoration: none;
-  }
-  .hub-effrep__title a:hover {
-    text-decoration: underline;
-  }
-  .hub-effrep__type {
-    font-size: 0.7rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.02em;
-    color: var(--muted);
-    padding: 0.15rem 0.5rem;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-  }
-  .hub-effrep__epoch {
-    font-size: 0.8rem;
-    color: var(--muted);
-    margin-left: auto;
-  }
-  .hub-effrep__meter {
-    display: grid;
-    grid-template-columns: 1fr 4rem;
-    align-items: center;
-    gap: 0.75rem;
-  }
-  .hub-effrep__bar {
-    display: block;
-    height: 6px;
-    border-radius: 999px;
-    background: var(--border);
-    overflow: hidden;
-  }
-  .hub-effrep__fill {
-    /* Both spans default to inline, and an inline element ignores explicit
-       width/height entirely, silently dropping the proportional fill. Block
-       makes the inline-styled width actually take effect. */
-    display: block;
-    height: 100%;
-    border-radius: 999px;
-    background: var(--accent);
-  }
-  .hub-effrep__value {
-    text-align: right;
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-  }
-  .hub-effrep__note {
-    margin: 0.4rem 0 0;
-    color: var(--muted);
-    font-size: 0.8rem;
-  }
-  @media (max-width: 480px) {
-    .hub-effrep__meter {
-      grid-template-columns: 1fr 3.25rem;
-      gap: 0.5rem;
-    }
-    .hub-effrep__epoch {
-      margin-left: 0;
-    }
+    font-size: 0.85rem;
   }
   .hub-effrep__more {
     margin: 0 0 1rem;
@@ -1498,6 +1553,20 @@ const activityBars = activity
   .hub-cbar__seg--late,
   .hub-cbar__dot--late {
     background: color-mix(in srgb, var(--accent) 25%, transparent);
+  }
+  /* The delegated-power split: representative DReps in the accent, the two
+     default options in quieter tones. */
+  .hub-cbar__seg--repr,
+  .hub-cbar__dot--repr {
+    background: var(--accent);
+  }
+  .hub-cbar__seg--abstain,
+  .hub-cbar__dot--abstain {
+    background: color-mix(in srgb, var(--accent) 30%, var(--surface-2));
+  }
+  .hub-cbar__seg--anc,
+  .hub-cbar__dot--anc {
+    background: var(--muted);
   }
   .hub-votechange__rows {
     margin-bottom: 0.75rem;

@@ -1,0 +1,130 @@
+---
+// One decided action in the analytics hub's effective-representation panel:
+// DReps who voted by head count, the delegated power they represented and how
+// few of them cast half of it, side by side at equal weight so the gap
+// between participation by count and by power reads at a glance.
+import type { EffRepRow } from '@/lib/analytics/effRepView.js';
+import GovTypePill from '@/components/GovTypePill.astro';
+import { fmtPctFine } from '@/lib/governance/view.js';
+
+interface Props {
+  row: EffRepRow;
+}
+
+const { row } = Astro.props;
+---
+<li class="effrep-row">
+  <div class="effrep-row__head">
+    <span class="effrep-row__title">{row.href ? <a href={row.href}>{row.title}</a> : row.title}</span>
+    <GovTypePill type={row.type} />
+    <span class="effrep-row__epoch">Epoch {row.decidedEpoch}</span>
+  </div>
+  <dl class="effrep-row__figs">
+    <div class="effrep-row__fig">
+      <dt>DReps who voted</dt>
+      <dd>
+        {row.votesCast.toLocaleString('en-US')}
+        {row.countSharePct != null && <span class="effrep-row__sub">{fmtPctFine(row.countSharePct)}</span>}
+      </dd>
+    </div>
+    <div class="effrep-row__fig">
+      <dt>Delegated power represented</dt>
+      <dd>
+        {fmtPctFine(row.powerSharePct)}
+        <span class="effrep-row__bar" aria-hidden="true"><span class="effrep-row__fill" style={`width:${row.powerSharePct.toFixed(1)}%`}></span></span>
+      </dd>
+    </div>
+    <div class="effrep-row__fig">
+      <dt>DReps casting half the voted power</dt>
+      <dd>
+        {row.halfCount != null ? (
+          <>{row.halfCount.toLocaleString('en-US')}{row.voterCount != null && <span class="effrep-row__sub">of {row.voterCount.toLocaleString('en-US')}</span>}</>
+        ) : 'n/a'}
+      </dd>
+    </div>
+  </dl>
+</li>
+
+<style>
+  .effrep-row {
+    padding: 0.75rem 0.9rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+  .effrep-row__head {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0 0 0.75rem;
+  }
+  .effrep-row__title {
+    font-weight: 600;
+    min-width: 0;
+  }
+  .effrep-row__title a {
+    color: var(--fg);
+    text-decoration: none;
+  }
+  .effrep-row__title a:hover {
+    text-decoration: underline;
+  }
+  .effrep-row__epoch {
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin-left: auto;
+  }
+  /* Three equal columns even on a phone: the values are short, only the
+     labels wrap. */
+  .effrep-row__figs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin: 0;
+  }
+  .effrep-row__fig {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .effrep-row__fig dt {
+    order: 2;
+    margin: 0.2rem 0 0;
+    font-size: 0.72rem;
+    line-height: 1.3;
+    color: var(--muted);
+  }
+  .effrep-row__fig dd {
+    order: 1;
+    margin: 0;
+    font-size: 1.15rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .effrep-row__sub {
+    margin-left: 0.3rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--muted);
+  }
+  .effrep-row__bar {
+    display: block;
+    height: 4px;
+    margin: 0.3rem 0 0;
+    border-radius: 999px;
+    background: var(--border);
+    overflow: hidden;
+  }
+  .effrep-row__fill {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: var(--accent);
+  }
+  @media (max-width: 480px) {
+    .effrep-row__epoch {
+      margin-left: 0;
+    }
+  }
+</style>

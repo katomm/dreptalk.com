@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildGlanceTiles, buildVitals, commonSeriesStart, contiguousPrefix, contiguousTail, defaultOptionsComparison, metricSeries, netChange, rowBeforeEpoch, defaultsShareSeries, votedShareSeries } from './hubView.js';
+import { buildGlanceTiles, buildVitals, commonSeriesStart, contiguousPrefix, contiguousTail, delegatedPowerSplit, metricSeries, netChange, rowBeforeEpoch, defaultsShareSeries, votedShareSeries } from './hubView.js';
 import { RECENT_VOTING_WINDOW_EPOCHS, seriesStartFromRows } from './epochStatsContract.js';
 import { hubHref } from './hubSections.js';
 import type { EpochStatsRow } from './epochStats.js';
@@ -130,6 +130,18 @@ describe('buildVitals', () => {
     const share = cards.find((c) => c.icon === 'share');
     expect(share?.value).toBe('n/a');
   });
+  it('draws sparklines from the trailing gapless window and a donut for the circulating share', () => {
+    const rows = Array.from({ length: 20 }, (_, i) => row(521 + i, { poweredDrepCount: 600 + i }));
+    const cards = buildVitals(rows.at(-1) ?? null, rows.at(-2) ?? null, '20000000000000000', rows);
+    const people = cards.find((c) => c.icon === 'people');
+    expect(people?.series).toHaveLength(12);
+    expect(people?.series?.at(-1)).toBe(619);
+    expect(cards.find((c) => c.icon === 'share')?.ring).toBeCloseTo(10, 5);
+  });
+  it('leaves the plain icons when no history or circulation is given', () => {
+    const cards = buildVitals(row(540), row(539), null);
+    expect(cards.every((c) => (c.series ?? []).length === 0 && c.ring == null)).toBe(true);
+  });
   it('never renders NaN% when circulation is malformed', () => {
     const cards = buildVitals(row(540), row(539), 'not-a-number');
     const share = cards.find((c) => c.icon === 'share');
@@ -167,23 +179,30 @@ describe('rowBeforeEpoch', () => {
   });
 });
 
-describe('defaultOptionsComparison', () => {
-  it('sums the two default pools and formats both labels compact', () => {
-    const v = defaultOptionsComparison('9776000000000000', '150000000000000', '5134000000000000');
-    expect(v?.defaultsLabel).toMatch(/^9\.9B/);
-    expect(v?.reprLabel).toMatch(/^5\.1B/);
+describe('delegatedPowerSplit', () => {
+  it('splits the delegated total into representative DReps and the two default options', () => {
+    const v = delegatedPowerSplit('9776000000000000', '150000000000000', '5134000000000000');
+    const segs = v?.segments ?? [];
+    expect(segs.map((s) => s.key)).toEqual(['repr', 'abstain', 'anc']);
+    expect(segs[0].amountLabel).toMatch(/^5\.1B/);
+    expect(segs[0].pct).toBeCloseTo(34.09, 1);
+    expect(segs[1].pct).toBeCloseTo(64.91, 1);
+    expect(segs[2].pct).toBeCloseTo(1.0, 1);
+    expect(segs.reduce((sum, s) => sum + s.pct, 0)).toBeCloseTo(100, 2);
+    expect(v?.defaultsPct).toBeCloseTo(segs[1].pct + segs[2].pct, 2);
   });
 
   it('is null when any input is null or undefined', () => {
-    expect(defaultOptionsComparison(null, '150000000000000', '5134000000000000')).toBeNull();
-    expect(defaultOptionsComparison('9776000000000000', undefined, '5134000000000000')).toBeNull();
-    expect(defaultOptionsComparison('9776000000000000', '150000000000000', null)).toBeNull();
+    expect(delegatedPowerSplit(null, '150000000000000', '5134000000000000')).toBeNull();
+    expect(delegatedPowerSplit('9776000000000000', undefined, '5134000000000000')).toBeNull();
+    expect(delegatedPowerSplit('9776000000000000', '150000000000000', null)).toBeNull();
   });
 
-  it('is null when any amount is malformed', () => {
-    expect(defaultOptionsComparison('not-a-number', '150000000000000', '5134000000000000')).toBeNull();
-    expect(defaultOptionsComparison('9776000000000000', 'not-a-number', '5134000000000000')).toBeNull();
-    expect(defaultOptionsComparison('9776000000000000', '150000000000000', 'not-a-number')).toBeNull();
+  it('is null when any amount is malformed or the total is zero', () => {
+    expect(delegatedPowerSplit('not-a-number', '150000000000000', '5134000000000000')).toBeNull();
+    expect(delegatedPowerSplit('9776000000000000', 'not-a-number', '5134000000000000')).toBeNull();
+    expect(delegatedPowerSplit('9776000000000000', '150000000000000', 'not-a-number')).toBeNull();
+    expect(delegatedPowerSplit('0', '0', '0')).toBeNull();
   });
 });
 
