@@ -31,7 +31,7 @@ import { buildCcNameIndex } from '@/lib/governance/ccNames.js';
 import { computeConcentration } from '@/lib/dreps/concentration.js';
 import { buildThresholdMarkers, buildCoalitionTable } from '@/lib/dreps/thresholdMarkers.js';
 import { seriesStartFromRows } from '@/lib/analytics/epochStatsContract.js';
-import { buildVitals, commonSeriesStart, contiguousPrefix, defaultsShareSeries, delegatedPowerSplit, metricSeries, netChange, rowBeforeEpoch, votedShareSeries } from '@/lib/analytics/hubView.js';
+import { buildVitals, commonSeriesStart, outOfTallySharePct, contiguousPrefix, defaultsShareSeries, delegatedPowerSplit, metricSeries, netChange, rowBeforeEpoch, votedShareSeries } from '@/lib/analytics/hubView.js';
 import { buildEffRep } from '@/lib/analytics/effRepView.js';
 import { buildVoteChangeView } from '@/lib/analytics/voteChangeView.js';
 import { buildRationaleCoverage } from '@/lib/analytics/rationaleCoverageView.js';
@@ -241,6 +241,9 @@ const current = stats.length > 0 ? stats[stats.length - 1] : null;
 // The true previous epoch's row, never a positional neighbor: mid-backfill
 // stats[length - 2] would be an ancient epoch and every delta would lie.
 const prev = current ? rowBeforeEpoch(stats, current.epoch) : null;
+// Context for the headline share: its denominator still counts the power of
+// DReps the chain leaves out of every tally.
+const outOfTallyPct = outOfTallySharePct(current);
 const vitals = buildVitals(current, prev, params?.circulationLovelace ?? null, stats);
 // Per-action vote powers for the concentration read, one batched query for the
 // listed actions. Completeness gating happens in the builder: an action with
@@ -423,19 +426,25 @@ const activityBars = activity
       <div class="hub-lead__grid">
         <div class="hub-lead__stat">
           <p class="hub-lead__value">{fmtShare(effRep.medianPowerSharePct)}</p>
-          <p class="hub-lead__label">Median share of the voting power delegated to DReps that was represented per action, default options excluded</p>
+          <p class="hub-lead__label">Median share of DRep power that voted per action</p>
         </div>
         {effRep.medianHalfCount != null && (
           <div class="hub-lead__stat">
             <p class="hub-lead__value">{fmtCount(effRep.medianHalfCount)} DReps</p>
-            <p class="hub-lead__label">Median number of DReps accounting for half of the voting power cast</p>
+            <p class="hub-lead__label">Median number of DReps casting half the voted power</p>
           </div>
         )}
       </div>
-      {powerSplit && (
-        <p class="hub-lead__foot">Always abstain and always no confidence together hold {fmtShare(powerSplit.defaultsPct)} of all delegated power and are counted separately. <a href={`#${HUB.defaults}`}>How it splits</a></p>
+      {(powerSplit || outOfTallyPct != null) && (
+        <p class="hub-lead__foot">
+          {powerSplit && <>Default options ({fmtShare(powerSplit.defaultsPct)} of delegated power) left out. </>}
+          {outOfTallyPct != null && <>Includes about {fmtShare(outOfTallyPct)} held by inactive or retired DReps, which the chain does not count.</>}
+        </p>
       )}
-      <p class="hub-lead__foot"><a href={`#${HUB.effrep}`}>Explore these {effRep.rows.length} actions</a></p>
+      <p class="hub-lead__links">
+        <a href={`#${HUB.effrep}`}>Explore these {effRep.rows.length} actions</a>
+        {powerSplit && <a href={`#${HUB.defaults}`}>How delegated power splits</a>}
+      </p>
     </section>
   )}
 
@@ -1139,13 +1148,20 @@ const activityBars = activity
     color: var(--muted);
     font-size: 0.8rem;
   }
-  .hub-lead__foot a,
+  .hub-lead__links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.25rem;
+    margin: 0.75rem 0 0;
+    font-size: 0.85rem;
+  }
+  .hub-lead__links a,
   .hub-jump a {
     color: var(--accent);
     font-weight: 600;
     text-decoration: none;
   }
-  .hub-lead__foot a:hover,
+  .hub-lead__links a:hover,
   .hub-jump a:hover {
     text-decoration: underline;
   }

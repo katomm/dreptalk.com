@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildGlanceTiles, buildVitals, commonSeriesStart, contiguousPrefix, contiguousTail, delegatedPowerSplit, metricSeries, netChange, rowBeforeEpoch, defaultsShareSeries, votedShareSeries } from './hubView.js';
+import { buildGlanceTiles, buildVitals, outOfTallySharePct, commonSeriesStart, contiguousPrefix, contiguousTail, delegatedPowerSplit, metricSeries, netChange, rowBeforeEpoch, defaultsShareSeries, votedShareSeries } from './hubView.js';
 import { RECENT_VOTING_WINDOW_EPOCHS, seriesStartFromRows } from './epochStatsContract.js';
 import { hubHref } from './hubSections.js';
 import type { EpochStatsRow } from './epochStats.js';
@@ -295,5 +295,18 @@ describe('votedShareSeries', () => {
       row(540, { poweredDrepCount: 0, silentPoweredDrepCount: 0 }),
     ];
     expect(votedShareSeries(rows)).toEqual([{ epoch: 539, value: 25 }]);
+  });
+});
+
+describe('outOfTallySharePct', () => {
+  it('returns the share of DRep power held outside the unexpired group', () => {
+    const r = row(669, { totalDrepPower: '1000', unexpiredDrepPower: '863' });
+    expect(outOfTallySharePct(r)).toBeCloseTo(13.7, 5);
+  });
+  it('is null without an unexpired reading, on malformed values or a negative gap', () => {
+    expect(outOfTallySharePct(null)).toBeNull();
+    expect(outOfTallySharePct(row(669, { unexpiredDrepPower: null }))).toBeNull();
+    expect(outOfTallySharePct(row(669, { totalDrepPower: 'x', unexpiredDrepPower: '1' }))).toBeNull();
+    expect(outOfTallySharePct(row(669, { totalDrepPower: '100', unexpiredDrepPower: '200' }))).toBeNull();
   });
 });
