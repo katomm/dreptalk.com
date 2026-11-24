@@ -185,6 +185,22 @@ function circulatingSharePct(totalDrepPower: string, circulationLovelace: string
 }
 
 /**
+ * Share of all DRep-delegated power held by DReps the chain currently leaves
+ * out of every tally: inactive under the drep_activity rule, or retired while
+ * still holding stake. It is the gap between totalDrepPower (boundary
+ * snapshot) and unexpiredDrepPower (last DRep sync of the epoch), two
+ * different instants, so callers state it as approximate. Null when either
+ * value is missing or malformed, or the gap is negative.
+ */
+export function outOfTallySharePct(row: EpochStatsRow | null): number | null {
+  if (!row || row.unexpiredDrepPower == null) return null;
+  const total = Number(row.totalDrepPower);
+  const unexpired = Number(row.unexpiredDrepPower);
+  if (!Number.isFinite(total) || !Number.isFinite(unexpired) || total <= 0 || unexpired > total) return null;
+  return ((total - unexpired) / total) * 100;
+}
+
+/**
  * The start epoch most of the page's trend charts share, or null when there is
  * no majority to state. Every chart used to repeat "data since epoch N", which
  * is the same number ten times over: the page states the shared start once and

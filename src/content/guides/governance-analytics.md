@@ -4,7 +4,7 @@ description: "What the governance analytics page shows, where its numbers come f
 cardLabel: "Analytics page"
 category: "Understanding governance"
 order: 90
-updated: 2026-11-23
+updated: 2026-11-24
 faqs:
   - q: "Why do some charts start later than others?"
     a: "Each chart starts at the first epoch its metric can be measured. Delegator counts, for example, exist only from when DRepTalk began recording them."
@@ -24,7 +24,7 @@ faqs:
     a: "Each action is measured against the members eligible when it was decided, which changes with resignations, ended terms and key registrations."
 ---
 
-The [analytics page](/analytics/) tracks how healthy, representative and decentralized Cardano governance is, one epoch at a time. Everything on it comes from on-chain data, refreshed several times a day. The page is organized in five chapters: governance today, representation and participation, accountability and behavior, decentralization, and governance throughput. Above them sit two headline figures from the most recent decided actions: the median share of the voting power delegated to DReps that was represented in each vote, and the median number of DReps that cast half of the voted power. Both leave the default options out, and the line under them says how much of the delegated power those options hold. The [homepage](/) carries a "Governance at a glance" strip with four of its headline figures, DReps holding delegated power, delegated voting power, DReps that voted in the recent window, and the share held by the top 10 DReps, each with a sparkline of the last epochs and a link into the chapter that explains it.
+The [analytics page](/analytics/) tracks how healthy, representative and decentralized Cardano governance is, one epoch at a time. Everything on it comes from on-chain data, refreshed several times a day. The page is organized in five chapters: governance today, representation and participation, accountability and behavior, decentralization, and governance throughput. Above them sit two headline figures from the most recent decided actions: the median share of the voting power delegated to DReps that was represented in each vote, and the median number of DReps that cast half of the voted power. Both leave the default options out, and the line under them says how much of the delegated power those options hold. The share is measured against all power delegated to DReps, including DReps that are inactive or retired but still hold stake. The chain leaves their power out of every vote, so a note under the figures states how much of it there is. The [homepage](/) carries a "Governance at a glance" strip with four of its headline figures, DReps holding delegated power, delegated voting power, DReps that voted in the recent window, and the share held by the top 10 DReps, each with a sparkline of the last epochs and a link into the chapter that explains it.
 
 ## The two layers
 
