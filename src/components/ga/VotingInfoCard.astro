@@ -23,8 +23,8 @@ import type { ProtocolParams } from '@/lib/db/protocolParams.js';
 import type { TrendChart } from '@/lib/governance/voteTrend.js';
 import { treasuryTotalLovelace } from '@/lib/governance/onchain.js';
 import type { PassCandidate } from '@/lib/governance/passPath.js';
-import { votingCardRows } from '@/lib/governance/votingCardRows.js';
-import { hardBlockLines, PASS_PATH_FOOTNOTE, PASS_SECTION_ID, passPathRow } from '@/lib/governance/passPathView.js';
+import { votingCardRowsWithPath } from '@/lib/governance/votingCardRows.js';
+import { hardBlockLines, PASS_PATH_FOOTNOTE, PASS_SECTION_ID } from '@/lib/governance/passPathView.js';
 import { fmtPctFine, absentBodyNote } from '@/lib/governance/view.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
 
@@ -53,23 +53,16 @@ interface Props {
 const { action, params, drepStakeTotal, now, miniChart, trendHref, passCandidates, ccBoundarySize, nclRemaining, actionHref } =
   Astro.props;
 
-const { rows, isActive, ccBlocked, hasThreshold, paramTouchesSecurity } = votingCardRows(action, params, {
-  drepStakeTotal,
-  ccBoundarySize,
-});
-
 // Path to pass: on an open action, for each body that is Not met, whether votes can
 // still reach the threshold and (DReps) the fewest who would have to switch.
-const pathCtx = {
+const {
+  rows,
   isActive,
   ccBlocked,
-  ccBoundarySize,
-  cc: { yes: action.ccYes ?? 0, no: action.ccNo ?? 0, abstain: action.ccAbstain ?? 0 },
-  passCandidates,
-  actionHref,
-};
-const cardRows = rows.map((r) => ({ ...r, path: passPathRow(r, pathCtx) }));
-const anyPath = cardRows.some((r) => r.path != null);
+  hasThreshold,
+  paramTouchesSecurity,
+} = votingCardRowsWithPath(action, params, { drepStakeTotal, ccBoundarySize, passCandidates, actionHref });
+const anyPath = rows.some((r) => r.path != null);
 
 let withdrawal: bigint | null = null;
 if (isActive && action.type === 'TreasuryWithdrawals' && action.onchainPayload) {
@@ -104,7 +97,7 @@ const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now
     <>
     {blockLines.map((line) => <p class="vbody-block">{line}</p>)}
     <div class="vbody-list">
-      {cardRows.map((r) => (
+      {rows.map((r) => (
         <div class="vbody">
           <div class="vbody__head">
             <span class="vbody__body">{r.label}</span>

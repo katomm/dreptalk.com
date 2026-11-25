@@ -6,7 +6,7 @@ import type { ProtocolParams } from '../db/protocolParams.js';
 import type { BodyStakeView } from './fullStakeView.js';
 import { parameterChangeScope } from './onchain.js';
 import { ccBlockedAtBoundary, type PassCandidate } from './passPath.js';
-import { passPathRow, type PassListView } from './passPathView.js';
+import { passPathRow, type PassListView, type PassPathRowView } from './passPathView.js';
 import { evaluateThresholds, hasOnchainThreshold, readThresholdSnapshot } from './thresholds.js';
 import { bodyStake, compositionAmounts, overviewRowVoting } from './view.js';
 
@@ -110,26 +110,36 @@ export function votingCardRows(
   return { rows, isActive, ccBlocked, hasThreshold, paramTouchesSecurity };
 }
 
+type PassPathOpts = {
+  drepStakeTotal: number | null;
+  ccBoundarySize: number | null;
+  passCandidates: PassCandidate[] | null;
+  actionHref: string;
+};
+
 /**
- * The DRep switch list for the Votes tab section, or null when the card shows none
- * (closed action, DRep threshold met or unknown, candidates missing or not matching
- * the tally, no list that reaches the threshold).
+ * The card rows with their path to pass attached (null where the body is met, the
+ * action closed, or no path can be shown). The sidebar card and the Votes tab both
+ * read from here, so the link count and the list never disagree.
  */
-export function drepPassList(
+export function votingCardRowsWithPath(
   action: GovernanceAction,
   params: ProtocolParams | null,
-  opts: { drepStakeTotal: number | null; ccBoundarySize: number | null; passCandidates: PassCandidate[] | null; actionHref: string },
-): PassListView | null {
-  const { rows, isActive, ccBlocked } = votingCardRows(action, params, opts);
-  const drep = rows.find((r) => r.body === 'DRep');
-  if (!drep) return null;
-  const path = passPathRow(drep, {
-    isActive,
-    ccBlocked,
+  opts: PassPathOpts,
+): Omit<VotingCardRows, 'rows'> & { rows: (VotingCardRow & { path: PassPathRowView | null })[] } {
+  const card = votingCardRows(action, params, opts);
+  const ctx = {
+    isActive: card.isActive,
+    ccBlocked: card.ccBlocked,
     ccBoundarySize: opts.ccBoundarySize,
     cc: { yes: action.ccYes ?? 0, no: action.ccNo ?? 0, abstain: action.ccAbstain ?? 0 },
     passCandidates: opts.passCandidates,
     actionHref: opts.actionHref,
-  });
-  return path?.list ?? null;
+  };
+  return { ...card, rows: card.rows.map((r) => ({ ...r, path: passPathRow(r, ctx) })) };
+}
+
+/** The DRep switch list for the Votes tab section, or null when the card shows none. */
+export function drepPassList(action: GovernanceAction, params: ProtocolParams | null, opts: PassPathOpts): PassListView | null {
+  return votingCardRowsWithPath(action, params, opts).rows.find((r) => r.body === 'DRep')?.path?.list ?? null;
 }

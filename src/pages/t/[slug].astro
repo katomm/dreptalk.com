@@ -994,12 +994,16 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
                 drepChanges={drepChanges}
                 spoChanges={spoChanges}
                 drepChangeLine={drepChangeLine}
-                passList={drepPassList(govAction, params, {
-                  drepStakeTotal,
-                  ccBoundarySize,
-                  passCandidates: round2.passCandidates,
-                  actionHref: `/t/${topic.slug}/`,
-                })}
+                passList={
+                  positionsRole === 'drep' && positionsPage === 1
+                    ? drepPassList(govAction, params, {
+                        drepStakeTotal,
+                        ccBoundarySize,
+                        passCandidates: round2.passCandidates,
+                        actionHref: `/t/${topic.slug}/`,
+                      })
+                    : null
+                }
               />
             ) : tab === 'onchain' ? (
               <GaOnchain action={govAction} network={network} />

@@ -29,10 +29,8 @@ export interface PassListRow {
   stanceLabel: 'Not voted' | 'No' | 'Abstain' | 'Yes';
   powerLabel: string;
   /** Abstain rows only: how much of the gap the switch closes, which is less than the
-   *  power because the stake also joins the counted total. */
-  closesLabel: string | null;
-  /** Tooltip explaining closesLabel. */
-  closesTitle: string | null;
+   *  power because the stake also joins the counted total, with the tooltip text. */
+  closes: { label: string; tip: string } | null;
   href: string;
 }
 
@@ -108,9 +106,11 @@ function listRow(p: FewestResult['picks'][number], actionHref: string): PassList
     name: p.name ?? truncateIdMiddle(p.drepId),
     stanceLabel: STANCE_LABEL[p.stance],
     powerLabel: ada(p.power, 1),
-    closesLabel: abstain ? `closes ${closes}` : null,
-    closesTitle: abstain
-      ? `A switch from Abstain adds ${ada(p.power, 1)} to Yes and to the counted total, so it closes the gap by ${closes}.`
+    closes: abstain
+      ? {
+          label: `closes ${closes}`,
+          tip: `A switch from Abstain adds ${ada(p.power, 1)} to Yes and to the counted total, so it closes the gap by ${closes}.`,
+        }
       : null,
     href: p.stance === 'notVoted' ? drepPath(p) : `${actionHref}${positionsVoterAnchor(p.drepId)}`,
   };

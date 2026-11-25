@@ -123,16 +123,14 @@ describe('stakeRowView list', () => {
         name: 'drep1bbbb...bbbbbbbb',
         stanceLabel: 'Not voted',
         powerLabel: '20 ₳',
-        closesLabel: null,
-        closesTitle: null,
+        closes: null,
         href: '/dreps/drep1bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/',
       },
       {
         name: 'Nora',
         stanceLabel: 'No',
         powerLabel: '15 ₳',
-        closesLabel: null,
-        closesTitle: null,
+        closes: null,
         href: `${HREF}?tab=positions&voter=drep1cccccccccccccccccccccccccccccc#voter-drep1cccccccccccccccccccccccccccccc`,
       },
     ]);
@@ -143,8 +141,10 @@ describe('stakeRowView list', () => {
     const v2 = keep(stakeRowView({ body: 'DRep', tier: t, buckets: b, list: ab, comparison: null, actionHref: HREF }));
     expect(v2.list?.rows[0]).toMatchObject({
       stanceLabel: 'Abstain',
-      closesLabel: 'closes 15 ₳',
-      closesTitle: 'A switch from Abstain adds 30 ₳ to Yes and to the counted total, so it closes the gap by 15 ₳.',
+      closes: {
+        label: 'closes 15 ₳',
+        tip: 'A switch from Abstain adds 30 ₳ to Yes and to the counted total, so it closes the gap by 15 ₳.',
+      },
     });
   });
 
