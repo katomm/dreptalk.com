@@ -10,7 +10,8 @@ import {
   type StakeBuckets,
   type StakeTier,
 } from './passPath.js';
-import { ccRowView, hardBlockLines, PASS_LIST_FOOTNOTE, PASS_PATH_FOOTNOTE, stakeRowView } from './passPathView.js';
+import { ccRowView, hardBlockLines, PASS_LIST_FOOTNOTE, PASS_PATH_FOOTNOTE, passPathRow, stakeRowView } from './passPathView.js';
+import type { BodyStakeView } from './fullStakeView.js';
 
 const ADA = 1_000_000n;
 const HREF = '/t/some-action-abc12345/';
@@ -183,6 +184,60 @@ describe('hardBlockLines', () => {
 
   it('nothing when within headroom', () => {
     expect(hardBlockLines({ withdrawal: 1n, nclRemaining: 1n, ccBlocked: false, ccVotes: true })).toEqual([]);
+  });
+});
+
+describe('passPathRow', () => {
+  const stake = buildBodyStake({
+    actionType: 'TreasuryWithdrawals',
+    body: 'DRep',
+    activeYesPower: 10,
+    activeNoPower: 20,
+    activeAbstainPower: 0,
+    noSidePower: '90',
+    alwaysAbstainPower: '0',
+    alwaysNoConfidencePower: '0',
+    approvalThresholdPct: 67,
+  }) as BodyStakeView;
+  const voters = [cand('drep1n', 20n, 'No'), cand('drep1v', 70n, 'notVoted', 'Vee')];
+  const ctx = {
+    isActive: true,
+    ccBlocked: false,
+    ccBoundarySize: 7,
+    cc: { yes: 0, no: 0, abstain: 0 },
+    passCandidates: voters,
+    actionHref: HREF,
+  };
+  const drepRow = { body: 'DRep' as const, met: false as boolean | null, thresholdPct: 67 as number | null, stake: stake as BodyStakeView | null };
+
+  it('DRep row with a reconciled population gets a tier line and list', () => {
+    const v = passPathRow(drepRow, ctx)!;
+    expect(v.line).toMatch(/^Reachable if DReps who haven't voted yet vote Yes\./);
+    expect(v.list?.rows.map((r) => r.name)).toEqual(['Vee']);
+  });
+
+  it('nothing on a closed action, a met row or a row without a threshold', () => {
+    expect(passPathRow(drepRow, { ...ctx, isActive: false })).toBeNull();
+    expect(passPathRow({ ...drepRow, met: true }, ctx)).toBeNull();
+    expect(passPathRow({ ...drepRow, met: null }, ctx)).toBeNull();
+    expect(passPathRow({ ...drepRow, thresholdPct: null }, ctx)).toBeNull();
+  });
+
+  it('DRep row stays quiet without candidates or when they do not reconcile', () => {
+    expect(passPathRow(drepRow, { ...ctx, passCandidates: null })).toBeNull();
+    expect(passPathRow(drepRow, { ...ctx, passCandidates: [cand('drep1n', 25n, 'No')] })).toBeNull();
+  });
+
+  it('CC row: seats from the boundary committee, nothing when blocked or unknown', () => {
+    const cc = { body: 'CC' as const, met: false, thresholdPct: 66.67, stake: null };
+    expect(passPathRow(cc, ctx)?.line).toBe("Reachable if 5 of the 7 members who haven't voted vote Yes.");
+    expect(passPathRow(cc, { ...ctx, ccBlocked: true })).toBeNull();
+    expect(passPathRow(cc, { ...ctx, ccBoundarySize: null })).toBeNull();
+  });
+
+  it('notVoted rows link to the profile slug when there is one', () => {
+    const v = passPathRow(drepRow, { ...ctx, passCandidates: [voters[0], { ...voters[1], slug: 'vee' }] })!;
+    expect(v.list?.rows[0].href).toBe('/dreps/vee/');
   });
 });
 

@@ -13,7 +13,9 @@
 // gap by p * (S - thrBp). Since every switch reduces the same fixed gap by its own
 // worth, taking candidates in descending worth reaches the gap with the fewest picks
 // (any other set of k picks sums to at most the k largest worths).
+import { round2 } from '../format/pct.js';
 import type { BodyStakeView } from './fullStakeView.js';
+import { committeeBelowMinSize } from './thresholds.js';
 
 export type Tier = 'nonVoters' | 'abstainers' | 'noVoters' | 'fixed';
 
@@ -42,6 +44,8 @@ export type Stance = 'notVoted' | 'No' | 'Abstain';
 
 export interface PassCandidate {
   drepId: string;
+  /** Profile slug, for the canonical profile link. */
+  slug?: string | null;
   name: string | null;
   power: bigint;
   stance: Stance;
@@ -177,7 +181,6 @@ export interface CcSeatTier {
   tier: Exclude<Tier, 'fixed'>;
   extraYes: number;
   notVoted: number;
-  size: number;
 }
 
 /**
@@ -185,7 +188,7 @@ export interface CcSeatTier {
  * threshold in percent, so a seat line and the Met badge can never disagree.
  */
 function ccMet(yes: number, denom: number, thresholdPct: number): boolean {
-  return denom > 0 && Math.round((yes / denom) * 10000) / 100 >= thresholdPct;
+  return denom > 0 && round2((yes / denom) * 100) >= thresholdPct;
 }
 
 /**
@@ -202,19 +205,19 @@ export function ccSeatsToPass(
   const notVoted = c.size - c.yes - c.no - c.abstain;
   if (c.size - c.abstain <= 0 || notVoted < 0) return null;
   if (ccMet(c.yes, c.size - c.abstain, thresholdPct)) return null;
+  // Only the abstainer count a moves the denominator. For a given a, the rest of the
+  // k seats come from No voters first, the leftover x = k - a - n from non-voters.
   const reachable = (k: number, maxA: number, maxN: number): boolean => {
     for (let a = 0; a <= Math.min(k, maxA); a++) {
-      for (let n = 0; n <= Math.min(k - a, maxN); n++) {
-        const x = k - a - n;
-        if (x <= notVoted && ccMet(c.yes + k, c.size - c.abstain + a, thresholdPct)) return true;
-      }
+      const x = k - a - Math.min(k - a, maxN);
+      if (x <= notVoted && ccMet(c.yes + k, c.size - c.abstain + a, thresholdPct)) return true;
     }
     return false;
   };
   for (let k = 1; k <= notVoted + c.abstain + c.no; k++) {
     if (!reachable(k, c.abstain, c.no)) continue;
     const tier = reachable(k, 0, 0) ? 'nonVoters' : reachable(k, c.abstain, 0) ? 'abstainers' : 'noVoters';
-    return { tier, extraYes: k, notVoted, size: c.size };
+    return { tier, extraYes: k, notVoted };
   }
   return null;
 }
@@ -225,5 +228,5 @@ export function ccSeatsToPass(
  * member in their expiry epoch, so the boundary size is checked as well.
  */
 export function ccBlockedAtBoundary(size: number | null, minSize: number | null, storedFlag: boolean | null): boolean {
-  return storedFlag === true || (size != null && minSize != null && size < minSize);
+  return storedFlag === true || committeeBelowMinSize(size, minSize) === true;
 }

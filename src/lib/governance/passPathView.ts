@@ -2,14 +2,24 @@
 // passPath.ts and returns finished strings and list rows, so every word is tested.
 // The wording describes arithmetic ("would have to switch"), never pressure.
 import { formatAdaCompact } from '../format/ada.js';
+import { drepPath } from '../dreps/profile.js';
 import { truncateIdMiddle } from '../forum/view.js';
+import type { BodyStakeView } from './fullStakeView.js';
 import {
+  ccSeatsToPass,
+  drepBuckets,
+  fewestToPass,
+  reachTier,
+  reconcileCandidates,
   SCALE,
+  spoBuckets,
   type CcSeatTier,
   type FewestResult,
+  type PassCandidate,
   type Stance,
   type StakeBuckets,
   type StakeTier,
+  type Tier,
 } from './passPath.js';
 import { positionsVoterAnchor } from './voteStatement.js';
 
@@ -74,7 +84,7 @@ function listRow(p: FewestResult['picks'][number], actionHref: string): PassList
     stanceLabel: STANCE_LABEL[p.stance],
     powerLabel: ada(p.power, 1),
     countsLabel: p.stance === 'Abstain' ? `counts ${ada(p.worth / SCALE, 1)}` : null,
-    href: p.stance === 'notVoted' ? `/dreps/${p.drepId}/` : `${actionHref}${positionsVoterAnchor(p.drepId)}`,
+    href: p.stance === 'notVoted' ? drepPath(p) : `${actionHref}${positionsVoterAnchor(p.drepId)}`,
   };
 }
 
@@ -95,11 +105,61 @@ export function stakeRowView(args: {
     list: {
       rows: list.picks.map((p) => listRow(p, actionHref)),
       comparison:
-        tier.tier === 'abstainers' && n != null && n < list.picks.length
+        n != null && n < list.picks.length
           ? `If DReps who voted No switch as well: at least ${n} DRep${n === 1 ? '' : 's'}.`
           : null,
     },
   };
+}
+
+const ALLOWED: Record<Exclude<Tier, 'fixed'>, Stance[]> = {
+  nonVoters: ['notVoted'],
+  abstainers: ['notVoted', 'Abstain'],
+  noVoters: ['notVoted', 'Abstain', 'No'],
+};
+
+/**
+ * The path to pass for one voting card row, or null when the row shows none: a
+ * closed action, a row that is met or has no verdict, a CC below its minimum size.
+ * The DRep row needs candidates that match the tally, because without a votable
+ * population a tier would count stake of inactive DReps as movable.
+ */
+export function passPathRow(
+  r: { body: 'DRep' | 'SPO' | 'CC'; met: boolean | null; thresholdPct: number | null; stake: BodyStakeView | null },
+  ctx: {
+    isActive: boolean;
+    ccBlocked: boolean;
+    ccBoundarySize: number | null;
+    cc: { yes: number; no: number; abstain: number };
+    passCandidates: PassCandidate[] | null;
+    actionHref: string;
+  },
+): PassPathRowView | null {
+  if (!ctx.isActive || r.met !== false || r.thresholdPct == null) return null;
+  if (r.body === 'CC') {
+    if (ctx.ccBlocked || ctx.ccBoundarySize == null) return null;
+    const seats = ccSeatsToPass({ ...ctx.cc, size: ctx.ccBoundarySize }, r.thresholdPct);
+    return seats ? ccRowView(seats) : null;
+  }
+  if (!r.stake) return null;
+  const actionHref = ctx.actionHref;
+  if (r.body === 'SPO') {
+    const buckets = spoBuckets(r.stake);
+    const tier = reachTier(buckets, r.thresholdPct);
+    return tier ? stakeRowView({ body: 'SPO', tier, buckets, list: null, comparison: null, actionHref }) : null;
+  }
+  const cands = ctx.passCandidates;
+  if (!cands) return null;
+  const rec = reconcileCandidates(cands, r.stake);
+  if (!rec.ok) return null;
+  const buckets = drepBuckets(r.stake, rec.notVotedSum);
+  const tier = reachTier(buckets, r.thresholdPct);
+  if (!tier) return null;
+  const list = tier.tier === 'fixed' ? null : fewestToPass(cands, tier, ALLOWED[tier.tier], buckets.Dv);
+  // Abstainers count at a fraction, so a list leaning on them can shrink once No
+  // voters are allowed too. On the other tiers the list already uses every group it can.
+  const comparison = tier.tier === 'abstainers' ? fewestToPass(cands, tier, ALLOWED.noVoters, buckets.Dv) : null;
+  return stakeRowView({ body: 'DRep', tier, buckets, list, comparison, actionHref });
 }
 
 export function ccRowView(t: CcSeatTier): PassPathRowView {

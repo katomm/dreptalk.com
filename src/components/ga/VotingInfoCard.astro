@@ -23,26 +23,8 @@ import type { ProtocolParams } from '@/lib/db/protocolParams.js';
 import type { TrendChart } from '@/lib/governance/voteTrend.js';
 import { evaluateThresholds, hasOnchainThreshold, readThresholdSnapshot } from '@/lib/governance/thresholds.js';
 import { parameterChangeScope, treasuryTotalLovelace } from '@/lib/governance/onchain.js';
-import {
-  ccBlockedAtBoundary,
-  ccSeatsToPass,
-  drepBuckets,
-  fewestToPass,
-  reachTier,
-  reconcileCandidates,
-  spoBuckets,
-  type PassCandidate,
-  type Stance,
-  type Tier,
-} from '@/lib/governance/passPath.js';
-import {
-  ccRowView,
-  hardBlockLines,
-  PASS_LIST_FOOTNOTE,
-  PASS_PATH_FOOTNOTE,
-  stakeRowView,
-  type PassPathRowView,
-} from '@/lib/governance/passPathView.js';
+import { ccBlockedAtBoundary, type PassCandidate } from '@/lib/governance/passPath.js';
+import { hardBlockLines, PASS_LIST_FOOTNOTE, PASS_PATH_FOOTNOTE, passPathRow } from '@/lib/governance/passPathView.js';
 import {
   fmtPctFine,
   overviewRowVoting,
@@ -147,42 +129,15 @@ const rows = bodies.map((b) => {
 // still reach the threshold and (DReps) the fewest who would have to switch.
 const isActive = action.status === 'active';
 const ccBlocked = ccBlockedAtBoundary(ccBoundarySize, params?.committeeMinSize ?? null, snapshot?.ccBelowMinSize ?? null);
-const ALLOWED: Record<Exclude<Tier, 'fixed'>, Stance[]> = {
-  nonVoters: ['notVoted'],
-  abstainers: ['notVoted', 'Abstain'],
-  noVoters: ['notVoted', 'Abstain', 'No'],
+const pathCtx = {
+  isActive,
+  ccBlocked,
+  ccBoundarySize,
+  cc: { yes: action.ccYes ?? 0, no: action.ccNo ?? 0, abstain: action.ccAbstain ?? 0 },
+  passCandidates,
+  actionHref,
 };
-
-function passPathFor(r: (typeof rows)[number]): PassPathRowView | null {
-  if (!isActive || r.met !== false || r.thresholdPct == null) return null;
-  if (r.body === 'CC') {
-    if (ccBlocked || ccBoundarySize == null) return null;
-    const seats = ccSeatsToPass(
-      { yes: action.ccYes ?? 0, no: action.ccNo ?? 0, abstain: action.ccAbstain ?? 0, size: ccBoundarySize },
-      r.thresholdPct,
-    );
-    return seats ? ccRowView(seats) : null;
-  }
-  if (!r.stake) return null;
-  if (r.body === 'SPO') {
-    const buckets = spoBuckets(r.stake);
-    const tier = reachTier(buckets, r.thresholdPct);
-    return tier ? stakeRowView({ body: 'SPO', tier, buckets, list: null, comparison: null, actionHref }) : null;
-  }
-  // Without candidates that match the tally there is no votable population, and a
-  // tier would count stake of inactive DReps as movable, so the DRep row stays quiet.
-  const rec = passCandidates ? reconcileCandidates(passCandidates, r.stake) : null;
-  if (!passCandidates || !rec?.ok) return null;
-  const buckets = drepBuckets(r.stake, rec.notVotedSum);
-  const tier = reachTier(buckets, r.thresholdPct);
-  if (!tier) return null;
-  const list = tier.tier === 'fixed' ? null : fewestToPass(passCandidates, tier, ALLOWED[tier.tier], buckets.Dv);
-  const comparison =
-    tier.tier === 'abstainers' ? fewestToPass(passCandidates, tier, ALLOWED.noVoters, buckets.Dv) : null;
-  return stakeRowView({ body: 'DRep', tier, buckets, list, comparison, actionHref });
-}
-
-const cardRows = rows.map((r) => ({ ...r, path: passPathFor(r) }));
+const cardRows = rows.map((r) => ({ ...r, path: passPathRow(r, pathCtx) }));
 const anyPath = cardRows.some((r) => r.path != null);
 
 let withdrawal: bigint | null = null;
@@ -190,7 +145,7 @@ if (isActive && action.type === 'TreasuryWithdrawals' && action.onchainPayload) 
   try {
     withdrawal = treasuryTotalLovelace(JSON.parse(action.onchainPayload));
   } catch {
-    withdrawal = null;
+    // Malformed stored payload: no NCL line.
   }
 }
 const blockLines = isActive

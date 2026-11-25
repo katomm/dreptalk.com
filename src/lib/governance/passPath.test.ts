@@ -195,7 +195,6 @@ describe('ccSeatsToPass', () => {
       tier: 'nonVoters',
       extraYes: 4,
       notVoted: 6,
-      size: 6,
     });
   });
 
@@ -215,9 +214,9 @@ describe('ccSeatsToPass', () => {
 
   it('needs abstainers when non-voters cannot carry it', () => {
     const t = ccSeatsToPass({ yes: 3, no: 2, abstain: 2, size: 7 }, 66.67)!;
-    expect(t).toEqual({ tier: 'abstainers', extraYes: 1, notVoted: 0, size: 7 });
+    expect(t).toEqual({ tier: 'abstainers', extraYes: 1, notVoted: 0 });
     const u = ccSeatsToPass({ yes: 2, no: 0, abstain: 4, size: 7 }, 75)!;
-    expect(u).toEqual({ tier: 'nonVoters', extraYes: 1, notVoted: 1, size: 7 });
+    expect(u).toEqual({ tier: 'nonVoters', extraYes: 1, notVoted: 1 });
     const w = ccSeatsToPass({ yes: 1, no: 1, abstain: 4, size: 7 }, 75)!;
     expect(w.tier).toBe('abstainers');
   });

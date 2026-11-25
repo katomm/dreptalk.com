@@ -49,6 +49,7 @@ import {
   type RelatedActionRow,
   type CompareCandidateRow,
   type CompareAction,
+  type GovernanceAction,
 } from '@/lib/db/governance.js';
 import { headlineComposition, isSpoLedType, isCcEligible, governanceActionDescription } from '@/lib/governance/view.js';
 import type { GaParamImpactProps } from '@/components/ga/GaParamImpact.js';
@@ -60,13 +61,12 @@ import { getVotesByGaId, getActionVoters, countActionVoters, getViewerVote, getA
 import { getCommitteeVotes, getCommitteeTimeline, getActionCcVoteRows } from '@/lib/db/committee.js';
 import { buildVoteConcentration, requiredYesPower, type VoteConcentrationView } from '@/lib/analytics/voteConcentration.js';
 import { buildActionVoteChanges, describeActionVoteChanges } from '@/lib/analytics/voteChangeView.js';
-import { readThresholdSnapshot } from '@/lib/governance/thresholds.js';
 import type { CcVote } from '@/lib/koios/corrections.js';
 import { getAllCcMemberNames } from '@/lib/db/ccMemberName.js';
 import { buildCcNameIndex } from '@/lib/governance/ccNames.js';
 import { buildCcPositions, type CcPositionRow } from '@/lib/governance/ccPositions.js';
 import { activeCommitteeSizeAtBoundary, committeeBoundaryForAction } from '@/lib/koios/committeeTimeline.js';
-import { hasOnchainThreshold } from '@/lib/governance/thresholds.js';
+import { hasOnchainThreshold, readThresholdSnapshot } from '@/lib/governance/thresholds.js';
 import { computeVoteTrendSeries, buildTrendChart, type TrendChart } from '@/lib/governance/voteTrend.js';
 import { assembleTrendInputs } from '@/lib/governance/voteTrendAssembly.js';
 import { epochFromUnix, resolveNetwork } from '@/lib/config/network.js';
@@ -325,6 +325,14 @@ const compareP =
 // TreasuryWithdrawals action), so one read serves both.
 const needsWithdrawals = !!nclPeriod || govAction?.type === 'TreasuryWithdrawals';
 
+function needsPassCandidates(a: GovernanceAction): boolean {
+  if (a.status !== 'active' || !hasOnchainThreshold(a.type) || a.type === 'NoConfidence') return false;
+  if (a.drepNoSidePower == null) return false;
+  // Strictly above: a stored 67.00 can still be 66.996 and read Not met on the card.
+  const thr = readThresholdSnapshot(a.thresholdsJson)?.drep;
+  return !(thr != null && a.drepYesPct != null && a.drepYesPct > thr);
+}
+
 const round2 = await awaitAll({
   identities: db ? loadAuthorIdentities(db, [topic?.author_id, ...pagePosts.map((p) => p.author_id)]) : Promise.resolve(null),
   // Co-proposer mandate badges: one batched lookup for the topic and every post
@@ -407,11 +415,9 @@ const round2 = await awaitAll({
     : Promise.resolve(null),
   drepPowers: db && govAction && tab === 'positions' ? listDrepVotePowers(db, govAction.id) : Promise.resolve(null),
   // The DReps who could still switch to Yes, for the Voting Information card's
-  // path to pass. Only while the action is open and ratifies against a threshold.
-  passCandidates:
-    db && govAction && govAction.status === 'active' && hasOnchainThreshold(govAction.type) && govAction.type !== 'NoConfidence'
-      ? listPassCandidates(db, govAction.id)
-      : Promise.resolve(null),
+  // path to pass. Only while the action is open, ratifies against a threshold, has
+  // the DRep stake buckets the card needs and is not already above its threshold.
+  passCandidates: db && govAction && needsPassCandidates(govAction) ? listPassCandidates(db, govAction.id) : Promise.resolve(null),
   basisData: db && isParamChange && basis !== null ? loadBasisData(db, basis) : Promise.resolve(null),
   // Committee member names for the Overview's "On-chain changes" block, only
   // for the action types whose payload adds or removes members.
