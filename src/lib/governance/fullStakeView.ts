@@ -66,6 +66,10 @@ export interface BodyStakeView {
   turnoutPct: number;
   /** The body's ratification threshold in percent, e.g. 67. Null without one. */
   approvalThresholdPct: number | null;
+  /** Raw lovelace per bucket, all six keys, zeros included. */
+  amounts: Record<FullStakeSegmentKey, bigint>;
+  /** Whether always-abstain sits on the No side (see alwaysAbstainIsNoSide). */
+  aaCounted: boolean;
 }
 
 export interface BodyStakeInput {
@@ -317,5 +321,7 @@ export function buildBodyStake(input: BodyStakeInput): BodyStakeView | null {
     countedSharePct: pct4(counted, total),
     turnoutPct: pct4(activeYes + activeNo + activeAbstain, total),
     approvalThresholdPct: input.approvalThresholdPct,
+    amounts,
+    aaCounted,
   };
 }
