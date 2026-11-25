@@ -56,7 +56,7 @@ import { buildParamImpact, inForceRow, onchainOldValuesJson } from '@/lib/govern
 import { basisEpoch } from '@/lib/governance/basisEpoch.js';
 import { loadBasisData } from '@/lib/governance/paramBasisData.js';
 import { lateVoterIds } from '@/lib/governance/lateVotes.js';
-import { getVotesByGaId, getActionVoters, countActionVoters, getViewerVote, getActionSpoVoters, countActionSpoVoters, getActionVoterRank, getVoteTrendRows, listDrepVotePowers, type ActionVoterRow, type TrendVoteRow } from '@/lib/db/drepVotes.js';
+import { getVotesByGaId, getActionVoters, countActionVoters, getViewerVote, getActionSpoVoters, countActionSpoVoters, getActionVoterRank, getVoteTrendRows, listDrepVotePowers, listPassCandidates, type ActionVoterRow, type TrendVoteRow } from '@/lib/db/drepVotes.js';
 import { getCommitteeVotes, getCommitteeTimeline, getActionCcVoteRows } from '@/lib/db/committee.js';
 import { buildVoteConcentration, requiredYesPower, type VoteConcentrationView } from '@/lib/analytics/voteConcentration.js';
 import { buildActionVoteChanges, describeActionVoteChanges } from '@/lib/analytics/voteChangeView.js';
@@ -66,6 +66,7 @@ import { getAllCcMemberNames } from '@/lib/db/ccMemberName.js';
 import { buildCcNameIndex } from '@/lib/governance/ccNames.js';
 import { buildCcPositions, type CcPositionRow } from '@/lib/governance/ccPositions.js';
 import { activeCommitteeSizeAtBoundary, committeeBoundaryForAction } from '@/lib/koios/committeeTimeline.js';
+import { hasOnchainThreshold } from '@/lib/governance/thresholds.js';
 import { computeVoteTrendSeries, buildTrendChart, type TrendChart } from '@/lib/governance/voteTrend.js';
 import { assembleTrendInputs } from '@/lib/governance/voteTrendAssembly.js';
 import { epochFromUnix, resolveNetwork } from '@/lib/config/network.js';
@@ -405,6 +406,12 @@ const round2 = await awaitAll({
     ? Promise.all([getActionCcVoteRows(db, govAction.id), getAllCcMemberNames(db), getActionRationaleStatuses(db, govAction.id)])
     : Promise.resolve(null),
   drepPowers: db && govAction && tab === 'positions' ? listDrepVotePowers(db, govAction.id) : Promise.resolve(null),
+  // The DReps who could still switch to Yes, for the Voting Information card's
+  // path to pass. Only while the action is open and ratifies against a threshold.
+  passCandidates:
+    db && govAction && govAction.status === 'active' && hasOnchainThreshold(govAction.type) && govAction.type !== 'NoConfidence'
+      ? listPassCandidates(db, govAction.id)
+      : Promise.resolve(null),
   basisData: db && isParamChange && basis !== null ? loadBasisData(db, basis) : Promise.resolve(null),
   // Committee member names for the Overview's "On-chain changes" block, only
   // for the action types whose payload adds or removes members.
@@ -633,6 +640,10 @@ const compare: { action: CompareAction; trendRows: TrendVoteRow[]; ccVotes: CcVo
 // instead of a second protocol-params read.
 const currentEpoch = params?.epoch ?? null;
 const ccEpoch = govAction ? committeeBoundaryForAction(govAction, currentEpoch) : null;
+// The committee the CC tally counts, for the voting card's seat line. Without a
+// member in their expiry epoch, which the live committee size still includes.
+const ccBoundarySize =
+  ccEpoch != null && committee.members.length > 0 ? activeCommitteeSizeAtBoundary(committee.members, ccEpoch) : null;
 
 let ccRows: CcPositionRow[] = [];
 let ccTotal = 0;
@@ -649,7 +660,7 @@ if (ccLoad && committee.members.length > 0 && ccEpoch != null) {
     nameIndex,
     rationales: ccRationales,
   });
-  ccTotal = activeCommitteeSizeAtBoundary(committee.members, ccEpoch);
+  ccTotal = ccBoundarySize ?? 0;
 }
 
 // Effective voting concentration for the Positions tab's DRep list: computed
@@ -1059,6 +1070,9 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
               miniChart={miniChart}
               trendHref={trendHref}
               draftOrigin={draftOrigin}
+              passCandidates={round2.passCandidates}
+              ccBoundarySize={ccBoundarySize}
+              nclRemaining={nclMiniCardProps?.remainingLovelace ?? null}
             >
               {nclMiniCardProps && (
                 <NclMiniCard slot="after-status" {...nclMiniCardProps} />
