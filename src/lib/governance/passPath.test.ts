@@ -118,6 +118,26 @@ describe('reconcileCandidates and fewestToPass', () => {
     expect(reconcileCandidates([cand('drep_a', 10n, 'No'), cand('drep_b', 5n, 'Abstain')], view).ok).toBe(false);
   });
 
+  it('rejects candidates whose Yes voters do not match the yes bucket', () => {
+    const view = fakeView({ yes: 1_000n, defaultNo: 5_000n });
+    expect(reconcileCandidates([cand('drep_y', 1_000n, 'Yes'), cand('drep_a', 3_000n, 'notVoted')], view).ok).toBe(true);
+    // A Yes vote newer than the tally: the bucket still holds it as default No.
+    expect(
+      reconcileCandidates([cand('drep_y', 1_000n, 'Yes'), cand('drep_z', 400n, 'Yes'), cand('drep_a', 3_000n, 'notVoted')], view).ok,
+    ).toBe(false);
+  });
+
+  it('never picks Yes voters', () => {
+    const t = reachTier(buckets({ Y: 40n, N: 60n }), 50)!;
+    expect(fewestToPass([cand('drep_y', 50n, 'Yes')], t, ['notVoted', 'Abstain', 'No'], 100n).picks).toEqual([]);
+  });
+
+  it('flags a fixed tier that only the inactive stake decides', () => {
+    expect(reachTier(buckets({ Dv: 64n, Dx: 26n, F: 10n }), 67)?.dxDecides).toBe(true);
+    expect(reachTier(buckets({ F: 40n, Dv: 60n }), 67)?.dxDecides).toBe(false);
+    expect(reachTier(buckets({ Dx: 5n, F: 40n, Dv: 55n }), 67)?.dxDecides).toBe(false);
+  });
+
   it('rejects a non-voter sum above the default No', () => {
     const view = fakeView({ defaultNo: 1_000n });
     expect(reconcileCandidates([cand('drep_a', 1_001n, 'notVoted')], view).ok).toBe(true);

@@ -83,11 +83,25 @@ describe('stakeRowView tier lines', () => {
     expect(keep(row('DRep', buckets({ F: 40n, Dv: 60n }), 67)).line).toBe(
       "Can't be reached by votes. Always-no-confidence stake alone blocks it.",
     );
-    expect(keep(row('DRep', buckets({ Dx: 40n, Dv: 60n }), 67)).line).toBe(
-      "Can't be reached by votes. Stake of inactive DReps still counted as No blocks it.",
+    const inactive =
+      "Not reachable with today's active DReps. It would take inactive DReps whose stake still counts as No voting again.";
+    expect(keep(row('DRep', buckets({ Dx: 40n, Dv: 60n }), 67)).line).toBe(inactive);
+    expect(keep(row('DRep', buckets({ Dv: 64n, Dx: 26n, F: 10n }), 67)).line).toBe(inactive);
+    expect(keep(row('DRep', buckets({ Dx: 5n, F: 40n, Dv: 55n }), 67)).line).toBe(
+      "Can't be reached by votes. Always-no-confidence stake alone blocks it.",
     );
-    expect(keep(row('DRep', buckets({ Dv: 64n, Dx: 26n, F: 10n }), 67)).line).toBe(
-      "Can't be reached by votes. Always-no-confidence stake and stake of inactive DReps still counted as No block it together.",
+  });
+});
+
+describe('SPO abstainers copy on a hard fork', () => {
+  it('names only the pools that voted Abstain, the passive ones already count as not voted', () => {
+    const b = buckets({ Y: 40n * ADA, N: 60n * ADA, A: 60n * ADA });
+    const tier = reachTier(b, 51)!;
+    expect(
+      keep(stakeRowView({ body: 'SPO', tier, buckets: b, list: null, comparison: null, actionHref: HREF, passiveAbstainInA: false }))
+        .line,
+    ).toBe(
+      "Pools that haven't voted can't carry it alone. Pools that voted Abstain would have to vote Yes too. Still missing: 11 ₳ of yes, or the equivalent from them, who count at 49%.",
     );
   });
 });
@@ -199,7 +213,7 @@ describe('passPathRow', () => {
     alwaysNoConfidencePower: '0',
     approvalThresholdPct: 67,
   }) as BodyStakeView;
-  const voters = [cand('drep1n', 20n, 'No'), cand('drep1v', 70n, 'notVoted', 'Vee')];
+  const voters = [cand('drep1n', 20n, 'No'), cand('drep1v', 70n, 'notVoted', 'Vee'), cand('drep1y', 10n, 'Yes')];
   const ctx = {
     isActive: true,
     ccBlocked: false,
@@ -225,7 +239,8 @@ describe('passPathRow', () => {
 
   it('DRep row stays quiet without candidates or when they do not reconcile', () => {
     expect(passPathRow(drepRow, { ...ctx, passCandidates: null })).toBeNull();
-    expect(passPathRow(drepRow, { ...ctx, passCandidates: [cand('drep1n', 25n, 'No')] })).toBeNull();
+    expect(passPathRow(drepRow, { ...ctx, passCandidates: [cand('drep1n', 25n, 'No'), voters[2]] })).toBeNull();
+    expect(passPathRow(drepRow, { ...ctx, passCandidates: voters.slice(0, 2) })).toBeNull();
   });
 
   it('CC row: seats from the boundary committee, nothing when blocked or unknown', () => {
@@ -236,7 +251,7 @@ describe('passPathRow', () => {
   });
 
   it('notVoted rows link to the profile slug when there is one', () => {
-    const v = passPathRow(drepRow, { ...ctx, passCandidates: [voters[0], { ...voters[1], slug: 'vee' }] })!;
+    const v = passPathRow(drepRow, { ...ctx, passCandidates: [voters[0], { ...voters[1], slug: 'vee' }, voters[2]] })!;
     expect(v.list?.rows[0].href).toBe('/dreps/vee/');
   });
 });

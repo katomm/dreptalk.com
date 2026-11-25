@@ -25,7 +25,7 @@ async function vote(gaId: string, id: string, v: string, localStatus: string | n
 }
 
 describe('listPassCandidates', () => {
-  it('returns active non-voters plus No and Abstain voters, nothing else', async () => {
+  it('returns active non-voters plus every live voter, nothing else', async () => {
     await drep('drep_a', 1, '9007199254740993', 'Alice');
     await env.DB.prepare(`UPDATE dreps SET slug = 'alice' WHERE drep_id = 'drep_a'`).run();
     await drep('drep_b', 0, '500');
@@ -51,7 +51,8 @@ describe('listPassCandidates', () => {
 
     const rows = (await listPassCandidates(env.DB, GA_ID))!;
     const byId = Object.fromEntries(rows.map((r) => [r.drepId, r]));
-    expect(Object.keys(byId).sort()).toEqual(['drep_a', 'drep_c', 'drep_d', 'drep_h', 'drep_i', 'drep_j']);
+    expect(Object.keys(byId).sort()).toEqual(['drep_a', 'drep_c', 'drep_d', 'drep_e', 'drep_h', 'drep_i', 'drep_j']);
+    expect(byId.drep_e.stance).toBe('Yes');
     expect(byId.drep_a).toEqual({ drepId: 'drep_a', slug: 'alice', name: 'Alice', power: 9007199254740993n, stance: 'notVoted' });
     expect(byId.drep_c.stance).toBe('No');
     expect(byId.drep_d.stance).toBe('Abstain');

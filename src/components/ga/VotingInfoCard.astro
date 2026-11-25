@@ -96,19 +96,26 @@ const thresholdPctFor = (body: 'DRep' | 'SPO' | 'CC'): number | null =>
     ? (body === 'DRep' ? snapshot.drep : body === 'SPO' ? snapshot.spo : snapshot.cc)
     : liveThresholds?.find((x) => x.body === body)?.thresholdPct ?? null;
 
+// On an open action the stored committee gate was judged on the live size, which
+// still counts a member in their expiry epoch, so the boundary size is checked too.
+const isActive = action.status === 'active';
+const ccBlocked = ccBlockedAtBoundary(ccBoundarySize, params?.committeeMinSize ?? null, snapshot?.ccBelowMinSize ?? null);
+
 const rows = bodies.map((b) => {
   const thr = thresholdPctFor(b.body);
   const t = liveThresholds?.find((x) => x.body === b.body) ?? null;
   const yes = b.composition?.yes ?? null;
   // From a frozen snapshot, the CC "Met" also honors the committee quorum gate
   // (committee below its minimum size cannot ratify, regardless of the yes share).
-  const met = t
+  const verdict = t
     ? t.met
     : thr == null || yes == null
       ? null
       : b.body === 'CC' && snapshot?.ccBelowMinSize
         ? false
         : yes >= thr;
+  // Never Met next to the "committee below its minimum size" line.
+  const met = b.body === 'CC' && isActive && ccBlocked && verdict === true ? false : verdict;
   // The captured stake model, for both stake bodies now that the No side is stored.
   // Null for CC (seats, not stake) and for actions whose buckets predate the capture,
   // in which case the row renders compact-only with no expander.
@@ -127,8 +134,6 @@ const rows = bodies.map((b) => {
 
 // Path to pass: on an open action, for each body that is Not met, whether votes can
 // still reach the threshold and (DReps) the fewest who would have to switch.
-const isActive = action.status === 'active';
-const ccBlocked = ccBlockedAtBoundary(ccBoundarySize, params?.committeeMinSize ?? null, snapshot?.ccBelowMinSize ?? null);
 const pathCtx = {
   isActive,
   ccBlocked,

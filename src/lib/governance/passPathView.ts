@@ -25,7 +25,7 @@ import { positionsVoterAnchor } from './voteStatement.js';
 
 export interface PassListRow {
   name: string;
-  stanceLabel: 'Not voted' | 'No' | 'Abstain';
+  stanceLabel: 'Not voted' | 'No' | 'Abstain' | 'Yes';
   powerLabel: string;
   countsLabel: string | null;
   href: string;
@@ -45,6 +45,7 @@ const STANCE_LABEL: Record<Stance, PassListRow['stanceLabel']> = {
   notVoted: 'Not voted',
   No: 'No',
   Abstain: 'Abstain',
+  Yes: 'Yes',
 };
 
 function ada(lovelace: bigint, digits: number): string {
@@ -57,7 +58,7 @@ function abstainShare(thrBp: bigint): string {
   return pct === 33n ? 'a third' : `${pct}%`;
 }
 
-function tierLine(body: 'DRep' | 'SPO', t: StakeTier, b: StakeBuckets): string {
+function tierLine(body: 'DRep' | 'SPO', t: StakeTier, b: StakeBuckets, passiveAbstainInA: boolean): string {
   const gap = ada(t.gapLovelace, 2);
   const who = body === 'DRep' ? 'DReps' : 'pools';
   switch (t.tier) {
@@ -66,13 +67,12 @@ function tierLine(body: 'DRep' | 'SPO', t: StakeTier, b: StakeBuckets): string {
     case 'abstainers':
       return body === 'DRep'
         ? `DReps who haven't voted can't carry it alone. Abstainers would have to switch to Yes too. Still missing: ${gap} of yes, or the equivalent from abstainers, who count at ${abstainShare(t.thrBp)}.`
-        : `Pools that haven't voted can't carry it alone. Pools that voted Abstain or default to always abstain would have to vote Yes too. Still missing: ${gap} of yes, or the equivalent from them, who count at ${abstainShare(t.thrBp)}.`;
+        : `Pools that haven't voted can't carry it alone. ${passiveAbstainInA ? 'Pools that voted Abstain or default to always abstain' : 'Pools that voted Abstain'} would have to vote Yes too. Still missing: ${gap} of yes, or the equivalent from them, who count at ${abstainShare(t.thrBp)}.`;
     case 'noVoters':
       return `Only reachable if ${who} who voted No switch to Yes.`;
     case 'fixed':
-      if (b.F > 0n && b.Dx > 0n)
-        return "Can't be reached by votes. Always-no-confidence stake and stake of inactive DReps still counted as No block it together.";
-      if (b.Dx > 0n) return "Can't be reached by votes. Stake of inactive DReps still counted as No blocks it.";
+      if (t.dxDecides)
+        return "Not reachable with today's active DReps. It would take inactive DReps whose stake still counts as No voting again.";
       if (b.F > 0n) return "Can't be reached by votes. Always-no-confidence stake alone blocks it.";
       return "Can't be reached by votes.";
   }
@@ -95,9 +95,11 @@ export function stakeRowView(args: {
   list: FewestResult | null;
   comparison: FewestResult | null;
   actionHref: string;
+  /** SPOs: whether passive always-abstain pools sit with the abstainers (every type but a hard fork). */
+  passiveAbstainInA?: boolean;
 }): PassPathRowView {
-  const { body, tier, buckets, list, comparison, actionHref } = args;
-  const line = tierLine(body, tier, buckets);
+  const { body, tier, buckets, list, comparison, actionHref, passiveAbstainInA = true } = args;
+  const line = tierLine(body, tier, buckets, passiveAbstainInA);
   if (body !== 'DRep' || !list?.reaches) return { line, list: null };
   const n = comparison?.reaches ? comparison.picks.length : null;
   return {
@@ -146,7 +148,17 @@ export function passPathRow(
   if (r.body === 'SPO') {
     const buckets = spoBuckets(r.stake);
     const tier = reachTier(buckets, r.thresholdPct);
-    return tier ? stakeRowView({ body: 'SPO', tier, buckets, list: null, comparison: null, actionHref }) : null;
+    return tier
+      ? stakeRowView({
+          body: 'SPO',
+          tier,
+          buckets,
+          list: null,
+          comparison: null,
+          actionHref,
+          passiveAbstainInA: !r.stake.aaCounted,
+        })
+      : null;
   }
   const cands = ctx.passCandidates;
   if (!cands) return null;

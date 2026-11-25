@@ -1013,7 +1013,8 @@ export async function listDrepVotePowers(db: D1Database, gaId: string): Promise<
 
 /**
  * DReps who could still switch to Yes on one action: active DReps without a live
- * vote, plus every live No and Abstain voter. The predefined pseudo-DReps are left
+ * vote, plus every live No and Abstain voter. Live Yes voters come along too, so
+ * the caller can check the rows against the tally's yes bucket. The predefined pseudo-DReps are left
  * out, they are not voters. Votes match case-insensitively, so pending local votes
  * (stored lowercase) count like synced ones. A failed local vote is no vote, so its
  * DRep reads as not voted. Power is the current dreps.voting_power. Rows with a
@@ -1033,7 +1034,7 @@ export async function listPassCandidates(db: D1Database, gaId: string): Promise<
                LEFT JOIN drep_votes v
                  ON v.ga_id = ? AND v.voter_role = 'DRep' AND v.voter_id = d.drep_id AND ${liveVoteSql('v')}
               WHERE d.drep_id NOT IN (${sqlPlaceholders(SPECIAL_DREP_IDS)})
-                AND ((v.vote IS NULL AND d.active = 1) OR lower(v.vote) IN ('no', 'abstain'))`,
+                AND (v.vote IS NOT NULL OR d.active = 1)`,
           )
           .bind(gaId, ...SPECIAL_DREP_IDS)
           .all<Row>()
@@ -1051,7 +1052,8 @@ export async function listPassCandidates(db: D1Database, gaId: string): Promise<
       continue;
     }
     if (power <= 0n) continue;
-    const stance = r.vote == null ? 'notVoted' : voteBucket(r.vote) === 'no' ? 'No' : 'Abstain';
+    const bucket = r.vote == null ? null : voteBucket(r.vote);
+    const stance = bucket == null ? 'notVoted' : bucket === 'yes' ? 'Yes' : bucket === 'no' ? 'No' : 'Abstain';
     out.push({ drepId: r.drep_id, slug: r.slug, name: r.name, power, stance });
   }
   return out;

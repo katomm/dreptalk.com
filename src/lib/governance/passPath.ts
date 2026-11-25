@@ -38,9 +38,15 @@ export interface StakeTier {
   gapLovelace: bigint;
   gapScaled: bigint;
   thrBp: bigint;
+  /**
+   * Fixed only because of Dx: with the inactive DReps' stake movable it would be
+   * reachable. Inactive DReps become active again by voting, so the copy says so.
+   */
+  dxDecides: boolean;
 }
 
-export type Stance = 'notVoted' | 'No' | 'Abstain';
+/** Yes voters are never picks, they are read only to check the snapshot against the yes bucket. */
+export type Stance = 'notVoted' | 'No' | 'Abstain' | 'Yes';
 
 export interface PassCandidate {
   drepId: string;
@@ -111,7 +117,8 @@ export function reachTier(b: StakeBuckets, thresholdPct: number): StakeTier | nu
         : viaNoVoters >= gapScaled
           ? 'noVoters'
           : 'fixed';
-  return { tier, gapLovelace, gapScaled, thrBp };
+  const dxDecides = tier === 'fixed' && viaNoVoters + b.Dx * SCALE >= gapScaled;
+  return { tier, gapLovelace, gapScaled, thrBp, dxDecides };
 }
 
 function worthOf(c: PassCandidate, thrBp: bigint): bigint {
@@ -156,23 +163,27 @@ function within(sum: bigint, bucket: bigint): boolean {
 
 /**
  * Whether the candidate rows describe the same snapshot as the tally buckets: the
- * No and Abstain sums within 0.1% of their buckets, the non-voters at most 0.1% above
+ * Yes, No and Abstain sums within 0.1% of their buckets (a vote newer than the tally
+ * would otherwise turn into stake nobody can move), the non-voters at most 0.1% above
  * the default No (part of it belongs to inactive DReps, so below is expected).
  */
 export function reconcileCandidates(
   cands: PassCandidate[],
   view: BodyStakeView,
 ): { ok: boolean; notVotedSum: bigint } {
+  let yes = 0n;
   let no = 0n;
   let abstain = 0n;
   let notVotedSum = 0n;
   for (const c of cands) {
-    if (c.stance === 'No') no += c.power;
+    if (c.stance === 'Yes') yes += c.power;
+    else if (c.stance === 'No') no += c.power;
     else if (c.stance === 'Abstain') abstain += c.power;
     else notVotedSum += c.power;
   }
   const a = view.amounts;
   const ok =
+    within(yes, a.yes) &&
     within(no, a.no) && within(abstain, a.activeAbstain) && notVotedSum <= a.defaultNo + a.defaultNo / 1000n;
   return { ok, notVotedSum };
 }
