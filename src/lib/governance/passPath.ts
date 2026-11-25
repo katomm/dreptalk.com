@@ -172,3 +172,58 @@ export function reconcileCandidates(
     within(no, a.no) && within(abstain, a.activeAbstain) && notVotedSum <= a.defaultNo + a.defaultNo / 1000n;
   return { ok, notVotedSum };
 }
+
+export interface CcSeatTier {
+  tier: Exclude<Tier, 'fixed'>;
+  extraYes: number;
+  notVoted: number;
+  size: number;
+}
+
+/**
+ * The badge rule: the two-decimal yes share ccTallyPct stores, against the
+ * threshold in percent, so a seat line and the Met badge can never disagree.
+ */
+function ccMet(yes: number, denom: number, thresholdPct: number): boolean {
+  return denom > 0 && Math.round((yes / denom) * 10000) / 100 >= thresholdPct;
+}
+
+/**
+ * The fewest extra Yes seats that meet the CC threshold, where a seat can come from
+ * a member who has not voted (x), one who abstained (a, which also joins the
+ * denominator) or one who voted No (n). The tier is the earliest group set, in the
+ * order non-voters, abstainers, No voters, that reaches it with that minimum. `size`
+ * is the committee at the action's boundary, never the live size.
+ */
+export function ccSeatsToPass(
+  c: { yes: number; no: number; abstain: number; size: number },
+  thresholdPct: number,
+): CcSeatTier | null {
+  const notVoted = c.size - c.yes - c.no - c.abstain;
+  if (c.size - c.abstain <= 0 || notVoted < 0) return null;
+  if (ccMet(c.yes, c.size - c.abstain, thresholdPct)) return null;
+  const reachable = (k: number, maxA: number, maxN: number): boolean => {
+    for (let a = 0; a <= Math.min(k, maxA); a++) {
+      for (let n = 0; n <= Math.min(k - a, maxN); n++) {
+        const x = k - a - n;
+        if (x <= notVoted && ccMet(c.yes + k, c.size - c.abstain + a, thresholdPct)) return true;
+      }
+    }
+    return false;
+  };
+  for (let k = 1; k <= notVoted + c.abstain + c.no; k++) {
+    if (!reachable(k, c.abstain, c.no)) continue;
+    const tier = reachable(k, 0, 0) ? 'nonVoters' : reachable(k, c.abstain, 0) ? 'abstainers' : 'noVoters';
+    return { tier, extraYes: k, notVoted, size: c.size };
+  }
+  return null;
+}
+
+/**
+ * Whether the committee is below its minimum size at the action's boundary. For an
+ * open action the stored flag was judged on the live size, which still counts a
+ * member in their expiry epoch, so the boundary size is checked as well.
+ */
+export function ccBlockedAtBoundary(size: number | null, minSize: number | null, storedFlag: boolean | null): boolean {
+  return storedFlag === true || (size != null && minSize != null && size < minSize);
+}

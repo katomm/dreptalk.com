@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { buildBodyStake, type BodyStakeView, type FullStakeSegmentKey } from './fullStakeView.js';
 import {
+  ccBlockedAtBoundary,
+  ccSeatsToPass,
   drepBuckets,
   fewestToPass,
   reachTier,
@@ -184,5 +186,52 @@ describe('drepBuckets', () => {
     const view = fakeView({ yes: 5n, no: 6n, defaultNo: 100n, alwaysNoConfidence: 7n, activeAbstain: 8n, alwaysAbstain: 9n });
     expect(drepBuckets(view, 70n)).toEqual({ Y: 5n, N: 6n, Dv: 70n, Dx: 30n, F: 7n, A: 8n });
     expect(drepBuckets(view, 120n).Dv).toBe(100n);
+  });
+});
+
+describe('ccSeatsToPass', () => {
+  it('counts the boundary committee, without a member in their expiry epoch', () => {
+    expect(ccSeatsToPass({ yes: 0, no: 0, abstain: 0, size: 6 }, 66.67)).toEqual({
+      tier: 'nonVoters',
+      extraYes: 4,
+      notVoted: 6,
+      size: 6,
+    });
+  });
+
+  it('needs five of seven when nobody voted', () => {
+    expect(ccSeatsToPass({ yes: 0, no: 0, abstain: 0, size: 7 }, 66.67)?.extraYes).toBe(5);
+  });
+
+  it('returns null when everyone abstained', () => {
+    expect(ccSeatsToPass({ yes: 0, no: 0, abstain: 7, size: 7 }, 66.67)).toBeNull();
+  });
+
+  it('needs No voters when nobody is left to vote', () => {
+    const t = ccSeatsToPass({ yes: 2, no: 5, abstain: 0, size: 7 }, 66.67)!;
+    expect(t.tier).toBe('noVoters');
+    expect(t.extraYes).toBe(3);
+  });
+
+  it('needs abstainers when non-voters cannot carry it', () => {
+    const t = ccSeatsToPass({ yes: 3, no: 2, abstain: 2, size: 7 }, 66.67)!;
+    expect(t).toEqual({ tier: 'abstainers', extraYes: 1, notVoted: 0, size: 7 });
+    const u = ccSeatsToPass({ yes: 2, no: 0, abstain: 4, size: 7 }, 75)!;
+    expect(u).toEqual({ tier: 'nonVoters', extraYes: 1, notVoted: 1, size: 7 });
+    const w = ccSeatsToPass({ yes: 1, no: 1, abstain: 4, size: 7 }, 75)!;
+    expect(w.tier).toBe('abstainers');
+  });
+
+  it('returns null when already met', () => {
+    expect(ccSeatsToPass({ yes: 4, no: 0, abstain: 3, size: 7 }, 66.67)).toBeNull();
+  });
+});
+
+describe('ccBlockedAtBoundary', () => {
+  it('judges the minimum size at the boundary', () => {
+    expect(ccBlockedAtBoundary(6, 7, false)).toBe(true);
+    expect(ccBlockedAtBoundary(6, 6, false)).toBe(false);
+    expect(ccBlockedAtBoundary(null, 7, true)).toBe(true);
+    expect(ccBlockedAtBoundary(null, null, null)).toBe(false);
   });
 });
