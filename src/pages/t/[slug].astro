@@ -17,6 +17,7 @@ import GaPositions from '@/components/ga/GaPositions.astro';
 import GaOnchain from '@/components/ga/GaOnchain.astro';
 import GaHistory from '@/components/ga/GaHistory.astro';
 import GaSidebar from '@/components/ga/GaSidebar.astro';
+import { drepPassList } from '@/lib/governance/votingCardRows.js';
 import GlossaryTerms from '@/components/glossary/GlossaryTerms.astro';
 import ShareButton from '@/components/ShareButton.astro';
 import SurveyCard from '@/components/survey/SurveyCard.astro';
@@ -49,6 +50,7 @@ import {
   type RelatedActionRow,
   type CompareCandidateRow,
   type CompareAction,
+  type GovernanceAction,
 } from '@/lib/db/governance.js';
 import { headlineComposition, isSpoLedType, isCcEligible, governanceActionDescription } from '@/lib/governance/view.js';
 import type { GaParamImpactProps } from '@/components/ga/GaParamImpact.js';
@@ -56,16 +58,16 @@ import { buildParamImpact, inForceRow, onchainOldValuesJson } from '@/lib/govern
 import { basisEpoch } from '@/lib/governance/basisEpoch.js';
 import { loadBasisData } from '@/lib/governance/paramBasisData.js';
 import { lateVoterIds } from '@/lib/governance/lateVotes.js';
-import { getVotesByGaId, getActionVoters, countActionVoters, getViewerVote, getActionSpoVoters, countActionSpoVoters, getActionVoterRank, getVoteTrendRows, listDrepVotePowers, type ActionVoterRow, type TrendVoteRow } from '@/lib/db/drepVotes.js';
+import { getVotesByGaId, getActionVoters, countActionVoters, getViewerVote, getActionSpoVoters, countActionSpoVoters, getActionVoterRank, getVoteTrendRows, listDrepVotePowers, listPassCandidates, type ActionVoterRow, type TrendVoteRow } from '@/lib/db/drepVotes.js';
 import { getCommitteeVotes, getCommitteeTimeline, getActionCcVoteRows } from '@/lib/db/committee.js';
 import { buildVoteConcentration, requiredYesPower, type VoteConcentrationView } from '@/lib/analytics/voteConcentration.js';
 import { buildActionVoteChanges, describeActionVoteChanges } from '@/lib/analytics/voteChangeView.js';
-import { readThresholdSnapshot } from '@/lib/governance/thresholds.js';
 import type { CcVote } from '@/lib/koios/corrections.js';
 import { getAllCcMemberNames } from '@/lib/db/ccMemberName.js';
 import { buildCcNameIndex } from '@/lib/governance/ccNames.js';
 import { buildCcPositions, type CcPositionRow } from '@/lib/governance/ccPositions.js';
 import { activeCommitteeSizeAtBoundary, committeeBoundaryForAction } from '@/lib/koios/committeeTimeline.js';
+import { hasOnchainThreshold, readThresholdSnapshot } from '@/lib/governance/thresholds.js';
 import { computeVoteTrendSeries, buildTrendChart, type TrendChart } from '@/lib/governance/voteTrend.js';
 import { assembleTrendInputs } from '@/lib/governance/voteTrendAssembly.js';
 import { epochFromUnix, resolveNetwork } from '@/lib/config/network.js';
@@ -324,6 +326,14 @@ const compareP =
 // TreasuryWithdrawals action), so one read serves both.
 const needsWithdrawals = !!nclPeriod || govAction?.type === 'TreasuryWithdrawals';
 
+function needsPassCandidates(a: GovernanceAction): boolean {
+  if (a.status !== 'active' || !hasOnchainThreshold(a.type) || a.type === 'NoConfidence') return false;
+  if (a.drepNoSidePower == null) return false;
+  // Strictly above: a stored 67.00 can still be 66.996 and read Not met on the card.
+  const thr = readThresholdSnapshot(a.thresholdsJson)?.drep;
+  return !(thr != null && a.drepYesPct != null && a.drepYesPct > thr);
+}
+
 const round2 = await awaitAll({
   identities: db ? loadAuthorIdentities(db, [topic?.author_id, ...pagePosts.map((p) => p.author_id)]) : Promise.resolve(null),
   // Co-proposer mandate badges: one batched lookup for the topic and every post
@@ -405,6 +415,10 @@ const round2 = await awaitAll({
     ? Promise.all([getActionCcVoteRows(db, govAction.id), getAllCcMemberNames(db), getActionRationaleStatuses(db, govAction.id)])
     : Promise.resolve(null),
   drepPowers: db && govAction && tab === 'positions' ? listDrepVotePowers(db, govAction.id) : Promise.resolve(null),
+  // The DReps who could still switch to Yes, for the Voting Information card's
+  // path to pass. Only while the action is open, ratifies against a threshold, has
+  // the DRep stake buckets the card needs and is not already above its threshold.
+  passCandidates: db && govAction && needsPassCandidates(govAction) ? listPassCandidates(db, govAction.id) : Promise.resolve(null),
   basisData: db && isParamChange && basis !== null ? loadBasisData(db, basis) : Promise.resolve(null),
   // Committee member names for the Overview's "On-chain changes" block, only
   // for the action types whose payload adds or removes members.
@@ -633,6 +647,10 @@ const compare: { action: CompareAction; trendRows: TrendVoteRow[]; ccVotes: CcVo
 // instead of a second protocol-params read.
 const currentEpoch = params?.epoch ?? null;
 const ccEpoch = govAction ? committeeBoundaryForAction(govAction, currentEpoch) : null;
+// The committee the CC tally counts, for the voting card's seat line. Without a
+// member in their expiry epoch, which the live committee size still includes.
+const ccBoundarySize =
+  ccEpoch != null && committee.members.length > 0 ? activeCommitteeSizeAtBoundary(committee.members, ccEpoch) : null;
 
 let ccRows: CcPositionRow[] = [];
 let ccTotal = 0;
@@ -649,7 +667,7 @@ if (ccLoad && committee.members.length > 0 && ccEpoch != null) {
     nameIndex,
     rationales: ccRationales,
   });
-  ccTotal = activeCommitteeSizeAtBoundary(committee.members, ccEpoch);
+  ccTotal = ccBoundarySize ?? 0;
 }
 
 // Effective voting concentration for the Positions tab's DRep list: computed
@@ -976,6 +994,16 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
                 drepChanges={drepChanges}
                 spoChanges={spoChanges}
                 drepChangeLine={drepChangeLine}
+                passList={
+                  positionsRole === 'drep' && positionsPage === 1
+                    ? drepPassList(govAction, params, {
+                        drepStakeTotal,
+                        ccBoundarySize,
+                        passCandidates: round2.passCandidates,
+                        actionHref: `/t/${topic.slug}/`,
+                      })
+                    : null
+                }
               />
             ) : tab === 'onchain' ? (
               <GaOnchain action={govAction} network={network} />
@@ -1059,6 +1087,9 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
               miniChart={miniChart}
               trendHref={trendHref}
               draftOrigin={draftOrigin}
+              passCandidates={round2.passCandidates}
+              ccBoundarySize={ccBoundarySize}
+              nclRemaining={nclMiniCardProps?.remainingLovelace ?? null}
             >
               {nclMiniCardProps && (
                 <NclMiniCard slot="after-status" {...nclMiniCardProps} />

@@ -21,15 +21,11 @@ import FullStakeBar from './FullStakeBar.astro';
 import type { GovernanceAction } from '@/lib/db/governance.js';
 import type { ProtocolParams } from '@/lib/db/protocolParams.js';
 import type { TrendChart } from '@/lib/governance/voteTrend.js';
-import { evaluateThresholds, hasOnchainThreshold, readThresholdSnapshot } from '@/lib/governance/thresholds.js';
-import { parameterChangeScope } from '@/lib/governance/onchain.js';
-import {
-  fmtPctFine,
-  overviewRowVoting,
-  compositionAmounts,
-  bodyStake,
-  absentBodyNote,
-} from '@/lib/governance/view.js';
+import { treasuryTotalLovelace } from '@/lib/governance/onchain.js';
+import type { PassCandidate } from '@/lib/governance/passPath.js';
+import { votingCardRowsWithPath } from '@/lib/governance/votingCardRows.js';
+import { hardBlockLines, PASS_PATH_FOOTNOTE, PASS_SECTION_ID } from '@/lib/governance/passPathView.js';
+import { fmtPctFine, absentBodyNote } from '@/lib/governance/view.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
 
 interface Props {
@@ -44,72 +40,41 @@ interface Props {
   miniChart: TrendChart | null;
   /** Href of the History tab, for the teaser link. */
   trendHref: string;
+  /** DReps who could still switch to Yes (active actions only), null when not loaded or on error. */
+  passCandidates: PassCandidate[] | null;
+  /** Committee size at the action's boundary, the seats the CC tally counts. */
+  ccBoundarySize: number | null;
+  /** Net Change Limit headroom left in the current period, treasury withdrawals only. */
+  nclRemaining: bigint | null;
+  /** The action's thread URL, base for the link to the Votes tab switch list. */
+  actionHref: string;
 }
 
-const { action, params, drepStakeTotal, now, miniChart, trendHref } = Astro.props;
+const { action, params, drepStakeTotal, now, miniChart, trendHref, passCandidates, ccBoundarySize, nclRemaining, actionHref } =
+  Astro.props;
 
-// ParameterChange voting bodies depend on which parameters change: SPOs vote only on
-// security-relevant ones. Derive that from the payload; null for other types.
-const paramScope =
-  action.type === 'ParameterChange' ? parameterChangeScope(action.onchainPayload) : null;
-const paramTouchesSecurity = paramScope?.touchesSecurity ?? false;
+// Path to pass: on an open action, for each body that is Not met, whether votes can
+// still reach the threshold and (DReps) the fewest who would have to switch.
+const {
+  rows,
+  isActive,
+  ccBlocked,
+  hasThreshold,
+  paramTouchesSecurity,
+} = votingCardRowsWithPath(action, params, { drepStakeTotal, ccBoundarySize, passCandidates, actionHref });
+const anyPath = rows.some((r) => r.path != null);
 
-const opts = { drepStakeTotal, committeeSize: params?.committeeSize ?? null };
-const hasThreshold = hasOnchainThreshold(action.type);
-
-// Threshold verdict + marker per body, for types that ratify (null for Info actions,
-// or before protocol params / tallies have synced).
-// Prefer the frozen per-body snapshot; fall back to live params only when absent
-// (active actions not yet snapshotted). Never render an old action's threshold from
-// today's params.
-const snapshot = readThresholdSnapshot(action.thresholdsJson);
-
-// Eligible bodies for this action type (reuses the overview's per-type eligibility +
-// participation), enriched with the honest composition and its amounts.
-const { bodies } = overviewRowVoting(action, opts, { paramTouchesSecurity });
-// The verdict is judged on the same yes share the row shows (see bodyComposition).
-const shownYes = (body: 'DRep' | 'SPO' | 'CC'): number | null =>
-  bodies.find((b) => b.body === body)?.composition?.yes ?? null;
-const liveThresholds =
-  !snapshot && hasThreshold && params
-    ? evaluateThresholds(
-        { type: action.type, drepYesPct: shownYes('DRep'), spoYesPct: shownYes('SPO'), ccYesPct: shownYes('CC'), paramScope },
-        params,
-      )
-    : null;
-const thresholdPctFor = (body: 'DRep' | 'SPO' | 'CC'): number | null =>
-  snapshot
-    ? (body === 'DRep' ? snapshot.drep : body === 'SPO' ? snapshot.spo : snapshot.cc)
-    : liveThresholds?.find((x) => x.body === body)?.thresholdPct ?? null;
-
-const rows = bodies.map((b) => {
-  const thr = thresholdPctFor(b.body);
-  const t = liveThresholds?.find((x) => x.body === b.body) ?? null;
-  const yes = b.composition?.yes ?? null;
-  // From a frozen snapshot, the CC "Met" also honors the committee quorum gate
-  // (committee below its minimum size cannot ratify, regardless of the yes share).
-  const met = t
-    ? t.met
-    : thr == null || yes == null
-      ? null
-      : b.body === 'CC' && snapshot?.ccBelowMinSize
-        ? false
-        : yes >= thr;
-  // The captured stake model, for both stake bodies now that the No side is stored.
-  // Null for CC (seats, not stake) and for actions whose buckets predate the capture,
-  // in which case the row renders compact-only with no expander.
-  const stake = bodyStake(action, b.body, thr);
-  return {
-    body: b.body,
-    label: b.label,
-    composition: b.composition,
-    amounts: compositionAmounts(action, b.body, opts),
-    participation: b.participation,
-    thresholdPct: thr,
-    met,
-    stake,
-  };
-});
+let withdrawal: bigint | null = null;
+if (isActive && action.type === 'TreasuryWithdrawals' && action.onchainPayload) {
+  try {
+    withdrawal = treasuryTotalLovelace(JSON.parse(action.onchainPayload));
+  } catch {
+    // Malformed stored payload: no NCL line.
+  }
+}
+const blockLines = isActive
+  ? hardBlockLines({ withdrawal, nclRemaining, ccBlocked, ccVotes: rows.some((r) => r.body === 'CC') })
+  : [];
 
 // Whether every stake body states its own denominator inline (CC names its seat basis
 // itself), which lets the note below drop its counted-stake clause.
@@ -129,6 +94,8 @@ const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now
   {rows.length === 0 ? (
     <p class="info-note">No voting bodies for this action type.</p>
   ) : (
+    <>
+    {blockLines.map((line) => <p class="vbody-block">{line}</p>)}
     <div class="vbody-list">
       {rows.map((r) => (
         <div class="vbody">
@@ -198,9 +165,19 @@ const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now
           ) : (
             <p class="vbody__none">No votes recorded.</p>
           )}
+
+          {r.path && (
+              <>
+                <p class="vbody__path">{r.path.line}</p>
+                {r.path.list && (
+                  <a class="vbody__switch" href={`${actionHref}?tab=positions#${PASS_SECTION_ID}`}>{r.path.list.summary}</a>
+                )}
+              </>
+          )}
         </div>
       ))}
     </div>
+    </>
   )}
 
   {miniChart && (
@@ -223,6 +200,7 @@ const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now
   )}
   {absentNote && <p class="info-note info-note--absent">{absentNote}</p>}
   {asOf && <p class="info-footnote">Tallies as of {asOf}. Cached, not live.</p>}
+  {anyPath && <p class="info-footnote">{PASS_PATH_FOOTNOTE}</p>}
 </div>
 
 <style>
@@ -379,6 +357,26 @@ const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now
     gap: 0.125rem 0.5rem;
     font-size: 0.6875rem;
     color: var(--muted);
+  }
+
+  /* Path to pass: one muted line under the row and, for DReps, a link to the switch
+     list in the Votes tab. */
+  .vbody__path {
+    margin: 0;
+    font-size: 0.72rem;
+    line-height: 1.4;
+    color: var(--muted);
+  }
+  .vbody-block {
+    margin: 0 0 0.625rem;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: var(--fg);
+  }
+  .vbody__switch {
+    display: inline-block;
+    margin-top: 0.25rem;
+    font-size: 0.75rem;
   }
 
   .vbody__none {

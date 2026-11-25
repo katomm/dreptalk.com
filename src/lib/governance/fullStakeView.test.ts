@@ -65,6 +65,17 @@ const pctOf = (v: ReturnType<typeof buildBodyStake>, key: string): number =>
   v!.segments.find((s) => s.key === key)?.pct ?? 0;
 
 describe('buildBodyStake', () => {
+  it('exposes the raw bucket amounts', () => {
+    const drep = buildBodyStake(MAINNET_NEW_COMMITTEE.drep)!;
+    expect(drep.amounts.yes).toBe(3_495_040_778_691_676n);
+    expect(drep.amounts.defaultNo).toBe(1_587_872_967_435_543n - 14_080_895_011_611n - 150_047_859_757_520n);
+    expect(drep.amounts.alwaysAbstain).toBe(9_776_721_978_688_292n);
+    expect(drep.aaCounted).toBe(false);
+    const spo = buildBodyStake(MAINNET_VAN_ROSSEM_SPO)!;
+    expect(spo.aaCounted).toBe(true);
+    expect(spo.amounts.alwaysAbstain).toBe(4_329_479_686_219_479n);
+  });
+
   describe('progressive enhancement', () => {
     it('returns null when noSidePower is missing', () => {
       expect(buildBodyStake(makeInput({ noSidePower: null }))).toBeNull();

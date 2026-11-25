@@ -4,6 +4,7 @@
 // and top DRep participants cards.
 import ActionStatusCard from './ActionStatusCard.astro';
 import VotingInfoCard from './VotingInfoCard.astro';
+import type { PassCandidate } from '@/lib/governance/passPath.js';
 import ProposerCard from './ProposerCard.astro';
 import AuthorsCard from './AuthorsCard.astro';
 import ReferencesCard from './ReferencesCard.astro';
@@ -37,6 +38,10 @@ interface Props {
   // The Proposal Drafts thread this action grew from, if any. Null when the
   // action has no draft origin or that draft thread was deleted.
   draftOrigin?: { slug: string; title: string } | null;
+  // Path to pass inputs, forwarded to the Voting Information card.
+  passCandidates?: PassCandidate[] | null;
+  ccBoundarySize?: number | null;
+  nclRemaining?: bigint | null;
 }
 
 const {
@@ -54,6 +59,9 @@ const {
   miniChart,
   trendHref,
   draftOrigin,
+  passCandidates = null,
+  ccBoundarySize = null,
+  nclRemaining = null,
 } = Astro.props;
 ---
 
@@ -66,7 +74,7 @@ const {
       NCL mini card on TreasuryWithdrawals action pages. Empty for every other
       action type. */}
   <slot name="after-status" />
-  <VotingInfoCard action={action} params={params} drepStakeTotal={drepStakeTotal} now={now} miniChart={miniChart} trendHref={trendHref} />
+  <VotingInfoCard action={action} params={params} drepStakeTotal={drepStakeTotal} now={now} miniChart={miniChart} trendHref={trendHref} passCandidates={passCandidates} ccBoundarySize={ccBoundarySize} nclRemaining={nclRemaining} actionHref={`/t/${slug}/`} />
   <ProposerCard returnAddress={action.returnAddress} />
   <AuthorsCard authors={action.authors} />
   {/* The Proposal Drafts thread this action was discussed in before submission.
