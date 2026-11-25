@@ -6,6 +6,9 @@
 //
 // Place the component OUTSIDE the host containers so its own markup is never
 // annotated. Terms already inside links, code, or headings are skipped.
+//
+// Any element on the page can reuse the same tooltip with its own text instead of
+// a glossary entry: give it data-tip-term and data-tip-text (no link is shown).
 import { getGlossaryPayloadJson } from '@/lib/glossary/payload.js';
 
 interface Props {
@@ -86,6 +89,9 @@ const payloadJson = await getGlossaryPayloadJson();
   const textEl = tooltip?.querySelector<HTMLElement>('.glossary-tooltip__text');
   const linkEl = tooltip?.querySelector<HTMLAnchorElement>('.glossary-tooltip__link');
 
+  // Glossary terms plus elements that carry their own tooltip text.
+  const TIP_SELECTOR = '[data-glossary-key], [data-tip-text]';
+
   if (tooltip && payloadEl && hosts && termEl && textEl && linkEl) {
     const payload: Record<string, Entry> = JSON.parse(payloadEl.textContent ?? '{}');
 
@@ -97,15 +103,20 @@ const payloadJson = await getGlossaryPayloadJson();
 
     // Touch path: first tap shows the tooltip, second tap on the same term
     // navigates. The hover/focus path stays click-to-navigate.
-    let armedKey: string | null = null;
+    let armed: HTMLElement | null = null;
     let armedTimer: number | undefined;
 
     const showTooltip = (target: HTMLElement) => {
       const key = target.dataset.glossaryKey;
-      if (!key) return;
-      termEl.textContent = payload[key].term;
-      textEl.textContent = payload[key].description;
-      linkEl.href = `/glossary/${key}/`;
+      const entry = key ? payload[key] : null;
+      const term = entry ? entry.term : (target.dataset.tipTerm ?? '');
+      const text = entry ? entry.description : target.dataset.tipText;
+      if (!text) return;
+      termEl.textContent = term;
+      termEl.hidden = !term;
+      textEl.textContent = text;
+      linkEl.hidden = !key;
+      if (key) linkEl.href = `/glossary/${key}/`;
       tooltip.classList.add('is-visible');
       // Position after the class flip so the tooltip is measurable.
       const rect = target.getBoundingClientRect();
@@ -120,19 +131,19 @@ const payloadJson = await getGlossaryPayloadJson();
 
     const hideTooltip = () => {
       tooltip.classList.remove('is-visible');
-      armedKey = null;
+      armed = null;
       window.clearTimeout(armedTimer);
     };
 
     document.addEventListener('mouseover', (e) => {
-      const t = (e.target as HTMLElement).closest<HTMLElement>('[data-glossary-key]');
+      const t = (e.target as HTMLElement).closest<HTMLElement>(TIP_SELECTOR);
       if (t) showTooltip(t);
     });
     document.addEventListener('mouseout', (e) => {
-      if ((e.target as HTMLElement).closest('[data-glossary-key]')) hideTooltip();
+      if ((e.target as HTMLElement).closest(TIP_SELECTOR)) hideTooltip();
     });
     document.addEventListener('focusin', (e) => {
-      const t = (e.target as HTMLElement).closest<HTMLElement>('[data-glossary-key]');
+      const t = (e.target as HTMLElement).closest<HTMLElement>(TIP_SELECTOR);
       if (t) showTooltip(t);
     });
     document.addEventListener('focusout', () => hideTooltip());
@@ -141,21 +152,20 @@ const payloadJson = await getGlossaryPayloadJson();
     document.addEventListener(
       'click',
       (e) => {
-        const target = (e.target as HTMLElement).closest<HTMLElement>('[data-glossary-key]');
+        const target = (e.target as HTMLElement).closest<HTMLElement>(TIP_SELECTOR);
         if (!target) {
           hideTooltip();
           return;
         }
         if (!window.matchMedia('(hover: none)').matches) return;
-        const key = target.dataset.glossaryKey ?? null;
-        if (armedKey === key) {
+        if (armed === target) {
           hideTooltip();
           return;
         }
         e.preventDefault();
         e.stopPropagation();
         showTooltip(target);
-        armedKey = key;
+        armed = target;
         window.clearTimeout(armedTimer);
         armedTimer = window.setTimeout(hideTooltip, 6000);
       },
@@ -170,7 +180,8 @@ const payloadJson = await getGlossaryPayloadJson();
      ("a", ".prose a"). Terms should read as annotated text, not as links.
      Contract: this wins over plain global rules; host containers must not add
      Astro-scoped link color rules of their own (scoping raises specificity). */
-  .glossary-term[data-glossary-key] {
+  .glossary-term[data-glossary-key],
+  [data-tip-text] {
     color: inherit;
     text-decoration: underline dotted;
     text-decoration-color: color-mix(in srgb, var(--accent) 60%, transparent);
@@ -178,7 +189,9 @@ const payloadJson = await getGlossaryPayloadJson();
     text-underline-offset: 3px;
   }
   .glossary-term[data-glossary-key]:hover,
-  .glossary-term[data-glossary-key]:focus-visible {
+  .glossary-term[data-glossary-key]:focus-visible,
+  [data-tip-text]:hover,
+  [data-tip-text]:focus-visible {
     color: var(--accent);
     text-decoration-style: solid;
     text-decoration-color: var(--accent);
@@ -201,6 +214,9 @@ const payloadJson = await getGlossaryPayloadJson();
   }
   .glossary-tooltip.is-visible {
     display: flex;
+  }
+  .glossary-tooltip [hidden] {
+    display: none;
   }
   .glossary-tooltip__term {
     font-weight: 700;

@@ -1,4 +1,4 @@
-// Copy for the path-to-pass lines on the voting card. Pure: takes the math from
+// Copy for the path-to-pass lines on the voting card and the Votes tab section. Pure: takes the math from
 // passPath.ts and returns finished strings and list rows, so every word is tested.
 // The wording describes arithmetic ("would have to switch"), never pressure.
 import { formatAdaCompact } from '../format/ada.js';
@@ -21,20 +21,39 @@ import {
   type StakeTier,
   type Tier,
 } from './passPath.js';
+import { fmtPctFine } from './view.js';
 import { positionsVoterAnchor } from './voteStatement.js';
 
 export interface PassListRow {
   name: string;
   stanceLabel: 'Not voted' | 'No' | 'Abstain' | 'Yes';
   powerLabel: string;
-  countsLabel: string | null;
+  /** Abstain rows only: how much of the gap the switch closes, which is less than the
+   *  power because the stake also joins the counted total. */
+  closesLabel: string | null;
+  /** Tooltip explaining closesLabel. */
+  closesTitle: string | null;
   href: string;
+}
+
+export interface PassListView {
+  rows: PassListRow[];
+  /** Sidebar link text, e.g. "51 DReps would have to switch, 15 if No voters switch too". */
+  summary: string;
+  /** Opening line of the Votes tab section. */
+  intro: string;
+  /** Why an Abstain switch counts for less, when the list has one. */
+  abstainNote: string | null;
+  comparison: string | null;
 }
 
 export interface PassPathRowView {
   line: string;
-  list: { rows: PassListRow[]; comparison: string | null } | null;
+  list: PassListView | null;
 }
+
+/** Fragment id of the Votes tab section the sidebar links to. */
+export const PASS_SECTION_ID = 'path-to-pass';
 
 export const PASS_PATH_FOOTNOTE =
   'Reachability as of the last tally sync. New votes move it at every sync, delegation changes and DReps going inactive at the epoch boundary.';
@@ -66,8 +85,8 @@ function tierLine(body: 'DRep' | 'SPO', t: StakeTier, b: StakeBuckets, passiveAb
       return `Reachable if ${who} who haven't voted yet vote Yes. ${gap} more yes needed.`;
     case 'abstainers':
       return body === 'DRep'
-        ? `DReps who haven't voted can't carry it alone. Abstainers would have to switch to Yes too. Still missing: ${gap} of yes, or the equivalent from abstainers, who count at ${abstainShare(t.thrBp)}.`
-        : `Pools that haven't voted can't carry it alone. ${passiveAbstainInA ? 'Pools that voted Abstain or default to always abstain' : 'Pools that voted Abstain'} would have to vote Yes too. Still missing: ${gap} of yes, or the equivalent from them, who count at ${abstainShare(t.thrBp)}.`;
+        ? `Needs ${gap} more yes. DReps who haven't voted can't carry it alone, abstainers would have to switch too.`
+        : `Needs ${gap} more yes. Pools that haven't voted can't carry it alone, ${passiveAbstainInA ? 'pools that voted Abstain or default to always abstain' : 'pools that voted Abstain'} would have to vote Yes too (they count at ${abstainShare(t.thrBp)}).`;
     case 'noVoters':
       return `Only reachable if ${who} who voted No switch to Yes.`;
     case 'fixed':
@@ -78,12 +97,21 @@ function tierLine(body: 'DRep' | 'SPO', t: StakeTier, b: StakeBuckets, passiveAb
   }
 }
 
+function dreps(n: number): string {
+  return `${n} DRep${n === 1 ? '' : 's'}`;
+}
+
 function listRow(p: FewestResult['picks'][number], actionHref: string): PassListRow {
+  const abstain = p.stance === 'Abstain';
+  const closes = ada(p.worth / SCALE, 1);
   return {
     name: p.name ?? truncateIdMiddle(p.drepId),
     stanceLabel: STANCE_LABEL[p.stance],
     powerLabel: ada(p.power, 1),
-    countsLabel: p.stance === 'Abstain' ? `counts ${ada(p.worth / SCALE, 1)}` : null,
+    closesLabel: abstain ? `closes ${closes}` : null,
+    closesTitle: abstain
+      ? `A switch from Abstain adds ${ada(p.power, 1)} to Yes and to the counted total, so it closes the gap by ${closes}.`
+      : null,
     href: p.stance === 'notVoted' ? drepPath(p) : `${actionHref}${positionsVoterAnchor(p.drepId)}`,
   };
 }
@@ -101,15 +129,19 @@ export function stakeRowView(args: {
   const { body, tier, buckets, list, comparison, actionHref, passiveAbstainInA = true } = args;
   const line = tierLine(body, tier, buckets, passiveAbstainInA);
   if (body !== 'DRep' || !list?.reaches) return { line, list: null };
-  const n = comparison?.reaches ? comparison.picks.length : null;
+  const count = list.picks.length;
+  const n = comparison?.reaches && comparison.picks.length < count ? comparison.picks.length : null;
+  const hasAbstain = list.picks.some((p) => p.stance === 'Abstain');
   return {
     line,
     list: {
       rows: list.picks.map((p) => listRow(p, actionHref)),
-      comparison:
-        n != null && n < list.picks.length
-          ? `If DReps who voted No switch as well: at least ${n} DRep${n === 1 ? '' : 's'}.`
-          : null,
+      summary: `${dreps(count)} would have to switch${n != null ? `, ${n} if No voters switch too` : ''}`,
+      intro: `The fewest DReps whose switch to Yes would reach the ${fmtPctFine(Number(tier.thrBp) / 10_000)} threshold, ordered by how much each switch counts. ${ada(tier.gapLovelace, 2)} more yes is needed.`,
+      abstainNote: hasAbstain
+        ? `A DRep who voted Abstain counts at ${abstainShare(tier.thrBp)} of their voting power, because a switch also adds their stake to the counted total.`
+        : null,
+      comparison: n != null ? `If DReps who voted No switch as well: at least ${dreps(n)}.` : null,
     },
   };
 }

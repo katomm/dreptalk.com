@@ -17,6 +17,7 @@ import GaPositions from '@/components/ga/GaPositions.astro';
 import GaOnchain from '@/components/ga/GaOnchain.astro';
 import GaHistory from '@/components/ga/GaHistory.astro';
 import GaSidebar from '@/components/ga/GaSidebar.astro';
+import { drepPassList } from '@/lib/governance/votingCardRows.js';
 import GlossaryTerms from '@/components/glossary/GlossaryTerms.astro';
 import ShareButton from '@/components/ShareButton.astro';
 import SurveyCard from '@/components/survey/SurveyCard.astro';
@@ -993,6 +994,12 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
                 drepChanges={drepChanges}
                 spoChanges={spoChanges}
                 drepChangeLine={drepChangeLine}
+                passList={drepPassList(govAction, params, {
+                  drepStakeTotal,
+                  ccBoundarySize,
+                  passCandidates: round2.passCandidates,
+                  actionHref: `/t/${topic.slug}/`,
+                })}
               />
             ) : tab === 'onchain' ? (
               <GaOnchain action={govAction} network={network} />

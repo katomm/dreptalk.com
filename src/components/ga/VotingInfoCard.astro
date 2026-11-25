@@ -21,17 +21,11 @@ import FullStakeBar from './FullStakeBar.astro';
 import type { GovernanceAction } from '@/lib/db/governance.js';
 import type { ProtocolParams } from '@/lib/db/protocolParams.js';
 import type { TrendChart } from '@/lib/governance/voteTrend.js';
-import { evaluateThresholds, hasOnchainThreshold, readThresholdSnapshot } from '@/lib/governance/thresholds.js';
-import { parameterChangeScope, treasuryTotalLovelace } from '@/lib/governance/onchain.js';
-import { ccBlockedAtBoundary, type PassCandidate } from '@/lib/governance/passPath.js';
-import { hardBlockLines, PASS_LIST_FOOTNOTE, PASS_PATH_FOOTNOTE, passPathRow } from '@/lib/governance/passPathView.js';
-import {
-  fmtPctFine,
-  overviewRowVoting,
-  compositionAmounts,
-  bodyStake,
-  absentBodyNote,
-} from '@/lib/governance/view.js';
+import { treasuryTotalLovelace } from '@/lib/governance/onchain.js';
+import type { PassCandidate } from '@/lib/governance/passPath.js';
+import { votingCardRows } from '@/lib/governance/votingCardRows.js';
+import { hardBlockLines, PASS_PATH_FOOTNOTE, PASS_SECTION_ID, passPathRow } from '@/lib/governance/passPathView.js';
+import { fmtPctFine, absentBodyNote } from '@/lib/governance/view.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
 
 interface Props {
@@ -52,84 +46,16 @@ interface Props {
   ccBoundarySize: number | null;
   /** Net Change Limit headroom left in the current period, treasury withdrawals only. */
   nclRemaining: bigint | null;
-  /** The action's thread URL, base for the Votes tab links in the switch list. */
+  /** The action's thread URL, base for the link to the Votes tab switch list. */
   actionHref: string;
 }
 
 const { action, params, drepStakeTotal, now, miniChart, trendHref, passCandidates, ccBoundarySize, nclRemaining, actionHref } =
   Astro.props;
 
-// ParameterChange voting bodies depend on which parameters change: SPOs vote only on
-// security-relevant ones. Derive that from the payload; null for other types.
-const paramScope =
-  action.type === 'ParameterChange' ? parameterChangeScope(action.onchainPayload) : null;
-const paramTouchesSecurity = paramScope?.touchesSecurity ?? false;
-
-const opts = { drepStakeTotal, committeeSize: params?.committeeSize ?? null };
-// The CC "not voted" count uses the boundary committee, the same seats the path to
-// pass counts, so the two never disagree.
-const amountOpts = { drepStakeTotal, committeeSize: ccBoundarySize ?? params?.committeeSize ?? null };
-const hasThreshold = hasOnchainThreshold(action.type);
-
-// Threshold verdict + marker per body, for types that ratify (null for Info actions,
-// or before protocol params / tallies have synced).
-// Prefer the frozen per-body snapshot; fall back to live params only when absent
-// (active actions not yet snapshotted). Never render an old action's threshold from
-// today's params.
-const snapshot = readThresholdSnapshot(action.thresholdsJson);
-
-// Eligible bodies for this action type (reuses the overview's per-type eligibility +
-// participation), enriched with the honest composition and its amounts.
-const { bodies } = overviewRowVoting(action, opts, { paramTouchesSecurity });
-// The verdict is judged on the same yes share the row shows (see bodyComposition).
-const shownYes = (body: 'DRep' | 'SPO' | 'CC'): number | null =>
-  bodies.find((b) => b.body === body)?.composition?.yes ?? null;
-const liveThresholds =
-  !snapshot && hasThreshold && params
-    ? evaluateThresholds(
-        { type: action.type, drepYesPct: shownYes('DRep'), spoYesPct: shownYes('SPO'), ccYesPct: shownYes('CC'), paramScope },
-        params,
-      )
-    : null;
-const thresholdPctFor = (body: 'DRep' | 'SPO' | 'CC'): number | null =>
-  snapshot
-    ? (body === 'DRep' ? snapshot.drep : body === 'SPO' ? snapshot.spo : snapshot.cc)
-    : liveThresholds?.find((x) => x.body === body)?.thresholdPct ?? null;
-
-// On an open action the stored committee gate was judged on the live size, which
-// still counts a member in their expiry epoch, so the boundary size is checked too.
-const isActive = action.status === 'active';
-const ccBlocked = ccBlockedAtBoundary(ccBoundarySize, params?.committeeMinSize ?? null, snapshot?.ccBelowMinSize ?? null);
-
-const rows = bodies.map((b) => {
-  const thr = thresholdPctFor(b.body);
-  const t = liveThresholds?.find((x) => x.body === b.body) ?? null;
-  const yes = b.composition?.yes ?? null;
-  // From a frozen snapshot, the CC "Met" also honors the committee quorum gate
-  // (committee below its minimum size cannot ratify, regardless of the yes share).
-  const verdict = t
-    ? t.met
-    : thr == null || yes == null
-      ? null
-      : b.body === 'CC' && snapshot?.ccBelowMinSize
-        ? false
-        : yes >= thr;
-  // Never Met next to the "committee below its minimum size" line.
-  const met = b.body === 'CC' && isActive && ccBlocked && verdict === true ? false : verdict;
-  // The captured stake model, for both stake bodies now that the No side is stored.
-  // Null for CC (seats, not stake) and for actions whose buckets predate the capture,
-  // in which case the row renders compact-only with no expander.
-  const stake = bodyStake(action, b.body, thr);
-  return {
-    body: b.body,
-    label: b.label,
-    composition: b.composition,
-    amounts: compositionAmounts(action, b.body, amountOpts),
-    participation: b.participation,
-    thresholdPct: thr,
-    met,
-    stake,
-  };
+const { rows, isActive, ccBlocked, hasThreshold, paramTouchesSecurity } = votingCardRows(action, params, {
+  drepStakeTotal,
+  ccBoundarySize,
 });
 
 // Path to pass: on an open action, for each body that is Not met, whether votes can
@@ -251,23 +177,7 @@ const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now
               <>
                 <p class="vbody__path">{r.path.line}</p>
                 {r.path.list && (
-                  <details class="vbody__switch">
-                    <summary>Who would have to switch ({r.path.list.rows.length})</summary>
-                    <ol class="switch-list">
-                      {r.path.list.rows.map((row) => (
-                        <li class="switch-list__row">
-                          <a class="switch-list__name" href={row.href}>{row.name}</a>
-                          <span class="switch-list__stance">{row.stanceLabel}</span>
-                          <span class="switch-list__power">
-                            {row.powerLabel}
-                            {row.countsLabel && <span class="switch-list__counts">{row.countsLabel}</span>}
-                          </span>
-                        </li>
-                      ))}
-                    </ol>
-                    {r.path.list.comparison && <p class="switch-list__note">{r.path.list.comparison}</p>}
-                    <p class="switch-list__note">{PASS_LIST_FOOTNOTE}</p>
-                  </details>
+                  <a class="vbody__switch" href={`${actionHref}?tab=positions#${PASS_SECTION_ID}`}>{r.path.list.summary}</a>
                 )}
               </>
           )}
@@ -456,8 +366,8 @@ const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now
     color: var(--muted);
   }
 
-  /* Path to pass: one muted line under the row, and a collapsed list of the fewest
-     DReps whose switch would reach the threshold. <details>, so no JavaScript. */
+  /* Path to pass: one muted line under the row and, for DReps, a link to the switch
+     list in the Votes tab. */
   .vbody__path {
     margin: 0;
     font-size: 0.72rem;
@@ -470,55 +380,10 @@ const asOf = action.tallySyncedAt ? formatRelativeTime(action.tallySyncedAt, now
     line-height: 1.4;
     color: var(--fg);
   }
-  .vbody__switch > summary {
-    cursor: pointer;
-    font-size: 0.72rem;
-    color: var(--accent);
-  }
-  .vbody__switch > summary:hover { text-decoration: underline; }
-  .vbody__switch > summary:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-    border-radius: 0.25rem;
-  }
-  .switch-list {
-    list-style: none;
-    margin: 0.375rem 0 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.1875rem;
-    font-size: 0.72rem;
-  }
-  .switch-list__row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto;
-    gap: 0.5rem;
-    align-items: baseline;
-  }
-  .switch-list__name {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: var(--fg);
-  }
-  .switch-list__stance { color: var(--muted); }
-  .switch-list__power {
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-  }
-  .switch-list__counts {
-    display: block;
-    font-size: 0.65rem;
-    color: var(--muted);
-  }
-  .switch-list__note {
-    margin: 0.375rem 0 0;
-    font-size: 0.6875rem;
-    color: var(--muted);
-    font-style: italic;
+  .vbody__switch {
+    display: inline-block;
+    margin-top: 0.25rem;
+    font-size: 0.75rem;
   }
 
   .vbody__none {

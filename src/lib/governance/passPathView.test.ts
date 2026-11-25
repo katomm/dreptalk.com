@@ -52,7 +52,7 @@ describe('stakeRowView tier lines', () => {
   it('abstainers, DRep, share a third at 67', () => {
     const b = buckets({ Y: 60n * ADA, N: 40n * ADA, A: 100n * ADA });
     expect(keep(row('DRep', b, 67)).line).toBe(
-      "DReps who haven't voted can't carry it alone. Abstainers would have to switch to Yes too. Still missing: 7 ₳ of yes, or the equivalent from abstainers, who count at a third.",
+      "Needs 7 ₳ more yes. DReps who haven't voted can't carry it alone, abstainers would have to switch too.",
     );
   });
 
@@ -69,7 +69,7 @@ describe('stakeRowView tier lines', () => {
       approvalThresholdPct: 51,
     })!;
     expect(keep(row('SPO', spoBuckets(view), 51)).line).toBe(
-      "Pools that haven't voted can't carry it alone. Pools that voted Abstain or default to always abstain would have to vote Yes too. Still missing: 11 ₳ of yes, or the equivalent from them, who count at 49%.",
+      "Needs 11 ₳ more yes. Pools that haven't voted can't carry it alone, pools that voted Abstain or default to always abstain would have to vote Yes too (they count at 49%).",
     );
   });
 
@@ -101,7 +101,7 @@ describe('SPO abstainers copy on a hard fork', () => {
       keep(stakeRowView({ body: 'SPO', tier, buckets: b, list: null, comparison: null, actionHref: HREF, passiveAbstainInA: false }))
         .line,
     ).toBe(
-      "Pools that haven't voted can't carry it alone. Pools that voted Abstain would have to vote Yes too. Still missing: 11 ₳ of yes, or the equivalent from them, who count at 49%.",
+      "Needs 11 ₳ more yes. Pools that haven't voted can't carry it alone, pools that voted Abstain would have to vote Yes too (they count at 49%).",
     );
   });
 });
@@ -115,7 +115,7 @@ describe('stakeRowView list', () => {
     cand('drep1cccccccccccccccccccccccccccccc', 15n * ADA, 'No', 'Nora'),
   ];
 
-  it('rows, hrefs per stance, counts only for Abstain', () => {
+  it('rows, hrefs per stance, closes only for Abstain', () => {
     const list = fewestToPass(cands, t, ['notVoted', 'Abstain', 'No'], b.Dv);
     const v = keep(stakeRowView({ body: 'DRep', tier: t, buckets: b, list, comparison: null, actionHref: HREF }));
     expect(v.list?.rows).toEqual([
@@ -123,14 +123,16 @@ describe('stakeRowView list', () => {
         name: 'drep1bbbb...bbbbbbbb',
         stanceLabel: 'Not voted',
         powerLabel: '20 ₳',
-        countsLabel: null,
+        closesLabel: null,
+        closesTitle: null,
         href: '/dreps/drep1bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/',
       },
       {
         name: 'Nora',
         stanceLabel: 'No',
         powerLabel: '15 ₳',
-        countsLabel: null,
+        closesLabel: null,
+        closesTitle: null,
         href: `${HREF}?tab=positions&voter=drep1cccccccccccccccccccccccccccccc#voter-drep1cccccccccccccccccccccccccccccc`,
       },
     ]);
@@ -139,7 +141,11 @@ describe('stakeRowView list', () => {
     expect(a.list).toBeNull();
     const ab = fewestToPass([cands[0], cand('drep1dd', 30n * ADA, 'Abstain')], t, ['Abstain'], 0n);
     const v2 = keep(stakeRowView({ body: 'DRep', tier: t, buckets: b, list: ab, comparison: null, actionHref: HREF }));
-    expect(v2.list?.rows[0]).toMatchObject({ stanceLabel: 'Abstain', countsLabel: 'counts 15 ₳' });
+    expect(v2.list?.rows[0]).toMatchObject({
+      stanceLabel: 'Abstain',
+      closesLabel: 'closes 15 ₳',
+      closesTitle: 'A switch from Abstain adds 30 ₳ to Yes and to the counted total, so it closes the gap by 15 ₳.',
+    });
   });
 
   it('hidden when the list does not reach', () => {
@@ -162,9 +168,19 @@ describe('stakeRowView list', () => {
     const v = keep(stakeRowView({ body: 'DRep', tier: tt, buckets: bb, list, comparison, actionHref: HREF }));
     expect(v.list?.rows).toHaveLength(2);
     expect(v.list?.comparison).toBe('If DReps who voted No switch as well: at least 1 DRep.');
+    expect(v.list?.summary).toBe('2 DReps would have to switch, 1 if No voters switch too');
+    expect(v.list?.intro).toBe(
+      'The fewest DReps whose switch to Yes would reach the 67.0% threshold, ordered by how much each switch counts. 7 ₳ more yes is needed.',
+    );
+    expect(v.list?.abstainNote).toBe(
+      'A DRep who voted Abstain counts at a third of their voting power, because a switch also adds their stake to the counted total.',
+    );
     const same = fewestToPass(pool, tt, ['notVoted', 'Abstain', 'No'], 0n);
     const one = fewestToPass([pool[2]], tt, ['notVoted', 'Abstain', 'No'], 0n);
-    expect(stakeRowView({ body: 'DRep', tier: tt, buckets: bb, list: one, comparison: same, actionHref: HREF }).list?.comparison).toBeNull();
+    const solo = keep(stakeRowView({ body: 'DRep', tier: tt, buckets: bb, list: one, comparison: same, actionHref: HREF }));
+    expect(solo.list?.comparison).toBeNull();
+    expect(solo.list?.summary).toBe('1 DRep would have to switch');
+    expect(solo.list?.abstainNote).toBeNull();
   });
 });
 
