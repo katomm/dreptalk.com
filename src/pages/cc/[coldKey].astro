@@ -6,7 +6,7 @@ import Layout from '@/layouts/Layout.astro';
 import NotFound from '@/components/NotFound.astro';
 import Avatar from '@/components/Avatar.astro';
 import CopyButton from '@/components/CopyButton.astro';
-import VoteBadge from '@/components/VoteBadge.astro';
+import CcRecordItem from '@/components/cc/CcRecordItem.astro';
 import { resolveCcRouteParam } from '@/lib/governance/ccRoute.js';
 import { buildCcMemberProfile, countReadableRationales, type CcRecordRow } from '@/lib/governance/ccProfile.js';
 import { consideredCcActions } from '@/lib/analytics/ccParticipation.js';
@@ -17,7 +17,6 @@ import { listDecidedCcActions, listDecidedCcVoteRows, getCommitteeTimeline, list
 import { getAllCcMemberNames } from '@/lib/db/ccMemberName.js';
 import { getCcRationaleStates } from '@/lib/db/actionRationale.js';
 import { positionsVoterAnchor } from '@/lib/governance/voteStatement.js';
-import { readableType, statusBadge } from '@/lib/governance/view.js';
 import { cacheControlForSynced, truncateIdMiddle } from '@/lib/forum/view.js';
 
 const route = resolveCcRouteParam(Astro.params.coldKey ?? '');
@@ -73,8 +72,9 @@ const recordTail = profile?.record.slice(HEAD) ?? [];
 const displayName = profile ? (profile.name ?? shortColdKey(profile.coldKeyHex)) : '';
 const hotKeys = profile ? [...profile.hotKeys].sort() : [];
 
-function actionHref(row: { topicSlug: string | null }): string | null {
-  return row.topicSlug ? `/t/${row.topicSlug}/` : null;
+function rowProps(row: CcRecordRow) {
+  const { title, gaId, topicSlug, type, status, decidedEpoch } = row;
+  return { title, gaId, topicSlug, type, status, decidedEpoch, vote: row.vote?.vote ?? null };
 }
 function rationaleHref(row: CcRecordRow): string | null {
   return row.topicSlug && row.vote ? `/t/${row.topicSlug}/${positionsVoterAnchor(row.vote.voterId, 'cc')}` : null;
@@ -137,8 +137,7 @@ const metaDescription = profile
       {profile.eligible > 0 && (
         <>
           <p class="cc-summary__line">
-            Yes {profile.counts.yes}, No {profile.counts.no}, Abstain {profile.counts.abstain}.
-            {` ${readable} of ${profile.voted} `}{profile.voted === 1 ? 'vote has' : 'votes have'} a readable rationale.
+            {`Yes ${profile.counts.yes}, No ${profile.counts.no}, Abstain ${profile.counts.abstain}. ${readable} of ${profile.voted} ${profile.voted === 1 ? 'vote has' : 'votes have'} a readable rationale.`}
           </p>
           <div class="cc-raster" role="img" aria-label={`Voted on ${profile.voted} of ${profile.eligible} eligible actions, oldest to newest`}>
             {profile.sequence.map((s) => <span class={`cc-raster__dot cc-raster__dot--${s}`}></span>)}
@@ -154,42 +153,14 @@ const metaDescription = profile
         <p class="vhist__empty">No decided actions yet.</p>
       ) : (
         <div class="cc-rows">
-          {recordHead.map((row) => (
-            <Fragment>
-              <div class="cc-row">
-                <span class="cc-row__vote">{row.vote ? <VoteBadge vote={row.vote.vote} compact /> : <span class="cc-row__none">Not voted</span>}</span>
-                <span class="cc-row__main">
-                  {actionHref(row) ? <a href={actionHref(row)}>{row.title ?? row.gaId}</a> : <span>{row.title ?? row.gaId}</span>}
-                  <span class="cc-row__meta">
-                    {readableType(row.type)}
-                    <span class={`vhist__badge vhist__badge--${statusBadge(row.status).tone}`}>{statusBadge(row.status).label}</span>
-                    epoch {row.decidedEpoch}
-                    {rationaleHref(row) && <a href={rationaleHref(row)}>Rationale</a>}
-                  </span>
-                </span>
-              </div>
-            </Fragment>
-          ))}
+          {recordHead.map((row) => <CcRecordItem {...rowProps(row)} showNotVoted rationaleHref={rationaleHref(row)} />)}
           {recordTail.length > 0 && (
             <details class="vhist__more">
               <summary class="vhist__more-toggle">
                 <span class="vhist__more-show">Show {recordTail.length} more</span>
                 <span class="vhist__more-hide">Show less</span>
               </summary>
-              {recordTail.map((row) => (
-                <div class="cc-row">
-                  <span class="cc-row__vote">{row.vote ? <VoteBadge vote={row.vote.vote} compact /> : <span class="cc-row__none">Not voted</span>}</span>
-                  <span class="cc-row__main">
-                    {actionHref(row) ? <a href={actionHref(row)}>{row.title ?? row.gaId}</a> : <span>{row.title ?? row.gaId}</span>}
-                    <span class="cc-row__meta">
-                      {readableType(row.type)}
-                      <span class={`vhist__badge vhist__badge--${statusBadge(row.status).tone}`}>{statusBadge(row.status).label}</span>
-                      epoch {row.decidedEpoch}
-                      {rationaleHref(row) && <a href={rationaleHref(row)}>Rationale</a>}
-                    </span>
-                  </span>
-                </div>
-              ))}
+              {recordTail.map((row) => <CcRecordItem {...rowProps(row)} showNotVoted rationaleHref={rationaleHref(row)} />)}
             </details>
           )}
         </div>
@@ -200,19 +171,7 @@ const metaDescription = profile
       <section id="not-counted" class="vhist-section">
         <h2 class="vhist-section__title">Not counted <span class="vhist-section__count">({profile.uncounted.length})</span></h2>
         <div class="cc-rows">
-          {profile.uncounted.map((row) => (
-            <div class="cc-row">
-              <span class="cc-row__vote">{row.vote && <VoteBadge vote={row.vote.vote} compact />}</span>
-              <span class="cc-row__main">
-                {actionHref(row) ? <a href={actionHref(row)}>{row.title ?? row.gaId}</a> : <span>{row.title ?? row.gaId}</span>}
-                <span class="cc-row__meta">
-                  {readableType(row.type)}
-                  <span class={`vhist__badge vhist__badge--${statusBadge(row.status).tone}`}>{statusBadge(row.status).label}</span>
-                  epoch {row.decidedEpoch}
-                </span>
-              </span>
-            </div>
-          ))}
+          {profile.uncounted.map((row) => <CcRecordItem {...rowProps(row)} />)}
         </div>
       </section>
     )}
@@ -222,14 +181,7 @@ const metaDescription = profile
         <h2 class="vhist-section__title">Open actions <span class="vhist-section__count">({profile.open.length})</span></h2>
         <p class="cc-note">Votes on open actions are not part of the participation figure.</p>
         <div class="cc-rows">
-          {profile.open.map((row) => (
-            <div class="cc-row">
-              <span class="cc-row__vote"><VoteBadge vote={row.vote.vote} compact /></span>
-              <span class="cc-row__main">
-                {actionHref(row) ? <a href={actionHref(row)}>{row.title ?? row.gaId}</a> : <span>{row.title ?? row.gaId}</span>}
-              </span>
-            </div>
-          ))}
+          {profile.open.map((row) => <CcRecordItem title={row.title} gaId={row.gaId} topicSlug={row.topicSlug} vote={row.vote.vote} />)}
         </div>
       </section>
     )}
@@ -279,23 +231,11 @@ const metaDescription = profile
   .cc-raster__note { margin: 0.6rem 0 0; color: var(--muted); font-size: 0.8rem; max-width: 60ch; }
 
   .cc-rows { display: flex; flex-direction: column; }
-  .cc-row {
-    display: flex;
-    gap: 0.85rem;
-    align-items: flex-start;
-    padding: 0.7rem 0;
-    border-bottom: 1px solid var(--border);
-  }
-  .cc-row__vote { flex: 0 0 5.5rem; }
-  .cc-row__none { color: var(--muted); font-size: 0.8125rem; }
-  .cc-row__main { min-width: 0; display: flex; flex-direction: column; gap: 0.25rem; overflow-wrap: anywhere; }
-  .cc-row__meta { display: flex; flex-wrap: wrap; gap: 0.2rem 0.75rem; align-items: center; font-size: 0.8125rem; color: var(--muted); }
   .cc-note { margin: 0 0 0.75rem; color: var(--muted); font-size: 0.8125rem; }
   .cc-note--foot { margin-top: 1.5rem; font-size: 0.75rem; }
 
   @media (max-width: 560px) {
     .cc-hd { gap: 0.85rem; }
     .cc-hd__name { font-size: 1.5rem; }
-    .cc-row__vote { flex-basis: 4.5rem; }
   }
 </style>

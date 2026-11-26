@@ -1,0 +1,56 @@
+---
+// One row of a committee member's record, not-counted or open list.
+import VoteBadge from '@/components/VoteBadge.astro';
+import { readableType, statusBadge } from '@/lib/governance/view.js';
+
+interface Props {
+  title: string | null;
+  gaId: string;
+  topicSlug: string | null;
+  /** Null renders "Not voted" when `showNotVoted`, nothing otherwise. */
+  vote: string | null;
+  showNotVoted?: boolean;
+  /** Decided-action details, omitted for open actions. */
+  type?: string;
+  status?: string;
+  decidedEpoch?: number;
+  rationaleHref?: string | null;
+}
+
+const { title, gaId, topicSlug, vote, showNotVoted = false, type, status, decidedEpoch, rationaleHref = null } = Astro.props;
+const href = topicSlug ? `/t/${topicSlug}/` : null;
+const badge = status ? statusBadge(status) : null;
+const label = title ?? gaId;
+---
+
+<div class="cc-row">
+  <span class="cc-row__vote">{vote ? <VoteBadge vote={vote} compact /> : showNotVoted ? <span class="cc-row__none">Not voted</span> : null}</span>
+  <span class="cc-row__main">
+    {href ? <a href={href}>{label}</a> : <span>{label}</span>}
+    {badge && (
+      <span class="cc-row__meta">
+        {type && readableType(type)}
+        <span class={`vhist__badge vhist__badge--${badge.tone}`}>{badge.label}</span>
+        epoch {decidedEpoch}
+        {rationaleHref && <a href={rationaleHref}>Rationale</a>}
+      </span>
+    )}
+  </span>
+</div>
+
+<style>
+  .cc-row {
+    display: flex;
+    gap: 0.85rem;
+    align-items: flex-start;
+    padding: 0.7rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .cc-row__vote { flex: 0 0 5.5rem; }
+  .cc-row__none { color: var(--muted); font-size: 0.8125rem; }
+  .cc-row__main { min-width: 0; display: flex; flex-direction: column; gap: 0.25rem; overflow-wrap: anywhere; }
+  .cc-row__meta { display: flex; flex-wrap: wrap; gap: 0.2rem 0.75rem; align-items: center; font-size: 0.8125rem; color: var(--muted); }
+  @media (max-width: 560px) {
+    .cc-row__vote { flex-basis: 4.5rem; }
+  }
+</style>
