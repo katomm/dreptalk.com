@@ -4,6 +4,7 @@ import { env } from 'cloudflare:workers';
 import { requestDb } from '@/lib/db/requestDb.js';
 import { getCategories } from '../../config/categories.js';
 import { currentNetwork } from '../lib/api/response.js';
+import { listCommitteeColdKeys } from '../lib/db/committee.js';
 import { listIndexableDrepIds } from '../lib/db/dreps.js';
 import { drepGroupsAvailable } from '../lib/groups/gate.js';
 import { slugFor } from '../lib/review/windows.js';
@@ -63,6 +64,10 @@ export const GET: APIRoute = async ({ site }) => {
     }
     for (const id of await listIndexableDrepIds(db)) {
       entries.push({ path: `/dreps/${id}/` });
+    }
+    entries.push({ path: '/cc/' });
+    for (const hex of await listCommitteeColdKeys(db)) {
+      entries.push({ path: `/cc/${hex}/` });
     }
     if (drepGroupsAvailable(currentNetwork().network)) {
       entries.push({ path: '/groups/' });

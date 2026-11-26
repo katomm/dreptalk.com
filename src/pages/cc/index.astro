@@ -1,0 +1,89 @@
+---
+export const prerender = false;
+
+import { requestDb } from '@/lib/db/requestDb.js';
+import Layout from '@/layouts/Layout.astro';
+import { buildCcIndex } from '@/lib/governance/ccProfile.js';
+import { consideredCcActions } from '@/lib/analytics/ccParticipation.js';
+import { tenureLabel } from '@/lib/analytics/ccPanelView.js';
+import { shortColdKey, ccProfilePath, buildCcNameIndex } from '@/lib/governance/ccNames.js';
+import { getProtocolParams } from '@/lib/db/protocolParams.js';
+import { listDecidedCcActions, listDecidedCcVoteRows, getCommitteeTimeline } from '@/lib/db/committee.js';
+import { getAllCcMemberNames } from '@/lib/db/ccMemberName.js';
+import { cacheControlForSynced } from '@/lib/forum/view.js';
+
+const db = requestDb();
+let rows: ReturnType<typeof buildCcIndex> = [];
+if (db) {
+  const [params, actions, votesByAction, timeline, nameRows] = await Promise.all([
+    getProtocolParams(db),
+    listDecidedCcActions(db),
+    listDecidedCcVoteRows(db),
+    getCommitteeTimeline(db),
+    getAllCcMemberNames(db),
+  ]);
+  const currentEpoch = params?.epoch ?? null;
+  const { members, hotToCold } = timeline;
+  const { considered } = consideredCcActions({ actions, votesByAction, members, hotToCold, currentEpoch });
+  rows = buildCcIndex({
+    considered,
+    members,
+    hotToCold,
+    nameIndex: buildCcNameIndex(nameRows, hotToCold),
+    currentEpoch,
+  });
+}
+Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
+
+const lists = [
+  { title: 'Current', rows: rows.filter((r) => r.standing !== 'Former') },
+  { title: 'Former', rows: rows.filter((r) => r.standing === 'Former') },
+].filter((l) => l.rows.length > 0);
+---
+
+<Layout
+  title="Constitutional Committee members - DRepTalk"
+  description="Every Constitutional Committee member credential, current and former, with how many decided governance actions each voted on."
+  wide
+>
+  <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
+    <a href="/">DRepTalk</a>
+    <span style="margin:0 0.375rem;">/</span>
+    <span>Constitutional Committee</span>
+  </nav>
+  <h1 class="cc-ix__h">Constitutional Committee members</h1>
+  {lists.length === 0 && <p class="cc-ix__empty">No committee members recorded yet.</p>}
+  {lists.map((list) => (
+    <section class="cc-ix__section">
+      <h2 class="cc-ix__sub">{list.title}</h2>
+      <ul class="cc-ix__list">
+        {list.rows.map((r) => (
+          <li class="cc-ix__row">
+            <a class="cc-ix__name" href={ccProfilePath(r.coldKeyHex)}>{r.name ?? shortColdKey(r.coldKeyHex)}</a>
+            <span class="cc-ix__meta">{tenureLabel(r.tenure)}</span>
+            {r.standing && <span class="cc-ix__meta">{r.standing}</span>}
+            <span class="cc-ix__value">{r.eligible > 0 ? `${r.voted} of ${r.eligible}` : 'No decided actions yet'}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  ))}
+</Layout>
+
+<style>
+  .cc-ix__h { margin: 0 0 1.25rem; font-size: 1.75rem; }
+  .cc-ix__sub { font-size: 1.05rem; margin: 1.5rem 0 0.5rem; }
+  .cc-ix__empty { color: var(--muted); }
+  .cc-ix__list { list-style: none; margin: 0; padding: 0; }
+  .cc-ix__row {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.75rem;
+    padding: 0.6rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .cc-ix__name { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+  .cc-ix__meta { font-size: 0.8125rem; color: var(--muted); white-space: nowrap; }
+  .cc-ix__value { margin-left: auto; font-size: 0.875rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+</style>

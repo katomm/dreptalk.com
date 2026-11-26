@@ -30,7 +30,7 @@ const label = title ?? gaId;
     {badge && (
       <span class="cc-row__meta">
         {type && readableType(type)}
-        <span class={`vhist__badge vhist__badge--${badge.tone}`}>{badge.label}</span>
+        <span class={`vhist__badge vhist__badge--${badge.tone}`}>{badge.label}</span>{' '}
         epoch {decidedEpoch}
         {rationaleHref && <a href={rationaleHref}>Rationale</a>}
       </span>
