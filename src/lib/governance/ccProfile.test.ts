@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildCcIndex, buildCcMemberProfile, countReadableRationales, currentCcStanding } from './ccProfile.js';
+import { buildCcIndex, buildCcMemberProfile, countReadableRationales, currentCcStanding, participationByCold } from './ccProfile.js';
 import { buildCcPanel } from '../analytics/ccPanelView.js';
 import { consideredCcActions } from '../analytics/ccParticipation.js';
 import { ccRationaleKey } from '../db/actionRationale.js';
@@ -50,6 +50,16 @@ const { considered } = consideredCcActions({ actions, votesByAction, members, ho
 
 const profile = (coldKeyHex: string, over: Partial<Parameters<typeof buildCcMemberProfile>[0]> = {}) =>
   buildCcMemberProfile({ coldKeyHex, considered, members, hotToCold, nameIndex, currentEpoch, openVotes: [], ...over });
+
+describe('participationByCold', () => {
+  it('equals the panel voted and eligible per member', () => {
+    const panel = buildCcPanel({ actions, votesByAction, members, hotToCold, nameIndex, currentEpoch });
+    const byCold = participationByCold(considered);
+    for (const row of panel.members) {
+      expect(byCold.get(row.coldKeyHex)).toEqual({ voted: row.voted, eligible: row.eligible });
+    }
+  });
+});
 
 describe('buildCcMemberProfile', () => {
   it('matches the panel voted and eligible for every member', () => {

@@ -39,12 +39,26 @@ export type RationaleStatuses = Map<string, { bodyHtml: string | null; status: s
 
 const VOTE_ORDER: Record<string, number> = { Yes: 0, No: 1, Abstain: 2 };
 
+/** The one readability rule for a rationale: a fetched anchor ('ok') that has a body. */
+export function isReadableRationale(status: string, hasBody: boolean): boolean {
+  return status === 'ok' && hasBody;
+}
+
+/** The latest ballot of a list, on equal block times the later one in iteration order wins. */
+export function latestBallot<T extends { blockTime: number | null }>(votes: T[]): T | null {
+  let latest: T | null = null;
+  for (const v of votes) {
+    if (latest == null || (v.blockTime ?? 0) >= (latest.blockTime ?? 0)) latest = v;
+  }
+  return latest;
+}
+
 export function rationaleFor(
   vote: { voterId: string; metaUrl: string | null },
   rationales: RationaleStatuses,
 ): { rationale: 'view' | 'unavailable' | 'none'; bodyHtml: string | null } {
   const rat = rationales.get(vote.voterId);
-  if (rat?.status === 'ok' && rat.bodyHtml) return { rationale: 'view', bodyHtml: rat.bodyHtml };
+  if (rat && isReadableRationale(rat.status, !!rat.bodyHtml) && rat.bodyHtml) return { rationale: 'view', bodyHtml: rat.bodyHtml };
   return { rationale: vote.metaUrl ? 'unavailable' : 'none', bodyHtml: null };
 }
 
@@ -124,17 +138,20 @@ export function buildUncountedCcPositions(input: {
   const active = activeCommitteeMembersAtBoundary(members, epoch);
   if (active.size === 0) return [];
 
-  const latest = new Map<string, CcVoteRow>();
+  const groups = new Map<string, CcVoteRow[]>();
   for (const v of votes) {
     const cold = hotToCold.get(v.hotKeyHex);
     if (cold != null && active.has(cold)) continue;
     const key = cold ?? `hot:${v.hotKeyHex}`;
-    const prev = latest.get(key);
-    if (prev == null || (v.blockTime ?? 0) >= (prev.blockTime ?? 0)) latest.set(key, v);
+    const group = groups.get(key);
+    if (group) group.push(v);
+    else groups.set(key, [v]);
   }
 
   const rows: CcUncountedRow[] = [];
-  for (const v of latest.values()) {
+  for (const group of groups.values()) {
+    const v = latestBallot(group);
+    if (v == null) continue;
     const cold = hotToCold.get(v.hotKeyHex) ?? null;
     rows.push({
       coldKeyHex: cold, hotKeyHex: v.hotKeyHex, voterId: v.voterId,

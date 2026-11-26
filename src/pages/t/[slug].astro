@@ -637,6 +637,7 @@ const ccEpoch = govAction ? committeeBoundaryForAction(govAction, currentEpoch) 
 let ccRows: CcPositionRow[] = [];
 let ccUncounted: CcUncountedRow[] = [];
 let ccTotal = 0;
+let ccProfileKeys = new Set<string>();
 const ccLoad = round2.ccLoad;
 if (ccLoad && committee.members.length > 0 && ccEpoch != null) {
   const [ccVoteRows, nameRows, ccRationales] = ccLoad;
@@ -661,8 +662,8 @@ if (ccLoad && committee.members.length > 0 && ccEpoch != null) {
     rationales: ccRationales,
   });
   ccTotal = activeCommitteeSizeAtBoundary(committee.members, ccEpoch);
+  ccProfileKeys = new Set(committee.members.map((m) => m.coldKeyHex));
 }
-const ccProfileKeys = new Set(committee.members.map((m) => m.coldKeyHex));
 
 // Effective voting concentration for the Positions tab's DRep list: computed
 // from the voted power of every live DRep vote. The threshold reading uses the

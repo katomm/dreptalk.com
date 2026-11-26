@@ -6,6 +6,7 @@ import { getCategories } from '../../config/categories.js';
 import { currentNetwork } from '../lib/api/response.js';
 import { listCommitteeColdKeys } from '../lib/db/committee.js';
 import { listIndexableDrepIds } from '../lib/db/dreps.js';
+import { ccProfilePath } from '../lib/governance/ccNames.js';
 import { drepGroupsAvailable } from '../lib/groups/gate.js';
 import { slugFor } from '../lib/review/windows.js';
 import { surveysEnabled } from '../lib/surveys/switch.js';
@@ -62,12 +63,13 @@ export const GET: APIRoute = async ({ site }) => {
     for (const row of rows) {
       entries.push({ path: `/t/${row.slug}/`, lastmod: new Date(row.last_post_at).toISOString() });
     }
-    for (const id of await listIndexableDrepIds(db)) {
+    const [drepIds, coldKeys] = await Promise.all([listIndexableDrepIds(db), listCommitteeColdKeys(db)]);
+    for (const id of drepIds) {
       entries.push({ path: `/dreps/${id}/` });
     }
     entries.push({ path: '/cc/' });
-    for (const hex of await listCommitteeColdKeys(db)) {
-      entries.push({ path: `/cc/${hex}/` });
+    for (const hex of coldKeys) {
+      entries.push({ path: ccProfilePath(hex) });
     }
     if (drepGroupsAvailable(currentNetwork().network)) {
       entries.push({ path: '/groups/' });

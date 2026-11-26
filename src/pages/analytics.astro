@@ -27,7 +27,7 @@ import { resolveVotingTimingView } from '@/lib/analytics/votingTimingResolve.js'
 import { EMPTY_TIMING_VIEW } from '@/lib/analytics/votingTimingView.js';
 import { lineagePredecessorTxIds } from '@/lib/governance/onchain.js';
 import { fmtPct, readableType, TONE_BAR_COLORS } from '@/lib/governance/view.js';
-import { buildCcNameIndex, shortColdKey, ccProfilePath } from '@/lib/governance/ccNames.js';
+import { buildCcNameIndex, ccProfilePath } from '@/lib/governance/ccNames.js';
 import { computeConcentration } from '@/lib/dreps/concentration.js';
 import { buildThresholdMarkers, buildCoalitionTable } from '@/lib/dreps/thresholdMarkers.js';
 import { seriesStartFromRows } from '@/lib/analytics/epochStatsContract.js';
@@ -607,7 +607,7 @@ const activityBars = activity
                     {list.members.map((m) => (
                       <li class="hub-row">
                         <div class="hub-cc__member-head">
-                          <a class="hub-cc__member-name" href={ccProfilePath(m.coldKeyHex)}>{m.name ?? shortColdKey(m.coldKeyHex)}</a>
+                          <a class="hub-cc__member-name" href={ccProfilePath(m.coldKeyHex)}>{m.name ?? truncateId(m.coldKeyHex, 10)}</a>
                           <span class="hub-cc__member-tenure">{tenureLabel(m.tenure)}</span>
                           <span class="hub-row__meta hub-cc__member-value">{m.voted} of {m.eligible}</span>
                         </div>

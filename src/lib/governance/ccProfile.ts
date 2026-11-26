@@ -10,6 +10,7 @@ import type { ConsideredCcAction } from '../analytics/ccParticipation.js';
 import type { CcVoteRow, OpenCcVoteRow } from '../db/committee.js';
 import { ccRationaleKey, type CcRationaleStates } from '../db/actionRationale.js';
 import type { CcNameIndex } from './ccNames.js';
+import { isReadableRationale, latestBallot } from './ccPositions.js';
 import { isCcEligible } from './view.js';
 
 export type CcStanding = 'Active' | 'Resigned' | 'Expired' | 'Former';
@@ -102,11 +103,7 @@ function tallyMember(coldKeyHex: string, considered: ConsideredCcAction[], hotTo
     }
     t.sequence.push('ineligible');
     // The latest ballot of this credential, the same pick buildUncountedCcPositions makes.
-    let latest: CcVoteRow | null = null;
-    for (const v of c.votes) {
-      if (hotToCold.get(v.hotKeyHex) !== coldKeyHex) continue;
-      if (latest == null || (v.blockTime ?? 0) >= (latest.blockTime ?? 0)) latest = v;
-    }
+    const latest = latestBallot(c.votes.filter((v) => hotToCold.get(v.hotKeyHex) === coldKeyHex));
     if (latest) t.uncounted.push(recordRow(c, latest));
   }
   t.record.reverse();
@@ -179,8 +176,7 @@ export function countReadableRationales(record: CcRecordRow[], states: CcRationa
   for (const row of record) {
     if (row.vote == null) continue;
     const s = states.get(ccRationaleKey(row.gaId, row.vote.voterId));
-    // Mirrors the view rule of rationaleFor in ccPositions.ts.
-    if (s?.status === 'ok' && s.hasBody) n += 1;
+    if (s && isReadableRationale(s.status, s.hasBody)) n += 1;
   }
   return n;
 }
@@ -194,6 +190,20 @@ export interface CcIndexRow {
   eligible: number;
 }
 
+/** Voted and eligible per cold key in one pass, the same reading tallyMember takes per key. */
+export function participationByCold(considered: ConsideredCcAction[]): Map<string, { voted: number; eligible: number }> {
+  const out = new Map<string, { voted: number; eligible: number }>();
+  for (const c of considered) {
+    for (const cold of c.active) {
+      const p = out.get(cold) ?? { voted: 0, eligible: 0 };
+      p.eligible += 1;
+      if (c.finalByCold.has(cold)) p.voted += 1;
+      out.set(cold, p);
+    }
+  }
+  return out;
+}
+
 /** One row per cold key in the timeline, current seats first, then Former, each by name. */
 export function buildCcIndex(input: {
   considered: ConsideredCcAction[];
@@ -202,16 +212,17 @@ export function buildCcIndex(input: {
   nameIndex: CcNameIndex;
   currentEpoch: number | null;
 }): CcIndexRow[] {
-  const { considered, members, hotToCold, nameIndex, currentEpoch } = input;
+  const { considered, members, nameIndex, currentEpoch } = input;
   const termsByCold = new Map<string, CommitteeMemberTerm[]>();
   for (const m of members) {
     const arr = termsByCold.get(m.coldKeyHex) ?? [];
     arr.push(m);
     termsByCold.set(m.coldKeyHex, arr);
   }
+  const participation = participationByCold(considered);
   const rows: CcIndexRow[] = [];
   for (const [coldKeyHex, terms] of termsByCold) {
-    const { voted, eligible } = tallyMember(coldKeyHex, considered, hotToCold);
+    const { voted, eligible } = participation.get(coldKeyHex) ?? { voted: 0, eligible: 0 };
     rows.push({
       coldKeyHex,
       name: nameIndex.byCold(coldKeyHex),

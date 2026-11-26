@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildCcPositions, buildUncountedCcPositions } from './ccPositions.js';
+import { buildCcPositions, buildUncountedCcPositions, latestBallot } from './ccPositions.js';
 import { buildCcNameIndex } from './ccNames.js';
 
 const members = [
@@ -102,5 +102,17 @@ describe('buildUncountedCcPositions', () => {
   it('is empty when the boundary or the committee is unknown', () => {
     expect(buildUncountedCcPositions({ members: change, hotToCold: changeHot, votes, epoch: null, nameIndex: changeNames, rationales })).toEqual([]);
     expect(buildUncountedCcPositions({ members: [], hotToCold: changeHot, votes, epoch: 581, nameIndex: changeNames, rationales })).toEqual([]);
+  });
+});
+
+describe('latestBallot', () => {
+  it('picks the highest block time and lets the later ballot win a tie', () => {
+    const a = { id: 'a', blockTime: 10 };
+    const b = { id: 'b', blockTime: 20 };
+    const c = { id: 'c', blockTime: 20 };
+    expect(latestBallot([a, b, c])?.id).toBe('c');
+    expect(latestBallot([b, a])?.id).toBe('b');
+    expect(latestBallot([{ id: 'n', blockTime: null }, { id: 'z', blockTime: 0 }])?.id).toBe('z');
+    expect(latestBallot([])).toBeNull();
   });
 });

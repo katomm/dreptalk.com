@@ -8,16 +8,16 @@ import Avatar from '@/components/Avatar.astro';
 import CopyButton from '@/components/CopyButton.astro';
 import CcRecordItem from '@/components/cc/CcRecordItem.astro';
 import { resolveCcRouteParam } from '@/lib/governance/ccRoute.js';
-import { buildCcMemberProfile, countReadableRationales, type CcRecordRow } from '@/lib/governance/ccProfile.js';
+import { buildCcMemberProfile, countReadableRationales, currentCcStanding, type CcRecordRow } from '@/lib/governance/ccProfile.js';
 import { consideredCcActions } from '@/lib/analytics/ccParticipation.js';
 import { tenureLabel } from '@/lib/analytics/ccPanelView.js';
-import { shortColdKey, ccProfilePath, buildCcNameIndex } from '@/lib/governance/ccNames.js';
+import { ccProfilePath, buildCcNameIndex } from '@/lib/governance/ccNames.js';
 import { getProtocolParams } from '@/lib/db/protocolParams.js';
 import { listDecidedCcActions, listDecidedCcVoteRows, getCommitteeTimeline, listOpenCcVoteRows } from '@/lib/db/committee.js';
 import { getAllCcMemberNames } from '@/lib/db/ccMemberName.js';
 import { getCcRationaleStates, ccRationaleKey, type CcRationaleStates } from '@/lib/db/actionRationale.js';
 import { positionsVoterAnchor } from '@/lib/governance/voteStatement.js';
-import { cacheControlForSynced, truncateIdMiddle } from '@/lib/forum/view.js';
+import { cacheControlForSynced, truncateId, truncateIdMiddle } from '@/lib/forum/view.js';
 
 const route = resolveCcRouteParam(Astro.params.coldKey ?? '');
 
@@ -26,25 +26,25 @@ if (route.kind === 'redirect') {
   return Astro.redirect(`${ccProfilePath(route.hex)}${Astro.url.search}`, 301);
 }
 
-const db = route.kind === 'canonical' ? requestDb() : null;
+const db = requestDb();
 const coldKeyHex = route.kind === 'canonical' ? route.hex : '';
 
 let profile: ReturnType<typeof buildCcMemberProfile> = null;
 let readable = 0;
 let states: CcRationaleStates = new Map();
-if (db) {
+if (db && route.kind === 'canonical') {
   // The timeline decides whether the key exists, so an unknown key skips the heavy reads.
-  const timeline = await getCommitteeTimeline(db);
+  const [timeline, params] = await Promise.all([getCommitteeTimeline(db), getProtocolParams(db)]);
   const { members, hotToCold } = timeline;
   if (members.some((m) => m.coldKeyHex === coldKeyHex)) {
-    const [params, actions, votesByAction, nameRows, openVotes] = await Promise.all([
-      getProtocolParams(db),
+    const currentEpoch = params?.epoch ?? null;
+    // Open ballots only show for a seat that is Active, so the read is skipped otherwise.
+    const [actions, votesByAction, nameRows, openVotes] = await Promise.all([
       listDecidedCcActions(db),
       listDecidedCcVoteRows(db),
       getAllCcMemberNames(db),
-      listOpenCcVoteRows(db),
+      currentCcStanding(members, coldKeyHex, currentEpoch) === 'Active' ? listOpenCcVoteRows(db) : Promise.resolve([]),
     ]);
-    const currentEpoch = params?.epoch ?? null;
     const { considered } = consideredCcActions({ actions, votesByAction, members, hotToCold, currentEpoch });
     profile = buildCcMemberProfile({
       coldKeyHex,
@@ -71,9 +71,10 @@ if (!profile) {
 }
 
 const HEAD = 10;
-const recordHead = profile?.record.slice(0, HEAD) ?? [];
-const recordTail = profile?.record.slice(HEAD) ?? [];
-const displayName = profile ? (profile.name ?? shortColdKey(profile.coldKeyHex)) : '';
+const recordItems = (profile?.record ?? []).map((row) => <CcRecordItem {...rowProps(row)} showNotVoted rationaleHref={rationaleHref(row)} />);
+const recordHead = recordItems.slice(0, HEAD);
+const recordTail = recordItems.slice(HEAD);
+const displayName = profile ? (profile.name ?? truncateId(profile.coldKeyHex, 10)) : '';
 const hotKeys = profile ? [...profile.hotKeys].sort() : [];
 
 function rowProps(row: CcRecordRow) {
@@ -128,7 +129,7 @@ const metaDescription = profile
           <ul class="cc-hd__hot" aria-label="Hot keys">
             {hotKeys.map((hot) => (
               <li class="cc-hd__id">
-                <span title={hot}>Hot key {shortColdKey(hot)}</span>
+                <span title={hot}>Hot key {truncateId(hot, 10)}</span>
                 <CopyButton value={hot} label="Copy hot key" />
               </li>
             ))}
@@ -162,14 +163,14 @@ const metaDescription = profile
         <p class="vhist__empty">No decided actions yet.</p>
       ) : (
         <div class="cc-rows">
-          {recordHead.map((row) => <CcRecordItem {...rowProps(row)} showNotVoted rationaleHref={rationaleHref(row)} />)}
+          {recordHead}
           {recordTail.length > 0 && (
             <details class="vhist__more">
               <summary class="vhist__more-toggle">
                 <span class="vhist__more-show">Show {recordTail.length} more</span>
                 <span class="vhist__more-hide">Show less</span>
               </summary>
-              {recordTail.map((row) => <CcRecordItem {...rowProps(row)} showNotVoted rationaleHref={rationaleHref(row)} />)}
+              {recordTail}
             </details>
           )}
         </div>

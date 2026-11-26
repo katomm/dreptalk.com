@@ -6,11 +6,11 @@ import Layout from '@/layouts/Layout.astro';
 import { buildCcIndex } from '@/lib/governance/ccProfile.js';
 import { consideredCcActions } from '@/lib/analytics/ccParticipation.js';
 import { tenureLabel } from '@/lib/analytics/ccPanelView.js';
-import { shortColdKey, ccProfilePath, buildCcNameIndex } from '@/lib/governance/ccNames.js';
+import { ccProfilePath, buildCcNameIndex } from '@/lib/governance/ccNames.js';
 import { getProtocolParams } from '@/lib/db/protocolParams.js';
 import { listDecidedCcActions, listDecidedCcVoteRows, getCommitteeTimeline } from '@/lib/db/committee.js';
 import { getAllCcMemberNames } from '@/lib/db/ccMemberName.js';
-import { cacheControlForSynced } from '@/lib/forum/view.js';
+import { cacheControlForSynced, truncateId } from '@/lib/forum/view.js';
 
 const db = requestDb();
 let rows: ReturnType<typeof buildCcIndex> = [];
@@ -35,9 +35,12 @@ if (db) {
 }
 Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
 
+const current: typeof rows = [];
+const former: typeof rows = [];
+for (const r of rows) (r.standing === 'Former' ? former : current).push(r);
 const lists = [
-  { title: 'Current', rows: rows.filter((r) => r.standing !== 'Former') },
-  { title: 'Former', rows: rows.filter((r) => r.standing === 'Former') },
+  { title: 'Current', rows: current },
+  { title: 'Former', rows: former },
 ].filter((l) => l.rows.length > 0);
 ---
 
@@ -59,7 +62,7 @@ const lists = [
       <ul class="cc-ix__list">
         {list.rows.map((r) => (
           <li class="cc-ix__row">
-            <a class="cc-ix__name" href={ccProfilePath(r.coldKeyHex)}>{r.name ?? shortColdKey(r.coldKeyHex)}</a>
+            <a class="cc-ix__name" href={ccProfilePath(r.coldKeyHex)}>{r.name ?? truncateId(r.coldKeyHex, 10)}</a>
             <span class="cc-ix__meta">{tenureLabel(r.tenure)}</span>
             {r.standing && <span class="cc-ix__meta">{r.standing}</span>}
             <span class="cc-ix__value">{r.eligible > 0 ? `${r.voted} of ${r.eligible}` : 'No decided actions yet'}</span>
