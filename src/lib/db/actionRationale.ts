@@ -2,6 +2,7 @@
 // Render store for per-voter vote rationales on an action. One row per
 // (ga_id, voter_id), written by the vote sync (on-chain) and the self-cast path.
 import { htmlToText } from '../forum/view.js';
+import { chunked, D1_MAX_BINDS, sqlPlaceholders } from './sql.js';
 import { liveVoteSql, DREP_VOTERS_ORDER, type ActionVoterRow } from './drepVotes.js';
 
 export interface RationaleJob {
@@ -243,4 +244,31 @@ export async function getRationaleFetchQueue(
       .all<RationaleJob>()
   ).results ?? [];
   return rows;
+}
+
+/** Map key shared by every reader of getCcRationaleStates. */
+export function ccRationaleKey(gaId: string, voterId: string): string {
+  return `${gaId}\u0000${voterId}`;
+}
+
+/**
+ * Rationale rows (any status) for the given voter ids across all actions, keyed
+ * by ccRationaleKey. The status lets a reader tell "no rationale yet" from a
+ * fetch that failed.
+ */
+export async function getCcRationaleStates(
+  db: D1Database,
+  voterIds: string[],
+): Promise<Map<string, { bodyHtml: string | null; status: string }>> {
+  const out = new Map<string, { bodyHtml: string | null; status: string }>();
+  for (const ids of chunked(voterIds, D1_MAX_BINDS)) {
+    const res = await db
+      .prepare(
+        `SELECT ga_id, voter_id, status, body_html FROM action_rationale WHERE voter_id IN (${sqlPlaceholders(ids)})`,
+      )
+      .bind(...ids)
+      .all<{ ga_id: string; voter_id: string; status: string; body_html: string | null }>();
+    for (const r of res.results ?? []) out.set(ccRationaleKey(r.ga_id, r.voter_id), { bodyHtml: r.body_html, status: r.status });
+  }
+  return out;
 }

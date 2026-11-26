@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
-import { upsertActionRationale, getActionRationales, getRationaleFetchQueue, countActionRationales } from './actionRationale.js';
+import { upsertActionRationale, getActionRationales, getRationaleFetchQueue, countActionRationales, getCcRationaleStates, ccRationaleKey } from './actionRationale.js';
 
 const GA = `${'a'.repeat(64)}#0`;
 
@@ -154,5 +154,26 @@ describe('action_rationale', () => {
     const jobs = await getRationaleFetchQueue(env.DB, { minPower: 1_000_000_000_000, limit: 50, now });
     const order = jobs.map((j) => j.voterId).filter((id) => ['drep1stale', 'drep1early', 'drep1freshbig', 'drep1freshsmall'].includes(id));
     expect(order).toEqual(['drep1freshbig', 'drep1freshsmall', 'drep1early', 'drep1stale']);
+  });
+});
+
+describe('getCcRationaleStates', () => {
+  it('keys rows by action and voter id, keeps failed rows, and ignores other voters', async () => {
+    const ga = `${'7'.repeat(63)}e#0`;
+    const base = { gaId: ga, source: 'onchain' as const, anchorUrl: 'u', createdAt: 1, now: 2 };
+    await upsertActionRationale(env.DB, { ...base, voterId: 'cc_hot_r1', bodyHtml: '<p>why</p>', status: 'ok' });
+    await upsertActionRationale(env.DB, { ...base, voterId: 'cc_hot_r2', bodyHtml: null, status: 'failed' });
+    await upsertActionRationale(env.DB, { ...base, voterId: 'cc_hot_other', bodyHtml: '<p>x</p>', status: 'ok' });
+    const map = await getCcRationaleStates(env.DB, ['cc_hot_r1', 'cc_hot_r2']);
+    expect(map.get(ccRationaleKey(ga, 'cc_hot_r1'))).toEqual({ bodyHtml: '<p>why</p>', status: 'ok' });
+    expect(map.get(ccRationaleKey(ga, 'cc_hot_r2'))).toEqual({ bodyHtml: null, status: 'failed' });
+    expect(map.has(ccRationaleKey(ga, 'cc_hot_other'))).toBe(false);
+    expect(ccRationaleKey('a', 'b')).toBe('a\u0000b');
+  });
+
+  it('returns an empty map for no voter ids and handles more ids than one chunk', async () => {
+    expect((await getCcRationaleStates(env.DB, [])).size).toBe(0);
+    const ids = Array.from({ length: 250 }, (_, i) => `cc_none_${i}`);
+    expect((await getCcRationaleStates(env.DB, ids)).size).toBe(0);
   });
 });
