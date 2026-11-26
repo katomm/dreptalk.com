@@ -98,3 +98,13 @@ export function buildCcNameIndex(rows: CcNameRow[], hotToCold: Map<string, strin
     byCold: (coldHex) => byColdKey.get(normalizeKeyHex(coldHex))?.name ?? knownNameByCold(coldHex),
   };
 }
+
+/** A shortened cold key for display when no name is known. */
+export function shortColdKey(hex: string): string {
+  return `${hex.slice(0, 10)}...`;
+}
+
+/** Canonical member profile path for a cold key. */
+export function ccProfilePath(coldKeyHex: string): string {
+  return `/cc/${normalizeKeyHex(coldKeyHex)}/`;
+}

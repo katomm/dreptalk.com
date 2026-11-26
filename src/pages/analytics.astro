@@ -27,7 +27,7 @@ import { resolveVotingTimingView } from '@/lib/analytics/votingTimingResolve.js'
 import { EMPTY_TIMING_VIEW } from '@/lib/analytics/votingTimingView.js';
 import { lineagePredecessorTxIds } from '@/lib/governance/onchain.js';
 import { fmtPct, readableType, TONE_BAR_COLORS } from '@/lib/governance/view.js';
-import { buildCcNameIndex } from '@/lib/governance/ccNames.js';
+import { buildCcNameIndex, shortColdKey } from '@/lib/governance/ccNames.js';
 import { computeConcentration } from '@/lib/dreps/concentration.js';
 import { buildThresholdMarkers, buildCoalitionTable } from '@/lib/dreps/thresholdMarkers.js';
 import { seriesStartFromRows } from '@/lib/analytics/epochStatsContract.js';
@@ -35,7 +35,7 @@ import { buildVitals, commonSeriesStart, outOfTallySharePct, contiguousPrefix, d
 import { buildEffRep } from '@/lib/analytics/effRepView.js';
 import { buildVoteChangeView } from '@/lib/analytics/voteChangeView.js';
 import { buildRationaleCoverage } from '@/lib/analytics/rationaleCoverageView.js';
-import { buildCcPanel, selectExtremes } from '@/lib/analytics/ccPanelView.js';
+import { buildCcPanel, selectExtremes, tenureLabel } from '@/lib/analytics/ccPanelView.js';
 import { buildDroppedActions, buildSpoSnapshot, buildThroughput } from '@/lib/analytics/outcomesView.js';
 import { ogCardVersion } from '@/lib/og/version.js';
 import type { EpochStatsRow } from '@/lib/analytics/epochStats.js';
@@ -264,7 +264,6 @@ const ccPanel = buildCcPanel({
   nameIndex: buildCcNameIndex(ccNameRows, committee.hotToCold),
   currentEpoch: params?.epoch ?? null,
 });
-const shortCold = (hex: string): string => `${hex.slice(0, 10)}...`;
 // Best and worst five members by participation share, each list extended to
 // every member tied at its cutoff. Under ten members everything is "top" and
 // there is no separate bottom list.
@@ -275,8 +274,6 @@ const ccMemberLists = [
   { title: 'Highest participation', members: ccExtremes.top },
   { title: 'Lowest participation', members: ccExtremes.bottom },
 ].filter((list) => list.members.length > 0);
-const tenureLabel = (t: { from: number; to: number | null }): string =>
-  t.to == null ? `since epoch ${t.from}` : `epochs ${t.from} to ${t.to}`;
 
 const spo = buildSpoSnapshot(outcomeRows);
 const throughput = buildThroughput(outcomeRows, statusCounts, submittedRecent);
@@ -610,7 +607,7 @@ const activityBars = activity
                     {list.members.map((m) => (
                       <li class="hub-row">
                         <div class="hub-cc__member-head">
-                          <span class="hub-cc__member-name">{m.name ?? shortCold(m.coldKeyHex)}</span>
+                          <span class="hub-cc__member-name">{m.name ?? shortColdKey(m.coldKeyHex)}</span>
                           <span class="hub-cc__member-tenure">{tenureLabel(m.tenure)}</span>
                           <span class="hub-row__meta hub-cc__member-value">{m.voted} of {m.eligible}</span>
                         </div>
