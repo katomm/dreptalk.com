@@ -64,7 +64,7 @@ import { readThresholdSnapshot } from '@/lib/governance/thresholds.js';
 import type { CcVote } from '@/lib/koios/corrections.js';
 import { getAllCcMemberNames } from '@/lib/db/ccMemberName.js';
 import { buildCcNameIndex } from '@/lib/governance/ccNames.js';
-import { buildCcPositions, type CcPositionRow } from '@/lib/governance/ccPositions.js';
+import { buildCcPositions, buildUncountedCcPositions, type CcPositionRow, type CcUncountedRow } from '@/lib/governance/ccPositions.js';
 import { activeCommitteeSizeAtBoundary, committeeBoundaryForAction } from '@/lib/koios/committeeTimeline.js';
 import { computeVoteTrendSeries, buildTrendChart, type TrendChart } from '@/lib/governance/voteTrend.js';
 import { assembleTrendInputs } from '@/lib/governance/voteTrendAssembly.js';
@@ -635,6 +635,7 @@ const currentEpoch = params?.epoch ?? null;
 const ccEpoch = govAction ? committeeBoundaryForAction(govAction, currentEpoch) : null;
 
 let ccRows: CcPositionRow[] = [];
+let ccUncounted: CcUncountedRow[] = [];
 let ccTotal = 0;
 const ccLoad = round2.ccLoad;
 if (ccLoad && committee.members.length > 0 && ccEpoch != null) {
@@ -649,8 +650,19 @@ if (ccLoad && committee.members.length > 0 && ccEpoch != null) {
     nameIndex,
     rationales: ccRationales,
   });
+  // Ballots of credentials this boundary does not count (a committee change, an
+  // ended term, a resignation) stay visible under the counted committee.
+  ccUncounted = buildUncountedCcPositions({
+    members: committee.members,
+    hotToCold: committee.hotToCold,
+    votes: ccVoteRows,
+    epoch: ccEpoch,
+    nameIndex,
+    rationales: ccRationales,
+  });
   ccTotal = activeCommitteeSizeAtBoundary(committee.members, ccEpoch);
 }
+const ccProfileKeys = new Set(committee.members.map((m) => m.coldKeyHex));
 
 // Effective voting concentration for the Positions tab's DRep list: computed
 // from the voted power of every live DRep vote. The threshold reading uses the
@@ -970,6 +982,8 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
                 voteHistory={voteHistory}
                 now={now}
                 ccRows={ccRows}
+                ccUncounted={ccUncounted}
+                ccProfileKeys={ccProfileKeys}
                 ccTotal={ccTotal}
                 concentration={voteConcentration}
                 concentrationThresholdPct={concThresholdPct}
