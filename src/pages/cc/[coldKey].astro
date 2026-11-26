@@ -71,7 +71,8 @@ if (!profile) {
 }
 
 const HEAD = 10;
-const recordItems = (profile?.record ?? []).map((row) => <CcRecordItem {...rowProps(row)} showNotVoted rationaleHref={rationaleHref(row)} />);
+// Props are built once per row, the template renders head and tail from the same list.
+const recordItems = (profile?.record ?? []).map((row) => ({ ...rowProps(row), rationaleHref: rationaleHref(row) }));
 const recordHead = recordItems.slice(0, HEAD);
 const recordTail = recordItems.slice(HEAD);
 const displayName = profile ? (profile.name ?? truncateId(profile.coldKeyHex, 10)) : '';
@@ -163,14 +164,14 @@ const metaDescription = profile
         <p class="vhist__empty">No decided actions yet.</p>
       ) : (
         <div class="cc-rows">
-          {recordHead}
+          {recordHead.map((item) => <CcRecordItem {...item} showNotVoted />)}
           {recordTail.length > 0 && (
             <details class="vhist__more">
               <summary class="vhist__more-toggle">
                 <span class="vhist__more-show">Show {recordTail.length} more</span>
                 <span class="vhist__more-hide">Show less</span>
               </summary>
-              {recordTail}
+              {recordTail.map((item) => <CcRecordItem {...item} showNotVoted />)}
             </details>
           )}
         </div>
