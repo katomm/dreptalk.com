@@ -153,14 +153,14 @@ describe('currentCcStanding', () => {
 describe('countReadableRationales', () => {
   it('counts only view rationales of counted final votes', () => {
     const states = new Map([
-      [ccRationaleKey('ga1', 'v1-late'), { bodyHtml: '<p>why</p>', status: 'ok' }],
+      [ccRationaleKey('ga1', 'v1-late'), { hasBody: true, status: 'ok' }],
       // The losing earlier ballot under another hot key.
-      [ccRationaleKey('ga1', 'v1-early'), { bodyHtml: '<p>old</p>', status: 'ok' }],
+      [ccRationaleKey('ga1', 'v1-early'), { hasBody: true, status: 'ok' }],
       // An ok row without a body is not readable.
-      [ccRationaleKey('ga2', 'hot1'), { bodyHtml: null, status: 'ok' }],
-      [ccRationaleKey('ga3', 'hot1'), { bodyHtml: '<p>x</p>', status: 'failed' }],
+      [ccRationaleKey('ga2', 'hot1'), { hasBody: false, status: 'ok' }],
+      [ccRationaleKey('ga3', 'hot1'), { hasBody: true, status: 'failed' }],
       // cold2's uncounted ballot.
-      [ccRationaleKey('ga3', 'v2-late'), { bodyHtml: '<p>late</p>', status: 'ok' }],
+      [ccRationaleKey('ga3', 'v2-late'), { hasBody: true, status: 'ok' }],
     ]);
     expect(countReadableRationales(profile('cold1')?.record ?? [], states)).toBe(1);
     expect(countReadableRationales(profile('cold2')?.record ?? [], states)).toBe(0);

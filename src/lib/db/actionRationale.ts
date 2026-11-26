@@ -251,24 +251,34 @@ export function ccRationaleKey(gaId: string, voterId: string): string {
   return `${gaId}\u0000${voterId}`;
 }
 
+/** Per (action, voter) rationale state, without the body itself. */
+export type CcRationaleStates = Map<string, { status: string; hasBody: boolean }>;
+
 /**
- * Rationale rows (any status) for the given voter ids across all actions, keyed
- * by ccRationaleKey. The status lets a reader tell "no rationale yet" from a
- * fetch that failed.
+ * Rationale rows (any status) for the given (action, voter) pairs, keyed by
+ * ccRationaleKey. The status lets a reader tell "no rationale yet" from a
+ * fetch that failed. Reads by ga_id (the primary key prefix) and filters to the
+ * requested pairs in code, and never pulls the body.
  */
 export async function getCcRationaleStates(
   db: D1Database,
-  voterIds: string[],
-): Promise<Map<string, { bodyHtml: string | null; status: string }>> {
-  const out = new Map<string, { bodyHtml: string | null; status: string }>();
-  for (const ids of chunked(voterIds, D1_MAX_BINDS)) {
+  pairs: { gaId: string; voterId: string }[],
+): Promise<CcRationaleStates> {
+  const out: CcRationaleStates = new Map();
+  const wanted = new Set(pairs.map((p) => ccRationaleKey(p.gaId, p.voterId)));
+  const gaIds = [...new Set(pairs.map((p) => p.gaId))];
+  for (const ids of chunked(gaIds, D1_MAX_BINDS)) {
     const res = await db
       .prepare(
-        `SELECT ga_id, voter_id, status, body_html FROM action_rationale WHERE voter_id IN (${sqlPlaceholders(ids)})`,
+        `SELECT ga_id, voter_id, status, (body_html IS NOT NULL AND body_html <> '') AS has_body
+           FROM action_rationale WHERE ga_id IN (${sqlPlaceholders(ids)})`,
       )
       .bind(...ids)
-      .all<{ ga_id: string; voter_id: string; status: string; body_html: string | null }>();
-    for (const r of res.results ?? []) out.set(ccRationaleKey(r.ga_id, r.voter_id), { bodyHtml: r.body_html, status: r.status });
+      .all<{ ga_id: string; voter_id: string; status: string; has_body: number }>();
+    for (const r of res.results ?? []) {
+      const key = ccRationaleKey(r.ga_id, r.voter_id);
+      if (wanted.has(key)) out.set(key, { status: r.status, hasBody: r.has_body === 1 });
+    }
   }
   return out;
 }

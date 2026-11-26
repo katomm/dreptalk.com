@@ -8,9 +8,8 @@ import { finalCcVoteByMember } from '../koios/corrections.js';
 import { computeTenure } from '../analytics/ccPanelView.js';
 import type { ConsideredCcAction } from '../analytics/ccParticipation.js';
 import type { CcVoteRow, OpenCcVoteRow } from '../db/committee.js';
-import { ccRationaleKey } from '../db/actionRationale.js';
+import { ccRationaleKey, type CcRationaleStates } from '../db/actionRationale.js';
 import type { CcNameIndex } from './ccNames.js';
-import type { RationaleStatuses } from './ccPositions.js';
 import { isCcEligible } from './view.js';
 
 export type CcStanding = 'Active' | 'Resigned' | 'Expired' | 'Former';
@@ -175,13 +174,13 @@ export function buildCcMemberProfile(input: {
  * How many counted final votes in a record carry a readable rationale.
  * `states` is keyed by ccRationaleKey(gaId, voterId).
  */
-export function countReadableRationales(record: CcRecordRow[], states: RationaleStatuses): number {
+export function countReadableRationales(record: CcRecordRow[], states: CcRationaleStates): number {
   let n = 0;
   for (const row of record) {
     if (row.vote == null) continue;
     const s = states.get(ccRationaleKey(row.gaId, row.vote.voterId));
     // Mirrors the view rule of rationaleFor in ccPositions.ts.
-    if (s?.status === 'ok' && s.bodyHtml) n += 1;
+    if (s?.status === 'ok' && s.hasBody) n += 1;
   }
   return n;
 }

@@ -304,7 +304,8 @@ export async function listOpenCcVoteRows(db: D1Database): Promise<OpenCcVoteRow[
          JOIN drep_votes v ON v.ga_id = g.id
          LEFT JOIN topics t ON t.id = g.topic_id
         WHERE g.status IN (${sqlPlaceholders(OPEN_STATUSES)})
-          AND v.voter_role = 'ConstitutionalCommittee' AND v.voter_hex IS NOT NULL AND v.voter_hex <> ''`,
+          AND v.voter_role = 'ConstitutionalCommittee' AND v.voter_hex IS NOT NULL AND v.voter_hex <> ''
+        ORDER BY g.submitted_at DESC, g.id, v.block_time DESC, v.voter_id`,
     )
     .bind(...OPEN_STATUSES)
     .all<{

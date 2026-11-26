@@ -15,7 +15,7 @@ import { shortColdKey, ccProfilePath, buildCcNameIndex } from '@/lib/governance/
 import { getProtocolParams } from '@/lib/db/protocolParams.js';
 import { listDecidedCcActions, listDecidedCcVoteRows, getCommitteeTimeline, listOpenCcVoteRows } from '@/lib/db/committee.js';
 import { getAllCcMemberNames } from '@/lib/db/ccMemberName.js';
-import { getCcRationaleStates } from '@/lib/db/actionRationale.js';
+import { getCcRationaleStates, ccRationaleKey, type CcRationaleStates } from '@/lib/db/actionRationale.js';
 import { positionsVoterAnchor } from '@/lib/governance/voteStatement.js';
 import { cacheControlForSynced, truncateIdMiddle } from '@/lib/forum/view.js';
 
@@ -31,30 +31,34 @@ const coldKeyHex = route.kind === 'canonical' ? route.hex : '';
 
 let profile: ReturnType<typeof buildCcMemberProfile> = null;
 let readable = 0;
+let states: CcRationaleStates = new Map();
 if (db) {
-  const [params, actions, votesByAction, timeline, nameRows, openVotes] = await Promise.all([
-    getProtocolParams(db),
-    listDecidedCcActions(db),
-    listDecidedCcVoteRows(db),
-    getCommitteeTimeline(db),
-    getAllCcMemberNames(db),
-    listOpenCcVoteRows(db),
-  ]);
-  const currentEpoch = params?.epoch ?? null;
+  // The timeline decides whether the key exists, so an unknown key skips the heavy reads.
+  const timeline = await getCommitteeTimeline(db);
   const { members, hotToCold } = timeline;
-  const { considered } = consideredCcActions({ actions, votesByAction, members, hotToCold, currentEpoch });
-  profile = buildCcMemberProfile({
-    coldKeyHex,
-    considered,
-    members,
-    hotToCold,
-    nameIndex: buildCcNameIndex(nameRows, hotToCold),
-    currentEpoch,
-    openVotes,
-  });
+  if (members.some((m) => m.coldKeyHex === coldKeyHex)) {
+    const [params, actions, votesByAction, nameRows, openVotes] = await Promise.all([
+      getProtocolParams(db),
+      listDecidedCcActions(db),
+      listDecidedCcVoteRows(db),
+      getAllCcMemberNames(db),
+      listOpenCcVoteRows(db),
+    ]);
+    const currentEpoch = params?.epoch ?? null;
+    const { considered } = consideredCcActions({ actions, votesByAction, members, hotToCold, currentEpoch });
+    profile = buildCcMemberProfile({
+      coldKeyHex,
+      considered,
+      members,
+      hotToCold,
+      nameIndex: buildCcNameIndex(nameRows, hotToCold),
+      currentEpoch,
+      openVotes,
+    });
+  }
   if (profile) {
-    const voterIds = [...new Set(profile.record.flatMap((r) => (r.vote ? [r.vote.voterId] : [])))];
-    const states = await getCcRationaleStates(db, voterIds);
+    const pairs = [...profile.record, ...profile.uncounted].flatMap((r) => (r.vote ? [{ gaId: r.gaId, voterId: r.vote.voterId }] : []));
+    states = await getCcRationaleStates(db, pairs);
     readable = countReadableRationales(profile.record, states);
   }
 }
@@ -77,7 +81,10 @@ function rowProps(row: CcRecordRow) {
   return { title, gaId, topicSlug, type, status, decidedEpoch, vote: row.vote?.vote ?? null };
 }
 function rationaleHref(row: CcRecordRow): string | null {
-  return row.topicSlug && row.vote ? `/t/${row.topicSlug}/${positionsVoterAnchor(row.vote.voterId, 'cc')}` : null;
+  if (!row.topicSlug || !row.vote) return null;
+  // Link only when the member left a rationale, so the reader never lands on an empty one.
+  if (!row.vote.metaUrl && !states.has(ccRationaleKey(row.gaId, row.vote.voterId))) return null;
+  return `/t/${row.topicSlug}/${positionsVoterAnchor(row.vote.voterId, 'cc')}`;
 }
 const metaDescription = profile
   ? `${displayName}: Constitutional Committee member. ${profile.eligible > 0 ? `Voted on ${profile.voted} of ${profile.eligible} decided actions it could vote on.` : 'No decided actions yet.'} See the full voting record on DRepTalk.`
@@ -90,6 +97,8 @@ const metaDescription = profile
   <Layout title={`${displayName} - Constitutional Committee member on DRepTalk`} description={metaDescription} wide>
     <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
       <a href="/">DRepTalk</a>
+      <span style="margin:0 0.375rem;">/</span>
+      <a href="/cc/">Constitutional Committee</a>
       <span style="margin:0 0.375rem;">/</span>
       <span>{displayName}</span>
     </nav>
@@ -171,7 +180,7 @@ const metaDescription = profile
       <section id="not-counted" class="vhist-section">
         <h2 class="vhist-section__title">Not counted <span class="vhist-section__count">({profile.uncounted.length})</span></h2>
         <div class="cc-rows">
-          {profile.uncounted.map((row) => <CcRecordItem {...rowProps(row)} />)}
+          {profile.uncounted.map((row) => <CcRecordItem {...rowProps(row)} rationaleHref={rationaleHref(row)} />)}
         </div>
       </section>
     )}
