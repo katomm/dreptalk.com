@@ -73,6 +73,8 @@ export function namesFromAuthors(doc: unknown): string[] {
 export interface CcNameIndex {
   byHot(hotHex: string): string | null;
   byCold(coldHex: string): string | null;
+  /** Where the name `byCold` returns comes from, null when it returns null. */
+  sourceByCold(coldHex: string): { kind: 'declared' } | { kind: 'curated'; source: string } | null;
 }
 
 /** Build a current-name resolver from the stored rows and the hot-to-cold map. */
@@ -96,6 +98,12 @@ export function buildCcNameIndex(rows: CcNameRow[], hotToCold: Map<string, strin
       return cold != null ? knownNameByCold(cold) : null;
     },
     byCold: (coldHex) => byColdKey.get(normalizeKeyHex(coldHex))?.name ?? knownNameByCold(coldHex),
+    sourceByCold: (coldHex) => {
+      const cold = normalizeKeyHex(coldHex);
+      if (byColdKey.has(cold)) return { kind: 'declared' };
+      const known = CC_KNOWN_NAMES[cold];
+      return known ? { kind: 'curated', source: known.source } : null;
+    },
   };
 }
 

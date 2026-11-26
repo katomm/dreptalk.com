@@ -64,3 +64,26 @@ describe('curated committee names', () => {
     expect(index.byHot(hot)).toBe('Declared Name');
   });
 });
+
+describe('sourceByCold', () => {
+  const phil = '13493790d9b03483a1e1e684ea4faf1ee48a58f402574e7f2246f4d4';
+  const hot = '68bb0b4276021f82364056aa9f4d38ba5ac59b26c166cbeaa9408746';
+  const hotToCold = new Map([[hot, phil]]);
+
+  it('reports a declared name', () => {
+    const index = buildCcNameIndex([{ hotKeyHex: hot, name: 'Declared', sourceBlockTime: 1 } as never], hotToCold);
+    expect(index.sourceByCold(phil)).toEqual({ kind: 'declared' });
+  });
+  it('reports a curated name with its source when nothing is declared', () => {
+    const index = buildCcNameIndex([], hotToCold);
+    expect(index.sourceByCold(phil)).toEqual({ kind: 'curated', source: '2025 Constitutional Committee election result' });
+    expect(index.sourceByCold(phil.toUpperCase())).toEqual({ kind: 'curated', source: '2025 Constitutional Committee election result' });
+  });
+  it('lets a declared name win over the curated one', () => {
+    const index = buildCcNameIndex([{ hotKeyHex: hot, name: 'Declared', sourceBlockTime: 1 } as never], hotToCold);
+    expect(index.sourceByCold(phil)).toEqual({ kind: 'declared' });
+  });
+  it('returns null for an unknown key', () => {
+    expect(buildCcNameIndex([], hotToCold).sourceByCold('00'.repeat(28))).toBeNull();
+  });
+});
