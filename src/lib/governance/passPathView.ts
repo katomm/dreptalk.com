@@ -56,7 +56,7 @@ export const PASS_SECTION_ID = 'path-to-pass';
 export const PASS_PATH_FOOTNOTE =
   'Reachability as of the last tally sync. New votes move it at every sync, delegation changes and DReps going inactive at the epoch boundary.';
 
-export const PASS_LIST_FOOTNOTE = "At today's voting power. A switch to Yes is counted, nothing is predicted.";
+export const PASS_LIST_FOOTNOTE = "At today's voting power. A vote or switch to Yes is counted, nothing is predicted.";
 
 const STANCE_LABEL: Record<Stance, PassListRow['stanceLabel']> = {
   notVoted: 'Not voted',
@@ -132,12 +132,20 @@ export function stakeRowView(args: {
   const count = list.picks.length;
   const n = comparison?.reaches && comparison.picks.length < count ? comparison.picks.length : null;
   const hasAbstain = list.picks.some((p) => p.stance === 'Abstain');
+  const thr = fmtPctFine(Number(tier.thrBp) / 10_000);
+  const gap = ada(tier.gapLovelace, 2);
+  // On the nonVoters tier every pick has not voted yet, so nobody switches.
+  const fresh = tier.tier === 'nonVoters';
   return {
     line,
     list: {
       rows: list.picks.map((p) => listRow(p, actionHref)),
-      summary: `${dreps(count)} would have to switch${n != null ? `, ${n} if No voters switch too` : ''}`,
-      intro: `The fewest DReps whose switch to Yes would reach the ${fmtPctFine(Number(tier.thrBp) / 10_000)} threshold, ordered by how much each switch counts. ${ada(tier.gapLovelace, 2)} more yes is needed.`,
+      summary: fresh
+        ? `${dreps(count)} voting Yes would reach ${thr}`
+        : `${dreps(count)} would have to switch${n != null ? `, ${n} if No voters switch too` : ''}`,
+      intro: fresh
+        ? `The fewest DReps who haven't voted yet whose Yes votes would reach the ${thr} threshold, largest first. That takes ${gap} more yes.`
+        : `The fewest DReps whose switch to Yes would reach the ${thr} threshold, ordered by how much each switch counts. ${gap} more yes is needed.`,
       abstainNote: hasAbstain
         ? `A DRep who voted Abstain counts at ${abstainShare(tier.thrBp)} of their voting power, because a switch also adds their stake to the counted total.`
         : null,
@@ -153,8 +161,19 @@ const ALLOWED: Record<Exclude<Tier, 'fixed'>, Stance[]> = {
 };
 
 /**
+ * Early phase: the threshold is reachable by non-voters alone and more power has not
+ * voted yet than has voted (Yes, No and Abstain). A gap this early only reads like
+ * the action is failing, so the row shows no path until turnout catches up.
+ */
+function earlyPhase(tier: StakeTier, b: StakeBuckets, stake: BodyStakeView): boolean {
+  const a = stake.amounts;
+  return tier.tier === 'nonVoters' && b.Dv > a.yes + a.no + a.activeAbstain;
+}
+
+/**
  * The path to pass for one voting card row, or null when the row shows none: a
- * closed action, a row that is met or has no verdict, a CC below its minimum size.
+ * closed action, a row that is met or has no verdict, a CC below its minimum size,
+ * a DRep or SPO row in its early phase.
  * The DRep row needs candidates that match the tally, because without a votable
  * population a tier would count stake of inactive DReps as movable.
  */
@@ -180,7 +199,7 @@ export function passPathRow(
   if (r.body === 'SPO') {
     const buckets = spoBuckets(r.stake);
     const tier = reachTier(buckets, r.thresholdPct);
-    return tier
+    return tier && !earlyPhase(tier, buckets, r.stake)
       ? stakeRowView({
           body: 'SPO',
           tier,
@@ -198,7 +217,7 @@ export function passPathRow(
   if (!rec.ok) return null;
   const buckets = drepBuckets(r.stake, rec.notVotedSum);
   const tier = reachTier(buckets, r.thresholdPct);
-  if (!tier) return null;
+  if (!tier || earlyPhase(tier, buckets, r.stake)) return null;
   const list = tier.tier === 'fixed' ? null : fewestToPass(cands, tier, ALLOWED[tier.tier], buckets.Dv);
   // Abstainers count at a fraction, so a list leaning on them can shrink once No
   // voters are allowed too. On the other tiers the list already uses every group it can.

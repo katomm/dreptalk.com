@@ -221,15 +221,15 @@ describe('passPathRow', () => {
   const stake = buildBodyStake({
     actionType: 'TreasuryWithdrawals',
     body: 'DRep',
-    activeYesPower: 10,
+    activeYesPower: 40,
     activeNoPower: 20,
     activeAbstainPower: 0,
-    noSidePower: '90',
+    noSidePower: '60',
     alwaysAbstainPower: '0',
     alwaysNoConfidencePower: '0',
     approvalThresholdPct: 67,
   }) as BodyStakeView;
-  const voters = [cand('drep1n', 20n, 'No'), cand('drep1v', 70n, 'notVoted', 'Vee'), cand('drep1y', 10n, 'Yes')];
+  const voters = [cand('drep1n', 20n, 'No'), cand('drep1v', 40n, 'notVoted', 'Vee'), cand('drep1y', 40n, 'Yes')];
   const ctx = {
     isActive: true,
     ccBlocked: false,
@@ -244,6 +244,39 @@ describe('passPathRow', () => {
     const v = passPathRow(drepRow, ctx)!;
     expect(v.line).toMatch(/^Reachable if DReps who haven't voted yet vote Yes\./);
     expect(v.list?.rows.map((r) => r.name)).toEqual(['Vee']);
+    expect(keep(v.list?.summary)).toBe('1 DRep voting Yes would reach 67.0%');
+    // The fixture is in lovelace, so the gap rounds to 0 ₳ here.
+    expect(keep(v.list?.intro)).toMatch(
+      /^The fewest DReps who haven't voted yet whose Yes votes would reach the 67\.0% threshold, largest first\. That takes .+ more yes\.$/,
+    );
+  });
+
+  it('early phase: nothing while more power has not voted than has voted', () => {
+    const early = buildBodyStake({
+      actionType: 'TreasuryWithdrawals',
+      body: 'DRep',
+      activeYesPower: 10,
+      activeNoPower: 20,
+      activeAbstainPower: 0,
+      noSidePower: '90',
+      alwaysAbstainPower: '0',
+      alwaysNoConfidencePower: '0',
+      approvalThresholdPct: 67,
+    }) as BodyStakeView;
+    const earlyVoters = [cand('drep1n', 20n, 'No'), cand('drep1v', 70n, 'notVoted'), cand('drep1y', 10n, 'Yes')];
+    expect(passPathRow({ ...drepRow, stake: early }, { ...ctx, passCandidates: earlyVoters })).toBeNull();
+    const spo = buildBodyStake({
+      actionType: 'ParameterChange',
+      body: 'SPO',
+      activeYesPower: 10,
+      activeNoPower: 20,
+      activeAbstainPower: 0,
+      noSidePower: '90',
+      alwaysAbstainPower: '0',
+      alwaysNoConfidencePower: '0',
+      approvalThresholdPct: 51,
+    }) as BodyStakeView;
+    expect(passPathRow({ body: 'SPO', met: false, thresholdPct: 51, stake: spo }, ctx)).toBeNull();
   });
 
   it('nothing on a closed action, a met row or a row without a threshold', () => {
