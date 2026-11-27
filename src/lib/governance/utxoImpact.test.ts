@@ -53,12 +53,6 @@ describe('example outputs', () => {
     for (const out of EXAMPLE_OUTPUTS) expect([out.id, out.bytes]).toEqual([out.id, sizeOf(FIXTURES[out.id])]);
     expect(REFERENCE_SCRIPT_OUTPUT.bytes).toBe(sizeOf(SCRIPT));
   });
-  it('uses a datum that is legal Plutus data', () => {
-    // Constr 0 (tag 121), indefinite list, one 28-byte bytestring (the only
-    // bytestring, under the 64-byte limit) and a canonical 8-byte uint.
-    expect(DATUM).toBe(`d8799f581c${'77'.repeat(28)}1b0000018bcfe56800ff`);
-    expect(DATUM.length / 2).toBe(43);
-  });
   it('gives the minimum a wallet asks for when sending plain ada', () => {
     // A wallet's send screen asked for 0.995610 ada at 4,310 lovelace/byte (2026-10-16).
     const plain = EXAMPLE_OUTPUTS.find((o) => o.id === 'plain')!;

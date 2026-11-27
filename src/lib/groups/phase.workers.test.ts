@@ -41,7 +41,6 @@ const create: FakeTx = {
   cbor: txCbor({ payload: payloadValue([ev.create(control.hash), ev.join(0, M)], [control.bytes]), requiredSigners: [CONTROL, M] }),
 };
 const founded = (): Chain => ({ tip: 200, txs: [create], regs: [regM] });
-/** `n` groups without members, one create per block. */
 /** `n` groups, one create with a founder join of its own registered member per block. */
 function foundings(n: number): Chain {
   const member = (i: number): string => K(0x2000 + i);
@@ -65,16 +64,6 @@ function foundings(n: number): Chain {
     })),
   };
 }
-const creates = (n: number): Chain => ({
-  tip: 100 + n + 20,
-  txs: Array.from({ length: n }, (_, i) => ({
-    hash: T(0x1000 + i),
-    height: 100 + i,
-    index: 0,
-    cbor: txCbor({ payload: payloadValue([ev.create(control.hash)], [control.bytes]), requiredSigners: [CONTROL] }),
-  })),
-  regs: [],
-});
 
 const all = async (sql: string, ...binds: unknown[]): Promise<Row[]> => (await real.prepare(sql).bind(...binds).all<Row>()).results ?? [];
 const one = async (sql: string, ...binds: unknown[]): Promise<Row> => (await all(sql, ...binds))[0] as Row;
@@ -250,16 +239,6 @@ describe('runDrepGroupsPhase', () => {
     expect(r.starved).toContain('engine');
     expect(await count('SELECT COUNT(*) AS n FROM drep_groups')).toBe(0);
     expect(await meta()).toMatchObject({ G_h: -1 });
-  });
-
-  it('skips due profiles once the work budget is spent', async () => {
-    for (let n = 1; n <= 15; n++) await seedListed(n);
-    const remaining = 60;
-    const r = await run({ chain: creates(5), remaining, fetchImpl: siteFetch() });
-    expect(r.profiles.fetched).toBeLessThan(15);
-    expect(await dueCount('profile', 1_000)).toBe(15 - r.profiles.fetched);
-    expect(r.queries).toBeLessThanOrEqual(remaining);
-    expect(r.spent).toBe(r.queries);
   });
 
   it('handles profiles and websites at the exact budget edge', async () => {

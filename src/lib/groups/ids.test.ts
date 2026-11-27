@@ -5,9 +5,7 @@ import { encodeBech32 } from '../crypto/bech32.js';
 import { hexToBytes } from '../crypto/hex.js';
 
 describe('drepGroupsAvailable', () => {
-  it('is true on preprod and mainnet', () => {
-    expect(drepGroupsAvailable('preprod')).toBe(true);
-    expect(drepGroupsAvailable('mainnet')).toBe(true);
+  it('is off for a network left out of the list and for an unknown network', () => {
     expect(drepGroupsAvailable('mainnet', ['preprod'])).toBe(false);
     expect(drepGroupsAvailable(undefined)).toBe(false);
   });

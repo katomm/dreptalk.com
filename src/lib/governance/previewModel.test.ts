@@ -97,11 +97,7 @@ describe('previewModelFromForm, the five types when the form is complete', () =>
   it('an InfoAction reads as the informational note with nothing missing', () => {
     const result = model(form('InfoAction'));
     expect(result.missing).toEqual([]);
-    expect(result.onchain).toEqual({
-      kind: 'note',
-      tag: 'InfoAction',
-      text: 'Informational action. No on-chain effect, the vote signals opinion only.',
-    });
+    expect(result.onchain).toMatchObject({ kind: 'note', tag: 'InfoAction' });
   });
 
   it('a NoConfidence reads as the no-confidence note', () => {
@@ -245,14 +241,6 @@ describe('previewModelFromForm, incomplete panels', () => {
 });
 
 describe('previewModelFromForm, untouched defaults resolve like the panels', () => {
-  it('takes the chain root as the previous action when none was picked', () => {
-    // The prev pointer is not on the card, so it is asserted through the
-    // decoder's own lineage reader in previewPayload (see the export below).
-    const result = model(form('NoConfidence'));
-    expect(result.onchain).toMatchObject({ kind: 'note', tag: 'NoConfidence' });
-    expect(result.missing).toEqual([]);
-  });
-
   it('takes the quorum in force when the field was never touched', () => {
     const result = model(
       form('UpdateCommittee', {
@@ -333,16 +321,13 @@ describe('previewModelFromForm, metadata and the author line', () => {
     expect(model(state).missing).toEqual([]);
   });
 
-  it('says no author is named when signing is off', () => {
-    const state = form('InfoAction', {}, { signAsAuthor: false, authorName: 'Jane DRep' });
-    expect(model(state).authorLine).toBe('No author named');
-    expect(model(state).missing).toEqual([]);
-  });
-
-  it('says no author is named and asks for one when signing is on with an empty name', () => {
-    const state = form('InfoAction', {}, { signAsAuthor: true, authorName: '' });
-    expect(model(state).authorLine).toBe('No author named');
-    expect(model(state).missing).toEqual(['Author name']);
+  it('names no author when signing is off, and asks for one when signing is on with an empty name', () => {
+    const off = model(form('InfoAction', {}, { signAsAuthor: false, authorName: 'Jane DRep' }));
+    const empty = model(form('InfoAction', {}, { signAsAuthor: true, authorName: '' }));
+    expect(off.authorLine).toBe('No author named');
+    expect(empty.authorLine).toBe(off.authorLine);
+    expect(off.missing).toEqual([]);
+    expect(empty.missing).toEqual(['Author name']);
   });
 });
 

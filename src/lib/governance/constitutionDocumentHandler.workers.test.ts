@@ -1,11 +1,10 @@
 /// <reference types="@cloudflare/workers-types" />
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { env } from 'cloudflare:test';
 import { blake2b256 } from '../crypto/blake.js';
 import { bytesToHex } from '../crypto/hex.js';
 import { handleConstitutionDocument, CONSTITUTION_DOCUMENT_MAX_BYTES } from './constitutionDocumentHandler.js';
 import { serveGovActionMetadata } from '../db/govActionMetadata.js';
-import * as rate from '../rate.js';
 
 const preprod = { network: 'preprod', networkId: 0 } as never; // minimal NetworkConfig stub
 const withJwt = { ...env, PINATA_JWT: 'jwt' } as Cloudflare.Env;
@@ -27,72 +26,17 @@ const fakeUpload = async (file: File) => ({
   isDuplicate: false,
 });
 
-describe('handleConstitutionDocument gate outcomes', () => {
-
-  it('403 cross-origin', async () => {
-    const res = await handleConstitutionDocument(
-      { request: req({ text: 'x' }, { 'sec-fetch-site': 'cross-site' }), locals: user },
-      { network: preprod, env: withJwt, upload: fakeUpload },
-    );
-    expect(res.status).toBe(403);
-  });
-
-  it('401 signed out', async () => {
-    const res = await handleConstitutionDocument(
-      { request: req({ text: 'x' }), locals: { user: null } as App.Locals },
-      { network: preprod, env: withJwt, upload: fakeUpload },
-    );
-    expect(res.status).toBe(401);
-  });
-
-  it('503 missing DB binding', async () => {
-    const res = await handleConstitutionDocument(
-      { request: req({ text: 'x' }), locals: user },
-      { network: preprod, env: { ...withJwt, DB: undefined } as unknown as Cloudflare.Env, upload: fakeUpload },
-    );
-    expect(res.status).toBe(503);
-  });
-
-  it('503 missing rate limiter binding', async () => {
-    const res = await handleConstitutionDocument(
-      { request: req({ text: 'x' }), locals: user },
-      {
-        network: preprod,
-        env: { ...withJwt, RATE_LIMITER: undefined } as unknown as Cloudflare.Env,
-        upload: fakeUpload,
-      },
-    );
-    expect(res.status).toBe(503);
-  });
-
-  it('503 missing PINATA_JWT, "ipfs hosting unavailable"', async () => {
+// The gate matrix (403, 503 bindings, 429, limiter failures) is covered in
+// govActionGate.workers.test.ts. This case proves the handler runs the gate
+// with the uploading policy: only that policy refuses a missing PINATA_JWT.
+describe('handleConstitutionDocument gate', () => {
+  it('503s without PINATA_JWT', async () => {
     const res = await handleConstitutionDocument(
       { request: req({ text: 'x' }), locals: user },
       { network: preprod, env: { ...env, PINATA_JWT: undefined } as Cloudflare.Env, upload: fakeUpload },
     );
     expect(res.status).toBe(503);
-    const json = (await res.json()) as { error: string };
-    expect(json.error).toBe('ipfs hosting unavailable');
-  });
-
-  it('503 when the rate limiter throws', async () => {
-    const spy = vi.spyOn(rate, 'checkRate').mockRejectedValueOnce(new Error('DO unavailable'));
-    const res = await handleConstitutionDocument(
-      { request: req({ text: 'x' }), locals: user },
-      { network: preprod, env: withJwt, upload: fakeUpload },
-    );
-    expect(res.status).toBe(503);
-    spy.mockRestore();
-  });
-
-  it('429 rate limited', async () => {
-    const spy = vi.spyOn(rate, 'checkRate').mockResolvedValueOnce(false);
-    const res = await handleConstitutionDocument(
-      { request: req({ text: 'x' }), locals: user },
-      { network: preprod, env: withJwt, upload: fakeUpload },
-    );
-    expect(res.status).toBe(429);
-    spy.mockRestore();
+    expect(await res.json()).toEqual({ error: 'ipfs hosting unavailable' });
   });
 });
 

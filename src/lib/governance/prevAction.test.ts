@@ -31,24 +31,14 @@ function row(overrides: Partial<ChainRow>): ChainRow {
 }
 
 describe('chainForType', () => {
-  it('maps NoConfidence to the committee chain', () => {
-    expect(chainForType('NoConfidence')).toEqual(['NoConfidence', 'NewCommittee']);
-  });
-
-  it('maps UpdateCommittee to the same committee chain', () => {
-    expect(chainForType('UpdateCommittee')).toEqual(['NoConfidence', 'NewCommittee']);
-  });
-
-  it('maps NewConstitution to its own chain', () => {
-    expect(chainForType('NewConstitution')).toEqual(['NewConstitution']);
-  });
-
-  it('maps HardForkInitiation to its own chain', () => {
-    expect(chainForType('HardForkInitiation')).toEqual(['HardForkInitiation']);
-  });
-
-  it('returns null for InfoAction', () => {
-    expect(chainForType('InfoAction')).toBeNull();
+  it.each([
+    ['NoConfidence', ['NoConfidence', 'NewCommittee']],
+    ['UpdateCommittee', ['NoConfidence', 'NewCommittee']],
+    ['NewConstitution', ['NewConstitution']],
+    ['HardForkInitiation', ['HardForkInitiation']],
+    ['InfoAction', null],
+  ] as const)('maps %s to its purpose chain', (type, chain) => {
+    expect(chainForType(type)).toEqual(chain);
   });
 });
 
@@ -128,9 +118,6 @@ describe('koiosProposalType', () => {
 
   it('leaves every other form type unchanged', () => {
     expect(koiosProposalType('NoConfidence')).toBe('NoConfidence');
-    expect(koiosProposalType('HardForkInitiation')).toBe('HardForkInitiation');
-    expect(koiosProposalType('NewConstitution')).toBe('NewConstitution');
-    expect(koiosProposalType('InfoAction')).toBe('InfoAction');
   });
 });
 

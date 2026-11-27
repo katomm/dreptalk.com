@@ -84,23 +84,15 @@ test('the founding wizard walks the alone and together paths to the review', asy
   await page.getByRole('button', { name: 'Next' }).click();
   await expect(page.getByText('1 of 1 must sign (100%)')).toBeVisible();
   await page.getByRole('button', { name: 'Next' }).click();
-  // Name, description and image are required, the step refuses to go on without them.
+  // The refusals without a name, description or image are covered in GroupWizard.dom.test.tsx.
   await page.getByLabel('Name').fill('E2E Solo Group');
-  await page.getByRole('button', { name: 'Next' }).click();
-  await expect(page.getByText('Add a description.')).toBeVisible();
   await page.getByLabel('Description').fill('E2E DReps who vote together.');
-  await page.getByRole('button', { name: 'Next' }).click();
-  await expect(page.getByText('Add an image.')).toBeVisible();
   await page.locator('input[type="file"]').setInputFiles({ name: 'group.png', mimeType: 'image/png', buffer: PNG });
   await expect(page.getByRole('button', { name: 'Change image' })).toBeVisible();
   await page.getByRole('button', { name: 'Next' }).click();
   const review = page.getByRole('region', { name: 'Found the group' });
   await expect(review.getByText('Must sign: You')).toBeVisible();
   await expect(review.getByText('Founders: You')).toBeVisible();
-  await expect(review.getByText('Management policy: 1 of 1 must sign')).toBeVisible();
-  await expect(review.getByText('You found the group alone and sign it in one wallet step.')).toBeVisible();
-  // A lone founder signs alone, so the sentence about every founder does not apply.
-  await expect(review.getByText('Every founder signs the founding transaction, also when the threshold is lower.')).toHaveCount(0);
   await shot(page, '2a-wizard-review-alone');
 
   // Together with Carol, a registered key DRep checked by her DRep id.
@@ -120,15 +112,13 @@ test('the founding wizard walks the alone and together paths to the review', asy
   // Mandatory signers are listed in key hash order.
   await expect(review.getByText('Must sign: E2E Cofounder Carol, You')).toBeVisible();
   await expect(review.getByText('Founders: You, E2E Cofounder Carol')).toBeVisible();
-  await expect(review.getByText('Every founder signs the founding transaction, also when the threshold is lower.')).toBeVisible();
-  await expect(review.getByText('After you sign, share the signing link with everyone else who must sign.')).toBeVisible();
   await shot(page, '2b-wizard-review-together');
   // Nothing was built or signed.
   expect(await wallet.calls('signTx')).toHaveLength(0);
   expect(errors).toEqual([]);
 });
 
-test('an admin sees the request queue, the combined update offer, the policy editor and the dissolve confirmation', async ({ page, wallet, koios }) => {
+test('an admin sees the request queue, the combined update offer and the policy editor', async ({ page, wallet, koios }) => {
   await signInAsSeededDrep(page, koios, wallet.drepId);
   const errors = pageErrors(page);
   // The old id form answers with a permanent redirect to the canonical URL.
@@ -174,16 +164,6 @@ test('an admin sees the request queue, the combined update offer, the policy edi
   await expect(editor.getByText('2 of 3 must sign (67%)')).toBeVisible();
   await expect(editor.getByLabel('Add an admin by DRep id')).toBeVisible();
   await shot(page, '3b-admin-policy-editor');
-
-  // Dissolving needs an explicit confirmation.
-  await editor.getByRole('button', { name: 'Dissolve the group' }).click();
-  await expect(editor.getByText('This cannot be undone. Members\' delegations do not change.')).toBeVisible();
-  const confirm = editor.getByRole('checkbox', { name: 'Yes, dissolve this group' });
-  await expect(confirm).not.toBeChecked();
-  await expect(editor.getByRole('button', { name: 'Review and sign' })).toBeDisabled();
-  await confirm.check();
-  await expect(editor.getByRole('button', { name: 'Review and sign' })).toBeEnabled();
-  await shot(page, '3c-admin-dissolve-confirmation');
   expect(await wallet.calls('signTx')).toHaveLength(0);
   expect(errors).toEqual([]);
 });

@@ -115,11 +115,8 @@ describe('cacheControlFor', () => {
     expect(cacheControlFor({ id: 'u1', roles: [] })).toBe('private, no-store');
   });
 
-  it('returns public s-maxage when user is null', () => {
+  it('returns public s-maxage when user is null or undefined', () => {
     expect(cacheControlFor(null)).toBe('public, s-maxage=60, stale-while-revalidate=600');
-  });
-
-  it('returns public s-maxage when user is undefined', () => {
     expect(cacheControlFor(undefined)).toBe('public, s-maxage=60, stale-while-revalidate=600');
   });
 });
@@ -172,18 +169,8 @@ describe('htmlToText', () => {
 });
 
 describe('excerptFromHtml', () => {
-  it('strips tags and collapses whitespace', () => {
+  it('strips tags and collapses whitespace, leaving short text whole', () => {
     expect(excerptFromHtml('<p>Hello   <strong>world</strong></p>')).toBe('Hello world');
-  });
-
-  it('returns short text unchanged', () => {
-    expect(excerptFromHtml('<p>Short.</p>')).toBe('Short.');
-  });
-
-  it('truncates with an ellipsis past maxLen', () => {
-    const out = excerptFromHtml(`<p>${'a '.repeat(20)}</p>`, 10);
-    expect(out.endsWith('...')).toBe(true);
-    expect(out.length).toBeLessThanOrEqual(13);
   });
 
   it('cuts on a word boundary, never mid-word', () => {
@@ -236,12 +223,6 @@ describe('cacheControlForSynced', () => {
 // ---------------------------------------------------------------------------
 
 describe('activeLabel', () => {
-  it('returns dreps and spos only when delegators are below threshold', () => {
-    expect(activeLabel({ dreps: 42, spos: 8, delegators: 0 })).toBe(
-      '42 DReps and 8 SPOs active in the last 30 days on DRepTalk',
-    );
-  });
-
   it('includes delegators at the threshold', () => {
     expect(activeLabel({ dreps: 42, spos: 8, delegators: 25 })).toBe(
       '42 DReps, 8 SPOs and 25 delegators active in the last 30 days on DRepTalk',

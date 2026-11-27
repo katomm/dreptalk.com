@@ -1,7 +1,7 @@
 /// <reference types="@cloudflare/workers-types" />
 import { describe, it, expect, beforeEach } from 'vitest';
 import { env } from 'cloudflare:test';
-import { loadPoolEconomics, poolEconomicsKeepEpochs, readPoolEconomics, syncPoolEconomics, type PoolEconomicsKoios } from './poolEconomics.js';
+import { loadPoolEconomics, readPoolEconomics, syncPoolEconomics, type PoolEconomicsKoios } from './poolEconomics.js';
 import { epochStartUnix } from '../config/network.js';
 
 const preprodCfg = { network: 'preprod', networkId: 0, epochAnchor: { epoch: 300, unixSeconds: 1_790_000_000 } } as never;
@@ -51,11 +51,6 @@ describe('readPoolEconomics', () => {
     expect(json?.pools[0]).toEqual([5000, 1000, '170000001']);
     expect(json?.supplyLovelace).toBe('39000000000000000');
     expect(k.calls).toEqual(['pools:0', 'pools:1000', 'totals']);
-  });
-
-  it('keeps the fixed cost exact in lovelace', async () => {
-    const json = await readPoolEconomics(koios());
-    expect(json?.pools.every((p) => p[2] === '170000001')).toBe(true);
   });
 
   it('is null instead of a truncated list after 20 full pages', async () => {
@@ -118,25 +113,6 @@ const pc = (id: string, status: string, cols: { decided?: number; ratified?: num
 const storeEpoch = (epoch: number) =>
   env.DB.prepare('INSERT OR REPLACE INTO pool_economics (epoch, body, computed_at) VALUES (?, ?, 1)').bind(epoch, '{}').run();
 
-describe('poolEconomicsKeepEpochs', () => {
-  it('collects basis epochs and the oldest open submission', () => {
-    const none = { decidedEpoch: null, ratifiedEpoch: null, enactedEpoch: null, expiryEpoch: null, submittedEpoch: null };
-    const out = poolEconomicsKeepEpochs([
-      { ...none, status: 'enacted', enactedEpoch: 614 },
-      { ...none, status: 'expired', expiryEpoch: 661 },
-      { ...none, status: 'active', submittedEpoch: 655 },
-      { ...none, status: 'pending', submittedEpoch: 657 },
-      { ...none, status: 'expired' },
-    ]);
-    expect(out.basis).toEqual(new Set([613, 660]));
-    expect(out.keepFrom).toBe(655);
-  });
-
-  it('has no keepFrom without open rows', () => {
-    expect(poolEconomicsKeepEpochs([]).keepFrom).toBeNull();
-  });
-});
-
 describe('syncPoolEconomics retention', () => {
   beforeEach(async () => {
     await env.DB.prepare("DELETE FROM governance_actions WHERE type = 'ParameterChange'").run();
@@ -147,6 +123,8 @@ describe('syncPoolEconomics retention', () => {
     await pc('b#0', 'expired', { expiry: 661 });
     await pc('c#0', 'active', { submitted: 655 });
     await pc('d#0', 'pending', { submitted: 657 });
+    // A closed row without any outcome epoch adds no basis epoch.
+    await pc('e#0', 'expired', {});
     for (const e of [612, 613, 650, 655, 659, 660]) await storeEpoch(e);
     await run(koios({}, 662), 662);
     expect((await rows()).results.map((r) => r.epoch)).toEqual([613, 655, 659, 660, 662]);

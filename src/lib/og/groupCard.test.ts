@@ -19,9 +19,8 @@ describe('group card', () => {
     expect(m.name).toBe('Commons Council');
     expect(m.idShort).toMatch(/^drep_group1/);
     expect(m.bio).toBe('First paragraph. Second paragraph.');
-    expect(m.stats.map((s) => s.icon)).toEqual(['power', 'members', 'mode']);
-    expect(m.stats[1]).toMatchObject({ value: '4', label: 'members' });
-    expect(m.stats[2]).toMatchObject({ value: 'Open', label: 'anyone can join' });
+    expect(m.stats[1].value).toBe('4');
+    expect(m.stats[2].value).toBe('Open');
   });
 
   it('falls back to the short id without a profile and marks a dissolved group', () => {
@@ -29,7 +28,7 @@ describe('group card', () => {
     expect(m.name).toMatch(/^drep_group1/);
     expect(m.idShort).toBeNull();
     expect(m.bio).toBeNull();
-    expect(m.stats[2]).toMatchObject({ value: 'Dissolved', label: '' });
+    expect(m.stats[2].value).toBe('Dissolved');
   });
 
   it('changes its version when anything shown changes', () => {

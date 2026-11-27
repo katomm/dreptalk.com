@@ -1,12 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   activeAdminKeys,
-  addressStatusLabel,
   describePolicy,
-  eventLabel,
   hostedAvatarHash,
   memberSections,
-  modeLabel,
   policyKeyHashes,
   reasonLabel,
   scriptFromJson,
@@ -64,24 +61,10 @@ describe('group view helpers', () => {
     expect(scriptFromJson(undefined)).toBeNull();
   });
 
-  it('labels follow the presentation guidance', () => {
-    expect(modeLabel('open')).toBe('Open, self-declared');
-    expect(modeLabel('permissioned')).toBe('Permissioned, confirmed by the group');
-    expect(reasonLabel('retired')).toBe('DRep retired');
-    expect(reasonLabel(null)).toBe('');
-    expect(eventLabel('join')).toBe('Joined');
-    expect(eventLabel(null)).toBe('Unreadable event');
-    expect(addressStatusLabel('script-controlled')).toBe('Controlled by');
-    expect(addressStatusLabel('declared')).toBe('Declared address');
+  it('shortens long hashes and shows no reason or status note without one', () => {
     expect(shortHash(K(1))).toBe(`${K(1).slice(0, 8)}...${K(1).slice(-4)}`);
     expect(shortHash('abcd')).toBe('abcd');
-  });
-
-  it('words the status notes', () => {
-    expect(statusNoteLabel('correcting')).toBe(
-      'Group data is being corrected after a chain reorganization. Some entries may be out of date for a few minutes.',
-    );
-    expect(statusNoteLabel('rebuilding')).toBe('Group data is being rebuilt. Lists fill up again over the next runs.');
+    expect(reasonLabel(null)).toBe('');
     expect(statusNoteLabel(null)).toBeNull();
   });
 

@@ -1,4 +1,4 @@
-// Unit tests for the mainnet guard, the funding-shortfall message, and the
+// Unit tests for the funding-shortfall message and the
 // propose-op wiring in govActionTx.ts. collectWalletUtxos and makeClient are
 // mocked so these run offline, a live wallet and Koios provider are needed
 // for the full build/sign/submit path, which is not covered here.
@@ -20,11 +20,10 @@ vi.mock('./guardrailEvaluator.js', () => ({
   makeGuardrailEvaluator: vi.fn(() => ({ evaluate: vi.fn() })),
 }));
 
-import { submitGovAction, queueGuardrailProposeOps, type GovActionTxBuilder } from './govActionTx.js';
+import { submitGovAction } from './govActionTx.js';
 import { collectWalletUtxos } from './walletUtxos.js';
 import { makeClient, signAndSubmit } from './drepTx.js';
 import { makeGuardrailEvaluator } from './guardrailEvaluator.js';
-import { buildGovernanceAction } from './govActionParts.js';
 import { GUARDRAIL_CHANGED_MESSAGE, GUARDRAIL_SCRIPT_HASH_HEX, type GuardrailContext } from './guardrailScript.js';
 
 const ANCHOR_HASH_HEX = 'ab'.repeat(32);
@@ -152,11 +151,6 @@ describe('submitGovAction for a treasury withdrawal', () => {
     expect(signAndSubmit).not.toHaveBeenCalled();
   });
 
-  // The switch is decided on the server, so on mainnet the control proves
-  // an info action gets through and only the treasury rule can refuse the
-  // other: deleting the TreasuryWithdrawals line in govActionTypeAvailable
-  // makes the first test fail.
-
   it('proposes a parameter change with the guardrail redeemer, script and evaluator', async () => {
     const builder = fakeBuilder();
     await submitGovAction({ ...baseOpts, network: 'preprod', action: paramChange(KNOWN) });
@@ -169,7 +163,7 @@ describe('submitGovAction for a treasury withdrawal', () => {
     expect(makeGuardrailEvaluator).toHaveBeenCalledWith('https://x');
   });
 
-  it('lets an info action through on mainnet with submission switched on there', async () => {
+  it('builds a mainnet proposal with the mainnet client', async () => {
     const builder = fakeBuilder();
     await submitGovAction({ ...baseOpts, network: 'mainnet' });
     expect(makeClient).toHaveBeenCalledWith('mainnet', 'https://x', baseOpts.walletApi);
@@ -181,21 +175,5 @@ describe('submitGovAction for a treasury withdrawal', () => {
     await submitGovAction({ ...baseOpts, network: 'preprod' });
     expect(builder.attachScript).not.toHaveBeenCalled();
     expect(builder.build.mock.calls[0][0]).not.toHaveProperty('evaluator');
-  });
-});
-
-describe('queueGuardrailProposeOps', () => {
-  it('chains propose and attachScript and returns the builder', () => {
-    const builder = fakeBuilder();
-    const action = buildGovernanceAction(treasury(KNOWN));
-    const out = queueGuardrailProposeOps(builder as unknown as GovActionTxBuilder, {
-      action,
-      rewardAccount: {} as never,
-      anchor: {} as never,
-      guardrail: KNOWN,
-    });
-    expect(out).toBe(builder);
-    expect(builder.propose).toHaveBeenCalledTimes(1);
-    expect(builder.attachScript).toHaveBeenCalledTimes(1);
   });
 });

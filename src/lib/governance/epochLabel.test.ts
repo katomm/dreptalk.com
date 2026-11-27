@@ -21,14 +21,10 @@ describe('epochWithDate', () => {
     expect(epochWithDate(4, preprod, now)).toBe('epoch 4 (about 21 Jun 2022)');
   });
 
-  it('drops the "about" qualifier when the epoch is the one currently running', () => {
+  it('drops the "about" qualifier only for the epoch currently running', () => {
     // now sits partway through epoch 300, so 300 is the current epoch.
     const now = epochStartMs(300, preprod) + 24 * 60 * 60 * 1000;
     expect(epochWithDate(300, preprod, now)).toBe(`epoch 300 (${formatted(300, preprod)})`);
-  });
-
-  it('keeps the "about" qualifier for an epoch other than the one currently running', () => {
-    const now = epochStartMs(300, preprod) + 24 * 60 * 60 * 1000;
     expect(epochWithDate(301, preprod, now)).toBe(`epoch 301 (about ${formatted(301, preprod)})`);
     expect(epochWithDate(299, preprod, now)).toBe(`epoch 299 (about ${formatted(299, preprod)})`);
   });

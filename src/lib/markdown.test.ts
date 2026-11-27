@@ -173,86 +173,28 @@ describe('renderMarkdown - href scheme normalization (control chars)', () => {
 });
 
 describe('renderMarkdown - correctness (positive cases)', () => {
-  it('renders bold with **', () => {
-    const out = renderMarkdown('**bold**');
-    expect(out).toContain('<strong>bold</strong>');
-  });
-
-  it('renders italic with *', () => {
-    const out = renderMarkdown('*italic*');
-    expect(out).toContain('<em>italic</em>');
-  });
-
-  it('renders strikethrough with ~~', () => {
-    const out = renderMarkdown('~~strike~~');
-    expect(out).toContain('<del>strike</del>');
-  });
-
-  it('renders inline code', () => {
-    const out = renderMarkdown('`code`');
-    expect(out).toContain('<code>code</code>');
-  });
-
-  it('renders fenced code block', () => {
-    const out = renderMarkdown('```\nconst x = 1;\n```');
-    expect(out).toContain('<pre>');
-    expect(out).toContain('<code>');
-    expect(out).toContain('const x = 1;');
-  });
-
-  it('renders h1', () => {
-    const out = renderMarkdown('# Heading One');
-    expect(out).toContain('<h1>');
-    expect(out).toContain('Heading One');
-  });
-
-  it('renders h2', () => {
-    const out = renderMarkdown('## Heading Two');
-    expect(out).toContain('<h2>');
-    expect(out).toContain('Heading Two');
-  });
-
-  it('renders blockquote', () => {
-    const out = renderMarkdown('> quoted text');
-    expect(out).toContain('<blockquote>');
-    expect(out).toContain('quoted text');
-  });
-
-  it('renders unordered list', () => {
-    const out = renderMarkdown('- alpha\n- beta');
-    expect(out).toContain('<ul>');
-    expect(out).toContain('<li>');
-    expect(out).toContain('alpha');
-    expect(out).toContain('beta');
-  });
-
-  it('renders ordered list', () => {
-    const out = renderMarkdown('1. first\n2. second');
-    expect(out).toContain('<ol>');
-    expect(out).toContain('<li>');
-    expect(out).toContain('first');
-    expect(out).toContain('second');
-  });
-
-  it('renders safe https link with href', () => {
-    const out = renderMarkdown('[visit](https://example.com)');
-    expect(out).toContain('href="https://example.com"');
-    expect(out).toContain('visit');
-  });
-
-  it('renders safe http link with href', () => {
-    const out = renderMarkdown('[visit](http://example.com)');
-    expect(out).toContain('href="http://example.com"');
-    expect(out).toContain('visit');
+  // Every allowed tag and both allowed link schemes survive the sanitizer with
+  // their content.
+  it.each([
+    ['**bold**', ['<strong>bold</strong>']],
+    ['*italic*', ['<em>italic</em>']],
+    ['~~strike~~', ['<del>strike</del>']],
+    ['`code`', ['<code>code</code>']],
+    ['```\nconst x = 1;\n```', ['<pre>', '<code>', 'const x = 1;']],
+    ['# Heading One', ['<h1>', 'Heading One']],
+    ['## Heading Two', ['<h2>', 'Heading Two']],
+    ['> quoted text', ['<blockquote>', 'quoted text']],
+    ['- alpha\n- beta', ['<ul>', '<li>', 'alpha', 'beta']],
+    ['1. first\n2. second', ['<ol>', '<li>', 'first', 'second']],
+    ['[visit](https://example.com)', ['href="https://example.com"', 'visit']],
+    ['[visit](http://example.com)', ['href="http://example.com"', 'visit']],
+  ])('renders %j', (input, parts) => {
+    const out = renderMarkdown(input);
+    for (const part of parts) expect(out).toContain(part);
   });
 
   it('forces rel="noopener noreferrer nofollow ugc" on safe https links', () => {
     const out = renderMarkdown('[text](https://example.com)');
-    expect(out).toContain('rel="noopener noreferrer nofollow ugc"');
-  });
-
-  it('forces rel="noopener noreferrer nofollow ugc" on safe http links', () => {
-    const out = renderMarkdown('[text](http://example.com)');
     expect(out).toContain('rel="noopener noreferrer nofollow ugc"');
   });
 

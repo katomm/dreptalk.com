@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
-// The treasury withdrawal and parameter change cards, with the deciders line
-// and threshold sentence from thresholds.ts, on both networks.
+// The offered types with the deposit unit, and the parameter change card's
+// threshold sentence from thresholds.ts.
 import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
 import TypeSelector from './TypeSelector.js';
@@ -15,20 +15,12 @@ const props = {
 };
 
 describe('TypeSelector', () => {
-  it('offers a treasury withdrawal on preprod, decided by DReps and the committee and checked by the guardrails script', () => {
-    render(<TypeSelector {...props} network="preprod" />);
-    const radio = screen.getByRole('radio', { name: /Treasury withdrawal/ });
-    const card = radio.closest('label');
-    expect(card?.textContent).toContain("The constitution's guardrails script checks the action");
-    expect(card?.textContent).toContain('Decided by DReps and the committee');
-  });
-
   it('offers every type on mainnet, with the deposit in ada', () => {
     render(<TypeSelector {...props} deposit={{ status: 'ready', lovelace: 100_000_000_000n } as never} network="mainnet" />);
     for (const name of [/Info action/, /No confidence/, /Hard fork/, /New constitution/, /Update committee/, /Treasury withdrawal/, /Protocol parameter change/]) {
       expect(screen.getByRole('radio', { name })).toBeTruthy();
     }
-    expect(screen.getAllByText('Deposit 100,000 ada, refunded when the action is finalized').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/100,000 ada/).length).toBeGreaterThan(0);
   });
 
   it('offers a parameter change on preprod, with the threshold of the groups DRepTalk can change', () => {

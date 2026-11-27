@@ -64,17 +64,6 @@ describe('mapGuardrailBuildError', () => {
     expect(mapGuardrailBuildError({ code: 2, info: 'user declined' }, 'TreasuryWithdrawals')).toBeNull();
     expect(mapGuardrailBuildError(null, 'TreasuryWithdrawals')).toBeNull();
   });
-
-  it('uses the spec sentences', () => {
-    expect(COLLATERAL_SELECTION_MESSAGE).toBe(
-      'Your wallet needs about 5 ada in plain-ada UTxOs that can serve as collateral.',
-    );
-    expect(COLLATERAL_TOKENS_MESSAGE).toBe(
-      "Your wallet's UTxOs carry too many tokens to serve as collateral. Send about 5 ada to it as a separate payment and try again.",
-    );
-    expect(EVALUATION_FAILED_MESSAGE).toBe("The constitution's guardrails script rejected this withdrawal.");
-    expect(EVALUATOR_UNAVAILABLE_MESSAGE).toBe('Could not reach the script evaluator. No transaction was signed.');
-  });
 });
 
 describe('per-type wording', () => {

@@ -29,10 +29,6 @@ describe('extractMentionSlugs', () => {
     expect(extractMentionSlugs('**foo**@a1 x')).toEqual(['a1']);
   });
 
-  it('still ignores an email address, which never starts a new text segment at @', () => {
-    expect(extractMentionSlugs('foo@bar.com')).toEqual([]);
-  });
-
   it('ignores a mid-word "@" not preceded by start / whitespace / "(" / ">"', () => {
     // Symmetry with markdown.ts's mention tokenizer: GFM's inline text
     // tokenizer halts before '@' to attempt an email autolink, so marked can

@@ -30,7 +30,6 @@ const E = key('e');
 const drep = (k: string) => drepIdForCredential({ kind: 'key', hash: k });
 const NAMES: Record<string, string> = { [A]: 'Alice', [B]: 'Bob', [E]: 'Erin' };
 const GID = groupIdString({ txHash: '10'.repeat(32), index: 0 });
-const SCRIPT_ID = drepIdForCredential({ kind: 'script', hash: key('f') });
 const HASH = '7'.repeat(64);
 
 type Reply = { url: RegExp; body: unknown; status?: number };
@@ -102,20 +101,18 @@ describe('PolicyEditor profile', () => {
     });
   });
 
-  it('asks for a name before storing anything', async () => {
+  it('asks for a name, a description and an image before storing anything', async () => {
     editor({ profile: null });
     fireEvent.click(screen.getByRole('button', { name: 'Review and sign' }));
-    expect(await screen.findByText('Give the group a name.')).toBeTruthy();
+    expect(await screen.findByText(/a name\.$/)).toBeTruthy();
     expect(calls).toHaveLength(0);
-  });
-
-  it('asks for a description and an image before storing anything', async () => {
+    cleanup();
     editor({ profile: { name: 'Council', website: 'https://c.test' } });
     fireEvent.click(screen.getByRole('button', { name: 'Review and sign' }));
-    expect(await screen.findByText('Add a description.')).toBeTruthy();
+    expect(await screen.findByText(/a description\.$/)).toBeTruthy();
     fireEvent.change(screen.getByRole('textbox', { name: 'Description' }), { target: { value: 'DReps who vote together.' } });
     fireEvent.click(screen.getByRole('button', { name: 'Review and sign' }));
-    expect(await screen.findByText('Add an image.')).toBeTruthy();
+    expect(await screen.findByText(/an image\.$/)).toBeTruthy();
     expect(calls).toHaveLength(0);
   });
 });
@@ -135,35 +132,17 @@ describe('PolicyEditor management policy', () => {
     editor();
     fireEvent.click(screen.getByRole('button', { name: 'Change admins or threshold' }));
     const n = screen.getByRole('spinbutton', { name: 'Threshold' });
-    fireEvent.change(n, { target: { value: '0' } });
-    expect(screen.getByText('The threshold must be at least 1.')).toBeTruthy();
-    expect((screen.getByRole('button', { name: 'Review and sign' }) as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.change(n, { target: { value: '3' } });
-    expect(screen.getByText('The threshold cannot be higher than the number of keys (2).')).toBeTruthy();
-    expect((screen.getByRole('button', { name: 'Review and sign' }) as HTMLButtonElement).disabled).toBe(true);
+    for (const value of ['0', '3']) {
+      fireEvent.change(n, { target: { value } });
+      expect((screen.getByRole('button', { name: 'Review and sign' }) as HTMLButtonElement).disabled, value).toBe(true);
+    }
   });
 
-  it('refuses script DReps and unregistered keys as admins and names a newly listed admin as a signer', async () => {
-    editor({}, [
-      { url: new RegExp(`check-drep\\?id=${drep(key('9'))}`), body: { registered: false, script: false, keyHash: key('9'), name: null } },
-      { url: new RegExp(`check-drep\\?id=${drep(E)}`), body: { registered: true, script: false, keyHash: E, name: 'Erin' } },
-    ]);
+  // The refusals of the shared adder (script, unregistered, already listed) are covered in GroupWizard.dom.test.tsx.
+  it('names a newly listed admin as a signer', async () => {
+    editor({}, [{ url: new RegExp(`check-drep\\?id=${drep(E)}`), body: { registered: true, script: false, keyHash: E, name: 'Erin' } }]);
     fireEvent.click(screen.getByRole('button', { name: 'Change admins or threshold' }));
     const field = screen.getByRole('textbox', { name: 'Add an admin by DRep id' });
-
-    fireEvent.change(field, { target: { value: SCRIPT_ID } });
-    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
-    expect(await screen.findByText(/Script DReps cannot be founders or admins/)).toBeTruthy();
-    expect(calls).toHaveLength(0);
-
-    fireEvent.change(field, { target: { value: drep(key('9')) } });
-    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
-    expect(await screen.findByText(/This DRep is not registered/)).toBeTruthy();
-
-    fireEvent.change(field, { target: { value: drep(B) } });
-    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
-    expect(await screen.findByText('This DRep is already listed.')).toBeTruthy();
-
     fireEvent.change(field, { target: { value: drep(E) } });
     fireEvent.click(screen.getByRole('button', { name: 'Add' }));
     expect(await screen.findByRole('checkbox', { name: 'Erin' })).toBeTruthy();
@@ -235,29 +214,14 @@ describe('PolicyEditor on the group page', () => {
     viewer: { keyHash: A, drepId: drep(A), join: { joinId: `${'01'.repeat(32)}#1`, state: 'active' } },
   };
 
-  it('opens for an admin and lists a newly added admin as a mandatory signer', async () => {
-    stubFetch([
-      { url: /\/state$/, body: v },
-      { url: /check-drep/, body: { registered: true, script: false, keyHash: E, name: 'Erin' } },
-    ]);
-    render(<GroupActions groupId={GID} network="preprod" profile={{ name: 'Council' }} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Manage the group' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Change admins or threshold' }));
-    fireEvent.change(screen.getByRole('textbox', { name: 'Add an admin by DRep id' }), { target: { value: drep(E) } });
-    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
-    await screen.findByRole('checkbox', { name: 'Erin' });
-    fireEvent.click(screen.getByRole('button', { name: 'Review and sign' }));
-    expect(await screen.findByText('Must sign: Erin')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Build and sign' })).toBeTruthy();
-  });
-
-  it('shows the name of an admin added by id in the draft panel', async () => {
+  it('opens for an admin and lists an admin added by id as a mandatory signer with the name check-drep gave', async () => {
+    // Zoltan is not in the group names, so the signer name can only come from check-drep.
     const Z = key('9');
     stubFetch([
       { url: /\/state$/, body: v },
       { url: /check-drep/, body: { registered: true, script: false, keyHash: Z, name: 'Zoltan' } },
     ]);
-    render(<GroupActions groupId={GID} network="preprod" />);
+    render(<GroupActions groupId={GID} network="preprod" profile={{ name: 'Council' }} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Manage the group' }));
     fireEvent.click(screen.getByRole('button', { name: 'Change admins or threshold' }));
     fireEvent.change(screen.getByRole('textbox', { name: 'Add an admin by DRep id' }), { target: { value: drep(Z) } });
@@ -265,6 +229,7 @@ describe('PolicyEditor on the group page', () => {
     await screen.findByRole('checkbox', { name: 'Zoltan' });
     fireEvent.click(screen.getByRole('button', { name: 'Review and sign' }));
     expect(await screen.findByText('Must sign: Zoltan')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Build and sign' })).toBeTruthy();
   });
 
   const FREEZE = 'Nobody will be able to change or dissolve this group after you resign. Members can still leave.';

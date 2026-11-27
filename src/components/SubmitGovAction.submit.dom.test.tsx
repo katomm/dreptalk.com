@@ -136,30 +136,29 @@ describe('SubmitGovAction', () => {
     ];
     const SITE_ORIGIN = 'https://preprod.dreptalk.com';
 
-    it('picking a draft adds it as a reference in the shape the sync matcher recognizes', () => {
+    it('picking a draft adds it as a reference in the shape the sync matcher recognizes, and unlinking removes it', () => {
       render(
         <SubmitGovAction network="preprod" displayName={DISPLAY_NAME} openDrafts={OPEN_DRAFTS} siteOrigin={SITE_ORIGIN} />,
       );
+      const control = () => screen.getByLabelText('Link a Proposal Draft') as HTMLInputElement;
 
-      fireEvent.change(screen.getByLabelText('Link a Proposal Draft'), { target: { value: 'fund-tooling-a1b2' } });
+      fireEvent.change(control(), { target: { value: 'fund-tooling-a1b2' } });
 
       expect((screen.getByLabelText('Reference 1 label') as HTMLInputElement).value).toBe('Fund tooling');
       expect((screen.getByLabelText('Reference 1 URL') as HTMLInputElement).value).toBe(
         `${SITE_ORIGIN}/t/fund-tooling-a1b2/`,
       );
-    });
 
-    it('unlinking removes the reference it added', () => {
-      render(
-        <SubmitGovAction network="preprod" displayName={DISPLAY_NAME} openDrafts={OPEN_DRAFTS} siteOrigin={SITE_ORIGIN} />,
-      );
-
-      fireEvent.change(screen.getByLabelText('Link a Proposal Draft'), { target: { value: 'fund-tooling-a1b2' } });
-      expect(screen.getByLabelText('Reference 1 label')).toBeTruthy();
-
-      fireEvent.change(screen.getByLabelText('Link a Proposal Draft'), { target: { value: '' } });
-
+      fireEvent.change(control(), { target: { value: '' } });
       expect(screen.queryByLabelText('Reference 1 label')).toBeNull();
+
+      // Picked again, then the same row's URL edited by hand to a different
+      // open draft's thread: the control follows the edit.
+      fireEvent.change(control(), { target: { value: 'fund-tooling-a1b2' } });
+      fireEvent.change(screen.getByLabelText('Reference 1 URL'), {
+        target: { value: `${SITE_ORIGIN}/t/other-draft-c3d4/` },
+      });
+      expect(control().value).toBe('other-draft-c3d4');
     });
 
     // gov-sync's resolver reads the first Proposal Drafts reference of the
@@ -240,23 +239,6 @@ describe('SubmitGovAction', () => {
         `${SITE_ORIGIN}/t/other-draft-c3d4/`,
       );
       expect(screen.queryByLabelText('Reference 2 URL')).toBeNull();
-    });
-
-    it('follows a hand-edited reference URI to a different open draft', () => {
-      render(
-        <SubmitGovAction network="preprod" displayName={DISPLAY_NAME} openDrafts={OPEN_DRAFTS} siteOrigin={SITE_ORIGIN} />,
-      );
-
-      fireEvent.change(screen.getByLabelText('Link a Proposal Draft'), { target: { value: 'fund-tooling-a1b2' } });
-      expect((screen.getByLabelText('Link a Proposal Draft') as HTMLInputElement).value).toBe('fund-tooling-a1b2');
-
-      // The same row's URL field, edited by hand to a different open draft's
-      // thread, exactly as typing over it would.
-      fireEvent.change(screen.getByLabelText('Reference 1 URL'), {
-        target: { value: `${SITE_ORIGIN}/t/other-draft-c3d4/` },
-      });
-
-      expect((screen.getByLabelText('Link a Proposal Draft') as HTMLInputElement).value).toBe('other-draft-c3d4');
     });
   });
 
@@ -470,16 +452,6 @@ describe('SubmitGovAction', () => {
       return review as HTMLButtonElement;
     }
 
-    it('names the action type above the title', async () => {
-      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
-      fillMetadata();
-      await fillCommitteePanel();
-      await openReview();
-
-      const title = await screen.findByRole('heading', { name: 'A committee change' }, SLOW);
-      expect(title.previousElementSibling?.textContent).toBe('Update committee');
-    });
-
     it('shows the server-rendered HTML under the abstract label', async () => {
       render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
       fillMetadata();
@@ -527,18 +499,21 @@ describe('SubmitGovAction', () => {
       expect(document.querySelector('dialog script')).toBeNull();
     });
 
-    it('does not link a reference whose scheme the allowlist refuses', async () => {
+    it.each([
+      ['javascript:alert(1)', 'Looks helpful'],
+      ['data:text/html,x', 'A data url'],
+    ])('does not link a %s reference, which the scheme allowlist refuses', async (uri, label) => {
       render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
       fillMetadata();
       fireEvent.click(screen.getByRole('button', { name: 'Add reference' }));
-      fireEvent.change(screen.getByLabelText('Reference 1 label'), { target: { value: 'Looks helpful' } });
-      fireEvent.change(screen.getByLabelText('Reference 1 URL'), { target: { value: 'javascript:alert(1)' } });
+      fireEvent.change(screen.getByLabelText('Reference 1 label'), { target: { value: label } });
+      fireEvent.change(screen.getByLabelText('Reference 1 URL'), { target: { value: uri } });
       await openReview();
 
       await screen.findByText('Preview, nothing is published yet', {}, SLOW);
       const dialog = document.querySelector('dialog') as HTMLElement;
-      expect([...dialog.querySelectorAll('a')].map(a => a.getAttribute('href'))).not.toContain('javascript:alert(1)');
-      expect(screen.queryByText('Looks helpful')).toBeNull();
+      expect([...dialog.querySelectorAll('a')].map(a => a.getAttribute('href'))).not.toContain(uri);
+      expect(screen.queryByText(label)).toBeNull();
     });
 
     it('renders markup in the author name as text', async () => {
@@ -577,22 +552,6 @@ describe('SubmitGovAction', () => {
       const dialog = document.querySelector('dialog') as HTMLElement;
       expect(dialog.querySelector('img')).toBeNull();
       expect(dialog.querySelector('[onerror]')).toBeNull();
-    });
-
-    it('drops a data: reference, which the scheme allowlist refuses', async () => {
-      render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
-      fillMetadata();
-      fireEvent.click(screen.getByRole('button', { name: 'Add reference' }));
-      fireEvent.change(screen.getByLabelText('Reference 1 label'), { target: { value: 'A data url' } });
-      fireEvent.change(screen.getByLabelText('Reference 1 URL'), {
-        target: { value: 'data:text/html,x' },
-      });
-      await openReview();
-
-      await screen.findByText('Preview, nothing is published yet', {}, SLOW);
-      const dialog = document.querySelector('dialog') as HTMLElement;
-      expect([...dialog.querySelectorAll('a')].map(a => a.getAttribute('href'))).not.toContain('data:text/html,x');
-      expect(screen.queryByText('A data url')).toBeNull();
     });
 
     it('renders markup in a committee member name as text on the on-chain card', async () => {

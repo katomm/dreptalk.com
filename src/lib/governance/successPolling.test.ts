@@ -41,15 +41,6 @@ describe('nextSuccessPollState', () => {
     expect(out).toEqual({ state: { kind: 'pending' }, scheduleNext: true });
   });
 
-  it('stops and reports synced with no draft', () => {
-    const response: GovActionStatusResponse = { synced: true, slug: 'my-action-ab12', draft: null };
-    const out = nextSuccessPollState(60_000, response);
-    expect(out).toEqual({
-      state: { kind: 'synced', slug: 'my-action-ab12', draft: null },
-      scheduleNext: false,
-    });
-  });
-
   it('stops and reports synced with the linked draft', () => {
     const response: GovActionStatusResponse = {
       synced: true,

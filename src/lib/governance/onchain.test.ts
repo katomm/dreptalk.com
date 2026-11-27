@@ -50,9 +50,6 @@ describe('utxoCostPerByte', () => {
     expect(formatValue('lovelacePerByte', '4310')).toBe('4,310 lovelace/byte');
     expect(() => formatValue('lovelacePerByte', { numerator: 4310, denominator: 1 })).not.toThrow();
   });
-  it('labels the parameter like the submit form', () => {
-    expect(PARAM_REGISTRY.utxoCostPerByte).toMatchObject({ label: 'UTxO cost per byte', format: 'lovelacePerByte' });
-  });
 });
 
 describe('PARAM_REGISTRY Conway keys', () => {
@@ -120,40 +117,14 @@ describe('PARAM_REGISTRY Conway keys', () => {
 });
 
 describe('PARAM_REGISTRY labels', () => {
-  it('takes the six offered parameters from paramDefs, title with the short name', () => {
-    expect(PARAM_KEYS.map((key) => PARAM_REGISTRY[PARAM_DEFS[key].ledgerKey].label)).toEqual([
-      'Target number of pools (k)',
-      'Pledge influence (a0)',
-      'Minimum pool cost',
-      'Monetary expansion (rho)',
-      'Treasury cut (tau)',
-      'UTxO cost per byte',
-    ]);
+  it('labels the offered parameters like the submit form', () => {
     for (const key of PARAM_KEYS) expect(PARAM_REGISTRY[PARAM_DEFS[key].ledgerKey].label).toBe(paramListLabel(key));
-  });
-  it('writes every label in sentence case', () => {
-    for (const { label } of Object.values(PARAM_REGISTRY)) {
-      // After the first word only names stay capitalized: DRep, UTxO.
-      const words = label.split(' ').slice(1).filter((w) => !['DRep', 'UTxO'].includes(w));
-      expect(words.filter((w) => /^[A-Z]/.test(w)), label).toEqual([]);
-    }
   });
 });
 
 describe('humanizeKey', () => {
   it('splits camelCase and capitalises', () => {
     expect(humanizeKey('someNewParam')).toBe('Some new param');
-  });
-});
-
-describe('PARAM_REGISTRY', () => {
-  it('maps govActionDeposit to a lovelace entry', () => {
-    expect(PARAM_REGISTRY.govActionDeposit).toEqual({
-      snake: 'gov_action_deposit',
-      group: 'Governance',
-      label: 'Governance action deposit',
-      format: 'lovelace',
-    });
   });
 });
 

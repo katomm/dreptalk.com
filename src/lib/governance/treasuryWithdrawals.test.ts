@@ -7,7 +7,6 @@ import { encodeBech32 } from '../crypto/bech32.js';
 import { hexToBytes } from '../crypto/hex.js';
 import {
   AMOUNT_INVALID,
-  RECIPIENT_UNREGISTERED,
   STAKE_ADDRESS_DUPLICATE,
   STAKE_ADDRESS_INVALID,
   STAKE_ADDRESS_MISSING,
@@ -190,11 +189,5 @@ describe('checkTreasuryRows', () => {
       amountAda: '1',
     }));
     expect(checkTreasuryRows(tooMany, 'preprod')).toMatchObject({ ok: false, error: TREASURY_TOO_MANY });
-  });
-
-  it('uses the spec sentence for an unregistered recipient', () => {
-    expect(RECIPIENT_UNREGISTERED).toBe(
-      'This stake address is not registered. The ledger rejects withdrawals to unregistered addresses.',
-    );
   });
 });

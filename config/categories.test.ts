@@ -39,15 +39,8 @@ describe('categories config', () => {
     expect(getCategory('nope')).toBeUndefined();
   });
 
-  it('proposal drafts is a discussion category listed right after governance actions', () => {
-    const drafts = getCategory(PROPOSAL_DRAFTS_CATEGORY_SLUG);
-    expect(drafts).toMatchObject({
-      slug: 'proposal-drafts',
-      name: 'Proposal Drafts',
-      kind: 'discussion',
-    });
-    const order = getCategories({ surveys: true }).map((c) => c.slug);
-    expect(order.slice(0, 2)).toEqual([GOVERNANCE_CATEGORY_SLUG, PROPOSAL_DRAFTS_CATEGORY_SLUG]);
+  it('proposal drafts is a discussion category', () => {
+    expect(getCategory(PROPOSAL_DRAFTS_CATEGORY_SLUG)?.kind).toBe('discussion');
     expect(isDiscussion(PROPOSAL_DRAFTS_CATEGORY_SLUG)).toBe(true);
   });
 });

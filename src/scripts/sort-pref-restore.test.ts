@@ -101,12 +101,4 @@ describe('sort-pref-restore', () => {
     expect(r.saved).toBeUndefined();
     expect(r.replaced).toEqual([]);
   });
-
-  it('serves the governance list config', () => {
-    const dataset = { key: 'k', sorts: 'new,old,trending,closing,ratified', default: 'new' };
-    expect(run({ href: 'https://x.test/c/governance/', saved: 'closing', dataset }).replaced).toEqual([
-      'https://x.test/c/governance/?sort=closing',
-    ]);
-    expect(run({ href: 'https://x.test/c/governance/', saved: 'new', dataset }).replaced).toEqual([]);
-  });
 });

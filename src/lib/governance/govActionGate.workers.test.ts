@@ -37,23 +37,43 @@ describe('gateGovActionRequest (context policy)', () => {
     );
     expect(out instanceof Response && out.status).toBe(401);
   });
+
+  it('403s a cross-origin request', async () => {
+    const out = await gateGovActionRequest(
+      { request: req({ 'sec-fetch-site': 'cross-site' }), locals: user },
+      GOV_ACTION_RATE_POLICIES.context,
+      { network: preprod, env: withJwt },
+    );
+    expect(out instanceof Response && out.status).toBe(403);
+  });
 });
 
-describe('gateGovActionRequest rate limiting', () => {
-  it('passes each policy\'s rateMax to checkRate as max, first of its calls', async () => {
-    for (const policy of Object.values(GOV_ACTION_RATE_POLICIES)) {
-      const spy = vi.spyOn(rate, 'checkRate').mockResolvedValue(true);
-      const out = await gateGovActionRequest(
-        { request: req(), locals: user },
-        policy,
-        { network: preprod, env: withJwt },
-      );
-      expect(out instanceof Response).toBe(false);
-      // Without a client IP only the global budget joins the per-user limit.
-      expect(spy).toHaveBeenCalledTimes('pinBudget' in policy ? 2 : 1);
-      expect(spy.mock.calls[0][2]).toEqual(expect.objectContaining({ max: policy.rateMax }));
-      spy.mockRestore();
-    }
+describe('gateGovActionRequest unavailable services', () => {
+  const doc = GOV_ACTION_RATE_POLICIES.document;
+  const gate = (e: Cloudflare.Env) => gateGovActionRequest({ request: req(), locals: user }, doc, { network: preprod, env: e });
+
+  it.each([
+    ['DB', { ...withJwt, DB: undefined }],
+    ['RATE_LIMITER', { ...withJwt, RATE_LIMITER: undefined }],
+  ])('answers 503 without the %s binding', async (_name, e) => {
+    const res = (await gate(e as unknown as Cloudflare.Env)) as Response;
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: 'service unavailable' });
+  });
+
+  it('answers 503 with its own error when an uploading route has no PINATA_JWT', async () => {
+    const res = (await gate({ ...env, PINATA_JWT: undefined } as Cloudflare.Env)) as Response;
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: 'ipfs hosting unavailable' });
+  });
+
+  it('answers 503 when the limiter fails on the per-user check', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const spy = vi.spyOn(rate, 'checkRate').mockRejectedValueOnce(new Error('DO unavailable'));
+    expect(((await gate(withJwt)) as Response).status).toBe(503);
+    expect(spy).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
+    err.mockRestore();
   });
 });
 

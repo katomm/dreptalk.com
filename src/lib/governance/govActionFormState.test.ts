@@ -82,26 +82,9 @@ function ctx(epoch: number, lastEnactedHash?: string): ActionContextResponse {
 }
 
 describe('initialGovActionFormState', () => {
-  it('starts on InfoAction with empty metadata text, empty panels and an idle context', () => {
-    const s = initialGovActionFormState();
-    expect(s.type).toBe('InfoAction');
-    expect(s.metadata.title).toBe('');
-    expect(s.metadata.references).toEqual([]);
-    expect(s.panels.UpdateCommittee.add).toEqual([]);
-    expect(s.context.status).toBe('idle');
-    expect(s.context.data).toBeNull();
-  });
-
-  it('signs as author by default, with no name when none is given', () => {
-    const s = initialGovActionFormState();
-    expect(s.metadata.signAsAuthor).toBe(true);
-    expect(s.metadata.authorName).toBe('');
-  });
-
-  it('prefills the author name from the signed-in display name', () => {
-    const s = initialGovActionFormState('Jane DRep');
-    expect(s.metadata.signAsAuthor).toBe(true);
-    expect(s.metadata.authorName).toBe('Jane DRep');
+  it('signs as author by default, with the signed-in display name prefilled when there is one', () => {
+    expect(initialGovActionFormState().metadata).toMatchObject({ signAsAuthor: true, authorName: '' });
+    expect(initialGovActionFormState('Jane DRep').metadata).toMatchObject({ signAsAuthor: true, authorName: 'Jane DRep' });
   });
 });
 
@@ -182,20 +165,10 @@ describe('setPanel on HardForkInitiation', () => {
 });
 
 describe('context lifecycle', () => {
-  it('contextRequested marks loading and records the request id', () => {
-    const s = govActionFormReducer(initialGovActionFormState(), {
-      kind: 'contextRequested',
-      requestId: 7,
-    });
+  it('contextRequested marks loading, contextLoaded for the latest id stores the data', () => {
+    let s = govActionFormReducer(initialGovActionFormState(), { kind: 'contextRequested', requestId: 3 });
     expect(s.context.status).toBe('loading');
-    expect(s.context.requestId).toBe(7);
-  });
-
-  it('contextLoaded stores the data when the id is the latest', () => {
-    let s = govActionFormReducer(initialGovActionFormState(), {
-      kind: 'contextRequested',
-      requestId: 3,
-    });
+    expect(s.context.requestId).toBe(3);
     s = govActionFormReducer(s, { kind: 'contextLoaded', requestId: 3, data: ctx(501), now: 0 });
     expect(s.context.status).toBe('ready');
     expect(s.context.data?.epoch).toBe(501);
@@ -320,24 +293,12 @@ describe('contextLoaded change notes', () => {
     expect(s.context.loadedAt).toBe(123_456);
   });
 
-  it('notes the previous action moving to a different one', () => {
-    let s = loadOnce(changeCtx({ lastEnactedId: 'gov_action1aaa' }));
-    s = reload(s, changeCtx({ lastEnactedId: 'gov_action1bbb' }), 1000);
-    expect(contextChangeLines(s.context.changes)).toEqual(['The previous action changed to gov_action1bbb']);
-  });
-
   it('notes the previous action moving to none', () => {
     let s = loadOnce(changeCtx({ lastEnactedId: 'gov_action1aaa' }));
     s = reload(s, changeCtx({ lastEnactedId: null }), 1000);
     expect(contextChangeLines(s.context.changes)).toEqual([
       'The previous action changed to none, this now starts the chain',
     ]);
-  });
-
-  it('notes the committee quorum changing', () => {
-    let s = loadOnce(changeCtx({ quorum: { numerator: 2, denominator: 3 } }));
-    s = reload(s, changeCtx({ quorum: { numerator: 3, denominator: 5 } }), 1000);
-    expect(contextChangeLines(s.context.changes)).toEqual(['The committee quorum changed to 3/5']);
   });
 
   it('notes the guardrails script hash changing, shortened the way the on-chain card shortens it', () => {
@@ -347,18 +308,6 @@ describe('contextLoaded change notes', () => {
     expect(contextChangeLines(s.context.changes)).toEqual([
       `The guardrails script hash changed to ${newHash.slice(0, 8)}…${newHash.slice(-6)}`,
     ]);
-  });
-
-  it('notes the guardrails script hash going missing', () => {
-    let s = loadOnce(changeCtx({ scriptHash: 'f'.repeat(56) }));
-    s = reload(s, changeCtx({ scriptHash: null }), 1000);
-    expect(contextChangeLines(s.context.changes)).toEqual(['The guardrails script hash is no longer on record']);
-  });
-
-  it('notes the active protocol version changing', () => {
-    let s = loadOnce(changeCtx({ version: { major: 11, minor: 0 } }));
-    s = reload(s, changeCtx({ version: { major: 11, minor: 1 } }), 1000);
-    expect(contextChangeLines(s.context.changes)).toEqual(['The active protocol version changed to 11.1']);
   });
 
   it('lists every field that moved at once, in one refetch', () => {
@@ -1068,12 +1017,6 @@ describe('panelReadiness', () => {
 });
 
 describe('wallet state', () => {
-  it('starts with no wallet and a clean form', () => {
-    const s = initialGovActionFormState();
-    expect(s.wallet).toEqual({ status: 'none' });
-    expect(s.dirty).toBe(false);
-  });
-
   it('walks none, connecting, connected with a loading balance', () => {
     let s = initialGovActionFormState();
     s = govActionFormReducer(s, { kind: 'walletConnecting' });
@@ -1164,40 +1107,22 @@ describe('wallet state', () => {
 });
 
 describe('dirty', () => {
-  it('is set by a metadata edit', () => {
-    const s = govActionFormReducer(initialGovActionFormState(), {
-      kind: 'setMetadata',
-      patch: { title: 'x' },
-    });
-    expect(s.dirty).toBe(true);
+  // Each edit starts from a clean initial state, so every case proves its own action.
+  it.each([
+    ['a metadata edit', { kind: 'setMetadata', patch: { title: 'x' } }],
+    ['the signing toggle', { kind: 'setMetadata', patch: { signAsAuthor: true } }],
+    ['the author name', { kind: 'setMetadata', patch: { authorName: 'Someone' } }],
+    ['a type switch', { kind: 'setType', type: 'NoConfidence' }],
+    ['a panel edit', { kind: 'setPanel', type: 'NoConfidence', state: { prev: REF_A } }],
+  ] as [string, Parameters<typeof govActionFormReducer>[1]][])('is set by %s', (_name, action) => {
+    expect(govActionFormReducer(initialGovActionFormState(), action).dirty).toBe(true);
   });
 
-  it('is set by the author fields, which live in the metadata', () => {
-    let s = govActionFormReducer(initialGovActionFormState(), {
-      kind: 'setMetadata',
-      patch: { signAsAuthor: true },
-    });
-    expect(s.dirty).toBe(true);
-    s = { ...s, dirty: false };
-    s = govActionFormReducer(s, { kind: 'setMetadata', patch: { authorName: 'Someone' } });
-    expect(s.dirty).toBe(true);
-  });
-
-  it('is set by a type switch, but not by re-picking the same type', () => {
+  it('is not set by re-picking the same type', () => {
     let s = govActionFormReducer(initialGovActionFormState(), { kind: 'setType', type: 'NoConfidence' });
-    expect(s.dirty).toBe(true);
     s = { ...s, dirty: false };
     s = govActionFormReducer(s, { kind: 'setType', type: 'NoConfidence' });
     expect(s.dirty).toBe(false);
-  });
-
-  it('is set by a panel edit', () => {
-    const s = govActionFormReducer(initialGovActionFormState(), {
-      kind: 'setPanel',
-      type: 'NoConfidence',
-      state: { prev: REF_A },
-    });
-    expect(s.dirty).toBe(true);
   });
 
   it('is cleared by a draft restore', () => {

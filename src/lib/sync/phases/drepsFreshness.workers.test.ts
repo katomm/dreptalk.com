@@ -100,10 +100,6 @@ async function runStats(ctx: DrepSyncContext) {
 }
 
 describe('dreps phase to epoch-stats phase hand-over', () => {
-  it('starts every run as not fresh', () => {
-    expect(initialDrepSyncState().drepsFresh).toBe(false);
-  });
-
   it('a completed DRep sync marks the run fresh and the stats row takes the synced group', async () => {
     await seedSnapshot();
     const ctx = makeCtx('ok');

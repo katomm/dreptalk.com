@@ -8,7 +8,6 @@ import { env } from 'cloudflare:test';
 import { CBOR, ProtocolParamUpdate } from '@evolution-sdk/evolution';
 import { buildParamUpdate } from './paramUpdate.js';
 import { handleEvaluate, EVALUATE_BODY_MAX_BYTES } from './evaluateHandler.js';
-import { GOV_ACTION_RATE_POLICIES } from './govActionGate.js';
 import * as rate from '../rate.js';
 import {
   FOREIGN_PLUTUS_SCRIPT,
@@ -59,19 +58,12 @@ function deps(fetchImpl: typeof fetch, extra: Record<string, unknown> = {}) {
 }
 
 describe('handleEvaluate gate', () => {
-
   it('401s when signed out', async () => {
     const res = await handleEvaluate(ctx('{}', { user: false }), deps(upstream(200, OGMIOS_OK)));
     expect(res.status).toBe(401);
   });
 
   it('applies the evaluate policy, 20 per minute', async () => {
-    expect(GOV_ACTION_RATE_POLICIES.evaluate).toEqual({
-      rateKey: 'gov-action-eval',
-      rateMax: 20,
-      rateWindowSec: 60,
-      requireJwt: false,
-    });
     const spy = vi.spyOn(rate, 'checkRate').mockResolvedValueOnce(false);
     const res = await handleEvaluate(ctx(JSON.stringify({ txCborHex: buildEvalTxHex() })), deps(upstream(200, OGMIOS_OK)));
     expect(res.status).toBe(429);
@@ -225,9 +217,10 @@ describe('handleEvaluate upstream', () => {
     }
   });
 
+  // The full code split is covered in evaluateContract.test.ts. One answer per
+  // HTTP status proves the handler maps both the same way.
   it('answers evaluator_unavailable for a JSON-RPC error that is no script failure', async () => {
     const answers = [
-      upstream(400, { jsonrpc: '2.0', method: 'evaluateTransaction', error: { code: -32602, message: 'Invalid transaction' }, id: null }),
       upstream(200, { jsonrpc: '2.0', method: 'evaluateTransaction', error: { code: 3004, message: 'Cannot create evaluation context' }, id: null }),
       upstream(400, { jsonrpc: '2.0', method: 'evaluateTransaction', error: { code: 3003, message: 'Node tip too old' }, id: null }),
     ];

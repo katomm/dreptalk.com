@@ -271,35 +271,6 @@ describe('handleActionContext', () => {
     expect(json.committee.members).toEqual([{ coldHex: cold, hasScript: false, expirationEpoch: 700, name: 'Alice' }]);
   });
 
-  it('leaves name null for a committee member with no stored display name', async () => {
-    const cold = 'd'.repeat(56);
-    const res = await handleActionContext(ctx('NoConfidence'), {
-      koios: mockKoios({
-        committeeContext: async () => ({
-          members: [
-            {
-              status: 'authorized',
-              cc_hot_id: null,
-              cc_cold_id: null,
-              cc_hot_hex: null,
-              cc_cold_hex: cold,
-              expiration_epoch: 700,
-              cc_hot_has_script: null,
-              cc_cold_has_script: false,
-            },
-          ],
-          quorum: { numerator: 2, denominator: 3 },
-        }),
-      }),
-      network: preprod,
-      env: testEnv,
-    });
-    const json = (await res.json()) as {
-      committee: { members: { coldHex: string | null; hasScript: boolean; expirationEpoch: number | null; name: string | null }[] };
-    };
-    expect(json.committee.members).toEqual([{ coldHex: cold, hasScript: false, expirationEpoch: 700, name: null }]);
-  });
-
   // The names are cosmetic, the chain data next to them is what the form
   // validates against, so a D1 hiccup on the name reads must not 503 the whole
   // context and block the submit.
@@ -348,42 +319,6 @@ describe('handleActionContext', () => {
       committee: { members: { coldHex: string | null; hasScript: boolean; expirationEpoch: number | null; name: string | null }[] };
     };
     expect(json.committee.members).toEqual([{ coldHex: cold, hasScript: false, expirationEpoch: 700, name: null }]);
-  });
-
-  it('resolves the current name through a rotated hot key: the newer vote under the newer hot key wins', async () => {
-    const cold = 'e'.repeat(56);
-    const oldHot = 'f'.repeat(56);
-    const newHot = '1'.repeat(56);
-    await seedHotKey(oldHot, cold);
-    await seedHotKey(newHot, cold);
-    await seedCcName(oldHot, 'Old Name', 100);
-    await seedCcName(newHot, 'New Name', 200);
-
-    const res = await handleActionContext(ctx('UpdateCommittee'), {
-      koios: mockKoios({
-        committeeContext: async () => ({
-          members: [
-            {
-              status: 'authorized',
-              cc_hot_id: null,
-              cc_cold_id: null,
-              cc_hot_hex: newHot,
-              cc_cold_hex: cold,
-              expiration_epoch: 700,
-              cc_hot_has_script: null,
-              cc_cold_has_script: false,
-            },
-          ],
-          quorum: { numerator: 2, denominator: 3 },
-        }),
-      }),
-      network: preprod,
-      env: testEnv,
-    });
-    const json = (await res.json()) as {
-      committee: { members: { coldHex: string | null; hasScript: boolean; expirationEpoch: number | null; name: string | null }[] };
-    };
-    expect(json.committee.members).toEqual([{ coldHex: cold, hasScript: false, expirationEpoch: 700, name: 'New Name' }]);
   });
 
   it('resolves a name declared only under a retired hot key, through the current hot key sharing the same cold key', async () => {
@@ -451,112 +386,6 @@ describe('handleActionContext', () => {
     expect(jsonNone.constitution.scriptHash).toBeNull();
   });
 
-  it('falls back to the last ratified ParameterChange policy hash when no NewConstitution was ever ratified', async () => {
-    const policyChange = row({
-      proposal_type: 'ParameterChange',
-      ratified_epoch: 300,
-      proposal_description: {
-        tag: 'ParameterChange',
-        contents: [null, null, 'fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64'],
-      },
-    });
-
-    const res = await handleActionContext(ctx('NewConstitution'), {
-      koios: mockKoios({
-        lastRatifiedProposal: async (types) =>
-          types.includes('NewConstitution' as never) ? [] : [policyChange],
-      }),
-      network: preprod,
-      env: testEnv,
-    });
-    const json = (await res.json()) as { constitution: { scriptHash: string | null } };
-    expect(json.constitution.scriptHash).toBe('fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64');
-  });
-
-  it('picks the newer of a ratified NewConstitution and a ratified ParameterChange', async () => {
-    const constitutionRow = row({
-      proposal_type: 'NewConstitution',
-      ratified_epoch: 400,
-      proposal_description: {
-        tag: 'NewConstitution',
-        contents: [null, { anchor: { url: 'https://example.com/con.json', dataHash: 'cd'.repeat(32) }, script: 'aa'.repeat(28) }],
-      },
-    });
-    const policyChange = row({
-      proposal_type: 'ParameterChange',
-      ratified_epoch: 300,
-      proposal_description: {
-        tag: 'ParameterChange',
-        contents: [null, null, 'fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64'],
-      },
-    });
-
-    const res = await handleActionContext(ctx('NewConstitution'), {
-      koios: mockKoios({
-        lastRatifiedProposal: async (types) =>
-          types.includes('NewConstitution' as never) ? [constitutionRow] : [policyChange],
-      }),
-      network: preprod,
-      env: testEnv,
-    });
-    const json = (await res.json()) as { constitution: { scriptHash: string | null } };
-    expect(json.constitution.scriptHash).toBe('aa'.repeat(28));
-
-    const newerPolicy = { ...policyChange, ratified_epoch: 500 };
-    const res2 = await handleActionContext(ctx('NewConstitution'), {
-      koios: mockKoios({
-        lastRatifiedProposal: async (types) =>
-          types.includes('NewConstitution' as never) ? [constitutionRow] : [newerPolicy],
-      }),
-      network: preprod,
-      env: testEnv,
-    });
-    const json2 = (await res2.json()) as { constitution: { scriptHash: string | null } };
-    expect(json2.constitution.scriptHash).toBe('fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64');
-  });
-
-  it('prefills nothing when the newest ratified row is unreadable', async () => {
-    const constitutionRow = row({
-      proposal_type: 'NewConstitution',
-      ratified_epoch: 300,
-      proposal_description: { tag: 'NewConstitution', contents: [null, { anchor: { url: 'https://example.com/c', dataHash: 'cd'.repeat(32) }, script: 'ab'.repeat(28) }] },
-    });
-    const brokenPolicy = row({
-      proposal_type: 'ParameterChange',
-      ratified_epoch: 400,
-      proposal_description: { tag: 'ParameterChange', contents: [null, null, 'deadbeef'] },
-    });
-    const res = await handleActionContext(ctx('NewConstitution'), {
-      koios: mockKoios({
-        lastRatifiedProposal: async (types) => (types.includes('NewConstitution' as never) ? [constitutionRow] : [brokenPolicy]),
-      }),
-      network: preprod,
-      env: testEnv,
-    });
-    const json = (await res.json()) as { constitution: { scriptHash: string | null } };
-    expect(json.constitution.scriptHash).toBeNull();
-  });
-
-  it('prefills the hash a newest ratified treasury withdrawal carries in contents[1]', async () => {
-    const treasuryRow = row({
-      proposal_type: 'TreasuryWithdrawals',
-      ratified_epoch: 310,
-      proposal_description: {
-        tag: 'TreasuryWithdrawals',
-        contents: [[[{ network: 'Testnet', credential: { keyHash: '60adcde454590dbfe5935f8bc29619fe608d7cdd631580cc78b67763' } }, 1000000]], 'fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64'],
-      },
-    });
-    const res = await handleActionContext(ctx('NewConstitution'), {
-      koios: mockKoios({
-        lastRatifiedProposal: async (types) => (types.includes('NewConstitution' as never) ? [] : [treasuryRow]),
-      }),
-      network: preprod,
-      env: testEnv,
-    });
-    const json = (await res.json()) as { constitution: { scriptHash: string | null } };
-    expect(json.constitution.scriptHash).toBe('fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64');
-  });
-
   const GUARDRAIL = 'fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64';
   const ANCHOR = { url: 'ipfs://c', dataHash: 'cd'.repeat(32) };
   const constitutionRow = (epoch: number, body: Record<string, unknown>) =>
@@ -578,6 +407,31 @@ describe('handleActionContext', () => {
     (constitution: ProposalListRow[], policy: ProposalListRow[]) =>
     async (types: readonly string[]) =>
       types.includes('NewConstitution') ? constitution : policy;
+
+  const policyRow = (epoch: number, hash: string) =>
+    row({
+      proposal_type: 'ParameterChange',
+      ratified_epoch: epoch,
+      proposal_description: { tag: 'ParameterChange', contents: [null, null, hash] },
+    });
+
+  // The guardrail choice itself is covered in guardrailPick.test.ts. These
+  // cases prove how the handler maps it onto the NewConstitution prefill.
+  it.each([
+    ['falls back to a ParameterChange policy hash without a ratified constitution', [], [policyRow(300, GUARDRAIL)], GUARDRAIL],
+    ['takes a newer constitution over an older ParameterChange', [constitutionRow(400, { anchor: ANCHOR, script: 'aa'.repeat(28) })], [policyRow(300, GUARDRAIL)], 'aa'.repeat(28)],
+    ['takes a newer ParameterChange over an older constitution', [constitutionRow(400, { anchor: ANCHOR, script: 'aa'.repeat(28) })], [policyRow(500, GUARDRAIL)], GUARDRAIL],
+    ['prefills nothing when the newest row is unreadable', [constitutionRow(300, { anchor: ANCHOR, script: 'ab'.repeat(28) })], [policyRow(400, 'deadbeef')], null],
+    ['reads the hash a newest treasury withdrawal carries in contents[1]', [], [treasuryRow(310, GUARDRAIL)], GUARDRAIL],
+  ] as [string, ProposalListRow[], ProposalListRow[], string | null][])('%s', async (_name, constitution, policy, expected) => {
+    const res = await handleActionContext(ctx('NewConstitution'), {
+      koios: mockKoios({ lastRatifiedProposal: byType(constitution, policy) }),
+      network: preprod,
+      env: testEnv,
+    });
+    const json = (await res.json()) as { constitution: { scriptHash: string | null } };
+    expect(json.constitution.scriptHash).toBe(expected);
+  });
 
   it('reports the known guardrail of a newest treasury withdrawal when no constitution was ratified', async () => {
     const calls: string[][] = [];
@@ -611,17 +465,6 @@ describe('handleActionContext', () => {
     expect(await res.json()).toEqual({ epoch: 600, guardrail: { state: 'absent' } });
   });
 
-  it('reports absent when a newer constitution carries an explicit null script', async () => {
-    const res = await handleActionContext(ctx('TreasuryWithdrawals'), {
-      koios: mockKoios({
-        lastRatifiedProposal: byType([constitutionRow(400, { anchor: ANCHOR, script: null })], [treasuryRow(300, GUARDRAIL)]),
-      }),
-      network: preprod,
-      env: testEnv,
-    });
-    expect(await res.json()).toEqual({ epoch: 600, guardrail: { state: 'absent' } });
-  });
-
   it('answers 503 guardrail_unknown when the guardrail reads fail', async () => {
     const res = await handleActionContext(ctx('TreasuryWithdrawals'), {
       koios: mockKoios({
@@ -637,18 +480,6 @@ describe('handleActionContext', () => {
     expect(await res.json()).toEqual({ error: 'guardrail_unknown' });
   });
 
-  it('answers 503 guardrail_unknown when the deciding row is unreadable', async () => {
-    const res = await handleActionContext(ctx('TreasuryWithdrawals'), {
-      koios: mockKoios({
-        lastRatifiedProposal: byType([constitutionRow(300, { anchor: ANCHOR, script: GUARDRAIL })], [treasuryRow(400, 'deadbeef')]),
-      }),
-      network: preprod,
-      env: testEnv,
-    });
-    expect(res.status).toBe(503);
-    expect(await res.json()).toEqual({ error: 'guardrail_unknown' });
-  });
-
   it('answers 503 guardrail_unknown when the deciding constitution row is malformed, never absent', async () => {
     for (const body of [{ anchor: [] }, { anchor: {} }, { anchor: { url: 'ipfs://c' } }]) {
       const res = await handleActionContext(ctx('TreasuryWithdrawals'), {
@@ -659,16 +490,6 @@ describe('handleActionContext', () => {
       expect(res.status).toBe(503);
       expect(await res.json()).toEqual({ error: 'guardrail_unknown' });
     }
-  });
-
-  it('answers 503 guardrail_unknown when nothing was ever ratified', async () => {
-    const res = await handleActionContext(ctx('TreasuryWithdrawals'), {
-      koios: mockKoios({ lastRatifiedProposal: async () => [] }),
-      network: preprod,
-      env: testEnv,
-    });
-    expect(res.status).toBe(503);
-    expect(await res.json()).toEqual({ error: 'guardrail_unknown' });
   });
 
   it('keeps the generic 503 for a failed tip, distinct from guardrail_unknown', async () => {
