@@ -4,6 +4,8 @@
 // SPOs by vote time. Each row shows identity, vote badge, vote time, and power.
 // Rows with a rationale become expandable via native <details> (no inline script, CSP-safe).
 // A role segment (DReps / SPOs) toggles which voter list is shown.
+import GaPassList from './GaPassList.astro';
+import type { PassListView } from '@/lib/governance/passPathView.js';
 import AuthorIdentity from '@/components/AuthorIdentity.astro';
 import Avatar from '@/components/Avatar.astro';
 import EarlierVotes from '@/components/EarlierVotes.astro';
@@ -63,9 +65,11 @@ interface Props {
   spoChanges: ActionVoteChanges | null;
   /** One-sentence DRep change summary (direction counts, moved power), null when nothing changed. */
   drepChangeLine: string | null;
+  /** Open actions short of the DRep threshold: the fewest DReps whose switch would reach it. */
+  passList?: PassListView | null;
 }
 
-const { voters, dreps, spoVoters, pools, spoTotal, total, page, pageSize, role, sort, sortInUrl, slug, rationales, notCounted, voteHistory, now, ccRows, ccUncounted, ccProfileKeys, ccTotal, concentration, concentrationThresholdPct, drepChanges, spoChanges, drepChangeLine } = Astro.props;
+const { voters, dreps, spoVoters, pools, spoTotal, total, page, pageSize, role, sort, sortInUrl, slug, rationales, notCounted, voteHistory, now, ccRows, ccUncounted, ccProfileKeys, ccTotal, concentration, concentrationThresholdPct, drepChanges, spoChanges, drepChangeLine, passList = null } = Astro.props;
 
 // One-decimal percent for the concentration strip, matching the hub's fmtShare.
 const fmtConcPct = (pct: number): string => `${pct.toFixed(1)}%`;
@@ -244,6 +248,8 @@ const ccLists: { counted: boolean; rows: CcListRow[] }[] = [
       )}
     </div>
   )}
+
+  {role === 'drep' && page === 1 && passList && <GaPassList list={passList} />}
 
   {role === 'drep' && total > 1 && (
     <div class="ga-positions__sort">

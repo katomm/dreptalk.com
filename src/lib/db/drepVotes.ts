@@ -12,6 +12,8 @@ import { buildJobInsert, type FanoutEventType } from './fanoutJobs.js';
 import { chunked, D1_MAX_BINDS, sqlPlaceholders, DB_NOW_MS } from './sql.js';
 import { concludedStatusSql } from './sql.js';
 import { voteBucket } from '@/lib/governance/view.js';
+import type { PassCandidate } from '@/lib/governance/passPath.js';
+import { SPECIAL_DREP_IDS } from '@/lib/dreps/special.js';
 import type { VoterSort } from '@/lib/governance/positionsParams.js';
 
 export interface VoteInput {
@@ -1007,6 +1009,54 @@ export async function listDrepVotePowers(db: D1Database, gaId: string): Promise<
       .all<{ voted_power: number | null }>()
   ).results ?? [];
   return rows.map((r) => r.voted_power);
+}
+
+/**
+ * DReps who could still switch to Yes on one action: active DReps without a live
+ * vote, plus every live No and Abstain voter. Live Yes voters come along too, so
+ * the caller can check the rows against the tally's yes bucket. The predefined pseudo-DReps are left
+ * out, they are not voters. Votes match case-insensitively, so pending local votes
+ * (stored lowercase) count like synced ones. A failed local vote is no vote, so its
+ * DRep reads as not voted. Power is the current dreps.voting_power. Rows with a
+ * missing, malformed or zero power are dropped. Returns null on a D1 error so the
+ * page renders without the list.
+ */
+export async function listPassCandidates(db: D1Database, gaId: string): Promise<PassCandidate[] | null> {
+  type Row = { drep_id: string; slug: string | null; name: string | null; voting_power: string | null; vote: string | null };
+  let rows: Row[];
+  try {
+    rows =
+      (
+        await db
+          .prepare(
+            `SELECT d.drep_id AS drep_id, d.slug AS slug, d.name AS name, d.voting_power AS voting_power, v.vote AS vote
+               FROM dreps d
+               LEFT JOIN drep_votes v
+                 ON v.ga_id = ? AND v.voter_role = 'DRep' AND v.voter_id = d.drep_id AND ${liveVoteSql('v')}
+              WHERE d.drep_id NOT IN (${sqlPlaceholders(SPECIAL_DREP_IDS)})
+                AND (v.vote IS NOT NULL OR d.active = 1)`,
+          )
+          .bind(gaId, ...SPECIAL_DREP_IDS)
+          .all<Row>()
+      ).results ?? [];
+  } catch (err) {
+    console.warn('listPassCandidates failed', err);
+    return null;
+  }
+  const out: PassCandidate[] = [];
+  for (const r of rows) {
+    let power: bigint;
+    try {
+      power = BigInt(r.voting_power ?? '');
+    } catch {
+      continue;
+    }
+    if (power <= 0n) continue;
+    const bucket = r.vote == null ? null : voteBucket(r.vote);
+    const stance = bucket == null ? 'notVoted' : bucket === 'yes' ? 'Yes' : bucket === 'no' ? 'No' : 'Abstain';
+    out.push({ drepId: r.drep_id, slug: r.slug, name: r.name, power, stance });
+  }
+  return out;
 }
 
 /**
