@@ -740,10 +740,9 @@ const onchainChanges = govAction
   : null;
 
 // Other withdrawals naming the same recipients, keyed by recipient key.
-const treasuryHistoryRows = round2.treasuryHistoryRows;
 const recipientHistories =
-  treasuryHistoryRows && onchainChanges?.kind === 'treasury'
-    ? buildRecipientHistories(treasuryHistoryRows, onchainChanges.rows.map((r) => r.key ?? null))
+  round2.treasuryHistoryRows && onchainChanges?.kind === 'treasury'
+    ? buildRecipientHistories(round2.treasuryHistoryRows, onchainChanges.rows.map((r) => r.key ?? null))
     : null;
 
 // Impact charts for a parameter change: the proposed values against the ones in

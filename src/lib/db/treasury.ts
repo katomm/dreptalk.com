@@ -86,11 +86,13 @@ export async function getNclActionLinks(db: D1Database, ids: string[]): Promise<
  * first, for the recipient history on a withdrawal's detail page. The payload
  * stays raw text, the pure builder parses and skips what does not parse. The
  * slug only comes from a live topic, so an action without one is listed unlinked.
+ * A full scan on purpose: about a hundred rows on mainnet, the same pattern as
+ * getEnactedTreasuryWithdrawals. A recipient table pays off only at thousands.
  */
 export async function listTreasuryHistoryRows(db: D1Database, excludeId: string): Promise<HistorySourceRow[]> {
   const { results } = await db
     .prepare(
-      `SELECT g.id, g.proposal_id AS proposalId, g.title, g.status, g.return_address AS returnAddress,
+      `SELECT g.id, g.title, g.status, g.return_address AS returnAddress,
               g.submitted_epoch AS submittedEpoch, g.submitted_at AS submittedAt, g.onchain_payload AS payload, t.slug
          FROM governance_actions g
          LEFT JOIN topics t ON t.id = g.topic_id AND t.deleted = 0

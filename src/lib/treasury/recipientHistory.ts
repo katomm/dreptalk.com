@@ -9,7 +9,6 @@ import { proposerView } from '../identity/proposer.js';
 
 export interface HistorySourceRow {
   id: string;
-  proposalId: string | null;
   title: string | null;
   status: string;
   returnAddress: string | null;
@@ -57,7 +56,6 @@ function parsePayload(text: string): unknown {
 export function buildRecipientHistories(rows: HistorySourceRow[], keys: (RecipientKey | null)[]): Map<string, RecipientHistory> {
   const items = new Map<string, HistoryItem[]>();
   for (const k of keys) if (k) items.set(recipientKeyId(k), []);
-  if (items.size === 0) return new Map();
 
   for (const r of rows) {
     // Sum this row's entries per wanted key, so a repeated recipient is one item.

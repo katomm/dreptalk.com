@@ -19,7 +19,6 @@ const pay = (...e: [RecipientKey, number][]) =>
   });
 const row = (id: string, status: string, payload: string, slug: string | null = id): HistorySourceRow => ({
   id,
-  proposalId: null,
   title: `T ${id}`,
   status,
   returnAddress: null,

@@ -267,13 +267,8 @@ interface RewardAccount {
 // comes from app config, not the payload's "network" string (untrusted). Builds
 // the 29-byte reward address (header + 28-byte hash) and reuses the stake encoder.
 export function rewardAccountToBech32(acct: RewardAccount, network: CardanoNetwork): string {
-  const cred = acct?.credential ?? {};
-  const isScript = typeof cred.scriptHash === 'string';
-  const hashHex = isScript ? cred.scriptHash : cred.keyHash;
-  if (typeof hashHex !== 'string' || !HEX_HASH_224_RE.test(hashHex)) return '(unknown recipient)';
-  const header = (isScript ? 0xf0 : 0xe0) | (network === 'mainnet' ? 1 : 0);
-  const headerHex = header.toString(16).padStart(2, '0');
-  return rewardAddressToStakeBech32(headerHex + hashHex.toLowerCase(), network);
+  const key = recipientKey(acct);
+  return key ? recipientKeyToBech32(key, network) : '(unknown recipient)';
 }
 
 /** A treasury recipient: credential type plus lowercase 28-byte hash. */
@@ -289,6 +284,12 @@ export interface TreasuryEntry {
 
 export function recipientKeyId(k: RecipientKey): string {
   return `${k.credType}:${k.hash}`;
+}
+
+/** Bech32 stake address of a validated recipient key. */
+export function recipientKeyToBech32(key: RecipientKey, network: CardanoNetwork): string {
+  const header = (key.credType === 'scriptHash' ? 0xf0 : 0xe0) | (network === 'mainnet' ? 1 : 0);
+  return rewardAddressToStakeBech32(header.toString(16).padStart(2, '0') + key.hash, network);
 }
 
 function recipientKey(acct: unknown): RecipientKey | null {
@@ -538,7 +539,7 @@ function decodeTreasury(contents: unknown[], network: CardanoNetwork): OnchainCh
   let total = 0n;
   for (const { key, lovelace } of treasuryEntries({ tag: 'TreasuryWithdrawals', contents })) {
     total += lovelace;
-    const address = key ? rewardAccountToBech32({ credential: { [key.credType]: key.hash } }, network) : '(unknown recipient)';
+    const address = key ? recipientKeyToBech32(key, network) : '(unknown recipient)';
     rows.push({ address, ada: formatAda(String(lovelace)) ?? `${lovelace}`, key });
   }
   return { kind: 'treasury', rows, totalAda: formatAda(String(total)) ?? `${total}` };
