@@ -110,7 +110,14 @@ import { parseSlug } from '@/lib/review/windows.js';
 import NclMiniCard from '@/components/ncl/NclMiniCard.astro';
 import { NCL_PERIODS } from '../../../config/ncl-periods.js';
 import { nclStatusFor, currentNclPeriod } from '@/lib/governance/ncl.js';
-import { getEnactedTreasuryWithdrawals, getNclActionLinks, type NclActionLink } from '@/lib/db/treasury.js';
+import {
+  countActionsByReturnAddress,
+  getEnactedTreasuryWithdrawals,
+  getNclActionLinks,
+  listTreasuryHistoryRows,
+  type NclActionLink,
+} from '@/lib/db/treasury.js';
+import { buildRecipientHistories } from '@/lib/treasury/recipientHistory.js';
 import { env } from 'cloudflare:workers';
 import { requestDb } from '@/lib/db/requestDb.js';
 import { THREAD_PAGE_SIZE, pageCount, threadPageUrl } from '@/lib/forum/paging.js';
@@ -362,6 +369,14 @@ const round2 = await awaitAll({
     nclPeriod && db
       ? getNclActionLinks(db, [...nclPeriod.definingActionIds, ...nclPeriod.relatedActionIds])
       : Promise.resolve(null),
+  // Recipient history under the payout rows: every other treasury payload, only
+  // on the Overview of a treasury withdrawal.
+  treasuryHistoryRows:
+    db && govAction && tab === 'overview' && govAction.type === 'TreasuryWithdrawals'
+      ? listTreasuryHistoryRows(db, govAction.id)
+      : Promise.resolve(null),
+  // All actions from the proposer's return address, for the Proposer card line.
+  proposerActionCount: db && govAction ? countActionsByReturnAddress(db, govAction.returnAddress) : Promise.resolve(null),
   // Other actions from the same proposer, for the sidebar.
   related: govAction && db
     ? getRelatedActions(db, { excludeId: govAction.id, returnAddress: govAction.returnAddress, limit: 6 })
@@ -724,6 +739,13 @@ const onchainChanges = govAction
   ? decodeOnchainChanges(govAction.onchainPayload ?? null, onchainOldValuesJson(govAction.type, govAction.status, basisRow, params?.rawJson ?? null), network)
   : null;
 
+// Other withdrawals naming the same recipients, keyed by recipient key.
+const treasuryHistoryRows = round2.treasuryHistoryRows;
+const recipientHistories =
+  treasuryHistoryRows && onchainChanges?.kind === 'treasury'
+    ? buildRecipientHistories(treasuryHistoryRows, onchainChanges.rows.map((r) => r.key ?? null))
+    : null;
+
 // Impact charts for a parameter change: the proposed values against the ones in
 // force. Null when no offered parameter has both values.
 let paramImpact: GaParamImpactProps | null = null;
@@ -1032,7 +1054,14 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
                       {spoTotal} {spoTotal === 1 ? 'SPO' : 'SPOs'} voted on this action, see how
                     </a>
                   )}
-                  <GaOverview action={govAction} onchain={onchainChanges} committeeNames={committeeNames} paramImpact={paramImpact} />
+                  <GaOverview
+                    action={govAction}
+                    onchain={onchainChanges}
+                    committeeNames={committeeNames}
+                    paramImpact={paramImpact}
+                    recipientHistories={recipientHistories}
+                    network={network}
+                  />
                   {nclProps && (
                     <NclPanel
                       status={nclProps.status}
@@ -1105,6 +1134,7 @@ const ogImage = topic ? `/og/t/${topic.slug}.png?v=${ogVersion}` : undefined;
               passCandidates={round2.passCandidates}
               ccBoundarySize={ccBoundarySize}
               nclRemaining={nclMiniCardProps?.remainingLovelace ?? null}
+              proposerActionCount={round2.proposerActionCount}
             >
               {nclMiniCardProps && (
                 <NclMiniCard slot="after-status" {...nclMiniCardProps} />

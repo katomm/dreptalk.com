@@ -42,6 +42,8 @@ interface Props {
   passCandidates?: PassCandidate[] | null;
   ccBoundarySize?: number | null;
   nclRemaining?: bigint | null;
+  // All actions from the proposer's return address, for the Proposer card.
+  proposerActionCount?: number | null;
 }
 
 const {
@@ -62,6 +64,7 @@ const {
   passCandidates = null,
   ccBoundarySize = null,
   nclRemaining = null,
+  proposerActionCount = null,
 } = Astro.props;
 ---
 
@@ -75,7 +78,7 @@ const {
       action type. */}
   <slot name="after-status" />
   <VotingInfoCard action={action} params={params} drepStakeTotal={drepStakeTotal} now={now} miniChart={miniChart} trendHref={trendHref} passCandidates={passCandidates} ccBoundarySize={ccBoundarySize} nclRemaining={nclRemaining} actionHref={`/t/${slug}/`} />
-  <ProposerCard returnAddress={action.returnAddress} />
+  <ProposerCard returnAddress={action.returnAddress} proposerActionCount={proposerActionCount} />
   <AuthorsCard authors={action.authors} />
   {/* The Proposal Drafts thread this action was discussed in before submission.
       Rendered here rather than as its own component so the scoped

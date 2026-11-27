@@ -1,8 +1,18 @@
 ---
 // "On-chain changes" block for the Overview: renders the decoded payload per type.
 // Renders nothing when there is no decodable payload.
-import type { OnchainChanges } from '@/lib/governance/onchain.js';
+import { recipientKeyId, type OnchainChanges } from '@/lib/governance/onchain.js';
 import { truncateIdMiddle } from '@/lib/forum/view.js';
+import { statusBadge, submittedDateLabel } from '@/lib/governance/view.js';
+import { formatAda } from '@/lib/format/ada.js';
+import { resolveNetwork, type CardanoNetwork } from '@/lib/config/network.js';
+import {
+  payoutNotes,
+  payoutVerb,
+  proposerShortLabel,
+  recipientHistorySentence,
+  type RecipientHistory,
+} from '@/lib/treasury/recipientHistory.js';
 import { resolveAnchorUrl } from '@/lib/governance/metadata.js';
 import CopyButton from '@/components/CopyButton.astro';
 import Avatar from '@/components/Avatar.astro';
@@ -15,8 +25,16 @@ interface Props {
   committeeNames?: Map<string, string>;
   // Impact charts for an active parameter change, rendered below the rows.
   paramImpact?: GaParamImpactProps | null;
+  // Treasury only: other withdrawals per recipient key, null when not loaded.
+  recipientHistories?: Map<string, RecipientHistory> | null;
+  // Status and return address of the viewed action, for the payout verb and notes.
+  actionStatus: string;
+  returnAddress: string | null;
+  network: CardanoNetwork;
 }
-const { changes, committeeNames, paramImpact } = Astro.props;
+const { changes, committeeNames, paramImpact, recipientHistories, actionStatus, returnAddress, network } = Astro.props;
+const netCfg = resolveNetwork(network);
+const verb = payoutVerb(actionStatus);
 
 // The new-constitution document is an on-chain URI (often ipfs://); map it to a
 // browser-openable URL so the link is not dead, keeping the raw URI as the text.
@@ -78,8 +96,41 @@ const show =
           {changes.rows.map((r) => (
             <li class="ocx__row ocx__pay">
               <span class="ocx__new ocx__payamt">{r.ada}</span>
-              <span class="ocx__payto">paid to</span>
+              <span class="ocx__payto">{verb}</span>
               <span class="ocx__payaddr mono" title={r.address}>{truncateIdMiddle(r.address)}</span><CopyButton value={r.address} label="Copy address" />
+              {payoutNotes(r, returnAddress).map((n) => <span class="ocx__paynote">{n}</span>)}
+              {(() => {
+                const h = r.key ? recipientHistories?.get(recipientKeyId(r.key)) : undefined;
+                if (!h) return null;
+                return (
+                  <div class="ocx__hist">
+                    <p class="ocx__histline">{recipientHistorySentence(h)}</p>
+                    {h.items.length > 0 && (
+                      <details class="ocx__histmore">
+                        <summary>Show all {h.items.length}</summary>
+                        <ul class="ocx__histlist">
+                          {h.items.map((it) => {
+                            const badge = statusBadge(it.status);
+                            const who = proposerShortLabel(it.returnAddress);
+                            const date = submittedDateLabel(it.submittedAt, it.submittedEpoch, netCfg);
+                            return (
+                              <li class="ocx__histitem">
+                                {it.href ? <a href={it.href} class="ocx__histtitle">{it.title}</a> : <span class="ocx__histtitle">{it.title}</span>}
+                                <span class="ocx__histmeta">
+                                  <span class={`badge badge--${badge.tone}`}>{badge.label}</span>
+                                  <span class="ocx__new">{formatAda(String(it.lovelace))}</span>
+                                  {who && <span>{who}</span>}
+                                  {date && <span>{date}</span>}
+                                </span>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </details>
+                    )}
+                  </div>
+                );
+              })()}
             </li>
           ))}
         </ul>
@@ -241,6 +292,55 @@ const show =
   .ocx__payaddr {
     color: var(--fg);
   }
+  .ocx__paynote {
+    font-size: 0.72rem;
+    color: var(--muted);
+  }
+  /* Recipient history: takes the full row width under the payout sentence. */
+  .ocx__hist {
+    flex-basis: 100%;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+  .ocx__histline {
+    margin: 0;
+  }
+  .ocx__histmore {
+    margin-top: 0.3rem;
+  }
+  .ocx__histmore summary {
+    cursor: pointer;
+    color: var(--accent);
+    width: fit-content;
+  }
+  .ocx__histlist {
+    list-style: none;
+    margin: 0.4rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .ocx__histitem {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+  .ocx__histtitle {
+    color: var(--fg);
+  }
+  .ocx__histmeta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+  }
+  .badge { font-size: 0.625rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; padding: 2px 7px; border-radius: 999px; }
+  .badge--active { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+  .badge--positive { background: color-mix(in srgb, var(--c-pos) 14%, transparent); color: var(--c-pos); }
+  .badge--neutral { background: var(--surface-2); color: var(--muted); }
+  .badge--negative { background: color-mix(in srgb, var(--c-neg) 14%, transparent); color: var(--c-neg); }
   .ocx__single,
   .ocx__total,
   .ocx__note {

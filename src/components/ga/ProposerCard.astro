@@ -2,18 +2,24 @@
 // Sidebar card: proposer identity (logo+name->website or identicon+address).
 import ProposerIdentity from '@/components/ProposerIdentity.astro';
 import { AVATAR_SIZE } from '@/lib/forum/avatarSizes.js';
+import { proposerCountLine } from '@/lib/treasury/recipientHistory.js';
 
 interface Props {
   returnAddress: string | null;
+  // All actions from this return address, the current one included. Null when not loaded.
+  proposerActionCount?: number | null;
 }
 
-const { returnAddress } = Astro.props;
+const { returnAddress, proposerActionCount = null } = Astro.props;
 ---
 
 {returnAddress && (
   <div class="sidebar-card">
     <p class="sidebar-card__title">Proposer</p>
     <ProposerIdentity returnAddress={returnAddress} size={AVATAR_SIZE.card} />
+    {proposerActionCount !== null && proposerActionCount > 0 && (
+      <p class="proposer-count">{proposerCountLine(proposerActionCount)}</p>
+    )}
   </div>
 )}
 
@@ -31,5 +37,10 @@ const { returnAddress } = Astro.props;
     letter-spacing: 0.04em;
     color: var(--muted);
     margin: 0 0 0.625rem;
+  }
+  .proposer-count {
+    font-size: 0.75rem;
+    color: var(--muted);
+    margin: 0.5rem 0 0;
   }
 </style>
