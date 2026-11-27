@@ -4,6 +4,7 @@
 
 import { sqlPlaceholders } from './sql.js';
 import { treasuryTotalLovelace } from '../governance/onchain.js';
+import type { HistorySourceRow } from '../treasury/recipientHistory.js';
 
 // A pasted bech32 proposal_id resolves to its canonical topic via /t/[slug]'s
 // redirect, so actions link by proposal_id without a topic join.
@@ -78,4 +79,35 @@ export async function getNclActionLinks(db: D1Database, ids: string[]): Promise<
     out.set(r.id, { id: r.id, title: r.title, status: r.status, href: toTopicHref(r.proposalId) });
   }
   return out;
+}
+
+/**
+ * Every other TreasuryWithdrawals row with a stored payload, any status, newest
+ * first, for the recipient history on a withdrawal's detail page. The payload
+ * stays raw text, the pure builder parses and skips what does not parse. The
+ * slug only comes from a live topic, so an action without one is listed unlinked.
+ */
+export async function listTreasuryHistoryRows(db: D1Database, excludeId: string): Promise<HistorySourceRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT g.id, g.proposal_id AS proposalId, g.title, g.status, g.return_address AS returnAddress,
+              g.submitted_epoch AS submittedEpoch, g.submitted_at AS submittedAt, g.onchain_payload AS payload, t.slug
+         FROM governance_actions g
+         LEFT JOIN topics t ON t.id = g.topic_id AND t.deleted = 0
+        WHERE g.type = 'TreasuryWithdrawals' AND g.onchain_payload IS NOT NULL AND g.id != ?1
+        ORDER BY g.submitted_at IS NULL, g.submitted_at DESC, g.submitted_epoch DESC, g.id ASC`,
+    )
+    .bind(excludeId)
+    .all<HistorySourceRow>();
+  return results;
+}
+
+/** How many governance actions of any type and status a return address submitted, null without an address. */
+export async function countActionsByReturnAddress(db: D1Database, returnAddress: string | null): Promise<number | null> {
+  if (!returnAddress) return null;
+  const row = await db
+    .prepare('SELECT COUNT(*) AS n FROM governance_actions WHERE return_address = ?1')
+    .bind(returnAddress)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
 }
