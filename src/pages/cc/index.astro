@@ -11,9 +11,15 @@ import { getProtocolParams } from '@/lib/db/protocolParams.js';
 import { listDecidedCcActions, listDecidedCcVoteRows, getCommitteeTimeline } from '@/lib/db/committee.js';
 import { getAllCcMemberNames } from '@/lib/db/ccMemberName.js';
 import { cacheControlForSynced, truncateId } from '@/lib/forum/view.js';
+import { buildCcFacts, buildCcTimeline, timelineSpan, type CcFacts, type CcTimeline } from '@/lib/governance/ccOverview.js';
+import { epochDateClause } from '@/lib/governance/epochLabel.js';
+import { resolveNetwork, EPOCH_LENGTH_SECONDS } from '@/lib/config/network.js';
+import { currentNetwork } from '@/lib/api/response';
 
 const db = requestDb();
 let rows: ReturnType<typeof buildCcIndex> = [];
+let facts: CcFacts | null = null;
+let seatTimeline: CcTimeline | null = null;
 if (db) {
   const [params, actions, votesByAction, timeline, nameRows] = await Promise.all([
     getProtocolParams(db),
@@ -32,7 +38,51 @@ if (db) {
     nameIndex: buildCcNameIndex(nameRows, hotToCold),
     currentEpoch,
   });
+  facts = buildCcFacts({
+    rows,
+    members,
+    minSize: params?.committeeMinSize ?? null,
+    threshold: params?.ccThreshold ?? null,
+    maxTermEpochs: maxTermLength(params?.rawJson ?? null),
+  });
+  seatTimeline = buildCcTimeline(rows, members, currentEpoch);
 }
+
+function maxTermLength(rawJson: string | null): number | null {
+  if (rawJson == null) return null;
+  try {
+    const v = (JSON.parse(rawJson) as Record<string, unknown>).committee_max_term_length;
+    return typeof v === 'number' ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+const cfg = resolveNetwork(currentNetwork().network);
+const EPOCHS_PER_YEAR = (365 * 24 * 60 * 60) / EPOCH_LENGTH_SECONDS;
+const displayName = (r: { name: string | null; coldKeyHex: string }) => r.name ?? truncateId(r.coldKeyHex, 10);
+const factItems: { label: string; value: string }[] = [];
+if (facts) {
+  factItems.push({ label: 'Active seats', value: facts.minSize != null ? `${facts.activeSeats}, minimum ${facts.minSize}` : String(facts.activeSeats) });
+  if (facts.thresholdPct != null) factItems.push({ label: 'Yes votes needed', value: `${Math.round(facts.thresholdPct * 10) / 10}% of active seats, abstentions left out` });
+  if (facts.maxTermEpochs != null) {
+    const years = Math.round((facts.maxTermEpochs / EPOCHS_PER_YEAR) * 10) / 10;
+    factItems.push({ label: 'Longest term', value: `${facts.maxTermEpochs} epochs, about ${years} years` });
+  }
+  if (facts.nextTermEnd) {
+    const n = facts.nextTermEnd;
+    factItems.push({ label: 'Next term ends', value: `${displayName(n)}, epoch ${n.epoch}, ${epochDateClause(n.epoch, cfg)}` });
+  }
+}
+const bars = (seatTimeline?.bars ?? []).map((b) => ({
+  ...b,
+  label: displayName(b),
+  served: seatTimeline && b.servedTo >= b.from ? timelineSpan(seatTimeline, b.from, b.servedTo) : null,
+  rest: seatTimeline && b.termEnd != null && b.termEnd > b.servedTo ? timelineSpan(seatTimeline, Math.max(b.from, b.servedTo + 1), b.termEnd) : null,
+  title: b.termEnd != null ? `From epoch ${b.from}, term ends in epoch ${b.termEnd}` : `Epochs ${b.from} to ${b.servedTo}`,
+}));
+const tickMarks = seatTimeline ? seatTimeline.ticks.map((t) => ({ epoch: t, left: timelineSpan(seatTimeline as CcTimeline, t, t).left })) : [];
+const nowLeft = seatTimeline ? timelineSpan(seatTimeline, seatTimeline.now, seatTimeline.now).left : null;
 Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
 
 const current: typeof rows = [];
@@ -55,6 +105,49 @@ const lists = [
     <span>Constitutional Committee</span>
   </nav>
   <h1 class="cc-ix__h">Constitutional Committee members</h1>
+  <p class="cc-ix__intro">
+    The Constitutional Committee checks whether governance actions are in line with the Cardano Constitution.
+    Its members vote on every action type except motions of no confidence and committee updates, and an action only passes with enough Yes votes from the committee.{' '}
+    <a href="/glossary/constitutional-committee/">More about the committee</a>
+  </p>
+  {factItems.length > 0 && (
+    <dl class="cc-ix__facts">
+      {factItems.map((f) => (
+        <div class="cc-ix__fact">
+          <dt>{f.label}</dt>
+          <dd>{f.value}</dd>
+        </div>
+      ))}
+    </dl>
+  )}
+  {seatTimeline && (
+    <section class="cc-tl" aria-labelledby="cc-tl-h">
+      <h2 id="cc-tl-h" class="cc-ix__sub">Seats over time</h2>
+      <div class="cc-tl__grid">
+        {bars.map((b) => (
+          <div class="cc-tl__row">
+            <a class="cc-tl__name" href={ccProfilePath(b.coldKeyHex)}>{b.label}</a>
+            <div class="cc-tl__track" title={b.title}>
+              {b.served && <span class={`cc-tl__bar${b.standing !== 'Active' ? ' cc-tl__bar--former' : ''}`} style={`left:${b.served.left}%;width:${b.served.width}%`}></span>}
+              {b.rest && <span class="cc-tl__bar cc-tl__bar--rest" style={`left:${b.rest.left}%;width:${b.rest.width}%`}></span>}
+              {nowLeft != null && <span class="cc-tl__now" style={`left:${nowLeft}%`}></span>}
+            </div>
+          </div>
+        ))}
+        <div class="cc-tl__row cc-tl__row--axis" aria-hidden="true">
+          <span></span>
+          <div class="cc-tl__axis">
+            {tickMarks.map((t) => <span class="cc-tl__tick" style={`left:${t.left}%`}>{t.epoch}</span>)}
+          </div>
+        </div>
+      </div>
+      <p class="cc-tl__legend">
+        <span class="cc-tl__key"><span class="cc-tl__swatch"></span>Served</span>
+        <span class="cc-tl__key"><span class="cc-tl__swatch cc-tl__swatch--rest"></span>Rest of the current term</span>
+        <span class="cc-tl__key"><span class="cc-tl__swatch cc-tl__swatch--now"></span>{`Now, epoch ${seatTimeline.now}`}</span>
+      </p>
+    </section>
+  )}
   {lists.length === 0 && <p class="cc-ix__empty">No committee members recorded yet.</p>}
   {lists.map((list) => (
     <section class="cc-ix__section">
@@ -74,7 +167,32 @@ const lists = [
 </Layout>
 
 <style>
-  .cc-ix__h { margin: 0 0 1.25rem; font-size: 1.75rem; }
+  .cc-ix__h { margin: 0 0 0.75rem; font-size: 1.75rem; }
+  .cc-ix__intro { margin: 0 0 1.25rem; max-width: 68ch; color: var(--muted); line-height: 1.55; }
+  .cc-ix__facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr)); gap: 0.75rem; margin: 0 0 1.5rem; }
+  .cc-ix__fact { padding: 0.7rem 0.9rem; border: 1px solid var(--border); border-radius: 10px; }
+  .cc-ix__fact dt { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .cc-ix__fact dd { margin: 0.2rem 0 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .cc-tl { margin: 0 0 1.5rem; }
+  .cc-tl__grid { display: grid; gap: 0.3rem; }
+  .cc-tl__row { display: grid; grid-template-columns: minmax(7rem, 13rem) 1fr; align-items: center; gap: 0.75rem; }
+  .cc-tl__name { font-size: 0.8125rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cc-tl__track { position: relative; height: 12px; background: color-mix(in srgb, var(--muted) 10%, transparent); border-radius: 3px; }
+  .cc-tl__bar { position: absolute; top: 0; bottom: 0; background: var(--accent); border-radius: 3px; }
+  .cc-tl__bar--former { background: var(--muted); }
+  .cc-tl__bar--rest { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+  .cc-tl__now { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--c-neg); }
+  .cc-tl__axis { position: relative; height: 1.1rem; }
+  .cc-tl__tick { position: absolute; transform: translateX(-50%); font-size: 0.7rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .cc-tl__legend { display: flex; flex-wrap: wrap; gap: 0.35rem 1rem; margin: 0.5rem 0 0; font-size: 0.8rem; color: var(--muted); }
+  .cc-tl__key { display: inline-flex; align-items: center; gap: 0.35rem; }
+  .cc-tl__swatch { display: inline-block; width: 14px; height: 10px; border-radius: 2px; background: var(--accent); }
+  .cc-tl__swatch--rest { background: color-mix(in srgb, var(--accent) 30%, transparent); }
+  .cc-tl__swatch--now { width: 2px; height: 12px; background: var(--c-neg); }
+  @media (max-width: 560px) {
+    .cc-tl__row { grid-template-columns: 1fr; gap: 0.15rem; }
+    .cc-tl__row--axis > span:first-child { display: none; }
+  }
   .cc-ix__sub { font-size: 1.05rem; margin: 1.5rem 0 0.5rem; }
   .cc-ix__empty { color: var(--muted); }
   .cc-ix__list { list-style: none; margin: 0; padding: 0; }
