@@ -173,7 +173,7 @@ function earlyPhase(tier: StakeTier, b: StakeBuckets, stake: BodyStakeView): boo
 /**
  * The path to pass for one voting card row, or null when the row shows none: a
  * closed action, a row that is met or has no verdict, a CC below its minimum size,
- * a DRep or SPO row in its early phase.
+ * a row in its early phase.
  * The DRep row needs candidates that match the tally, because without a votable
  * population a tier would count stake of inactive DReps as movable.
  */
@@ -192,7 +192,9 @@ export function passPathRow(
   if (r.body === 'CC') {
     if (ctx.ccBlocked || ctx.ccBoundarySize == null) return null;
     const seats = ccSeatsToPass({ ...ctx.cc, size: ctx.ccBoundarySize }, r.thresholdPct);
-    return seats ? ccRowView(seats) : null;
+    // Same early phase as the stake rows, counted in seats.
+    if (!seats || (seats.tier === 'nonVoters' && seats.notVoted > ctx.cc.yes + ctx.cc.no + ctx.cc.abstain)) return null;
+    return ccRowView(seats);
   }
   if (!r.stake) return null;
   const actionHref = ctx.actionHref;
