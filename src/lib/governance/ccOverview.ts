@@ -75,7 +75,7 @@ function ticksFor(start: number, end: number): number[] {
   return ticks;
 }
 
-/** One bar per member in the order of the index rows, null without a known current epoch. */
+/** One bar per member, earliest seat first, null without a known current epoch. */
 export function buildCcTimeline(rows: CcIndexRow[], members: CommitteeMemberTerm[], currentEpoch: number | null): CcTimeline | null {
   if (currentEpoch == null || rows.length === 0) return null;
   const bars: CcTimelineBar[] = rows.map((r) => {
@@ -89,6 +89,8 @@ export function buildCcTimeline(rows: CcIndexRow[], members: CommitteeMemberTerm
       termEnd: running ? openTermEnd(members, r.coldKeyHex) : null,
     };
   });
+  const lastEpoch = (b: CcTimelineBar) => b.termEnd ?? b.servedTo;
+  bars.sort((a, b) => a.from - b.from || lastEpoch(a) - lastEpoch(b) || (a.name ?? a.coldKeyHex).localeCompare(b.name ?? b.coldKeyHex));
   const start = Math.min(...bars.map((b) => b.from));
   const end = Math.max(currentEpoch, ...bars.map((b) => Math.max(b.servedTo, b.termEnd ?? b.servedTo))) + 1;
   return { start, end, now: currentEpoch, bars, ticks: ticksFor(start, end) };

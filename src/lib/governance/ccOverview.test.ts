@@ -42,13 +42,13 @@ describe('buildCcFacts', () => {
 });
 
 describe('buildCcTimeline', () => {
-  it('runs active seats to now and projects the rest of the term', () => {
+  it('orders seats by start, runs active seats to now and projects the rest of the term', () => {
     const members = [term('a', { termExpiration: 620 }), term('c', { versionTo: 550 })];
     const rows = [row('a', { tenure: { from: 510, to: null } }), row('c', { standing: 'Former', tenure: { from: 507, to: 550 } })];
     const t = buildCcTimeline(rows, members, 600);
     expect(t?.bars).toEqual([
-      { coldKeyHex: 'a', name: 'A', standing: 'Active', from: 510, servedTo: 600, termEnd: 620 },
       { coldKeyHex: 'c', name: 'C', standing: 'Former', from: 507, servedTo: 550, termEnd: null },
+      { coldKeyHex: 'a', name: 'A', standing: 'Active', from: 510, servedTo: 600, termEnd: 620 },
     ]);
     expect(t?.start).toBe(507);
     expect(t?.end).toBe(621);
