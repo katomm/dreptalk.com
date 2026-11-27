@@ -2,6 +2,7 @@
 // Render store for per-voter vote rationales on an action. One row per
 // (ga_id, voter_id), written by the vote sync (on-chain) and the self-cast path.
 import { htmlToText } from '../forum/view.js';
+import { chunked, D1_MAX_BINDS, sqlPlaceholders } from './sql.js';
 import { liveVoteSql, DREP_VOTERS_ORDER, type ActionVoterRow } from './drepVotes.js';
 
 export interface RationaleJob {
@@ -243,4 +244,54 @@ export async function getRationaleFetchQueue(
       .all<RationaleJob>()
   ).results ?? [];
   return rows;
+}
+
+/** Map key shared by every reader of getCcRationaleStates. */
+export function ccRationaleKey(gaId: string, voterId: string): string {
+  return `${gaId}\u0000${voterId}`;
+}
+
+/** Most voter ids getCcRationaleStates narrows by in SQL, committee sized lists are far below it. */
+const MAX_VOTER_NARROW = 20;
+
+/** Per (action, voter) rationale state, without the body itself. */
+export type CcRationaleStates = Map<string, { status: string; hasBody: boolean }>;
+
+/**
+ * Rationale rows (any status) for the given (action, voter) pairs, keyed by
+ * ccRationaleKey. The status lets a reader tell "no rationale yet" from a
+ * fetch that failed. Reads by ga_id (the primary key prefix) narrowed to the
+ * wanted voters, filters to the requested pairs in code, and never pulls the body.
+ */
+export async function getCcRationaleStates(
+  db: D1Database,
+  pairs: { gaId: string; voterId: string }[],
+): Promise<CcRationaleStates> {
+  const out: CcRationaleStates = new Map();
+  const wanted = new Set(pairs.map((p) => ccRationaleKey(p.gaId, p.voterId)));
+  const gaIds = [...new Set(pairs.map((p) => p.gaId))];
+  const allVoterIds = [...new Set(pairs.map((p) => p.voterId))];
+  // The voter ids ride along in every chunk, so the ga ids get the remaining binds.
+  // A long voter list (never the committee case) would leave no room, so it falls back to ga ids only.
+  const voterIds = allVoterIds.length <= MAX_VOTER_NARROW ? allVoterIds : [];
+  const voterClause = voterIds.length > 0 ? ` AND voter_id IN (${sqlPlaceholders(voterIds)})` : '';
+  const chunks = chunked(gaIds, D1_MAX_BINDS - voterIds.length);
+  const results = await Promise.all(
+    chunks.map((ids) =>
+      db
+        .prepare(
+          `SELECT ga_id, voter_id, status, (body_html IS NOT NULL AND body_html <> '') AS has_body
+             FROM action_rationale WHERE ga_id IN (${sqlPlaceholders(ids)})${voterClause}`,
+        )
+        .bind(...ids, ...voterIds)
+        .all<{ ga_id: string; voter_id: string; status: string; has_body: number }>(),
+    ),
+  );
+  for (const res of results) {
+    for (const r of res.results ?? []) {
+      const key = ccRationaleKey(r.ga_id, r.voter_id);
+      if (wanted.has(key)) out.set(key, { status: r.status, hasBody: r.has_body === 1 });
+    }
+  }
+  return out;
 }

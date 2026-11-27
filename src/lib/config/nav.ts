@@ -46,6 +46,7 @@ export const NAV: readonly NavEntry[] = [
     label: 'Insights',
     items: [
       { label: 'Analytics', href: '/analytics/', hint: 'Health and decentralization of governance' },
+      { label: 'Constitutional Committee', href: '/cc/', hint: 'Who sits on the committee and how each member voted' },
       { label: 'Governance Review', href: '/governance-review/', hint: 'Regular recap of decisions and numbers' },
       { label: 'Treasury', href: '/treasury/', hint: 'How much can still be withdrawn this period' },
     ],

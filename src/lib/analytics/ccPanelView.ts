@@ -8,12 +8,11 @@
 // (epochs 507 to 580) and its elected-committee credential (since 581) are
 // two cold keys with their own eligibility windows, so merging them by name
 // would misstate eligibility.
-import { activeCommitteeMembersAtBoundary, committeeBoundaryForAction, type CommitteeMemberTerm } from '../koios/committeeTimeline.js';
-import { finalCcVoteByMember } from '../koios/corrections.js';
+import type { CommitteeMemberTerm } from '../koios/committeeTimeline.js';
 import type { CcVoteRow, DecidedCcAction } from '../db/committee.js';
 import type { CcNameIndex } from '../governance/ccNames.js';
 import { readThresholdSnapshot } from '../governance/thresholds.js';
-import { isCcEligible } from '../governance/view.js';
+import { consideredCcActions } from './ccParticipation.js';
 import { median } from './median.js';
 
 export interface CcMemberRow {
@@ -106,7 +105,7 @@ export function selectExtremes<T>(rows: T[], n: number, score: (row: T) => numbe
  * yet expired), otherwise the latest of each term's end (its expiration, the
  * end of its committee version, or the epoch before resignation).
  */
-function computeTenure(terms: CommitteeMemberTerm[], currentEpoch: number | null): { from: number; to: number | null } {
+export function computeTenure(terms: CommitteeMemberTerm[], currentEpoch: number | null): { from: number; to: number | null } {
   if (terms.length === 0) return { from: 0, to: null };
   let earliest = terms[0];
   for (const t of terms) {
@@ -132,6 +131,11 @@ function computeTenure(terms: CommitteeMemberTerm[], currentEpoch: number | null
   return { from, to };
 }
 
+/** Display text for a tenure, open-ended while a term is still current. */
+export function tenureLabel(t: { from: number; to: number | null }): string {
+  return t.to == null ? `since epoch ${t.from}` : `epochs ${t.from} to ${t.to}`;
+}
+
 export function buildCcPanel(input: {
   actions: DecidedCcAction[];
   votesByAction: Map<string, CcVoteRow[]>;
@@ -141,8 +145,6 @@ export function buildCcPanel(input: {
   currentEpoch: number | null;
 }): CcPanelView {
   const { actions, votesByAction, members, hotToCold, nameIndex, currentEpoch } = input;
-  let considered = 0;
-  let skipped = 0;
   let splitCount = 0;
   let belowThreshold = 0;
   let verdictBasis = 0;
@@ -162,25 +164,12 @@ export function buildCcPanel(input: {
 
   // Sorted so every member's sequence lines up position-by-position with
   // actionEpochs, regardless of the order actions arrived in.
-  const eligibleActions = actions
-    .filter((a) => isCcEligible(a.type))
-    .sort((x, y) => x.decidedEpoch - y.decidedEpoch || x.gaId.localeCompare(y.gaId));
+  const { considered: consideredActions, skipped } = consideredCcActions({ actions, votesByAction, members, hotToCold, currentEpoch });
+  const considered = consideredActions.length;
 
-  for (const a of eligibleActions) {
-    const boundary = committeeBoundaryForAction(a, currentEpoch);
-    if (boundary == null) {
-      skipped += 1;
-      continue;
-    }
-    const active = activeCommitteeMembersAtBoundary(members, boundary);
-    if (active.size === 0) {
-      skipped += 1;
-      continue;
-    }
-    considered += 1;
+  for (const { action: a, active, finalByCold } of consideredActions) {
     const index = actionEpochs.length;
     actionEpochs.push(a.decidedEpoch);
-    const finalByCold = finalCcVoteByMember(votesByAction.get(a.gaId) ?? [], members, hotToCold, boundary);
     turnouts.push((finalByCold.size / active.size) * 100);
 
     let hasYes = false;

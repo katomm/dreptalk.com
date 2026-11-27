@@ -7,7 +7,8 @@ import type { CommitteeMember } from '../koios/client.js';
 import { committeeBoundaryForAction, type CommitteeMemberTerm } from '../koios/committeeTimeline.js';
 import { epochStartUnix, type NetworkConfig } from '../config/network.js';
 import { ccTallyPct, type CcVote } from '../koios/corrections.js';
-import { concludedStatusSql } from './sql.js';
+import { concludedStatusSql, sqlPlaceholders } from './sql.js';
+import { OPEN_STATUSES } from '../governance/view.js';
 
 interface MemberRow {
   cold_key_hex: string;
@@ -280,6 +281,68 @@ export async function listDecidedCcVoteRows(db: D1Database): Promise<Map<string,
     else out.set(r.ga_id, [row]);
   }
   return out;
+}
+
+/** A committee vote on an action that is still open, with the action fields a profile row needs. */
+export interface OpenCcVoteRow extends CcVoteRow {
+  gaId: string;
+  title: string | null;
+  topicSlug: string | null;
+  type: string;
+}
+
+/**
+ * Every committee vote on an open (pending or active) action. Starts from
+ * governance_actions so the vote lookup runs through idx_drep_votes_ga.
+ */
+export async function listOpenCcVoteRows(db: D1Database): Promise<OpenCcVoteRow[]> {
+  const res = await db
+    .prepare(
+      `SELECT v.ga_id AS ga_id, v.voter_id AS voter_id, lower(v.voter_hex) AS hot_key_hex, v.vote AS vote,
+              v.block_time AS block_time, v.meta_url AS meta_url, g.title AS title, t.slug AS topic_slug, g.type AS type
+         FROM governance_actions g
+         JOIN drep_votes v ON v.ga_id = g.id
+         LEFT JOIN topics t ON t.id = g.topic_id
+        WHERE g.status IN (${sqlPlaceholders(OPEN_STATUSES)})
+          AND v.voter_role = 'ConstitutionalCommittee' AND v.voter_hex IS NOT NULL AND v.voter_hex <> ''
+        ORDER BY g.submitted_at DESC, g.id, v.block_time DESC, v.voter_id`,
+    )
+    .bind(...OPEN_STATUSES)
+    .all<{
+      ga_id: string;
+      voter_id: string;
+      hot_key_hex: string;
+      vote: string;
+      block_time: number | null;
+      meta_url: string | null;
+      title: string | null;
+      topic_slug: string | null;
+      type: string;
+    }>();
+  const out: OpenCcVoteRow[] = [];
+  for (const r of res.results ?? []) {
+    if (!isCcChoice(r.vote)) continue;
+    out.push({
+      gaId: r.ga_id,
+      voterId: r.voter_id,
+      hotKeyHex: r.hot_key_hex,
+      vote: r.vote,
+      blockTime: r.block_time,
+      metaUrl: r.meta_url,
+      title: r.title,
+      topicSlug: r.topic_slug,
+      type: r.type,
+    });
+  }
+  return out;
+}
+
+/** Every committee cold key that ever held a seat, each once. */
+export async function listCommitteeColdKeys(db: D1Database): Promise<string[]> {
+  const res = await db
+    .prepare('SELECT DISTINCT cold_key_hex FROM committee_member ORDER BY cold_key_hex')
+    .all<{ cold_key_hex: string }>();
+  return (res.results ?? []).map((r) => r.cold_key_hex);
 }
 
 /** The loaded membership timeline, read once and shared across a sync run. */

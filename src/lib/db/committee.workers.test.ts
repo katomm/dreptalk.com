@@ -10,6 +10,8 @@ import {
   recomputeCommitteePct,
   listDecidedCcActions,
   listDecidedCcVoteRows,
+  listOpenCcVoteRows,
+  listCommitteeColdKeys,
 } from './committee.js';
 import { activeCommitteeSizeAtBoundary, type CommitteeMemberTerm } from '../koios/committeeTimeline.js';
 import type { CommitteeMember } from '../koios/client.js';
@@ -276,5 +278,51 @@ describe('listDecidedCcActions + listDecidedCcVoteRows', () => {
     const actions = await listDecidedCcActions(db());
     expect(actions.some((x) => x.gaId === 'ga_cc_dropped#0')).toBe(false);
     expect((await listDecidedCcVoteRows(db())).has('ga_cc_dropped#0')).toBe(false);
+  });
+});
+
+describe('listOpenCcVoteRows', () => {
+  it('returns CC votes on pending and active actions only, never DRep votes or concluded actions', async () => {
+    const insert = (id: string, status: string, title: string) =>
+      db()
+        .prepare(
+          `INSERT INTO governance_actions (id, type, title, status, submitted_at, topic_id, created_at, last_synced_at)
+           VALUES (?, 'InfoAction', ?, ?, 1000, NULL, 0, 0)`,
+        )
+        .bind(id, title, status)
+        .run();
+    await insert('ga_open_p#0', 'pending', 'Pending one');
+    await insert('ga_open_a#0', 'active', 'Active one');
+    await insert('ga_open_r#0', 'ratified', 'Ratified one');
+    const cc = { voterRole: 'ConstitutionalCommittee' as const, voterId: 'cc_hot_open', voterHex: 'AABB02', vote: 'Yes', blockTime: 2000 };
+    await upsertVotes(db(), 'ga_open_p#0', [cc, { voterRole: 'DRep', voterId: 'drep_open', voterHex: null, vote: 'Yes' }], 1);
+    await upsertVotes(db(), 'ga_open_a#0', [{ ...cc, vote: 'No' }], 1);
+    await upsertVotes(db(), 'ga_open_r#0', [cc], 1);
+
+    const rows = (await listOpenCcVoteRows(db())).filter((r) => r.gaId.startsWith('ga_open_'));
+    expect(rows.map((r) => r.gaId).sort()).toEqual(['ga_open_a#0', 'ga_open_p#0']);
+    expect(rows.find((r) => r.gaId === 'ga_open_a#0')).toMatchObject({
+      voterId: 'cc_hot_open',
+      hotKeyHex: 'aabb02',
+      vote: 'No',
+      title: 'Active one',
+      topicSlug: null,
+      type: 'InfoAction',
+    });
+  });
+});
+
+describe('listCommitteeColdKeys', () => {
+  beforeEach(async () => {
+    await db().prepare('DELETE FROM committee_member').run();
+  });
+
+  it('returns each cold key once, sorted, across versions', async () => {
+    await upsertCommitteeMembers(db(), [
+      { coldKeyHex: 'bb', versionFrom: 581, versionTo: 601, termExpiration: 653, authorizedFrom: 507, resignedAt: null },
+      { coldKeyHex: 'bb', versionFrom: 602, versionTo: null, termExpiration: 726, authorizedFrom: 507, resignedAt: null },
+      { coldKeyHex: 'aa', versionFrom: 602, versionTo: null, termExpiration: 726, authorizedFrom: 507, resignedAt: null },
+    ]);
+    expect(await listCommitteeColdKeys(db())).toEqual(['aa', 'bb']);
   });
 });

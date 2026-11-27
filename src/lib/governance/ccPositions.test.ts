@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildCcPositions } from './ccPositions.js';
+import { buildCcPositions, buildUncountedCcPositions, latestBallot } from './ccPositions.js';
 import { buildCcNameIndex } from './ccNames.js';
 
 const members = [
@@ -48,5 +48,71 @@ describe('buildCcPositions', () => {
 
   it('returns [] when the epoch is null (committee unknown)', () => {
     expect(buildCcPositions({ members, hotToCold, votes: [], epoch: null, currentEpoch: null, nameIndex, rationales: new Map() })).toEqual([]);
+  });
+});
+
+describe('buildUncountedCcPositions', () => {
+  // An interim committee (epochs 0 to 579) replaced at 580: one seat stays with
+  // its credential, one comes back under a new credential, one is removed.
+  const change = [
+    { coldKeyHex: 'coldkeep', versionFrom: 0, versionTo: 579, termExpiration: 900, authorizedFrom: 0, resignedAt: null },
+    { coldKeyHex: 'coldjpold', versionFrom: 0, versionTo: 579, termExpiration: 900, authorizedFrom: 0, resignedAt: null },
+    { coldKeyHex: 'coldgone', versionFrom: 0, versionTo: 579, termExpiration: 900, authorizedFrom: 0, resignedAt: null },
+    { coldKeyHex: 'coldkeep', versionFrom: 580, versionTo: null, termExpiration: 900, authorizedFrom: 0, resignedAt: null },
+    { coldKeyHex: 'coldjpnew', versionFrom: 580, versionTo: null, termExpiration: 900, authorizedFrom: 570, resignedAt: null },
+  ];
+  const changeHot = new Map([['hotkeep', 'coldkeep'], ['hotjpold', 'coldjpold'], ['hotgone', 'coldgone'], ['hotjpnew', 'coldjpnew']]);
+  const changeNames = buildCcNameIndex(
+    [{ hotKeyHex: 'hotjpold', name: 'Japan Council', sourceBlockTime: 10 }, { hotKeyHex: 'hotgone', name: 'Gone Council', sourceBlockTime: 10 }],
+    changeHot,
+  );
+  const votes = [
+    { voterId: 'vKeep', hotKeyHex: 'hotkeep', vote: 'Yes' as const, blockTime: 10, metaUrl: null },
+    { voterId: 'vJp', hotKeyHex: 'hotjpold', vote: 'No' as const, blockTime: 11, metaUrl: 'https://jp' },
+    { voterId: 'vGoneOld', hotKeyHex: 'hotgone', vote: 'Yes' as const, blockTime: 5, metaUrl: null },
+    { voterId: 'vGone', hotKeyHex: 'hotgone', vote: 'Abstain' as const, blockTime: 12, metaUrl: 'https://gone' },
+    { voterId: 'vUnknown', hotKeyHex: 'hotunknown', vote: 'Yes' as const, blockTime: 13, metaUrl: null },
+  ];
+  const rationales = new Map([['vGone', { bodyHtml: '<p>last act</p>', status: 'ok' }]]);
+
+  it('keeps ballots of credentials not counted at the boundary, one per credential, out of the counted rows', () => {
+    const counted = buildCcPositions({ members: change, hotToCold: changeHot, votes, epoch: 581, currentEpoch: 600, nameIndex: changeNames, rationales });
+    expect(counted.map((r) => [r.coldKeyHex, r.vote])).toEqual([['coldkeep', 'Yes'], ['coldjpnew', null]]);
+
+    const uncounted = buildUncountedCcPositions({ members: change, hotToCold: changeHot, votes, epoch: 581, nameIndex: changeNames, rationales });
+    expect(uncounted.map((r) => [r.coldKeyHex, r.hotKeyHex, r.voterId, r.displayName, r.vote, r.rationale])).toEqual([
+      [null, 'hotunknown', 'vUnknown', null, 'Yes', 'none'],
+      ['coldjpold', 'hotjpold', 'vJp', 'Japan Council', 'No', 'unavailable'],
+      ['coldgone', 'hotgone', 'vGone', 'Gone Council', 'Abstain', 'view'],
+    ]);
+    expect(uncounted[2].bodyHtml).toBe('<p>last act</p>');
+  });
+
+  it('keeps a hot key without a cold credential as its own row with a null cold key', () => {
+    const uncounted = buildUncountedCcPositions({ members: change, hotToCold: changeHot, votes: [votes[4]], epoch: 581, nameIndex: changeNames, rationales });
+    expect(uncounted).toHaveLength(1);
+    expect(uncounted[0].coldKeyHex).toBeNull();
+    expect(uncounted[0].hotKeyHex).toBe('hotunknown');
+  });
+
+  it('is empty before the committee change, when every ballot counts', () => {
+    expect(buildUncountedCcPositions({ members: change, hotToCold: changeHot, votes: votes.slice(0, 4), epoch: 579, nameIndex: changeNames, rationales })).toEqual([]);
+  });
+
+  it('is empty when the boundary or the committee is unknown', () => {
+    expect(buildUncountedCcPositions({ members: change, hotToCold: changeHot, votes, epoch: null, nameIndex: changeNames, rationales })).toEqual([]);
+    expect(buildUncountedCcPositions({ members: [], hotToCold: changeHot, votes, epoch: 581, nameIndex: changeNames, rationales })).toEqual([]);
+  });
+});
+
+describe('latestBallot', () => {
+  it('picks the highest block time and lets the later ballot win a tie', () => {
+    const a = { id: 'a', blockTime: 10 };
+    const b = { id: 'b', blockTime: 20 };
+    const c = { id: 'c', blockTime: 20 };
+    expect(latestBallot([a, b, c])?.id).toBe('c');
+    expect(latestBallot([b, a])?.id).toBe('b');
+    expect(latestBallot([{ id: 'n', blockTime: null }, { id: 'z', blockTime: 0 }])?.id).toBe('z');
+    expect(latestBallot([])).toBeNull();
   });
 });

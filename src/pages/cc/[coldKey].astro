@@ -1,0 +1,268 @@
+---
+export const prerender = false;
+
+import { requestDb } from '@/lib/db/requestDb.js';
+import Layout from '@/layouts/Layout.astro';
+import NotFound from '@/components/NotFound.astro';
+import Avatar from '@/components/Avatar.astro';
+import CopyButton from '@/components/CopyButton.astro';
+import CcRecordItem from '@/components/cc/CcRecordItem.astro';
+import { resolveCcRouteParam } from '@/lib/governance/ccRoute.js';
+import { buildCcMemberProfile, countReadableRationales, currentCcStanding, type CcRecordRow } from '@/lib/governance/ccProfile.js';
+import { consideredCcActions } from '@/lib/analytics/ccParticipation.js';
+import { tenureLabel } from '@/lib/analytics/ccPanelView.js';
+import { ccProfilePath, buildCcNameIndex } from '@/lib/governance/ccNames.js';
+import { getProtocolParams } from '@/lib/db/protocolParams.js';
+import { listDecidedCcActions, listDecidedCcVoteRows, getCommitteeTimeline, listOpenCcVoteRows } from '@/lib/db/committee.js';
+import { getAllCcMemberNames } from '@/lib/db/ccMemberName.js';
+import { getCcRationaleStates, ccRationaleKey, type CcRationaleStates } from '@/lib/db/actionRationale.js';
+import { positionsVoterAnchor } from '@/lib/governance/voteStatement.js';
+import { cacheControlForSynced, truncateId, truncateIdMiddle } from '@/lib/forum/view.js';
+
+const route = resolveCcRouteParam(Astro.params.coldKey ?? '');
+
+// Validate the request before any DB read.
+if (route.kind === 'redirect') {
+  return Astro.redirect(`${ccProfilePath(route.hex)}${Astro.url.search}`, 301);
+}
+
+const db = requestDb();
+const coldKeyHex = route.kind === 'canonical' ? route.hex : '';
+
+let profile: ReturnType<typeof buildCcMemberProfile> = null;
+let readable = 0;
+let states: CcRationaleStates = new Map();
+if (db && route.kind === 'canonical') {
+  // The timeline decides whether the key exists, so an unknown key skips the heavy reads.
+  const [timeline, params] = await Promise.all([getCommitteeTimeline(db), getProtocolParams(db)]);
+  const { members, hotToCold } = timeline;
+  if (members.some((m) => m.coldKeyHex === coldKeyHex)) {
+    const currentEpoch = params?.epoch ?? null;
+    // Open ballots only show for a seat that is Active, so the read is skipped otherwise.
+    const [actions, votesByAction, nameRows, openVotes] = await Promise.all([
+      listDecidedCcActions(db),
+      listDecidedCcVoteRows(db),
+      getAllCcMemberNames(db),
+      currentCcStanding(members, coldKeyHex, currentEpoch) === 'Active' ? listOpenCcVoteRows(db) : Promise.resolve([]),
+    ]);
+    const { considered } = consideredCcActions({ actions, votesByAction, members, hotToCold, currentEpoch });
+    profile = buildCcMemberProfile({
+      coldKeyHex,
+      considered,
+      members,
+      hotToCold,
+      nameIndex: buildCcNameIndex(nameRows, hotToCold),
+      currentEpoch,
+      openVotes,
+    });
+  }
+  if (profile) {
+    const pairs = [...profile.record, ...profile.uncounted].flatMap((r) => (r.vote ? [{ gaId: r.gaId, voterId: r.vote.voterId }] : []));
+    states = await getCcRationaleStates(db, pairs);
+    readable = countReadableRationales(profile.record, states);
+  }
+}
+
+if (!profile) {
+  Astro.response.status = 404;
+  Astro.response.headers.set('Cache-Control', 'no-store');
+} else {
+  Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
+}
+
+const HEAD = 10;
+// Props are built once per row, the template renders head and tail from the same list.
+const recordItems = (profile?.record ?? []).map((row) => ({ ...rowProps(row), rationaleHref: rationaleHref(row) }));
+const recordHead = recordItems.slice(0, HEAD);
+const recordTail = recordItems.slice(HEAD);
+// The strip covers only the actions the member could vote on, oldest first,
+// so a short tenure does not drown in faded squares from other terms.
+const strip = [...(profile?.record ?? [])].reverse().map((row) => {
+  const choice = row.vote ? row.vote.vote.toLowerCase() : 'missed';
+  const label = row.vote ? row.vote.vote : 'Not voted';
+  return { choice, title: `${row.title ?? row.gaId}, epoch ${row.decidedEpoch}: ${label}` };
+});
+const displayName = profile ? (profile.name ?? truncateId(profile.coldKeyHex, 10)) : '';
+const hotKeys = profile ? [...profile.hotKeys].sort() : [];
+
+function rowProps(row: CcRecordRow) {
+  const { title, gaId, topicSlug, type, status, decidedEpoch } = row;
+  return { title, gaId, topicSlug, type, status, decidedEpoch, vote: row.vote?.vote ?? null };
+}
+function rationaleHref(row: CcRecordRow): string | null {
+  if (!row.topicSlug || !row.vote) return null;
+  // Link only when the member left a rationale, so the reader never lands on an empty one.
+  if (!row.vote.metaUrl && !states.has(ccRationaleKey(row.gaId, row.vote.voterId))) return null;
+  return `/t/${row.topicSlug}/${positionsVoterAnchor(row.vote.voterId, 'cc')}`;
+}
+const metaDescription = profile
+  ? `${displayName}: Constitutional Committee member. ${profile.eligible > 0 ? `Voted on ${profile.voted} of ${profile.eligible} decided actions it could vote on.` : 'No decided actions yet.'} See the full voting record on DRepTalk.`
+  : '';
+---
+
+{!profile ? (
+  <NotFound noun="committee member" />
+) : (
+  <Layout title={`${displayName} - Constitutional Committee member on DRepTalk`} description={metaDescription} wide>
+    <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">
+      <a href="/">DRepTalk</a>
+      <span style="margin:0 0.375rem;">/</span>
+      <a href="/cc/">Constitutional Committee</a>
+      <span style="margin:0 0.375rem;">/</span>
+      <span>{displayName}</span>
+    </nav>
+
+    <header class="cc-hd">
+      <span class="cc-hd__avatar">
+        <Avatar seed={profile.coldKeyHex} size={96} ring />
+      </span>
+      <div class="cc-hd__main">
+        <div class="cc-hd__tags">
+          <span class="cc-hd__kind">Constitutional Committee</span>
+          {profile.standing && <span class="cc-hd__standing">{profile.standing}</span>}
+        </div>
+        <h1 class="cc-hd__name">{displayName}</h1>
+        {profile.nameSource?.kind === 'declared' && (
+          <p class="cc-hd__note">Name as stated in this member's own vote rationales.</p>
+        )}
+        {profile.nameSource?.kind === 'curated' && (
+          <p class="cc-hd__note">Name from the {profile.nameSource.source}.</p>
+        )}
+        <div class="cc-hd__id">
+          <span title={profile.coldKeyHex}>{truncateIdMiddle(profile.coldKeyHex)}</span>
+          <CopyButton value={profile.coldKeyHex} label="Copy cold key" />
+        </div>
+        <p class="cc-hd__tenure">{tenureLabel(profile.tenure)}</p>
+        {hotKeys.length > 0 && (
+          <ul class="cc-hd__hot" aria-label="Hot keys">
+            {hotKeys.map((hot) => (
+              <li class="cc-hd__id">
+                <span title={hot}>Hot key {truncateId(hot, 10)}</span>
+                <CopyButton value={hot} label="Copy hot key" />
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </header>
+
+    <section class="cc-summary">
+      <h2 class="cc-summary__h">
+        {profile.eligible > 0
+          ? `Voted on ${profile.voted} of ${profile.eligible} actions it could vote on`
+          : 'No decided actions yet'}
+      </h2>
+      {profile.eligible > 0 && (
+        <>
+          <p class="cc-summary__line">
+            {`Yes ${profile.counts.yes}, No ${profile.counts.no}, Abstain ${profile.counts.abstain}. ${readable} of ${profile.voted} ${profile.voted === 1 ? 'vote has' : 'votes have'} a readable rationale.`}
+          </p>
+          <div class="cc-raster" role="img" aria-label={`Voted on ${profile.voted} of ${profile.eligible} eligible actions, oldest to newest`}>
+            {strip.map((d) => <span class={`cc-raster__dot cc-raster__dot--${d.choice}`} title={d.title}></span>)}
+          </div>
+          <p class="cc-raster__note">
+            Each square is one action the member could vote on, oldest first:{' '}
+            <span class="cc-raster__key"><span class="cc-raster__dot cc-raster__dot--yes"></span>Yes</span>
+            <span class="cc-raster__key"><span class="cc-raster__dot cc-raster__dot--no"></span>No</span>
+            <span class="cc-raster__key"><span class="cc-raster__dot cc-raster__dot--abstain"></span>Abstain</span>
+            <span class="cc-raster__key"><span class="cc-raster__dot cc-raster__dot--missed"></span>Not voted</span>
+          </p>
+        </>
+      )}
+    </section>
+
+    <section id="record" class="vhist-section">
+      <h2 class="vhist-section__title">Record <span class="vhist-section__count">({profile.record.length})</span></h2>
+      {profile.record.length === 0 ? (
+        <p class="vhist__empty">No decided actions yet.</p>
+      ) : (
+        <div class="cc-rows">
+          {recordHead.map((item) => <CcRecordItem {...item} showNotVoted />)}
+          {recordTail.length > 0 && (
+            <details class="vhist__more">
+              <summary class="vhist__more-toggle">
+                <span class="vhist__more-show">Show {recordTail.length} more</span>
+                <span class="vhist__more-hide">Show less</span>
+              </summary>
+              {recordTail.map((item) => <CcRecordItem {...item} showNotVoted />)}
+            </details>
+          )}
+        </div>
+      )}
+    </section>
+
+    {profile.uncounted.length > 0 && (
+      <section id="not-counted" class="vhist-section">
+        <h2 class="vhist-section__title">Not counted <span class="vhist-section__count">({profile.uncounted.length})</span></h2>
+        <div class="cc-rows">
+          {profile.uncounted.map((row) => <CcRecordItem {...rowProps(row)} rationaleHref={rationaleHref(row)} />)}
+        </div>
+      </section>
+    )}
+
+    {profile.open.length > 0 && (
+      <section id="open" class="vhist-section">
+        <h2 class="vhist-section__title">Open actions <span class="vhist-section__count">({profile.open.length})</span></h2>
+        <p class="cc-note">Votes on open actions are not part of the participation figure.</p>
+        <div class="cc-rows">
+          {profile.open.map((row) => <CcRecordItem title={row.title} gaId={row.gaId} topicSlug={row.topicSlug} vote={row.vote.vote} />)}
+        </div>
+      </section>
+    )}
+
+    <p class="cc-note cc-note--foot">Eligibility follows the committee membership at each action's decision boundary, and only a member's final vote counts.</p>
+  </Layout>
+)}
+
+<style>
+  .cc-hd { display: flex; gap: 1.25rem; align-items: flex-start; margin-bottom: 1.5rem; }
+  .cc-hd__avatar { flex: none; line-height: 0; border-radius: 50%; box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 8%, transparent); }
+  .cc-hd__main { min-width: 0; flex: 1; }
+  .cc-hd__tags { display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; margin-bottom: 0.45rem; }
+  .cc-hd__kind, .cc-hd__standing {
+    display: inline-block;
+    padding: 0.15rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  .cc-hd__standing { color: var(--muted); background: color-mix(in srgb, var(--muted) 14%, transparent); }
+  .cc-hd__name { margin: 0 0 0.2rem; font-size: 2rem; line-height: 1.1; overflow-wrap: anywhere; }
+  .cc-hd__note { margin: 0 0 0.4rem; font-size: 0.8125rem; color: var(--muted); }
+  .cc-hd__id { font-size: 0.8125rem; color: var(--muted); margin-bottom: 0.3rem; }
+  .cc-hd__tenure { margin: 0 0 0.4rem; font-size: 0.875rem; color: var(--muted); }
+  .cc-hd__hot { list-style: none; margin: 0; padding: 0; }
+
+  .cc-summary {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface-2);
+    box-shadow: var(--shadow);
+    padding: 1.1rem 1.25rem;
+    margin: 1.5rem 0;
+  }
+  .cc-summary__h { font-size: 1.05rem; margin: 0 0 0.6rem; }
+  .cc-summary__line { margin: 0 0 0.85rem; color: var(--fg); }
+  .cc-raster { display: flex; flex-wrap: wrap; gap: 3px; max-width: 40rem; }
+  .cc-raster__dot { display: inline-block; box-sizing: border-box; width: 12px; height: 12px; border-radius: 2px; flex: 0 0 auto; }
+  .cc-raster__dot--yes { background: var(--c-pos); }
+  .cc-raster__dot--no { background: var(--c-neg); }
+  .cc-raster__dot--abstain { background: var(--muted); }
+  .cc-raster__dot--missed { background: transparent; border: 1.5px solid var(--muted); }
+  .cc-raster__note { margin: 0.6rem 0 0; color: var(--muted); font-size: 0.8rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.9rem; }
+  .cc-raster__key { display: inline-flex; align-items: center; gap: 0.35rem; }
+  .cc-raster__key .cc-raster__dot { width: 10px; height: 10px; }
+
+  .cc-rows { display: flex; flex-direction: column; }
+  .cc-note { margin: 0 0 0.75rem; color: var(--muted); font-size: 0.8125rem; }
+  .cc-note--foot { margin-top: 1.5rem; font-size: 0.75rem; }
+
+  @media (max-width: 560px) {
+    .cc-hd { gap: 0.85rem; }
+    .cc-hd__name { font-size: 1.5rem; }
+  }
+</style>

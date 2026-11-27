@@ -16,10 +16,11 @@ import type { ActionVoterRow } from '@/lib/db/drepVotes.js';
 import type { SupersededVote } from '@/lib/db/voteHistory.js';
 import type { Drep } from '@/lib/db/dreps.js';
 import type { Pool } from '@/lib/db/pools.js';
-import type { CcPositionRow } from '@/lib/governance/ccPositions.js';
+import type { CcPositionRow, CcUncountedRow } from '@/lib/governance/ccPositions.js';
 import type { VoteConcentrationView } from '@/lib/analytics/voteConcentration.js';
 import type { ActionVoteChanges } from '@/lib/analytics/voteChangeView.js';
 import { voterDescriptor } from '@/lib/forum/author.js';
+import { ccProfilePath } from '@/lib/governance/ccNames.js';
 import { enhanceStoredHtml } from '@/lib/markdown.js';
 import { formatAdaCompact, formatSubmittedDateTime, formatVoteTime } from '@/lib/governance/view.js';
 import { VOTER_SORTS, type PositionsRole, type VoterSort } from '@/lib/governance/positionsParams.js';
@@ -49,6 +50,10 @@ interface Props {
   voteHistory: Map<string, SupersededVote[]>;
   now: number;
   ccRows: CcPositionRow[];
+  /** Ballots of committee credentials the action's boundary does not count, shown for the record. */
+  ccUncounted: CcUncountedRow[];
+  /** Cold keys that have a committee member profile page. */
+  ccProfileKeys: Set<string>;
   ccTotal: number;
   /** Effective voting concentration over the DRep list, null when incomputable. */
   concentration: VoteConcentrationView | null;
@@ -64,7 +69,7 @@ interface Props {
   passList?: PassListView | null;
 }
 
-const { voters, dreps, spoVoters, pools, spoTotal, total, page, pageSize, role, sort, sortInUrl, slug, rationales, notCounted, voteHistory, now, ccRows, ccTotal, concentration, concentrationThresholdPct, drepChanges, spoChanges, drepChangeLine, passList = null } = Astro.props;
+const { voters, dreps, spoVoters, pools, spoTotal, total, page, pageSize, role, sort, sortInUrl, slug, rationales, notCounted, voteHistory, now, ccRows, ccUncounted, ccProfileKeys, ccTotal, concentration, concentrationThresholdPct, drepChanges, spoChanges, drepChangeLine, passList = null } = Astro.props;
 
 // One-decimal percent for the concentration strip, matching the hub's fmtShare.
 const fmtConcPct = (pct: number): string => `${pct.toFixed(1)}%`;
@@ -120,6 +125,36 @@ function voteWhen(v: ActionVoterRow): { text: string; title?: string; datetime?:
 // off-site. Anchor-form links go through positionsVoterAnchor, which carries
 // the voter both as a resolvable page param and as the scroll anchor.
 const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
+
+// One row shape for both committee lists: the members counted at the boundary,
+// then the ballots of credentials it does not count, which carry no standing.
+interface CcListRow {
+  seed: string;
+  coldKeyHex: string | null;
+  voterId: string | null;
+  displayName: string | null;
+  vote: CcPositionRow['vote'];
+  standing: string;
+  rationale: CcPositionRow['rationale'];
+  bodyHtml: string | null;
+}
+const ccLists: { counted: boolean; rows: CcListRow[] }[] = [
+  {
+    counted: true,
+    rows: ccRows.map((m) => ({
+      seed: m.hotKeyHex ?? m.coldKeyHex, coldKeyHex: m.coldKeyHex, voterId: m.voterId, displayName: m.displayName, vote: m.vote,
+      standing: `${m.standing}${m.termExpiration != null ? ` · term ends epoch ${m.termExpiration}` : ''}`,
+      rationale: m.rationale, bodyHtml: m.bodyHtml,
+    })),
+  },
+  {
+    counted: false,
+    rows: ccUncounted.map((m) => ({
+      seed: m.hotKeyHex, coldKeyHex: m.coldKeyHex, voterId: m.voterId, displayName: m.displayName, vote: m.vote,
+      standing: 'Not counted', rationale: m.rationale, bodyHtml: m.bodyHtml,
+    })),
+  },
+];
 ---
 
 <div class="ga-positions">
@@ -325,54 +360,65 @@ const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
           </p>
         );
       })()}
-      <ul class="ga-positions__list">
-        {ccRows.map((m) => {
-          const seed = m.hotKeyHex ?? m.coldKeyHex;
-          const shortKey = `${seed.slice(0, 8)}…${seed.slice(-4)}`;
-          const shareUrl = m.voterId ? `${shareOrigin}/t/${slug}/${positionsVoterAnchor(m.voterId, 'cc')}` : null;
-          const lead = (
-            <>
-              <div class="ga-positions__identity cc-id">
-                <Avatar seed={seed} size={AVATAR_SIZE.rowLead} />
-                <span class="cc-id__text">
-                  <span class="cc-id__name">{m.displayName ?? shortKey}</span>
-                  {m.displayName && <span class="cc-id__key">{shortKey}</span>}
-                  <span class="cc-id__standing">{m.standing}{m.termExpiration != null && ` · term ends epoch ${m.termExpiration}`}</span>
-                </span>
-              </div>
-              {m.vote
-                ? <VoteBadge vote={m.vote} compact />
-                : <span class="cc-notvoted" title="Did not vote on this action">Not voted</span>}
-            </>
-          );
-          return (
-            <li class="ga-positions__row" id={m.voterId ? `voter-${m.voterId}` : undefined} style="scroll-margin-top:5rem">
-              {m.rationale === 'view' && m.bodyHtml ? (
-                <details class="ga-positions__details">
-                  <summary class="ga-positions__summary">
-                    {lead}
-                    <span class="ga-positions__cta">
-                      <span class="ga-positions__cta-label">Rationale</span>
-                      <svg class="ga-positions__chev" viewBox="0 0 16 16" aria-hidden="true">
-                        <path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
-                      </svg>
+      {ccLists.map(({ counted, rows }) => rows.length > 0 && (
+        <>
+          {!counted && (
+            <p class="ga-positions__count ga-positions__count--uncounted">
+              Not counted: {rows.length} ballot{rows.length === 1 ? '' : 's'} from committee credentials that are not part of the committee deciding this action.
+            </p>
+          )}
+          <ul class="ga-positions__list">
+            {rows.map((m) => {
+              const seed = m.seed;
+              const shortKey = `${seed.slice(0, 8)}…${seed.slice(-4)}`;
+              const shareUrl = m.voterId ? `${shareOrigin}/t/${slug}/${positionsVoterAnchor(m.voterId, 'cc')}` : null;
+              const name = m.displayName ?? shortKey;
+              const nameNode = m.coldKeyHex && ccProfileKeys.has(m.coldKeyHex) ? <a href={ccProfilePath(m.coldKeyHex)}>{name}</a> : name;
+              const lead = (
+                <>
+                  <div class="ga-positions__identity cc-id">
+                    <Avatar seed={seed} size={AVATAR_SIZE.rowLead} />
+                    <span class="cc-id__text">
+                      <span class="cc-id__name">{nameNode}</span>
+                      {m.displayName && <span class="cc-id__key">{shortKey}</span>}
+                      <span class="cc-id__standing">{m.standing}</span>
                     </span>
-                  </summary>
-                  {shareUrl && <div class="vote-share"><ShareVoteButton url={shareUrl} /></div>}
-                  <div class="ga-positions__rationale-body" set:html={enhanceStoredHtml(m.bodyHtml)} />
-                </details>
-              ) : (
-                <div class="ga-positions__summary ga-positions__summary--static">
-                  {lead}
-                  <span class="ga-positions__cta ga-positions__cta--none">
-                    <span class="ga-positions__cta-label">{m.rationale === 'unavailable' ? 'Rationale unavailable' : 'No rationale'}</span>
-                  </span>
-                </div>
-              )}
-            </li>
-          );
-        })}
-      </ul>
+                  </div>
+                  {m.vote
+                    ? <VoteBadge vote={m.vote} compact />
+                    : <span class="cc-notvoted" title="Did not vote on this action">Not voted</span>}
+                </>
+              );
+              return (
+                <li class="ga-positions__row" id={m.voterId ? `voter-${m.voterId}` : undefined} style="scroll-margin-top:5rem">
+                  {m.rationale === 'view' && m.bodyHtml ? (
+                    <details class="ga-positions__details">
+                      <summary class="ga-positions__summary">
+                        {lead}
+                        <span class="ga-positions__cta">
+                          <span class="ga-positions__cta-label">Rationale</span>
+                          <svg class="ga-positions__chev" viewBox="0 0 16 16" aria-hidden="true">
+                            <path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+                          </svg>
+                        </span>
+                      </summary>
+                      {shareUrl && <div class="vote-share"><ShareVoteButton url={shareUrl} /></div>}
+                      <div class="ga-positions__rationale-body" set:html={enhanceStoredHtml(m.bodyHtml)} />
+                    </details>
+                  ) : (
+                    <div class="ga-positions__summary ga-positions__summary--static">
+                      {lead}
+                      <span class="ga-positions__cta ga-positions__cta--none">
+                        <span class="ga-positions__cta-label">{m.rationale === 'unavailable' ? 'Rationale unavailable' : 'No rationale'}</span>
+                      </span>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      ))}
     </>
   )}
 
@@ -389,6 +435,10 @@ const shareOrigin = Astro.site?.origin ?? Astro.url.origin;
     font-size: 0.8125rem;
     color: var(--muted);
     margin: 0 0 0.25rem;
+  }
+
+  .ga-positions__count--uncounted {
+    margin-top: 1.25rem;
   }
 
   .ga-positions__count-rationale {

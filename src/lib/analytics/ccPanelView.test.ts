@@ -12,7 +12,7 @@ const hotToCold = new Map([
   ['hot1', 'cold1'],
   ['hot2', 'cold2'],
 ]);
-const nameIndex = { byHot: () => null, byCold: (c: string) => (c === 'cold1' ? 'Alice Org' : null) };
+const nameIndex = { byHot: () => null, sourceByCold: () => null, byCold: (c: string) => (c === 'cold1' ? 'Alice Org' : null) };
 
 const action = (over: Partial<DecidedCcAction>): DecidedCcAction => ({
   gaId: 'ga1', title: 'T', topicSlug: null, type: 'InfoAction', status: 'closed', decidedEpoch: 600, ratifiedEpoch: null, expiryEpoch: null,
