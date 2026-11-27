@@ -96,6 +96,15 @@ export function buildCcTimeline(rows: CcIndexRow[], members: CommitteeMemberTerm
   return { start, end, now: currentEpoch, bars, ticks: ticksFor(start, end) };
 }
 
+/** The epochs a bar shows as served and as the rest of a running term, inclusive ranges or null. */
+export function barSegments(b: CcTimelineBar): { served: [number, number] | null; rest: [number, number] | null } {
+  const restFrom = Math.max(b.from, b.servedTo + 1);
+  return {
+    served: b.servedTo >= b.from ? [b.from, b.servedTo] : null,
+    rest: b.termEnd != null && b.termEnd >= restFrom ? [restFrom, b.termEnd] : null,
+  };
+}
+
 /** Left offset and width of an epoch range on the timeline, as percentages. */
 export function timelineSpan(t: CcTimeline, from: number, to: number): { left: number; width: number } {
   const total = t.end - t.start;

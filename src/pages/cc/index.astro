@@ -3,60 +3,23 @@ export const prerender = false;
 
 import { requestDb } from '@/lib/db/requestDb.js';
 import Layout from '@/layouts/Layout.astro';
-import { buildCcIndex } from '@/lib/governance/ccProfile.js';
-import { consideredCcActions } from '@/lib/analytics/ccParticipation.js';
 import { tenureLabel } from '@/lib/analytics/ccPanelView.js';
-import { ccProfilePath, buildCcNameIndex } from '@/lib/governance/ccNames.js';
-import { getProtocolParams } from '@/lib/db/protocolParams.js';
-import { listDecidedCcActions, listDecidedCcVoteRows, getCommitteeTimeline } from '@/lib/db/committee.js';
-import { getAllCcMemberNames } from '@/lib/db/ccMemberName.js';
+import { ccProfilePath } from '@/lib/governance/ccNames.js';
 import { cacheControlForSynced, truncateId } from '@/lib/forum/view.js';
-import { buildCcFacts, buildCcTimeline, timelineSpan, type CcFacts, type CcTimeline } from '@/lib/governance/ccOverview.js';
+import { barSegments, timelineSpan, type CcTimeline } from '@/lib/governance/ccOverview.js';
+import { loadCcOverview } from '@/lib/governance/ccLoad.js';
+import { ccOverviewCardModel, ccOverviewCardVersion } from '@/lib/og/ccCard.js';
 import { epochDateClause } from '@/lib/governance/epochLabel.js';
 import { resolveNetwork, EPOCH_LENGTH_SECONDS } from '@/lib/config/network.js';
 import { currentNetwork } from '@/lib/api/response';
 
 const db = requestDb();
-let rows: ReturnType<typeof buildCcIndex> = [];
-let facts: CcFacts | null = null;
-let seatTimeline: CcTimeline | null = null;
-if (db) {
-  const [params, actions, votesByAction, timeline, nameRows] = await Promise.all([
-    getProtocolParams(db),
-    listDecidedCcActions(db),
-    listDecidedCcVoteRows(db),
-    getCommitteeTimeline(db),
-    getAllCcMemberNames(db),
-  ]);
-  const currentEpoch = params?.epoch ?? null;
-  const { members, hotToCold } = timeline;
-  const { considered } = consideredCcActions({ actions, votesByAction, members, hotToCold, currentEpoch });
-  rows = buildCcIndex({
-    considered,
-    members,
-    hotToCold,
-    nameIndex: buildCcNameIndex(nameRows, hotToCold),
-    currentEpoch,
-  });
-  facts = buildCcFacts({
-    rows,
-    members,
-    minSize: params?.committeeMinSize ?? null,
-    threshold: params?.ccThreshold ?? null,
-    maxTermEpochs: maxTermLength(params?.rawJson ?? null),
-  });
-  seatTimeline = buildCcTimeline(rows, members, currentEpoch);
-}
-
-function maxTermLength(rawJson: string | null): number | null {
-  if (rawJson == null) return null;
-  try {
-    const v = (JSON.parse(rawJson) as Record<string, unknown>).committee_max_term_length;
-    return typeof v === 'number' ? v : null;
-  } catch {
-    return null;
-  }
-}
+const overview = db ? await loadCcOverview(db) : null;
+const rows = overview?.rows ?? [];
+const facts = overview?.facts ?? null;
+const seatTimeline = overview?.timeline ?? null;
+Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
+const ogImage = overview ? `/og/cc.png?v=${ccOverviewCardVersion(ccOverviewCardModel(overview.facts, overview.timeline))}` : undefined;
 
 const cfg = resolveNetwork(currentNetwork().network);
 const EPOCHS_PER_YEAR = (365 * 24 * 60 * 60) / EPOCH_LENGTH_SECONDS;
@@ -74,16 +37,19 @@ if (facts) {
     factItems.push({ label: 'Next term ends', value: `${displayName(n)}, epoch ${n.epoch}, ${epochDateClause(n.epoch, cfg)}` });
   }
 }
-const bars = (seatTimeline?.bars ?? []).map((b) => ({
+const bars = (seatTimeline?.bars ?? []).map((b) => {
+  const seg = barSegments(b);
+  const span = (r: [number, number] | null) => (seatTimeline && r ? timelineSpan(seatTimeline, r[0], r[1]) : null);
+  return {
   ...b,
   label: displayName(b),
-  served: seatTimeline && b.servedTo >= b.from ? timelineSpan(seatTimeline, b.from, b.servedTo) : null,
-  rest: seatTimeline && b.termEnd != null && b.termEnd > b.servedTo ? timelineSpan(seatTimeline, Math.max(b.from, b.servedTo + 1), b.termEnd) : null,
+  served: span(seg.served),
+  rest: span(seg.rest),
   title: b.termEnd != null ? `From epoch ${b.from}, term ends in epoch ${b.termEnd}` : `Epochs ${b.from} to ${b.servedTo}`,
-}));
+  };
+});
 const tickMarks = seatTimeline ? seatTimeline.ticks.map((t) => ({ epoch: t, left: timelineSpan(seatTimeline as CcTimeline, t, t).left })) : [];
 const nowLeft = seatTimeline ? timelineSpan(seatTimeline, seatTimeline.now, seatTimeline.now).left : null;
-Astro.response.headers.set('Cache-Control', cacheControlForSynced(Astro.locals.user));
 
 const current: typeof rows = [];
 const former: typeof rows = [];
@@ -97,6 +63,7 @@ const lists = [
 <Layout
   title="Constitutional Committee members - DRepTalk"
   description="Every Constitutional Committee member credential, current and former, with how many decided governance actions each voted on."
+  ogImage={ogImage}
   wide
 >
   <nav style="font-size:0.875rem;color:var(--muted);margin-bottom:1rem;">

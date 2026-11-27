@@ -9,6 +9,8 @@ import { BRAND_ACCENT, CARD_BG, INK, MUTED, OG_HEIGHT, SUBTLE, TALLY, TRACK, tin
 import { fmtPctFine } from '../governance/view.js';
 import { DREP_LINK_HOST } from '../drepLink/handle.js';
 import type { AnalyticsCardChart, AnalyticsCardModel, CommitteeCardModel, DiscussionCardModel, DrepCardModel, DrepStat, GovCardModel, MoverRow, MoversCardModel, ReviewCardModel, ReviewIndexCardModel, TreasuryCardModel, VoteCardModel } from './model.js';
+import type { CcOverviewCardModel } from './ccCard.js';
+import { CC_CARD_TIMELINE_WIDTH } from './ccCard.js';
 import { ANALYTICS_CHART_HEIGHT, ANALYTICS_CHART_INSET, ANALYTICS_CHART_WIDTH } from './model.js';
 
 // satori-html renders text nodes verbatim (it does not decode HTML entities), so
@@ -510,4 +512,28 @@ export function drepLinkCardHtml(): string {
     <div style="display:flex;font-size:30px;font-weight:500;color:${MUTED};margin-top:28px;">Free for every DRep. Votes, rationales and discussions behind one link.</div>
   </div>`;
   return cardShell(BRAND_ACCENT, 'drep.link', body, false);
+}
+
+// Committee overview card: title and key figures over a small seat timeline, one
+// bar per member from its first seat epoch, solid for the epochs served and a
+// light tint for the rest of a running term, with a red line at the current epoch.
+export function ccOverviewCardHtml(m: CcOverviewCardModel): string {
+  const rows = m.bars
+    .map((b, i) => {
+      const seg = (width: number, color: string): string =>
+        width > 0 ? `<div style="display:flex;width:${width}px;height:${m.rowHeight}px;background:${color};border-radius:3px;"></div>` : '';
+      return `<div style="display:flex;width:${CC_CARD_TIMELINE_WIDTH}px;height:${m.rowHeight}px;${i > 0 ? `margin-top:${m.rowGap}px;` : ''}">
+        <div style="display:flex;width:${b.offset}px;height:${m.rowHeight}px;"></div>${seg(b.served, b.active ? m.accent : SUBTLE)}${seg(b.rest, tint(m.accent))}
+      </div>`;
+    })
+    .join('');
+  const now = m.nowX != null
+    ? `<div style="display:flex;position:absolute;left:${m.nowX}px;top:-6px;bottom:-6px;width:3px;background:${TALLY.no};"></div>`
+    : '';
+  const body = `<div style="display:flex;flex-direction:column;">
+      ${title(m.title)}
+      <div style="display:flex;font-size:28px;font-weight:500;color:${MUTED};margin-top:10px;">${esc(m.subtitle)}</div>
+    </div>
+    <div style="display:flex;flex-direction:column;position:relative;width:${CC_CARD_TIMELINE_WIDTH}px;">${rows}${now}</div>`;
+  return cardShell(m.accent, 'Committee', body);
 }
