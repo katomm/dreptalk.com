@@ -93,6 +93,10 @@ declare namespace Cloudflare {
     LEGAL_CONTACT_EMAIL?: string;
     LEGAL_PHONE?: string;
     LEGAL_VAT_ID?: string;
+    /** send_email binding for the contact form, which delivers to LEGAL_CONTACT_EMAIL. */
+    EMAIL?: SendEmail;
+    /** Sender address of the contact form, an address on the Email Sending subdomain. */
+    CONTACT_FROM_EMAIL?: string;
     /** Local dev only: '1' switches voting-power-origins to a fixture payload, bypassing Koios (astro dev SSR fetch hangs, see the DEV stub comment there). */
     PROVENANCE_STUB?: string;
     /**

@@ -1,0 +1,239 @@
+---
+import { env } from 'cloudflare:workers';
+import Layout from '@/layouts/Layout.astro';
+import { getLegalInfo } from '@/lib/legal';
+import { clientIpFrom } from '@/lib/http/clientIp';
+import {
+  CONTACT_EMAIL_MAX,
+  CONTACT_HONEYPOT_FIELD,
+  CONTACT_MESSAGE_MAX,
+  CONTACT_NAME_MAX,
+  submitContact,
+  type ContactFieldErrors,
+  type ContactFields,
+  type ContactResult,
+} from '@/lib/contact';
+
+// SSR: the form posts to this page, which sends the message and renders the
+// outcome inline. Works without JavaScript, no redirect.
+export const prerender = false;
+
+const legal = getLegalInfo();
+
+let result: ContactResult | null = null;
+if (Astro.request.method === 'POST') {
+  let form: FormData;
+  try {
+    form = await Astro.request.formData();
+  } catch {
+    form = new FormData();
+  }
+  result = await submitContact(form, clientIpFrom(Astro.request.headers), {
+    rateLimiter: env.RATE_LIMITER,
+    mailer: env.EMAIL,
+    to: env.LEGAL_CONTACT_EMAIL,
+    from: env.CONTACT_FROM_EMAIL,
+    now: Date.now(),
+  });
+  Astro.response.headers.set('Cache-Control', 'no-store');
+  if (result.status === 'invalid') Astro.response.status = 400;
+  else if (result.status === 'rate_limited') Astro.response.status = 429;
+  else if (result.status === 'unavailable') Astro.response.status = 503;
+  else if (result.status === 'failed') Astro.response.status = 502;
+} else {
+  Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
+}
+
+const sent = result?.status === 'sent';
+const fields: ContactFields = result && result.status !== 'sent' ? result.fields : { email: '', name: '', message: '' };
+const errors: ContactFieldErrors = result?.status === 'invalid' ? result.errors : {};
+const notice =
+  result?.status === 'rate_limited'
+    ? 'Too many messages from your connection. Please try again later, or write to us by email.'
+    : result?.status === 'unavailable'
+      ? 'The contact form is not available right now. Please write to us by email instead.'
+      : result?.status === 'failed'
+        ? 'Your message could not be sent. Please try again in a moment, or write to us by email.'
+        : result?.status === 'invalid'
+          ? 'Please check the highlighted fields.'
+          : null;
+---
+<Layout title="Contact - DRepTalk" description="Send a message to the DRepTalk operator." noindex={true}>
+  <article class="legal contact">
+    <h1>Contact</h1>
+
+    {sent ? (
+      <p class="contact__status contact__status--ok" role="status">
+        Thank you, your message has been sent. We will reply to the email address you gave.
+      </p>
+    ) : (
+      <>
+        <p>
+          Questions about DRepTalk, a legal or privacy request, or a problem to report? Send us a
+          message here, or write to <a href={`mailto:${legal.email}`}>{legal.email}</a>. We reply by
+          email.
+        </p>
+
+        {notice && (
+          <p class="contact__status contact__status--error" role="alert">{notice}</p>
+        )}
+
+        <form method="POST" action="/contact/" class="contact__form">
+          <div class="contact__field">
+            <label for="contact-email">Your email</label>
+            <input
+              id="contact-email"
+              name="email"
+              type="email"
+              required
+              maxlength={CONTACT_EMAIL_MAX}
+              autocomplete="email"
+              value={fields.email}
+              aria-invalid={errors.email ? 'true' : undefined}
+              aria-describedby={errors.email ? 'contact-email-error' : undefined}
+            />
+            {errors.email && <p id="contact-email-error" class="contact__error">{errors.email}</p>}
+          </div>
+
+          <div class="contact__field">
+            <label for="contact-name">Your name <span class="contact__optional">(optional)</span></label>
+            <input
+              id="contact-name"
+              name="name"
+              type="text"
+              maxlength={CONTACT_NAME_MAX}
+              autocomplete="name"
+              value={fields.name}
+              aria-invalid={errors.name ? 'true' : undefined}
+              aria-describedby={errors.name ? 'contact-name-error' : undefined}
+            />
+            {errors.name && <p id="contact-name-error" class="contact__error">{errors.name}</p>}
+          </div>
+
+          <div class="contact__field">
+            <label for="contact-message">Message</label>
+            <textarea
+              id="contact-message"
+              name="message"
+              required
+              rows="8"
+              maxlength={CONTACT_MESSAGE_MAX}
+              aria-invalid={errors.message ? 'true' : undefined}
+              aria-describedby={errors.message ? 'contact-message-error' : undefined}
+            >{fields.message}</textarea>
+            {errors.message && <p id="contact-message-error" class="contact__error">{errors.message}</p>}
+          </div>
+
+          {/* Honeypot: hidden from people and screen readers, only bots fill it in. */}
+          <div class="contact__hp" aria-hidden="true">
+            <label for="contact-website">Website</label>
+            <input id="contact-website" name={CONTACT_HONEYPOT_FIELD} type="text" tabindex="-1" autocomplete="off" />
+          </div>
+
+          <p class="contact__privacy">
+            We use your email address, name and message only to answer your request. Details in
+            the <a href="/privacy/#contact-form">privacy policy</a>.
+          </p>
+
+          <button type="submit" class="btn btn-primary">Send message</button>
+        </form>
+      </>
+    )}
+  </article>
+
+  <style>
+    .legal {
+      max-width: 46rem;
+      margin: 0 auto;
+      padding: 1rem 0 4rem;
+      line-height: 1.7;
+    }
+    .legal h1 {
+      font-size: clamp(1.6rem, 4vw, 2.2rem);
+      margin: 0 0 1.5rem;
+    }
+    .legal p {
+      color: var(--fg);
+      margin: 0 0 1rem;
+    }
+    .legal a {
+      color: var(--accent);
+    }
+    .contact__form {
+      display: flex;
+      flex-direction: column;
+      gap: 1.1rem;
+      margin-top: 1.5rem;
+    }
+    .contact__field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+    .contact__field label {
+      font-weight: 600;
+      font-size: 0.9375rem;
+    }
+    .contact__optional {
+      font-weight: 400;
+      color: var(--muted);
+    }
+    .contact__field input,
+    .contact__field textarea {
+      font: inherit;
+      color: var(--fg);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 0.6rem 0.75rem;
+      width: 100%;
+      box-sizing: border-box;
+    }
+    .contact__field textarea {
+      resize: vertical;
+      min-height: 10rem;
+    }
+    .contact__field input:focus-visible,
+    .contact__field textarea:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+      border-color: var(--accent);
+    }
+    .contact__field [aria-invalid='true'] {
+      border-color: var(--danger);
+    }
+    .legal .contact__error {
+      color: var(--danger);
+      font-size: 0.875rem;
+      margin: 0;
+    }
+    .legal .contact__privacy {
+      color: var(--muted);
+      font-size: 0.875rem;
+      margin: 0;
+    }
+    .contact__form .btn {
+      align-self: flex-start;
+    }
+    .contact__status {
+      padding: 0.75rem 1rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+    .contact__status--ok {
+      border-color: var(--c-pos);
+    }
+    .contact__status--error {
+      border-color: var(--danger);
+    }
+    /* Off screen rather than display:none, which some bots skip. */
+    .contact__hp {
+      position: absolute;
+      left: -10000px;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+    }
+  </style>
+</Layout>

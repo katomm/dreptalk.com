@@ -62,6 +62,11 @@ TELEGRAM_GROUP_CHAT_ID = "-1004408916643"
 # Not a secret, a group id is useless without a token.
 PINATA_GOV_GROUP_ID = "d07e6e80-916c-4c2b-bf9d-9663d91fc485"
 
+# Sender of the contact form (/contact/), an address on the sending subdomain
+# onboarded under Cloudflare Email Sending. The recipient is the imprint
+# contact address (LEGAL_CONTACT_EMAIL). Preprod inherits both unchanged.
+CONTACT_FROM_EMAIL = "noreply@send.dreptalk.com"
+
 # CIP-179 surveys. TESSERA_BACKEND_URL is the feature switch: the app checks
 # only its presence (without it the surveys category does not exist and
 # /c/surveys/ is a 404), gov-sync is the one caller of the URL. The client
@@ -102,6 +107,12 @@ id = "2e999274a29a41319b3e1214653b4fee"
 [[durable_objects.bindings]]
 name = "RATE_LIMITER"
 class_name = "RateLimiter"
+
+# Cloudflare Email Sending, used by the contact form to deliver messages to the
+# imprint contact address. Sending is limited to the contact form's sender.
+[[send_email]]
+name = "EMAIL"
+allowed_sender_addresses = ["noreply@send.dreptalk.com"]
 
 [[migrations]]
 tag = "v1"

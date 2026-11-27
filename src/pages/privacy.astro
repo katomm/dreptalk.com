@@ -6,7 +6,7 @@ import { getLegalInfo } from '@/lib/legal';
 export const prerender = false;
 
 const legal = getLegalInfo();
-const lastUpdated = '3 November 2026';
+const lastUpdated = '26 November 2026';
 Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
 ---
 <Layout
@@ -115,6 +115,19 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
       of scam and spam).
     </p>
 
+    <h3 id="contact-form">Contact form</h3>
+    <p>
+      If you write to us through the <a href="/contact/">contact form</a>, we process your
+      email address, your name if you give one, and your message, and send them to us as an
+      email so we can answer your request. To protect the form against abuse, your IP address
+      is used to limit how many messages one connection can send per hour. That counter holds
+      no message content and is not linked to your message. The email is delivered through
+      Cloudflare Email Sending. We delete your message once your request has been handled,
+      unless statutory retention periods require us to keep it longer. Legal basis: Art.
+      6(1)(b) GDPR where your request concerns the use of this site, otherwise Art. 6(1)(f)
+      GDPR (legitimate interest in answering requests and keeping the form free of spam).
+    </p>
+
     <h3>Server logs and security</h3>
     <p>
       Our hosting and security provider (Cloudflare) processes connection data such as
@@ -163,7 +176,7 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
       on:
     </p>
     <ul>
-      <li>Cloudflare, Inc.: hosting, content delivery, security, and cookieless analytics, under a data processing agreement.</li>
+      <li>Cloudflare, Inc.: hosting, content delivery, security, cookieless analytics, and delivery of contact form emails, under a data processing agreement.</li>
       <li>Koios: a public, read-only Cardano data API; we send only public on-chain identifiers.</li>
       <li>Browser push services (Google, Mozilla, or Apple, depending on your browser): deliver the push notifications you enable; content is end-to-end encrypted, so they handle only delivery metadata.</li>
       <li>Telegram: delivers notifications if you link a Telegram account; these messages are readable by Telegram.</li>
