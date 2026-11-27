@@ -294,7 +294,16 @@ describe('passPathRow', () => {
 
   it('CC row: seats from the boundary committee, nothing when blocked or unknown', () => {
     const cc = { body: 'CC' as const, met: false, thresholdPct: 66.67, stake: null };
-    expect(passPathRow(cc, ctx)?.line).toBe("Reachable if 5 of the 7 members who haven't voted vote Yes.");
+    const half = { ...ctx, cc: { yes: 2, no: 2, abstain: 0 } };
+    expect(passPathRow(cc, half)?.line).toBe("Reachable if 3 of the 3 members who haven't voted vote Yes.");
+    expect(passPathRow(cc, { ...half, ccBlocked: true })).toBeNull();
+    expect(passPathRow(cc, { ...half, ccBoundarySize: null })).toBeNull();
+  });
+
+  it('CC row: nothing in the early phase, while more seats have not voted than have', () => {
+    const cc = { body: 'CC' as const, met: false, thresholdPct: 66.67, stake: null };
+    expect(passPathRow(cc, ctx)).toBeNull();
+    expect(passPathRow(cc, { ...ctx, cc: { yes: 1, no: 2, abstain: 0 } })).toBeNull();
     expect(passPathRow(cc, { ...ctx, ccBlocked: true })).toBeNull();
     expect(passPathRow(cc, { ...ctx, ccBoundarySize: null })).toBeNull();
   });
