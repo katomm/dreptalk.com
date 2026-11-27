@@ -7,6 +7,7 @@ import {
   proposerCountLine,
   proposerShortLabel,
   recipientHistorySentence,
+  recipientHistoryToggle,
   type HistorySourceRow,
 } from './recipientHistory.js';
 
@@ -47,7 +48,7 @@ describe('buildRecipientHistories', () => {
     ]);
     expect(h.enactedCount).toBe(2);
     expect(h.enactedLovelace).toBe(5_000_000n);
-    expect(recipientHistorySentence(h)).toBe('Named in 4 other treasury withdrawals, 2 enacted (5 ₳ paid), 1 active, 1 expired.');
+    expect(recipientHistorySentence(h)).toBe('This address is the recipient in 4 other treasury withdrawals: 2 enacted (5 ₳ paid), 1 active, 1 expired.');
   });
 
   it('builds a separate history per key, also an empty one', () => {
@@ -58,12 +59,12 @@ describe('buildRecipientHistories', () => {
 
   it('skips unparsable payloads and has a zero-history sentence', () => {
     const h = buildRecipientHistories([row('bad', 'enacted', '{nope')], [A]).get(recipientKeyId(A))!;
-    expect(recipientHistorySentence(h)).toBe('No other treasury withdrawal names this address.');
+    expect(recipientHistorySentence(h)).toBe('No other treasury withdrawal goes to this address.');
   });
 
   it('uses the singular and badge words', () => {
     const h = buildRecipientHistories([row('p', 'pending', pay([A, 1]))], [A]).get(recipientKeyId(A))!;
-    expect(recipientHistorySentence(h)).toBe('Named in 1 other treasury withdrawal, 1 syncing.');
+    expect(recipientHistorySentence(h)).toBe('This address is the recipient in 1 other treasury withdrawal: 1 syncing.');
   });
 
   it('ignores null keys', () => {
@@ -80,7 +81,7 @@ describe('buildRecipientHistories', () => {
       ],
       [A],
     ).get(recipientKeyId(A))!;
-    expect(recipientHistorySentence(h)).toBe('Named in 4 other treasury withdrawals, 1 ratified, 1 active, 1 expired, 1 dropped.');
+    expect(recipientHistorySentence(h)).toBe('This address is the recipient in 4 other treasury withdrawals: 1 ratified, 1 active, 1 expired, 1 dropped.');
   });
 
   it('falls back to a generated title when the row has none', () => {
@@ -104,6 +105,11 @@ describe('recipient copy', () => {
     expect(payoutNotes({ key: B, address: 'stake1x' }, null)).toEqual([]);
     expect(payoutNotes({ key: B, address: 'stake1x' }, 'stake1y')).toEqual([]);
     expect(payoutNotes({ key: null, address: '(unknown recipient)' }, '(unknown recipient)')).toEqual([]);
+  });
+
+  it('toggle label', () => {
+    expect(recipientHistoryToggle(1)).toBe('Show the withdrawal');
+    expect(recipientHistoryToggle(60)).toBe('Show the 60 withdrawals');
   });
 
   it('proposer count copy', () => {

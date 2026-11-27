@@ -102,11 +102,16 @@ export function buildRecipientHistories(rows: HistorySourceRow[], keys: (Recipie
 
 export function recipientHistorySentence(h: RecipientHistory): string {
   const n = h.items.length;
-  if (n === 0) return 'No other treasury withdrawal names this address.';
-  let s = `Named in ${n} other treasury withdrawal${n === 1 ? '' : 's'}`;
-  if (h.enactedCount > 0) s += `, ${h.enactedCount} enacted (${formatAda(String(h.enactedLovelace))} paid)`;
-  for (const o of h.others) s += `, ${o.count} ${o.word}`;
-  return `${s}.`;
+  if (n === 0) return 'No other treasury withdrawal goes to this address.';
+  const parts: string[] = [];
+  if (h.enactedCount > 0) parts.push(`${h.enactedCount} enacted (${formatAda(String(h.enactedLovelace))} paid)`);
+  for (const o of h.others) parts.push(`${o.count} ${o.word}`);
+  return `This address is the recipient in ${n} other treasury withdrawal${n === 1 ? '' : 's'}: ${parts.join(', ')}.`;
+}
+
+/** Label of the disclosure that lists the other withdrawals. */
+export function recipientHistoryToggle(count: number): string {
+  return count === 1 ? 'Show the withdrawal' : `Show the ${count} withdrawals`;
 }
 
 export function proposerCountLine(count: number): string {

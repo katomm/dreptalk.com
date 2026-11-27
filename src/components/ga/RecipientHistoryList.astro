@@ -5,7 +5,7 @@ import type { CardanoNetwork } from '@/lib/config/network.js';
 import { resolveNetwork } from '@/lib/config/network.js';
 import { statusBadge, submittedDateLabel } from '@/lib/governance/view.js';
 import { formatAda } from '@/lib/format/ada.js';
-import { proposerShortLabel, recipientHistorySentence, type RecipientHistory } from '@/lib/treasury/recipientHistory.js';
+import { proposerShortLabel, recipientHistorySentence, recipientHistoryToggle, type RecipientHistory } from '@/lib/treasury/recipientHistory.js';
 
 interface Props {
   history: RecipientHistory;
@@ -26,7 +26,7 @@ const rows = history.items.map((it) => ({
   <p class="rh__line">{recipientHistorySentence(history)}</p>
   {rows.length > 0 && (
     <details class="rh__more">
-      <summary>Show all {rows.length}</summary>
+      <summary>{recipientHistoryToggle(rows.length)}</summary>
       <ul class="rh__list">
         {rows.map((it) => (
           <li class="rh__item">
