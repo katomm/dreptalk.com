@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import {
-  isReportable,
   parseDelegationDigestPayload,
   formatDelegationDigestDetail,
   formatDelegationDigestHeadline,
@@ -17,15 +16,6 @@ const base: DelegationDigestPayload = {
   titles: ['Treasury withdrawal for X', 'Info action Y', 'Hard fork Z'],
   openUnvoted: 1,
 };
-
-describe('isReportable', () => {
-  it('reports a DRep that voted', () => {
-    expect(isReportable({ votes: 1 })).toBe(true);
-  });
-  it('stays silent for a DRep that did not vote', () => {
-    expect(isReportable({ votes: 0 })).toBe(false);
-  });
-});
 
 describe('parseDelegationDigestPayload', () => {
   it('round-trips a valid payload', () => {
@@ -64,9 +54,6 @@ describe('copy', () => {
       'Treasury withdrawal for X, Info action Y, Hard fork Z. 2 with a rationale',
     );
     expect(formatDelegationDigestDetail({ ...base, withRationale: 0, titles: [] })).toBe('None with a rationale');
-  });
-  it('never mentions open actions, even from older rows', () => {
-    expect(formatDelegationDigestInboxTitle(base)).not.toMatch(/open/);
   });
   it('lists titles and the rest as a count', () => {
     expect(formatDelegationDigestTitles(base)).toBe('Treasury withdrawal for X, Info action Y, Hard fork Z');

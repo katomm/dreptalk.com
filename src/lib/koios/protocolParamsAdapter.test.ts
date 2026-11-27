@@ -2,65 +2,62 @@ import { describe, it, expect } from 'vitest';
 import { protocolParamsFromEpochParams } from './protocolParamsAdapter.js';
 import type { EpochParamsRow } from './client.js';
 
-// A realistic /epoch_params row, with Koios's own field names. Two of them
-// differ from the app's field names in a way a rename would silently break:
-// dvt_update_to_constitution (not dvt_update_constitution) and
-// dvt_hard_fork_initiation (not dvt_hard_fork).
+// A /epoch_params row with Koios's own field names and a distinct value per
+// field, so a swapped mapping fails. Two names differ from the app's in a way a
+// rename would silently break: dvt_update_to_constitution (not
+// dvt_update_constitution) and dvt_hard_fork_initiation (not dvt_hard_fork).
 const KOIOS_ROW = {
   epoch_no: 540,
   protocol_major: 10,
   protocol_minor: 0,
   committee_max_term_length: 146,
-  dvt_motion_no_confidence: 0.67,
-  dvt_committee_normal: 0.67,
-  dvt_committee_no_confidence: 0.6,
-  dvt_update_to_constitution: 0.75,
-  dvt_hard_fork_initiation: 0.6,
-  dvt_p_p_network_group: 0.67,
+  dvt_motion_no_confidence: 0.61,
+  dvt_committee_normal: 0.62,
+  dvt_committee_no_confidence: 0.63,
+  dvt_update_to_constitution: 0.64,
+  dvt_hard_fork_initiation: 0.65,
+  dvt_p_p_network_group: 0.66,
   dvt_p_p_economic_group: 0.67,
-  dvt_p_p_technical_group: 0.67,
-  dvt_p_p_gov_group: 0.75,
-  dvt_treasury_withdrawal: 0.67,
+  dvt_p_p_technical_group: 0.68,
+  dvt_p_p_gov_group: 0.69,
+  dvt_treasury_withdrawal: 0.7,
   pvt_motion_no_confidence: 0.51,
-  pvt_committee_normal: 0.51,
-  pvt_committee_no_confidence: 0.51,
-  pvt_hard_fork_initiation: 0.51,
-  pvtpp_security_group: 0.51,
+  pvt_committee_normal: 0.52,
+  pvt_committee_no_confidence: 0.53,
+  pvt_hard_fork_initiation: 0.54,
+  pvtpp_security_group: 0.55,
   committee_min_size: 7,
 } satisfies EpochParamsRow;
 
 describe('protocolParamsFromEpochParams', () => {
-  it('maps every Koios threshold field onto its app field name', () => {
-    const p = protocolParamsFromEpochParams(KOIOS_ROW);
-    expect(p.epoch).toBe(540);
-    expect(p.dvtMotionNoConfidence).toBe(0.67);
-    expect(p.dvtCommitteeNormal).toBe(0.67);
-    expect(p.dvtCommitteeNoConfidence).toBe(0.6);
-    expect(p.dvtUpdateConstitution).toBe(0.75);
-    expect(p.dvtHardFork).toBe(0.6);
-    expect(p.dvtPpNetwork).toBe(0.67);
-    expect(p.dvtPpEconomic).toBe(0.67);
-    expect(p.dvtPpTechnical).toBe(0.67);
-    expect(p.dvtPpGov).toBe(0.75);
-    expect(p.dvtTreasuryWithdrawal).toBe(0.67);
-    expect(p.pvtMotionNoConfidence).toBe(0.51);
-    expect(p.pvtCommitteeNormal).toBe(0.51);
-    expect(p.pvtCommitteeNoConfidence).toBe(0.51);
-    expect(p.pvtHardFork).toBe(0.51);
-    expect(p.pvtSecurityGroup).toBe(0.51);
-    expect(p.committeeMinSize).toBe(7);
-  });
-
-  it('leaves the fields that do not come from epoch_params unset', () => {
-    const p = protocolParamsFromEpochParams(KOIOS_ROW);
-    expect(p.ccThreshold).toBeNull();
-    expect(p.committeeSize).toBeNull();
-    expect(p.rawJson).toBeNull();
-    expect(p.treasuryLovelace).toBeNull();
-    expect(p.reservesLovelace).toBeNull();
-    expect(p.circulationLovelace).toBeNull();
-    expect(p.treasuryEpoch).toBeNull();
-    expect(p.syncedAt).toBe(0);
+  it('maps every Koios threshold field onto its app field name and leaves the rest unset', () => {
+    expect(protocolParamsFromEpochParams(KOIOS_ROW)).toEqual({
+      epoch: 540,
+      dvtMotionNoConfidence: 0.61,
+      dvtCommitteeNormal: 0.62,
+      dvtCommitteeNoConfidence: 0.63,
+      dvtUpdateConstitution: 0.64,
+      dvtHardFork: 0.65,
+      dvtPpNetwork: 0.66,
+      dvtPpEconomic: 0.67,
+      dvtPpTechnical: 0.68,
+      dvtPpGov: 0.69,
+      dvtTreasuryWithdrawal: 0.7,
+      pvtMotionNoConfidence: 0.51,
+      pvtCommitteeNormal: 0.52,
+      pvtCommitteeNoConfidence: 0.53,
+      pvtHardFork: 0.54,
+      pvtSecurityGroup: 0.55,
+      committeeMinSize: 7,
+      ccThreshold: null,
+      committeeSize: null,
+      syncedAt: 0,
+      rawJson: null,
+      treasuryLovelace: null,
+      reservesLovelace: null,
+      circulationLovelace: null,
+      treasuryEpoch: null,
+    });
   });
 
   it('turns missing and null Koios fields into nulls', () => {

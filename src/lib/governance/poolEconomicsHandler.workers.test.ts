@@ -44,15 +44,9 @@ describe('handlePoolEconomics (gated)', () => {
     expect(await res.text()).toBe(BODY_300);
   });
 
-  it('answers the previous epoch row after an epoch boundary', async () => {
+  it('answers the newest stored row, a previous epoch one included', async () => {
     await store(299, BODY_299);
-    const res = await handlePoolEconomics(ctx(), deps);
-    expect(res.status).toBe(200);
-    expect(await res.text()).toBe(BODY_299);
-  });
-
-  it('answers the newest stored row', async () => {
-    await store(299, BODY_299);
+    expect(await (await handlePoolEconomics(ctx(), deps)).text()).toBe(BODY_299);
     await store(300, BODY_300);
     expect(await (await handlePoolEconomics(ctx(), deps)).text()).toBe(BODY_300);
   });
@@ -83,33 +77,14 @@ describe('handlePoolEconomics (gated)', () => {
 });
 
 describe('handlePublicPoolEconomics', () => {
-  it('answers without a session on mainnet and preprod', async () => {
+  it('answers the stored body verbatim without a session and caches it for an hour', async () => {
     await store(300, BODY_300);
     // The handler reads only the DB binding, so the network never matters.
     const res = await handlePublicPoolEconomics(publicCtx(), { env: testEnv });
     expect(res.status).toBe(200);
-    expect(await res.text()).toBe(BODY_300);
-  });
-
-  it('answers the stored body verbatim as json', async () => {
-    await store(300, BODY_300);
-    const res = await handlePublicPoolEconomics(publicCtx(), { env: testEnv });
     expect(res.headers.get('content-type')).toBe('application/json');
-    expect(await res.text()).toBe(BODY_300);
-  });
-
-  it('sends cache-control public, max-age=3600 on 200', async () => {
-    await store(300, BODY_300);
-    const res = await handlePublicPoolEconomics(publicCtx(), { env: testEnv });
     expect(res.headers.get('cache-control')).toBe('public, max-age=3600');
-  });
-
-  it('serves a newly stored epoch on the next request', async () => {
-    await store(300, BODY_300);
-    expect(await (await handlePublicPoolEconomics(publicCtx(), { env: testEnv })).text()).toBe(BODY_300);
-    const body301 = JSON.stringify({ epoch: 301, pools: [] });
-    await store(301, body301);
-    expect(await (await handlePublicPoolEconomics(publicCtx(), { env: testEnv })).text()).toBe(body301);
+    expect(await res.text()).toBe(BODY_300);
   });
 
   it('refuses a cross-origin request with 403', async () => {

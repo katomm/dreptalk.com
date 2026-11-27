@@ -66,36 +66,31 @@ describe('saveGovActionDraft / loadGovActionDraft round trip', () => {
     expect(loadGovActionDraft(storage, key)).toEqual({ ...fullDraft, savedAt: SAVED_AT });
   });
 
-  it('round-trips an empty-references draft', () => {
-    const storage = makeFakeStorage();
-    const key = govActionDraftKey('preprod');
-    const draft: GovActionDraft = { ...fullDraft, references: [] };
-    saveGovActionDraft(storage, key, draft, SAVED_AT);
-    expect(loadGovActionDraft(storage, key)).toEqual({ ...draft, savedAt: SAVED_AT });
-  });
-
-  it('round-trips a v2 draft with type UpdateCommittee and its panel state', () => {
+  it('round-trips both panel types, a survey reference and a linked slug', () => {
     const storage = makeFakeStorage();
     const key = govActionDraftKey('preprod');
     const draft: GovActionDraft = {
       ...fullDraft,
       type: 'UpdateCommittee',
-      panels: { UpdateCommittee: { addMembers: ['abc'], threshold: '2/3' } },
+      surveyRef: `${'ab'.repeat(32)}:3`,
+      linkedDraftSlug: 'my-draft-a1b2',
+      panels: {
+        UpdateCommittee: { addMembers: ['abc'], threshold: '2/3' },
+        TreasuryWithdrawals: { rows: [{ address: 'stake_test1abc', amountAda: '12.5' }] },
+      },
     };
     saveGovActionDraft(storage, key, draft, SAVED_AT);
     expect(loadGovActionDraft(storage, key)).toEqual({ ...draft, savedAt: SAVED_AT });
   });
 
-  it('round-trips a treasury withdrawal draft with its recipient rows', () => {
+  it('round-trips empty references and an explicit null slug (linked then unlinked)', () => {
     const storage = makeFakeStorage();
     const key = govActionDraftKey('preprod');
-    const draft: GovActionDraft = {
-      ...fullDraft,
-      type: 'TreasuryWithdrawals',
-      panels: { TreasuryWithdrawals: { rows: [{ address: 'stake_test1abc', amountAda: '12.5' }] } },
-    };
+    const draft: GovActionDraft = { ...fullDraft, references: [], linkedDraftSlug: null };
     saveGovActionDraft(storage, key, draft, SAVED_AT);
-    expect(loadGovActionDraft(storage, key)).toEqual({ ...draft, savedAt: SAVED_AT });
+    const loaded = loadGovActionDraft(storage, key);
+    expect(loaded).toEqual({ ...draft, savedAt: SAVED_AT });
+    expect(loaded?.linkedDraftSlug).toBeNull();
   });
 });
 
@@ -165,17 +160,13 @@ describe('loadGovActionDraft defensive parsing', () => {
     expect(loadGovActionDraft(storage, key)).toBeNull();
   });
 
-  it('returns null for a wrong-shape value (e.g. a JSON array)', () => {
+  it.each([
+    ['a JSON array', [1, 2, 3]],
+    ['a JSON primitive', 'just a string'],
+  ])('returns null for %s', (_name, value) => {
     const storage = makeFakeStorage();
     const key = govActionDraftKey('preprod');
-    storage.setItem(key, JSON.stringify([1, 2, 3]));
-    expect(loadGovActionDraft(storage, key)).toBeNull();
-  });
-
-  it('returns null for a JSON primitive', () => {
-    const storage = makeFakeStorage();
-    const key = govActionDraftKey('preprod');
-    storage.setItem(key, JSON.stringify('just a string'));
+    storage.setItem(key, JSON.stringify(value));
     expect(loadGovActionDraft(storage, key)).toBeNull();
   });
 
@@ -295,21 +286,6 @@ describe('saveGovActionDraft resilience', () => {
 });
 
 describe('the survey link is part of the draft', () => {
-  it('round-trips a survey reference', () => {
-    const store = new Map<string, string>();
-    const storage = {
-      getItem: (k: string) => store.get(k) ?? null,
-      setItem: (k: string, v: string) => void store.set(k, v),
-      removeItem: (k: string) => void store.delete(k),
-    };
-    const draft: GovActionDraft = {
-      ...fullDraft,
-      surveyRef: `${'ab'.repeat(32)}:3`,
-    };
-    saveGovActionDraft(storage, 'k', draft);
-    expect(loadGovActionDraft(storage, 'k')?.surveyRef).toBe(draft.surveyRef);
-  });
-
   it('loads a v1 draft written before the field existed as having no link', () => {
     const store = new Map<string, string>([
       ['k', JSON.stringify({ title: 't', abstract: 'a', motivation: 'm', rationale: 'r', signAsAuthor: false, authorName: '', references: [] })],
@@ -340,30 +316,6 @@ describe('signAsAuthor on restore', () => {
 });
 
 describe('linkedDraftSlug is part of the draft', () => {
-  it('round-trips a linked slug', () => {
-    const store = new Map<string, string>();
-    const storage = {
-      getItem: (k: string) => store.get(k) ?? null,
-      setItem: (k: string, v: string) => void store.set(k, v),
-      removeItem: (k: string) => void store.delete(k),
-    };
-    const draft: GovActionDraft = { ...fullDraft, linkedDraftSlug: 'my-draft-a1b2' };
-    saveGovActionDraft(storage, 'k', draft);
-    expect(loadGovActionDraft(storage, 'k')?.linkedDraftSlug).toBe('my-draft-a1b2');
-  });
-
-  it('round-trips an explicit null (linked then unlinked, still on the v2+ format)', () => {
-    const store = new Map<string, string>();
-    const storage = {
-      getItem: (k: string) => store.get(k) ?? null,
-      setItem: (k: string, v: string) => void store.set(k, v),
-      removeItem: (k: string) => void store.delete(k),
-    };
-    const draft: GovActionDraft = { ...fullDraft, linkedDraftSlug: null };
-    saveGovActionDraft(storage, 'k', draft);
-    expect(loadGovActionDraft(storage, 'k')?.linkedDraftSlug).toBeNull();
-  });
-
   it('leaves the field undefined for a draft saved before it existed', () => {
     const store = new Map<string, string>([['k', JSON.stringify(fullDraft)]]);
     const storage = { getItem: (k: string) => store.get(k) ?? null };

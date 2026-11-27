@@ -85,19 +85,14 @@ describe('historyEntries', () => {
         { txHash: T(7), eventIndex: 0, tag: 'remove', subject: key(C), blockHeight: 70 },
         { txHash: T(6), eventIndex: 0, tag: 'leave', subject: key(B), blockHeight: 60 },
       ],
-      versions: [
-        { txHash: T(1), control: P1, admission: P1, profileHash: DOC1 },
-        { txHash: T(8), control: P1, admission: P1, profileHash: DOC1 },
-      ],
-      signers: new Map([
-        [T(8), [A, B]],
-        [T(7), [A]],
-      ]),
+      versions: [{ txHash: T(1), control: P1, admission: P1, profileHash: DOC1 }],
+      signers: new Map(),
     };
-    expect(historyEntries(input, ctx).map((e) => [e.kind, e.text])).toEqual([
-      ['dissolved', 'Group dissolved by Alice and Bob.'],
-      ['removed', 'Carol removed by Alice.'],
-      ['left', 'Bob left.'],
+    // The wording of each kind is covered in describe.test.ts.
+    expect(historyEntries(input, ctx).map((e) => [e.txHash, e.kind])).toEqual([
+      [T(8), 'dissolved'],
+      [T(7), 'removed'],
+      [T(6), 'left'],
     ]);
   });
 

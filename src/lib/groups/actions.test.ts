@@ -392,14 +392,6 @@ describe('describing the events of a transaction', () => {
     ]);
   });
 
-  it('names an approved member without a DRep name by the DRep id', () => {
-    const s = state({ admission: policy([ALICE, BOB], 1) });
-    const events: GroupEvent[] = [{ tag: 'approve', join: { txHash: T(50), index: 0 } }];
-    const joinMembers = new Map([[refKey({ txHash: T(50), index: 0 }), { kind: 'key' as const, hash: K(CAROL) }]]);
-    const [line] = describeAction(changesOfEvents(events, s, [], { joinMembers }), new Map());
-    expect(line).toBe(`Approve ${keyId(CAROL).slice(0, 8)}...${keyId(CAROL).slice(-4)} as a member.`);
-  });
-
   it('describes a joint create with its founders', () => {
     const p = expectedPayload(jointCreate, null, new Map());
     const names = new Map([
@@ -451,16 +443,16 @@ describe('changesOfIntent', () => {
     expect(describeAction(changesOfIntent({ kind: 'group_dissolve', group: GID }, s), names)).toEqual(['Dissolve the group. Every membership ends.']);
   });
 
-  it('words a founding with its founders', () => {
-    expect(describeAction(changesOfIntent(jointCreate, null), names)).toEqual([
-      'Found a permissioned group with Alice, Bob and Carol as founders, managed by 2 of 3: Alice, Bob and Carol.',
-    ]);
+  it('reads a founding draft with its founders', () => {
+    const c = changesOfIntent(jointCreate, null);
+    expect(c.mode).toBe('permissioned');
+    expect(c.create).not.toBeNull();
+    expect(c.joins).toEqual([K(ALICE), K(BOB), K(CAROL)].map((hash) => ({ kind: 'key', hash })));
   });
 });
 
 describe('resign', () => {
   const interval = { invalidBefore: null, invalidHereafter: 1000n };
-  const names = new Map([[K(BOB), 'Bob']]);
   const resignBob: GroupIntent = { kind: 'group_resign', group: GID, key: K(BOB).toUpperCase() };
 
   it('builds one resign event, tag 7 on the wire', () => {
@@ -504,12 +496,10 @@ describe('resign', () => {
     expect(bindContent(cleanFacts, decode(other), p, [K(BOB)], [K(BOB)])).toEqual({ ok: false, reason: 'event 1 differs from the action' });
   });
 
-  it('words a resign as a draft and as the events of a transaction', () => {
+  it('reads the resigned key from a draft and from the events of a transaction', () => {
     const s = state({ control: policy([ALICE], 1), admission: policy([BOB], 1) });
     expect(changesOfIntent(resignBob, s).resigned).toBe(K(BOB));
-    expect(describeAction(changesOfIntent(resignBob, s), names)).toEqual(['Bob resigns as admin.']);
-    const p = expectedPayload(resignBob, s, new Map());
-    expect(describeAction(changesOfEvents(p.events, s), names)).toEqual(['Bob resigns as admin.']);
+    expect(changesOfEvents(expectedPayload(resignBob, s, new Map()).events, s).resigned).toBe(K(BOB));
   });
 });
 

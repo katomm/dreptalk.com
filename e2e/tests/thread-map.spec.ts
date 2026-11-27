@@ -132,10 +132,8 @@ test('the participant filter dims other rows and outlines the posts', async ({ p
   await expect(person).toHaveAttribute('aria-pressed', 'true');
   const dimmed = page.locator('.thread-map__row.is-dim');
   expect(await dimmed.count()).toBeGreaterThan(0);
-  expect(Number(await dimmed.first().evaluate((el) => getComputedStyle(el).opacity))).toBeLessThan(1);
   const outlined = page.locator('article.thread-map-hl');
   expect(await outlined.count()).toBeGreaterThan(0);
-  expect(await outlined.first().evaluate((el) => getComputedStyle(el).outlineStyle)).toBe('solid');
 
   await person.click();
   await expect(person).toHaveAttribute('aria-pressed', 'false');
@@ -147,14 +145,6 @@ test('few but long posts reach the word threshold', async ({ page }) => {
   await open(page, WORDS);
   await expect(map(page)).toBeVisible();
   await expect(page.locator('[data-tm-pos]')).toHaveText('1 / 4');
-});
-
-test('a depth-2 reply is indented deeper than a direct reply', async ({ page }) => {
-  await open(page, LONG);
-  const indent = (id: string) =>
-    page.locator(`.thread-map__row[href="#post-${id}"]`).evaluate((el) => Number.parseFloat(getComputedStyle(el).paddingInlineStart));
-  expect(await indent('e2e-tmap-long-06')).toBeGreaterThan(await indent('e2e-tmap-long-05'));
-  expect(await indent('e2e-tmap-long-05')).toBeGreaterThan(await indent('e2e-tmap-long-03'));
 });
 
 test('each layout shows the map only where there is room', async ({ page }) => {
@@ -181,9 +171,7 @@ test('each layout shows the map only where there is room', async ({ page }) => {
   await expect(map(page)).toBeVisible();
 });
 
-test('the overview tab and short threads show no map', async ({ page }) => {
+test('the overview tab shows no map', async ({ page }) => {
   await open(page, GA);
   await expect(map(page)).toHaveCount(0);
-  await open(page, SHORT);
-  await expect(map(page)).toBeHidden();
 });

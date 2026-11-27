@@ -26,20 +26,16 @@ function keys(input: ReadinessInput): string[] {
   return readinessReasons(input).map(r => r.key);
 }
 
-function messageFor(input: ReadinessInput, key: string): string | undefined {
-  return readinessReasons(input).find(r => r.key === key)?.message;
-}
-
 describe('readinessReasons', () => {
   it('is empty when everything is in place', () => {
     expect(readinessReasons(ready())).toEqual([]);
   });
 
-  it('waits for the chain context on a chained type', () => {
+  it('waits for the chain context on a chained type, a treasury withdrawal included', () => {
     for (const status of ['idle', 'loading', 'error'] as const) {
-      const input = ready({ type: 'UpdateCommittee', contextStatus: status });
-      expect(messageFor(input, 'context')).toBe('Waiting for the chain context');
+      expect(keys(ready({ type: 'UpdateCommittee', contextStatus: status }))).toEqual(['context']);
     }
+    expect(keys(ready({ type: 'TreasuryWithdrawals', contextStatus: 'loading' }))).toEqual(['context']);
     expect(keys(ready({ type: 'UpdateCommittee', contextStatus: 'ready' }))).toEqual([]);
   });
 
@@ -47,99 +43,26 @@ describe('readinessReasons', () => {
     expect(keys(ready({ type: 'InfoAction', contextStatus: 'idle' }))).toEqual([]);
   });
 
-  it('names the panel by its type when the panel does not validate', () => {
-    expect(
-      messageFor(
-        ready({
-          type: 'UpdateCommittee',
-          contextStatus: 'ready',
-          panelValidation: { ok: false, error: 'quorum numerator must be a whole number' },
-        }),
-        'panel',
-      ),
-    ).toBe('Fix the committee changes above');
-    expect(
-      messageFor(
-        ready({
-          type: 'HardForkInitiation',
-          contextStatus: 'ready',
-          panelValidation: { ok: false, error: 'Choose the protocol version to propose.' },
-        }),
-        'panel',
-      ),
-    ).toBe('Fix the hard fork changes above');
-    expect(
-      messageFor(
-        ready({
-          type: 'NewConstitution',
-          contextStatus: 'ready',
-          panelValidation: { ok: false, error: 'Enter the constitution text.' },
-        }),
-        'panel',
-      ),
-    ).toBe('Fix the constitution changes above');
-  });
-
-  it('says nothing about a panel that validates', () => {
+  it('flags a panel that does not validate, and only that one', () => {
+    const invalid = ready({ type: 'UpdateCommittee', contextStatus: 'ready', panelValidation: { ok: false, error: 'x' } });
+    expect(keys(invalid)).toEqual(['panel']);
     expect(
       keys(ready({ type: 'NoConfidence', contextStatus: 'ready', panelValidation: { ok: true, error: '' } })),
     ).toEqual([]);
   });
 
-  it('asks for the metadata fields', () => {
-    expect(messageFor(ready({ metadataComplete: false }), 'metadata')).toBe(
-      'Fill in title, abstract, motivation and rationale',
-    );
-  });
-
-  it('asks for an author name or the toggle', () => {
-    expect(messageFor(ready({ authorOk: false }), 'author')).toBe(
-      'Name the author or turn off signing as author',
-    );
-  });
-
-  it('asks for a survey reference it can parse', () => {
-    expect(messageFor(ready({ surveyRefOk: false }), 'surveyRef')).toBe('Fix the survey reference');
-  });
-
-  it('asks for one Proposal Draft reference when several point at a draft', () => {
-    expect(messageFor(ready({ draftConflict: true }), 'draftConflict')).toBe(
-      'Keep one Proposal Draft reference',
-    );
-  });
-
-  it('waits for the deposit while it is unknown', () => {
-    expect(messageFor(ready({ depositLovelace: null }), 'deposit')).toBe('Waiting for the current deposit');
-  });
-
-  it('asks for a wallet while none is connected, including mid-connect', () => {
-    expect(messageFor(ready({ wallet: { status: 'none' } }), 'wallet')).toBe('Connect a wallet');
-    expect(messageFor(ready({ wallet: { status: 'connecting' } }), 'wallet')).toBe('Connect a wallet');
-  });
-
-  it('says nothing about the balance while no wallet is connected', () => {
-    expect(keys(ready({ wallet: { status: 'none' } }))).toEqual(['wallet']);
-  });
-
-  it('reports the balance read and its failure', () => {
-    expect(
-      messageFor(
-        ready({ wallet: { status: 'connected', rewardAddressHex: 'e0ff', balance: { status: 'loading' } } }),
-        'balanceLoading',
-      ),
-    ).toBe('Reading the wallet balance');
-    expect(
-      messageFor(
-        ready({
-          wallet: {
-            status: 'connected',
-            rewardAddressHex: 'e0ff',
-            balance: { status: 'error', message: 'Koios said no' },
-          },
-        }),
-        'balanceUnknown',
-      ),
-    ).toBe('Could not read the wallet balance, check again');
+  // One failing input per case, so a swapped predicate shows up as the wrong key.
+  it.each([
+    [{ metadataComplete: false }, 'metadata'],
+    [{ authorOk: false }, 'author'],
+    [{ surveyRefOk: false }, 'surveyRef'],
+    [{ draftConflict: true }, 'draftConflict'],
+    [{ wallet: { status: 'none' } }, 'wallet'],
+    [{ wallet: { status: 'connecting' } }, 'wallet'],
+    [{ wallet: { status: 'connected', rewardAddressHex: 'e0ff', balance: { status: 'loading' } } }, 'balanceLoading'],
+    [{ wallet: { status: 'connected', rewardAddressHex: 'e0ff', balance: { status: 'error', message: 'Koios said no' } } }, 'balanceUnknown'],
+  ] as [Partial<ReadinessInput>, string][])('raises only %j as %s', (patch, key) => {
+    expect(keys(ready(patch))).toEqual([key]);
   });
 
   it('names both figures when the wallet is short', () => {
@@ -150,9 +73,9 @@ describe('readinessReasons', () => {
         balance: { status: 'ready', lovelace: 812_000_000n },
       },
     });
-    expect(messageFor(input, 'balance')).toBe(
-      'The wallet holds 812 tADA, the deposit plus a 5 tADA fee reserve needs 1,005',
-    );
+    const message = readinessReasons(input).find(r => r.key === 'balance')?.message;
+    expect(message).toContain('812 tADA');
+    expect(message).toContain('1,005');
   });
 
   it('is ready at exactly the deposit plus the reserve, and not one lovelace less', () => {
@@ -212,26 +135,5 @@ describe('readinessReasons', () => {
       'deposit',
       'wallet',
     ]);
-  });
-
-  it('waits for the context of a treasury withdrawal and names its panel', () => {
-    expect(messageFor(ready({ type: 'TreasuryWithdrawals', contextStatus: 'loading' }), 'context')).toBe(
-      'Waiting for the chain context',
-    );
-    expect(
-      messageFor(
-        ready({ type: 'TreasuryWithdrawals', contextStatus: 'ready', panelValidation: { ok: false, error: 'x' } }),
-        'panel',
-      ),
-    ).toBe('Fix the treasury withdrawal changes above');
-  });
-
-  it('names the parameter change panel without repeating "changes"', () => {
-    expect(
-      messageFor(
-        ready({ type: 'ParameterChange', contextStatus: 'ready', panelValidation: { ok: false, error: 'x' } }),
-        'panel',
-      ),
-    ).toBe('Fix the parameter changes above');
   });
 });

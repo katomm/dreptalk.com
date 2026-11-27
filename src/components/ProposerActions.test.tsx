@@ -36,12 +36,10 @@ function rows(count: number): ProposerActionView[] {
 }
 
 describe('ProposerActions search', () => {
-  it('shows no search box below 10 rows', () => {
-    render(<ProposerActions actions={rows(9)} />);
+  it('shows the search box from 10 rows on', () => {
+    const { unmount } = render(<ProposerActions actions={rows(9)} />);
     expect(screen.queryByRole('searchbox')).toBeNull();
-  });
-
-  it('shows a search box from 10 rows', () => {
+    unmount();
     render(<ProposerActions actions={rows(10)} />);
     expect(screen.getByRole('searchbox')).toBeTruthy();
   });
@@ -73,9 +71,9 @@ describe('ProposerActions search', () => {
     expect(screen.queryByText('Action 1')).toBeNull();
   });
 
-  it('falls back to type and short id for an untitled action', () => {
+  it('names an untitled action by its short id', () => {
     render(<ProposerActions actions={[row(5, { title: null })]} />);
-    expect(screen.getByText('Info Action 000000…00005#0')).toBeTruthy();
+    expect(screen.getByText(/00005#0/)).toBeTruthy();
   });
 });
 
@@ -150,22 +148,6 @@ describe('ProposerActions invite control', () => {
     expect(body).toEqual({ govActionId: txId(1) });
     expect('teamLabel' in body).toBe(false);
     await waitFor(() => expect(screen.getByText(/co-proposer\/redeem\?code=abc/)).toBeTruthy());
-  });
-
-  it('sends the picked team name', async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ inviteUrl: '/co-proposer/redeem?code=xyz', expiresAt: 1_700_600_000 }), { status: 200 }),
-    );
-    vi.stubGlobal('fetch', fetchMock);
-    render(<ProposerActions actions={[row(1, { authors: ['Trivolve Tech'] })]} />);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Invite co-proposer' }));
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'Trivolve Tech' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Create invite' }));
-
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(JSON.parse(String(init.body))).toEqual({ govActionId: txId(1), teamLabel: 'Trivolve Tech' });
   });
 
   it('creates the invite in one click when the action has no authors', async () => {

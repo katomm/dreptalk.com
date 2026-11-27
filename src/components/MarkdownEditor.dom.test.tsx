@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
-// Cmd/Ctrl+B and Cmd/Ctrl+I in the editor wrap the selected text like the
-// toolbar buttons do.
+// Wiring of the editor's keyboard shortcuts. The key mapping and the Markdown
+// edits themselves are covered in src/lib/forum/markdownToolbar.test.ts.
 import { describe, it, expect, afterEach } from 'vitest';
 import { useState } from 'react';
 import { render, cleanup, fireEvent } from '@testing-library/react';
@@ -27,19 +27,6 @@ describe('MarkdownEditor keyboard shortcuts', () => {
     fireEvent.keyDown(ta, { key: 'b', metaKey: true });
     expect(ta.value).toBe('hello **world**');
     expect(ta.value.slice(ta.selectionStart, ta.selectionEnd)).toBe('world');
-  });
-
-  it('Ctrl+I makes the selection italic', () => {
-    const ta = setup('hello world', 0, 5);
-    fireEvent.keyDown(ta, { key: 'i', ctrlKey: true });
-    expect(ta.value).toBe('*hello* world');
-  });
-
-  it('pressing Cmd+B twice toggles bold off again', () => {
-    const ta = setup('hello world', 6, 11);
-    fireEvent.keyDown(ta, { key: 'b', metaKey: true });
-    fireEvent.keyDown(ta, { key: 'b', metaKey: true });
-    expect(ta.value).toBe('hello world');
   });
 
   it('Cmd+K turns the selection into a link and cancels the key for the site search', () => {

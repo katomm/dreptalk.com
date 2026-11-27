@@ -7,7 +7,7 @@ import EmbedSnippet from './EmbedSnippet.tsx';
 describe('EmbedSnippet', () => {
   it('renders the copy button the brand copy script listens for', () => {
     const html = renderToStaticMarkup(<EmbedSnippet title="Banner" note="A note." html={'<a href="x">y</a>'} />);
-    expect(html).toContain('class="btn btn-secondary embed__copy"');
+    expect(html).toMatch(/class="[^"]*\bembed__copy\b/);
     expect(html).toContain('data-copy="&lt;a href=&quot;x&quot;&gt;y&lt;/a&gt;"');
     expect(html).toContain('data-copy-label="Copy HTML"');
     expect(html).toContain('<div class="embed__preview"><a href="x">y</a></div>');

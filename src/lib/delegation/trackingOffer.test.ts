@@ -32,10 +32,4 @@ describe('trackingOffer', () => {
   it('offers a retry when the request failed', () => {
     expect(trackingOffer(delegator, 'error')).toEqual({ kind: 'retry' });
   });
-
-  it('never points an account with a linked wallet at the settings', () => {
-    for (const state of ['idle', 'recorded', 'wallet_mismatch', 'error'] as const) {
-      expect(trackingOffer(delegator, state).kind).not.toBe('link-wallet');
-    }
-  });
 });

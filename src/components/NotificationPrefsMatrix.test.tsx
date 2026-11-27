@@ -1,7 +1,5 @@
-// Lightweight render assertion for NotificationPrefsMatrix: no
-// testing-library in this repo, so the component is rendered to a static
-// HTML string and asserted on directly. Confirms the DRep-only group renders
-// only when showDrepStats is set.
+// Lightweight render assertion for NotificationPrefsMatrix: the component is
+// rendered to a static HTML string and asserted on directly.
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import NotificationPrefsMatrix from './NotificationPrefsMatrix.tsx';
@@ -13,32 +11,22 @@ const allEnabled = Object.fromEntries(NOTIFICATION_EVENT_TYPES.map((t) => [t, tr
   boolean
 >;
 
+// One checkbox per event type the matrix offers.
+const toggles = (html: string) => html.match(/type="checkbox"/g)?.length ?? 0;
+const render = (props: { showDrepStats?: boolean; showDrepGroups?: boolean }) =>
+  renderToStaticMarkup(<NotificationPrefsMatrix prefs={allEnabled} onChange={() => {}} {...props} />);
+
 describe('NotificationPrefsMatrix', () => {
-  it('hides the As a DRep group by default', () => {
-    const html = renderToStaticMarkup(
-      <NotificationPrefsMatrix prefs={allEnabled} onChange={() => {}} />,
-    );
-    expect(html).not.toContain('As a DRep');
-    expect(html).not.toContain('Voting power and delegators');
-    expect(html).not.toContain('Rationale ready to share');
-  });
-
-  it('shows the As a DRep group when showDrepStats is set', () => {
-    const html = renderToStaticMarkup(
-      <NotificationPrefsMatrix prefs={allEnabled} onChange={() => {}} showDrepStats showDrepGroups />,
-    );
-    expect(html).toContain('As a DRep');
-    expect(html).toContain('Voting power and delegators');
-    expect(html).toContain('Epoch summary of your own DRep statistics');
-    expect(html).toContain('Rationale ready to share');
-    expect(html).toContain('DRep groups');
-  });
-
-  it('hides the DRep groups toggle where groups do not exist, whatever its stored value', () => {
-    const html = renderToStaticMarkup(
-      <NotificationPrefsMatrix prefs={allEnabled} onChange={() => {}} showDrepStats />,
-    );
-    expect(html).toContain('Rationale ready to share');
-    expect(html).not.toContain('DRep groups');
+  it('offers the DRep toggles only with showDrepStats, and the groups toggle only where groups exist', () => {
+    // Deltas, so a new general notification type does not break this gating test.
+    const base = toggles(render({}));
+    expect(toggles(render({ showDrepGroups: true }))).toBe(base);
+    const withoutGroups = render({ showDrepStats: true });
+    const withGroups = render({ showDrepStats: true, showDrepGroups: true });
+    expect(toggles(withoutGroups) - base).toBe(2);
+    expect(toggles(withGroups) - toggles(withoutGroups)).toBe(1);
+    // The toggle that goes missing is the groups one.
+    expect(withoutGroups).not.toContain('DRep groups');
+    expect(withGroups).toContain('DRep groups');
   });
 });

@@ -9,7 +9,6 @@ import {
   formatParamValue,
   paramListLabel,
   parseParamInput,
-  securityParamTitles,
   valuesFromJson,
   valuesToJson,
 } from './paramDefs.js';
@@ -72,11 +71,11 @@ describe('parseParamInput', () => {
     expect(parseParamInput('rho', '0.35')).toEqual({ ok: true, value: r(7n, 2000n) });
     expect(parseParamInput('tau', '25')).toEqual({ ok: true, value: r(1n, 4n) });
   });
-  it('words the input errors', () => {
-    expect(parseParamInput('k', '600.5')).toEqual({ ok: false, error: 'Enter a whole number.' });
-    expect(parseParamInput('a0', '0.3501')).toEqual({ ok: false, error: 'Use at most 3 decimal places.' });
-    expect(parseParamInput('a0', '0.35%')).toEqual({ ok: false, error: 'Enter a number.' });
-    expect(parseParamInput('tau', '')).toEqual({ ok: false, error: 'Enter a number.' });
+  it('refuses a fraction for a whole number, excess decimals and non-numbers', () => {
+    expect(parseParamInput('k', '600.5')).toMatchObject({ ok: false, error: expect.stringMatching(/whole/) });
+    expect(parseParamInput('a0', '0.3501')).toMatchObject({ ok: false, error: expect.stringMatching(/3 decimal/) });
+    expect(parseParamInput('a0', '0.35%')).toMatchObject({ ok: false, error: expect.stringMatching(/number/) });
+    expect(parseParamInput('tau', '')).toMatchObject({ ok: false, error: expect.stringMatching(/number/) });
   });
 });
 
@@ -93,18 +92,13 @@ describe('checkParamValue', () => {
     if (!parsed.ok) throw new Error(parsed.error);
     expect(checkParamValue(key as never, parsed.value, null) === null).toBe(ok);
   });
-  it('words the range error with the allowed span', () => {
-    expect(checkParamValue('tau', r(7n, 20n), null)).toBe(
-      'The constitution allows 10% to 30%. The guardrails script would reject this action, so it cannot be submitted.',
-    );
-    expect(checkParamValue('minPoolCost', r(500000001n, 1n), null)).toBe(
-      'The constitution allows 0 ₳ to 500 ₳. The guardrails script would reject this action, so it cannot be submitted.',
-    );
+  it('names the allowed span in the range error', () => {
+    expect(checkParamValue('tau', r(7n, 20n), null)).toContain('10% to 30%');
+    expect(checkParamValue('minPoolCost', r(500000001n, 1n), null)).toContain('0 ₳ to 500 ₳');
+    expect(checkParamValue('k', r(2001n, 1n), null)).toContain('250 to 2,000');
   });
   it('refuses a value equal to the one in force', () => {
-    expect(checkParamValue('k', r(500n, 1n), r(500n, 1n))).toBe(
-      'Target number of pools has the same value as now. Change it or remove it.',
-    );
+    expect(checkParamValue('k', r(500n, 1n), r(500n, 1n))).not.toBeNull();
     expect(checkParamValue('a0', r(3n, 10n), r(30n, 100n))).not.toBeNull();
   });
 });
@@ -129,9 +123,6 @@ describe('scope and changes paragraph', () => {
 describe('display', () => {
   it('groups integers like the GA page', () => {
     expect(formatParamValue('k', r(2000n, 1n))).toBe('2,000');
-    expect(checkParamValue('k', r(2001n, 1n), null)).toBe(
-      'The constitution allows 250 to 2,000. The guardrails script would reject this action, so it cannot be submitted.',
-    );
   });
   it('formats each parameter losslessly', () => {
     expect(formatParamValue('k', r(600n, 1n))).toBe('600');
@@ -173,9 +164,7 @@ describe('utxoCostPerByte', () => {
     expect(parseParamInput('utxoCostPerByte', '3e3')).toMatchObject({ ok: false });
     // A single comma is a decimal separator for parseDecimal, as for k.
     expect(parseParamInput('utxoCostPerByte', '4,310')).toEqual({ ok: false, error: 'Enter a whole number.' });
-    expect(checkParamValue('utxoCostPerByte', r(2999n, 1n), null)).toBe(
-      'The constitution allows 3,000 lovelace/byte to 6,500 lovelace/byte. The guardrails script would reject this action, so it cannot be submitted.',
-    );
+    expect(checkParamValue('utxoCostPerByte', r(2999n, 1n), null)).toContain('3,000 lovelace/byte to 6,500 lovelace/byte');
     expect(checkParamValue('utxoCostPerByte', r(3000n, 1n), null)).toBeNull();
     expect(checkParamValue('utxoCostPerByte', r(6500n, 1n), null)).toBeNull();
     expect(checkParamValue('utxoCostPerByte', r(6501n, 1n), null)).not.toBeNull();
@@ -193,12 +182,8 @@ describe('flags', () => {
   it('marks exactly the security-relevant parameters', () => {
     for (const key of PARAM_KEYS) expect([key, PARAM_DEFS[key].security]).toEqual([key, SECURITY_PARAMS.has(PARAM_DEFS[key].ledgerKey)]);
   });
-  it('lists parameters whose short name is their key by title only', () => {
-    expect(paramListLabel('minPoolCost')).toBe('Minimum pool cost');
-    expect(paramListLabel('utxoCostPerByte')).toBe('UTxO cost per byte');
-    expect(paramListLabel('k')).toBe('Target number of pools (k)');
-  });
-  it('names the security parameters', () => {
-    expect(securityParamTitles()).toEqual(['UTxO cost per byte']);
+  it('adds the short name to a label only when it differs from the key', () => {
+    expect(paramListLabel('minPoolCost')).not.toContain('(');
+    expect(paramListLabel('k')).toContain('(k)');
   });
 });

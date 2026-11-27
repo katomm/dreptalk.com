@@ -31,17 +31,11 @@ describe('shouldShowMap', () => {
 });
 
 describe('lengthBarPx', () => {
-  it('is 0 for a post without words', () => {
+  it('is 0 without words, visible for a short post, and scales by square root', () => {
+    const full = lengthBarPx(2600, 2600);
     expect(lengthBarPx(0, 2600)).toBe(0);
-  });
-  it('gives the longest post the full width', () => {
-    expect(lengthBarPx(2600, 2600)).toBe(36);
-  });
-  it('keeps a short post visible at the minimum width', () => {
-    expect(lengthBarPx(1, 2600)).toBe(3);
-  });
-  it('scales by square root', () => {
-    expect(lengthBarPx(650, 2600)).toBe(18);
+    expect(lengthBarPx(1, 2600)).toBeGreaterThan(0);
+    expect(lengthBarPx(650, 2600)).toBe(Math.round(full / 2));
   });
 });
 

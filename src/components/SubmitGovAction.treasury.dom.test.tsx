@@ -293,16 +293,10 @@ describe('SubmitGovAction', () => {
       expect(requestsTo(fetchMock, '/api/gov-action/metadata')).toBe(0);
     }
 
+    // The check is the same for both types and symmetric in direction, so one
+    // case per type, each in one direction, covers it.
     it('stops a parameter change before signing when the guardrail moved from known to absent', async () => {
       await guardrailMoves('ParameterChange', KNOWN, ABSENT);
-    });
-
-    it('stops a parameter change before signing when the guardrail moved from absent to known', async () => {
-      await guardrailMoves('ParameterChange', ABSENT, KNOWN);
-    });
-
-    it('stops a treasury withdrawal before signing when the guardrail moved from known to absent', async () => {
-      await guardrailMoves('TreasuryWithdrawals', KNOWN, ABSENT);
     });
 
     it('stops a treasury withdrawal before signing when the guardrail moved from absent to known', async () => {

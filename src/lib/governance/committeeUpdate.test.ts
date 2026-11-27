@@ -82,24 +82,14 @@ describe('parseColdCredential', () => {
     expect(parseColdCredential(broken, 'key')).toBeNull();
   });
 
-  it('rejects the cc_hot prefix', () => {
-    const payload = new Uint8Array(29);
-    payload[0] = 0x12;
-    const encoded = encodeBech32('cc_hot', payload);
-    expect(parseColdCredential(encoded, 'key')).toBeNull();
-  });
-
-  it('rejects the drep prefix', () => {
-    const payload = new Uint8Array(29);
-    payload[0] = 0x22;
-    const encoded = encodeBech32('drep', payload);
-    expect(parseColdCredential(encoded, 'key')).toBeNull();
-  });
-
-  it('rejects the gov_action prefix', () => {
-    const payload = new Uint8Array(33);
-    const encoded = encodeBech32('gov_action', payload);
-    expect(parseColdCredential(encoded, 'key')).toBeNull();
+  it.each([
+    ['cc_hot', 0x12, 29],
+    ['drep', 0x22, 29],
+    ['gov_action', 0x00, 33],
+  ])('rejects the %s prefix', (prefix, header, length) => {
+    const payload = new Uint8Array(length);
+    payload[0] = header;
+    expect(parseColdCredential(encodeBech32(prefix, payload), 'key')).toBeNull();
   });
 
   it('rejects garbage input', () => {
@@ -184,21 +174,10 @@ describe('validateCommitteeUpdate', () => {
     }
   });
 
-  it('errors when the quorum numerator is not a non-negative integer', () => {
+  it.each([-1, 1.5])('errors when the quorum numerator is %s', (numerator) => {
     const result = validateCommitteeUpdate({
       ...base,
-      quorum: { numerator: -1, denominator: 3 },
-    });
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.errors.some(e => e.field === 'quorum.numerator')).toBe(true);
-    }
-  });
-
-  it('errors when the quorum numerator is not an integer', () => {
-    const result = validateCommitteeUpdate({
-      ...base,
-      quorum: { numerator: 1.5, denominator: 3 },
+      quorum: { numerator, denominator: 3 },
     });
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -380,20 +359,6 @@ describe('validateCommitteeUpdate', () => {
 });
 
 describe('ccColdBech32', () => {
-  it('encodes a key hash as a real cc_cold bech32 string decodable by parseColdCredential', () => {
-    const hashHex = 'd'.repeat(56);
-    const bech32 = ccColdBech32(hashHex, false) as string;
-    expect(bech32.startsWith('cc_cold1')).toBe(true);
-    expect(parseColdCredential(bech32, 'key')).toEqual({ hashHex, isScript: false });
-  });
-
-  it('encodes a script hash as a real cc_cold bech32 string decodable by parseColdCredential', () => {
-    const hashHex = 'e'.repeat(56);
-    const bech32 = ccColdBech32(hashHex, true) as string;
-    expect(bech32.startsWith('cc_cold1')).toBe(true);
-    expect(parseColdCredential(bech32, 'key')).toEqual({ hashHex, isScript: true });
-  });
-
   // The members come from the chain context, not from this form, so a hash
   // that is not 56 hex characters is upstream data rather than a bug here. It
   // used to throw out of hexToBytes or out of Uint8Array.set, in the middle of

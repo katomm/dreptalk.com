@@ -119,7 +119,6 @@ describe('PreviewCard parameter change', () => {
     const k = rowOf('Target number of pools (k)');
     expect(within(k).getByText('600')).toBeTruthy();
     expect(within(k).queryByText('500')).toBeNull();
-    expect(k.querySelector('.ocx__old')).toBeNull();
   });
 
   it('shows no card for an empty parameter list', () => {

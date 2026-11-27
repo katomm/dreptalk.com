@@ -4,17 +4,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { getProfileDocBody } from '../../../../lib/groups/profileDocs';
 import { POST } from '../profile';
 
-// Groups run on mainnet now, so the off path is tested with mainnet left out of the list.
-vi.mock('@/lib/groups/gate', async (orig) => {
-  const real = await orig<typeof import('@/lib/groups/gate')>();
-  const on = ['preprod'] as const;
-  return { DREP_GROUPS_NETWORKS: on, drepGroupsAvailable: (n: Parameters<typeof real.drepGroupsAvailable>[0]) => real.drepGroupsAvailable(n, on) };
-});
-
-const net = vi.hoisted(() => ({ network: 'preprod' }));
 vi.mock('@/lib/api/response', async (orig) => ({
   ...(await orig<typeof import('@/lib/api/response')>()),
-  currentNetwork: () => ({ network: net.network }),
+  currentNetwork: () => ({ network: 'preprod' }),
 }));
 
 type User = { id: string; roles: string[]; drepId?: string } | null;
@@ -82,14 +74,5 @@ describe('POST /api/groups/profile', () => {
     }
     const before = await env.DB.prepare('SELECT COUNT(*) AS n FROM drep_group_profile_docs WHERE created_by = ?').bind(u.id).first<{ n: number }>();
     expect(before?.n).toBe(0);
-  });
-
-  it('answers 404 off preprod', async () => {
-    net.network = 'mainnet';
-    try {
-      expect((await call({ id: 'u-main', roles: ['drep'] }, { name: 'G', ...REQ })).status).toBe(404);
-    } finally {
-      net.network = 'preprod';
-    }
   });
 });

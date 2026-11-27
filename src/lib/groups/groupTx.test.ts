@@ -166,25 +166,6 @@ describe('withoutInputs', () => {
   });
 });
 
-describe('queueGroupOps', () => {
-  it('queues the payload, each signer, the validity end and the attribution tag', () => {
-    const calls: Array<[string, unknown]> = [];
-    const stub = new Proxy(
-      {},
-      {
-        get: (_t, name: string) => (arg: unknown) => {
-          calls.push([name, arg]);
-          return stub;
-        },
-      },
-    ) as DrepTxBuilder;
-    queueGroupOps(stub, { payload: PAYLOAD, requiredSigners: [ALICE.hash, BOB.hash], invalidHereafterSlot: 1000n, slotConfig: preprod.slotConfig });
-    expect(calls.map(([n]) => n)).toEqual(['attachMetadata', 'addSigner', 'addSigner', 'setValidity', 'attachMetadata']);
-    expect((calls[0][1] as { label: bigint }).label).toBe(8416n);
-    expect((calls[4][1] as { label: bigint }).label).toBe(674n);
-  });
-});
-
 describe('buildGroupTxFrom', () => {
   it('builds the exact shape the server splices witnesses into', async () => {
     const { unsignedTxHex, bodyHashHex } = await build();
@@ -197,8 +178,13 @@ describe('buildGroupTxFrom', () => {
   });
 
   it('carries the exact payload bytes under the group label, bound by the aux hash', async () => {
-    const decoded = decodeGroupTx((await build()).unsignedTxHex);
+    const { unsignedTxHex } = await build();
+    const decoded = decodeGroupTx(unsignedTxHex);
     expect(bytesToHex(decoded.chain.payload as Uint8Array)).toBe(bytesToHex(PAYLOAD));
+    // The group label and the CIP-20 attribution tag, in any order.
+    const aux = Transaction.fromCBORHex(unsignedTxHex).auxiliaryData as { metadata?: Map<unknown, unknown> } | null;
+    const labels = [...(aux?.metadata?.keys() ?? [])].map((k) => BigInt(k as bigint));
+    expect(labels.sort()).toEqual([674n, 8416n]);
     expect(decoded.facts.auxHashMatches).toBe(true);
     expect(decoded.facts.groupPayloads).toBe(1);
     expect(decoded.decoded?.events.every((e) => e.ok)).toBe(true);

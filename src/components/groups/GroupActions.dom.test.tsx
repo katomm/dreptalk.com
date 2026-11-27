@@ -103,23 +103,18 @@ describe('GroupActions buttons by role', () => {
   it('says an action in progress whose coin another transaction spent can no longer be submitted', async () => {
     show(view({ rows: [{ id: 'r1', kind: 'group_approve', status: 'collecting', inputSpent: true }] }));
     expect(await screen.findByText(/can no longer be submitted$/)).toBeTruthy();
-    expect(
-      screen.getByText('This transaction can no longer be submitted, a coin it spends was used by another transaction. Cancel it and start it again.'),
-    ).toBeTruthy();
     expect(screen.queryByText(/collecting signatures/)).toBeNull();
   });
 
   it('lets a key DRep join an open group as a self-declared member', async () => {
     show(view({ mode: 'open', admission: null, viewer: viewer(C) }));
     expect(await screen.findByRole('button', { name: 'Join' })).toBeTruthy();
-    expect(screen.getByText(/self-declared/)).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Request to join' })).toBeNull();
   });
 
   it('lets a key DRep request to join a permissioned group', async () => {
     show(view({ viewer: viewer(C) }));
     expect(await screen.findByRole('button', { name: 'Request to join' })).toBeTruthy();
-    expect(screen.getByText(/confirmed by the group/)).toBeTruthy();
   });
 
   it('lets a pending member leave and says leaving is always possible', async () => {
@@ -132,7 +127,6 @@ describe('GroupActions buttons by role', () => {
     show(view({ viewer: viewer(C, { joinId: CAROL_JOIN, state: 'pending' }), rows: [{ id: 'r1', kind: 'group_leave', status: 'collecting' }] }));
     expect(await screen.findByText(/Leave: collecting signatures/)).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Leave' })).toBeNull();
-    expect(screen.getByText(/Leave: collecting signatures/)).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Open the signing page' }).getAttribute('href')).toBe('/groups/sign/r1/');
   });
 
@@ -193,7 +187,6 @@ describe('GroupActions combined update offer', () => {
     );
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Carol' }));
     expect(screen.getByText(/4 of 5 must sign \(80%\)/)).toBeTruthy();
-    expect(screen.getByText(/Each newly listed admin has to sign the update/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'More than half' }));
     expect(screen.getByText(/3 of 5 must sign \(60%\)/)).toBeTruthy();
     // Declining the update leaves a plain approval.
@@ -308,18 +301,19 @@ describe('GroupActions resigned admins', () => {
     expect(screen.queryByRole('button', { name: 'Resign as admin' })).toBeNull();
   });
 
-  it('shows no drift notice in a group whose control policy no remaining admin can satisfy', async () => {
-    // 1 of 1 where Alice resigned, Bob is still a member.
-    show(view({ control: policy([A], 1), admission: policy([A], 1), resignedControl: [A], resignedAdmission: [A], viewer: viewer(B, { joinId: `${'02'.repeat(32)}#1`, state: 'active' }) }));
-    expect(await screen.findByRole('button', { name: 'Leave' })).toBeTruthy();
-    expect(screen.queryByText(/still managed by/)).toBeNull();
-  });
-
-  it('shows no drift notice when the admins left cannot reach the threshold of a 2 of 3 policy', async () => {
+  it('shows no drift notice when the admins left cannot satisfy the control policy', async () => {
     const three = policy([A, B, C], 2);
-    show(view({ control: three, admission: three, activeKeyMembers: [member(B), member(C), member(D)], resignedControl: [A, B], resignedAdmission: [A, B], viewer: viewer(C, { joinId: `${'03'.repeat(32)}#1`, state: 'active' }) }));
-    expect(await screen.findByRole('button', { name: 'Leave' })).toBeTruthy();
-    expect(screen.queryByText(/still managed by/)).toBeNull();
+    for (const v of [
+      // 1 of 1 where Alice resigned, Bob is still a member.
+      view({ control: policy([A], 1), admission: policy([A], 1), resignedControl: [A], resignedAdmission: [A], viewer: viewer(B, { joinId: `${'02'.repeat(32)}#1`, state: 'active' }) }),
+      // 2 of 3 where only Carol is left.
+      view({ control: three, admission: three, activeKeyMembers: [member(B), member(C), member(D)], resignedControl: [A, B], resignedAdmission: [A, B], viewer: viewer(C, { joinId: `${'03'.repeat(32)}#1`, state: 'active' }) }),
+    ]) {
+      show(v);
+      expect(await screen.findByRole('button', { name: 'Leave' })).toBeTruthy();
+      expect(screen.queryByText(/still managed by/)).toBeNull();
+      cleanup();
+    }
   });
 
   it('gives no freeze warning for an admission only resign while control is already frozen', async () => {
@@ -327,7 +321,6 @@ describe('GroupActions resigned admins', () => {
     show(view({ control: policy([A], 1), admission: policy([B], 1), resignedControl: [A], viewer: viewer(B, { joinId: `${'02'.repeat(32)}#1`, state: 'active' }) }));
     fireEvent.click(await screen.findByRole('button', { name: 'Manage the group' }));
     expect(screen.getByRole('heading', { name: 'Resign as admin' })).toBeTruthy();
-    expect(screen.getByText(/Your key stops counting as admin/)).toBeTruthy();
     expect((screen.getByRole('button', { name: 'Review and sign' }) as HTMLButtonElement).disabled).toBe(false);
     expect(screen.queryByText(/Nobody will be able to change or dissolve/)).toBeNull();
     expect(screen.queryByText(/Type the group name/)).toBeNull();

@@ -25,20 +25,10 @@ describe('clampVersionPair', () => {
     expect(clampVersionPair('1', '1', 4)).toEqual({ from: 2, to: 1 });
   });
 
-  it('ignores junk input', () => {
+  it('ignores junk, undefined and empty input', () => {
     expect(clampVersionPair('abc', '-4', 3)).toEqual({ from: 1, to: 0 });
     expect(clampVersionPair('99', '99', 3)).toEqual({ from: 2, to: 1 });
-  });
-
-  it('treats undefined as absent, taking the null-fallback path', () => {
-    // Number(undefined) is NaN, so this exercises the `?? ` fallback branch.
     expect(clampVersionPair(undefined, undefined, 3)).toEqual({ from: 1, to: 0 });
-  });
-
-  it('treats the empty string as the numeric value zero, not as absent', () => {
-    // Number('') is 0, a valid index, so this takes the direct-value branch rather
-    // than the null-fallback one. It lands on the same answer as undefined here only
-    // because the outer clamp happens to raise both to the same result.
     expect(clampVersionPair('', '', 3)).toEqual({ from: 1, to: 0 });
   });
 });
@@ -51,9 +41,6 @@ describe('versionLabel', () => {
   it('numbers older versions oldest-first', () => {
     expect(versionLabel(1, 3, false)).toBe('Version 2');
     expect(versionLabel(2, 3, false)).toBe('Version 1');
-  });
-
-  it('numbers correctly in the middle of a larger range', () => {
     expect(versionLabel(1, 10, false)).toBe('Version 9');
     expect(versionLabel(5, 10, false)).toBe('Version 5');
     expect(versionLabel(9, 10, false)).toBe('Version 1');

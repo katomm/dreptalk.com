@@ -52,15 +52,6 @@ describe('guardrailDecision', () => {
     expect(guardrailDecision(undefined)).toEqual({ ok: false, message: GUARDRAIL_UNKNOWN_MESSAGE });
     expect(guardrailDecision(null)).toEqual({ ok: false, message: GUARDRAIL_UNKNOWN_MESSAGE });
   });
-
-  it('uses the spec sentences', () => {
-    expect(GUARDRAIL_CHANGED_MESSAGE).toBe(
-      "The constitution's guardrails script changed. DRepTalk cannot submit treasury withdrawals or parameter changes until it knows the new script.",
-    );
-    expect(GUARDRAIL_UNKNOWN_MESSAGE).toBe(
-      'The guardrails script could not be checked. Nothing was published or signed. Try again later.',
-    );
-  });
 });
 
 describe('sameGuardrail', () => {

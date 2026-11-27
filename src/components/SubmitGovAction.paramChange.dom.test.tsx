@@ -63,12 +63,10 @@ describe('SubmitGovAction', () => {
       expect(screen.queryByText(/days normally pass/)).toBeNull();
       fireEvent.click(screen.getByRole('button', { name: 'utxoCostPerByte' }));
       const select = screen.getByLabelText('Link a Proposal Draft');
-      const note = () => select.parentElement?.textContent ?? '';
-      expect(note()).toContain('No Proposal Draft is linked yet.');
-      fireEvent.change(select, { target: { value: 'young-draft-a1b2' } });
-      expect(note()).toContain('Your linked draft was published 12 days ago.');
+      // The note branches are covered in consultation.test.ts. Here it only has
+      // to follow the age of the draft that was picked.
       fireEvent.change(select, { target: { value: 'old-draft-c3d4' } });
-      expect(note()).toContain('Your linked draft was published 120 days ago, at least the 90 days');
+      expect(select.parentElement?.textContent).toContain('120 days ago');
     });
 
     it('offers the parameter change card on preprod and loads the pool data once', async () => {

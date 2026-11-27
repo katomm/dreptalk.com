@@ -54,7 +54,6 @@ describe('wholePercent', () => {
   });
   it('does not read an exact ratio stored as a float one point low', () => {
     expect(wholePercent((29 / 50) * 100)).toBe(58);
-    expect(wholePercent(69.5)).toBe(69);
   });
 });
 
@@ -204,17 +203,19 @@ describe('drepListHref', () => {
 
 describe('firstGroupStandingLine', () => {
   const F = 25_000_000_000n;
-  it('words each case', () => {
-    expect(firstGroupStandingLine(null, 82.4, F)).toBe('Voted on 82% of governance actions. In the first group.');
-    expect(firstGroupStandingLine('inactive', 90, F)).toBe('Voted on 90% of governance actions. Not active, so not in the first group.');
-    expect(firstGroupStandingLine('inactive', null, F)).toBe('Not active, so not in the first group.');
-    expect(firstGroupStandingLine('no_name', 90, F)).toBe('Voted on 90% of governance actions. Not in the first group: your DRep metadata has no name.');
-    expect(firstGroupStandingLine('no_name', null, F)).toBe('Not in the first group: your DRep metadata has no name.');
-    expect(firstGroupStandingLine('below_floor', 90, F)).toBe('Voted on 90% of governance actions. Not in the first group: voting power is below 25,000 ada.');
-    expect(firstGroupStandingLine('below_floor', null, F)).toBe('Not in the first group: voting power is below 25,000 ada.');
-    expect(firstGroupStandingLine('no_report_card', null, F)).toBe('Not in the first group: no participation figure yet.');
-    expect(firstGroupStandingLine('below_threshold', 61.6, F)).toBe('Voted on 61% of governance actions. The first group starts at 70%.');
-    expect(firstGroupStandingLine('below_threshold', 69.5, F)).toBe('Voted on 69% of governance actions. The first group starts at 70%.');
-    expect(firstGroupStandingLine('do_not_list', 90, F)).toBe('Voted on 90% of governance actions. Not in the first group: your DRep metadata sets doNotList.');
+  const cases = [
+    [null, 82.4], ['inactive', 90], ['inactive', null], ['no_name', 90], ['no_name', null], ['below_floor', 90],
+    ['below_floor', null], ['no_report_card', null], ['below_threshold', 61.6], ['below_threshold', 69.5], ['do_not_list', 90],
+  ] as const;
+  it('gives each reason its own line and names the rounded-down share only when there is one', () => {
+    for (const [miss, pct] of cases) {
+      const line = firstGroupStandingLine(miss, pct, F);
+      if (pct === null) expect(line).not.toContain('%');
+      else expect(line).toContain(`${wholePercent(pct)}%`);
+    }
+    const misses = [null, 'inactive', 'no_name', 'below_floor', 'no_report_card', 'below_threshold', 'do_not_list'] as const;
+    expect(new Set(misses.map((m) => firstGroupStandingLine(m, null, F))).size).toBe(misses.length);
+    expect(firstGroupStandingLine('below_threshold', 69.5, F)).toContain('70%');
+    expect(firstGroupStandingLine('below_floor', null, F)).toContain('25,000 ada');
   });
 });

@@ -188,17 +188,6 @@ describe('SubmitGovAction', () => {
     expect(submitGovActionMock).not.toHaveBeenCalled();
   });
 
-  it('names what is missing inside the review, next to a disabled Sign and submit', async () => {
-    render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
-    fillMetadata();
-    await fillCommitteePanel();
-
-    const sign = signButton();
-    expect(sign.disabled).toBe(true);
-    const dialog = sign.closest('dialog') as HTMLElement;
-    await waitFor(() => expect(dialog.textContent).toContain('Connect a wallet'));
-  });
-
   it('previews a field the way the action page renders it, without forum @mention links', async () => {
     const fetchMock = installFetchMock();
     render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
@@ -209,13 +198,6 @@ describe('SubmitGovAction', () => {
       const call = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/api/preview'));
       expect(JSON.parse(String((call?.[1] as RequestInit | undefined)?.body))).toEqual({ parts: { body: 'Hi @someone' } });
     });
-  });
-
-  it('offers the Markdown toolbar on the three text fields, without @mentions', async () => {
-    render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
-    await screen.findByLabelText('Abstract');
-    expect(screen.getAllByRole('toolbar', { name: 'Markdown formatting' })).toHaveLength(3);
-    expect(screen.queryByTitle('Mention someone')).toBeNull();
   });
 
   it('asks only for a wallet once the form itself is complete', async () => {
@@ -456,14 +438,5 @@ describe('SubmitGovAction', () => {
       expect(await screen.findByText('This wallet holds no ada.', {}, SLOW)).toBeTruthy();
       expect(screen.queryByText(/Preview wallet/)).toBeNull();
     });
-  });
-
-  it('asks for no deposit acknowledgement on preprod', async () => {
-    installFetchMock();
-    render(<SubmitGovAction network="preprod" displayName={DISPLAY_NAME} />);
-    fillMetadata();
-    await connect();
-    signButton();
-    expect(screen.queryByRole('checkbox', { name: /I understand that submitting locks/ })).toBeNull();
   });
 });

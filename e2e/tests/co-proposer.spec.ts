@@ -1,4 +1,3 @@
-import { resolve } from 'node:path';
 import type { Cookie, Page } from '@playwright/test';
 import type { KoiosFixture } from './fixtures.js';
 import { expect, test } from './fixtures.js';
@@ -42,19 +41,6 @@ const TEAM = 'Trivolve Tech';
 const TEAM_BADGE = `Proposer team · ${TEAM}`;
 const CO_NAME = 'Ravi';
 const REPLY = `Reply from the proposer team, run ${Date.now()}`;
-
-// Screenshots for a human look at the flow, off by default so CI stays fast.
-const SHOTS = process.env.E2E_SCREENSHOTS === '1';
-const SHOT_DIR = resolve(import.meta.dirname, '../../test-results/co-proposer-shots');
-
-// From the top, so the sticky header sits where it belongs, and without the
-// dev server's toolbar, which only exists under astro dev.
-async function shot(page: Page, name: string): Promise<void> {
-  if (!SHOTS) return;
-  await waitForHydration(page);
-  await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
-  await page.screenshot({ path: resolve(SHOT_DIR, name), fullPage: true, style: 'astro-dev-toolbar { display: none !important; }' });
-}
 
 /** Signs P in through the proposer door, with the fixture chain naming P as return address of the seeded actions. */
 async function signInProposer(page: Page, koios: KoiosFixture): Promise<void> {
@@ -102,12 +88,6 @@ test.describe('proposer', () => {
     const finishedToggle = page.getByRole('button', { name: 'Show finished actions (1)' });
     await expect(finishedToggle).toHaveAttribute('aria-expanded', 'false');
     await expect(page.locator('.pa').getByText('E2E Finished Action of the Proposer')).toHaveCount(0);
-    await shot(page, '01-home-proposer.png');
-    if (SHOTS) {
-      await page.setViewportSize({ width: 390, height: 844 });
-      await shot(page, '01m-home-proposer-mobile.png');
-      await page.setViewportSize({ width: 1280, height: 900 });
-    }
 
     const item = page.locator('.pa__item', { hasText: MAIN.title });
     await item.getByRole('button', { name: 'Invite co-proposer' }).click();
@@ -117,7 +97,6 @@ test.describe('proposer', () => {
     await expect(created).toBeVisible();
     inviteUrl = (await created.locator('.pa__inviteurl').textContent()) ?? '';
     expect(inviteUrl).toMatch(/\/co-proposer\/redeem\?code=[A-Za-z0-9_-]+$/);
-    await shot(page, '02-invite-created.png');
   });
 });
 
@@ -134,7 +113,6 @@ test.describe('co-proposer', () => {
     await expect(page.getByText(MAIN.title)).toBeVisible();
     await expect(page.getByText(ACTIONS[0]!.id)).toBeVisible();
     await expect(page.getByText(`Team: ${TEAM}`)).toBeVisible();
-    await shot(page, '03-redeem-page.png');
 
     await page.getByLabel('How should your posts be attributed?').fill(CO_NAME);
     await page.getByRole('button', { name: 'Sign and join' }).click();
@@ -146,7 +124,6 @@ test.describe('co-proposer', () => {
     await expect(mandates).toContainText(TEAM_BADGE);
     // A grant does not enroll the account in delegation tracking, so the callout stays away.
     await expect(page.getByText(/Delegation tracking has not been set up/)).toHaveCount(0);
-    await shot(page, '04-home-co-proposer.png');
 
     // The action's own thread: the reply composer is there, the reply carries the team badge.
     await page.goto(MAIN.thread);
@@ -155,14 +132,12 @@ test.describe('co-proposer', () => {
     await page.getByRole('button', { name: 'Post reply' }).click();
     const reply = page.locator('article', { hasText: REPLY });
     await expect(reply).toBeVisible();
-    // The composer lands on the new post through a fragment, a plain load
-    // keeps the page at its top for the screenshot.
+    // A plain reload checks the badge on the server-rendered thread.
     await page.goto(MAIN.thread);
     await expect(reply).toContainText(CO_NAME);
     const badge = reply.locator('.author-identity__badge--mandate');
     await expect(badge).toHaveText(TEAM_BADGE);
     await expect(badge).toHaveAttribute('title', /^Invited by .+, which submitted this action$/);
-    await shot(page, '05-thread-team-badge.png');
 
     // Another thread of the same return address: no composer, and the API refuses a reply.
     await page.goto(OTHER.thread);
@@ -170,7 +145,6 @@ test.describe('co-proposer', () => {
     await expect(page.getByRole('heading', { name: OTHER.title })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Post reply' })).toHaveCount(0);
     expect(await postReply(page, OTHER.topicId, 'Not covered by the grant.')).toEqual({ status: 403, error: 'forbidden' });
-    await shot(page, '06-other-thread-no-composer.png');
 
     // Proposal Drafts: one proposer and no writer role of its own, so no picker,
     // and the draft is written for that proposer.
@@ -186,7 +160,6 @@ test.describe('co-proposer', () => {
     const draftBadge = page.locator('article').first().locator('.author-identity__badge--mandate');
     await expect(draftBadge).toHaveText(/^for \S+/);
     await expect(draftBadge).not.toContainText('Proposer team');
-    await shot(page, '07-draft-for-badge.png');
 
     coSession = await page.context().cookies();
   });
@@ -203,7 +176,6 @@ test.describe('proposer again', () => {
     await grant.getByRole('button', { name: 'Remove' }).click();
     await expect(item.locator('.pa__grant', { hasText: CO_NAME })).toHaveCount(0);
     await expect(item).toContainText('No co-proposers');
-    await shot(page, '08-home-after-remove.png');
   });
 });
 

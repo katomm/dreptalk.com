@@ -42,10 +42,9 @@ import {
   witnessSet,
 } from './fixtures';
 
-const net = vi.hoisted(() => ({ network: 'preprod' }));
 vi.mock('@/lib/api/response', async (orig) => ({
   ...(await orig<typeof import('@/lib/api/response')>()),
-  currentNetwork: () => ({ network: net.network, koiosBaseUrl: 'https://koios.invalid/api/v1' }),
+  currentNetwork: () => ({ network: 'preprod', koiosBaseUrl: 'https://koios.invalid/api/v1' }),
 }));
 
 const koios = vi.hoisted(() => ({
@@ -92,13 +91,6 @@ import { GET as held } from '../held';
 import { POST as create } from '../index';
 import { GET as groupState } from '../../[id]/state';
 
-// Groups run on mainnet now, so the off path is tested with mainnet left out of the list.
-vi.mock('@/lib/groups/gate', async (orig) => {
-  const real = await orig<typeof import('@/lib/groups/gate')>();
-  const on = ['preprod'] as const;
-  return { DREP_GROUPS_NETWORKS: on, drepGroupsAvailable: (n: Parameters<typeof real.drepGroupsAvailable>[0]) => real.drepGroupsAvailable(n, on) };
-});
-
 const GID = groupIdString(PERM.ref);
 
 // Every action opened in a test spends its own output, the first one FEE_INPUT.
@@ -106,7 +98,6 @@ let opened = 0;
 
 beforeEach(() => {
   opened = 0;
-  net.network = 'preprod';
   koios.tipSlot = TIP_SLOT;
   koios.spent.clear();
   koios.retired.clear();
@@ -685,7 +676,7 @@ describe('group action routes', () => {
       ['u-carol', 'group_signature_request', `group-sign:${row.json.id}`],
     ]);
     expect(JSON.parse(results[0].payload)).toMatchObject({ groupId: GID, actionId: row.json.id });
-    expect(JSON.parse(results[0].payload).summary).toMatch(/^Approve .* as a member\. Management policy changes from /);
+    expect(JSON.parse(results[0].payload).summary).toMatch(/^Approve /);
   });
 
   it('refuses a witness after expiry', async () => {
@@ -697,7 +688,8 @@ describe('group action routes', () => {
     expect((await call(submit, bob, { id: row.json.id, body: {} })).status).toBe(410);
   });
 
-  it('answers 404 off preprod and for vote rows', async () => {
+  // The 404 of every groups route off the network list is covered in networkSwitch.workers.test.ts.
+  it('answers 404 for vote rows', async () => {
     await createPendingMultisig(env.DB, {
       id: 'vote-row',
       drepId: ALICE.drepId,
@@ -713,8 +705,6 @@ describe('group action routes', () => {
     for (const route of [GET, witness, submit, submitted, cancel]) {
       expect((await call(route as never, alice, { id: 'vote-row', body: route === GET ? undefined : {} })).status).toBe(404);
     }
-    net.network = 'mainnet';
-    expect((await open(alice, soloCreate, { payload: expectedPayload(soloCreate, null, new Map()), signers: [ALICE.hash] })).status).toBe(404);
   });
 
   it('refuses a transaction that is not a definite four element array', async () => {

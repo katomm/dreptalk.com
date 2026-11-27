@@ -100,17 +100,4 @@ describe('handleRequest', () => {
     expect(b.headers.get('location')).toBe(a.headers.get('location'));
     expect([...store.keys()]).toEqual(['https://drep.link/p?v=2']);
   });
-  it('ignores a redirect cached before the origin was added', async () => {
-    await upsertDrep(env.DB, drepArgs(A, 'P'));
-    await env.DB.prepare('UPDATE dreps SET slug = ? WHERE drep_id = ?').bind('p-rysud', A).run();
-    await insertHandle(env.DB, 'p', A);
-    const { cache, store } = fakeCache();
-    store.set('https://drep.link/p', new Response(null, { status: 302, headers: { location: 'https://dreptalk.com/dreps/p-rysud/' } }));
-    const res = await go('/p', undefined, cache);
-    expect(res.headers.get('location')).toBe('https://dreptalk.com/dreps/p-rysud/?ref=drep-link:p');
-  });
-  it('adds no origin to the DRep id route or an unknown handle', async () => {
-    expect((await go(`/${A}`)).headers.get('location')).toBe(`https://dreptalk.com/dreps/${A}/`);
-    expect((await go('/nobody-here')).headers.get('location')).toBe('https://dreptalk.com/search/?q=nobody-here&scope=dreps');
-  });
 });

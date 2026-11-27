@@ -751,55 +751,40 @@ describe('updateActionMetadata', () => {
     expect(got!.title).toBe('Recovered');
   });
 
-  it('allows null metadata fields (legitimately empty anchor doc)', async () => {
+  it('allows null metadata fields (legitimately empty anchor doc), authors and references read back as null', async () => {
     const a = await insertAction({ metaVersion: 0 });
     await updateActionMetadata(db(), a.id, {
-      title: null,
-      abstract: null,
-      rationaleHtml: null,
-      authors: null,
-      references: null,
-      metaVersion: 1,
+      title: null, abstract: null, rationaleHtml: null, authors: null, references: null, metaVersion: 1,
     });
     const got = await getGovernanceActionByTopicId(db(), a.topicId);
-    expect(got!.title).toBeNull();
-    expect(got!.abstract).toBeNull();
-    expect(got!.rationaleHtml).toBeNull();
-    expect(got!.metaVersion).toBe(1);
+    expect(got).toMatchObject({ title: null, abstract: null, rationaleHtml: null, authors: null, references: null, metaVersion: 1 });
   });
 
-  it('stores and reads back author names as a JSON array', async () => {
-    const a = await insertAction({ authors: null });
+  it('round-trips authors and references through the update path', async () => {
+    const a = await insertAction({ authors: null, references: null });
+    const refs = [
+      { label: 'The forum thread', uri: 'https://forum.cardano.org/t/1' },
+      { label: '', uri: 'ipfs://QmDraftCid' },
+    ];
     await updateActionMetadata(db(), a.id, {
-      title: 'T',
-      abstract: 'A',
-      rationaleHtml: null,
-      authors: ['Mike Hornan', 'HOSKY'],
-      references: null,
-      metaVersion: 4,
+      title: 'T', abstract: 'A', rationaleHtml: null, authors: ['Mike Hornan', 'HOSKY'], references: refs, metaVersion: 4,
     });
     const got = await getGovernanceActionByTopicId(db(), a.topicId);
     expect(got!.authors).toEqual(['Mike Hornan', 'HOSKY']);
+    expect(got!.references).toEqual(refs);
   });
 
-  it('reads authors back as null when none were stored', async () => {
-    const a = await insertAction({ authors: null });
-    await updateActionMetadata(db(), a.id, {
-      title: 'T',
-      abstract: null,
-      rationaleHtml: null,
-      authors: null,
-      references: null,
-      metaVersion: 4,
+  it('reads authors and references written by the insert path, and null when there are none', async () => {
+    const withMeta = await insertAction({
+      authors: ['Lantr Engineering', 'FluidTokens'],
+      references: [{ label: 'Paper', uri: 'https://example.org/p.pdf' }],
     });
-    const got = await getGovernanceActionByTopicId(db(), a.topicId);
-    expect(got!.authors).toBeNull();
-  });
-
-  it('reads authors written by the insert path', async () => {
-    const a = await insertAction({ authors: ['Lantr Engineering', 'FluidTokens'] });
-    const got = await getGovernanceActionByTopicId(db(), a.topicId);
-    expect(got!.authors).toEqual(['Lantr Engineering', 'FluidTokens']);
+    expect(await getGovernanceActionByTopicId(db(), withMeta.topicId)).toMatchObject({
+      authors: ['Lantr Engineering', 'FluidTokens'],
+      references: [{ label: 'Paper', uri: 'https://example.org/p.pdf' }],
+    });
+    const without = await insertAction({ authors: null, references: null });
+    expect(await getGovernanceActionByTopicId(db(), without.topicId)).toMatchObject({ authors: null, references: null });
   });
 
   it('clamps a stored authors array to 10 on read, even if the row somehow has more', async () => {
@@ -814,33 +799,6 @@ describe('updateActionMetadata', () => {
     const a = await insertAction({ authors: ['', 'Real Name'] });
     const got = await getGovernanceActionByTopicId(db(), a.topicId);
     expect(got!.authors).toEqual(['Real Name']);
-  });
-
-  it('round-trips references through the update path', async () => {
-    const a = await insertAction({ references: null });
-    const refs = [
-      { label: 'The forum thread', uri: 'https://forum.cardano.org/t/1' },
-      { label: '', uri: 'ipfs://QmDraftCid' },
-    ];
-    await updateActionMetadata(db(), a.id, {
-      title: 'T',
-      abstract: null,
-      rationaleHtml: null,
-      authors: null,
-      references: refs,
-      metaVersion: 5,
-    });
-    const got = await getGovernanceActionByTopicId(db(), a.topicId);
-    expect(got!.references).toEqual(refs);
-  });
-
-  it('reads references written by the insert path, and null when there are none', async () => {
-    const withRefs = await insertAction({ references: [{ label: 'Paper', uri: 'https://example.org/p.pdf' }] });
-    expect((await getGovernanceActionByTopicId(db(), withRefs.topicId))!.references).toEqual([
-      { label: 'Paper', uri: 'https://example.org/p.pdf' },
-    ]);
-    const without = await insertAction({ references: null });
-    expect((await getGovernanceActionByTopicId(db(), without.topicId))!.references).toBeNull();
   });
 
   it('degrades a malformed stored references value to null instead of throwing', async () => {

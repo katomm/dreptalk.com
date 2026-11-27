@@ -79,18 +79,18 @@ describe('metricSeries', () => {
 });
 
 describe('buildVitals', () => {
-  it('builds four cards with deltas and the circulating share', () => {
+  it('builds cards with deltas and the circulating share', () => {
     const cards = buildVitals(row(540, { poweredDrepCount: 710 }), row(539), '20000000000000000');
-    expect(cards).toHaveLength(4);
-    expect(cards[0].label).toBe('DReps holding delegated power');
-    expect(cards[0].trend?.direction).toBe('up'); // powered 700 -> 710
+    expect(cards.find((c) => c.icon === 'people')?.trend?.direction).toBe('up'); // powered 700 -> 710
     const share = cards.find((c) => c.icon === 'share');
     expect(share?.value).toBe('10.0%'); // 2e15 of 2e16
   });
-  it('omits the share value when circulation is unknown', () => {
-    const cards = buildVitals(row(540), row(539), null);
-    const share = cards.find((c) => c.icon === 'share');
-    expect(share?.value).toBe('n/a');
+  it('shows no share for unknown or malformed circulation or a malformed power total, never NaN%', () => {
+    const share = (current: ReturnType<typeof row>, circulation: string | null) =>
+      buildVitals(current, row(539), circulation).find((c) => c.icon === 'share')?.value;
+    expect(share(row(540), null)).toBe('n/a');
+    expect(share(row(540), 'not-a-number')).toBe('n/a');
+    expect(share(row(540, { totalDrepPower: 'not-a-number' }), '20000000000000000')).toBe('n/a');
   });
   it('returns empty without a current row', () => {
     expect(buildVitals(null, null, '1')).toEqual([]);
@@ -106,29 +106,12 @@ describe('buildVitals', () => {
     // with the currency symbol, never as an unreadable raw lovelace digit run.
     expect(power?.trend).toEqual({ direction: 'up', label: '+2,000,000 ₳ this epoch' });
   });
-  it('interpolates the recent-voting window into the label instead of hard-coding it', () => {
-    const cards = buildVitals(row(540), row(539), null);
-    const gauge = cards.find((c) => c.icon === 'gauge');
-    expect(gauge?.label).toBe(`Voted in the last ${RECENT_VOTING_WINDOW_EPOCHS} epochs`);
-  });
-  it('marks the voting card provisional while the running epoch is incomplete', () => {
-    const cards = buildVitals(row(540, { voteDataComplete: false }), row(539), null);
-    const gauge = cards.find((c) => c.icon === 'gauge');
-    expect(gauge?.sub).toBe('still filling in for the running epoch');
-  });
-  it('shows the definition tail on the voting card once the epoch is complete', () => {
-    const cards = buildVitals(row(540, { voteDataComplete: true }), row(539), null);
-    const gauge = cards.find((c) => c.icon === 'gauge');
-    expect(gauge?.sub).toBe('superseded votes included');
-  });
-  it('never renders NaN% when totalDrepPower is malformed', () => {
-    const cards = buildVitals(
-      row(540, { totalDrepPower: 'not-a-number' }),
-      row(539),
-      '20000000000000000',
-    );
-    const share = cards.find((c) => c.icon === 'share');
-    expect(share?.value).toBe('n/a');
+  it('names the recent-voting window and marks the voting card provisional while the epoch runs', () => {
+    const gauge = (complete: boolean) =>
+      buildVitals(row(540, { voteDataComplete: complete }), row(539), null).find((c) => c.icon === 'gauge');
+    expect(gauge(true)?.label).toContain(String(RECENT_VOTING_WINDOW_EPOCHS));
+    expect(gauge(false)?.sub).toMatch(/running epoch/);
+    expect(gauge(true)?.sub).not.toMatch(/running epoch/);
   });
   it('draws sparklines from the trailing gapless window and a donut for the circulating share', () => {
     const rows = Array.from({ length: 20 }, (_, i) => row(521 + i, { poweredDrepCount: 600 + i }));
@@ -141,11 +124,6 @@ describe('buildVitals', () => {
   it('leaves the plain icons when no history or circulation is given', () => {
     const cards = buildVitals(row(540), row(539), null);
     expect(cards.every((c) => (c.series ?? []).length === 0 && c.ring == null)).toBe(true);
-  });
-  it('never renders NaN% when circulation is malformed', () => {
-    const cards = buildVitals(row(540), row(539), 'not-a-number');
-    const share = cards.find((c) => c.icon === 'share');
-    expect(share?.value).toBe('n/a');
   });
 });
 
@@ -218,11 +196,10 @@ describe('buildGlanceTiles', () => {
   const window = [538, 539, 540].map((e) => row(e, { poweredDrepCount: 700 + (e - 538) * 5, voteDataComplete: e < 540 }));
   it('builds four linked tiles that each jump into a hub section', () => {
     const tiles = buildGlanceTiles(window, '20000000000000000');
-    expect(tiles).toHaveLength(4);
     expect(tiles.map((t) => t.href)).toEqual([hubHref('trends'), hubHref('today'), hubHref('activity'), hubHref('decentralization')]);
     expect(tiles[0].trend?.direction).toBe('up'); // powered 705 -> 710
     expect(tiles[1].value).toBe('2B ₳');
-    expect(tiles[1].sub).toBe('10.0% of circulating ada'); // 2e15 of 2e16
+    expect(tiles[1].sub).toContain('10.0%'); // 2e15 of 2e16
     expect(tiles[3].value).toBe('50.0%');
     expect(tiles[3].ring).toBe(50);
   });

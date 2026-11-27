@@ -4,34 +4,23 @@
 // list, so the switch turns them all on together.
 import { describe, expect, it } from 'vitest';
 import { currentNetwork } from '@/lib/api/response';
-import { navFor, navLinksFor } from '@/lib/config/nav';
+import { navLinksFor } from '@/lib/config/nav';
 import { matchStaticEntries } from '@/lib/search/staticEntries';
 import { drepPhases } from '@/lib/sync/phases/dreps';
 import { governancePhases } from '@/lib/sync/phases/governance';
 import { GET as held } from '@/pages/api/groups/actions/held';
 import { GET as state } from '@/pages/api/groups/[id]/state';
 import { GROUPS_SCAN_AFTER_SLOT } from './constants.js';
-import { drepGroupsAvailable } from './gate.js';
 import { wallClockSlot } from './groupTx.js';
 import { addressNetwork, groupIdString } from './ids.js';
 import { myGroupsLink } from './myGroups.js';
 import { ALICE, CAROL, call, PERM, seedPermissioned, sessionOf } from '@/pages/api/groups/actions/__tests__/fixtures';
 
-
 describe('DRep groups switched on for mainnet', () => {
-  it('runs on mainnet', () => {
+  it('shows the groups in nav and search and runs the gov-sync groups phases on mainnet', () => {
     expect(currentNetwork().network).toBe('mainnet');
-    expect(drepGroupsAvailable('mainnet')).toBe(true);
-  });
-
-  it('shows the groups in nav and search on mainnet', () => {
     expect(navLinksFor('mainnet').map((l) => l.href)).toContain('/groups/');
-    const dreps = navFor('mainnet').find((e) => e.label === 'DReps');
-    expect(dreps && 'items' in dreps ? dreps.items.map((l) => l.label) : []).toContain('DRep groups');
     expect(matchStaticEntries('groups', false, 'mainnet').map((e) => e.href)).toContain('/groups/');
-  });
-
-  it('runs the gov-sync groups ingest and the group cleanups on mainnet', () => {
     const ctx = { cfg: { network: 'mainnet' } } as never;
     const gated = [...governancePhases, ...drepPhases].filter((p) => ['drep-groups', 'group-profile-docs-gc', 'group-action-retention'].includes(p.name));
     expect(gated).toHaveLength(3);

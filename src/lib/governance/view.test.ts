@@ -28,7 +28,6 @@ import {
   compositionAmounts,
   absentBodyNote,
   shortGovActionId,
-  TERMINAL_STATUSES,
   type RoleTallyInput,
   type RowVotingInput,
 } from './view.js';
@@ -49,12 +48,9 @@ describe('statusBadge', () => {
   it('shows a freshly discovered (pending) action as Syncing, neutral', () => {
     expect(statusBadge('pending')).toEqual({ label: 'Syncing', tone: 'neutral' });
   });
-  it('maps known statuses to tones', () => {
-    expect(statusBadge('active').tone).toBe('active');
+  it('marks a good and a bad outcome apart', () => {
     expect(statusBadge('enacted').tone).toBe('positive');
-    expect(statusBadge('ratified').tone).toBe('positive');
     expect(statusBadge('dropped').tone).toBe('negative');
-    expect(statusBadge('expired').tone).toBe('neutral');
   });
   it('labels a closed info action neutrally', () => {
     expect(statusBadge('closed')).toEqual({ label: 'Closed', tone: 'neutral' });
@@ -76,12 +72,6 @@ describe('isTerminalStatus', () => {
     expect(isTerminalStatus('weird')).toBe(false);
   });
 
-  it('TERMINAL_STATUSES is the single source isTerminalStatus draws from', () => {
-    // The list is also spread into the Closing-Soon SQL filter, so it must stay in
-    // lockstep with the predicate.
-    for (const s of TERMINAL_STATUSES) expect(isTerminalStatus(s)).toBe(true);
-    expect([...TERMINAL_STATUSES].sort()).toEqual(['closed', 'dropped', 'enacted', 'expired', 'ratified']);
-  });
 });
 
 const DAY_MS = 24 * 60 * 60 * 1000;

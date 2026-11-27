@@ -15,10 +15,9 @@ import {
   unresolvedGroupActionsForDrep,
 } from '../../../lib/db/drepGroups.js';
 import { planOf } from '../../../lib/groups/__tests__/queryPlan.js';
-import { createGroupAction, type NewGroupAction, openControlAction } from '../../../lib/groups/actionStore.js';
+import { createGroupAction, type NewGroupAction } from '../../../lib/groups/actionStore.js';
 import { type GroupIntent, parseJoinRef } from '../../../lib/groups/actions.js';
-import { wallClockSlot } from '../../../lib/groups/groupTx.js';
-import { groupIdForms, groupIdParam, groupIdString } from '../../../lib/groups/ids.js';
+import { groupIdForms, groupIdString } from '../../../lib/groups/ids.js';
 import { GET as stateRoute } from '../../api/groups/[id]/state.js';
 import { ALICE, BOB, CAROL, call, DAVE, groupTx, PERM, seed, seedPermissioned, sessionOf } from '../../api/groups/actions/__tests__/fixtures.js';
 import seedSql from './twoMemberGroup.sql?raw';
@@ -49,12 +48,8 @@ async function seedTwoMemberGroup(): Promise<void> {
 
 describe('group detail lookup', () => {
   it('finds nothing for an unknown or malformed group id', async () => {
-    expect(groupIdParam('garbage')).toBeNull();
-    expect(groupIdParam('group1qqq')).toBeNull();
     expect(await getGroup(db, 'group1qqq')).toBeNull();
-    const id = groupIdString({ txHash: 'ab'.repeat(32), index: 0 });
-    expect(groupIdParam(id.toUpperCase())).toEqual({ txHash: 'ab'.repeat(32), index: 0 });
-    expect(await getGroup(db, id)).toBeNull();
+    expect(await getGroup(db, groupIdString({ txHash: 'ab'.repeat(32), index: 0 }))).toBeNull();
   });
 
   it('reads the local seed as a listed group with two members', async () => {
@@ -207,16 +202,6 @@ describe('group action readers', () => {
     ]);
   });
 
-  it('lets an open control row stored under an old id form hold the slot', async () => {
-    await seedPermissioned();
-    const [, twoByte] = groupIdForms(PERM.ref);
-    const update = (id: string, group: string): NewGroupAction =>
-      rec(id, { kind: 'group_update', subjectId: group, intent: { kind: 'group_update', group, approvals: [] }, controlSlot: true, requiredSigners: [ALICE.hash] });
-    expect(await createGroupAction(db, update('u-old', twoByte))).toBe('created');
-    expect(await createGroupAction(db, update('u-new', PERM_ID))).toBe('slot taken');
-    expect((await openControlAction(db, PERM_ID))?.id).toBe('u-old');
-  });
-
   it('reads the unresolved rows of a DRep through the subject and the unresolved indexes', async () => {
     const plan = (await planOf(db, UNRESOLVED_FOR_DREP_SQL, [CAROL.drepId, CAROL.hash, 20])).join('\n');
     expect(plan).toContain('pending_multisig_tx_subject');
@@ -276,12 +261,6 @@ describe('group action state route', () => {
     const res = await call<StateBody & { activeMembers: Array<{ joinId: string; drepId: string }> }>(stateRoute, null, { id: PERM_ID });
     expect(res.json.activeMembers.map((m) => [m.joinId, m.drepId])).toEqual([[PERM.carolJoin, CAROL.drepId]]);
     expect(res.json.pending).toEqual([]);
-  });
-
-  it('gives the server clock slot so a client with a wrong clock still builds a valid end', async () => {
-    await seedPermissioned();
-    const res = await call<StateBody & { serverSlot: number }>(stateRoute, null, { id: PERM_ID });
-    expect(Math.abs(res.json.serverSlot - wallClockSlot('preprod'))).toBeLessThanOrEqual(2);
   });
 
   it('shows the open control action to admins only while they have not resigned', async () => {

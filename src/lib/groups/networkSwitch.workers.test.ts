@@ -21,7 +21,6 @@ import { POST as submitted } from '@/pages/api/groups/actions/[id]/submitted';
 import { POST as cancel } from '@/pages/api/groups/actions/[id]/cancel';
 import { GET as state } from '@/pages/api/groups/[id]/state';
 import { GET as hostedProfile } from '@/pages/group-profile/[hash].json';
-import { DREP_GROUPS_NETWORKS, drepGroupsAvailable } from './gate.js';
 import { myGroupsLink } from './myGroups.js';
 
 vi.mock('./gate.js', async (orig) => {
@@ -47,14 +46,8 @@ function route(path: string, method: 'GET' | 'POST', params: Record<string, stri
 }
 
 describe('DRep groups on a network they do not run on', () => {
-  it('keeps mainnet out of the network list', () => {
-    expect(currentNetwork().network).toBe('mainnet');
-    expect(DREP_GROUPS_NETWORKS).not.toContain('mainnet');
-    expect(drepGroupsAvailable('mainnet')).toBe(false);
-    expect(drepGroupsAvailable('preprod')).toBe(true);
-  });
-
   it('answers 404 on every groups API route and the hosted profile documents', async () => {
+    expect(currentNetwork().network).toBe('mainnet');
     const id = { id: 'x' };
     const responses = await Promise.all([
       checkDrep(route('/api/groups/check-drep?drepId=x', 'GET')),
@@ -75,7 +68,6 @@ describe('DRep groups on a network they do not run on', () => {
   it('leaves the groups out of nav and search', () => {
     expect(navLinksFor('mainnet').map((l) => l.href)).not.toContain('/groups/');
     expect(matchStaticEntries('groups', true, 'mainnet').map((e) => e.href)).not.toContain('/groups/');
-    expect(navLinksFor('preprod').map((l) => l.href)).toContain('/groups/');
   });
 
   it('gives no account menu entry and no group signer login without reading the database', async () => {
