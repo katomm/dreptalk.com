@@ -1,0 +1,97 @@
+---
+// Recipient history under a treasury payout row: the summary sentence and the
+// full list of other withdrawals that named the same address.
+import type { CardanoNetwork } from '@/lib/config/network.js';
+import { resolveNetwork } from '@/lib/config/network.js';
+import { statusBadge, submittedDateLabel } from '@/lib/governance/view.js';
+import { formatAda } from '@/lib/format/ada.js';
+import { proposerShortLabel, recipientHistorySentence, recipientHistoryToggle, type RecipientHistory } from '@/lib/treasury/recipientHistory.js';
+
+interface Props {
+  history: RecipientHistory;
+  network: CardanoNetwork;
+}
+const { history, network } = Astro.props;
+const netCfg = resolveNetwork(network);
+const rows = history.items.map((it) => ({
+  ...it,
+  badge: statusBadge(it.status),
+  ada: formatAda(String(it.lovelace)),
+  who: proposerShortLabel(it.returnAddress),
+  date: submittedDateLabel(it.submittedAt, it.submittedEpoch, netCfg),
+}));
+---
+
+<div class="rh">
+  <p class="rh__line">{recipientHistorySentence(history)}</p>
+  {rows.length > 0 && (
+    <details class="rh__more">
+      <summary>{recipientHistoryToggle(rows.length)}</summary>
+      <ul class="rh__list">
+        {rows.map((it) => (
+          <li class="rh__item">
+            {it.href ? <a href={it.href} class="rh__title">{it.title}</a> : <span class="rh__title">{it.title}</span>}
+            <span class="rh__meta">
+              <span class={`badge badge--${it.badge.tone}`}>{it.badge.label}</span>
+              <span class="rh__amt">{it.ada}</span>
+              {it.who && <span>{it.who}</span>}
+              {it.date && <span>{it.date}</span>}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </details>
+  )}
+</div>
+
+<style>
+  /* Recipient history: takes the full row width under the payout sentence. */
+  .rh {
+    flex-basis: 100%;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+  .rh__line {
+    margin: 0;
+  }
+  .rh__more {
+    margin-top: 0.3rem;
+  }
+  .rh__more summary {
+    cursor: pointer;
+    color: var(--accent);
+    width: fit-content;
+  }
+  .rh__list {
+    list-style: none;
+    margin: 0.4rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .rh__item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+  .rh__title {
+    color: var(--fg);
+  }
+  .rh__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+  }
+  .badge { font-size: 0.625rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; padding: 2px 7px; border-radius: 999px; }
+  .badge--active { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+  .badge--positive { background: color-mix(in srgb, var(--c-pos) 14%, transparent); color: var(--c-pos); }
+  .badge--neutral { background: var(--surface-2); color: var(--muted); }
+  .badge--negative { background: color-mix(in srgb, var(--c-neg) 14%, transparent); color: var(--c-neg); }
+  .rh__amt {
+    color: var(--fg);
+    font-weight: 600;
+  }
+</style>

@@ -7,6 +7,8 @@ import GaOnchainChanges from './GaOnchainChanges.astro';
 import type { GaParamImpactProps } from './GaParamImpact.js';
 import type { GovernanceAction } from '@/lib/db/governance.js';
 import type { OnchainChanges } from '@/lib/governance/onchain.js';
+import type { RecipientHistory } from '@/lib/treasury/recipientHistory.js';
+import type { CardanoNetwork } from '@/lib/config/network.js';
 import { enhanceStoredHtml, renderMarkdown } from '@/lib/markdown.js';
 import { resolveAnchorUrl } from '@/lib/governance/metadata.js';
 import { describeMissingBody } from '@/lib/governance/anchorState.js';
@@ -16,9 +18,11 @@ interface Props {
   onchain: OnchainChanges | null;
   committeeNames?: Map<string, string>;
   paramImpact?: GaParamImpactProps | null;
+  recipientHistories?: Map<string, RecipientHistory> | null;
+  network: CardanoNetwork;
 }
 
-const { action, onchain, committeeNames, paramImpact } = Astro.props;
+const { action, onchain, committeeNames, paramImpact, recipientHistories, network } = Astro.props;
 
 // Every CIP-108 action carries an abstract (a short summary). It is the always-
 // visible lede and the natural fold line: the reader gets the summary, and the
@@ -52,7 +56,15 @@ const missing = hasBody
 ---
 
 <section class="ga-overview">
-  <GaOnchainChanges changes={onchain} committeeNames={committeeNames} paramImpact={paramImpact} />
+  <GaOnchainChanges
+    changes={onchain}
+    committeeNames={committeeNames}
+    paramImpact={paramImpact}
+    recipientHistories={recipientHistories}
+    actionStatus={action.status}
+    returnAddress={action.returnAddress}
+    network={network}
+  />
 
   {abstractHtml && (
     <div class="ga-abstract">

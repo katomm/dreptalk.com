@@ -10,6 +10,8 @@ import {
   summarizeOnchain,
   parameterChangeScope,
   treasuryTotalLovelace,
+  treasuryEntries,
+  recipientKeyId,
   lineagePredecessor,
   lineagePredecessorTxIds,
   parseHardForkVersion,
@@ -148,6 +150,43 @@ const EP = JSON.stringify({
   treasury_growth_rate: 0.2,
 });
 
+const KH = '3c79df2221075f32327bbf2aa8ccc22b3d2bc316b076e652eea9b2cd';
+const SH = 'a5e0d4b7c8f9a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f50';
+const tw = (list: unknown[]) => ({ tag: 'TreasuryWithdrawals', contents: [list, null] });
+
+describe('treasuryEntries', () => {
+  it('returns one entry per item with lowercase keys', () => {
+    expect(
+      treasuryEntries(
+        tw([
+          [{ credential: { keyHash: KH.toUpperCase() } }, 5000000],
+          [{ credential: { scriptHash: SH } }, 7000000],
+        ]),
+      ),
+    ).toEqual([
+      { key: { credType: 'keyHash', hash: KH }, lovelace: 5000000n },
+      { key: { credType: 'scriptHash', hash: SH }, lovelace: 7000000n },
+    ]);
+  });
+  it('keeps an entry without a valid hash as key null', () => {
+    expect(treasuryEntries(tw([[{ credential: {} }, 5000000]]))).toEqual([{ key: null, lovelace: 5000000n }]);
+    expect(treasuryEntries(tw([[{ credential: { keyHash: 'z'.repeat(56) } }, 1]]))).toEqual([{ key: null, lovelace: 1n }]);
+  });
+  it('skips non-array items and reads a non-whole amount as 0', () => {
+    expect(treasuryEntries(tw(['x', [{ credential: { keyHash: KH } }, '12a']]))).toEqual([
+      { key: { credType: 'keyHash', hash: KH }, lovelace: 0n },
+    ]);
+  });
+  it('returns [] for non-treasury and malformed payloads', () => {
+    expect(treasuryEntries(null)).toEqual([]);
+    expect(treasuryEntries({ tag: 'InfoAction' })).toEqual([]);
+    expect(treasuryEntries({ tag: 'TreasuryWithdrawals', contents: 'x' })).toEqual([]);
+  });
+  it('builds a stable key id', () => {
+    expect(recipientKeyId({ credType: 'scriptHash', hash: SH })).toBe(`scriptHash:${SH}`);
+  });
+});
+
 describe('decodeOnchainChanges', () => {
   it('returns null for empty payload', () => {
     expect(decodeOnchainChanges(null, EP, 'preprod')).toBeNull();
@@ -195,6 +234,19 @@ describe('decodeOnchainChanges', () => {
     expect(r.rows[0].ada).toBe('5 ₳');
     expect(r.totalAda).toBe('5 ₳');
     expect(r.rows[0].address.startsWith('stake_test1')).toBe(true);
+  });
+
+  it('keeps an unknown recipient row and its amount in the total', () => {
+    const p = JSON.stringify(tw([[{ credential: {} }, 5000000], [{ credential: { keyHash: KH } }, 1000000]]));
+    const r = decodeOnchainChanges(p, EP, 'preprod') as { kind: 'treasury'; rows: { address: string; key: unknown }[]; totalAda: string };
+    expect(r.rows[0]).toMatchObject({ address: '(unknown recipient)', key: null });
+    expect(r.rows[1]).toMatchObject({ key: { credType: 'keyHash', hash: KH } });
+    expect(r.totalAda).toBe('6 ₳');
+  });
+
+  it('does not throw on a 56-character non-hex hash', () => {
+    const p = JSON.stringify(tw([[{ credential: { scriptHash: 'z'.repeat(56) } }, 1000000]]));
+    expect(() => decodeOnchainChanges(p, EP, 'preprod')).not.toThrow();
   });
 
   it('decodes an UpdateCommittee threshold and members', () => {
@@ -559,6 +611,10 @@ describe('treasuryTotalLovelace', () => {
   it('counts an unreadable amount as 0', () => {
     const payload = { tag: 'TreasuryWithdrawals', contents: [[[{}, '12a'], [{}, null]], null] };
     expect(treasuryTotalLovelace(payload)).toBe(0n);
+  });
+
+  it('keeps an entry without a hash in the total', () => {
+    expect(treasuryTotalLovelace(tw([[{ credential: {} }, 5000000]]))).toBe(5000000n);
   });
 
   it('returns 0n for a non-treasury payload', () => {

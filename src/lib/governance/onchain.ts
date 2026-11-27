@@ -267,13 +267,55 @@ interface RewardAccount {
 // comes from app config, not the payload's "network" string (untrusted). Builds
 // the 29-byte reward address (header + 28-byte hash) and reuses the stake encoder.
 export function rewardAccountToBech32(acct: RewardAccount, network: CardanoNetwork): string {
-  const cred = acct?.credential ?? {};
+  const key = recipientKey(acct);
+  return key ? recipientKeyToBech32(key, network) : '(unknown recipient)';
+}
+
+/** A treasury recipient: credential type plus lowercase 28-byte hash. */
+export interface RecipientKey {
+  credType: 'keyHash' | 'scriptHash';
+  hash: string;
+}
+/** One payload entry. `key` is null when the credential has no valid hash. */
+export interface TreasuryEntry {
+  key: RecipientKey | null;
+  lovelace: bigint;
+}
+
+export function recipientKeyId(k: RecipientKey): string {
+  return `${k.credType}:${k.hash}`;
+}
+
+/** Bech32 stake address of a validated recipient key. */
+export function recipientKeyToBech32(key: RecipientKey, network: CardanoNetwork): string {
+  const header = (key.credType === 'scriptHash' ? 0xf0 : 0xe0) | (network === 'mainnet' ? 1 : 0);
+  return rewardAddressToStakeBech32(header.toString(16).padStart(2, '0') + key.hash, network);
+}
+
+function recipientKey(acct: unknown): RecipientKey | null {
+  const cred = isRecord(acct) && isRecord(acct.credential) ? acct.credential : {};
   const isScript = typeof cred.scriptHash === 'string';
-  const hashHex = isScript ? cred.scriptHash : cred.keyHash;
-  if (typeof hashHex !== 'string' || hashHex.length !== 56) return '(unknown recipient)';
-  const header = (isScript ? 0xf0 : 0xe0) | (network === 'mainnet' ? 1 : 0);
-  const headerHex = header.toString(16).padStart(2, '0');
-  return rewardAddressToStakeBech32(headerHex + hashHex, network);
+  const hash = isScript ? cred.scriptHash : cred.keyHash;
+  if (typeof hash !== 'string' || !HEX_HASH_224_RE.test(hash)) return null;
+  return { credType: isScript ? 'scriptHash' : 'keyHash', hash: hash.toLowerCase() };
+}
+
+/**
+ * Every entry of a TreasuryWithdrawals payload (the parsed object). Never
+ * throws: [] for a non-treasury or malformed payload, non-array items skipped,
+ * 0n for an amount that is not whole, key null for a credential without a
+ * valid hash (such an entry still counts toward the total).
+ */
+export function treasuryEntries(payload: unknown): TreasuryEntry[] {
+  if (!isRecord(payload) || payload.tag !== 'TreasuryWithdrawals') return [];
+  const contents = payload.contents;
+  if (!Array.isArray(contents) || !Array.isArray(contents[0])) return [];
+  const out: TreasuryEntry[] = [];
+  for (const entry of contents[0] as unknown[]) {
+    if (!Array.isArray(entry)) continue;
+    out.push({ key: recipientKey(entry[0]), lovelace: payloadLovelace(entry[1]) ?? 0n });
+  }
+  return out;
 }
 
 export interface ParamRow {
@@ -285,6 +327,8 @@ export interface ParamRow {
 export interface TreasuryRow {
   address: string;
   ada: string;
+  // Set by decodeTreasury, left out by the submit preview which has no credential.
+  key?: RecipientKey | null;
 }
 // Full committee member identity: the on-chain cold-key hash is kept verbatim
 // (never truncated) so a later lookup can resolve a name and the copy button can
@@ -491,41 +535,23 @@ export function payloadLovelace(v: unknown): bigint | null {
 }
 
 function decodeTreasury(contents: unknown[], network: CardanoNetwork): OnchainChanges {
-  const list = contents[0];
   const rows: TreasuryRow[] = [];
   let total = 0n;
-  if (Array.isArray(list)) {
-    for (const entry of list) {
-      if (!Array.isArray(entry)) continue;
-      const [acct, lovelace] = entry as [RewardAccount, unknown];
-      const amt = payloadLovelace(lovelace) ?? 0n;
-      total += amt;
-      rows.push({ address: rewardAccountToBech32(acct, network), ada: formatAda(String(amt)) ?? `${amt}` });
-    }
+  for (const { key, lovelace } of treasuryEntries({ tag: 'TreasuryWithdrawals', contents })) {
+    total += lovelace;
+    const address = key ? recipientKeyToBech32(key, network) : '(unknown recipient)';
+    rows.push({ address, ada: formatAda(String(lovelace)) ?? `${lovelace}`, key });
   }
   return { kind: 'treasury', rows, totalAda: formatAda(String(total)) ?? `${total}` };
 }
 
 /**
- * Sum of lovelace in a TreasuryWithdrawals on-chain payload, as raw bigint.
- * Mirrors decodeTreasury's amount parsing but keeps the exact lovelace total
+ * Sum of lovelace in a TreasuryWithdrawals on-chain payload, as raw bigint
  * (decodeTreasury only exposes a formatted ada string). Returns 0n for any
  * non-treasury or malformed payload.
  */
 export function treasuryTotalLovelace(payload: unknown): bigint {
-  if (!payload || typeof payload !== 'object') return 0n;
-  if ((payload as { tag?: unknown }).tag !== 'TreasuryWithdrawals') return 0n;
-  const contents = (payload as { contents?: unknown }).contents;
-  if (!Array.isArray(contents)) return 0n;
-  const list = contents[0];
-  let total = 0n;
-  if (Array.isArray(list)) {
-    for (const entry of list) {
-      if (!Array.isArray(entry)) continue;
-      total += payloadLovelace(entry[1]) ?? 0n;
-    }
-  }
-  return total;
+  return treasuryEntries(payload).reduce((sum, e) => sum + e.lovelace, 0n);
 }
 
 function decodeCommittee(contents: unknown[]): OnchainChanges {
