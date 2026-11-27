@@ -75,6 +75,13 @@ const HEAD = 10;
 const recordItems = (profile?.record ?? []).map((row) => ({ ...rowProps(row), rationaleHref: rationaleHref(row) }));
 const recordHead = recordItems.slice(0, HEAD);
 const recordTail = recordItems.slice(HEAD);
+// The strip covers only the actions the member could vote on, oldest first,
+// so a short tenure does not drown in faded squares from other terms.
+const strip = [...(profile?.record ?? [])].reverse().map((row) => {
+  const choice = row.vote ? row.vote.vote.toLowerCase() : 'missed';
+  const label = row.vote ? row.vote.vote : 'Not voted';
+  return { choice, title: `${row.title ?? row.gaId}, epoch ${row.decidedEpoch}: ${label}` };
+});
 const displayName = profile ? (profile.name ?? truncateId(profile.coldKeyHex, 10)) : '';
 const hotKeys = profile ? [...profile.hotKeys].sort() : [];
 
@@ -151,9 +158,15 @@ const metaDescription = profile
             {`Yes ${profile.counts.yes}, No ${profile.counts.no}, Abstain ${profile.counts.abstain}. ${readable} of ${profile.voted} ${profile.voted === 1 ? 'vote has' : 'votes have'} a readable rationale.`}
           </p>
           <div class="cc-raster" role="img" aria-label={`Voted on ${profile.voted} of ${profile.eligible} eligible actions, oldest to newest`}>
-            {profile.sequence.map((s) => <span class={`cc-raster__dot cc-raster__dot--${s}`}></span>)}
+            {strip.map((d) => <span class={`cc-raster__dot cc-raster__dot--${d.choice}`} title={d.title}></span>)}
           </div>
-          <p class="cc-raster__note">Each square is one decided action from the oldest to the newest, filled when the member voted, outlined when eligible without a vote, faded outside the member's eligibility window.</p>
+          <p class="cc-raster__note">
+            Each square is one action the member could vote on, oldest first:{' '}
+            <span class="cc-raster__key"><span class="cc-raster__dot cc-raster__dot--yes"></span>Yes</span>
+            <span class="cc-raster__key"><span class="cc-raster__dot cc-raster__dot--no"></span>No</span>
+            <span class="cc-raster__key"><span class="cc-raster__dot cc-raster__dot--abstain"></span>Abstain</span>
+            <span class="cc-raster__key"><span class="cc-raster__dot cc-raster__dot--missed"></span>Not voted</span>
+          </p>
         </>
       )}
     </section>
@@ -234,12 +247,15 @@ const metaDescription = profile
   }
   .cc-summary__h { font-size: 1.05rem; margin: 0 0 0.6rem; }
   .cc-summary__line { margin: 0 0 0.85rem; color: var(--fg); }
-  .cc-raster { display: flex; flex-wrap: wrap; gap: 2px; }
-  .cc-raster__dot { width: 7px; height: 7px; flex: 0 0 auto; }
-  .cc-raster__dot--voted { background: var(--accent); }
-  .cc-raster__dot--missed { background: transparent; border: 1px solid var(--muted); }
-  .cc-raster__dot--ineligible { background: var(--muted); opacity: 0.4; }
-  .cc-raster__note { margin: 0.6rem 0 0; color: var(--muted); font-size: 0.8rem; max-width: 60ch; }
+  .cc-raster { display: flex; flex-wrap: wrap; gap: 3px; max-width: 40rem; }
+  .cc-raster__dot { display: inline-block; box-sizing: border-box; width: 12px; height: 12px; border-radius: 2px; flex: 0 0 auto; }
+  .cc-raster__dot--yes { background: var(--c-pos); }
+  .cc-raster__dot--no { background: var(--c-neg); }
+  .cc-raster__dot--abstain { background: var(--muted); }
+  .cc-raster__dot--missed { background: transparent; border: 1.5px solid var(--muted); }
+  .cc-raster__note { margin: 0.6rem 0 0; color: var(--muted); font-size: 0.8rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.9rem; }
+  .cc-raster__key { display: inline-flex; align-items: center; gap: 0.35rem; }
+  .cc-raster__key .cc-raster__dot { width: 10px; height: 10px; }
 
   .cc-rows { display: flex; flex-direction: column; }
   .cc-note { margin: 0 0 0.75rem; color: var(--muted); font-size: 0.8125rem; }
