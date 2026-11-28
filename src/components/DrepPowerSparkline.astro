@@ -128,16 +128,19 @@ const hoverText = (d: VotingPowerDelta | null, label: string): string | undefine
         {chart.yTicks.map((t) => (
           <line class="vptrend__grid" x1={chart.plot.x} y1={t.y} x2={chart.plot.x + chart.plot.w} y2={t.y} />
         ))}
-        <path class="vptrend__area" d={chart.area} fill={`url(#vptrend-fill-${key})`} />
-        <polyline class="vptrend__line" points={chart.line} vector-effect="non-scaling-stroke" />
-        <circle class="vptrend__dot-ring" cx={chart.last.x} cy={chart.last.y} r="5.5" />
-        <circle class="vptrend__dot" cx={chart.last.x} cy={chart.last.y} r="3.5" />
-        {overlay && (
-          <>
-            <polyline class="vptrend__delline" points={overlay.line} vector-effect="non-scaling-stroke" />
-            <circle class="vptrend__deldot" cx={overlay.last.x} cy={overlay.last.y} r="2.75" />
-          </>
-        )}
+        {/* Series wipe in from the left on first view (global.css .draw-in), grid and labels stay put. */}
+        <g class="draw-in draw-in--wipe">
+          <path class="vptrend__area" d={chart.area} fill={`url(#vptrend-fill-${key})`} />
+          <polyline class="vptrend__line" points={chart.line} vector-effect="non-scaling-stroke" />
+          <circle class="vptrend__dot-ring" cx={chart.last.x} cy={chart.last.y} r="5.5" />
+          <circle class="vptrend__dot" cx={chart.last.x} cy={chart.last.y} r="3.5" />
+          {overlay && (
+            <>
+              <polyline class="vptrend__delline" points={overlay.line} vector-effect="non-scaling-stroke" />
+              <circle class="vptrend__deldot" cx={overlay.last.x} cy={overlay.last.y} r="2.75" />
+            </>
+          )}
+        </g>
         {chart.yTicks.map((t) => (
           <text class="vptrend__ylabel" x={chart.plot.x + chart.plot.w + 8} y={t.y + 4}>{adaTick(t.value)}</text>
         ))}
@@ -178,6 +181,10 @@ const hoverText = (d: VotingPowerDelta | null, label: string): string | undefine
 
 </section>
 )}
+
+<script>
+  import '@/scripts/draw-in';
+</script>
 
 <style>
   .vptrend {

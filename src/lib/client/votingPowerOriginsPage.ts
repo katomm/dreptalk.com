@@ -12,6 +12,7 @@ import type { ProvenancePayload, ProvenanceSource } from '../delegation/provenan
 import { drepPath } from '../dreps/profile';
 import { formatAdaCompact } from '../format/ada';
 import { identiconSvg } from '../identity/identicon';
+import { burstLoaderSvg } from '../brand/burstMark';
 
 const FAN_TOP = 5;
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -478,6 +479,7 @@ export function renderVotingPowerOrigins(): void {
       const spinner = document.createElement('span');
       spinner.className = 'vpo-spinner';
       spinner.setAttribute('aria-hidden', 'true');
+      spinner.innerHTML = burstLoaderSvg(18);
       const text = document.createElement('span');
       text.textContent = 'Analyzing… the first run in a while can take a moment.';
       appendAll(status, spinner, text);

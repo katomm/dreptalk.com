@@ -21,48 +21,57 @@
 // `hat` puts a Santa hat on the top node for the holiday season (see
 // lib/brand/season.ts). It is drawn in fixed colors, not currentColor, and
 // reaches above the viewBox, so the SVG lets it overflow.
+//
+// `variant` animates the mark via a `burst-<variant>` class (styles in
+// global.css, both stop under reduced motion): 'loading' lights the eight nodes
+// in turn, for a wait of unknown length. 'lost' lets one node drift away and
+// back, for the not-found page.
+//
+// `gradient` paints the mark in the brand gradient instead of currentColor.
+import {
+  BRAND_GRAD_STOPS,
+  BRAND_GRAD_VECTOR,
+  BURST_CENTER,
+  BURST_NODES,
+  BURST_RING,
+  BURST_SPOKES,
+} from '@/lib/brand/burstMark.js';
+
 interface Props {
   style?: string;
   label?: string;
   hat?: boolean;
+  variant?: 'loading' | 'lost';
+  gradient?: boolean;
 }
-const { style, label, hat = false } = Astro.props;
+const { style, label, hat = false, variant, gradient = false } = Astro.props;
+// A fixed id keeps the HTML byte-stable for caching. Two gradient marks on one
+// page repeat identical defs, which render the same.
+const GRAD_ID = 'logo-grad';
+const paint = gradient ? `url(#${GRAD_ID})` : 'currentColor';
 ---
 <svg
   style={style}
+  class={variant && `burst-${variant}`}
   viewBox="0 0 72 72"
   role={label ? 'img' : undefined}
   aria-label={label}
   aria-hidden={label ? undefined : 'true'}
-  fill="currentColor"
+  fill={paint}
 >
-  <g stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
-    <line x1="36" y1="27.5" x2="36" y2="19.5" />
-    <line x1="42" y1="30" x2="47.7" y2="24.3" />
-    <line x1="44.5" y1="36" x2="52.5" y2="36" />
-    <line x1="42" y1="42" x2="47.7" y2="47.7" />
-    <line x1="36" y1="44.5" x2="36" y2="52.5" />
-    <line x1="30" y1="42" x2="24.3" y2="47.7" />
-    <line x1="27.5" y1="36" x2="19.5" y2="36" />
-    <line x1="30" y1="30" x2="24.3" y2="24.3" />
+  {gradient && (
+    <defs>
+      <linearGradient id={GRAD_ID} {...BRAND_GRAD_VECTOR} gradientUnits="userSpaceOnUse">
+        {BRAND_GRAD_STOPS.map((c, i) => <stop offset={i / (BRAND_GRAD_STOPS.length - 1)} stop-color={c} />)}
+      </linearGradient>
+    </defs>
+  )}
+  <g stroke={paint} stroke-width="2.4" stroke-linecap="round">
+    {BURST_SPOKES.map((l) => <line x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2} />)}
   </g>
-  <circle cx="36" cy="15" r="4" />
-  <circle cx="50.85" cy="21.15" r="4" />
-  <circle cx="57" cy="36" r="4" />
-  <circle cx="50.85" cy="50.85" r="4" />
-  <circle cx="36" cy="57" r="4" />
-  <circle cx="21.15" cy="50.85" r="4" />
-  <circle cx="15" cy="36" r="4" />
-  <circle cx="21.15" cy="21.15" r="4" />
-  <circle cx="47.1" cy="9.2" r="2" />
-  <circle cx="62.8" cy="24.9" r="2" />
-  <circle cx="62.8" cy="47.1" r="2" />
-  <circle cx="47.1" cy="62.8" r="2" />
-  <circle cx="24.9" cy="62.8" r="2" />
-  <circle cx="9.2" cy="47.1" r="2" />
-  <circle cx="9.2" cy="24.9" r="2" />
-  <circle cx="24.9" cy="9.2" r="2" />
-  <circle cx="36" cy="36" r="7" />
+  {BURST_NODES.map((n, i) => <circle class="burst-node" style={`--i:${i}`} cx={n.cx} cy={n.cy} r={n.r} />)}
+  {BURST_RING.map((n) => <circle cx={n.cx} cy={n.cy} r={n.r} />)}
+  <circle cx={BURST_CENTER.cx} cy={BURST_CENTER.cy} r={BURST_CENTER.r} />
   {hat && (
     <g transform="translate(72 0) scale(-1 1)">
       <g transform="rotate(10 36 22)">

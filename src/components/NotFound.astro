@@ -1,5 +1,6 @@
 ---
 import Layout from '@/layouts/Layout.astro';
+import LogoMark from '@/components/LogoMark.astro';
 
 interface Props {
   /** What was not found, e.g. "DRep". Capitalised, it heads the page. */
@@ -11,6 +12,7 @@ const { noun, lead } = Astro.props;
 ---
 <Layout title={`${noun} not found - DRepTalk`} description={`The ${noun.toLowerCase()} you were looking for could not be found.`} noindex={true}>
   <section class="notfound">
+    <span class="notfound__mark reveal" style="--reveal-delay:0ms"><LogoMark variant="lost" gradient style="width:64px;height:64px" /></span>
     <p class="notfound__code grad-text reveal" style="--reveal-delay:0ms" aria-hidden="true">404</p>
     <h1 class="notfound__title reveal" style="--reveal-delay:60ms">{noun} not found</h1>
     <p class="notfound__lead reveal" style="--reveal-delay:120ms">
@@ -64,6 +66,12 @@ const { noun, lead } = Astro.props;
       mask-image: radial-gradient(60% 60% at 50% 50%, #000 30%, transparent 100%);
       z-index: -1;
       pointer-events: none;
+    }
+    /* The burst mark with one node wandering off (LogoMark variant="lost"). */
+    .notfound__mark {
+      display: inline-grid;
+      place-items: center;
+      margin-bottom: 1rem;
     }
     .notfound__code {
       font-family: var(--font-display);

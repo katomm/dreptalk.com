@@ -43,7 +43,7 @@ const barLabel =
 
 <div class="fsbar">
   <div class="fsbar__bar">
-    <div class="fsbar__track" style={`height:${height}px`} role="img" aria-label={barLabel}>
+    <div class="fsbar__track draw-in draw-in--wipe" style={`height:${height}px`} role="img" aria-label={barLabel}>
       {view.segments.map((seg) => (
         <span class="fsbar__seg" style={`width:${seg.pct}%;background:${FILL[seg.key]}`} aria-hidden="true"></span>
       ))}
@@ -78,6 +78,10 @@ const barLabel =
     </div>
   </dl>
 </div>
+
+<script>
+  import '@/scripts/draw-in';
+</script>
 
 <style>
   /* Clearance for the marker's overhang against the compact row above, same air

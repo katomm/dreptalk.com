@@ -4,6 +4,7 @@
 // sync has not picked up yet. Mirrors NotFound's layout but reassures the
 // owner that the page appears on its own, no action needed.
 import Layout from '@/layouts/Layout.astro';
+import LogoMark from '@/components/LogoMark.astro';
 import { truncateIdMiddle } from '@/lib/forum/view.js';
 
 interface Props {
@@ -22,10 +23,7 @@ const lead =
 <Layout title="Profile syncing - DRepTalk" description="This profile is still syncing from the chain." noindex={true}>
   <section class="syncing">
     <span class="syncing__icon reveal" style="--reveal-delay:0ms" aria-hidden="true">
-      <svg viewBox="0 0 24 24" width="72" height="72" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M21 12a9 9 0 1 1-2.64-6.36" />
-        <polyline points="21 3 21 9 15 9" />
-      </svg>
+      <LogoMark variant="loading" gradient style="width:72px;height:72px" />
     </span>
     <h1 class="syncing__title reveal" style="--reveal-delay:60ms">Your profile is syncing</h1>
     <p class="syncing__lead reveal" style="--reveal-delay:120ms">{lead}</p>
@@ -62,20 +60,6 @@ const lead =
     .syncing__icon {
       display: inline-grid;
       place-items: center;
-      color: var(--accent);
-    }
-    .syncing__icon svg {
-      animation: syncing-spin 6s linear infinite;
-    }
-    @media (prefers-reduced-motion: reduce) {
-      .syncing__icon svg {
-        animation: none;
-      }
-    }
-    @keyframes syncing-spin {
-      to {
-        transform: rotate(360deg);
-      }
     }
     .syncing__title {
       font-size: clamp(1.5rem, 4vw, 2.25rem);
