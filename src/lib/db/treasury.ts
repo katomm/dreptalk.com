@@ -5,6 +5,7 @@
 import { sqlPlaceholders } from './sql.js';
 import { treasuryTotalLovelace } from '../governance/onchain.js';
 import type { HistorySourceRow } from '../treasury/recipientHistory.js';
+import type { TreasuryActionRow } from '../treasury/recipients.js';
 
 // A pasted bech32 proposal_id resolves to its canonical topic via /t/[slug]'s
 // redirect, so actions link by proposal_id without a topic join.
@@ -101,6 +102,26 @@ export async function listTreasuryHistoryRows(db: D1Database, excludeId: string)
     )
     .bind(excludeId)
     .all<HistorySourceRow>();
+  return results;
+}
+
+/**
+ * Every TreasuryWithdrawals row with a stored payload, any status, newest
+ * first, with the enactment epoch, for the recipients overview and the
+ * address pages. Same full scan and order as listTreasuryHistoryRows.
+ */
+export async function listAllTreasuryRows(db: D1Database): Promise<TreasuryActionRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT g.id, g.title, g.status, g.return_address AS returnAddress,
+              g.submitted_epoch AS submittedEpoch, g.submitted_at AS submittedAt, g.enacted_epoch AS enactedEpoch,
+              g.onchain_payload AS payload, t.slug
+         FROM governance_actions g
+         LEFT JOIN topics t ON t.id = g.topic_id AND t.deleted = 0
+        WHERE g.type = 'TreasuryWithdrawals' AND g.onchain_payload IS NOT NULL
+        ORDER BY g.submitted_at IS NULL, g.submitted_at DESC, g.submitted_epoch DESC, g.id ASC`,
+    )
+    .all<TreasuryActionRow>();
   return results;
 }
 

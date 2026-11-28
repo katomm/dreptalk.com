@@ -6,13 +6,16 @@ import Layout from '@/layouts/Layout.astro';
 import TreasuryDonut from '@/components/ncl/TreasuryDonut.astro';
 import NclPeriodsTable from '@/components/ncl/NclPeriodsTable.astro';
 import { loadTreasuryOverview } from '@/lib/treasury/overview.js';
+import { loadRecipientsTeaser } from '@/lib/treasury/recipientsPage.js';
+import { currentNetwork } from '@/lib/api/response.js';
+import { formatAda } from '@/lib/format/ada.js';
 import { ogCardVersion } from '@/lib/og/version.js';
 
 // Public, low-churn: withdrawals change at most a few times per epoch.
 Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
 
 const db = requestDb();
-const data = db ? await loadTreasuryOverview(db) : null;
+const [data, teaser] = db ? await Promise.all([loadTreasuryOverview(db), loadRecipientsTeaser(db, currentNetwork())]) : [null, null];
 
 // Version the card URL by what it renders (consumed vs ceiling) so a share
 // refetches once an enacted withdrawal moves the gauge.
@@ -57,6 +60,16 @@ const ogImage = cur
     </div>
   )}
 
+  {teaser && (
+    <div class="treasury-recipients">
+      <p>
+        <strong>{formatAda(String(teaser.totalPaid))}</strong> paid from the treasury so far, to {teaser.addressCount} addresses.{' '}
+        {teaser.topPct.toFixed(1)} % went to {teaser.topLabeled ? `the ${teaser.topName}` : teaser.topName}.
+      </p>
+      <a href="/treasury/recipients/">See where the money went and how long the Cardano treasury lasts</a>
+    </div>
+  )}
+
   {data && (
     <>
       <h2 style="font-size:1.125rem;margin:2rem 0 0.75rem;">Net Change Limit periods</h2>
@@ -70,6 +83,18 @@ const ogImage = cur
 </Layout>
 
 <style>
+  .treasury-recipients {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+    margin: 0 0 1rem;
+    background: var(--surface-2);
+    font-size: 0.9375rem;
+    line-height: 1.6;
+  }
+  .treasury-recipients p {
+    margin: 0 0 0.4rem;
+  }
   .treasury-summary {
     border: 1px solid var(--border);
     border-radius: var(--radius);

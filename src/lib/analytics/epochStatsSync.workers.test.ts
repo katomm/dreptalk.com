@@ -58,6 +58,7 @@ describe('syncCurrentEpochStats', () => {
     // One row is unstamped, so no partial total is stored.
     expect(row?.delegator_total).toBeNull();
     expect(row?.treasury_lovelace).toBe('4242');
+    expect(row?.reserves_lovelace).toBe('1');
     // The live pass always writes an open epoch as vote-incomplete, even
     // though nothing is currently unswept, the epoch itself is still open.
     expect(row?.vote_data_complete).toBe(0);

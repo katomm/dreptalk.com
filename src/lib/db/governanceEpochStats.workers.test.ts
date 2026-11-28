@@ -37,6 +37,7 @@ function row(epoch: number, over: Partial<EpochStatsRow> = {}): EpochStatsRow {
     votesCast: 5,
     voteDataComplete: false,
     treasuryLovelace: '77',
+    reservesLovelace: '88',
     unexpiredDrepCount: null,
     unexpiredPoweredDrepCount: null,
     unexpiredDrepPower: null,
@@ -65,6 +66,15 @@ describe('epoch stats persistence', () => {
       'SELECT treasury_lovelace FROM governance_epoch_stats WHERE epoch = 550',
     ).first<{ treasury_lovelace: string }>();
     expect(stored?.treasury_lovelace).toBe('77');
+  });
+
+  it('stores reserves_lovelace and keeps it when a later upsert writes null', async () => {
+    await upsertEpochStats(env.DB, row(551, { reservesLovelace: '6000' }));
+    await upsertEpochStats(env.DB, row(551, { reservesLovelace: null }));
+    const stored = await env.DB.prepare(
+      'SELECT reserves_lovelace FROM governance_epoch_stats WHERE epoch = 551',
+    ).first<{ reserves_lovelace: string }>();
+    expect(stored?.reserves_lovelace).toBe('6000');
   });
 
   it('stores the unexpired values, a later observation replaces them', async () => {

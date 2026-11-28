@@ -1,0 +1,150 @@
+---
+export const prerender = false;
+
+import Layout from '@/layouts/Layout.astro';
+import NotFound from '@/components/NotFound.astro';
+import CopyButton from '@/components/CopyButton.astro';
+import RecipientHistoryList from '@/components/ga/RecipientHistoryList.astro';
+import ActionStrip from '@/components/treasury/ActionStrip.astro';
+import LabelBadge from '@/components/treasury/LabelBadge.astro';
+import YearTable from '@/components/treasury/YearTable.astro';
+import { currentNetwork } from '@/lib/api/response.js';
+import { requestDb } from '@/lib/db/requestDb.js';
+import { formatAda } from '@/lib/format/ada.js';
+import { formatEpochDate } from '@/lib/governance/view.js';
+import { recipientCardModel } from '@/lib/og/recipientsCard.js';
+import { ogCardVersion } from '@/lib/og/version.js';
+import { addressHistorySentence, historyFromSummary } from '@/lib/treasury/recipientHistory.js';
+import { loadRecipientPage } from '@/lib/treasury/recipientsPage.js';
+
+Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
+
+const netCfg = currentNetwork();
+const db = requestDb();
+const page = db && Astro.params.address ? await loadRecipientPage(db, netCfg, Astro.params.address) : null;
+if (!page) {
+  Astro.response.status = 404;
+  Astro.response.headers.set('Cache-Control', 'no-store');
+}
+const s = page?.summary;
+const label = page?.label ?? null;
+const address = s?.address ?? '';
+const heading = label?.kind === 'proposal' ? label.label : address;
+const sourceSlug = label?.kind === 'proposal' ? (page?.slugs.get(label.sourceActionId) ?? null) : null;
+const history = s ? historyFromSummary(s) : null;
+const day = (sec: number | null) => (sec == null ? 'none' : formatEpochDate(sec));
+const ogImage = s ? `/og/treasury/recipients/${address}.png?v=${ogCardVersion([JSON.stringify(recipientCardModel(s, label))])}` : '/og.jpg';
+---
+
+{!s || !history ? (
+  <NotFound noun="Recipient" />
+) : (
+
+<Layout
+  title={`${heading.length > 60 ? `${heading.slice(0, 57)}...` : heading} - Treasury recipient - DRepTalk`}
+  description={`Treasury withdrawals paid to ${address}: ${formatAda(String(s.paid))} paid in ${s.withdrawals} ${s.withdrawals === 1 ? 'withdrawal' : 'withdrawals'}.`}
+  ogImage={ogImage}
+  wide
+>
+  <nav class="crumbs">
+    <a href="/">DRepTalk</a>
+    <span>/</span>
+    <a href="/treasury/">Treasury</a>
+    <span>/</span>
+    <a href="/treasury/recipients/">Recipients</a>
+  </nav>
+
+  <h1 class="ra-h1">{heading}</h1>
+  <div class="ra-addr">
+    <span class="mono">{address}</span>
+    <CopyButton value={address} label="Copy address" />
+    {s.key?.credType === 'scriptHash' && <span class="ra-note">Script address</span>}
+    <LabelBadge label={label} sourceSlug={sourceSlug} />
+  </div>
+
+  <div class="ra-tiles">
+    <div class="ra-tile"><span>Paid</span><strong>{formatAda(String(s.paid))}</strong></div>
+    <div class="ra-tile"><span>Requested, not paid</span><strong>{formatAda(String(s.notPaid))}</strong></div>
+    <div class="ra-tile"><span>Withdrawals</span><strong>{s.withdrawals}</strong></div>
+    <div class="ra-tile"><span>First and last payout</span><strong class="ra-dates">{s.firstPaidAt == null ? 'none' : `${day(s.firstPaidAt)} to ${day(s.lastPaidAt)}`}</strong></div>
+  </div>
+
+  <section>
+    <h2 class="ra-h2">Per year</h2>
+    <YearTable summary={s} />
+  </section>
+
+  <section>
+    <h2 class="ra-h2">Withdrawals over time</h2>
+    <ActionStrip summary={s} />
+  </section>
+
+  <section>
+    <h2 class="ra-h2">All withdrawals</h2>
+    <RecipientHistoryList history={history} network={netCfg.network} sentence={addressHistorySentence(history)} />
+  </section>
+</Layout>
+)}
+
+<style>
+  .crumbs {
+    font-size: 0.875rem;
+    color: var(--muted);
+    margin-bottom: 1rem;
+    display: flex;
+    gap: 0.375rem;
+  }
+  .ra-h1 {
+    margin: 0 0 0.5rem;
+    overflow-wrap: anywhere;
+  }
+  .ra-addr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+  .ra-addr .mono {
+    overflow-wrap: anywhere;
+  }
+  .ra-note {
+    font-size: 0.75rem;
+    padding: 0.05rem 0.45rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+  }
+  .ra-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+    gap: 0.75rem;
+    margin: 1.5rem 0;
+  }
+  .ra-tile {
+    background: var(--surface);
+    border-radius: var(--radius-sm);
+    padding: 0.9rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+  .ra-tile span {
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+  .ra-tile strong {
+    font-size: 1.25rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .ra-tile .ra-dates {
+    font-size: 0.95rem;
+  }
+  section {
+    margin-top: 2rem;
+  }
+  .ra-h2 {
+    font-size: 1.125rem;
+    margin: 0 0 0.75rem;
+  }
+</style>

@@ -10,8 +10,12 @@ import { proposerShortLabel, recipientHistorySentence, recipientHistoryToggle, t
 interface Props {
   history: RecipientHistory;
   network: CardanoNetwork;
+  /** Replaces the action-page sentence, e.g. on an address page where nothing is excluded. */
+  sentence?: string;
+  /** Link to the recipients overview after the sentence (action pages). */
+  overviewLink?: boolean;
 }
-const { history, network } = Astro.props;
+const { history, network, sentence, overviewLink = false } = Astro.props;
 const netCfg = resolveNetwork(network);
 const rows = history.items.map((it) => ({
   ...it,
@@ -23,7 +27,10 @@ const rows = history.items.map((it) => ({
 ---
 
 <div class="rh">
-  <p class="rh__line">{recipientHistorySentence(history)}</p>
+  <p class="rh__line">
+    {sentence ?? recipientHistorySentence(history)}
+    {overviewLink && <a href="/treasury/recipients/" class="rh__all">See all recipients</a>}
+  </p>
   {rows.length > 0 && (
     <details class="rh__more">
       <summary>{recipientHistoryToggle(rows.length)}</summary>
@@ -53,6 +60,9 @@ const rows = history.items.map((it) => ({
   }
   .rh__line {
     margin: 0;
+  }
+  .rh__all {
+    margin-left: 0.4rem;
   }
   .rh__more {
     margin-top: 0.3rem;

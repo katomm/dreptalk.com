@@ -11,6 +11,7 @@ const baseInput = {
   votesCast: 7,
   voteDataComplete: true,
   treasuryLovelace: '1234',
+  reservesLovelace: '5678',
   unexpiredDreps: null,
 };
 
@@ -62,6 +63,7 @@ describe('computeEpochStatsRow', () => {
     expect(row.votesCast).toBe(7);
     expect(row.voteDataComplete).toBe(true);
     expect(row.treasuryLovelace).toBe('1234');
+    expect(row.reservesLovelace).toBe('5678');
   });
 
   it('partitions the snapshot into representative + abstain + anc exactly once', () => {

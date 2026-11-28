@@ -1,0 +1,69 @@
+---
+// One dot per withdrawal naming the address: position by submission date, size
+// by the amount for this address, color by status. Each dot links to its action.
+import { formatAdaCompact } from '@/lib/format/ada.js';
+import { statusBadge } from '@/lib/governance/view.js';
+import type { RecipientSummary } from '@/lib/treasury/recipients.js';
+
+interface Props {
+  summary: RecipientSummary;
+}
+const { summary } = Astro.props;
+const W = 640;
+const H = 84;
+const pad = 16;
+const dated = summary.shares.filter((sh) => sh.requestedAt != null);
+const xs = dated.map((sh) => sh.requestedAt as number);
+const x0 = Math.min(...xs);
+const x1 = Math.max(...xs);
+const maxL = dated.reduce((m, sh) => (sh.lovelace > m ? sh.lovelace : m), 1n);
+const color = (status: string) => (status === 'enacted' ? 'var(--c-pos)' : status === 'active' || status === 'ratified' ? 'var(--accent)' : 'var(--muted)');
+const dots = dated.map((sh) => ({
+  x: x1 === x0 ? W / 2 : pad + 12 + (((sh.requestedAt as number) - x0) / (x1 - x0)) * (W - 2 * (pad + 12)),
+  r: 3 + 9 * Math.sqrt(Number(sh.lovelace) / Number(maxL)),
+  fill: color(sh.action.status),
+  href: sh.action.slug ? `/t/${sh.action.slug}/` : null,
+  title: `${sh.action.title ?? sh.action.id}, ${statusBadge(sh.action.status).label}, ${formatAdaCompact(String(sh.lovelace))}`,
+}));
+const year = (sec: number) => new Date(sec * 1000).toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+---
+
+{dots.length > 0 && (
+  <figure class="astrip">
+    <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${dots.length} withdrawals over time`}>
+      <line x1={pad} x2={W - pad} y1={H / 2 - 6} y2={H / 2 - 6} class="astrip__axis" />
+      {dots.map((d) => {
+        const dot = <circle cx={d.x} cy={H / 2 - 6} r={d.r} fill={d.fill} fill-opacity="0.75"><title>{d.title}</title></circle>;
+        return d.href ? <a href={d.href}>{dot}</a> : dot;
+      })}
+      <text x={pad} y={H - 4} class="astrip__lab">{year(x0)}</text>
+      {x1 !== x0 && <text x={W - pad} y={H - 4} class="astrip__lab astrip__lab--end">{year(x1)}</text>}
+    </svg>
+    <figcaption>Green enacted, purple active or ratified, gray not enacted. Size by amount.</figcaption>
+  </figure>
+)}
+
+<style>
+  .astrip {
+    margin: 0;
+  }
+  .astrip svg {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+  .astrip__axis {
+    stroke: var(--border);
+  }
+  .astrip__lab {
+    fill: var(--muted);
+    font-size: 11px;
+  }
+  .astrip__lab--end {
+    text-anchor: end;
+  }
+  .astrip figcaption {
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
+</style>

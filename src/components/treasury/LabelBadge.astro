@@ -1,0 +1,39 @@
+---
+// Source badge of an address label: named in a proposal text (linked to the
+// citing action when it has a live topic) or the proposer's own address.
+import type { AddressLabel } from '@/lib/treasury/labels.js';
+
+interface Props {
+  label: AddressLabel | null;
+  /** Live topic slug of the citing action, for 'proposal' labels. */
+  sourceSlug?: string | null;
+  /** Show the label text in front of the badge, where the address itself is the heading. */
+  showName?: boolean;
+}
+const { label, sourceSlug = null, showName = false } = Astro.props;
+---
+
+{showName && label?.kind === 'proposal' && <span class="lname">{label.label}</span>}
+{label?.kind === 'proposal' && (sourceSlug ? <a class="lbadge" href={`/t/${sourceSlug}/`}>Named in proposal</a> : <span class="lbadge">Named in proposal</span>)}
+{label?.kind === 'proposer' && <span class="lbadge">Same address as the proposer, {label.name}</span>}
+
+<style>
+  .lname {
+    color: var(--fg);
+    font-weight: 600;
+  }
+  .lbadge {
+    display: inline-block;
+    font-size: 0.6875rem;
+    line-height: 1.4;
+    padding: 0.05rem 0.45rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--c-pos) 13%, transparent);
+    color: var(--c-pos);
+    white-space: nowrap;
+    text-decoration: none;
+  }
+  a.lbadge:hover {
+    text-decoration: underline;
+  }
+</style>

@@ -117,3 +117,38 @@ describe('recipient copy', () => {
     expect(proposerCountLine(12)).toBe('12 governance actions from this stake address.');
   });
 });
+
+describe('address page history', () => {
+  const mk = (id: string, status: string, l: number, submittedAt: number | null) => ({
+    id,
+    title: `T ${id}`,
+    status,
+    returnAddress: null,
+    submittedEpoch: 1,
+    submittedAt,
+    enactedEpoch: status === 'enacted' ? 2 : null,
+    slug: id,
+    payload: pay([A, l]),
+  });
+
+  it('builds the list from a summary in its order, without "other" in the sentence', async () => {
+    const { groupRecipients } = await import('./recipients.js');
+    const { resolveNetwork } = await import('../config/network.js');
+    const { addressHistorySentence, historyFromSummary } = await import('./recipientHistory.js');
+    const [s] = groupRecipients([mk('x', 'enacted', 5_000_000, 200), mk('y', 'active', 1, 300), mk('z', 'enacted', 2_000_000, 100)], resolveNetwork('mainnet'));
+    const h = historyFromSummary(s);
+    expect(h.items.map((i) => i.id)).toEqual(['y', 'x', 'z']);
+    expect(h.items[1]).toMatchObject({ href: '/t/x/', lovelace: 5_000_000n });
+    expect(addressHistorySentence(h)).toBe('This address is the recipient in 3 treasury withdrawals: 2 enacted (7 ₳ paid), 1 active.');
+    const [one] = groupRecipients([mk('q', 'expired', 1, 1)], resolveNetwork('mainnet'));
+    expect(addressHistorySentence(historyFromSummary(one))).toBe('This address is the recipient in 1 treasury withdrawal: 1 expired.');
+  });
+});
+
+describe('payoutNotes with a proposer badge', () => {
+  it('drops the same-as-proposer note when the badge names the proposer', () => {
+    const r = { key: B, address: 'stake1uxx' };
+    expect(payoutNotes(r, 'stake1uxx')).toEqual(['Same stake address as the proposer.']);
+    expect(payoutNotes(r, 'stake1uxx', true)).toEqual([]);
+  });
+});

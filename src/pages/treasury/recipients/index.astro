@@ -1,0 +1,149 @@
+---
+export const prerender = false;
+
+import Layout from '@/layouts/Layout.astro';
+import ConcentrationBar from '@/components/treasury/ConcentrationBar.astro';
+import QuarterChart from '@/components/treasury/QuarterChart.astro';
+import RecipientTable from '@/components/treasury/RecipientTable.astro';
+import RunwayPanel from '@/components/treasury/RunwayPanel.astro';
+import { currentNetwork } from '@/lib/api/response.js';
+import { requestDb } from '@/lib/db/requestDb.js';
+import { formatAda } from '@/lib/format/ada.js';
+import { recipientsCardModel } from '@/lib/og/recipientsCard.js';
+import { ogCardVersion } from '@/lib/og/version.js';
+import { loadRecipientsPage } from '@/lib/treasury/recipientsPage.js';
+
+// Public, low-churn: withdrawals change at most a few times per epoch.
+Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600');
+
+const db = requestDb();
+const data = db ? await loadRecipientsPage(db, currentNetwork(), Math.floor(Date.now() / 1000)) : null;
+const ogImage = data ? `/og/treasury/recipients.png?v=${ogCardVersion([JSON.stringify(recipientsCardModel(data))])}` : '/og.jpg';
+const tile = (v: bigint | null) => (v == null ? 'none' : formatAda(String(v)));
+---
+
+<Layout
+  title="Treasury recipients - DRepTalk"
+  description="Which addresses received ada from the Cardano treasury, how much was paid and requested, and how long the treasury lasts at a chosen spending rate."
+  ogImage={ogImage}
+  wide
+>
+  <nav class="crumbs">
+    <a href="/">DRepTalk</a>
+    <span>/</span>
+    <a href="/treasury/">Treasury</a>
+    <span>/</span>
+    <span>Recipients</span>
+  </nav>
+
+  <h1 class="tr-h1">Treasury recipients</h1>
+  <p class="tr-lead">
+    Every treasury withdrawal names one or more stake addresses that receive the ada. This page groups all withdrawals by
+    those addresses. Paid counts enacted withdrawals only.
+  </p>
+
+  {data && (
+    <>
+      <div class="tr-tiles">
+        <div class="tr-tile"><span>Paid from the treasury</span><strong>{tile(data.totalPaid)}</strong></div>
+        <div class="tr-tile"><span>Recipient addresses</span><strong>{data.addressCount}</strong></div>
+        <div class="tr-tile">
+          <span>Treasury balance{data.treasuryEpoch != null ? `, epoch ${data.treasuryEpoch}` : ''}</span>
+          <strong>{tile(data.treasury)}</strong>
+        </div>
+        <div class="tr-tile"><span>Paid in the last 12 months</span><strong>{tile(data.paidLast12)}</strong></div>
+      </div>
+
+      {data.segments.length > 0 && (
+        <section>
+          <h2 class="tr-h2">Where the paid ada went</h2>
+          <ConcentrationBar segments={data.segments} labels={data.labels} />
+        </section>
+      )}
+
+      {data.quarters.length > 0 && (
+        <section>
+          <h2 class="tr-h2">Paid per quarter</h2>
+          <QuarterChart quarters={data.quarters} segments={data.segments} labels={data.labels} />
+          {data.undatedPayouts > 0 && <p class="tr-note">{data.undatedPayouts} payouts without an enactment epoch are not in the chart.</p>}
+        </section>
+      )}
+
+      {data.runway && (
+        <section>
+          <h2 class="tr-h2">How long the treasury lasts</h2>
+          <RunwayPanel runway={data.runway} />
+        </section>
+      )}
+
+      {data.summaries.length > 0 && (
+        <section>
+          <div class="tr-h2row">
+            <h2 class="tr-h2">Recipient addresses</h2>
+            <a href="/treasury/recipients.csv" class="tr-csv">CSV</a>
+          </div>
+          <RecipientTable summaries={data.summaries} labels={data.labels} slugs={data.slugs} />
+        </section>
+      )}
+    </>
+  )}
+</Layout>
+
+<style>
+  .crumbs {
+    font-size: 0.875rem;
+    color: var(--muted);
+    margin-bottom: 1rem;
+    display: flex;
+    gap: 0.375rem;
+  }
+  .tr-h1 {
+    margin: 0 0 0.5rem;
+  }
+  .tr-lead {
+    color: var(--muted);
+    max-width: 65ch;
+    line-height: 1.6;
+  }
+  .tr-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+    gap: 0.75rem;
+    margin: 1.5rem 0;
+  }
+  .tr-tile {
+    background: var(--surface);
+    border-radius: var(--radius-sm);
+    padding: 0.9rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+  .tr-tile span {
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+  .tr-tile strong {
+    font-size: 1.25rem;
+    font-variant-numeric: tabular-nums;
+  }
+  section {
+    margin-top: 2rem;
+  }
+  .tr-h2 {
+    font-size: 1.125rem;
+    margin: 0 0 0.75rem;
+  }
+  .tr-h2row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+  }
+  .tr-csv {
+    font-size: 0.875rem;
+  }
+  .tr-note {
+    color: var(--muted);
+    font-size: 0.8125rem;
+  }
+</style>

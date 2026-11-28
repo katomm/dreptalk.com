@@ -10,6 +10,7 @@ import { fmtPctFine } from '../governance/view.js';
 import { DREP_LINK_HOST } from '../drepLink/handle.js';
 import type { AnalyticsCardChart, AnalyticsCardModel, CommitteeCardModel, DiscussionCardModel, DrepCardModel, DrepStat, GovCardModel, MoverRow, MoversCardModel, ReviewCardModel, ReviewIndexCardModel, TreasuryCardModel, VoteCardModel } from './model.js';
 import type { CcOverviewCardModel } from './ccCard.js';
+import type { RecipientCardModel, RecipientsCardModel } from './recipientsCard.js';
 import { CC_CARD_TIMELINE_WIDTH } from './ccCard.js';
 import { ANALYTICS_CHART_HEIGHT, ANALYTICS_CHART_INSET, ANALYTICS_CHART_WIDTH } from './model.js';
 
@@ -536,4 +537,55 @@ export function ccOverviewCardHtml(m: CcOverviewCardModel): string {
     </div>
     <div style="display:flex;flex-direction:column;position:relative;width:${CC_CARD_TIMELINE_WIDTH}px;">${rows}${now}</div>`;
   return cardShell(m.accent, 'Committee', body);
+}
+
+// Treasury recipients overview: total paid as the big figure, the concentration
+// bar under it, and the largest share spelled out. No bar when nothing is paid.
+export function recipientsCardHtml(m: RecipientsCardModel): string {
+  const bar = m.segments.length
+    ? `<div style="display:flex;width:1010px;height:36px;border-radius:10px;overflow:hidden;">${m.segments
+        .map((s) => `<div style="display:flex;width:${s.pct}%;height:36px;background:${s.color};"></div>`)
+        .join('')}</div>`
+    : '';
+  const body = `<div style="display:flex;flex-direction:column;">
+      ${title('Where the treasury money went')}
+    </div>
+    <div style="display:flex;flex-direction:column;">
+      <div style="display:flex;align-items:baseline;margin-bottom:18px;">
+        <span style="display:flex;font-size:64px;font-weight:800;letter-spacing:-1px;">${esc(m.totalPaid)}</span>
+        <span style="display:flex;font-size:28px;font-weight:500;color:${MUTED};margin-left:16px;">paid from the treasury</span>
+      </div>
+      ${bar}
+      ${m.lead ? `<div style="display:flex;font-size:28px;font-weight:600;color:${INK};margin-top:18px;max-width:1010px;">${esc(m.lead)}</div>` : ''}
+    </div>`;
+  return cardShell(m.accent, 'Treasury', body);
+}
+
+// One recipient address: name, paid and not paid, then small per-year bars.
+export function recipientCardHtml(m: RecipientCardModel): string {
+  const max = Math.max(1, ...m.years.map((y) => y.paid + y.notPaid));
+  const years = m.years
+    .slice(-6)
+    .map(
+      (y) => `<div style="display:flex;flex-direction:column;align-items:center;margin-right:28px;">
+        <div style="display:flex;flex-direction:column;justify-content:flex-end;width:56px;height:120px;">
+          <div style="display:flex;width:56px;height:${Math.round((y.notPaid / max) * 120)}px;background:${TRACK};"></div>
+          <div style="display:flex;width:56px;height:${Math.round((y.paid / max) * 120)}px;background:${BRAND_ACCENT};"></div>
+        </div>
+        <span style="display:flex;font-size:22px;color:${MUTED};margin-top:8px;">${y.year}</span>
+      </div>`,
+    )
+    .join('');
+  const body = `<div style="display:flex;flex-direction:column;">
+      ${title(m.title)}
+      <div style="display:flex;font-size:26px;font-weight:500;color:${MUTED};margin-top:10px;">Treasury recipient, ${m.withdrawals} ${m.withdrawals === 1 ? 'withdrawal' : 'withdrawals'}</div>
+    </div>
+    <div style="display:flex;align-items:flex-end;justify-content:space-between;width:1010px;">
+      <div style="display:flex;flex-direction:column;">
+        <span style="display:flex;font-size:64px;font-weight:800;letter-spacing:-1px;">${esc(m.paid)}</span>
+        <span style="display:flex;font-size:26px;font-weight:500;color:${MUTED};margin-top:4px;">paid${m.notPaid ? `, ${esc(m.notPaid)} requested and not paid` : ''}</span>
+      </div>
+      <div style="display:flex;align-items:flex-end;">${years}</div>
+    </div>`;
+  return cardShell(m.accent, 'Treasury', body);
 }

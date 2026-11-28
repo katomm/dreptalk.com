@@ -1,0 +1,138 @@
+---
+// Every recipient address, paid then requested, descending. The first ten
+// rows show, the rest sit in a disclosure.
+import LabelBadge from './LabelBadge.astro';
+import { formatAda } from '@/lib/format/ada.js';
+import { pct4 } from '@/lib/format/pct.js';
+import type { AddressLabel } from '@/lib/treasury/labels.js';
+import type { RecipientSummary } from '@/lib/treasury/recipients.js';
+import { addressName, proposersLine } from '@/lib/treasury/recipientsPage.js';
+
+interface Props {
+  summaries: RecipientSummary[];
+  labels: Map<string, AddressLabel | null>;
+  slugs: Map<string, string | null>;
+}
+const { summaries, labels, slugs } = Astro.props;
+const max = summaries.reduce((m, s) => (s.paid + s.notPaid > m ? s.paid + s.notPaid : m), 1n);
+const pct = (v: bigint) => pct4(v, max);
+const rows = summaries.map((s) => {
+  const label = labels.get(s.id) ?? null;
+  return {
+    s,
+    label,
+    sourceSlug: label?.kind === 'proposal' ? (slugs.get(label.sourceActionId) ?? null) : null,
+    name: addressName(s, label),
+    named: label?.kind === 'proposal',
+    href: s.address ? `/treasury/recipients/${s.address}/` : null,
+    who: proposersLine(s),
+    paid: formatAda(String(s.paid)),
+    notPaid: s.notPaid > 0n ? formatAda(String(s.notPaid)) : null,
+    paidPct: pct(s.paid),
+    notPaidPct: pct(s.notPaid),
+  };
+});
+const head = rows.slice(0, 10);
+const rest = rows.slice(10);
+---
+
+<div class="rtab" id="recipients">
+  {[head, rest].map((list, part) => {
+    const body = list.map((r) => (
+      <div class="rtab__row">
+        <div class="rtab__who">
+          <div class="rtab__name">
+            {r.href ? <a href={r.href}>{r.name}</a> : <span>{r.name}</span>}
+            <LabelBadge label={r.label} sourceSlug={r.sourceSlug} />
+          </div>
+          {r.named && r.s.address && <div class="rtab__addr">{r.s.address}</div>}
+          <div class="rtab__meta">{r.s.withdrawals} {r.s.withdrawals === 1 ? 'withdrawal' : 'withdrawals'}{r.who ? `, ${r.who}` : ''}</div>
+        </div>
+        <div class="rtab__track" aria-hidden="true">
+          <span class="rtab__paid" style={`width:${r.paidPct}%`}></span>
+          <span class="rtab__open" style={`width:${r.notPaidPct}%`}></span>
+        </div>
+        <div class="rtab__amt">
+          <div>{r.paid}</div>
+          {r.notPaid && <div class="rtab__open-amt">{r.notPaid} not paid</div>}
+        </div>
+      </div>
+    ));
+    if (part === 0) return body;
+    return list.length > 0 && (
+      <details class="rtab__more">
+        <summary>Show {list.length} more {list.length === 1 ? 'address' : 'addresses'}</summary>
+        {body}
+      </details>
+    );
+  })}
+</div>
+
+<style>
+  .rtab__row {
+    display: grid;
+    grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr) minmax(7.5rem, auto);
+    gap: 0.75rem;
+    align-items: center;
+    padding: 0.7rem 0;
+    border-top: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+  .rtab__name {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .rtab__name a {
+    color: var(--fg);
+    font-weight: 600;
+  }
+  .rtab__addr {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+  .rtab__meta {
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+  .rtab__track {
+    display: flex;
+    height: 10px;
+    border-radius: 3px;
+    overflow: hidden;
+    background: var(--surface);
+  }
+  .rtab__paid {
+    background: var(--accent);
+  }
+  .rtab__open {
+    background: color-mix(in srgb, var(--muted) 40%, var(--surface));
+  }
+  .rtab__amt {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .rtab__open-amt {
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+  .rtab__more summary {
+    cursor: pointer;
+    color: var(--accent);
+    padding: 0.7rem 0;
+    border-top: 1px solid var(--border);
+    font-size: 0.875rem;
+  }
+  @media (max-width: 640px) {
+    .rtab__row {
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+    .rtab__track {
+      grid-column: 1 / -1;
+      grid-row: 2;
+    }
+  }
+</style>

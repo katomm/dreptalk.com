@@ -7,13 +7,14 @@
 // in the SQL itself, so the contract's includesSpecials: false is guaranteed,
 // not assumed from the data model.
 import type { EpochStatsRow } from '../analytics/epochStats.js';
+import type { EpochBalance } from '../treasury/runway.js';
 import { epochStartUnix, type NetworkConfig } from '../config/network.js';
 import { SPECIAL_DREP_IDS } from '../dreps/special.js';
 
 const COLUMNS =
   'epoch, total_drep_power, powered_drep_count, recently_voting_drep_count, silent_powered_drep_count, ' +
   'abstain_power, anc_power, delegator_total, abstain_delegators, anc_delegators, gini, top10_share_pct, ' +
-  'min_coalition_50, min_coalition_67, votes_cast, vote_data_complete, treasury_lovelace, ' +
+  'min_coalition_50, min_coalition_67, votes_cast, vote_data_complete, treasury_lovelace, reserves_lovelace, ' +
   'unexpired_drep_count, unexpired_powered_drep_count, unexpired_drep_power, unexpired_top10_share_pct, computed_at';
 // Every reader projects the same columns minus the bookkeeping timestamp.
 const READ_COLUMNS = COLUMNS.split(', ').filter((c) => c !== 'computed_at').join(', ');
@@ -21,13 +22,14 @@ const READ_COLUMNS = COLUMNS.split(', ').filter((c) => c !== 'computed_at').join
 const PLACEHOLDERS = COLUMNS.split(', ').map(() => '?').join(', ');
 
 // Columns a later write must not blank: when the new value is NULL the row
-// keeps what it has. treasury_lovelace is constant within an epoch, so if a
+// keeps what it has. treasury_lovelace (and reserves_lovelace) is constant within an epoch, so if a
 // later live-pass write hits an epoch where Koios served an empty array
 // (NULL), keeping the earlier intra-epoch value is exact, an overwrite to NULL
 // is not. The unexpired columns are NULL whenever the run has no fresh DRep
 // observation, and the last real observation of the epoch has to survive that.
 const KEEP_WHEN_NULL = new Set([
   'treasury_lovelace',
+  'reserves_lovelace',
   'unexpired_drep_count',
   'unexpired_powered_drep_count',
   'unexpired_drep_power',
@@ -47,7 +49,7 @@ function binds(row: EpochStatsRow, now: number): unknown[] {
     row.epoch, row.totalDrepPower, row.poweredDrepCount, row.recentlyVotingDrepCount, row.silentPoweredDrepCount,
     row.abstainPower, row.ancPower, row.delegatorTotal, row.abstainDelegators, row.ancDelegators,
     row.gini, row.top10SharePct, row.minCoalition50, row.minCoalition67,
-    row.votesCast, row.voteDataComplete ? 1 : 0, row.treasuryLovelace,
+    row.votesCast, row.voteDataComplete ? 1 : 0, row.treasuryLovelace, row.reservesLovelace,
     row.unexpiredDrepCount, row.unexpiredPoweredDrepCount, row.unexpiredDrepPower, row.unexpiredTop10SharePct,
     now,
   ];
@@ -208,6 +210,7 @@ interface RawEpochStatsRow {
   votes_cast: number;
   vote_data_complete: number;
   treasury_lovelace: string | null;
+  reserves_lovelace: string | null;
   unexpired_drep_count: number | null;
   unexpired_powered_drep_count: number | null;
   unexpired_drep_power: string | null;
@@ -233,6 +236,7 @@ function toEpochStatsRow(r: RawEpochStatsRow): EpochStatsRow {
     votesCast: r.votes_cast,
     voteDataComplete: r.vote_data_complete === 1,
     treasuryLovelace: r.treasury_lovelace,
+    reservesLovelace: r.reserves_lovelace,
     unexpiredDrepCount: r.unexpired_drep_count,
     unexpiredPoweredDrepCount: r.unexpired_powered_drep_count,
     unexpiredDrepPower: r.unexpired_drep_power,
@@ -292,4 +296,17 @@ export async function listEpochStats(
       .all<RawEpochStatsRow>()
   ).results ?? [];
   return rows.map(toEpochStatsRow);
+}
+
+/** Treasury and reserves per stored epoch from fromEpoch on, oldest first, nulls kept. */
+export async function listEpochBalances(db: D1Database, fromEpoch: number): Promise<EpochBalance[]> {
+  const { results } = await db
+    .prepare('SELECT epoch, treasury_lovelace, reserves_lovelace FROM governance_epoch_stats WHERE epoch >= ? ORDER BY epoch ASC')
+    .bind(fromEpoch)
+    .all<{ epoch: number; treasury_lovelace: string | null; reserves_lovelace: string | null }>();
+  return results.map((r) => ({
+    epoch: r.epoch,
+    treasury: r.treasury_lovelace == null ? null : BigInt(r.treasury_lovelace),
+    reserves: r.reserves_lovelace == null ? null : BigInt(r.reserves_lovelace),
+  }));
 }

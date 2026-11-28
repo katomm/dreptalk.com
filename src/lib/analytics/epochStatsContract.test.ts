@@ -23,6 +23,7 @@ function row(epoch: number, over: Partial<EpochStatsRow> = {}): EpochStatsRow {
     votesCast: 12,
     voteDataComplete: true,
     treasuryLovelace: '99',
+    reservesLovelace: '88',
     unexpiredDrepCount: null,
     unexpiredPoweredDrepCount: null,
     unexpiredDrepPower: null,

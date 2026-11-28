@@ -63,6 +63,7 @@ export type EpochStatsMetricKey =
   | 'minCoalition67'
   | 'votesCast'
   | 'treasuryLovelace'
+  | 'reservesLovelace'
   | 'unexpiredDrepCount'
   | 'unexpiredPoweredDrepCount'
   | 'unexpiredDrepPower'
@@ -188,6 +189,14 @@ export const EPOCH_STATS_METRICS: Record<EpochStatsMetricKey, EpochStatsMetric> 
     includesSpecials: false,
     source: 'koios-totals',
     definition: 'Treasury balance (lovelace) at the epoch.',
+  },
+  reservesLovelace: {
+    column: 'reserves_lovelace',
+    reliability: 'exact',
+    start: 'first-non-null',
+    includesSpecials: false,
+    source: 'koios-totals',
+    definition: 'Reserves balance (lovelace) at the epoch.',
   },
   // The four unexpired metrics describe the group behind the header numbers
   // of the DRep list ("Active DReps", "Total voting power"): every row with
