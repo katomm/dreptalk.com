@@ -5,7 +5,7 @@
 // one) so the axis never jumps while the slider moves. Projection values above
 // the y domain are clipped to its top.
 
-export const RUNWAY_CHART = { width: 640, height: 220, left: 44, right: 12, top: 10, bottom: 26 } as const;
+export const RUNWAY_CHART = { width: 640, height: 230, left: 60, right: 12, top: 12, bottom: 30 } as const;
 const SPAN_EPOCHS = 25 * 73;
 const STEP = 500_000_000_000_000n; // 0.5B ada in lovelace
 

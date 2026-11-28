@@ -60,6 +60,12 @@ const { width, height, left, right, bottom } = RUNWAY_CHART;
   <p class="runway__note">
     Balance in ₳. Inflow continues at the rate of the last 12 months and shrinks with the reserves. Not modeled: growing fees, parameter changes, donations or returned funds beyond last year's level.
   </p>
+  {runway.incompletePayouts > 0 && (
+    <p class="runway__note">
+      {runway.incompletePayouts} enacted {runway.incompletePayouts === 1 ? 'withdrawal has' : 'withdrawals have'} no stored amount or
+      enactment epoch, so the measured inflow may be lower than it was.
+    </p>
+  )}
 </div>
 
 <script>
@@ -165,6 +171,12 @@ const { width, height, left, right, bottom } = RUNWAY_CHART;
   }
   .runway__proj {
     stroke-dasharray: 5 4;
+  }
+  @media (max-width: 640px) {
+    .runway__ylab,
+    .runway__xlab {
+      font-size: 20px;
+    }
   }
   .runway__note {
     color: var(--muted);

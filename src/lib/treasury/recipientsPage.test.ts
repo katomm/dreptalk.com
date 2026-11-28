@@ -160,3 +160,26 @@ describe('recipientsTeaser', () => {
     expect(recipientsTeaser([row('expired', pay([A, 5]))], cfg, [])).toBeNull();
   });
 });
+
+describe('incomplete data', () => {
+  it('flags enacted payouts the runway inflow cannot account for', () => {
+    const d = buildRecipientsPage({
+      rows: [row('enacted', pay([A, 1]), { enactedEpoch: null })],
+      balances: balances(500, 670),
+      currentEpoch: 671,
+      cfg,
+      nowSec: now,
+      enactedWithoutPayload: 2,
+    });
+    expect(d.runway?.incompletePayouts).toBe(3);
+    const clean = buildRecipientsPage({ rows: [], balances: balances(500, 670), currentEpoch: 671, cfg, nowSec: now });
+    expect(clean.runway?.incompletePayouts).toBe(0);
+  });
+
+  it('ends the treasury tile before the newest stored epoch without protocol params', () => {
+    const bal = [...balances(500, 670), { epoch: 671, treasury: 1n, reserves: 1n }];
+    const d = buildRecipientsPage({ rows: [], balances: bal, currentEpoch: null, cfg, nowSec: now });
+    expect(d.treasuryEpoch).toBe(670);
+    expect(d.runway).toBeNull();
+  });
+});

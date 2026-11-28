@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { env } from 'cloudflare:test';
-import { countActionsByReturnAddress, listAllTreasuryRows, listTreasuryHistoryRows } from './treasury.js';
+import { countActionsByReturnAddress, countEnactedWithoutPayload, listAllTreasuryRows, listTreasuryHistoryRows } from './treasury.js';
 import { listEpochBalances } from './governanceEpochStats.js';
 
 const PROPOSER = 'stake_test1uqproposer';
@@ -86,5 +86,14 @@ describe('listEpochBalances', () => {
       { epoch: 501, treasury: 2n, reserves: 8n },
       { epoch: 502, treasury: 3n, reserves: null },
     ]);
+  });
+});
+
+describe('countEnactedWithoutPayload', () => {
+  it('counts enacted treasury withdrawals stored without a payload', async () => {
+    // 'nopay' from beforeEach is enacted without a payload, the InfoAction does not count.
+    expect(await countEnactedWithoutPayload(env.DB)).toBe(1);
+    await seedAction('nopay2', { onchain_payload: null, status: 'expired' });
+    expect(await countEnactedWithoutPayload(env.DB)).toBe(1);
   });
 });

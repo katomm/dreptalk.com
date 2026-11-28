@@ -62,6 +62,11 @@ const year = (sec: number) => new Date(sec * 1000).toLocaleDateString('en-US', {
   .astrip__lab--end {
     text-anchor: end;
   }
+  @media (max-width: 640px) {
+    .astrip__lab {
+      font-size: 20px;
+    }
+  }
   .astrip figcaption {
     color: var(--muted);
     font-size: 0.75rem;

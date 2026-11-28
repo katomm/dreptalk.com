@@ -16,7 +16,7 @@ const { quarters, segments, labels } = Astro.props;
 
 const W = 640;
 const H = 200;
-const top = 18;
+const top = 30;
 const bottom = 24;
 const left = 8;
 const plotH = H - top - bottom;
@@ -78,5 +78,12 @@ const summary = quarters.map((q, i) => `${q.quarter} ${formatAdaCompact(String(t
   }
   .qchart__val {
     fill: var(--fg);
+  }
+  /* SVG text shrinks with the viewBox, so enlarge it on narrow screens. */
+  @media (max-width: 640px) {
+    .qchart__val,
+    .qchart__lab {
+      font-size: 20px;
+    }
   }
 </style>
