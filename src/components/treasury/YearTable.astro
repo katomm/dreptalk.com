@@ -1,0 +1,43 @@
+---
+// Paid by payout year and requested but not paid by submission year.
+import { formatAda } from '@/lib/format/ada.js';
+import { yearRows, type RecipientSummary } from '@/lib/treasury/recipients.js';
+
+interface Props {
+  summary: RecipientSummary;
+}
+const rows = yearRows(Astro.props.summary);
+---
+
+{rows.length > 0 && (
+  <table class="ytab">
+    <thead>
+      <tr><th>Year</th><th>Paid (by payout date)</th><th>Requested, not paid (by submission date)</th></tr>
+    </thead>
+    <tbody>
+      {rows.map((r) => (
+        <tr><td>{r.year}</td><td>{r.paid > 0n ? formatAda(String(r.paid)) : 'none'}</td><td>{r.notPaid > 0n ? formatAda(String(r.notPaid)) : 'none'}</td></tr>
+      ))}
+    </tbody>
+  </table>
+)}
+
+<style>
+  .ytab {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+  }
+  .ytab th {
+    text-align: left;
+    font-weight: 600;
+    color: var(--muted);
+    font-size: 0.75rem;
+    padding: 0.4rem 0.5rem 0.4rem 0;
+  }
+  .ytab td {
+    padding: 0.5rem 0.5rem 0.5rem 0;
+    border-top: 1px solid var(--border);
+    font-variant-numeric: tabular-nums;
+  }
+</style>

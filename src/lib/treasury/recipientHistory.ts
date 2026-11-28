@@ -6,6 +6,7 @@ import { governanceActionTitle, statusBadge } from '../governance/view.js';
 import { formatAda } from '../format/ada.js';
 import { truncateId } from '../forum/view.js';
 import { proposerView } from '../identity/proposer.js';
+import type { RecipientSummary } from './recipients.js';
 
 export interface HistorySourceRow {
   id: string;
@@ -80,24 +81,42 @@ export function buildRecipientHistories(rows: HistorySourceRow[], keys: (Recipie
   }
 
   const out = new Map<string, RecipientHistory>();
-  for (const [id, list] of items) {
-    let enactedCount = 0;
-    let enactedLovelace = 0n;
-    const counts = new Map<string, number>();
-    for (const it of list) {
-      if (it.status === 'enacted') {
-        enactedCount++;
-        enactedLovelace += it.lovelace;
-      } else {
-        counts.set(it.status, (counts.get(it.status) ?? 0) + 1);
-      }
-    }
-    const others = [...counts.entries()]
-      .sort(([a], [b]) => otherRank(a) - otherRank(b) || a.localeCompare(b))
-      .map(([status, count]) => ({ word: statusBadge(status).label.toLowerCase(), count }));
-    out.set(id, { items: list, enactedCount, enactedLovelace, others });
-  }
+  for (const [id, list] of items) out.set(id, summarizeItems(list));
   return out;
+}
+
+function summarizeItems(list: HistoryItem[]): RecipientHistory {
+  let enactedCount = 0;
+  let enactedLovelace = 0n;
+  const counts = new Map<string, number>();
+  for (const it of list) {
+    if (it.status === 'enacted') {
+      enactedCount++;
+      enactedLovelace += it.lovelace;
+    } else {
+      counts.set(it.status, (counts.get(it.status) ?? 0) + 1);
+    }
+  }
+  const others = [...counts.entries()]
+    .sort(([a], [b]) => otherRank(a) - otherRank(b) || a.localeCompare(b))
+    .map(([status, count]) => ({ word: statusBadge(status).label.toLowerCase(), count }));
+  return { items: list, enactedCount, enactedLovelace, others };
+}
+
+/** Every withdrawal naming one address, for the address page, in the summary's order. */
+export function historyFromSummary(s: RecipientSummary): RecipientHistory {
+  return summarizeItems(
+    s.shares.map((sh) => ({
+      id: sh.action.id,
+      title: governanceActionTitle({ title: sh.action.title, type: 'TreasuryWithdrawals', id: sh.action.id }),
+      href: sh.action.slug ? `/t/${sh.action.slug}/` : null,
+      status: sh.action.status,
+      lovelace: sh.lovelace,
+      returnAddress: sh.action.returnAddress,
+      submittedAt: sh.action.submittedAt,
+      submittedEpoch: sh.action.submittedEpoch,
+    })),
+  );
 }
 
 export function recipientHistorySentence(h: RecipientHistory): string {
@@ -107,6 +126,15 @@ export function recipientHistorySentence(h: RecipientHistory): string {
   if (h.enactedCount > 0) parts.push(`${h.enactedCount} enacted (${formatAda(String(h.enactedLovelace))} paid)`);
   for (const o of h.others) parts.push(`${o.count} ${o.word}`);
   return `This address is the recipient in ${n} other treasury withdrawal${n === 1 ? '' : 's'}: ${parts.join(', ')}.`;
+}
+
+/** Sentence over the full list on an address page, where no action is excluded. */
+export function addressHistorySentence(h: RecipientHistory): string {
+  const n = h.items.length;
+  const parts: string[] = [];
+  if (h.enactedCount > 0) parts.push(`${h.enactedCount} enacted (${formatAda(String(h.enactedLovelace))} paid)`);
+  for (const o of h.others) parts.push(`${o.count} ${o.word}`);
+  return `This address is the recipient in ${n} treasury withdrawal${n === 1 ? '' : 's'}: ${parts.join(', ')}.`;
 }
 
 /** Label of the disclosure that lists the other withdrawals. */
@@ -138,10 +166,15 @@ export function payoutVerb(status: string): string {
   return status === 'enacted' ? 'paid to' : 'requested for';
 }
 
-export function payoutNotes(row: { key?: RecipientKey | null; address: string }, returnAddress: string | null): string[] {
+export function payoutNotes(
+  row: { key?: RecipientKey | null; address: string },
+  returnAddress: string | null,
+  // True when a label badge already names the proposer, so the plain note would repeat it.
+  proposerLabelShown = false,
+): string[] {
   const notes: string[] = [];
   if (row.key?.credType === 'scriptHash') notes.push('Script address');
   // Only a decoded recipient can equal an address, never the "(unknown recipient)" placeholder.
-  if (row.key && returnAddress !== null && row.address === returnAddress) notes.push('Same stake address as the proposer.');
+  if (row.key && returnAddress !== null && row.address === returnAddress && !proposerLabelShown) notes.push('Same stake address as the proposer.');
   return notes;
 }
