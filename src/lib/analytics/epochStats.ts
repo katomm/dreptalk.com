@@ -27,6 +27,8 @@ export interface EpochStatsInput {
   votesCast: number;
   voteDataComplete: boolean;
   treasuryLovelace: string | null;
+  /** Reserves balance from the same Koios /totals row, null when Koios served none. */
+  reservesLovelace: string | null;
   /**
    * The group behind the DRep list's header numbers as the dreps phase of
    * this run observed it: registered DReps whose activity has not expired,
@@ -61,6 +63,7 @@ export interface EpochStatsRow {
   votesCast: number;
   voteDataComplete: boolean;
   treasuryLovelace: string | null;
+  reservesLovelace: string | null;
   /** Unexpired DReps at the last DRep sync of the epoch, zero power included. Null without an observation. */
   unexpiredDrepCount: number | null;
   /** The subset of unexpiredDrepCount holding voting power above zero. */
@@ -212,6 +215,7 @@ export function computeEpochStatsRow(input: EpochStatsInput): EpochStatsRow {
     votesCast: input.votesCast,
     voteDataComplete: input.voteDataComplete,
     treasuryLovelace: input.treasuryLovelace,
+    reservesLovelace: input.reservesLovelace,
     ...summarizeUnexpiredDreps(input.unexpiredDreps),
   };
 }

@@ -33,7 +33,7 @@ import { fetchEpochPowerRows } from '../dreps/votingPowerHistorySync.js';
 import type { NetworkConfig } from '../config/network.js';
 
 export interface EpochStatsKoios {
-  totals(epochNo?: number): Promise<{ treasuryLovelace: string } | null>;
+  totals(epochNo?: number): Promise<{ treasuryLovelace: string; reservesLovelace: string } | null>;
   firstDrepPowerEpoch(): Promise<number | null>;
   drepVotingPowerHistory(
     epochNo: number,
@@ -69,7 +69,7 @@ async function buildRow(
   cfg: NetworkConfig,
   epoch: number,
   history: EpochHistoryInput[],
-  treasuryLovelace: string | null,
+  totals: { treasuryLovelace: string; reservesLovelace: string } | null,
   epochClosed: boolean,
   unexpiredDreps: readonly UnexpiredDrepInput[] | null,
 ) {
@@ -84,7 +84,8 @@ async function buildRow(
     recentlyVotingDrepIds,
     votesCast,
     voteDataComplete: epochClosed && unswept === 0,
-    treasuryLovelace,
+    treasuryLovelace: totals?.treasuryLovelace ?? null,
+    reservesLovelace: totals?.reservesLovelace ?? null,
     unexpiredDreps,
   });
 }
@@ -112,8 +113,7 @@ export async function syncCurrentEpochStats(deps: SyncCurrentEpochStatsDeps): Pr
     // displayed one share one definition.
     deps.drepsFresh ? listDrepsForConcentration(deps.db) : null,
   ]);
-  const treasury = totals?.treasuryLovelace ?? null;
-  const row = await buildRow(deps.db, deps.cfg, deps.epoch, history, treasury, false, unexpiredDreps);
+  const row = await buildRow(deps.db, deps.cfg, deps.epoch, history, totals, false, unexpiredDreps);
   await upsertEpochStats(deps.db, row);
   return { written: true };
 }
@@ -207,7 +207,7 @@ export async function backfillEpochStats(
     const totalsRow = await deps.koios.totals(epoch);
     if (totalsRow == null) continue; // atomic completeness, epoch stays in remaining
     const history: EpochHistoryInput[] = rows.map((r) => ({ drepId: r.drepId, amount: r.amount }));
-    const row = await buildRow(deps.db, deps.cfg, epoch, history, totalsRow.treasuryLovelace, true, null);
+    const row = await buildRow(deps.db, deps.cfg, epoch, history, totalsRow, true, null);
     if (await insertEpochStatsIfMissing(deps.db, row)) inserted++;
   }
   // Everything not inserted this run is still missing, including epochs the
