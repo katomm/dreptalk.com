@@ -125,6 +125,14 @@ export async function listAllTreasuryRows(db: D1Database): Promise<TreasuryActio
   return results;
 }
 
+/** Enacted treasury withdrawals stored without a payload: paid, but no amount to add back into the runway inflow. */
+export async function countEnactedWithoutPayload(db: D1Database): Promise<number> {
+  const row = await db
+    .prepare("SELECT COUNT(*) AS n FROM governance_actions WHERE type = 'TreasuryWithdrawals' AND status = 'enacted' AND onchain_payload IS NULL")
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
 /** How many governance actions of any type and status a return address submitted, null without an address. */
 export async function countActionsByReturnAddress(db: D1Database, returnAddress: string | null): Promise<number | null> {
   if (!returnAddress) return null;

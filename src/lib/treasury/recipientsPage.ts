@@ -6,7 +6,7 @@ import type { RecipientLabel } from '../../../config/treasury-recipients.js';
 import type { CardanoNetwork, NetworkConfig } from '../config/network.js';
 import { listEpochBalances } from '../db/governanceEpochStats.js';
 import { getProtocolParams } from '../db/protocolParams.js';
-import { listAllTreasuryRows } from '../db/treasury.js';
+import { countEnactedWithoutPayload, listAllTreasuryRows } from '../db/treasury.js';
 import { csvField } from '../format/csv.js';
 import { isoDate } from '../format/date.js';
 import { recipientKeyId } from '../governance/onchain.js';
@@ -43,6 +43,11 @@ export interface RunwaySection {
   history: { epoch: number; treasury: bigint }[];
   initial: RunwayProjection;
   initialSpend: bigint;
+  /**
+   * Enacted withdrawals the inflow cannot add back (no payload or no
+   * enactment epoch), so their treasury drop reads as lower inflow.
+   */
+  incompletePayouts: number;
 }
 
 export interface RecipientsPageData {
@@ -70,6 +75,8 @@ export interface BuildInput {
   cfg: NetworkConfig;
   nowSec: number;
   labels?: readonly RecipientLabel[];
+  /** Enacted treasury withdrawals stored without a payload (not in rows). */
+  enactedWithoutPayload?: number;
 }
 
 export function buildRecipientsPage(inp: BuildInput): RecipientsPageData {
@@ -77,9 +84,15 @@ export function buildRecipientsPage(inp: BuildInput): RecipientsPageData {
   const labels = new Map(summaries.map((s) => [s.id, labelFor(s, inp.cfg.network, inp.labels)]));
   const segments = concentrationSegments(summaries);
   const L = inp.currentEpoch != null ? inp.currentEpoch - 1 : null;
+  // Without protocol params the newest stored epoch may still be open, so the
+  // tile stops one before it, like the runway does with L.
+  const tileLimit = L ?? Math.max(...inp.balances.map((b) => b.epoch)) - 1;
 
-  const closed = inp.balances.filter((b) => L == null || b.epoch <= L);
+  const closed = inp.balances.filter((b) => b.epoch <= tileLimit);
   const lastTreasury = [...closed].reverse().find((b) => b.treasury != null);
+
+  let undatedPayouts = 0;
+  for (const r of inp.rows) if (r.status === 'enacted' && r.enactedEpoch == null) undatedPayouts++;
 
   let runway: RunwaySection | null = null;
   if (L != null && inp.currentEpoch != null) {
@@ -93,12 +106,10 @@ export function buildRecipientsPage(inp: BuildInput): RecipientsPageData {
         history: closed.filter((b) => b.treasury != null).map((b) => ({ epoch: b.epoch, treasury: b.treasury as bigint })),
         initial: projectRunway(inputs, initialSpend),
         initialSpend,
+        incompletePayouts: undatedPayouts + (inp.enactedWithoutPayload ?? 0),
       };
     }
   }
-
-  let undatedPayouts = 0;
-  for (const r of inp.rows) if (r.status === 'enacted' && r.enactedEpoch == null) undatedPayouts++;
 
   return {
     network: inp.cfg.network,
@@ -118,8 +129,13 @@ export function buildRecipientsPage(inp: BuildInput): RecipientsPageData {
 }
 
 export async function loadRecipientsPage(db: D1Database, cfg: NetworkConfig, nowSec: number): Promise<RecipientsPageData> {
-  const [rows, balances, params] = await Promise.all([listAllTreasuryRows(db), listEpochBalances(db, 0), getProtocolParams(db)]);
-  return buildRecipientsPage({ rows, balances, currentEpoch: params?.epoch ?? null, cfg, nowSec });
+  const [rows, balances, params, enactedWithoutPayload] = await Promise.all([
+    listAllTreasuryRows(db),
+    listEpochBalances(db, 0),
+    getProtocolParams(db),
+    countEnactedWithoutPayload(db),
+  ]);
+  return buildRecipientsPage({ rows, balances, currentEpoch: params?.epoch ?? null, cfg, nowSec, enactedWithoutPayload });
 }
 
 export interface RecipientPageData {

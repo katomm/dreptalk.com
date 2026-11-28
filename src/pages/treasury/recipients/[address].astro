@@ -32,6 +32,9 @@ const address = s?.address ?? '';
 const heading = label?.kind === 'proposal' ? label.label : address;
 const sourceSlug = label?.kind === 'proposal' ? (page?.slugs.get(label.sourceActionId) ?? null) : null;
 const history = s ? historyFromSummary(s) : null;
+// Enacted shares without an enactment epoch have no payout date, so the year
+// table and the timeline leave them out. Say so, as the overview chart does.
+const undated = s ? s.shares.filter((sh) => sh.action.status === 'enacted' && sh.paidAt == null).length : 0;
 const day = (sec: number | null) => (sec == null ? 'none' : formatEpochDate(sec));
 const ogImage = s ? `/og/treasury/recipients/${address}.png?v=${ogCardVersion([JSON.stringify(recipientCardModel(s, label))])}` : '/og.jpg';
 ---
@@ -72,6 +75,7 @@ const ogImage = s ? `/og/treasury/recipients/${address}.png?v=${ogCardVersion([J
   <section>
     <h2 class="ra-h2">Per year</h2>
     <YearTable summary={s} />
+    {undated > 0 && <p class="ra-note-line">{undated} {undated === 1 ? 'payout has' : 'payouts have'} no enactment epoch and {undated === 1 ? 'is' : 'are'} not in the year table or the timeline.</p>}
   </section>
 
   <section>
@@ -142,6 +146,10 @@ const ogImage = s ? `/og/treasury/recipients/${address}.png?v=${ogCardVersion([J
   }
   section {
     margin-top: 2rem;
+  }
+  .ra-note-line {
+    color: var(--muted);
+    font-size: 0.8125rem;
   }
   .ra-h2 {
     font-size: 1.125rem;
