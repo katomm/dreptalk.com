@@ -7,6 +7,7 @@
 // in the SQL itself, so the contract's includesSpecials: false is guaranteed,
 // not assumed from the data model.
 import type { EpochStatsRow } from '../analytics/epochStats.js';
+import type { EpochBalance } from '../treasury/runway.js';
 import { epochStartUnix, type NetworkConfig } from '../config/network.js';
 import { SPECIAL_DREP_IDS } from '../dreps/special.js';
 
@@ -295,4 +296,17 @@ export async function listEpochStats(
       .all<RawEpochStatsRow>()
   ).results ?? [];
   return rows.map(toEpochStatsRow);
+}
+
+/** Treasury and reserves per stored epoch from fromEpoch on, oldest first, nulls kept. */
+export async function listEpochBalances(db: D1Database, fromEpoch: number): Promise<EpochBalance[]> {
+  const { results } = await db
+    .prepare('SELECT epoch, treasury_lovelace, reserves_lovelace FROM governance_epoch_stats WHERE epoch >= ? ORDER BY epoch ASC')
+    .bind(fromEpoch)
+    .all<{ epoch: number; treasury_lovelace: string | null; reserves_lovelace: string | null }>();
+  return results.map((r) => ({
+    epoch: r.epoch,
+    treasury: r.treasury_lovelace == null ? null : BigInt(r.treasury_lovelace),
+    reserves: r.reserves_lovelace == null ? null : BigInt(r.reserves_lovelace),
+  }));
 }

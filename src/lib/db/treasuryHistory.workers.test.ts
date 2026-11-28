@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { env } from 'cloudflare:test';
-import { countActionsByReturnAddress, listTreasuryHistoryRows } from './treasury.js';
+import { countActionsByReturnAddress, listAllTreasuryRows, listTreasuryHistoryRows } from './treasury.js';
+import { listEpochBalances } from './governanceEpochStats.js';
 
 const PROPOSER = 'stake_test1uqproposer';
 const PAY = JSON.stringify({ tag: 'TreasuryWithdrawals', contents: [[[{ credential: { scriptHash: 'a'.repeat(56) } }, 1]], null] });
@@ -57,5 +58,33 @@ describe('countActionsByReturnAddress', () => {
   it('counts every action from a return address', async () => {
     expect(await countActionsByReturnAddress(env.DB, PROPOSER)).toBe(3);
     expect(await countActionsByReturnAddress(env.DB, null)).toBeNull();
+  });
+});
+
+describe('listAllTreasuryRows', () => {
+  it('lists every treasury withdrawal with its enacted epoch', async () => {
+    await env.DB.prepare("UPDATE governance_actions SET enacted_epoch = 7 WHERE id = 't1'").run();
+    const rows = await listAllTreasuryRows(env.DB);
+    expect(rows.map((r) => r.id)).toEqual(['v', 't2', 't1', 't3', 't5', 't4']);
+    expect(rows.find((r) => r.id === 't1')).toMatchObject({ enactedEpoch: 7, slug: 'slug-1', returnAddress: PROPOSER });
+    expect(rows.find((r) => r.id === 't2')?.enactedEpoch).toBeNull();
+  });
+});
+
+describe('listEpochBalances', () => {
+  it('lists epoch balances with nulls kept', async () => {
+    const ins = (e: number, t: string | null, r: string | null) =>
+      env.DB.prepare(
+        `INSERT INTO governance_epoch_stats (epoch, total_drep_power, powered_drep_count, recently_voting_drep_count, gini,
+           top10_share_pct, min_coalition_50, min_coalition_67, votes_cast, vote_data_complete, treasury_lovelace, reserves_lovelace, computed_at)
+         VALUES (?, '0', 0, 0, 0, 0, 0, 0, 0, 1, ?, ?, 0)`,
+      ).bind(e, t, r).run();
+    await ins(500, '1', '9');
+    await ins(502, '3', null);
+    await ins(501, '2', '8');
+    expect(await listEpochBalances(env.DB, 501)).toEqual([
+      { epoch: 501, treasury: 2n, reserves: 8n },
+      { epoch: 502, treasury: 3n, reserves: null },
+    ]);
   });
 });
