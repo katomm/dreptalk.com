@@ -6,6 +6,7 @@
  *   2. xss FilterXSS: strips everything not on the strict allowlist; neutralizes
  *      dangerous protocols via onTagAttr (a href) and safeAttrValue (other attrs).
  *   3. injectRel: ensures every surviving <a> has rel="noopener noreferrer nofollow ugc".
+ *   4. repairLooseBold: bold the author wrapped with a space inside the markers.
  *
  * Opening links in a new tab is a display concern handled by ensureLinkTarget at
  * render time (it also covers content stored before that behavior existed), not
@@ -257,13 +258,58 @@ export function linkifyChainIds(html: string): string {
   });
 }
 
+// Tags (tracked for skip depth inside <code>/<pre>) or a run of plain text.
+const LOOSE_BOLD_TOKEN = /<\/?(?:code|pre)\b[^>]*>|<[^>]*>|[^<]+/gi;
+// Candidate **pairs** inside one text run, judged in repairLooseBold.
+const BOLD_PAIR = /\*\*([^*]+?)\*\*/g;
+const PUNCT = /\p{P}/u;
+
+/**
+ * Display-time repair for bold that the author wrapped with a space just inside
+ * the asterisks ("more** critical issue.**"), or with punctuation just inside
+ * next to a letter outside ("**「モデル」**を"). Markdown does not read either as
+ * emphasis, so the stored HTML shows the asterisks literally. Earlier versions of
+ * the composer toolbar produced exactly this when the selection carried a space,
+ * and on-chain rationales are hash-anchored, so the source cannot be rewritten.
+ * Only pairs inside a single text run are touched, never across tags and never
+ * inside <code>/<pre>, and the whitespace is kept outside the <strong>.
+ */
+export function repairLooseBold(html: string): string {
+  if (!html.includes('**')) return html;
+  let skipDepth = 0;
+  return html.replace(LOOSE_BOLD_TOKEN, (token: string): string => {
+    if (token.charCodeAt(0) === 60 /* '<' */) {
+      const tag = /^<(\/?)(?:code|pre)\b/i.exec(token);
+      if (tag) skipDepth = tag[1] ? Math.max(0, skipDepth - 1) : skipDepth + 1;
+      return token;
+    }
+    if (skipDepth > 0 || !token.includes('**')) return token;
+    return token.replace(BOLD_PAIR, (m: string, inner: string, offset: number, run: string): string => {
+      const core = inner.trim();
+      const lead = inner.slice(0, inner.indexOf(core));
+      const trail = inner.slice(lead.length + core.length);
+      if (!core) return m;
+      // A tight pair stays literal when Markdown's flanking rules reject a marker
+      // that touches punctuation from inside next to a letter outside, common in
+      // CJK text ("**「モデル」**を"). Any other tight pair was escaped on purpose.
+      if (!lead && !trail && !(PUNCT.test(core[0]) || PUNCT.test(core[core.length - 1]))) return m;
+      // A marker with whitespace on both sides reads as an operator ("2 ** 3").
+      const before = offset > 0 ? run[offset - 1] : ' ';
+      const after = run[offset + m.length] ?? ' ';
+      if ((lead && /\s/.test(before)) || (trail && /\s/.test(after))) return m;
+      return `${lead}<strong>${core}</strong>${trail}`;
+    });
+  });
+}
+
 /**
  * Final display-time enhancement applied to stored rationale/post HTML before it
- * is set as innerHTML: link on-chain identifiers into chips, ensure all links open
- * in a new tab, and demote content headings below the page's h1.
+ * is set as innerHTML: repair loosely wrapped bold, link on-chain identifiers into
+ * chips, ensure all links open in a new tab, and demote content headings below the
+ * page's h1.
  */
 export function enhanceStoredHtml(html: string): string {
-  return shiftContentHeadings(ensureLinkTarget(linkifyChainIds(html)));
+  return shiftContentHeadings(ensureLinkTarget(linkifyChainIds(repairLooseBold(html))));
 }
 
 /**
@@ -287,6 +333,7 @@ export function renderMarkdown(md: string, opts?: { mentions?: ReadonlyMap<strin
   // Step 2: sanitize with strict allowlist.
   const sanitized = sanitizer.process(raw);
 
-  // Step 3: force rel on all surviving links.
-  return injectRel(sanitized);
+  // Step 3: force rel on all surviving links, then turn loosely wrapped bold
+  // into <strong> so previews, excerpts and new rows match the display pass.
+  return repairLooseBold(injectRel(sanitized));
 }

@@ -65,7 +65,15 @@ export function applyMarkdown(state: SelectionState, action: MarkdownAction): Se
 
 // Wrap (or unwrap, if already wrapped) the selection in a marker like ** or `.
 function wrapInline(state: SelectionState, marker: string): SelectionState {
-  const { text, start, end } = state;
+  const { text } = state;
+  // A double-click or drag selection often carries a leading or trailing space.
+  // Markers next to whitespace do not count as emphasis in Markdown, so
+  // "more** bold text **here" would render the asterisks literally. Shrink the
+  // selection to its non-blank core and keep the blanks outside the markers.
+  let { start, end } = state;
+  while (start < end && /\s/.test(text[start])) start++;
+  while (end > start && /\s/.test(text[end - 1])) end--;
+  if (start === end && state.start !== state.end) ({ start, end } = state);
   const selected = text.slice(start, end);
   const len = marker.length;
 
