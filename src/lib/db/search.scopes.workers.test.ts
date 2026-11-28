@@ -135,7 +135,7 @@ describe('searchForumPage', () => {
     );
     // The facet count has to agree with the list, or the tab shows a number
     // the page cannot fill.
-    expect((await countScopes(db(), 'iota*')).forum).toBe(2);
+    expect((await countScopes(db(), 'iota*', 'iota')).forum).toBe(2);
   });
 
   it('paginates', async () => {
@@ -180,7 +180,7 @@ describe('countScopes', () => {
     await seedTopic({ id: 'c1', title: 'rho topic', slug: 'c1' });
     await seedTopic({ id: 'cg', title: 'rho action', slug: 'cg', source: 'governance' });
     await seedGa({ id: `${'b'.repeat(64)}#0`, proposalId: 'gov_actionrho', title: 'rho action', topicId: 'cg' });
-    const counts = await countScopes(db(), 'rho*');
+    const counts = await countScopes(db(), 'rho*', 'rho');
     expect(counts.forum).toBe(1);
     expect(counts.governance).toBe(1);
     expect(counts.dreps).toBe(0);

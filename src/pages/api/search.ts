@@ -3,6 +3,7 @@ import { jsonResponse, runtimeEnv } from '@/lib/api/response';
 import { withEdgeCache } from '@/lib/http/edgeCache';
 import { handleSearch, normalizeQuery } from '@/lib/search/handler';
 import { getContentIndex } from '@/lib/search/contentIndex';
+import { koiosPoolLookup } from '@/lib/search/poolLookup';
 import { parseScope } from '@/lib/search/scopes';
 import { parsePage } from '@/lib/forum/view';
 
@@ -32,6 +33,7 @@ export const GET: APIRoute = async ({ request, locals }) => {
         page,
         counts,
         content: await getContentIndex(),
+        lookupPool: koiosPoolLookup(locals as App.Locals),
       });
       return jsonResponse(body, 200, {
         'Cache-Control': `public, max-age=30, s-maxage=${CACHE_TTL_SECONDS}`,

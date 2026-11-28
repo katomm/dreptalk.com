@@ -16,11 +16,13 @@ import {
   searchGovernancePage,
   searchDrepsPage,
   searchRationalesPage,
+  searchPoolsPage,
   GROUP_LIMIT,
   type ExactHit,
   type GaHit,
   type TopicHit,
   type DrepHit,
+  type PoolHit,
   type RationaleHit,
   type ScopeCounts,
 } from '../db/search.js';
@@ -40,12 +42,26 @@ export interface SearchResponseBody {
   governanceActions: GaHit[];
   discussions: TopicHit[];
   dreps: DrepHit[];
+  spos: PoolHit[];
   rationales: RationaleHit[];
   reviews: ContentHit[];
   help: ContentHit[];
   total: number | null;
   counts: SearchCounts | null;
+  /** A pasted pool id that exists on chain but has no profile here, because the
+   *  pool never voted. Rendered as a note, not as a link. */
+  poolNotice: PoolNotice | null;
 }
+
+export interface PoolNotice {
+  poolId: string;
+  ticker: string | null;
+  name: string | null;
+}
+
+/** Looks a pool up on chain. Resolves null for an unknown pool and throws on
+ *  any lookup failure, which then shows no notice at all. */
+export type PoolLookup = (poolId: string) => Promise<Omit<PoolNotice, 'poolId'> | null>;
 
 export interface SearchOptions {
   scope?: Scope;
@@ -53,16 +69,33 @@ export interface SearchOptions {
   counts?: boolean;
   /** The help and Governance Review index (lib/search/contentIndex.ts). */
   content?: readonly IndexedDoc[];
+  /** On-chain fallback for a pasted pool id that D1 does not know. */
+  lookupPool?: PoolLookup;
 }
 
 const MAX_QUERY_LENGTH = 120;
 const MIN_QUERY_LENGTH = 2;
 
-type D1Part = Pick<SearchResponseBody, 'exact' | 'governanceActions' | 'discussions' | 'dreps' | 'rationales' | 'total'> & {
+type D1Part = Pick<
+  SearchResponseBody,
+  'exact' | 'governanceActions' | 'discussions' | 'dreps' | 'spos' | 'rationales' | 'total' | 'poolNotice'
+> & {
   counts: ScopeCounts | null;
 };
 
-const D1_EMPTY: D1Part = { exact: null, governanceActions: [], discussions: [], dreps: [], rationales: [], total: null, counts: null };
+const D1_EMPTY: D1Part = {
+  exact: null,
+  governanceActions: [],
+  discussions: [],
+  dreps: [],
+  spos: [],
+  rationales: [],
+  total: null,
+  counts: null,
+  poolNotice: null,
+};
+
+const ZERO_COUNTS: ScopeCounts = { forum: 0, governance: 0, dreps: 0, spos: 0, rationales: 0 };
 
 /** No D1 results. Scoped queries report a numeric total, "all" leaves it null. */
 function d1Empty(scope: Scope): D1Part {
@@ -83,20 +116,40 @@ export function normalizeQuery(raw: string | null): string {
 // mode" for scope === 'all': the page builds each group from the scoped queries
 // so its counts and results agree, while the palette keeps the merged typeahead
 // groups. The scoped modes are identical in both, so they only vary the counts.
-async function searchD1(db: D1Database, match: string, query: string, scope: Scope, page: number, counts: boolean): Promise<D1Part> {
+async function searchD1(
+  db: D1Database,
+  match: string,
+  query: string,
+  scope: Scope,
+  page: number,
+  counts: boolean,
+  lookupPool: PoolLookup | undefined,
+): Promise<D1Part> {
   try {
     // Identifier fast-path runs for EVERY scope: a pasted DRep / governance id
     // is the most specific request a user can make, so it must resolve whatever
     // filter happens to be active. Free text resolves to null without a query.
     const ident = detectIdentifier(query);
     const exactP = ident ? resolveIdentifier(db, ident) : Promise.resolve(null);
+
+    // A pasted pool id without a row belongs to a pool that never voted. No full
+    // text can match a bech32 id, so skip it and ask the chain instead. Only a
+    // D1 answer gets here, a D1 error falls to the catch and shows no notice.
+    if (ident?.kind === 'pool' && !(await exactP)) {
+      return {
+        ...d1Empty(scope),
+        counts: counts ? ZERO_COUNTS : null,
+        poolNotice: await poolNoticeFor(ident.poolId, lookupPool),
+      };
+    }
+
     // Facet counts, the fast path and the page itself are independent reads,
     // so they run concurrently instead of one round trip after another.
-    const countsP = counts && scope !== 'all' ? countScopes(db, match) : Promise.resolve(null);
+    const countsP = counts && scope !== 'all' ? countScopes(db, match, query) : Promise.resolve(null);
 
     // Scoped modes: one entity, paginated. countScopes' per-scope totals equal
     // each scoped query's total, so the facet numbers match the result lists.
-    const scoped = async <K extends 'governanceActions' | 'discussions' | 'dreps' | 'rationales'>(
+    const scoped = async <K extends 'governanceActions' | 'discussions' | 'dreps' | 'spos' | 'rationales'>(
       key: K,
       run: Promise<{ hits: D1Part[K]; total: number }>,
     ): Promise<D1Part> => {
@@ -110,6 +163,8 @@ async function searchD1(db: D1Database, match: string, query: string, scope: Sco
         return await scoped('discussions', searchForumPage(db, match, page));
       case 'dreps':
         return await scoped('dreps', searchDrepsPage(db, match, page));
+      case 'spos':
+        return await scoped('spos', searchPoolsPage(db, query, page));
       case 'rationales':
         return await scoped('rationales', searchRationalesPage(db, match, page));
       case 'help':
@@ -123,21 +178,24 @@ async function searchD1(db: D1Database, match: string, query: string, scope: Sco
     if (counts) {
       // Page mode (/search): build every group from the same scoped queries
       // that back the facets, so the "All" preview and the facet counts agree.
-      const [exact, gov, forum, dreps, rationales] = await Promise.all([
+      const [exact, gov, forum, dreps, spos, rationales] = await Promise.all([
         exactP,
         searchGovernancePage(db, match, 1),
         searchForumPage(db, match, 1),
         searchDrepsPage(db, match, 1),
+        searchPoolsPage(db, query, 1),
         searchRationalesPage(db, match, 1),
       ]);
       return {
+        ...D1_EMPTY,
         exact,
         governanceActions: gov.hits,
         discussions: forum.hits,
         dreps: dreps.hits,
+        spos: spos.hits,
         rationales: rationales.hits,
         total: null,
-        counts: { forum: forum.total, governance: gov.total, dreps: dreps.total, rationales: rationales.total },
+        counts: { forum: forum.total, governance: gov.total, dreps: dreps.total, spos: spos.total, rationales: rationales.total },
       };
     }
 
@@ -145,9 +203,21 @@ async function searchD1(db: D1Database, match: string, query: string, scope: Sco
     // governance group). A resolved id stands alone and skips the full text.
     const exact = await exactP;
     if (exact) return { ...D1_EMPTY, exact };
-    return { ...D1_EMPTY, ...(await searchAll(db, match)) };
+    return { ...D1_EMPTY, ...(await searchAll(db, match, query)) };
   } catch {
     return d1Empty(scope);
+  }
+}
+
+/** The on-chain notice for a pool id D1 does not know. Any lookup failure
+ *  yields no notice, so a Koios outage never claims a pool is unknown. */
+async function poolNoticeFor(poolId: string, lookup: PoolLookup | undefined): Promise<PoolNotice | null> {
+  if (!lookup) return null;
+  try {
+    const pool = await lookup(poolId);
+    return pool ? { poolId, ticker: pool.ticker, name: pool.name } : null;
+  } catch {
+    return null;
   }
 }
 
@@ -160,7 +230,7 @@ export async function handleSearch(db: D1Database | undefined, rawQuery: string 
   if (!match) return empty(query, scope, page);
 
   const content = searchContent(opts.content ?? [], query);
-  const d1 = db ? await searchD1(db, match, query, scope, page, !!opts.counts) : d1Empty(scope);
+  const d1 = db ? await searchD1(db, match, query, scope, page, !!opts.counts, opts.lookupPool) : d1Empty(scope);
   const body: SearchResponseBody = {
     query,
     scope,

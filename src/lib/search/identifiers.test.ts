@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { detectIdentifier } from './identifiers.js';
+import { encodeBech32 } from '../crypto/bech32.js';
 
 const HASH = 'a'.repeat(64);
 
@@ -52,5 +53,20 @@ describe('detectIdentifier', () => {
 
   it('returns null for a tx hash with an absurdly large index', () => {
     expect(detectIdentifier(`${HASH}#${'9'.repeat(30)}`)).toBeNull();
+  });
+});
+
+describe('detectIdentifier pool ids', () => {
+  const poolId = encodeBech32('pool', new Uint8Array(28).fill(7));
+
+  it('detects a checksum-valid pool id, also pasted in upper case', () => {
+    expect(detectIdentifier(poolId)).toEqual({ kind: 'pool', poolId });
+    expect(detectIdentifier(poolId.toUpperCase())).toEqual({ kind: 'pool', poolId });
+  });
+
+  it('rejects a pool id with a broken checksum or a wrong payload length', () => {
+    const broken = `${poolId.slice(0, -1)}${poolId.endsWith('q') ? 'p' : 'q'}`;
+    expect(detectIdentifier(broken)).toBeNull();
+    expect(detectIdentifier(encodeBech32('pool', new Uint8Array(20)))).toBeNull();
   });
 });

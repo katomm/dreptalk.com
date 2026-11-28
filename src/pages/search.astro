@@ -5,6 +5,7 @@ import Layout from '@/layouts/Layout.astro';
 import SearchResults from '@/components/search/SearchResults';
 import { handleSearch, normalizeQuery } from '@/lib/search/handler';
 import { getContentIndex } from '@/lib/search/contentIndex';
+import { koiosPoolLookup } from '@/lib/search/poolLookup';
 import { parseScope, SCOPES, SCOPE_LABELS, searchPageHref } from '@/lib/search/scopes';
 import { parsePage } from '@/lib/forum/view';
 import { requestDb } from '@/lib/db/requestDb.js';
@@ -20,7 +21,13 @@ const page = parsePage(url.searchParams.get('page'));
 // Server-render the initial results so the page is useful on first paint and
 // without JavaScript.
 // An empty query returns before any search, so it skips building the index.
-const initialData = await handleSearch(db, query, { scope, page, counts: true, content: query ? await getContentIndex() : [] });
+const initialData = await handleSearch(db, query, {
+  scope,
+  page,
+  counts: true,
+  content: query ? await getContentIndex() : [],
+  lookupPool: koiosPoolLookup(Astro.locals),
+});
 
 // Search pages are public; cache briefly at the edge like the API.
 Astro.response.headers.set('Cache-Control', 'public, max-age=30, s-maxage=60');
@@ -43,7 +50,7 @@ const title = query ? `Search: ${query} - DRepTalk` : 'Search - DRepTalk';
         type="search"
         name="q"
         value={query}
-        placeholder="Search governance actions, discussions, DReps, reviews, help..."
+        placeholder="Search governance actions, discussions, DReps, pools, reviews, help..."
         style="flex:1;padding:0.6rem 0.8rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:transparent;color:inherit;font:inherit;"
       />
       <button type="submit" style="padding:0.6rem 1rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:inherit;cursor:pointer;">Search</button>

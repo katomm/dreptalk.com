@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
-import { SCOPES, SCOPE_LABELS, PAGE_SIZE, searchPageHref, type Scope } from '@/lib/search/scopes.js';
+import { SCOPES, SCOPE_LABELS, EXACT_KIND_LABELS, PAGE_SIZE, poolNoticeText, searchPageHref, type Scope } from '@/lib/search/scopes.js';
 import type { ContentHit } from '@/lib/search/content.js';
 import { otherScopesWithCounts } from '@/lib/search/emptyHint.js';
 import { readableType, statusBadge, TONE_COLORS, formatAda } from '@/lib/governance/view.js';
@@ -8,7 +8,8 @@ import { truncateId } from '@/lib/forum/view.js';
 import { SnippetText } from './SnippetText.js';
 import type { SearchResponseBody } from '@/lib/search/handler.js';
 import { avatarUrl } from '@/lib/identity/avatarUrl.js';
-import type { GaHit, TopicHit, DrepHit, RationaleHit } from '@/lib/db/search.js';
+import { poolDisplayName, poolVotesLabel } from '@/lib/pools/profile.js';
+import type { GaHit, TopicHit, DrepHit, PoolHit, RationaleHit } from '@/lib/db/search.js';
 
 interface Props {
   initialQuery: string;
@@ -62,6 +63,19 @@ function DrepRow({ d }: { d: DrepHit }) {
         {formatAda(d.votingPower) && <span className="search-hit__detail">{formatAda(d.votingPower)}</span>}
       </span>
       {d.snippet && <SnippetText raw={d.snippet} />}
+    </a>
+  );
+}
+
+function PoolRow({ p }: { p: PoolHit }) {
+  return (
+    <a className="search-hit" href={p.href}>
+      <span className="search-hit__head">
+        {p.imageHash && <img src={avatarUrl(p.imageHash, 20)} alt="" width="20" height="20" loading="lazy" style={{ borderRadius: '50%', flexShrink: 0 }} />}
+        <span className="search-hit__title">{poolDisplayName(p)}</span>
+        {p.name && p.ticker && <span className="search-hit__badge">{p.ticker}</span>}
+        <span className="search-hit__detail">{poolVotesLabel(p.votes)}</span>
+      </span>
     </a>
   );
 }
@@ -200,6 +214,7 @@ export default function SearchResults({ initialQuery, initialScope, initialPage,
     governance: data.governanceActions.map((ga) => <GaRow key={ga.href} ga={ga} />),
     forum: data.discussions.map((t) => <TopicRow key={t.href} t={t} />),
     dreps: data.dreps.map((d) => <DrepRow key={d.drepId} d={d} />),
+    spos: data.spos.map((p) => <PoolRow key={p.poolId} p={p} />),
     rationales: data.rationales.map((r) => <RationaleRow key={r.href} r={r} />),
     reviews: data.reviews.map((h) => <ContentRow key={h.href} h={h} />),
     help: data.help.map((h) => <ContentRow key={h.href} h={h} />),
@@ -224,7 +239,7 @@ export default function SearchResults({ initialQuery, initialScope, initialPage,
           setQ(e.target.value);
           setPage(1);
         }}
-        placeholder="Search governance actions, discussions, DReps, reviews, help..."
+        placeholder="Search governance actions, discussions, DReps, pools, reviews, help..."
         aria-label="Search"
         // biome-ignore lint/a11y/noAutofocus: dedicated search page, the input is the primary control
         autoFocus
@@ -260,11 +275,13 @@ export default function SearchResults({ initialQuery, initialScope, initialPage,
               <a className="search-hit" href={data.exact.href}>
                 <span className="search-hit__head">
                   <span className="search-hit__title">{data.exact.label}</span>
-                  <span className="search-hit__badge">{data.exact.kind === 'governance-action' ? 'Governance Action' : 'DRep'}</span>
+                  <span className="search-hit__badge">{EXACT_KIND_LABELS[data.exact.kind]}</span>
                 </span>
               </a>
             </section>
           )}
+
+          {hasQuery && !error && data.poolNotice && <p className="search-note">{poolNoticeText(data.poolNotice)}</p>}
 
           {hasQuery && !error && scope === 'all' && (
             <>
@@ -276,7 +293,7 @@ export default function SearchResults({ initialQuery, initialScope, initialPage,
                     </Group>
                   ),
               )}
-              {!data.exact && groups.every(([, rows]) => rows.length === 0) && <p className="search-note">No results for "{trimmed}".</p>}
+              {!data.exact && !data.poolNotice && groups.every(([, rows]) => rows.length === 0) && <p className="search-note">No results for "{trimmed}".</p>}
             </>
           )}
 
@@ -302,8 +319,15 @@ export default function SearchResults({ initialQuery, initialScope, initialPage,
                   </p>
                 );
               }
-              // An exact match (rendered above) counts as a result: stay silent then.
-              if (data.exact) return null;
+              // An exact match or a pool notice (rendered above) counts as a result: stay silent then.
+              if (data.exact || data.poolNotice) return null;
+              if (scope === 'spos') {
+                return (
+                  <p className="search-note">
+                    No pool matches "{trimmed}". Only pools that have voted are listed here. Paste a pool id (pool1...) to check any pool.
+                  </p>
+                );
+              }
               return <p className="search-note">No results for "{trimmed}".</p>;
             })()}
 

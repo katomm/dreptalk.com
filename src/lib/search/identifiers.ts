@@ -2,10 +2,23 @@
 // work. A resolved identifier short-circuits the search entirely (point
 // lookup instead of index scan). Detection is pure; resolution against D1
 // lives in lib/db/search.ts.
+import { decodeBech32 } from '../crypto/bech32.js';
 
 export type IdentifierQuery =
   | { kind: 'gov-action'; by: 'proposal_id' | 'id' | 'id-prefix'; value: string }
-  | { kind: 'drep'; drepId: string };
+  | { kind: 'drep'; drepId: string }
+  | { kind: 'pool'; poolId: string };
+
+/** True for a checksum-valid bech32 pool id carrying a 28-byte pool hash.
+ *  Only such ids may reach the Koios fallback, so garbage never costs a call. */
+function isValidPoolId(s: string): boolean {
+  try {
+    const { prefix, data } = decodeBech32(s);
+    return prefix === 'pool' && data.length === 28;
+  } catch {
+    return false;
+  }
+}
 
 /** Returns the identifier interpretation of q, or null when q is free text. */
 export function detectIdentifier(q: string): IdentifierQuery | null {
@@ -15,6 +28,9 @@ export function detectIdentifier(q: string): IdentifierQuery | null {
   }
   if (/^drep(_script)?1[a-z0-9]+$/.test(s)) {
     return { kind: 'drep', drepId: s };
+  }
+  if (/^pool1[a-z0-9]+$/.test(s)) {
+    return isValidPoolId(s) ? { kind: 'pool', poolId: s } : null;
   }
   const hash = s.match(/^([0-9a-f]{64})(?:#(\d{1,6}))?$/);
   if (hash) {
