@@ -54,3 +54,15 @@ export function recipientCardModel(s: RecipientSummary, label: AddressLabel | nu
     years: yearRows(s).map((y) => ({ year: y.year, paid: Number(y.paid) / 1e6, notPaid: Number(y.notPaid) / 1e6 })),
   };
 }
+
+/** Card for a valid stake address that no withdrawal names (yet). */
+export function emptyRecipientCardModel(address: string): RecipientCardModel {
+  return {
+    accent: accentForType('TreasuryWithdrawals'),
+    title: `${address.slice(0, 12)}…${address.slice(-6)}`,
+    paid: '0 ₳',
+    notPaid: null,
+    withdrawals: 0,
+    years: [],
+  };
+}

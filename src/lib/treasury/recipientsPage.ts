@@ -8,6 +8,7 @@ import { listEpochBalances } from '../db/governanceEpochStats.js';
 import { getProtocolParams } from '../db/protocolParams.js';
 import { listAllTreasuryRows } from '../db/treasury.js';
 import { csvField } from '../format/csv.js';
+import { isoDate } from '../format/date.js';
 import { recipientKeyId } from '../governance/onchain.js';
 import { parseStakeAddress } from '../governance/treasuryWithdrawals.js';
 import { labelFor, type AddressLabel } from './labels.js';
@@ -35,8 +36,6 @@ import {
   type RunwayProjection,
 } from './runway.js';
 
-export { runwayResultText } from './runwayText.js';
-
 export interface RunwaySection {
   inputs: RunwayInputs;
   presets: RunwayPreset[];
@@ -50,6 +49,8 @@ export interface RecipientsPageData {
   network: CardanoNetwork;
   summaries: RecipientSummary[];
   labels: Map<string, AddressLabel | null>;
+  /** Live topic slug by action id, for label source links. */
+  slugs: Map<string, string | null>;
   totalPaid: bigint;
   addressCount: number;
   treasury: bigint | null;
@@ -84,7 +85,7 @@ export function buildRecipientsPage(inp: BuildInput): RecipientsPageData {
   if (L != null && inp.currentEpoch != null) {
     const inputs = runwayInputs(inp.balances, paidByEnactedEpoch(inp.rows), L, inp.cfg);
     if (inputs) {
-      const presets = runwayPresets(summaries, L, inp.currentEpoch, inp.cfg);
+      const presets = runwayPresets(summaries, L, inp.currentEpoch);
       const initialSpend = presets[0].lovelacePerYear;
       runway = {
         inputs,
@@ -103,6 +104,7 @@ export function buildRecipientsPage(inp: BuildInput): RecipientsPageData {
     network: inp.cfg.network,
     summaries,
     labels,
+    slugs: new Map(inp.rows.map((r) => [r.id, r.slug])),
     totalPaid: sumPaid(summaries),
     addressCount: summaries.filter((s) => s.id !== UNKNOWN_RECIPIENT_ID).length,
     treasury: lastTreasury?.treasury ?? null,
@@ -176,7 +178,7 @@ export function pctText(pct: number): string {
 }
 
 function isoDay(sec: number | null): string {
-  return sec == null ? '' : new Date(sec * 1000).toISOString().slice(0, 10);
+  return sec == null ? '' : isoDate(new Date(sec * 1000));
 }
 
 /** One row per address, amounts in lovelace. */

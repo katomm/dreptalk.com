@@ -3,6 +3,7 @@
 // rows show, the rest sit in a disclosure.
 import LabelBadge from './LabelBadge.astro';
 import { formatAda } from '@/lib/format/ada.js';
+import { pct4 } from '@/lib/format/pct.js';
 import type { AddressLabel } from '@/lib/treasury/labels.js';
 import type { RecipientSummary } from '@/lib/treasury/recipients.js';
 import { addressName, proposersLine } from '@/lib/treasury/recipientsPage.js';
@@ -14,7 +15,7 @@ interface Props {
 }
 const { summaries, labels, slugs } = Astro.props;
 const max = summaries.reduce((m, s) => (s.paid + s.notPaid > m ? s.paid + s.notPaid : m), 1n);
-const pct = (v: bigint) => Number((v * 10000n) / max) / 100;
+const pct = (v: bigint) => pct4(v, max);
 const rows = summaries.map((s) => {
   const label = labels.get(s.id) ?? null;
   return {

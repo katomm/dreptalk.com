@@ -93,3 +93,20 @@ describe('labelForPayout', () => {
     expect(labelForPayout(null, '(unknown recipient)', null, [], 'mainnet', FIXTURE)).toBeNull();
   });
 });
+
+describe('payoutRowView', () => {
+  it('decides label, notes and history for one payout row in one place', async () => {
+    const { payoutRowView } = await import('./labels.js');
+    const { recipientKeyId } = await import('../governance/onchain.js');
+    const history = { items: [{ id: 'h#0', title: 't', href: null, status: 'expired', lovelace: 1n, returnAddress: CF, submittedAt: null, submittedEpoch: 1 }], enactedCount: 0, enactedLovelace: 0n, others: [] };
+    const histories = new Map([[recipientKeyId(CF_KEY), history]]);
+    const v = payoutRowView({ key: CF_KEY, address: CF }, histories, CF, 'mainnet');
+    expect(v.label).toEqual({ kind: 'proposer', name: 'Cardano Foundation' });
+    expect(v.notes).toEqual([]);
+    expect(v.history).toBe(history);
+    const pre = payoutRowView({ key: CF_KEY, address: CF }, histories, CF, 'preprod');
+    expect(pre.label).toBeNull();
+    expect(pre.notes).toEqual(['Same stake address as the proposer.']);
+    expect(payoutRowView({ key: null, address: '(unknown recipient)' }, null, CF, 'mainnet')).toEqual({ label: null, notes: [], history: null });
+  });
+});

@@ -11,6 +11,7 @@ import YearTable from '@/components/treasury/YearTable.astro';
 import { currentNetwork } from '@/lib/api/response.js';
 import { requestDb } from '@/lib/db/requestDb.js';
 import { formatAda } from '@/lib/format/ada.js';
+import { formatEpochDate } from '@/lib/governance/view.js';
 import { recipientCardModel } from '@/lib/og/recipientsCard.js';
 import { ogCardVersion } from '@/lib/og/version.js';
 import { addressHistorySentence, historyFromSummary } from '@/lib/treasury/recipientHistory.js';
@@ -31,7 +32,7 @@ const address = s?.address ?? '';
 const heading = label?.kind === 'proposal' ? label.label : address;
 const sourceSlug = label?.kind === 'proposal' ? (page?.slugs.get(label.sourceActionId) ?? null) : null;
 const history = s ? historyFromSummary(s) : null;
-const day = (sec: number | null) => (sec == null ? 'none' : new Date(sec * 1000).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' }));
+const day = (sec: number | null) => (sec == null ? 'none' : formatEpochDate(sec));
 const ogImage = s ? `/og/treasury/recipients/${address}.png?v=${ogCardVersion([JSON.stringify(recipientCardModel(s, label))])}` : '/og.jpg';
 ---
 
@@ -116,7 +117,7 @@ const ogImage = s ? `/og/treasury/recipients/${address}.png?v=${ogCardVersion([J
   }
   .ra-tiles {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
     gap: 0.75rem;
     margin: 1.5rem 0;
   }

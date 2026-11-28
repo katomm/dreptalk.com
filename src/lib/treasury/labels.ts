@@ -4,8 +4,9 @@
 // that same address and it belongs to one registry proposer. The config wins.
 import { RECIPIENT_LABELS, type RecipientLabel } from '../../../config/treasury-recipients.js';
 import type { CardanoNetwork } from '../config/network.js';
-import type { RecipientKey } from '../governance/onchain.js';
+import { recipientKeyId, type RecipientKey } from '../governance/onchain.js';
 import { proposerView } from '../identity/proposer.js';
+import { payoutNotes, type RecipientHistory } from './recipientHistory.js';
 import type { RecipientSummary } from './recipients.js';
 
 export type AddressLabel = { kind: 'proposal'; label: string; sourceActionId: string } | { kind: 'proposer'; name: string };
@@ -50,4 +51,29 @@ export function labelForPayout(
   if (cfg) return cfg;
   if (actionReturnAddress !== recipientAddress) return null;
   return proposerLabel(recipientAddress, allReturnAddresses);
+}
+
+export interface PayoutRowView {
+  label: AddressLabel | null;
+  notes: string[];
+  history: RecipientHistory | null;
+}
+
+/**
+ * Everything one payout row on an action page shows besides the amount: the
+ * address label, the plain notes and the recipient history. The proposer rule
+ * needs every withdrawal naming the address, the history's plus this one, and
+ * the plain "same as the proposer" note is dropped when the label says it.
+ */
+export function payoutRowView(
+  row: { key?: RecipientKey | null; address: string },
+  histories: Map<string, RecipientHistory> | null | undefined,
+  returnAddress: string | null,
+  network: CardanoNetwork,
+): PayoutRowView {
+  const key = row.key ?? null;
+  const history = key ? (histories?.get(recipientKeyId(key)) ?? null) : null;
+  const all = [returnAddress, ...(history?.items ?? []).map((i) => i.returnAddress)];
+  const label = labelForPayout(key, row.address, returnAddress, all, network);
+  return { label, notes: payoutNotes(row, returnAddress, label?.kind === 'proposer'), history };
 }

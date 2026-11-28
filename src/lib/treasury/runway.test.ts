@@ -109,13 +109,13 @@ describe('presets and paid per epoch', () => {
 
   it('presets use the exact amounts', () => {
     const list = groupRecipients([enacted(L - 10, 532_000_000), enacted(L - 100, 1)], cfg);
-    const p = runwayPresets(list, L, L + 1, cfg);
+    const p = runwayPresets(list, L, L + 1);
     expect(p.find((x) => x.id === 'last12')?.lovelacePerYear).toBe(532_000_000n);
     const ncl = p.find((x) => x.id === 'ncl');
     expect(ncl?.lovelacePerYear).toBe((500_000_000_000_000n * 73n) / 101n);
   });
 
   it('drops the NCL preset outside any period', () => {
-    expect(runwayPresets([], 100, 101, cfg).some((x) => x.id === 'ncl')).toBe(false);
+    expect(runwayPresets([], 100, 101).some((x) => x.id === 'ncl')).toBe(false);
   });
 });

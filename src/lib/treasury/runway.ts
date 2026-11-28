@@ -85,7 +85,7 @@ export interface RunwayPreset {
   lovelacePerYear: bigint;
 }
 
-export function runwayPresets(list: RecipientSummary[], lastClosedEpoch: number, currentEpoch: number, _cfg: NetworkConfig): RunwayPreset[] {
+export function runwayPresets(list: RecipientSummary[], lastClosedEpoch: number, currentEpoch: number): RunwayPreset[] {
   const out: RunwayPreset[] = [
     { id: 'last12', label: 'Last 12 months', lovelacePerYear: paidInEpochs(list, lastClosedEpoch - (EPOCHS_PER_YEAR - 1), lastClosedEpoch) },
   ];

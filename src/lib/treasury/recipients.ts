@@ -4,6 +4,7 @@
 // Paid means enacted only. Time values are unix seconds: a payout belongs to the
 // start of its enactment epoch, a request to its submission time.
 import { epochStartUnix, type NetworkConfig } from '../config/network.js';
+import { pct4 } from '../format/pct.js';
 import { recipientKeyId, recipientKeyToBech32, treasuryEntries, type RecipientKey } from '../governance/onchain.js';
 
 /** One TreasuryWithdrawals row of governance_actions, payload as raw text. */
@@ -155,7 +156,7 @@ export function concentrationSegments(list: RecipientSummary[], minPct = 5): Bar
   const paidList = list.filter((s) => s.paid > 0n).sort((a, b) => cmpDesc(a.paid, b.paid));
   const total = sumPaid(paidList);
   if (total === 0n) return [];
-  const pct = (v: bigint) => Number((v * 1_000_000n) / total) / 10_000;
+  const pct = (v: bigint) => pct4(v, total);
   const segments: BarSegment[] = [];
   let restLovelace = 0n;
   let restCount = 0;

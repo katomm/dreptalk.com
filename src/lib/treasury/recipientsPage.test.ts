@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { resolveNetwork } from '../config/network.js';
 import type { TreasuryActionRow } from './recipients.js';
-import { buildRecipientsPage, proposersLine, recipientsCsv, runwayResultText } from './recipientsPage.js';
+import { buildRecipientsPage, proposersLine, recipientsCsv } from './recipientsPage.js';
+import { runwayResultText } from './runwayText.js';
 import type { EpochBalance } from './runway.js';
 
 const cfg = resolveNetwork('mainnet');
