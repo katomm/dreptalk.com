@@ -674,6 +674,114 @@ main.container {
   }
 }
 
+/* Charts draw in once, when they first scroll into view. theme-init.js sets
+   html.draw-ready before first paint (only with motion allowed and
+   IntersectionObserver available), scripts/draw-in.ts adds .is-drawn on entry.
+   Without draw-ready nothing is hidden, so no-JS and reduced motion see the
+   finished chart. The animations use backwards fill only, so once they end no
+   clip is left behind (a sparkline stroke may overflow its box). */
+.draw-ready .draw-in--wipe:not(.is-drawn) {
+  clip-path: inset(0 100% 0 0);
+}
+.draw-ready .draw-in--wipe.is-drawn {
+  animation: draw-wipe 0.9s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+.draw-ready .draw-in--ring:not(.is-drawn) .drep-stat__ring-arc {
+  stroke-dasharray: 0 100;
+}
+.draw-ready .draw-in--ring.is-drawn .drep-stat__ring-arc {
+  animation: draw-ring 0.9s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+@keyframes draw-wipe {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+@keyframes draw-ring {
+  from {
+    stroke-dasharray: 0 100;
+  }
+}
+
+/* Success icon (vote or delegation submitted): circle then check draw in once
+   on mount. Paths carry pathLength="1", so one dash covers each stroke. */
+@media (prefers-reduced-motion: no-preference) {
+  .draw-check path,
+  .draw-check polyline {
+    stroke-dasharray: 1;
+    animation: draw-stroke 0.45s ease-out backwards;
+  }
+  .draw-check polyline {
+    animation-duration: 0.3s;
+    animation-delay: 0.4s;
+  }
+}
+@keyframes draw-stroke {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Burst-mark loader (LogoMark variant="loading", burstLoaderSvg): the eight
+   nodes light up clockwise. Under reduced motion it stays the plain mark. */
+@media (prefers-reduced-motion: no-preference) {
+  .burst-loader .burst-node {
+    opacity: 0.25;
+    animation: burst-blink 1.2s ease-in-out infinite;
+  }
+  .burst-loader .burst-node:nth-of-type(2) { animation-delay: 0.15s; }
+  .burst-loader .burst-node:nth-of-type(3) { animation-delay: 0.3s; }
+  .burst-loader .burst-node:nth-of-type(4) { animation-delay: 0.45s; }
+  .burst-loader .burst-node:nth-of-type(5) { animation-delay: 0.6s; }
+  .burst-loader .burst-node:nth-of-type(6) { animation-delay: 0.75s; }
+  .burst-loader .burst-node:nth-of-type(7) { animation-delay: 0.9s; }
+  .burst-loader .burst-node:nth-of-type(8) { animation-delay: 1.05s; }
+
+  /* LogoMark variant="lost" (not-found page): one node slowly drifts off and
+     comes back, its spoke fading while it is away. */
+  .burst-lost .burst-stray {
+    animation: burst-drift 5s ease-in-out infinite;
+  }
+  .burst-lost .burst-stray-spoke {
+    animation: burst-spoke-fade 5s ease-in-out infinite;
+  }
+}
+@keyframes burst-blink {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  30% {
+    opacity: 1;
+  }
+}
+@keyframes burst-drift {
+  0%,
+  100% {
+    transform: translate(0, 0);
+    opacity: 1;
+  }
+  50% {
+    transform: translate(7px, -7px);
+    opacity: 0.45;
+  }
+}
+@keyframes burst-spoke-fade {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.15;
+  }
+}
+
 /* ==========================================================================
    Theme toggle: circular-reveal view transition (clean clip, not cross-fade).
    The JS in src/scripts/theme-init.js animates the new snapshot's clip-path
@@ -2050,10 +2158,8 @@ a.ninbox__actor:hover { text-decoration: underline; }
 .ptr-indicator.is-refreshing { --ptr-pull: 26px; --ptr-progress: 1; }
 .ptr-indicator .ptr-spinner { display: none; }
 .ptr-indicator.is-refreshing .ptr-arrow { display: none; }
-.ptr-indicator.is-refreshing .ptr-spinner { display: block; animation: ptr-spin 0.8s linear infinite; }
-@keyframes ptr-spin {
-  to { transform: rotate(360deg); }
-}
+/* The spinner is the burst-mark loader, animated by the .burst-loader rules. */
+.ptr-indicator.is-refreshing .ptr-spinner { display: block; line-height: 0; }
 
 /* ==========================================================================
    Edit-history diff markers (modal and /posts/<id>/history)

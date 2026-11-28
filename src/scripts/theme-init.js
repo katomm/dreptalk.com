@@ -6,6 +6,12 @@
 // that hash, so keep it as the single source and do not paste the contents inline.
 (() => {
   const root = document.documentElement;
+
+  // Lets charts start undrawn and draw in on first view (global.css, .draw-in).
+  // Set before first paint so they never flash in finished and then reset.
+  if ('IntersectionObserver' in window && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    root.classList.add('draw-ready');
+  }
   const osDark = matchMedia('(prefers-color-scheme: dark)');
   const LABELS = { light: 'Light', dark: 'Dark', system: 'System' };
 

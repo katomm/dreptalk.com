@@ -18,6 +18,7 @@ import { truncateIdMiddle } from '@/lib/forum/view.js';
 import { loginWithWallet } from '@/lib/auth/walletLogin.js';
 import { trackingOffer, type TrackState, type TrackingViewer } from '@/lib/delegation/trackingOffer.js';
 import { refFromUrl } from '@/lib/analytics/signupRef.js';
+import { SuccessCheckIcon } from '@/components/SuccessCheckIcon.js';
 
 // The enabled CIP-30 surface we use here: the tx WalletApi plus getNetworkId,
 // which the network guard reads (enable() returns the full object at runtime).
@@ -248,6 +249,7 @@ export default function DelegateDialog({
 
         {phase.status === 'success' ? (
           <div className="callout callout--success" role="status">
+            <SuccessCheckIcon />
             <div className="callout__body">
               <p style={{ margin: '0 0 0.35rem', fontWeight: 600 }}>Delegation submitted</p>
               <p style={{ margin: '0 0 0.5rem', overflowWrap: 'anywhere' }}>

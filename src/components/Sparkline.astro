@@ -29,7 +29,7 @@ const spark = ((): { line: string; area: string } | null => {
 ---
 
 {spark && (
-  <svg class:list={['drep-stat__spark', className]} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
+  <svg class:list={['drep-stat__spark', 'draw-in', 'draw-in--wipe', className]} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
     <polygon class="drep-stat__spark-area" points={spark.area} />
     <polyline class="drep-stat__spark-line" points={spark.line} />
   </svg>

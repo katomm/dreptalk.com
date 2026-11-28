@@ -14,7 +14,7 @@ const RING_R = 15.9155;
 const clamped = Math.max(0, Math.min(100, pct));
 ---
 
-<span class:list={['drep-stat__ring', className]} aria-hidden="true">
+<span class:list={['drep-stat__ring', 'draw-in', 'draw-in--ring', className]} aria-hidden="true">
   <svg viewBox="0 0 36 36">
     <circle class="drep-stat__ring-track" cx="18" cy="18" r={RING_R} />
     <circle class="drep-stat__ring-arc" cx="18" cy="18" r={RING_R} stroke-dasharray={`${clamped} ${100 - clamped}`} stroke-dashoffset="25" />
