@@ -59,6 +59,32 @@ describe('filterCandidates', () => {
   it('matches nothing gracefully', () => {
     expect(filterCandidates(pool, 'zzz')).toEqual([]);
   });
+
+  it('lists preferred slugs first for an empty query, in their order', () => {
+    expect(filterCandidates(pool, '', ['dave', 'bob']).map((x) => x.slug)).toEqual([
+      'dave', 'bob', 'alice-drep', 'cardano-alice',
+    ]);
+  });
+
+  it('puts preferred matches ahead of better non-preferred ones', () => {
+    expect(filterCandidates(pool, 'ali', ['cardano-alice']).map((x) => x.slug)).toEqual([
+      'cardano-alice', // preferred, substring only
+      'alice-drep',
+      'dave',
+    ]);
+  });
+
+  it('orders preferred matches by match quality, then preference', () => {
+    expect(filterCandidates(pool, 'ali', ['cardano-alice', 'dave', 'alice-drep']).map((x) => x.slug)).toEqual([
+      'alice-drep',
+      'dave',
+      'cardano-alice',
+    ]);
+  });
+
+  it('ignores preferred slugs that do not match the query', () => {
+    expect(filterCandidates(pool, 'bob', ['dave']).map((x) => x.slug)).toEqual(['bob']);
+  });
 });
 
 describe('insertMention', () => {

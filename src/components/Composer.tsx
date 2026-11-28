@@ -18,9 +18,11 @@ interface ComposerProps {
   openingPostId?: string;
   /** Proposal Drafts only. The picker shows when there are two or more choices. */
   mandateOptions?: MandateOptions;
+  /** Profile slugs of the thread's participants, listed first by the @mention picker. */
+  participantSlugs?: string[];
 }
 
-export default function Composer({ mode, categorySlug, topicId, openingPostId, mandateOptions }: ComposerProps) {
+export default function Composer({ mode, categorySlug, topicId, openingPostId, mandateOptions, participantSlugs }: ComposerProps) {
   const choiceCount = (mandateOptions?.proposers.length ?? 0) + (mandateOptions?.allowSelf ? 1 : 0);
   const showPicker = choiceCount >= 2;
   // Default is the first proposer, the mandate, as the spec asks.
@@ -348,6 +350,7 @@ export default function Composer({ mode, categorySlug, topicId, openingPostId, m
         placeholder="Write your message in Markdown..."
         required
         disabled={submitting}
+        preferredMentions={participantSlugs}
       />
 
       {error && (

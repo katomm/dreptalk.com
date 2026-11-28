@@ -117,6 +117,8 @@ export interface MarkdownEditorProps {
   helpText?: boolean;
   /** @mention autocomplete and its toolbar button. Off for text published outside the forum. */
   mentions?: boolean;
+  /** Profile slugs the @mention picker lists first (the thread's participants, most recent first). */
+  preferredMentions?: readonly string[];
 }
 
 // Controlled Markdown editor shared by the forum composer and the vote rationale
@@ -129,7 +131,7 @@ export function markdownBodyId(idPrefix: string): string {
 }
 
 const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(function MarkdownEditor(
-  { value, onChange, maxLength, label, placeholder = 'Write in Markdown...', disabled = false, required = false, minRows = 7, idPrefix = 'md', showCounter = false, helpText = true, mentions = true },
+  { value, onChange, maxLength, label, placeholder = 'Write in Markdown...', disabled = false, required = false, minRows = 7, idPrefix = 'md', showCounter = false, helpText = true, mentions = true, preferredMentions },
   ref,
 ) {
   const [showPreview, setShowPreview] = useState(false);
@@ -218,7 +220,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorHandle, MarkdownEditorProps>(fun
     if (next && candidates === null) void loadCandidates().then(setCandidates);
   };
 
-  const suggestions = active && candidates ? filterCandidates(candidates, active.query) : [];
+  const suggestions = active && candidates ? filterCandidates(candidates, active.query, preferredMentions) : [];
   const panelOpen = active !== null && suggestions.length > 0;
 
   // Replaces the active mention with the chosen slug and restores the caret

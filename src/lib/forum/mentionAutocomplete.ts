@@ -31,24 +31,40 @@ export function detectMentionQuery(text: string, caret: number): ActiveMention |
   return { start: i, query };
 }
 
-/** Top matches for the query: slug-prefix, then name-prefix, then substring. */
-export function filterCandidates(candidates: MentionCandidate[], query: string): MentionCandidate[] {
+/**
+ * Top matches for the query: slug-prefix, then name-prefix, then substring.
+ * Slugs in `preferred` (thread participants, most relevant first) rank ahead
+ * of everyone else at any match quality. Among them, match quality decides
+ * first, then their given order.
+ */
+export function filterCandidates(
+  candidates: MentionCandidate[],
+  query: string,
+  preferred: readonly string[] = [],
+): MentionCandidate[] {
   const q = query.toLowerCase();
-  if (!q) return candidates.slice(0, MAX_SUGGESTIONS);
+  const pref = new Map(preferred.map((slug, i) => [slug, i]));
   const rank = (cand: MentionCandidate): number => {
     const name = cand.name.toLowerCase();
-    if (cand.slug.startsWith(q)) return 0;
+    if (!q || cand.slug.startsWith(q)) return 0;
     if (name.startsWith(q)) return 1;
     if (cand.slug.includes(q) || name.includes(q)) return 2;
     return -1;
   };
-  const ranked: { cand: MentionCandidate; r: number }[] = [];
+  const ranked: { cand: MentionCandidate; r: number; p: number }[] = [];
   for (const cand of candidates) {
     const r = rank(cand);
-    if (r >= 0) ranked.push({ cand, r });
+    if (r >= 0) ranked.push({ cand, r, p: pref.get(cand.slug) ?? Infinity });
   }
-  // Stable by construction: Array.prototype.sort is stable, input is name-sorted.
-  ranked.sort((a, b) => a.r - b.r);
+  // Preferred first (by match quality, then their order), the rest by match
+  // quality. Stable by construction: Array.prototype.sort is stable, input is name-sorted.
+  ranked.sort((a, b) => {
+    const ap = a.p !== Infinity;
+    const bp = b.p !== Infinity;
+    if (ap !== bp) return ap ? -1 : 1;
+    if (ap) return a.r - b.r || a.p - b.p;
+    return a.r - b.r;
+  });
   return ranked.slice(0, MAX_SUGGESTIONS).map((x) => x.cand);
 }
 
