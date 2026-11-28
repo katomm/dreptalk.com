@@ -679,25 +679,23 @@ main.container {
    IntersectionObserver available), scripts/draw-in.ts adds .is-drawn on entry.
    Without draw-ready nothing is hidden, so no-JS and reduced motion see the
    finished chart. The animations use backwards fill only, so once they end no
-   clip is left behind (a sparkline stroke may overflow its box). */
+   clip is left behind (a sparkline stroke may overflow its box). A ring's arc
+   (.draw-in__arc) is a circle on a pathLength-100 dash, as in DonutRing. */
 .draw-ready .draw-in--wipe:not(.is-drawn) {
   clip-path: inset(0 100% 0 0);
 }
 .draw-ready .draw-in--wipe.is-drawn {
   animation: draw-wipe 0.9s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
-.draw-ready .draw-in--ring:not(.is-drawn) .drep-stat__ring-arc {
+.draw-ready .draw-in--ring:not(.is-drawn) .draw-in__arc {
   stroke-dasharray: 0 100;
 }
-.draw-ready .draw-in--ring.is-drawn .drep-stat__ring-arc {
+.draw-ready .draw-in--ring.is-drawn .draw-in__arc {
   animation: draw-ring 0.9s cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 @keyframes draw-wipe {
   from {
     clip-path: inset(0 100% 0 0);
-  }
-  to {
-    clip-path: inset(0 0 0 0);
   }
 }
 @keyframes draw-ring {
@@ -723,32 +721,24 @@ main.container {
   from {
     stroke-dashoffset: 1;
   }
-  to {
-    stroke-dashoffset: 0;
-  }
 }
 
 /* Burst-mark loader (LogoMark variant="loading", burstLoaderSvg): the eight
-   nodes light up clockwise. Under reduced motion it stays the plain mark. */
+   nodes light up clockwise, staggered by their --i. Under reduced motion it
+   stays the plain mark. */
 @media (prefers-reduced-motion: no-preference) {
-  .burst-loader .burst-node {
+  .burst-loading .burst-node {
     opacity: 0.25;
     animation: burst-blink 1.2s ease-in-out infinite;
+    animation-delay: calc(var(--i, 0) * 0.15s);
   }
-  .burst-loader .burst-node:nth-of-type(2) { animation-delay: 0.15s; }
-  .burst-loader .burst-node:nth-of-type(3) { animation-delay: 0.3s; }
-  .burst-loader .burst-node:nth-of-type(4) { animation-delay: 0.45s; }
-  .burst-loader .burst-node:nth-of-type(5) { animation-delay: 0.6s; }
-  .burst-loader .burst-node:nth-of-type(6) { animation-delay: 0.75s; }
-  .burst-loader .burst-node:nth-of-type(7) { animation-delay: 0.9s; }
-  .burst-loader .burst-node:nth-of-type(8) { animation-delay: 1.05s; }
 
-  /* LogoMark variant="lost" (not-found page): one node slowly drifts off and
-     comes back, its spoke fading while it is away. */
-  .burst-lost .burst-stray {
+  /* LogoMark variant="lost" (not-found page): the second node (top right)
+     slowly drifts off and comes back, its spoke fading while it is away. */
+  .burst-lost .burst-node:nth-of-type(2) {
     animation: burst-drift 5s ease-in-out infinite;
   }
-  .burst-lost .burst-stray-spoke {
+  .burst-lost line:nth-of-type(2) {
     animation: burst-spoke-fade 5s ease-in-out infinite;
   }
 }
@@ -2158,7 +2148,7 @@ a.ninbox__actor:hover { text-decoration: underline; }
 .ptr-indicator.is-refreshing { --ptr-pull: 26px; --ptr-progress: 1; }
 .ptr-indicator .ptr-spinner { display: none; }
 .ptr-indicator.is-refreshing .ptr-arrow { display: none; }
-/* The spinner is the burst-mark loader, animated by the .burst-loader rules. */
+/* The spinner is the burst-mark loader, animated by the .burst-loading rules. */
 .ptr-indicator.is-refreshing .ptr-spinner { display: block; line-height: 0; }
 
 /* ==========================================================================

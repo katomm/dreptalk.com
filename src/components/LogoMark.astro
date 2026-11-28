@@ -22,12 +22,20 @@
 // lib/brand/season.ts). It is drawn in fixed colors, not currentColor, and
 // reaches above the viewBox, so the SVG lets it overflow.
 //
-// `variant` animates the mark (styles in global.css, both stop under reduced
-// motion): 'loading' lights the eight nodes in turn, for a wait of unknown
-// length. 'lost' lets one node drift away and back, for the not-found page.
+// `variant` animates the mark via a `burst-<variant>` class (styles in
+// global.css, both stop under reduced motion): 'loading' lights the eight nodes
+// in turn, for a wait of unknown length. 'lost' lets one node drift away and
+// back, for the not-found page.
 //
 // `gradient` paints the mark in the brand gradient instead of currentColor.
-import { BURST_CENTER, BURST_NODES, BURST_RING, BURST_SPOKES } from '@/lib/brand/burstMark.js';
+import {
+  BRAND_GRAD_STOPS,
+  BRAND_GRAD_VECTOR,
+  BURST_CENTER,
+  BURST_NODES,
+  BURST_RING,
+  BURST_SPOKES,
+} from '@/lib/brand/burstMark.js';
 
 interface Props {
   style?: string;
@@ -37,16 +45,14 @@ interface Props {
   gradient?: boolean;
 }
 const { style, label, hat = false, variant, gradient = false } = Astro.props;
-// Unique per render, several marks can share a page.
-const gradId = gradient ? `logo-grad-${Math.random().toString(36).slice(2, 8)}` : '';
-const paint = gradient ? `url(#${gradId})` : 'currentColor';
-const svgClass = variant === 'loading' ? 'burst-loader' : variant === 'lost' ? 'burst-lost' : undefined;
-const nodeClass = (i: number): string | undefined =>
-  variant === 'loading' ? 'burst-node' : variant === 'lost' && i === 1 ? 'burst-stray' : undefined;
+// A fixed id keeps the HTML byte-stable for caching. Two gradient marks on one
+// page repeat identical defs, which render the same.
+const GRAD_ID = 'logo-grad';
+const paint = gradient ? `url(#${GRAD_ID})` : 'currentColor';
 ---
 <svg
   style={style}
-  class={svgClass}
+  class={variant && `burst-${variant}`}
   viewBox="0 0 72 72"
   role={label ? 'img' : undefined}
   aria-label={label}
@@ -55,19 +61,15 @@ const nodeClass = (i: number): string | undefined =>
 >
   {gradient && (
     <defs>
-      <linearGradient id={gradId} x1="8" y1="56" x2="66" y2="16" gradientUnits="userSpaceOnUse">
-        <stop offset="0" stop-color="#8b5cf6" />
-        <stop offset=".5" stop-color="#3b82f6" />
-        <stop offset="1" stop-color="#2dd4bf" />
+      <linearGradient id={GRAD_ID} {...BRAND_GRAD_VECTOR} gradientUnits="userSpaceOnUse">
+        {BRAND_GRAD_STOPS.map((c, i) => <stop offset={i / (BRAND_GRAD_STOPS.length - 1)} stop-color={c} />)}
       </linearGradient>
     </defs>
   )}
   <g stroke={paint} stroke-width="2.4" stroke-linecap="round">
-    {BURST_SPOKES.map((l, i) => (
-      <line class={variant === 'lost' && i === 1 ? 'burst-stray-spoke' : undefined} x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2} />
-    ))}
+    {BURST_SPOKES.map((l) => <line x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2} />)}
   </g>
-  {BURST_NODES.map((n, i) => <circle class={nodeClass(i)} cx={n.cx} cy={n.cy} r={n.r} />)}
+  {BURST_NODES.map((n, i) => <circle class="burst-node" style={`--i:${i}`} cx={n.cx} cy={n.cy} r={n.r} />)}
   {BURST_RING.map((n) => <circle cx={n.cx} cy={n.cy} r={n.r} />)}
   <circle cx={BURST_CENTER.cx} cy={BURST_CENTER.cy} r={BURST_CENTER.r} />
   {hat && (

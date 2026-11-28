@@ -13,6 +13,8 @@
 // Every string in BadgeOptions is inserted as given, so callers pass text that
 // is already safe HTML. Runs in the browser as well as on the server.
 
+import { BRAND_GRAD_STOPS } from './burstMark';
+
 export type BadgeKind = 'footer' | 'sidebar' | 'banner';
 
 export interface BadgeSnippet {
@@ -47,7 +49,7 @@ export interface BadgeOptions {
 const badgeFont = "system-ui,-apple-system,'Segoe UI',sans-serif";
 const badgeBg = 'rgba(128,128,128,.08)';
 const badgeBorder = '1px solid rgba(128,128,128,.32)';
-const gradStops = ['#8b5cf6', '#3b82f6', '#2dd4bf'];
+const gradStops = BRAND_GRAD_STOPS;
 
 // Inline copy of /logo.svg, minified, gradient id namespaced per snippet.
 const badgeLogo = (id: string, size: number) =>

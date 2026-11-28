@@ -5,7 +5,7 @@
 export const prerender = false;
 
 import Layout from '@/layouts/Layout.astro';
-import LogoMark from '@/components/LogoMark.astro';
+import { burstLoaderSvg } from '@/lib/brand/burstMark.js';
 import { getSelfDrepId } from '@/lib/db/users';
 import { getDrepById } from '@/lib/db/dreps';
 import { runtimeEnv } from '@/lib/api/response';
@@ -90,7 +90,7 @@ const votingPowerLabel = formatAdaCompact(drep?.votingPower ?? null) ?? '0 ₳';
 
       <section class="vpo-card">
         <div id="vpo-status" class="vpo-status" role="status">
-          <span class="vpo-spinner" aria-hidden="true"><LogoMark variant="loading" style="width:18px;height:18px" /></span>
+          <span class="vpo-spinner" aria-hidden="true" set:html={burstLoaderSvg(18)} />
           <span>Analyzing… the first run in a while can take a moment.</span>
         </div>
 

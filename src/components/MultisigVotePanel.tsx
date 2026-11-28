@@ -551,9 +551,7 @@ export default function MultisigVotePanel({ gaId, network, scriptDrepId, mode, p
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxWidth: '32rem' }}>
         <div className="callout callout--success" role="status">
-          <svg className="callout__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" />
-          </svg>
+          <SuccessCheckIcon />
           <div className="callout__body">
             <p style={{ margin: '0 0 0.35rem', fontWeight: 600 }}>Vote created</p>
             <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--muted)' }}>

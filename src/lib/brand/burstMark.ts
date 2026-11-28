@@ -51,17 +51,22 @@ export const BURST_RING: readonly Dot[] = [
 
 export const BURST_CENTER: Dot = { cx: 36, cy: 36, r: 7 };
 
+/** Brand gradient stops and vector in the mark's viewBox, as in public/logo.svg. */
+export const BRAND_GRAD_STOPS = ['#8b5cf6', '#3b82f6', '#2dd4bf'] as const;
+export const BRAND_GRAD_VECTOR = { x1: 8, y1: 56, x2: 66, y2: 16 } as const;
+
 /**
  * The loader variant as an SVG string: spokes, nodes and center without the
  * outer ring (like the favicon, it reads better at small sizes). Styled by the
- * `.burst-loader` rules in global.css, which light the nodes in turn.
+ * `.burst-loading` rules in global.css, which light the nodes in turn (each
+ * node carries its index as --i for the stagger).
  */
 export function burstLoaderSvg(size: number): string {
   const spokes = BURST_SPOKES.map((s) => `<line x1="${s.x1}" y1="${s.y1}" x2="${s.x2}" y2="${s.y2}"/>`).join('');
-  const nodes = BURST_NODES.map((n) => `<circle class="burst-node" cx="${n.cx}" cy="${n.cy}" r="${n.r}"/>`).join('');
+  const nodes = BURST_NODES.map((n, i) => `<circle class="burst-node" style="--i:${i}" cx="${n.cx}" cy="${n.cy}" r="${n.r}"/>`).join('');
   const c = BURST_CENTER;
   return (
-    `<svg class="burst-loader" width="${size}" height="${size}" viewBox="0 0 72 72" fill="currentColor" aria-hidden="true">` +
+    `<svg class="burst-loading" width="${size}" height="${size}" viewBox="0 0 72 72" fill="currentColor" aria-hidden="true">` +
     `<g stroke="currentColor" stroke-width="2.4" stroke-linecap="round">${spokes}</g>` +
     `${nodes}<circle cx="${c.cx}" cy="${c.cy}" r="${c.r}"/></svg>`
   );

@@ -20,6 +20,6 @@ describe('burstLoaderSvg', () => {
     const svg = burstLoaderSvg(20);
     expect(svg.match(/class="burst-node"/g)).toHaveLength(8);
     expect(svg.match(/<circle/g)).toHaveLength(9);
-    expect(svg).toContain('class="burst-loader" width="20" height="20"');
+    expect(svg).toContain('class="burst-loading" width="20" height="20"');
   });
 });
