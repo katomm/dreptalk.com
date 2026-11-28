@@ -4,7 +4,8 @@
 // was cast. The rationale column carries one of three states: "View rationale"
 // (a rendered body exists, the row becomes an expandable <details>, native and
 // CSP-safe), "Rationale unavailable" (the vote anchors a rationale we could not
-// resolve), or "No rationale published". When the voter changed their vote, a
+// resolve), "Rationale not loaded" (the voter is under the rationale power gate,
+// so the anchor is never fetched), or "No rationale published". When the voter changed their vote, a
 // "changed from X" chip marks the row and the expansion lists the superseded
 // votes (with their rationales) under "Earlier votes". Styles live in
 // global.css (.vhist__*) so this row and the page's header row share one grid
@@ -16,6 +17,7 @@ import type { SupersededVote } from '@/lib/db/voteHistory.js';
 import { statusBadge } from '@/lib/governance/view.js';
 import { formatRelativeTime } from '@/lib/forum/view.js';
 import { enhanceStoredHtml } from '@/lib/markdown.js';
+import { RATIONALE_NOT_LOADED_TITLE } from '@/lib/governance/rationaleGate.js';
 
 interface Props {
   row: DrepVoteHistoryRow;
@@ -31,8 +33,10 @@ interface Props {
   permalinkBase?: string | null;
   /** True when the signed-in viewer is the DRep/SPO this profile belongs to. */
   isOwner?: boolean;
+  /** True when the voter is under the rationale power gate (belowRationaleGate). */
+  rationaleGated?: boolean;
 }
-const { row, now, earlier = [], permalinkBase = null, isOwner = false } = Astro.props;
+const { row, now, earlier = [], permalinkBase = null, isOwner = false, rationaleGated = false } = Astro.props;
 
 // Deep-link anchor and share URL for this vote, only in a profile context. A
 // gov action id is "<txHash>#<index>"; the "#" would start a second URL fragment,
@@ -129,7 +133,9 @@ const href = row.topic_slug ? `/t/${row.topic_slug}/` : null;
             </svg>
           </span>
         ) : (
-          <span class="vhist__rat-none">{row.meta_url ? 'Rationale unavailable' : 'No rationale published'}</span>
+          !row.meta_url ? <span class="vhist__rat-none">No rationale published</span>
+            : rationaleGated ? <span class="vhist__rat-none" title={RATIONALE_NOT_LOADED_TITLE}>Rationale not loaded</span>
+            : <span class="vhist__rat-none">Rationale unavailable</span>
         )}
       </span>
 

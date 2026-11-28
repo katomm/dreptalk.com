@@ -1,6 +1,7 @@
 ---
 export const prerender = false;
 
+import { belowRationaleGate } from '@/lib/governance/rationaleGate.js';
 import { requestDb } from '@/lib/db/requestDb.js';
 import Layout from '@/layouts/Layout.astro';
 import JsonLd from '@/components/JsonLd.astro';
@@ -213,6 +214,7 @@ const siteOrigin = Astro.site?.origin ?? SITE_ORIGIN;
 const now = Date.now();
 const displayName = drep?.name ?? (drep ? truncateId(drep.drepId, 18) : '');
 const influence = drep ? influencePct(drep.votingPower, activeStake.total) : null;
+const rationaleGated = drep ? belowRationaleGate(drep.votingPower) : false;
 
 // A DRep that deregistered its credential: still viewable for the governance
 // record, but clearly marked and no longer delegatable (no voting power).
@@ -525,14 +527,14 @@ const profileSummary = drep
             <span>Outcome</span>
             <span class="vhist__when-h">Voted</span>
           </div>
-          {historyHead.map((h) => <DrepVoteRow row={h} now={now} earlier={voteHistoryMap.get(h.ga_id) ?? []} permalinkBase={canonical} isOwner={isOwner} />)}
+          {historyHead.map((h) => <DrepVoteRow row={h} now={now} earlier={voteHistoryMap.get(h.ga_id) ?? []} permalinkBase={canonical} isOwner={isOwner} rationaleGated={rationaleGated} />)}
           {historyTail.length > 0 && (
             <details class="vhist__more">
               <summary class="vhist__more-toggle">
                 <span class="vhist__more-show">Show {historyTail.length} more</span>
                 <span class="vhist__more-hide">Show less</span>
               </summary>
-              {historyTail.map((h) => <DrepVoteRow row={h} now={now} earlier={voteHistoryMap.get(h.ga_id) ?? []} permalinkBase={canonical} isOwner={isOwner} />)}
+              {historyTail.map((h) => <DrepVoteRow row={h} now={now} earlier={voteHistoryMap.get(h.ga_id) ?? []} permalinkBase={canonical} isOwner={isOwner} rationaleGated={rationaleGated} />)}
               {votesCast > votingHistory.length && (
                 <p class="vhist__truncated">Showing the {votingHistory.length} most recent votes.</p>
               )}
@@ -556,14 +558,14 @@ const profileSummary = drep
             <span>Outcome</span>
             <span class="vhist__when-h">Voted</span>
           </div>
-          {rationaleHead.map((h) => <DrepVoteRow row={h} now={now} earlier={voteHistoryMap.get(h.ga_id) ?? []} permalinkBase={canonical} isOwner={isOwner} />)}
+          {rationaleHead.map((h) => <DrepVoteRow row={h} now={now} earlier={voteHistoryMap.get(h.ga_id) ?? []} permalinkBase={canonical} isOwner={isOwner} rationaleGated={rationaleGated} />)}
           {rationaleTail.length > 0 && (
             <details class="vhist__more">
               <summary class="vhist__more-toggle">
                 <span class="vhist__more-show">Show {rationaleTail.length} more</span>
                 <span class="vhist__more-hide">Show less</span>
               </summary>
-              {rationaleTail.map((h) => <DrepVoteRow row={h} now={now} earlier={voteHistoryMap.get(h.ga_id) ?? []} permalinkBase={canonical} isOwner={isOwner} />)}
+              {rationaleTail.map((h) => <DrepVoteRow row={h} now={now} earlier={voteHistoryMap.get(h.ga_id) ?? []} permalinkBase={canonical} isOwner={isOwner} rationaleGated={rationaleGated} />)}
             </details>
           )}
         </div>

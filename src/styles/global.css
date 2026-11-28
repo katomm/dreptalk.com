@@ -1242,7 +1242,8 @@ a.drep-stat:focus-visible { outline: 2px solid var(--accent); outline-offset: 2p
 .vhist__when { text-align: right; color: var(--muted); font-size: 0.8125rem; white-space: nowrap; }
 
 /* Rationale column: "View rationale" (accent, part of the expandable summary)
-   or a muted state ("Rationale unavailable" / "No rationale published"). */
+   or a muted state ("Rationale unavailable", "Rationale not loaded" or
+   "No rationale published"). */
 .vhist__rat { min-width: 0; }
 .vhist__rat-none { color: var(--muted); font-size: 0.8125rem; }
 
