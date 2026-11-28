@@ -59,7 +59,10 @@ const ogImage = cur
 
   {data && (
     <>
-      <h2 style="font-size:1.125rem;margin:2rem 0 0.75rem;">Net Change Limit periods</h2>
+      <div class="treasury-h2row">
+        <h2 style="font-size:1.125rem;margin:2rem 0 0.75rem;">Net Change Limit periods</h2>
+        <a href="/treasury/recipients/">Recipients and runway</a>
+      </div>
       <NclPeriodsTable periods={data.periods} currentEpoch={data.currentEpoch} />
     </>
   )}
@@ -70,6 +73,13 @@ const ogImage = cur
 </Layout>
 
 <style>
+  .treasury-h2row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    font-size: 0.875rem;
+  }
   .treasury-summary {
     border: 1px solid var(--border);
     border-radius: var(--radius);

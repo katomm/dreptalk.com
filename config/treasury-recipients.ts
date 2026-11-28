@@ -28,7 +28,7 @@ export const RECIPIENT_LABELS: readonly RecipientLabel[] = [
     label: 'Intersect 2026 treasury reserve contract',
     sourceActionId: 'b3d452bff7769d7f557ec6b8974760ee6c5e496c276652b654032966621e0ccf#1',
     sourceQuote:
-      'The 2026 Treasury Reserve Smart Contract stake address: stake1784sdxt6jjennmstphgdu7l7c2scf5d02a6cve2dgn5s2kq5u3j9v',
+      'To administrate treasury funds on-chain, Intersect will utilize the treasury management smart contract framework developed by Sundae Labs. A new instance of these smart contracts has been deployed for 2026, mirroring the contracts from the 2025 budget cycle. The 2026 Treasury Reserve Smart Contract stake address: stake1784sdxt6jjennmstphgdu7l7c2scf5d02a6cve2dgn5s2kq5u3j9v',
   },
   {
     credType: 'scriptHash',

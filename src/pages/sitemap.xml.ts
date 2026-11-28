@@ -6,10 +6,12 @@ import { getCategories } from '../../config/categories.js';
 import { currentNetwork } from '../lib/api/response.js';
 import { listCommitteeColdKeys } from '../lib/db/committee.js';
 import { listIndexableDrepIds } from '../lib/db/dreps.js';
+import { listAllTreasuryRows } from '../lib/db/treasury.js';
 import { ccProfilePath } from '../lib/governance/ccNames.js';
 import { drepGroupsAvailable } from '../lib/groups/gate.js';
 import { slugFor } from '../lib/review/windows.js';
 import { surveysEnabled } from '../lib/surveys/switch.js';
+import { groupRecipients } from '../lib/treasury/recipients.js';
 
 export const prerender = false;
 
@@ -34,6 +36,7 @@ export const GET: APIRoute = async ({ site }) => {
     { path: '/dreps/' },
     { path: '/dreps/movers/' },
     { path: '/treasury/' },
+    { path: '/treasury/recipients/' },
     { path: '/governance-review/' },
     ...(await getCollection('review')).map((e) => ({
       path: `/governance-review/${slugFor(e.data.epochFrom, e.data.epochTo)}/`,
@@ -63,7 +66,10 @@ export const GET: APIRoute = async ({ site }) => {
     for (const row of rows) {
       entries.push({ path: `/t/${row.slug}/`, lastmod: new Date(row.last_post_at).toISOString() });
     }
-    const [drepIds, coldKeys] = await Promise.all([listIndexableDrepIds(db), listCommitteeColdKeys(db)]);
+    const [drepIds, coldKeys, treasuryRows] = await Promise.all([listIndexableDrepIds(db), listCommitteeColdKeys(db), listAllTreasuryRows(db)]);
+    for (const s of groupRecipients(treasuryRows, currentNetwork())) {
+      if (s.address) entries.push({ path: `/treasury/recipients/${s.address}/` });
+    }
     for (const id of drepIds) {
       entries.push({ path: `/dreps/${id}/` });
     }
