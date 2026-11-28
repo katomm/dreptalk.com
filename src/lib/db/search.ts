@@ -4,13 +4,14 @@
 // lib/search/match.ts (never raw user input) and bound as a parameter.
 import { decodeBech32 } from '../crypto/bech32.js';
 import { drepPath } from '../dreps/profile.js';
+import { poolPath } from '../pools/profile.js';
 import { positionsVoterAnchor } from '../governance/voteStatement.js';
 import type { IdentifierQuery } from '../search/identifiers.js';
 import { PAGE_SIZE } from '../search/scopes.js';
 import { pageToOffset } from '../forum/view.js';
 
 export interface ExactHit {
-  kind: 'governance-action' | 'drep';
+  kind: 'governance-action' | 'drep' | 'pool';
   href: string;
   label: string;
 }
@@ -42,10 +43,22 @@ export interface DrepHit {
   imageHash: string | null;
 }
 
+/** A stake pool. Only pools that voted at least once (or whose operator signed
+ *  in) have a row, so a pool missing here has no profile on the site. */
+export interface PoolHit {
+  href: string;
+  poolId: string;
+  ticker: string | null;
+  name: string | null;
+  votes: number;
+  imageHash: string | null;
+}
+
 export interface SearchGroups {
   governanceActions: GaHit[];
   discussions: TopicHit[];
   dreps: DrepHit[];
+  spos: PoolHit[];
   rationales: RationaleHit[];
 }
 
@@ -102,6 +115,15 @@ export async function resolveIdentifier(db: D1Database, ident: IdentifierQuery):
     const row = await stmt.first<{ id: string; title: string | null; slug: string | null }>();
     if (!row?.slug) return null;
     return { kind: 'governance-action', href: `/t/${row.slug}/`, label: row.title ?? row.id };
+  }
+
+  if (ident.kind === 'pool') {
+    const pool = await db
+      .prepare('SELECT pool_id, ticker, name, slug FROM pools WHERE pool_id = ?1 LIMIT 1')
+      .bind(ident.poolId)
+      .first<{ pool_id: string; ticker: string | null; name: string | null; slug: string | null }>();
+    if (!pool) return null;
+    return { kind: 'pool', href: poolPath({ poolId: pool.pool_id, slug: pool.slug }), label: pool.name ?? pool.ticker ?? pool.pool_id };
   }
 
   const direct = await db
@@ -173,14 +195,53 @@ interface DrepRow {
   snip: string | null;
 }
 
+// Pools are matched by ticker or name with a plain substring test instead of
+// FTS: the table holds a few hundred rows, so a scan is cheap and needs no
+// index migration. instr() rather than LIKE, because LIKE treats % and _ as
+// wildcards and workerd rejects long LIKE patterns as too complex. ?1 is the
+// lowercased raw query. SQLite's lower() folds ASCII only, which covers tickers.
+const POOL_WHERE = `instr(lower(p.ticker), ?1) > 0 OR instr(lower(p.name), ?1) > 0`;
+const POOL_SELECT = `
+  SELECT p.pool_id, p.ticker, p.name, p.slug, p.image_content_hash,
+         (SELECT COUNT(*) FROM drep_votes v WHERE v.voter_id = p.pool_id) AS votes
+  FROM pools p
+  WHERE ${POOL_WHERE}
+  ORDER BY CASE
+             WHEN lower(p.ticker) = ?1 THEN 0
+             WHEN instr(lower(p.ticker), ?1) = 1 THEN 1
+             WHEN instr(lower(p.name), ?1) = 1 THEN 2
+             ELSE 3
+           END, votes DESC, p.pool_id`;
+const POOL_COUNT = `SELECT COUNT(*) AS n FROM pools p WHERE ${POOL_WHERE}`;
+
+interface PoolRow {
+  pool_id: string;
+  ticker: string | null;
+  name: string | null;
+  slug: string | null;
+  image_content_hash: string | null;
+  votes: number;
+}
+
+function toPoolHit(r: PoolRow): PoolHit {
+  return {
+    href: poolPath({ poolId: r.pool_id, slug: r.slug }),
+    poolId: r.pool_id,
+    ticker: r.ticker,
+    name: r.name,
+    votes: r.votes,
+    imageHash: r.image_content_hash,
+  };
+}
+
 /**
- * Runs the four FTS queries in one D1 batch and merges forum hits per topic:
+ * Runs the four FTS queries and the pool lookup in one D1 batch and merges forum hits per topic:
  * hits in governance topics join the GA group (annotated as discussion
  * matches, deduplicated against direct GA hits), everything else lands in
  * Discussions. Soft-deleted rows are filtered here, at query time.
  */
-export async function searchAll(db: D1Database, match: string): Promise<SearchGroups> {
-  const [gaRes, topicRes, postRes, drepRes, ratRes] = await db.batch([
+export async function searchAll(db: D1Database, match: string, query: string): Promise<SearchGroups> {
+  const [gaRes, topicRes, postRes, drepRes, ratRes, poolRes] = await db.batch([
     db
       .prepare(
         `SELECT ga.id AS ga_id, ga.title, ga.type, ga.status, t.slug,
@@ -232,6 +293,7 @@ export async function searchAll(db: D1Database, match: string): Promise<SearchGr
       )
       .bind(match),
     db.prepare(`${RATIONALE_SELECT} LIMIT ${GROUP_LIMIT}`).bind(match),
+    db.prepare(`${POOL_SELECT} LIMIT ${GROUP_LIMIT}`).bind(query.toLowerCase()),
   ]);
 
   const gaRows = (gaRes.results ?? []) as unknown as GaRow[];
@@ -239,6 +301,7 @@ export async function searchAll(db: D1Database, match: string): Promise<SearchGr
   const postRows = (postRes.results ?? []) as unknown as TopicRow[];
   const drepRows = (drepRes.results ?? []) as unknown as DrepRow[];
   const ratRows = (ratRes.results ?? []) as unknown as RationaleRow[];
+  const poolRows = (poolRes.results ?? []) as unknown as PoolRow[];
 
   // Merge topic-title hits and post hits per topic; post hits contribute the
   // snippet (best-ranked first) and the discussion-match count.
@@ -310,6 +373,7 @@ export async function searchAll(db: D1Database, match: string): Promise<SearchGr
     governanceActions: governanceActions.slice(0, GROUP_LIMIT),
     discussions,
     dreps,
+    spos: poolRows.map(toPoolHit),
     rationales: ratRows.map(toRationaleHit),
   };
 }
@@ -323,6 +387,7 @@ export interface ScopeCounts {
   forum: number;
   governance: number;
   dreps: number;
+  spos: number;
   rationales: number;
 }
 
@@ -369,7 +434,8 @@ interface RationaleRow {
 
 const RATIONALE_SELECT = `
   SELECT r.voter_id, v.voter_role, v.vote,
-         COALESCE(d.name, cn.name) AS name, d.image_content_hash,
+         COALESCE(d.name, pl.name, pl.ticker, cn.name) AS name,
+         COALESCE(d.image_content_hash, pl.image_content_hash) AS image_content_hash,
          ga.title AS action_title, t.slug AS topic_slug,
          snippet(action_rationale_fts, 0, char(1), char(2), '…', 12) AS snip
   FROM action_rationale_fts
@@ -378,6 +444,7 @@ const RATIONALE_SELECT = `
   JOIN governance_actions ga ON ga.id = r.ga_id
   JOIN topics t ON t.id = ga.topic_id AND t.deleted = 0
   LEFT JOIN dreps d ON d.drep_id = r.voter_id
+  LEFT JOIN pools pl ON pl.pool_id = r.voter_id
   LEFT JOIN cc_member_name cn ON cn.hot_key_hex = lower(v.voter_hex)
   WHERE action_rationale_fts MATCH ?1 AND r.status = 'ok'
   ORDER BY bm25(action_rationale_fts)`;
@@ -541,9 +608,21 @@ export async function searchRationalesPage(db: D1Database, match: string, page: 
   return { hits: rows.map(toRationaleHit), total: countOf(countRes) };
 }
 
+/** One page of pool hits plus the total. Takes the raw query, not the FTS match. */
+export async function searchPoolsPage(db: D1Database, query: string, page: number): Promise<ScopedResult<PoolHit>> {
+  const offset = pageToOffset(Math.max(1, page), PAGE_SIZE);
+  const q = query.toLowerCase();
+  const [rowsRes, countRes] = await db.batch([
+    db.prepare(`${POOL_SELECT} LIMIT ${PAGE_SIZE} OFFSET ?2`).bind(q, offset),
+    db.prepare(POOL_COUNT).bind(q),
+  ]);
+  const rows = (rowsRes.results ?? []) as unknown as PoolRow[];
+  return { hits: rows.map(toPoolHit), total: countOf(countRes) };
+}
+
 /** Match counts per D1 scope for the facet column. A topic matched by both its
  *  title and a post counts once (UNION, not UNION ALL). */
-export async function countScopes(db: D1Database, match: string): Promise<ScopeCounts> {
+export async function countScopes(db: D1Database, match: string, query: string): Promise<ScopeCounts> {
   const forumMatched = `
     SELECT t.id AS topic_id FROM topics_fts JOIN topics t ON t.rowid = topics_fts.rowid
     WHERE topics_fts MATCH ?1 AND t.deleted = 0 AND t.source IN ('user', 'survey')
@@ -551,11 +630,18 @@ export async function countScopes(db: D1Database, match: string): Promise<ScopeC
     SELECT p.topic_id FROM posts_fts JOIN posts p ON p.rowid = posts_fts.rowid
     JOIN topics t ON t.id = p.topic_id
     WHERE posts_fts MATCH ?1 AND p.deleted = 0 AND p.hidden = 0 AND t.deleted = 0 AND t.source IN ('user', 'survey')`;
-  const [forumRes, govRes, drepRes, ratRes] = await db.batch([
+  const [forumRes, govRes, drepRes, ratRes, poolRes] = await db.batch([
     db.prepare(`SELECT COUNT(*) AS n FROM (${forumMatched})`).bind(match),
     db.prepare('SELECT COUNT(*) AS n FROM governance_actions_fts WHERE governance_actions_fts MATCH ?1').bind(match),
     db.prepare('SELECT COUNT(*) AS n FROM dreps_fts WHERE dreps_fts MATCH ?1').bind(match),
     db.prepare(RATIONALE_COUNT).bind(match),
+    db.prepare(POOL_COUNT).bind(query.toLowerCase()),
   ]);
-  return { forum: countOf(forumRes), governance: countOf(govRes), dreps: countOf(drepRes), rationales: countOf(ratRes) };
+  return {
+    forum: countOf(forumRes),
+    governance: countOf(govRes),
+    dreps: countOf(drepRes),
+    spos: countOf(poolRes),
+    rationales: countOf(ratRes),
+  };
 }

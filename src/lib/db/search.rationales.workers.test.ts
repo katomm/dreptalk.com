@@ -112,6 +112,6 @@ describe('searchRationalesPage', () => {
     expect(p1.total).toBe(PAGE_SIZE + 2);
     expect(p1.hits).toHaveLength(PAGE_SIZE);
     expect(p2.hits).toHaveLength(2);
-    expect((await countScopes(db(), 'sigma*')).rationales).toBe(PAGE_SIZE + 2);
+    expect((await countScopes(db(), 'sigma*', 'sigma')).rationales).toBe(PAGE_SIZE + 2);
   });
 });

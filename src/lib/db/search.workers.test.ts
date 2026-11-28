@@ -96,7 +96,7 @@ describe('searchAll', () => {
     await seedTopic({ id: 'gt1', title: 'Raise treasury cap', slug: 'ga-treasury', source: 'governance', categorySlug: 'governance-actions' });
     await seedGa({ id: GA1, proposalId: 'gov_action1one', title: 'Raise treasury cap', abstract: 'Lift the net change limit.', topicId: 'gt1' });
 
-    const r = await searchAll(db(), '"treasury"*');
+    const r = await searchAll(db(), '"treasury"*', 'treasury');
     expect(r.governanceActions).toHaveLength(1);
     expect(r.governanceActions[0]).toMatchObject({
       href: '/t/ga-treasury/',
@@ -114,7 +114,7 @@ describe('searchAll', () => {
     await seedPost({ id: 'p1', topicId: 'gt1', body: 'The treasury argument is weak.' });
     await seedPost({ id: 'p2', topicId: 'gt1', body: 'Another treasury take.' });
 
-    const r = await searchAll(db(), '"treasury"*');
+    const r = await searchAll(db(), '"treasury"*', 'treasury');
     expect(r.governanceActions).toHaveLength(1);
     expect(r.governanceActions[0].discussionMatches).toBe(2);
     expect(r.discussions).toHaveLength(0);
@@ -125,7 +125,7 @@ describe('searchAll', () => {
     await seedPost({ id: 'p1', topicId: 'ut1', body: 'I love the treasury.' });
     await seedPost({ id: 'p2', topicId: 'ut1', body: 'treasury treasury treasury' });
 
-    const r = await searchAll(db(), '"treasury"*');
+    const r = await searchAll(db(), '"treasury"*', 'treasury');
     expect(r.discussions).toHaveLength(1);
     expect(r.discussions[0]).toMatchObject({ href: '/t/treasury-chat/', title: 'Treasury chat', categorySlug: 'general' });
     expect(r.governanceActions).toHaveLength(0);
@@ -136,7 +136,7 @@ describe('searchAll', () => {
     await seedTopic({ id: 'ut2', title: 'Live thread', slug: 'live' });
     await seedPost({ id: 'p1', topicId: 'ut2', body: 'treasury mention', deleted: 1 });
 
-    const r = await searchAll(db(), '"treasury"*');
+    const r = await searchAll(db(), '"treasury"*', 'treasury');
     expect(r.discussions).toHaveLength(0);
   });
 
@@ -144,7 +144,7 @@ describe('searchAll', () => {
     await seedTopic({ id: 'ut1', title: 'Live thread', slug: 'live-hidden' });
     await seedPost({ id: 'ph1', topicId: 'ut1', body: 'treasury detail hidden', hidden: 1 });
 
-    const r = await searchAll(db(), '"treasury"*');
+    const r = await searchAll(db(), '"treasury"*', 'treasury');
     expect(r.discussions).toHaveLength(0);
   });
 
@@ -152,7 +152,7 @@ describe('searchAll', () => {
     await seedTopic({ id: 'gd1', title: 'Raise treasury cap', slug: 'ga-deleted-treasury', source: 'governance', categorySlug: 'governance-actions', deleted: 1 });
     await seedGa({ id: GA1, proposalId: 'gov_action1del', title: 'Raise treasury cap', abstract: 'Lift the treasury limit.', topicId: 'gd1' });
 
-    const r = await searchAll(db(), '"treasury"*');
+    const r = await searchAll(db(), '"treasury"*', 'treasury');
     expect(r.governanceActions).toHaveLength(0);
   });
 
@@ -162,7 +162,7 @@ describe('searchAll', () => {
     await seedPost({ id: 'pf1', topicId: 'gf1', body: 'treasury matters in this post.' });
     await seedPost({ id: 'pf2', topicId: 'gf1', body: 'treasury mentioned again.' });
 
-    const r = await searchAll(db(), '"treasury"*');
+    const r = await searchAll(db(), '"treasury"*', 'treasury');
     expect(r.governanceActions).toHaveLength(1);
     expect(r.governanceActions[0]).toMatchObject({
       href: '/t/ga-post-only/',
@@ -178,13 +178,13 @@ describe('searchAll', () => {
     for (let i = 0; i < 7; i++) {
       await seedTopic({ id: `t${i}`, title: `Treasury thread ${i}`, slug: `tt-${i}` });
     }
-    const r = await searchAll(db(), '"treasury"*');
+    const r = await searchAll(db(), '"treasury"*', 'treasury');
     expect(r.discussions).toHaveLength(5);
   });
 
   it('finds dreps by name and bio with display fields', async () => {
     await upsertDrep(db(), drepArgs({ drepId: 'drep1one', name: 'Treasury Watcher', bio: 'I watch budgets.' }));
-    const r = await searchAll(db(), '"treasury"*');
+    const r = await searchAll(db(), '"treasury"*', 'treasury');
     expect(r.dreps).toHaveLength(1);
     expect(r.dreps[0]).toMatchObject({
       href: '/dreps/drep1one/',
@@ -222,7 +222,7 @@ describe('searchAll', () => {
       now: NOW,
     });
 
-    const r = await searchAll(db(), '"constitutional"*');
+    const r = await searchAll(db(), '"constitutional"*', 'constitutional');
     const hit = r.rationales.find((h) => h.voterId === 'cc1');
     expect(hit?.name).toBe('Eastern Cardano Council');
     expect(hit?.href).toBe('/t/act-slug/?tab=positions&role=cc#voter-cc1');

@@ -1,7 +1,7 @@
 // Scope vocabulary shared by the palette, the /search page, and the API.
-export type Scope = 'all' | 'forum' | 'governance' | 'dreps' | 'rationales' | 'reviews' | 'help';
+export type Scope = 'all' | 'forum' | 'governance' | 'dreps' | 'spos' | 'rationales' | 'reviews' | 'help';
 
-export const SCOPES: readonly Scope[] = ['all', 'forum', 'governance', 'dreps', 'rationales', 'reviews', 'help'];
+export const SCOPES: readonly Scope[] = ['all', 'forum', 'governance', 'dreps', 'spos', 'rationales', 'reviews', 'help'];
 
 /** URL of the /search results page for a query, scope and page. */
 export function searchPageHref(q: string, scope: Scope = 'all', page = 1): string {
@@ -20,10 +20,25 @@ export const SCOPE_LABELS: Record<Scope, string> = {
   forum: 'Discussions',
   governance: 'Governance Actions',
   dreps: 'DReps',
+  spos: 'SPOs',
   rationales: 'Rationales',
   reviews: 'Reviews',
   help: 'Help',
 };
+
+/** Badge on the "Exact match" row, by the kind of id that resolved. */
+export const EXACT_KIND_LABELS: Record<'governance-action' | 'drep' | 'pool', string> = {
+  'governance-action': 'Governance Action',
+  drep: 'DRep',
+  pool: 'SPO',
+};
+
+/** One line saying a pool exists on chain but never voted, for the palette and
+ *  the /search page. Ticker first, the way delegators know their pool. */
+export function poolNoticeText(n: { poolId: string; ticker: string | null; name: string | null }): string {
+  const who = [n.ticker ? `[${n.ticker}]` : null, n.name].filter(Boolean).join(' ') || 'This pool';
+  return `${who} has not voted on any governance action yet.`;
+}
 
 export function isScope(raw: string | null): raw is Scope {
   return raw != null && (SCOPES as readonly string[]).includes(raw);

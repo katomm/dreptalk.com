@@ -22,11 +22,13 @@ describe('handleSearch without FTS tables', () => {
       governanceActions: [],
       discussions: [],
       dreps: [],
+      spos: [],
       rationales: [],
       reviews: [],
       help: [],
       total: null,
       counts: null,
+      poolNotice: null,
     });
 
     // The help and Governance Review groups do not depend on D1 and keep

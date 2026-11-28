@@ -213,7 +213,7 @@ describe('handleSearch scoped', () => {
       const body = await handleSearch(db(), 'kappa', { scope: 'help', counts: true, content });
       expect(body.help.map((h) => h.href)).toEqual(['/help/kappa/']);
       expect(body.total).toBe(1);
-      expect(body.counts).toEqual({ forum: 1, governance: 0, dreps: 0, rationales: 0, reviews: PAGE_SIZE + 3, help: 1 });
+      expect(body.counts).toEqual({ forum: 1, governance: 0, dreps: 0, spos: 0, rationales: 0, reviews: PAGE_SIZE + 3, help: 1 });
     });
 
     it('palette mode caps each content group', async () => {

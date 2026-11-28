@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { otherScopesWithCounts, otherScopesWithRows } from './emptyHint.js';
 
-const counts = { forum: 3, governance: 5, dreps: 0, rationales: 0, reviews: 4, help: 2 };
+const counts = { forum: 3, governance: 5, dreps: 0, spos: 0, rationales: 0, reviews: 4, help: 2 };
 
 describe('otherScopesWithCounts', () => {
   it('lists non-active scopes with hits, excluding the active one', () => {

@@ -8,7 +8,7 @@ export interface OtherScopeHit {
 }
 
 // Stable, human-facing order for the hint (matches the facet column order).
-const HINT_ORDER: readonly Exclude<Scope, 'all'>[] = ['governance', 'forum', 'dreps', 'rationales', 'reviews', 'help'];
+const HINT_ORDER: readonly Exclude<Scope, 'all'>[] = ['governance', 'forum', 'dreps', 'spos', 'rationales', 'reviews', 'help'];
 
 /** The non-active scopes that have at least one hit, for the "/search" page's
  *  empty-filter hint. Empty when the active scope is "all" or counts are absent. */

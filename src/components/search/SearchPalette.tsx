@@ -6,7 +6,7 @@ import { matchStaticEntries } from '@/lib/search/staticEntries.js';
 import { readableType, statusBadge, TONE_COLORS, formatAda } from '@/lib/governance/view.js';
 import { truncateId } from '@/lib/forum/view.js';
 import type { SearchResponseBody } from '@/lib/search/handler.js';
-import { SCOPES, SCOPE_LABELS, searchPageHref, type Scope } from '@/lib/search/scopes.js';
+import { SCOPES, SCOPE_LABELS, EXACT_KIND_LABELS, poolNoticeText, searchPageHref, type Scope } from '@/lib/search/scopes.js';
 import { filterRowsByScope, type RowScope } from '@/lib/search/paletteFilter.js';
 import { otherScopesWithRows } from '@/lib/search/emptyHint.js';
 import { avatarUrl } from '@/lib/identity/avatarUrl.js';
@@ -57,7 +57,7 @@ function buildRows(q: string, data: SearchResponseBody | null, signedIn: boolean
       scope: null,
       group: 'Exact match',
       label: data.exact.label,
-      badge: data.exact.kind === 'governance-action' ? 'Governance Action' : 'DRep',
+      badge: EXACT_KIND_LABELS[data.exact.kind],
     });
   }
   for (const ga of data?.governanceActions ?? []) {
@@ -97,6 +97,18 @@ function buildRows(q: string, data: SearchResponseBody | null, signedIn: boolean
       status: d.status,
       snippet: d.snippet,
       ...(d.imageHash ? { avatar: avatarUrl(d.imageHash, 20) } : {}),
+    });
+  }
+  for (const p of data?.spos ?? []) {
+    rows.push({
+      key: `spo-${p.poolId}`,
+      href: p.href,
+      scope: 'spos',
+      group: SCOPE_LABELS.spos,
+      label: p.name ?? p.ticker ?? truncateId(p.poolId),
+      ...(p.name && p.ticker ? { badge: p.ticker } : {}),
+      detail: `${p.votes} ${p.votes === 1 ? 'vote' : 'votes'}`,
+      ...(p.imageHash ? { avatar: avatarUrl(p.imageHash, 20) } : {}),
     });
   }
   for (const r of data?.rationales ?? []) {
@@ -290,7 +302,7 @@ export default function SearchPalette({ open, onClose, returnFocusRef, signedIn 
             setQ(e.target.value);
             setActive(0);
           }}
-          placeholder="Search governance actions, discussions, DReps, reviews..."
+          placeholder="Search governance actions, discussions, DReps, pools, reviews..."
           style={{ width: '100%', padding: '0.9rem 1rem', border: 'none', borderBottom: '1px solid var(--border)', background: 'transparent', color: 'inherit', font: 'inherit', outline: 'none', boxSizing: 'border-box' }}
         />
         <div
@@ -333,7 +345,10 @@ export default function SearchPalette({ open, onClose, returnFocusRef, signedIn 
             Search is unavailable right now.
           </p>
         )}
-        {!error && rows.length === 0 && hasQuery && (() => {
+        {!error && data?.poolNotice && (
+          <p style={{ margin: 0, padding: '0.6rem 1rem', fontSize: '0.8125rem' }}>{poolNoticeText(data.poolNotice)}</p>
+        )}
+        {!error && rows.length === 0 && hasQuery && !data?.poolNotice && (() => {
           const others = otherScopesWithRows(allRows, scope);
           if (others.length === 0) {
             return (
