@@ -150,6 +150,34 @@ export async function loadRecipientPage(db: D1Database, cfg: NetworkConfig, addr
   return findRecipient(await listAllTreasuryRows(db), cfg, address);
 }
 
+export interface RecipientsTeaser {
+  totalPaid: bigint;
+  addressCount: number;
+  topName: string;
+  /** False when topName is a shortened address. */
+  topLabeled: boolean;
+  topPct: number;
+}
+
+/** The two facts the /treasury page teases: total paid and the largest recipient. Null when nothing is paid. */
+export function recipientsTeaser(rows: TreasuryActionRow[], cfg: NetworkConfig, labels?: readonly RecipientLabel[]): RecipientsTeaser | null {
+  const summaries = groupRecipients(rows, cfg);
+  const [top] = concentrationSegments(summaries);
+  if (!top?.summary) return null;
+  const label = labelFor(top.summary, cfg.network, labels);
+  return {
+    totalPaid: sumPaid(summaries),
+    addressCount: summaries.filter((s) => s.id !== UNKNOWN_RECIPIENT_ID).length,
+    topName: addressName(top.summary, label),
+    topLabeled: label?.kind === 'proposal',
+    topPct: top.pct,
+  };
+}
+
+export async function loadRecipientsTeaser(db: D1Database, cfg: NetworkConfig): Promise<RecipientsTeaser | null> {
+  return recipientsTeaser(await listAllTreasuryRows(db), cfg);
+}
+
 /** Short display name of an address: its label, else the shortened stake address. */
 export function addressName(s: RecipientSummary, label: AddressLabel | null): string {
   if (label?.kind === 'proposal') return label.label;

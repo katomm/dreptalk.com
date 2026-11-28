@@ -145,3 +145,18 @@ describe('findRecipient', () => {
     expect(findRecipient(rows, cfg, other, [])).toBeNull();
   });
 });
+
+describe('recipientsTeaser', () => {
+  it('sums the paid ada and names the largest address', async () => {
+    const { recipientsTeaser } = await import('./recipientsPage.js');
+    const rows = [row('enacted', pay([A, 708_000_000], [B, 292_000_000])), row('expired', pay([B, 5]))];
+    const t = recipientsTeaser(rows, cfg, [{ credType: 'scriptHash', hash: A, label: 'Big contract', sourceActionId: 'x#0', sourceQuote: A }]);
+    expect(t).toEqual({ totalPaid: 1_000_000_000n, addressCount: 2, topName: 'Big contract', topLabeled: true, topPct: 70.8 });
+    expect(recipientsTeaser(rows, cfg, [])?.topLabeled).toBe(false);
+  });
+
+  it('returns null when nothing is paid', async () => {
+    const { recipientsTeaser } = await import('./recipientsPage.js');
+    expect(recipientsTeaser([row('expired', pay([A, 5]))], cfg, [])).toBeNull();
+  });
+});
