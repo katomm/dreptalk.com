@@ -1,0 +1,174 @@
+---
+// Treasury runway calculator. The server renders the "Last 12 months" preset so
+// the section works without JS; the script below recomputes with the same
+// projection module when the slider or a preset changes.
+import { formatAdaCompact } from '@/lib/format/ada.js';
+import type { RunwaySection } from '@/lib/treasury/recipientsPage.js';
+import { runwayChart, RUNWAY_CHART } from '@/lib/treasury/runwayChart.js';
+import { runwayResultText } from '@/lib/treasury/runwayText.js';
+
+interface Props {
+  runway: RunwaySection;
+}
+const { runway } = Astro.props;
+const inp = runway.inputs;
+const chart = runwayChart(inp, runway.history, runway.initial.points);
+const STEP = 10_000_000_000_000n;
+const maxPreset = runway.presets.reduce((m, p) => (p.lovelacePerYear > m ? p.lovelacePerYear : m), 0n);
+const sliderMax = maxPreset > 700_000_000_000_000n ? ((maxPreset + STEP - 1n) / STEP) * STEP : 700_000_000_000_000n;
+const { width, height, left, right, bottom } = RUNWAY_CHART;
+---
+
+<div
+  class="runway"
+  data-runway
+  data-rate-ppb={inp.inflowRatePpb}
+  data-decay-ppb={inp.decayPpb}
+  data-treasury={inp.treasury.toString()}
+  data-reserves={inp.reserves.toString()}
+  data-last-epoch={inp.lastClosedEpoch}
+  data-epoch-start={inp.epochStartSec}
+  data-epoch-length={inp.epochLengthSec}
+  data-x0={chart.domain.x0}
+  data-x1={chart.domain.x1}
+  data-ymax={chart.domain.yMax}
+>
+  <div class="runway__controls">
+    <label for="runway-spend">Spending per year</label>
+    <input id="runway-spend" type="range" min="0" max={sliderMax.toString()} step={STEP.toString()} value={runway.initialSpend.toString()} />
+    <output for="runway-spend" class="runway__spend">{formatAdaCompact(String(runway.initialSpend), 0)}</output>
+  </div>
+  <div class="runway__presets">
+    {runway.presets.map((p) => (
+      <button type="button" class="btn btn-secondary runway__preset" data-preset={p.lovelacePerYear.toString()}>
+        {p.label}, {formatAdaCompact(String(p.lovelacePerYear), 0)}
+      </button>
+    ))}
+  </div>
+  <p class="runway__result" aria-live="polite">{runwayResultText(runway.initialSpend, runway.initial)}</p>
+  <svg class="runway__chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Treasury balance so far and the projection for the chosen spending">
+    {chart.yTicks.map((t) => (
+      <g>
+        <line x1={left} x2={width - right} y1={t.y} y2={t.y} class="runway__grid" />
+        <text x={left - 6} y={t.y + 4} class="runway__ylab">{t.label}</text>
+      </g>
+    ))}
+    {chart.xTicks.map((t) => <text x={t.x} y={height - bottom + 16} class="runway__xlab">{t.label}</text>)}
+    <path d={chart.historyPath} class="runway__hist" />
+    <path d={chart.projectionPath} class="runway__proj" data-runway-path />
+  </svg>
+  <p class="runway__note">
+    Balance in ₳. Inflow continues at the rate of the last 12 months and shrinks with the reserves. Not modeled: growing fees, parameter changes, donations or returned funds beyond last year's level.
+  </p>
+</div>
+
+<script>
+  import { formatAdaCompact } from '@/lib/format/ada.js';
+  import { projectRunway } from '@/lib/treasury/runwayProjection.js';
+  import { projectionPath } from '@/lib/treasury/runwayChart.js';
+  import { runwayResultText } from '@/lib/treasury/runwayText.js';
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-runway]')) {
+    const d = root.dataset;
+    const inputs = {
+      lastClosedEpoch: Number(d.lastEpoch),
+      treasury: BigInt(d.treasury ?? '0'),
+      reserves: BigInt(d.reserves ?? '0'),
+      inflowRatePpb: Number(d.ratePpb),
+      decayPpb: Number(d.decayPpb),
+      epochStartSec: Number(d.epochStart),
+      epochLengthSec: Number(d.epochLength),
+    };
+    const domain = { x0: Number(d.x0), x1: Number(d.x1), yMax: Number(d.ymax) };
+    const slider = root.querySelector<HTMLInputElement>('input[type=range]');
+    const out = root.querySelector('output');
+    const result = root.querySelector('.runway__result');
+    const path = root.querySelector('[data-runway-path]');
+    if (!slider || !out || !result || !path) continue;
+    const update = (spend: bigint) => {
+      const proj = projectRunway(inputs, spend);
+      out.textContent = formatAdaCompact(String(spend), 0);
+      result.textContent = runwayResultText(spend, proj);
+      path.setAttribute('d', projectionPath(domain, proj.points));
+    };
+    slider.addEventListener('input', () => update(BigInt(slider.value)));
+    for (const b of root.querySelectorAll<HTMLButtonElement>('[data-preset]')) {
+      b.addEventListener('click', () => {
+        const v = BigInt(b.dataset.preset ?? '0');
+        slider.value = v.toString();
+        update(v);
+      });
+    }
+  }
+</script>
+
+<style>
+  .runway__controls {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+  .runway__controls label {
+    color: var(--muted);
+    font-size: 0.875rem;
+  }
+  .runway__controls input {
+    flex: 1 1 12rem;
+    accent-color: var(--accent);
+  }
+  .runway__spend {
+    font-weight: 600;
+    min-width: 5rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .runway__presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin: 0.6rem 0;
+  }
+  .runway__preset {
+    font-size: 0.8125rem;
+    padding: 0.3rem 0.7rem;
+  }
+  .runway__result {
+    font-size: 1.125rem;
+    font-weight: 600;
+    margin: 0.75rem 0 0.5rem;
+  }
+  .runway__chart {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+  .runway__grid {
+    stroke: var(--border);
+  }
+  .runway__ylab {
+    fill: var(--muted);
+    font-size: 11px;
+    text-anchor: end;
+  }
+  .runway__xlab {
+    fill: var(--muted);
+    font-size: 11px;
+    text-anchor: middle;
+  }
+  .runway__hist,
+  .runway__proj {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 2;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+  }
+  .runway__proj {
+    stroke-dasharray: 5 4;
+  }
+  .runway__note {
+    color: var(--muted);
+    font-size: 0.8125rem;
+    margin: 0.5rem 0 0;
+  }
+</style>

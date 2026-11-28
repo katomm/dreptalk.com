@@ -1,0 +1,81 @@
+---
+// One 100 % bar of everything paid from the treasury, by recipient address.
+// Address segments link to their page, the folded rest to the table.
+import type { AddressLabel } from '@/lib/treasury/labels.js';
+import type { BarSegment } from '@/lib/treasury/recipients.js';
+import { addressName, pctText } from '@/lib/treasury/recipientsPage.js';
+import { segmentColor } from '@/lib/treasury/segmentColors.js';
+
+interface Props {
+  segments: BarSegment[];
+  labels: Map<string, AddressLabel | null>;
+}
+const { segments, labels } = Astro.props;
+const items = segments.map((s, i) => ({
+  ...s,
+  color: segmentColor(s.id, i),
+  name: s.summary ? addressName(s.summary, labels.get(s.id) ?? null) : `${s.folded} other addresses`,
+  href: s.summary?.address ? `/treasury/recipients/${s.summary.address}/` : '#recipients',
+}));
+---
+
+<div class="cbar">
+  <div class="cbar__bar" role="img" aria-label={items.map((s) => `${s.name} ${pctText(s.pct)}`).join(', ')}>
+    {items.map((s) => <a href={s.href} class="cbar__seg" style={`flex:${s.pct} 1 0;background:${s.color}`} title={`${s.name} ${pctText(s.pct)}`} aria-hidden="true" tabindex="-1"></a>)}
+  </div>
+  <ul class="cbar__legend">
+    {items.map((s) => (
+      <li>
+        <span class="cbar__swatch" style={`background:${s.color}`}></span>
+        <a href={s.href}>{s.name}</a>
+        <span class="cbar__pct">{pctText(s.pct)}</span>
+      </li>
+    ))}
+  </ul>
+  <p class="cbar__note">A contract address passes the money on to vendors. Paid here means paid to the address, not received by the vendor.</p>
+</div>
+
+<style>
+  .cbar__bar {
+    display: flex;
+    gap: 2px;
+    height: 28px;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+  }
+  .cbar__seg {
+    min-width: 3px;
+  }
+  .cbar__legend {
+    list-style: none;
+    margin: 0.6rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.1rem;
+    font-size: 0.8125rem;
+  }
+  .cbar__legend li {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .cbar__legend a {
+    color: var(--fg);
+  }
+  .cbar__swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    flex: none;
+  }
+  .cbar__pct {
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .cbar__note {
+    color: var(--muted);
+    font-size: 0.8125rem;
+    margin: 0.6rem 0 0;
+  }
+</style>

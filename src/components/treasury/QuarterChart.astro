@@ -1,0 +1,82 @@
+---
+// Paid per calendar quarter, stacked by the same segments and colors as the
+// concentration bar. Server-rendered SVG, a <title> per bar part for hover.
+import { formatAdaCompact } from '@/lib/format/ada.js';
+import type { AddressLabel } from '@/lib/treasury/labels.js';
+import type { BarSegment } from '@/lib/treasury/recipients.js';
+import { addressName } from '@/lib/treasury/recipientsPage.js';
+import { segmentColor } from '@/lib/treasury/segmentColors.js';
+
+interface Props {
+  quarters: { quarter: string; bySegment: Map<string, bigint> }[];
+  segments: BarSegment[];
+  labels: Map<string, AddressLabel | null>;
+}
+const { quarters, segments, labels } = Astro.props;
+
+const W = 640;
+const H = 200;
+const top = 18;
+const bottom = 24;
+const left = 8;
+const plotH = H - top - bottom;
+const slot = (W - left * 2) / Math.max(quarters.length, 1);
+const barW = Math.min(36, slot * 0.6);
+const totals = quarters.map((q) => [...q.bySegment.values()].reduce((a, v) => a + v, 0n));
+const max = totals.reduce((m, v) => (v > m ? v : m), 1n);
+const scale = (v: bigint) => (Number(v) / Number(max)) * plotH;
+const order = segments.map((s, i) => ({ id: s.id, color: segmentColor(s.id, i), name: s.summary ? addressName(s.summary, labels.get(s.id) ?? null) : 'Other addresses' }));
+
+const bars = quarters.map((q, qi) => {
+  const x = left + qi * slot + (slot - barW) / 2;
+  let y = top + plotH;
+  const parts = order
+    .filter((o) => (q.bySegment.get(o.id) ?? 0n) > 0n)
+    .map((o) => {
+      const v = q.bySegment.get(o.id) as bigint;
+      const h = scale(v);
+      y -= h;
+      return { x, y, h, color: o.color, title: `${q.quarter}, ${o.name}: ${formatAdaCompact(String(v))}` };
+    });
+  return { x, label: q.quarter.replace(' ', ' '), total: totals[qi], parts, topY: y };
+});
+const summary = quarters.map((q, i) => `${q.quarter} ${formatAdaCompact(String(totals[i])) ?? '0 ₳'}`).join(', ');
+---
+
+<figure class="qchart">
+  <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Paid per quarter: ${summary}`}>
+    <line x1={left} x2={W - left} y1={top + plotH} y2={top + plotH} class="qchart__base" />
+    {bars.map((b) => (
+      <g>
+        {b.parts.map((p) => (
+          <rect x={p.x} y={p.y} width={barW} height={Math.max(p.h - 1, 0.5)} fill={p.color} rx="2"><title>{p.title}</title></rect>
+        ))}
+        {b.total > 0n && <text x={b.x + barW / 2} y={b.topY - 5} class="qchart__val">{formatAdaCompact(String(b.total), 0)}</text>}
+        <text x={b.x + barW / 2} y={H - 6} class="qchart__lab">{b.label}</text>
+      </g>
+    ))}
+  </svg>
+</figure>
+
+<style>
+  .qchart {
+    margin: 0;
+  }
+  .qchart svg {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+  .qchart__base {
+    stroke: var(--border);
+  }
+  .qchart__val,
+  .qchart__lab {
+    text-anchor: middle;
+    fill: var(--muted);
+    font-size: 11px;
+  }
+  .qchart__val {
+    fill: var(--fg);
+  }
+</style>
