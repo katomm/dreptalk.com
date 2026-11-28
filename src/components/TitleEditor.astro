@@ -14,7 +14,7 @@ const { topicId, title } = Astro.props;
 <div class="title-editor" data-title-editor data-topic-id={topicId}>
   <button type="button" class="title-editor__open" data-open>Edit title</button>
   <form class="title-editor__form" data-form hidden>
-    <input type="text" data-input value={title} maxlength="200" required
+    <input type="text" data-input value={title} maxlength="200" required autocomplete="off"
       style="width:100%;padding:0.5rem 0.75rem;border:1px solid var(--border);border-radius:0.375rem;background:var(--bg);color:var(--fg);font-size:1rem;" />
     <div style="display:flex;gap:0.5rem;margin-top:0.5rem;">
       <button type="submit" class="btn btn-primary" data-save>Save</button>
