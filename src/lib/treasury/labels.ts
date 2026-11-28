@@ -73,7 +73,9 @@ export function payoutRowView(
 ): PayoutRowView {
   const key = row.key ?? null;
   const history = key ? (histories?.get(recipientKeyId(key)) ?? null) : null;
-  const all = [returnAddress, ...(history?.items ?? []).map((i) => i.returnAddress)];
+  // Without the loaded histories the other withdrawals are unknown, so the
+  // proposer rule cannot be judged: an empty list keeps it off.
+  const all = histories == null ? [] : [returnAddress, ...(history?.items ?? []).map((i) => i.returnAddress)];
   const label = labelForPayout(key, row.address, returnAddress, all, network);
   return { label, notes: payoutNotes(row, returnAddress, label?.kind === 'proposer'), history };
 }

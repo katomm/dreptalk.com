@@ -43,7 +43,9 @@ describe('RECIPIENT_LABELS', () => {
   it('every config quote names its address', () => {
     for (const l of RECIPIENT_LABELS) {
       const addr = recipientKeyToBech32({ credType: l.credType, hash: l.hash }, 'mainnet');
-      expect(l.sourceQuote.includes(addr) || l.sourceQuote.includes(l.hash), l.label).toBe(true);
+      // A quote without the bech32 must name the hash with its credential type
+      // (the explorer path .../scriptHash/<hash>), so a type mix-up fails too.
+      expect(l.sourceQuote.includes(addr) || l.sourceQuote.includes(`${l.credType}/${l.hash}`), l.label).toBe(true);
     }
   });
 
@@ -108,5 +110,14 @@ describe('payoutRowView', () => {
     expect(pre.label).toBeNull();
     expect(pre.notes).toEqual(['Same stake address as the proposer.']);
     expect(payoutRowView({ key: null, address: '(unknown recipient)' }, null, CF, 'mainnet')).toEqual({ label: null, notes: [], history: null });
+  });
+});
+
+describe('payoutRowView without a loaded history', () => {
+  it('skips the proposer rule when the other withdrawals are unknown', async () => {
+    const { payoutRowView } = await import('./labels.js');
+    const v = payoutRowView({ key: CF_KEY, address: CF }, null, CF, 'mainnet');
+    expect(v.label).toBeNull();
+    expect(v.notes).toEqual(['Same stake address as the proposer.']);
   });
 });
