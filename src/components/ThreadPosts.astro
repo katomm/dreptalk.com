@@ -101,6 +101,21 @@ const voteFor = (author: AuthorDescriptor) =>
 const hasVoteData = govVotes.size > 0;
 const notVoted = (author: AuthorDescriptor) =>
   hasVoteData && !!author.drepId && !author.isSystem && !govVotes.has(author.drepId);
+
+// Profile slugs of the people posting on this page, most recent post first,
+// so the composer's @mention picker suggests them ahead of everyone else. The
+// viewer and the system author are left out, and so is anyone without a slug
+// (they cannot be mentioned).
+const participantSlugs = [
+  ...new Set(
+    [...thread.topLevel, ...[...thread.childrenByParent.values()].flat()]
+      .filter((p) => p.author_id !== user?.id)
+      .sort((a, b) => b.created_at - a.created_at)
+      .map((p) => (p.id === thread.openingPost?.id && isGovernanceTopic ? topicAuthor : describe(p.author_id)))
+      .filter((a) => !a.isSystem)
+      .flatMap((a) => [a.drepSlug, a.poolSlug].filter((s): s is string => !!s)),
+  ),
+];
 ---
 
 {thread.participants !== null && (
@@ -211,7 +226,7 @@ const notVoted = (author: AuthorDescriptor) =>
         <p class="reply-sub">Share your thoughts. Be respectful and stay on topic.</p>
       </>
     )}
-    <Composer client:load mode="post" topicId={topic.id} categorySlug={topic.category_slug} openingPostId={thread.openingPost?.id} mandateOptions={composerMandate?.options} />
+    <Composer client:load mode="post" topicId={topic.id} categorySlug={topic.category_slug} openingPostId={thread.openingPost?.id} mandateOptions={composerMandate?.options} participantSlugs={participantSlugs} />
     <QuoteSelection client:load />
   </section>
 )}
