@@ -4,7 +4,7 @@
 // lib/search/match.ts (never raw user input) and bound as a parameter.
 import { decodeBech32 } from '../crypto/bech32.js';
 import { drepPath } from '../dreps/profile.js';
-import { poolPath } from '../pools/profile.js';
+import { poolPath, poolDisplayName } from '../pools/profile.js';
 import { positionsVoterAnchor } from '../governance/voteStatement.js';
 import type { IdentifierQuery } from '../search/identifiers.js';
 import { PAGE_SIZE } from '../search/scopes.js';
@@ -123,7 +123,11 @@ export async function resolveIdentifier(db: D1Database, ident: IdentifierQuery):
       .bind(ident.poolId)
       .first<{ pool_id: string; ticker: string | null; name: string | null; slug: string | null }>();
     if (!pool) return null;
-    return { kind: 'pool', href: poolPath({ poolId: pool.pool_id, slug: pool.slug }), label: pool.name ?? pool.ticker ?? pool.pool_id };
+    return {
+      kind: 'pool',
+      href: poolPath({ poolId: pool.pool_id, slug: pool.slug }),
+      label: poolDisplayName({ name: pool.name, ticker: pool.ticker, poolId: pool.pool_id }),
+    };
   }
 
   const direct = await db

@@ -10,6 +10,7 @@ import { SCOPES, SCOPE_LABELS, EXACT_KIND_LABELS, poolNoticeText, searchPageHref
 import { filterRowsByScope, type RowScope } from '@/lib/search/paletteFilter.js';
 import { otherScopesWithRows } from '@/lib/search/emptyHint.js';
 import { avatarUrl } from '@/lib/identity/avatarUrl.js';
+import { poolDisplayName, poolVotesLabel } from '@/lib/pools/profile.js';
 import { SnippetText } from './SnippetText.js';
 
 interface PaletteProps {
@@ -105,9 +106,9 @@ function buildRows(q: string, data: SearchResponseBody | null, signedIn: boolean
       href: p.href,
       scope: 'spos',
       group: SCOPE_LABELS.spos,
-      label: p.name ?? p.ticker ?? truncateId(p.poolId),
+      label: poolDisplayName(p),
       ...(p.name && p.ticker ? { badge: p.ticker } : {}),
-      detail: `${p.votes} ${p.votes === 1 ? 'vote' : 'votes'}`,
+      detail: poolVotesLabel(p.votes),
       ...(p.imageHash ? { avatar: avatarUrl(p.imageHash, 20) } : {}),
     });
   }

@@ -8,6 +8,7 @@ import { truncateId } from '@/lib/forum/view.js';
 import { SnippetText } from './SnippetText.js';
 import type { SearchResponseBody } from '@/lib/search/handler.js';
 import { avatarUrl } from '@/lib/identity/avatarUrl.js';
+import { poolDisplayName, poolVotesLabel } from '@/lib/pools/profile.js';
 import type { GaHit, TopicHit, DrepHit, PoolHit, RationaleHit } from '@/lib/db/search.js';
 
 interface Props {
@@ -71,11 +72,9 @@ function PoolRow({ p }: { p: PoolHit }) {
     <a className="search-hit" href={p.href}>
       <span className="search-hit__head">
         {p.imageHash && <img src={avatarUrl(p.imageHash, 20)} alt="" width="20" height="20" loading="lazy" style={{ borderRadius: '50%', flexShrink: 0 }} />}
-        <span className="search-hit__title">{p.name ?? p.ticker ?? truncateId(p.poolId)}</span>
+        <span className="search-hit__title">{poolDisplayName(p)}</span>
         {p.name && p.ticker && <span className="search-hit__badge">{p.ticker}</span>}
-        <span className="search-hit__detail">
-          {p.votes} {p.votes === 1 ? 'vote' : 'votes'}
-        </span>
+        <span className="search-hit__detail">{poolVotesLabel(p.votes)}</span>
       </span>
     </a>
   );

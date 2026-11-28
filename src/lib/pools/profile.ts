@@ -12,6 +12,11 @@ export function isCanonicalPoolParam(p: { poolId: string; slug?: string | null }
   return param === (p.slug ?? p.poolId);
 }
 
+/** Vote count text for search rows. */
+export function poolVotesLabel(votes: number): string {
+  return `${votes} ${votes === 1 ? 'vote' : 'votes'}`;
+}
+
 /** Display name in precedence order: full name, then ticker, then a truncated id. */
 export function poolDisplayName(p: { name: string | null; ticker: string | null; poolId: string }): string {
   return p.name ?? p.ticker ?? truncateId(p.poolId, 18);

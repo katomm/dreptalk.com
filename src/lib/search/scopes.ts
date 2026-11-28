@@ -1,4 +1,7 @@
 // Scope vocabulary shared by the palette, the /search page, and the API.
+import type { ExactHit } from '../db/search.js';
+import type { PoolNotice } from './handler.js';
+
 export type Scope = 'all' | 'forum' | 'governance' | 'dreps' | 'spos' | 'rationales' | 'reviews' | 'help';
 
 export const SCOPES: readonly Scope[] = ['all', 'forum', 'governance', 'dreps', 'spos', 'rationales', 'reviews', 'help'];
@@ -27,7 +30,7 @@ export const SCOPE_LABELS: Record<Scope, string> = {
 };
 
 /** Badge on the "Exact match" row, by the kind of id that resolved. */
-export const EXACT_KIND_LABELS: Record<'governance-action' | 'drep' | 'pool', string> = {
+export const EXACT_KIND_LABELS: Record<ExactHit['kind'], string> = {
   'governance-action': 'Governance Action',
   drep: 'DRep',
   pool: 'SPO',
@@ -35,7 +38,7 @@ export const EXACT_KIND_LABELS: Record<'governance-action' | 'drep' | 'pool', st
 
 /** One line saying a pool exists on chain but never voted, for the palette and
  *  the /search page. Ticker first, the way delegators know their pool. */
-export function poolNoticeText(n: { poolId: string; ticker: string | null; name: string | null }): string {
+export function poolNoticeText(n: Pick<PoolNotice, 'ticker' | 'name'>): string {
   const who = [n.ticker ? `[${n.ticker}]` : null, n.name].filter(Boolean).join(' ') || 'This pool';
   return `${who} has not voted on any governance action yet.`;
 }

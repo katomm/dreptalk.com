@@ -4,6 +4,7 @@
 // so random strings never reach Koios.
 import { runtimeEnv, currentNetwork } from '../api/response.js';
 import { createKoiosClient } from '../koios/client.js';
+import { sanitizePoolIdentity } from '../pools/offchain.js';
 import type { PoolLookup } from './handler.js';
 
 // The palette waits on this answer, so a slow Koios must not stall it for the
@@ -21,6 +22,8 @@ export function koiosPoolLookup(locals?: App.Locals): PoolLookup {
   return async (poolId) => {
     const [row] = await koios.poolInfoBatch([poolId]);
     if (!row) return null;
-    return { ticker: row.meta_json?.ticker ?? null, name: row.meta_json?.name ?? null };
+    // Operator-written metadata, cleaned and capped like the pool sync does.
+    const { ticker, name } = row.meta_json ? sanitizePoolIdentity(row.meta_json) : { ticker: null, name: null };
+    return { ticker, name };
   };
 }
