@@ -6,9 +6,10 @@ import ConcentrationBar from '@/components/treasury/ConcentrationBar.astro';
 import QuarterChart from '@/components/treasury/QuarterChart.astro';
 import RecipientTable from '@/components/treasury/RecipientTable.astro';
 import RunwayPanel from '@/components/treasury/RunwayPanel.astro';
+import DrepStatCard from '@/components/DrepStatCard.astro';
+import { adaFigure, type VitalCard } from '@/lib/statCard.js';
 import { currentNetwork } from '@/lib/api/response.js';
 import { requestDb } from '@/lib/db/requestDb.js';
-import { formatAda } from '@/lib/format/ada.js';
 import { recipientsCardModel } from '@/lib/og/recipientsCard.js';
 import { ogCardVersion } from '@/lib/og/version.js';
 import { loadRecipientsPage } from '@/lib/treasury/recipientsPage.js';
@@ -19,7 +20,18 @@ Astro.response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=3600'
 const db = requestDb();
 const data = db ? await loadRecipientsPage(db, currentNetwork(), Math.floor(Date.now() / 1000)) : null;
 const ogImage = data ? `/og/treasury/recipients.png?v=${ogCardVersion([JSON.stringify(recipientsCardModel(data))])}` : '/og.jpg';
-const tile = (v: bigint | null) => (v == null ? 'none' : formatAda(String(v)));
+const tile = (v: bigint | null) => (v == null ? { value: 'none' } : adaFigure(v));
+const statCards: VitalCard[] = data
+  ? [
+      { label: 'Paid from the treasury', icon: 'coins', ...tile(data.totalPaid) },
+      { label: 'Recipient addresses', icon: 'wallet', value: String(data.addressCount) },
+      {
+        label: 'Treasury balance', icon: 'bank', ...tile(data.treasury),
+        sub: data.treasuryEpoch != null ? `epoch ${data.treasuryEpoch}` : undefined,
+      },
+      { label: 'Paid in the last 12 months', icon: 'calendar', ...tile(data.paidLast12) },
+    ]
+  : [];
 ---
 
 <Layout
@@ -44,14 +56,8 @@ const tile = (v: bigint | null) => (v == null ? 'none' : formatAda(String(v)));
 
   {data && (
     <>
-      <div class="tr-tiles">
-        <div class="tr-tile"><span>Paid from the treasury</span><strong>{tile(data.totalPaid)}</strong></div>
-        <div class="tr-tile"><span>Recipient addresses</span><strong>{data.addressCount}</strong></div>
-        <div class="tr-tile">
-          <span>Treasury balance{data.treasuryEpoch != null ? `, epoch ${data.treasuryEpoch}` : ''}</span>
-          <strong>{tile(data.treasury)}</strong>
-        </div>
-        <div class="tr-tile"><span>Paid in the last 12 months</span><strong>{tile(data.paidLast12)}</strong></div>
+      <div class="drep-stats tr-stats">
+        {statCards.map((c) => <DrepStatCard card={c} />)}
       </div>
 
       {data.segments.length > 0 && (
@@ -105,27 +111,8 @@ const tile = (v: bigint | null) => (v == null ? 'none' : formatAda(String(v)));
     max-width: 65ch;
     line-height: 1.6;
   }
-  .tr-tiles {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
-    gap: 0.75rem;
-    margin: 1.5rem 0;
-  }
-  .tr-tile {
-    background: var(--surface);
-    border-radius: var(--radius-sm);
-    padding: 0.9rem 1rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
-  }
-  .tr-tile span {
-    font-size: 0.8125rem;
-    color: var(--muted);
-  }
-  .tr-tile strong {
-    font-size: 1.25rem;
-    font-variant-numeric: tabular-nums;
+  .tr-stats {
+    margin-top: 1.5rem;
   }
   section {
     margin-top: 2rem;

@@ -830,38 +830,29 @@ main.container {
 
 .drep-stats {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 0.75rem;
-  margin: 0 0 1.25rem;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 1rem;
+  margin: 0 0 1.5rem;
 }
-@media (max-width: 900px) { .drep-stats { grid-template-columns: repeat(2, 1fr); } }
+/* Tablets: two cards per row, four in a row would break the figures mid-number. */
+@media (max-width: 900px) { .drep-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+/* One overview card, the same on every page: a small muted icon leading an
+   uppercase label, the figure, then a trend chip or sub line. */
 .drep-stat {
   display: flex;
   align-items: flex-start;
+  justify-content: space-between;
   gap: 0.75rem;
-  padding: 0.9rem 1rem;
+  padding: 1rem;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
 }
-.drep-stat__icon {
-  flex: none;
-  width: 2.5rem;
-  height: 2.5rem;
-  border-radius: 0.65rem;
-  display: grid;
-  place-items: center;
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  color: var(--accent);
-}
-.drep-stat--alt .drep-stat__icon {
-  background: color-mix(in srgb, var(--c-pos) 14%, transparent);
-  color: var(--c-pos);
-}
-.drep-stat__icon svg { width: 1.35rem; height: 1.35rem; }
-/* Donut variant of the icon slot: the same box, a track plus an arc that
-   starts at 12 o'clock (dashoffset 25 on a circumference of 100). Stays
-   visible on phones where the plain icon is dropped, it carries the number. */
+.drep-stat__icon { flex: none; display: inline-flex; color: var(--muted); }
+.drep-stat__icon svg { width: 15px; height: 15px; }
+/* Donut beside the text: a track plus an arc that starts at 12 o'clock
+   (dashoffset 25 on a circumference of 100). Dropped on phones with the label
+   icon, the figure already states the share. */
 .drep-stat__ring { flex: none; width: 2.5rem; height: 2.5rem; }
 .drep-stat__ring svg { width: 100%; height: 100%; transform: rotate(0deg); }
 .drep-stat__ring circle { fill: none; stroke-width: 4; }
@@ -870,7 +861,7 @@ main.container {
 .drep-stat--alt .drep-stat__ring-track { stroke: color-mix(in srgb, var(--c-pos) 16%, transparent); }
 .drep-stat--alt .drep-stat__ring-arc { stroke: var(--c-pos); }
 /* Chart variant: the body takes the whole first row so the sparkline can run
-   the full tile width under the figure. The line is the picture, no icon.
+   the full tile width under the figure.
    The body's min-width is what forces that break: line breaking measures the
    flex base size, so with basis 0 the body counted as empty, the 100%-wide
    sparkline still fitted beside it, and the text was squeezed into a
@@ -882,37 +873,57 @@ main.container {
 .drep-stat__spark-area { fill: color-mix(in srgb, var(--accent) 12%, transparent); }
 .drep-stat--alt .drep-stat__spark-line { stroke: var(--c-pos); }
 .drep-stat--alt .drep-stat__spark-area { fill: color-mix(in srgb, var(--c-pos) 14%, transparent); }
-.drep-stat__body { min-width: 0; display: flex; flex-direction: column; gap: 0.2rem; }
-.drep-stat__label { font-size: 0.8125rem; color: var(--muted); }
-.drep-stat__value { font-size: 1.4rem; font-weight: 700; line-height: 1.1; }
-.drep-stat__delta { font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.25rem; }
+.drep-stat__body { min-width: 0; display: flex; flex-direction: column; gap: 0.25rem; }
+.drep-stat__label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-bottom: 0.125rem;
+}
+.drep-stat__value { font-size: 1.375rem; font-weight: 700; line-height: 1.15; color: var(--fg); }
+.drep-stat__delta { font-size: 0.8125rem; display: inline-flex; align-items: center; gap: 0.25rem; }
 .drep-stat__delta--up { color: var(--c-pos); }
 .drep-stat__delta--down { color: var(--c-neg); }
-.drep-stat__delta--flat, .drep-stat__sub { color: var(--muted); font-size: 0.75rem; }
+.drep-stat__delta--flat, .drep-stat__sub { color: var(--muted); font-size: 0.8125rem; }
 .drep-stat__arrow { font-size: 0.8em; line-height: 1; }
-/* Compact figure for phones (valueShort on the card): the long form returns above 480px, see the phone block below. */
+/* Compact figure for phones (valueShort on the card): the long form returns above 560px, see the phone block below. */
 .drep-stat__value-short { display: none; }
 /* A tile that is a link (homepage strip): same box, plus hover lift and focus ring. */
 a.drep-stat { color: inherit; text-decoration: none; transition: border-color 0.15s ease, transform 0.15s ease; }
 a.drep-stat:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); transform: translateY(-1px); }
 a.drep-stat:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-/* Keep a 2x2 grid on phones (was a single column of four tall boxes): drop the
-   large icon tile and tighten padding so all four metrics, trend line included,
-   fit above the fold instead of pushing the table down. Must stay AFTER the
-   base rules above, equal specificity means source order decides. */
-@media (max-width: 480px) {
-  .drep-stats { grid-template-columns: repeat(2, 1fr); gap: 0.5rem; }
-  .drep-stat { padding: 0.7rem 0.75rem; gap: 0; }
-  .drep-stat__icon { display: none; }
-  .drep-stat__ring { width: 2.1rem; height: 2.1rem; margin-right: 0.5rem; }
+/* Phones: merge the cards into one bordered two-column block split by hairline
+   dividers instead of separate padded boxes, and drop the label icon and the
+   donut, so all figures fit above the fold. Must stay AFTER the base rules
+   above, equal specificity means source order decides. */
+@media (max-width: 560px) {
+  .drep-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    overflow: hidden;
+  }
+  .drep-stat { border: 0; border-radius: 0; padding: 0.7rem 0.75rem; background: none; }
+  .drep-stat:nth-child(2n) { border-left: 1px solid var(--border); }
+  .drep-stat:nth-child(n + 3) { border-top: 1px solid var(--border); }
+  a.drep-stat:hover { transform: none; background: var(--surface-2); }
+  /* The block clips overflow, so the focus ring goes inside the cell. */
+  a.drep-stat:focus-visible { outline-offset: -2px; }
+  .drep-stat__icon, .drep-stat__ring { display: none; }
   .drep-stat__value-long { display: none; }
   .drep-stat__value-short { display: inline; }
-  .drep-stat__value { font-size: 1.15rem; }
+  .drep-stat__value { font-size: 1.2rem; }
 }
 
-/* DReps directory header: the heading row with the quiz button, the band of four
-   figures and the toolbar above the table. The cells reuse the .drep-stat text
-   classes but not the tile box, which other pages share. */
+/* DReps directory header: the heading row with the quiz button and the
+   toolbar above the table. */
 .dreps-head {
   display: flex;
   flex-wrap: wrap;
@@ -922,27 +933,6 @@ a.drep-stat:focus-visible { outline: 2px solid var(--accent); outline-offset: 2p
   margin: 1.35rem 0;
 }
 .dreps-head h1 { margin: 0; }
-.drep-band {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  margin: 0 0 1.25rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--surface);
-}
-.drep-band__cell {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  padding: 0.8rem 1.1rem;
-}
-.drep-band__cell + .drep-band__cell { border-left: 1px solid var(--border); }
-@media (max-width: 640px) {
-  .drep-band { grid-template-columns: repeat(2, 1fr); }
-  .drep-band__cell:nth-child(3) { border-left: none; }
-  .drep-band__cell:nth-child(n + 3) { border-top: 1px solid var(--border); }
-}
 .dreps-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -1350,7 +1340,8 @@ a.drep-stat:focus-visible { outline: 2px solid var(--accent); outline-offset: 2p
 .vhist__when { text-align: right; color: var(--muted); font-size: 0.8125rem; white-space: nowrap; }
 
 /* Rationale column: "View rationale" (accent, part of the expandable summary)
-   or a muted state ("Rationale unavailable" / "No rationale published"). */
+   or a muted state ("Rationale unavailable", "Rationale not loaded" or
+   "No rationale published"). */
 .vhist__rat { min-width: 0; }
 .vhist__rat-none { color: var(--muted); font-size: 0.8125rem; }
 

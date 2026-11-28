@@ -22,6 +22,7 @@ import type { ActionVoteChanges } from '@/lib/analytics/voteChangeView.js';
 import { voterDescriptor } from '@/lib/forum/author.js';
 import { ccProfilePath } from '@/lib/governance/ccNames.js';
 import { enhanceStoredHtml } from '@/lib/markdown.js';
+import { belowRationaleGate, RATIONALE_NOT_LOADED_TITLE } from '@/lib/governance/rationaleGate.js';
 import { formatAdaCompact, formatSubmittedDateTime, formatVoteTime } from '@/lib/governance/view.js';
 import { VOTER_SORTS, type PositionsRole, type VoterSort } from '@/lib/governance/positionsParams.js';
 import '@/styles/seg.css';
@@ -274,6 +275,9 @@ const ccLists: { counted: boolean; rows: CcListRow[] }[] = [
         const history = voteHistory.get(v.voter_id) ?? [];
         const when = voteWhen(v);
         const expandable = Boolean(bodyHtml) || history.length > 0;
+        // DReps under the rationale power gate never get their anchor fetched. SPO
+        // rows carry no power here, and their gate (voted power) is not checked.
+        const gated = role === 'drep' && belowRationaleGate(v.voting_power);
         // When a rationale exists, share the dedicated vote page keyed by the
         // canonical slug (falling back to the raw id when unassigned) instead
         // of the in-page anchor, so the copied link stands alone off-site.
@@ -337,8 +341,8 @@ const ccLists: { counted: boolean; rows: CcListRow[] }[] = [
             ) : (
               <div class="ga-positions__summary ga-positions__summary--static">
                 {lead}
-                <span class="ga-positions__cta ga-positions__cta--none">
-                  <span class="ga-positions__cta-label">{v.has_anchor ? 'Rationale unavailable' : 'No rationale'}</span>
+                <span class="ga-positions__cta ga-positions__cta--none" title={gated ? RATIONALE_NOT_LOADED_TITLE : undefined}>
+                  <span class="ga-positions__cta-label">{!v.has_anchor ? 'No rationale' : gated ? 'Rationale not loaded' : 'Rationale unavailable'}</span>
                 </span>
               </div>
             )}
@@ -634,9 +638,9 @@ const ccLists: { counted: boolean; rows: CcListRow[] }[] = [
   }
 
   /* Expand affordance column. Mobile: just the chevron (compact). Desktop: a
-     "Rationale" / "No rationale" / "Rationale unavailable" label too, on one
-     line. Fixed width so the amount column to its left stays aligned across
-     every row. */
+     "Rationale", "No rationale", "Rationale not loaded" or "Rationale
+     unavailable" label too, on one line. Fixed width so the amount column to
+     its left stays aligned across every row. */
   .ga-positions__cta {
     flex-shrink: 0;
     width: 0.9rem;

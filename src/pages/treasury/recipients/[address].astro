@@ -8,6 +8,8 @@ import RecipientHistoryList from '@/components/ga/RecipientHistoryList.astro';
 import ActionStrip from '@/components/treasury/ActionStrip.astro';
 import LabelBadge from '@/components/treasury/LabelBadge.astro';
 import YearTable from '@/components/treasury/YearTable.astro';
+import DrepStatCard from '@/components/DrepStatCard.astro';
+import { adaFigure, type VitalCard } from '@/lib/statCard.js';
 import { currentNetwork } from '@/lib/api/response.js';
 import { requestDb } from '@/lib/db/requestDb.js';
 import { formatAda } from '@/lib/format/ada.js';
@@ -36,6 +38,17 @@ const history = s ? historyFromSummary(s) : null;
 // table and the timeline leave them out. Say so, as the overview chart does.
 const undated = s ? s.shares.filter((sh) => sh.action.status === 'enacted' && sh.paidAt == null).length : 0;
 const day = (sec: number | null) => (sec == null ? 'none' : formatEpochDate(sec));
+const statCards: VitalCard[] = s
+  ? [
+      { label: 'Paid', icon: 'coins', ...adaFigure(s.paid) },
+      { label: 'Requested, not paid', icon: 'clock', ...adaFigure(s.notPaid) },
+      { label: 'Withdrawals', icon: 'list', value: String(s.withdrawals) },
+      {
+        label: 'First and last payout', icon: 'calendar', value: day(s.firstPaidAt),
+        sub: s.firstPaidAt == null ? undefined : `to ${day(s.lastPaidAt)}`,
+      },
+    ]
+  : [];
 const ogImage = s ? `/og/treasury/recipients/${address}.png?v=${ogCardVersion([JSON.stringify(recipientCardModel(s, label))])}` : '/og.jpg';
 ---
 
@@ -65,11 +78,8 @@ const ogImage = s ? `/og/treasury/recipients/${address}.png?v=${ogCardVersion([J
     <LabelBadge label={label} sourceSlug={sourceSlug} />
   </div>
 
-  <div class="ra-tiles">
-    <div class="ra-tile"><span>Paid</span><strong>{formatAda(String(s.paid))}</strong></div>
-    <div class="ra-tile"><span>Requested, not paid</span><strong>{formatAda(String(s.notPaid))}</strong></div>
-    <div class="ra-tile"><span>Withdrawals</span><strong>{s.withdrawals}</strong></div>
-    <div class="ra-tile"><span>First and last payout</span><strong class="ra-dates">{s.firstPaidAt == null ? 'none' : `${day(s.firstPaidAt)} to ${day(s.lastPaidAt)}`}</strong></div>
+  <div class="drep-stats ra-stats">
+    {statCards.map((c) => <DrepStatCard card={c} />)}
   </div>
 
   <section>
@@ -119,30 +129,8 @@ const ogImage = s ? `/og/treasury/recipients/${address}.png?v=${ogCardVersion([J
     border: 1px solid var(--border);
     border-radius: 999px;
   }
-  .ra-tiles {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
-    gap: 0.75rem;
-    margin: 1.5rem 0;
-  }
-  .ra-tile {
-    background: var(--surface);
-    border-radius: var(--radius-sm);
-    padding: 0.9rem 1rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
-  }
-  .ra-tile span {
-    font-size: 0.8125rem;
-    color: var(--muted);
-  }
-  .ra-tile strong {
-    font-size: 1.25rem;
-    font-variant-numeric: tabular-nums;
-  }
-  .ra-tile .ra-dates {
-    font-size: 0.95rem;
+  .ra-stats {
+    margin-top: 1.5rem;
   }
   section {
     margin-top: 2rem;

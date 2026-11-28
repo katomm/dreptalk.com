@@ -292,6 +292,7 @@ export default function Composer({ mode, categorySlug, topicId, openingPostId, m
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Topic title"
+            autoComplete="off"
             maxLength={200}
             required
             disabled={submitting}

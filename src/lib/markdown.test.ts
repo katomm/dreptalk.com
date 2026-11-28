@@ -7,7 +7,7 @@
 
 import { richDiff } from './forum/htmlDiff';
 import { describe, it, expect } from 'vitest';
-import { enhanceStoredHtml, ensureLinkTarget, linkifyChainIds, renderMarkdown, shiftContentHeadings } from './markdown';
+import { enhanceStoredHtml, ensureLinkTarget, linkifyChainIds, renderMarkdown, repairLooseBold, shiftContentHeadings } from './markdown';
 
 // Helpers for negative assertions.
 function assertInert(html: string, label: string): void {
@@ -564,5 +564,58 @@ describe('shiftContentHeadings', () => {
     expect(out).toContain('<h3>Sub</h3>');
     expect(out).toContain('<h5>Deep</h5>');
     expect(out).not.toMatch(/<h1[\s>]/);
+  });
+});
+
+describe('repairLooseBold', () => {
+  const fix = (md: string) => repairLooseBold(renderMarkdown(md));
+
+  it('bolds a pair with a space just after the opening marker', () => {
+    const out = fix('it glosses over a far more** critical issue: stewardship.**');
+    expect(out).toContain('far more <strong>critical issue: stewardship.</strong>');
+    expect(out).not.toContain('**');
+  });
+
+  it('bolds a pair with a space just before the closing marker', () => {
+    const out = fix('**Electing members risks eroding legitimacy. **Technical acumen');
+    expect(out).toContain('<strong>Electing members risks eroding legitimacy.</strong> Technical');
+  });
+
+  it('bolds a pair with spaces inside both markers', () => {
+    const out = fix('I support the** Update Constitutional Committee 2026 **proposal.');
+    expect(out).toContain('the <strong>Update Constitutional Committee 2026</strong> proposal.');
+  });
+
+  it('repairs several pairs in one paragraph', () => {
+    const out = fix('one** two** three and four** five**.');
+    expect(out).toContain('one <strong>two</strong> three and four <strong>five</strong>.');
+  });
+
+  it('leaves free-standing markers and escaped tight pairs alone', () => {
+    expect(fix('2 ** 3 ** 4')).toContain('2 ** 3 ** 4');
+    expect(fix(String.raw`\*\*literal\*\*`)).toContain('**literal**');
+  });
+
+  it('bolds a tight pair whose edge punctuation broke the flanking rule', () => {
+    expect(fix('提案は**「有償オープンソースモデル」**を導入')).toContain('<strong>「有償オープンソースモデル」</strong>を');
+    expect(fix('には**反対票（No）**を投じました')).toContain('<strong>反対票（No）</strong>を');
+  });
+
+  it('never touches code', () => {
+    expect(fix('`a** b**`')).toContain('<code>a** b**</code>');
+    expect(fix('```\na** b**\n```')).toContain('a** b**');
+  });
+
+  it('keeps well-formed bold as it was', () => {
+    const html = renderMarkdown('plain **bold** text');
+    expect(repairLooseBold(html)).toBe(html);
+  });
+
+  it('runs at write time too, so previews and new rows are already repaired', () => {
+    expect(renderMarkdown('a** b**')).toContain('a <strong>b</strong>');
+  });
+
+  it('runs as part of enhanceStoredHtml', () => {
+    expect(enhanceStoredHtml(renderMarkdown('a** b**'))).toContain('a <strong>b</strong>');
   });
 });

@@ -7,6 +7,7 @@
 // with no history or actions. No server-side data access; loadDelegation
 // (src/lib/db/loadDelegation.ts) does all the fetching. The pending state
 // carries a small client retry against POST /api/delegation/track.
+import { belowRationaleGate } from '@/lib/governance/rationaleGate.js';
 import Avatar from '@/components/Avatar.astro';
 import Callout from '@/components/Callout.astro';
 import DrepVoteRow from '@/components/DrepVoteRow.astro';
@@ -93,7 +94,7 @@ const statusHint = data.drep ? drepStatusHint(data.drep.active, data.drep.status
         <h3 class="mydel-section__title">Recent votes</h3>
         {data.history.length > 0 ? (
           <div class="vhist">
-            {data.history.map((h) => <DrepVoteRow row={h} now={now} earlier={data.earlier.get(h.ga_id) ?? []} />)}
+            {data.history.map((h) => <DrepVoteRow row={h} now={now} earlier={data.earlier.get(h.ga_id) ?? []} rationaleGated={belowRationaleGate(data.drep?.votingPower)} />)}
           </div>
         ) : (
           <p class="mydel-section__empty">No recorded votes yet.</p>

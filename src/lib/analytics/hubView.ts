@@ -10,23 +10,8 @@ import { RECENT_VOTING_WINDOW_EPOCHS, seriesStartFromRows } from './epochStatsCo
 import type { EpochStatsRow } from './epochStats.js';
 import { hubHref } from './hubSections.js';
 
-/** The glyphs a stat card can show, drawn by DrepStatIcon. */
-export type StatIconName = 'people' | 'power' | 'gauge' | 'share' | 'shield' | 'calendar';
-
-export interface VitalCard {
-  label: string;
-  value: string;
-  /**
-   * Shorter form of the same figure, rendered instead of `value` on phones,
-   * where a card is barely wider than the full digit run and the number would
-   * break across lines mid-figure. Absent when the full form already fits.
-   */
-  valueShort?: string;
-  icon: StatIconName;
-  alt?: boolean;
-  trend?: { direction: 'up' | 'down' | 'flat'; label: string } | null;
-  sub?: string;
-}
+export type { StatIconName, VitalCard } from '../statCard.js';
+import type { VitalCard } from '../statCard.js';
 
 export interface NetChangeChip {
   label: string;

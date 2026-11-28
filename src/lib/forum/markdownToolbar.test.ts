@@ -9,6 +9,19 @@ function show(state: { text: string; start: number; end: number }): string {
 }
 
 describe('applyMarkdown: inline wrap (bold)', () => {
+  it('keeps leading and trailing spaces of the selection outside the markers', () => {
+    const out = applyMarkdown({ text: 'far more critical issue here', start: 8, end: 24 }, 'bold');
+    expect(out.text).toBe('far more **critical issue** here');
+    expect(out.text.slice(out.start, out.end)).toBe('critical issue');
+  });
+
+  it('toggles bold off when the selection spans the word and a trailing space', () => {
+    const out = applyMarkdown({ text: 'a **word** b', start: 4, end: 8 }, 'bold');
+    expect(out.text).toBe('a word b');
+    const spaced = applyMarkdown({ text: 'a  word  b', start: 2, end: 8 }, 'bold');
+    expect(spaced.text).toBe('a  **word**  b');
+  });
+
   it('wraps a selection in **', () => {
     const out = applyMarkdown({ text: 'hello world', start: 6, end: 11 }, 'bold');
     expect(out.text).toBe('hello **world**');

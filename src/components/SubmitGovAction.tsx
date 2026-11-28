@@ -1673,6 +1673,7 @@ export default function SubmitGovAction({ network, displayName, openDrafts = [],
             disabled={busy}
             style={inputStyle}
             placeholder="Proposal title"
+            autoComplete="off"
           />
         </CountedField>
 
