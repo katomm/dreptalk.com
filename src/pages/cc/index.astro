@@ -12,6 +12,8 @@ import { ccOverviewCardModel, ccOverviewCardVersion } from '@/lib/og/ccCard.js';
 import { epochDateClause } from '@/lib/governance/epochLabel.js';
 import { resolveNetwork, EPOCH_LENGTH_SECONDS } from '@/lib/config/network.js';
 import { currentNetwork } from '@/lib/api/response';
+import DrepStatCard from '@/components/DrepStatCard.astro';
+import type { VitalCard } from '@/lib/statCard.js';
 
 const db = requestDb();
 const overview = db ? await loadCcOverview(db) : null;
@@ -24,17 +26,28 @@ const ogImage = overview ? `/og/cc.png?v=${ccOverviewCardVersion(ccOverviewCardM
 const cfg = resolveNetwork(currentNetwork().network);
 const EPOCHS_PER_YEAR = (365 * 24 * 60 * 60) / EPOCH_LENGTH_SECONDS;
 const displayName = (r: { name: string | null; coldKeyHex: string }) => r.name ?? truncateId(r.coldKeyHex, 10);
-const factItems: { label: string; value: string }[] = [];
+const factItems: VitalCard[] = [];
 if (facts) {
-  factItems.push({ label: 'Active seats', value: facts.minSize != null ? `${facts.activeSeats}, minimum ${facts.minSize}` : String(facts.activeSeats) });
-  if (facts.thresholdPct != null) factItems.push({ label: 'Yes votes needed', value: `${Math.round(facts.thresholdPct * 10) / 10}% of active seats, abstentions left out` });
+  factItems.push({
+    label: 'Active seats', icon: 'people', value: String(facts.activeSeats),
+    sub: facts.minSize != null ? `minimum ${facts.minSize}` : undefined,
+  });
+  if (facts.thresholdPct != null) {
+    factItems.push({
+      label: 'Yes votes needed', icon: 'gauge', value: `${Math.round(facts.thresholdPct * 10) / 10}%`,
+      sub: 'of active seats, abstentions left out',
+    });
+  }
   if (facts.maxTermEpochs != null) {
     const years = Math.round((facts.maxTermEpochs / EPOCHS_PER_YEAR) * 10) / 10;
-    factItems.push({ label: 'Longest term', value: `${facts.maxTermEpochs} epochs, about ${years} years` });
+    factItems.push({ label: 'Longest term', icon: 'clock', value: `${facts.maxTermEpochs} epochs`, sub: `about ${years} years` });
   }
   if (facts.nextTermEnd) {
     const n = facts.nextTermEnd;
-    factItems.push({ label: 'Next term ends', value: `${displayName(n)}, epoch ${n.epoch}, ${epochDateClause(n.epoch, cfg)}` });
+    factItems.push({
+      label: 'Next term ends', icon: 'calendar', value: displayName(n),
+      sub: `epoch ${n.epoch}, ${epochDateClause(n.epoch, cfg)}`,
+    });
   }
 }
 const bars = (seatTimeline?.bars ?? []).map((b) => {
@@ -78,14 +91,9 @@ const lists = [
     <a href="/glossary/constitutional-committee/">More about the committee</a>
   </p>
   {factItems.length > 0 && (
-    <dl class="cc-ix__facts">
-      {factItems.map((f) => (
-        <div class="cc-ix__fact">
-          <dt>{f.label}</dt>
-          <dd>{f.value}</dd>
-        </div>
-      ))}
-    </dl>
+    <div class="drep-stats">
+      {factItems.map((card) => <DrepStatCard card={card} />)}
+    </div>
   )}
   {seatTimeline && (
     <section class="cc-tl" aria-labelledby="cc-tl-h">
@@ -136,10 +144,6 @@ const lists = [
 <style>
   .cc-ix__h { margin: 0 0 0.75rem; font-size: 1.75rem; }
   .cc-ix__intro { margin: 0 0 1.25rem; max-width: 68ch; color: var(--muted); line-height: 1.55; }
-  .cc-ix__facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr)); gap: 0.75rem; margin: 0 0 1.5rem; }
-  .cc-ix__fact { padding: 0.7rem 0.9rem; border: 1px solid var(--border); border-radius: 10px; }
-  .cc-ix__fact dt { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
-  .cc-ix__fact dd { margin: 0.2rem 0 0; font-weight: 600; font-variant-numeric: tabular-nums; }
   .cc-tl { margin: 0 0 1.5rem; }
   .cc-tl__grid { display: grid; gap: 0.3rem; }
   .cc-tl__row { display: grid; grid-template-columns: minmax(7rem, 13rem) 1fr; align-items: center; gap: 0.75rem; }

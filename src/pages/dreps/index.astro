@@ -51,7 +51,9 @@ import { contiguousTail, recentSeries, GLANCE_WINDOW_EPOCHS } from '@/lib/analyt
 import { listLatestEpochStats } from '@/lib/db/governanceEpochStats.js';
 import DonutRing from '@/components/DonutRing.astro';
 import Sparkline from '@/components/Sparkline.astro';
-import { computeDrepStatTrends, type StatTrend } from '@/lib/dreps/statTrend.js';
+import { computeDrepStatTrends } from '@/lib/dreps/statTrend.js';
+import DrepStatCard from '@/components/DrepStatCard.astro';
+import type { VitalCard } from '@/lib/statCard.js';
 import { influencePct } from '@/lib/dreps/profile.js';
 import { computeVotingPowerDelta } from '@/lib/dreps/votingPowerTrend.js';
 import { drepCredentialHexFromId } from '@/lib/cardano/identity.js';
@@ -194,15 +196,22 @@ const top10Pct = concentration.topK.slice(0, 10).reduce((acc, t) => acc + t.pct,
 
 // The four cells of the header band, in order. `trend` renders the "this epoch"
 // line, `sub` is a static caption for a cell without an epoch delta.
-const bandCells: { label: string; value: string; trend?: StatTrend | null; sub?: string }[] = [
-  { label: 'Active DReps', value: concentration.drepCount.toLocaleString('en-US'), trend: statTrends.activeDreps },
+const thisEpoch = (t: VitalCard['trend']) => t && { ...t, label: `${t.label} this epoch` };
+const bandCells: VitalCard[] = [
   {
-    label: 'Vote regularly',
+    label: 'Active DReps', icon: 'people', value: concentration.drepCount.toLocaleString('en-US'),
+    trend: thisEpoch(statTrends.activeDreps),
+  },
+  {
+    label: 'Vote regularly', icon: 'ballot',
     value: regularVoterCount.toLocaleString('en-US'),
     sub: `on at least ${FIRST_GROUP_MIN_PARTICIPATION_PCT}% of actions`,
   },
-  { label: 'Total voting power', value: formatAdaCompact(concentration.totalPower), trend: statTrends.totalPower },
-  { label: 'Top 10 control', value: `${top10Pct.toFixed(1)}%`, sub: 'held by the 10 largest' },
+  {
+    label: 'Total voting power', icon: 'power', value: formatAdaCompact(concentration.totalPower),
+    trend: thisEpoch(statTrends.totalPower),
+  },
+  { label: 'Top 10 control', icon: 'share', value: `${top10Pct.toFixed(1)}%`, sub: 'held by the 10 largest' },
 ];
 
 // DrepActionsMenu uses the deployment's real network for the delegation tx + explorer links.
@@ -290,23 +299,8 @@ const selfDelta = selfDrep ? computeVotingPowerDelta(selfDrep.votingPowerSnapsho
   </p>
 
   {concentration.drepCount > 0 && (
-    <div class="drep-band">
-      {bandCells.map((cell) => (
-        <div class="drep-band__cell">
-          <span class="drep-stat__label">{cell.label}</span>
-          <span class="drep-stat__value">{cell.value}</span>
-          {cell.trend ? (
-            <span class={`drep-stat__delta drep-stat__delta--${cell.trend.direction}`}>
-              {cell.trend.direction !== 'flat' && (
-                <span class="drep-stat__arrow" aria-hidden="true">{cell.trend.direction === 'up' ? '↑' : '↓'}</span>
-              )}
-              {cell.trend.label} this epoch
-            </span>
-          ) : cell.sub ? (
-            <span class="drep-stat__sub">{cell.sub}</span>
-          ) : null}
-        </div>
-      ))}
+    <div class="drep-stats">
+      {bandCells.map((card) => <DrepStatCard card={card} />)}
     </div>
   )}
 
