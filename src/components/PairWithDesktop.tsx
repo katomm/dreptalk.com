@@ -376,8 +376,8 @@ export default function PairWithDesktop() {
             <span style={stepHeadingStyle}>Your pairing code</span>
             <code style={codeDisplayStyle}>{formatPairingCode(state.code)}</code>
             <p style={{ margin: '0.6rem 0 0', fontSize: '0.8125rem', color: 'var(--muted)', lineHeight: 1.5 }}>
-              Open Devices in the account menu on a device where you are already signed in to DRepTalk, and
-              enter this code there. It expires at {formatExpiry(state.expiresAt)}.
+              On a device where you are already signed in to DRepTalk, open Settings from the account menu,
+              go to the Devices tab and enter this code there. It expires at {formatExpiry(state.expiresAt)}.
             </p>
           </div>
         ) : (
